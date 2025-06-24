@@ -1,0 +1,19 @@
+<Solution>
+  <Folder Name="/.root/">
+    <File Path=".editorconfig" />
+    <File Path=".github/dependabot.yml" />
+    <File Path=".gitignore" />
+    <File Path="Directory.Build.props" />
+    <File Path="Directory.Packages.props" />
+    <File Path="readme.md" />
+  </Folder>
+  <Folder Name="/.root/workflows/">
+    <File Path=".github/workflows/build.yml" />
+    <File Path=".github/workflows/release.yml" />
+  </Folder>
+  <Folder Name="/Source/">
+    <Project Path="src/Immediate.Jobs/Immediate.Jobs.csproj" />
+  </Folder>
+  <Folder Name="/Tests/">
+  </Folder>
+</Solution>

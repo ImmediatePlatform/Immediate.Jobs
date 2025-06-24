@@ -1,0 +1,46 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+	<TargetFrameworks>net8.0;net9.0</TargetFrameworks>
+	<IsPackable>true</IsPackable>
+	<IncludeBuildOutput>false</IncludeBuildOutput>
+  </PropertyGroup>
+
+  <PropertyGroup Label="Nuget">
+	<Title>Immediate.Jobs</Title>
+	<Description></Description>
+
+	<Authors>Immediate.Jobs Developers</Authors>
+	<Copyright>© 2025 Immediate.Jobs Developers</Copyright>
+
+	<PackageLicenseExpression>MIT</PackageLicenseExpression>
+	<PackageReadmeFile>readme.md</PackageReadmeFile>
+	<PackageTags>csharp-sourcegenerator;AspNet;AspNetCore;NetCore;Long-Running;Background;Fire-And-Forget;Delayed;Recurring;Tasks;Jobs;Scheduler;Queues</PackageTags>
+
+	<PublishRepositoryUrl>true</PublishRepositoryUrl>
+	<RepositoryUrl>https://github.com/ImmediatePlatform/Immediate.Jobs</RepositoryUrl>
+  </PropertyGroup>
+
+  <ItemGroup>
+	<PackageReference Include="Immediate.Handlers" />
+  </ItemGroup>
+
+  <ItemGroup>
+	<None Include="../../readme.md" Pack="true" PackagePath="/" />
+  </ItemGroup>
+
+  <ItemGroup>
+	<PackageReference Include="DotNet.ReproducibleBuilds" PrivateAssets="All" />
+	<PackageReference Include="MinVer" PrivateAssets="all" />
+  </ItemGroup>
+
+  <ItemGroup>
+  </ItemGroup>
+
+  <PropertyGroup Label="MinVer">
+	<MinVerAutoIncrement>minor</MinVerAutoIncrement>
+	<MinVerDefaultPreReleaseIdentifiers>preview.0</MinVerDefaultPreReleaseIdentifiers>
+	<MinVerTagPrefix>v</MinVerTagPrefix>
+  </PropertyGroup>
+
+</Project>
