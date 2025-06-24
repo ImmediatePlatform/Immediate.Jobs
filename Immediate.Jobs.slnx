@@ -11,9 +11,22 @@
     <File Path=".github/workflows/build.yml" />
     <File Path=".github/workflows/release.yml" />
   </Folder>
-  <Folder Name="/Source/">
+  <Folder Name="/1. Core/">
+    <Project Path="src/Immediate.Jobs.Analyzers/Immediate.Jobs.Analyzers.csproj" />
+    <Project Path="src/Immediate.Jobs.CodeFixes/Immediate.Jobs.CodeFixes.csproj" />
+    <Project Path="src/Immediate.Jobs.Dashboard/Immediate.Jobs.Dashboard.csproj" Id="8d7d1b40-821d-4d0c-9786-cc45ef09deb3" />
+    <Project Path="src/Immediate.Jobs.Generators/Immediate.Jobs.Generators.csproj" />
     <Project Path="src/Immediate.Jobs/Immediate.Jobs.csproj" />
   </Folder>
-  <Folder Name="/Tests/">
+  <Folder Name="/2. Providers/">
+    <Project Path="src/Immediate.Jobs.Providers.EfCore/Immediate.Jobs.Providers.EfCore.csproj" />
+    <Project Path="src/Immediate.Jobs.Providers.Linq2db/Immediate.Jobs.Providers.Linq2db.csproj" />
+    <Project Path="src/Immediate.Jobs.Providers.Redis/Immediate.Jobs.Providers.Redis.csproj" />
+  </Folder>
+  <Folder Name="/3. Tests/">
+    <Project Path="tests/Immediate.Jobs.Dashboard.Tests/Immediate.Jobs.Dashboard.Tests.csproj" />
+    <Project Path="tests/Immediate.Jobs.Providers.Tests/Immediate.Jobs.Providers.Tests.csproj" />
+    <Project Path="tests/Immediate.Jobs.Roslyn.Tests/Immediate.Jobs.Roslyn.Tests.csproj" />
+    <Project Path="tests/Immediate.Jobs.Tests/Immediate.Jobs.Tests.csproj" />
   </Folder>
 </Solution>

@@ -1,0 +1,27 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+	<TargetFrameworks>net8.0;net9.0</TargetFrameworks>
+	<IsPackable>true</IsPackable>
+  </PropertyGroup>
+
+  <PropertyGroup Label="Nuget">
+	<Title>Immediate.Jobs</Title>
+	<Description>Immediate.Jobs.Providers.Redis is a storage provider for Immediate.Jobs</Description>
+
+	<Authors>Immediate.Jobs Developers</Authors>
+	<Copyright>© 2025 Immediate.Jobs Developers</Copyright>
+
+	<PackageLicenseExpression>MIT</PackageLicenseExpression>
+	<PackageReadmeFile>readme.md</PackageReadmeFile>
+	<PackageTags>NetCore;Long-Running;Background;Fire-And-Forget;Delayed;Recurring;Tasks;Jobs;Scheduler;Queues</PackageTags>
+
+	<PublishRepositoryUrl>true</PublishRepositoryUrl>
+	<RepositoryUrl>https://github.com/ImmediatePlatform/Immediate.Jobs</RepositoryUrl>
+  </PropertyGroup>
+
+  <ItemGroup>
+	<ProjectReference Include="../Immediate.Jobs/Immediate.Jobs.csproj" />
+  </ItemGroup>
+
+</Project>

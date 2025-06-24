@@ -3,12 +3,11 @@
   <PropertyGroup>
 	<TargetFrameworks>net8.0;net9.0</TargetFrameworks>
 	<IsPackable>true</IsPackable>
-	<IncludeBuildOutput>false</IncludeBuildOutput>
   </PropertyGroup>
 
   <PropertyGroup Label="Nuget">
 	<Title>Immediate.Jobs</Title>
-	<Description></Description>
+	<Description>Immediate.Jobs is a fast, reflection-free background task scheduler for .NET — built with source generators; supporting cron + time-based execution, and a real-time dashboard.</Description>
 
 	<Authors>Immediate.Jobs Developers</Authors>
 	<Copyright>© 2025 Immediate.Jobs Developers</Copyright>
@@ -20,6 +19,22 @@
 	<PublishRepositoryUrl>true</PublishRepositoryUrl>
 	<RepositoryUrl>https://github.com/ImmediatePlatform/Immediate.Jobs</RepositoryUrl>
   </PropertyGroup>
+
+  <!--
+	This ensures the library will be packaged as a source generator when we use `dotnet pack`
+	-->
+  <ItemGroup>
+	<None Include="../../readme.md" Pack="true" PackagePath="/" />
+	<None Include="../Immediate.Jobs.Analyzers/bin/$(Configuration)/netstandard2.0/Immediate.Jobs.Analyzers.dll" Pack="true" PackagePath="analyzers/roslyn4.8/dotnet/cs" Visible="false" />
+	<None Include="../Immediate.Jobs.CodeFixes/bin/$(Configuration)/netstandard2.0/Immediate.Jobs.CodeFixes.dll" Pack="true" PackagePath="analyzers/roslyn4.8/dotnet/cs" Visible="false" />
+	<None Include="../Immediate.Jobs.Generators/bin/$(Configuration)/netstandard2.0/Immediate.Jobs.Generators.dll" Pack="true" PackagePath="analyzers/roslyn4.8/dotnet/cs" Visible="false" />
+
+	<TfmSpecificPackageFile
+	  Include="$(PkgScriban)/lib/netstandard2.0/Scriban.dll"
+	  Pack="true"
+	  PackagePath="analyzers/roslyn4.8/dotnet/cs"
+	  Condition=" '$(TargetFramework)' == 'net8.0' " />
+  </ItemGroup>
 
   <ItemGroup>
 	<PackageReference Include="Immediate.Handlers" />
@@ -35,6 +50,9 @@
   </ItemGroup>
 
   <ItemGroup>
+	<ProjectReference Include="../Immediate.Jobs.Analyzers/Immediate.Jobs.Analyzers.csproj" ReferenceOutputAssembly="false" />
+	<ProjectReference Include="../Immediate.Jobs.CodeFixes/Immediate.Jobs.CodeFixes.csproj" ReferenceOutputAssembly="false" />
+	<ProjectReference Include="../Immediate.Jobs.Generators/Immediate.Jobs.Generators.csproj" ReferenceOutputAssembly="false" />
   </ItemGroup>
 
   <PropertyGroup Label="MinVer">

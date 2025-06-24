@@ -1,0 +1,31 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+	<TargetFrameworks>net8.0;net9.0</TargetFrameworks>
+	<IsPackable>true</IsPackable>
+  </PropertyGroup>
+
+  <PropertyGroup Label="Nuget">
+	<Title>Immediate.Jobs.Dashboard</Title>
+	<Description>Dashboard for easy tracking of Immediate.Jobs jobs.</Description>
+
+	<Authors>Immediate.Jobs Developers</Authors>
+	<Copyright>© 2025 Immediate.Jobs Developers</Copyright>
+
+	<PackageLicenseExpression>MIT</PackageLicenseExpression>
+	<PackageReadmeFile>readme.md</PackageReadmeFile>
+	<PackageTags>AspNet;AspNetCore;NetCore;Long-Running;Background;Fire-And-Forget;Delayed;Recurring;Tasks;Jobs;Scheduler;Queues</PackageTags>
+
+	<PublishRepositoryUrl>true</PublishRepositoryUrl>
+	<RepositoryUrl>https://github.com/ImmediatePlatform/Immediate.Jobs</RepositoryUrl>
+  </PropertyGroup>
+
+  <ItemGroup>
+	<ProjectReference Include="../Immediate.Jobs/Immediate.Jobs.csproj" />
+  </ItemGroup>
+  
+  <ItemGroup>
+	<FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+</Project>

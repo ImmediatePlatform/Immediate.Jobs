@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+	<TargetFrameworks>net8.0;net9.0</TargetFrameworks>
+  </PropertyGroup>
+
+  <ItemGroup Label="Usings">
+	<Using Include="Xunit" />
+  </ItemGroup>
+
+  <ItemGroup>
+	<PackageReference Include="coverlet.collector" PrivateAssets="All" />
+	<PackageReference Include="coverlet.msbuild" PrivateAssets="All" />
+	<PackageReference Include="GitHubActionsTestLogger" PrivateAssets="All" />
+	<PackageReference Include="TUnit.Engine" />
+	<PackageReference Include="Verify.TUnit" />
+	<PackageReference Include="xunit.v3.assert" />
+  </ItemGroup>
+
+  <ItemGroup>
+	<ProjectReference Include="../../src/Immediate.Jobs/Immediate.Jobs.csproj" />
+	<ProjectReference Include="../../src/Immediate.Jobs.Dashboard/Immediate.Jobs.Dashboard.csproj" />
+	<ProjectReference Include="../../src/Immediate.Jobs.Generators/Immediate.Jobs.Generators.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+	<ProjectReference Include="../../src/Immediate.Jobs.Analyzers/Immediate.Jobs.Analyzers.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+	<ProjectReference Include="../../src/Immediate.Jobs.CodeFixes/Immediate.Jobs.CodeFixes.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+  </ItemGroup>
+
+</Project>
