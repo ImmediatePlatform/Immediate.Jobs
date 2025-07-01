@@ -29,11 +29,7 @@
 	<None Include="../Immediate.Jobs.CodeFixes/bin/$(Configuration)/netstandard2.0/Immediate.Jobs.CodeFixes.dll" Pack="true" PackagePath="analyzers/roslyn4.8/dotnet/cs" Visible="false" />
 	<None Include="../Immediate.Jobs.Generators/bin/$(Configuration)/netstandard2.0/Immediate.Jobs.Generators.dll" Pack="true" PackagePath="analyzers/roslyn4.8/dotnet/cs" Visible="false" />
 
-	<TfmSpecificPackageFile
-	  Include="$(PkgScriban)/lib/netstandard2.0/Scriban.dll"
-	  Pack="true"
-	  PackagePath="analyzers/roslyn4.8/dotnet/cs"
-	  Condition=" '$(TargetFramework)' == 'net8.0' " />
+	<TfmSpecificPackageFile Include="$(PkgScriban)/lib/netstandard2.0/Scriban.dll" Pack="true" PackagePath="analyzers/roslyn4.8/dotnet/cs" Condition=" '$(TargetFramework)' == 'net8.0' " />
   </ItemGroup>
 
   <ItemGroup>
@@ -46,6 +42,7 @@
 
   <ItemGroup>
 	<PackageReference Include="DotNet.ReproducibleBuilds" PrivateAssets="All" />
+	<PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" />
 	<PackageReference Include="MinVer" PrivateAssets="all" />
   </ItemGroup>
 

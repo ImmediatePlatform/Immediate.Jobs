@@ -288,9 +288,9 @@ dotnet_analyzer_diagnostic.category-Style.severity = warning
 
 # XML Documentation
 dotnet_diagnostic.CS0105.severity = error               # CS0105: Using directive is unnecessary.
-dotnet_diagnostic.CS1573.severity = none                # CS1573: Missing XML comment for parameter
-dotnet_diagnostic.CS1591.severity = none                # CS1591: Missing XML comment for publicly visible type or member
-dotnet_diagnostic.CS1712.severity = none                # CS1712: Type parameter has no matching typeparam tag in the XML comment (but other type parameters do)
+dotnet_diagnostic.CS1573.severity = error               # CS1573: Missing XML comment for parameter
+dotnet_diagnostic.CS1591.severity = error               # CS1591: Missing XML comment for publicly visible type or member
+dotnet_diagnostic.CS1712.severity = error               # CS1712: Type parameter has no matching typeparam tag in the XML comment (but other type parameters do)
 
 # Async
 dotnet_diagnostic.CS1998.severity = error               # CS1998: Async method lacks 'await' operators and will run synchronously
