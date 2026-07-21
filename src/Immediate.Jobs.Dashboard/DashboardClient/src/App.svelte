@@ -1,5 +1,6 @@
 <script>
   import { onMount } from 'svelte';
+  import HistoryChart from './HistoryChart.svelte';
   import JobTable from './JobTable.svelte';
 
   let snapshot = null;
@@ -21,6 +22,7 @@
     const complete = countFrom(next, 'Succeeded') + countFrom(next, 'Failed');
     const previous = history.at(-1)?.complete ?? complete;
     history = [...history.slice(-29), {
+      capturedAt: next.capturedAt,
       complete,
       throughput: Math.max(0, complete - previous),
       queued: countFrom(next, 'Pending') + countFrom(next, 'Scheduled')
@@ -96,12 +98,14 @@
   {:else if view === 'overview'}
     <div class="grid">
       {#each states as item}
-        <article class="card metric {item.toLowerCase()}"><span class="metric-label">{item}</span><strong>{count(item).toLocaleString()}</strong></article>
+        {#key count(item)}
+          <article class="card metric {item.toLowerCase()}"><span class="metric-label">{item}</span><strong>{count(item).toLocaleString()}</strong></article>
+        {/key}
       {/each}
     </div>
     <div class="charts">
-      <article class="card chart"><div><strong>Throughput</strong><small>completed per update</small></div><div class="spark" aria-label="Recent completed job throughput">{#each history as point}<i style:height={`${Math.max(3, Math.min(100, point.throughput * 12))}%`}></i>{/each}</div></article>
-      <article class="card chart"><div><strong>Queue depth</strong><small>pending and scheduled</small></div><div class="spark queue" aria-label="Recent queue depth">{#each history as point}<i style:height={`${Math.max(3, Math.min(100, point.queued * 8))}%`}></i>{/each}</div></article>
+      <article class="card chart"><div><strong>Throughput</strong><small>completed per update</small></div><HistoryChart points={history} valueKey="throughput" label="Throughput" /></article>
+      <article class="card chart"><div><strong>Queue depth</strong><small>pending and scheduled</small></div><HistoryChart points={history} valueKey="queued" label="Queue depth" color="#77b7ff" /></article>
     </div>
     <div class="section-title"><h2>Recent jobs</h2><span>captured {fmt(snapshot.capturedAt)}</span></div>
     <JobTable rows={jobs.slice(0, 8)} {act} selected={selectedJob} select={job => selectedJob = job} />
