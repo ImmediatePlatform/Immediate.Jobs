@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <IsPackable>true</IsPackable>
+    <Title>Immediate.Jobs.EntityFrameworkCore</Title>
+    <Description>Entity Framework Core storage provider for Immediate.Jobs.</Description>
+    <Authors>Immediate.Jobs Developers</Authors>
+    <Copyright>© 2026 Immediate.Jobs Developers</Copyright>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageReadmeFile>readme.md</PackageReadmeFile>
+    <PackageTags>background-jobs;scheduler;entity-framework-core</PackageTags>
+    <RepositoryUrl>https://github.com/ImmediatePlatform/Immediate.Jobs</RepositoryUrl>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+  </PropertyGroup>
+  <ItemGroup>
+    <None Include="../../readme.md" Pack="true" PackagePath="/" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Immediate.Jobs/Immediate.Jobs.csproj" />
+  </ItemGroup>
+</Project>

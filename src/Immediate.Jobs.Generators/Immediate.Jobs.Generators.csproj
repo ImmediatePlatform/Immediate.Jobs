@@ -1,0 +1,45 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <IsRoslynComponent>true</IsRoslynComponent>
+    <EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591;RS1036;RS2008</NoWarn>
+    <IsPackable>true</IsPackable>
+    <IncludeBuildOutput>false</IncludeBuildOutput>
+    <SuppressDependenciesWhenPacking>true</SuppressDependenciesWhenPacking>
+    <Title>Immediate.Jobs.Generators</Title>
+    <Description>Source generator and compile-time analyzers for Immediate.Jobs.</Description>
+    <Authors>Immediate.Jobs Developers</Authors>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageReadmeFile>readme.md</PackageReadmeFile>
+    <PackageTags>background-jobs;source-generator;roslyn</PackageTags>
+    <RepositoryUrl>https://github.com/ImmediatePlatform/Immediate.Jobs</RepositoryUrl>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="AssemblyMetadata.Generators" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.CodeAnalysis.Analyzers" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" PrivateAssets="all" />
+    <PackageReference Include="Meziantou.Polyfill" PrivateAssets="all" />
+    <PackageReference Include="Scriban" PrivateAssets="all" IncludeAssets="Build" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <PackageScribanIncludeSource>true</PackageScribanIncludeSource>
+    <DefineConstants>$(DefineConstants);SCRIBAN_NO_ASYNC</DefineConstants>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Remove="Templates/*.sbntxt" />
+    <EmbeddedResource Include="Templates/*.sbntxt" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="../../readme.md" Pack="true" PackagePath="/" />
+    <None Include="$(TargetPath)" Pack="true" PackagePath="analyzers/dotnet/cs" />
+  </ItemGroup>
+</Project>

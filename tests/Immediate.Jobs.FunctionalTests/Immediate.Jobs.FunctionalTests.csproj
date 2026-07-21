@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <_SkipUpgradeNetAnalyzersNuGetWarning>true</_SkipUpgradeNetAnalyzersNuGetWarning>
+    <NoWarn>$(NoWarn);CA1050;CA1812</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+  <ItemGroup>
+	<PackageReference Include="Immediate.Handlers" />
+	<PackageReference Include="Microsoft.AspNetCore.TestHost" />
+	<PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" />
+    <PackageReference Include="Microsoft.Testing.Extensions.CodeCoverage" />
+	<PackageReference Include="Verify.XunitV3" />
+    <PackageReference Include="xunit.v3.mtp-v2" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/Immediate.Jobs/Immediate.Jobs.csproj" />
+	<ProjectReference Include="../../src/Immediate.Jobs.Dashboard/Immediate.Jobs.Dashboard.csproj" />
+	<ProjectReference Include="../../src/Immediate.Jobs.EntityFrameworkCore/Immediate.Jobs.EntityFrameworkCore.csproj" />
+	<ProjectReference Include="../../src/Immediate.Jobs.NodaTime/Immediate.Jobs.NodaTime.csproj" />
+    <ProjectReference Include="../../src/Immediate.Jobs.Testing/Immediate.Jobs.Testing.csproj" />
+    <ProjectReference Include="../../src/Immediate.Jobs.Generators/Immediate.Jobs.Generators.csproj"
+                      OutputItemType="Analyzer"
+                      ReferenceOutputAssembly="false" />
+  </ItemGroup>
+</Project>

@@ -1,26 +1,18 @@
 <Project>
   <PropertyGroup>
-	<LangVersion>latest</LangVersion>
-
-	<Nullable>enable</Nullable>
-	<WarningsAsErrors>$(WarningsAsErrors);nullable;</WarningsAsErrors>
-
-	<ImplicitUsings>enable</ImplicitUsings>
-
-	<AnalysisLevel>latest-all</AnalysisLevel>
-	<EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
-
-	<GenerateDocumentationFile>true</GenerateDocumentationFile>
-	<TreatWarningsAsErrors>true</TreatWarningsAsErrors>
-
-	<IsPackable>false</IsPackable>
-	<WarnOnPackingNonPackableProject>false</WarnOnPackingNonPackableProject>
+    <TargetFramework>net8.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <IsPackable>false</IsPackable>
+    <WarnOnPackingNonPackableProject>false</WarnOnPackingNonPackableProject>
+    <AnalysisLevel>latest-recommended</AnalysisLevel>
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+    <Deterministic>true</Deterministic>
   </PropertyGroup>
-
   <PropertyGroup Condition="'$(GITHUB_ACTIONS)' == 'true'">
-	<ContinuousIntegrationBuild>true</ContinuousIntegrationBuild>
-	<EmbedUntrackedSources>true</EmbedUntrackedSources>
-	<CollectCoverage>true</CollectCoverage>
-	<CoverletOutputFormat>opencover</CoverletOutputFormat>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <ContinuousIntegrationBuild>true</ContinuousIntegrationBuild>
   </PropertyGroup>
 </Project>

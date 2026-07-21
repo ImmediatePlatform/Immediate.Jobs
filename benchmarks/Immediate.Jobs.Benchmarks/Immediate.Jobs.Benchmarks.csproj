@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+	<NoWarn>$(NoWarn);CA1050;CA1812;CA1822;CA2007</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="BenchmarkDotNet" />
+    <PackageReference Include="Hangfire.Core" />
+    <PackageReference Include="Hangfire.MemoryStorage" />
+    <PackageReference Include="Quartz" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/Immediate.Jobs/Immediate.Jobs.csproj" />
+  </ItemGroup>
+</Project>

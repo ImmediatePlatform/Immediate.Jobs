@@ -1,0 +1,130 @@
+using System.Text.Json;
+using System.Text.Json.Serialization.Metadata;
+using System.Diagnostics.CodeAnalysis;
+
+namespace Immediate.Jobs;
+
+/// <summary>The generated invocation boundary used by the worker.</summary>
+public interface IJobInvoker
+{
+	/// <summary>Invokes the job directly from a scoped service provider.</summary>
+	ValueTask InvokeAsync(IServiceProvider scopedServices, JobExecution execution);
+}
+
+/// <summary>Untyped execution metadata passed into a generated invoker.</summary>
+public sealed record JobExecution(
+	JobRecord Record,
+	JobDefinition Definition,
+	CancellationToken CancellationToken
+);
+
+/// <summary>The typed context presented to job behaviors.</summary>
+public sealed class JobContext<TPayload>
+{
+	/// <summary>Creates a context. Generated invokers call this constructor directly.</summary>
+	[System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
+	public JobContext(TPayload payload, JobExecution execution)
+	{
+		Payload = payload;
+		JobName = execution.Record.JobName;
+		JobId = execution.Record.Id;
+		Attempt = execution.Record.Attempt;
+		ScheduledAt = execution.Record.DueAt;
+		CancellationToken = execution.CancellationToken;
+	}
+
+	/// <summary>The deserialized job payload.</summary>
+	public TPayload Payload { get; }
+
+	/// <summary>The stable generated job name.</summary>
+	public string JobName { get; }
+
+	/// <summary>The invocation identifier.</summary>
+	public Guid JobId { get; }
+
+	/// <summary>The one-based execution attempt.</summary>
+	public int Attempt { get; }
+
+	/// <summary>The time at which this invocation became eligible.</summary>
+	public DateTimeOffset ScheduledAt { get; }
+
+	/// <summary>The timeout and shutdown aware cancellation token.</summary>
+	public CancellationToken CancellationToken { get; }
+}
+
+/// <summary>The next compiled behavior in the job pipeline.</summary>
+public delegate ValueTask JobNext<TPayload>(JobContext<TPayload> context);
+
+/// <summary>Base class for a typed job behavior.</summary>
+public abstract class JobBehavior<TPayload>
+{
+	/// <summary>Handles an execution and optionally delegates to the next behavior.</summary>
+	public abstract ValueTask HandleAsync(JobContext<TPayload> context, JobNext<TPayload> next);
+}
+
+/// <summary>Marker payload for jobs whose execute method only accepts cancellation.</summary>
+public readonly record struct NoPayload;
+
+/// <summary>Pluggable payload serialization. The default implementation uses System.Text.Json.</summary>
+public interface IJobSerializer
+{
+	/// <summary>Serializes a typed payload.</summary>
+	[RequiresDynamicCode("Use the generated JsonTypeInfo factory overload for Native AOT.")]
+	[RequiresUnreferencedCode("Use the generated JsonTypeInfo factory overload when trimming.")]
+	string Serialize<TPayload>(TPayload payload);
+
+	/// <summary>Deserializes a typed payload.</summary>
+	[RequiresDynamicCode("Use the generated JsonTypeInfo factory overload for Native AOT.")]
+	[RequiresUnreferencedCode("Use the generated JsonTypeInfo factory overload when trimming.")]
+	TPayload Deserialize<TPayload>(string payload);
+
+	/// <summary>Serializes a payload with generated, AOT-safe JSON metadata.</summary>
+	string Serialize<TPayload>(
+		TPayload payload,
+		Func<JsonSerializerOptions, JsonTypeInfo<TPayload>> payloadTypeInfoFactory
+	);
+
+	/// <summary>Deserializes a payload with generated, AOT-safe JSON metadata.</summary>
+	TPayload Deserialize<TPayload>(
+		string payload,
+		Func<JsonSerializerOptions, JsonTypeInfo<TPayload>> payloadTypeInfoFactory
+	);
+}
+
+/// <summary>The default System.Text.Json payload serializer.</summary>
+public sealed class SystemTextJsonJobSerializer(JsonSerializerOptions options) : IJobSerializer
+{
+	/// <summary>Creates a serializer using web defaults.</summary>
+	public SystemTextJsonJobSerializer()
+		: this(new(JsonSerializerDefaults.Web))
+	{
+	}
+
+	/// <summary>The options shared by generated schedulers and invokers.</summary>
+	public JsonSerializerOptions Options { get; } = options;
+
+	/// <inheritdoc />
+	[RequiresDynamicCode("Use the generated JsonTypeInfo factory overload for Native AOT.")]
+	[RequiresUnreferencedCode("Use the generated JsonTypeInfo factory overload when trimming.")]
+	public string Serialize<TPayload>(TPayload payload) => JsonSerializer.Serialize(payload, Options);
+
+	/// <inheritdoc />
+	[RequiresDynamicCode("Use the generated JsonTypeInfo factory overload for Native AOT.")]
+	[RequiresUnreferencedCode("Use the generated JsonTypeInfo factory overload when trimming.")]
+	public TPayload Deserialize<TPayload>(string payload) =>
+		JsonSerializer.Deserialize<TPayload>(payload, Options)
+		?? throw new JsonException($"The payload for {typeof(TPayload).FullName} was null.");
+
+	/// <inheritdoc />
+	public string Serialize<TPayload>(
+		TPayload payload,
+		Func<JsonSerializerOptions, JsonTypeInfo<TPayload>> payloadTypeInfoFactory
+	) => JsonSerializer.Serialize(payload, payloadTypeInfoFactory(new(Options)));
+
+	/// <inheritdoc />
+	public TPayload Deserialize<TPayload>(
+		string payload,
+		Func<JsonSerializerOptions, JsonTypeInfo<TPayload>> payloadTypeInfoFactory
+	) => JsonSerializer.Deserialize(payload, payloadTypeInfoFactory(new(Options)))
+		?? throw new JsonException($"The payload for {typeof(TPayload).FullName} was null.");
+}

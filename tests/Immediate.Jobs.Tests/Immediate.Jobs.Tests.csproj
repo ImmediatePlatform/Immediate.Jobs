@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <_SkipUpgradeNetAnalyzersNuGetWarning>true</_SkipUpgradeNetAnalyzersNuGetWarning>
+	<NoWarn>$(NoWarn);CS1591</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+  <ItemGroup>
+	<PackageReference Include="Basic.Reference.Assemblies.Net80" />
+	<PackageReference Include="Immediate.Handlers" GeneratePathProperty="true" />
+	<PackageReference Include="Microsoft.CodeAnalysis.CSharp" />
+    <PackageReference Include="Microsoft.Testing.Extensions.CodeCoverage" />
+	<PackageReference Include="NodaTime" />
+	<PackageReference Include="Verify.SourceGenerators" />
+	<PackageReference Include="Verify.XunitV3" />
+    <PackageReference Include="xunit.v3.mtp-v2" />
+  </ItemGroup>
+
+  <ItemGroup>
+	<Reference Include="Immediate.Handlers.Generators"
+	           HintPath="$(PkgImmediate_Handlers)/analyzers/dotnet/roslyn4.8/cs/Immediate.Handlers.Generators.dll" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../src/Immediate.Jobs/Immediate.Jobs.csproj" />
+    <ProjectReference Include="../../src/Immediate.Jobs.Generators/Immediate.Jobs.Generators.csproj" />
+	<ProjectReference Include="../../src/Immediate.Jobs.NodaTime/Immediate.Jobs.NodaTime.csproj" />
+  </ItemGroup>
+</Project>

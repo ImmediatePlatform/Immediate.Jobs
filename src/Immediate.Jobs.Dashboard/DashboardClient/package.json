@@ -1,0 +1,14 @@
+{
+  "name": "immediate-jobs-dashboard",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "vite build",
+    "test": "node --test tests/*.test.js"
+  },
+  "devDependencies": {
+    "@sveltejs/vite-plugin-svelte": "^6.2.1",
+    "svelte": "^5.43.8",
+    "vite": "^7.2.2"
+  }
+}

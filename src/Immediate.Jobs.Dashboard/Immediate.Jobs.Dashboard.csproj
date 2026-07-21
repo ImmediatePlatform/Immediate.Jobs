@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <IsPackable>true</IsPackable>
+    <Title>Immediate.Jobs.Dashboard</Title>
+    <Description>Embedded monitoring dashboard and stable HTTP API for Immediate.Jobs.</Description>
+    <Authors>Immediate.Jobs Developers</Authors>
+    <Copyright>© 2026 Immediate.Jobs Developers</Copyright>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageReadmeFile>readme.md</PackageReadmeFile>
+    <PackageTags>background-jobs;scheduler;dashboard;monitoring</PackageTags>
+    <RepositoryUrl>https://github.com/ImmediatePlatform/Immediate.Jobs</RepositoryUrl>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+  </PropertyGroup>
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <ProjectReference Include="../Immediate.Jobs/Immediate.Jobs.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="Assets/**" />
+    <None Include="../../readme.md" Pack="true" PackagePath="/" />
+  </ItemGroup>
+</Project>

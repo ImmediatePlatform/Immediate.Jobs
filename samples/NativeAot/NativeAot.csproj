@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <PublishAot>true</PublishAot>
+    <InvariantGlobalization>true</InvariantGlobalization>
+	<NoWarn>$(NoWarn);CS1591;CA1050;CA1822</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+	<PackageReference Include="Immediate.Handlers" />
+    <ProjectReference Include="../../src/Immediate.Jobs/Immediate.Jobs.csproj" />
+	<ProjectReference Include="../../src/Immediate.Jobs.Generators/Immediate.Jobs.Generators.csproj"
+	                  OutputItemType="Analyzer"
+	                  ReferenceOutputAssembly="false" />
+  </ItemGroup>
+</Project>
