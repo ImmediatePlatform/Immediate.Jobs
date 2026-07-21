@@ -112,6 +112,28 @@ public sealed class SingleServerJobStorageTests
 		Assert.Equal(recovered.WorkerId, durableRecord.WorkerId);
 	}
 
+	[Fact]
+	public async Task HeartbeatRemainsInMemoryAndIsNotWrittenToDurableStorage()
+	{
+		var cancellationToken = TestContext.Current.CancellationToken;
+		var timeProvider = new FakeTimeProvider(DateTimeOffset.UnixEpoch);
+		var durable = new InMemoryJobStorage(timeProvider);
+		var storage = new SingleServerJobStorage(durable, timeProvider);
+		var server = new JobServerSnapshot(
+			"single-server",
+			timeProvider.GetUtcNow(),
+			ActiveWorkers: 2,
+			MaxWorkers: 4
+		);
+
+		await storage.HeartbeatAsync(server, cancellationToken);
+
+		var primarySnapshot = await storage.GetMonitoringSnapshotAsync(cancellationToken);
+		var durableSnapshot = await durable.GetMonitoringSnapshotAsync(cancellationToken);
+		Assert.Equal(server, Assert.Single(primarySnapshot.Servers));
+		Assert.Empty(durableSnapshot.Servers);
+	}
+
 	private static JobAcquisitionRequest CreateRequest(string workerId) => new()
 	{
 		WorkerId = workerId,

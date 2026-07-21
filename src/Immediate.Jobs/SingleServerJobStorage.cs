@@ -215,7 +215,6 @@ public sealed class SingleServerJobStorage : IJobStorage, IAsyncDisposable, IDis
 	public async ValueTask HeartbeatAsync(JobServerSnapshot server, CancellationToken cancellationToken = default)
 	{
 		await EnsureInitializedAsync(cancellationToken).ConfigureAwait(false);
-		await DurableStorage.HeartbeatAsync(server, cancellationToken).ConfigureAwait(false);
 		await _primary.HeartbeatAsync(server, cancellationToken).ConfigureAwait(false);
 	}
 
