@@ -83,7 +83,7 @@ Adding queue support introduces the required `QueueName` column on `immediate_jo
 
 ## Recurring work
 
-Code-defined schedules use five-field cron or six-field cron with seconds:
+Code-defined schedules use five-field cron or six-field cron with seconds. See the [Cronos usage guide](https://github.com/HangfireIO/Cronos#Usage) for the supported syntax:
 
 ```csharp
 [Handler, Job(Cron = "0 */5 * * * *", TimeZone = "Europe/Vienna")]

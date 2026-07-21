@@ -16,13 +16,6 @@ internal static class JobDiscovery
 {
 	public const string JobAttributeName = "Immediate.Jobs.Shared.JobAttribute";
 	public const string QueueDefinitionAttributeName = "Immediate.Jobs.Shared.QueueDefinitionAttribute";
-	public const string JobRequestName = "Immediate.Jobs.Shared.IJobRequest";
-
-	private const string HandlerAttributeName = "Immediate.Handlers.Shared.HandlerAttribute";
-	private const string CancellationTokenName = "System.Threading.CancellationToken";
-	private const string ValueTaskName = "System.Threading.Tasks.ValueTask";
-	private const string NoPayloadName = "Immediate.Jobs.Shared.NoPayload";
-	private const string JobContextExtractorName = "Immediate.Jobs.Shared.IJobContextExtractor<TContext>";
 
 	public static ImmutableArray<INamedTypeSymbol> FindJobs(Compilation compilation, CancellationToken cancellationToken) =>
 		FindAttributedClasses(compilation, GetJobAttribute, cancellationToken);
@@ -59,20 +52,19 @@ internal static class JobDiscovery
 
 	public static AttributeData? GetJobAttribute(INamedTypeSymbol symbol) =>
 		symbol.GetAttributes().FirstOrDefault(static attribute =>
-			attribute.AttributeClass?.ToDisplayString() == JobAttributeName);
+			attribute.AttributeClass.IsJobAttribute);
 
 	public static AttributeData? GetQueueDefinitionAttribute(INamedTypeSymbol symbol) =>
 		symbol.GetAttributes().FirstOrDefault(static attribute =>
-			attribute.AttributeClass?.ToDisplayString() == QueueDefinitionAttributeName);
+			attribute.AttributeClass.IsQueueDefinitionAttribute);
 
 	public static AttributeData? GetUsesQueueAttribute(INamedTypeSymbol symbol) =>
 		symbol.GetAttributes().FirstOrDefault(static attribute =>
-			attribute.AttributeClass is { Name: "UsesQueueAttribute", Arity: 1 } attributeClass &&
-			attributeClass.ContainingNamespace.ToDisplayString() == "Immediate.Jobs.Shared");
+			attribute.AttributeClass.IsUsesQueueAttribute);
 
 	public static bool IsHandler(INamedTypeSymbol symbol) =>
 		symbol.GetAttributes().Any(static attribute =>
-			attribute.AttributeClass?.ToDisplayString() == HandlerAttributeName);
+			attribute.AttributeClass.IsHandlerAttribute);
 
 	public static bool IsPartial(INamedTypeSymbol symbol) => symbol.DeclaringSyntaxReferences
 		.Select(static reference => reference.GetSyntax())
@@ -80,8 +72,7 @@ internal static class JobDiscovery
 		.Any(static declaration => declaration.Modifiers.Any(SyntaxKind.PartialKeyword));
 
 	public static bool ImplementsJobRequest(ITypeSymbol type) =>
-		type.ToDisplayString() == JobRequestName ||
-		type.AllInterfaces.Any(static candidate => candidate.ToDisplayString() == JobRequestName);
+		type.IsIJobRequest || type.AllInterfaces.Any(static candidate => candidate.IsIJobRequest);
 
 	public static bool IsJobDetailsMember(ISymbol member)
 	{
@@ -89,7 +80,7 @@ internal static class JobDiscovery
 			return false;
 
 		var jobRequest = member.ContainingType.AllInterfaces
-			.FirstOrDefault(static candidate => candidate.ToDisplayString() == JobRequestName);
+			.FirstOrDefault(static candidate => candidate.IsIJobRequest);
 		var details = jobRequest?.GetMembers("JobDetails").OfType<IPropertySymbol>().SingleOrDefault();
 		return details is not null && SymbolEqualityComparer.Default.Equals(
 			member.ContainingType.FindImplementationForInterfaceMember(details),
@@ -123,15 +114,14 @@ internal static class JobDiscovery
 				return;
 
 			var interfaces = extractor.AllInterfaces
-				.Where(static candidate => candidate.OriginalDefinition.ToDisplayString() == JobContextExtractorName)
+				.Where(static candidate => candidate.OriginalDefinition.IsIJobContextExtractor1)
 				.ToArray();
 			builder.Add(new(extractor, interfaces.Length == 1 ? interfaces[0].TypeArguments[0] : null, appliedAttribute));
 		}
 	}
 
 	private static bool IsUsesJobContextAttribute(AttributeData attribute) =>
-		attribute.AttributeClass is { Name: "UsesJobContextAttribute", Arity: 1 } attributeClass &&
-		attributeClass.ContainingNamespace.ToDisplayString() == "Immediate.Jobs.Shared";
+		attribute.AttributeClass.IsUsesJobContextAttribute;
 
 	public static bool IsValidMethod(
 		IMethodSymbol method,
@@ -145,14 +135,14 @@ internal static class JobDiscovery
 			method.IsGenericMethod ||
 			method.MethodKind != MethodKind.Ordinary ||
 			method.DeclaredAccessibility != Accessibility.Private ||
-			method.ReturnType.ToDisplayString() != ValueTaskName ||
+			!method.ReturnType.IsValueTask ||
 			method.Parameters.Length != 2 ||
-			method.Parameters[1].Type.ToDisplayString() != CancellationTokenName ||
+			!method.Parameters[1].Type.IsCancellationToken ||
 			method.Parameters.Any(static parameter => parameter.RefKind != RefKind.None))
 			return false;
 
 		payloadType = method.Parameters[0].Type;
-		hasPayload = payloadType.ToDisplayString() != NoPayloadName;
+		hasPayload = !payloadType.IsNoPayload;
 		return true;
 	}
 

@@ -5,6 +5,7 @@
 		<NoWarn>$(NoWarn);CA1050;CA1812;CA1822;CA2007</NoWarn>
 	</PropertyGroup>
 	<ItemGroup>
+		<Using Include="Immediate.Jobs.Shared" />
 		<PackageReference Include="BenchmarkDotNet" />
 		<PackageReference Include="Hangfire.Core" />
 		<PackageReference Include="Hangfire.MemoryStorage" />

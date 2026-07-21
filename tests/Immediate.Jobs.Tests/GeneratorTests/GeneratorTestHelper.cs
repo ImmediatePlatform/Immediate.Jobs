@@ -1,4 +1,6 @@
 using System.Collections.Immutable;
+using System.Diagnostics.CodeAnalysis;
+using System.Runtime.CompilerServices;
 using Immediate.Handlers.Shared;
 using Immediate.Handlers.Generators;
 using Immediate.Jobs.Analyzers;
@@ -13,7 +15,20 @@ namespace Immediate.Jobs.Tests.GeneratorTests;
 
 internal static class GeneratorTestHelper
 {
-	internal static CSharpParseOptions ParseOptions { get; } = new(LanguageVersion.CSharp12);
+#if NET8_0
+	public const string TargetFramework = "net8.0";
+#elif NET9_0
+	public const string TargetFramework = "net9.0";
+#elif NET10_0
+	public const string TargetFramework = "net10.0";
+#elif NET11_0
+	public const string TargetFramework = "net11.0";
+#else
+#error Unsupported test target framework.
+#endif
+
+	internal static CSharpParseOptions ParseOptions { get; } = CSharpParseOptions.Default
+		.WithLanguageVersion(LanguageVersion.Latest);
 
 	public static CSharpCompilation CreateCompilation(string source)
 		=> CreateCompilationCore([("Test0.cs", source)], includeNodaTime: false);
@@ -66,12 +81,12 @@ internal static class GeneratorTestHelper
 #error Unsupported test target framework.
 #endif
 
-	private static readonly string[] TrackedSteps = ["Jobs", "JobsCollected"];
+	private static readonly string[] TrackedSteps = ["AssemblyDefaults", "Jobs", "JobsCollected", "QueuesCollected"];
 
-	public static GeneratorDriverRunResult RunGenerator(string source)
+	public static GeneratorDriverRunResult RunGenerator([StringSyntax("c#-test")] string source)
 		=> RunGeneratorCore(source, includeNodaTime: false);
 
-	public static GeneratorDriverRunResult RunGeneratorWithNodaTime(string source)
+	public static GeneratorDriverRunResult RunGeneratorWithNodaTime([StringSyntax("c#-test")] string source)
 		=> RunGeneratorCore(source, includeNodaTime: true);
 
 	private static GeneratorDriverRunResult RunGeneratorCore(string source, bool includeNodaTime)
@@ -157,6 +172,38 @@ internal static class GeneratorTestHelper
 			steps.SelectMany(step => step.Outputs),
 			output => Assert.True(output.Reason is IncrementalStepRunReason.Unchanged or IncrementalStepRunReason.Cached)
 		);
+
+	public static SettingsTask VerifyJob(
+		GeneratorDriverRunResult result,
+		[CallerFilePath] string sourceFile = ""
+	) => Verify(result, sourceFile: sourceFile)
+		.IgnoreGeneratedResult(static generated =>
+			Path.GetFileName(generated.HintName).StartsWith("IH.", StringComparison.Ordinal))
+		.IgnoreGeneratedResult(static generated =>
+			Path.GetFileName(generated.HintName) == "IJOB.ServiceCollectionExtensions.g.cs");
+
+	public static SettingsTask VerifyRegistrations(
+		GeneratorDriverRunResult result,
+		[CallerFilePath] string sourceFile = ""
+	) => Verify(result, sourceFile: sourceFile)
+		.IgnoreGeneratedResult(static generated =>
+			Path.GetFileName(generated.HintName).StartsWith("IH.", StringComparison.Ordinal))
+		.IgnoreGeneratedResult(static generated =>
+			Path.GetFileName(generated.HintName) != "IJOB.ServiceCollectionExtensions.g.cs");
+
+	public static void AssertGeneratedTrees(
+		GeneratorDriverRunResult result,
+		string handlerHintName,
+		string jobHintName
+	) => Assert.Equal(
+		[
+			$"Immediate.Handlers.Generators/Immediate.Handlers.Generators.ImmediateHandlersGenerator/{handlerHintName}",
+			"Immediate.Handlers.Generators/Immediate.Handlers.Generators.ImmediateHandlersGenerator/IH.ServiceCollectionExtensions.g.cs",
+			$"Immediate.Jobs.Generators/Immediate.Jobs.Generators.ImmediateJobsGenerator/{jobHintName}",
+			"Immediate.Jobs.Generators/Immediate.Jobs.Generators.ImmediateJobsGenerator/IJOB.ServiceCollectionExtensions.g.cs",
+		],
+		result.GeneratedTrees.Select(static tree => tree.FilePath.Replace('\\', '/'))
+	);
 
 	public static async Task<ImmutableArray<Diagnostic>> RunAnalyzer(string source)
 	{

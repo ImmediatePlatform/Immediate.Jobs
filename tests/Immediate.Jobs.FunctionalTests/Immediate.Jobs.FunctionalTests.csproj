@@ -9,6 +9,7 @@
 	<Features>runtime-async=on</Features>
   </PropertyGroup>
   <ItemGroup>
+	<Using Include="Immediate.Jobs.Shared" />
     <Using Include="Xunit" />
   </ItemGroup>
   <ItemGroup>

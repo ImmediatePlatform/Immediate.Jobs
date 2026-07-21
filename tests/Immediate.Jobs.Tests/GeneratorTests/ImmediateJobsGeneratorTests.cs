@@ -5,8 +5,9 @@ namespace Immediate.Jobs.Tests.GeneratorTests;
 
 public sealed class ImmediateJobsGeneratorTests
 {
-	[Fact]
-	public void StronglyTypedQueueFlowsIntoGeneratedSchedulerAndDefinition()
+	[Theory]
+	[MemberData(nameof(Frameworks))]
+	public async Task ServiceCollectionExtensionsUsesQueuesAndTaggedRegistrations(string framework)
 	{
 		var source = """
 			using Immediate.Jobs.Shared;
@@ -17,7 +18,14 @@ public sealed class ImmediateJobsGeneratorTests
 			[QueueDefinition(Priority = 10, Concurrency = 1)]
 			public sealed class CriticalQueue;
 
-			[Handler, Job, UsesQueue<CriticalQueue>]
+			public sealed class WorkContextExtractor : IJobContextExtractor<string>
+			{
+				public string Key => "work";
+				public ValueTask<string?> CaptureAsync(CancellationToken cancellationToken) => ValueTask.FromResult<string?>(null);
+				public ValueTask RestoreAsync(string context, CancellationToken cancellationToken) => ValueTask.CompletedTask;
+			}
+
+			[Handler(Tags = ["critical"]), Job, UsesQueue<CriticalQueue>, UsesJobContext<WorkContextExtractor>]
 			public sealed partial class WorkJob
 			{
 				private ValueTask HandleAsync(NoPayload payload, CancellationToken cancellationToken) => ValueTask.CompletedTask;
@@ -25,13 +33,21 @@ public sealed class ImmediateJobsGeneratorTests
 			""";
 
 		var result = GeneratorTestHelper.RunGenerator(source);
-		var generated = string.Join("\n", result.GeneratedTrees.Select(tree => tree.ToString()));
 
-		Assert.Contains("\"critical-queue\"", generated, StringComparison.Ordinal);
-		Assert.Contains("Priority = 10", generated, StringComparison.Ordinal);
-		Assert.Contains("Concurrency = 1", generated, StringComparison.Ordinal);
-		Assert.Contains("services.AddSingleton(new global::Immediate.Jobs.Shared.JobQueueDefinition", generated, StringComparison.Ordinal);
+		Assert.Equal(
+			[
+				"Immediate.Handlers.Generators/Immediate.Handlers.Generators.ImmediateHandlersGenerator/IH..WorkJob.g.cs",
+				"Immediate.Handlers.Generators/Immediate.Handlers.Generators.ImmediateHandlersGenerator/IH.ServiceCollectionExtensions.g.cs",
+				"Immediate.Jobs.Generators/Immediate.Jobs.Generators.ImmediateJobsGenerator/IJOB.global..WorkJob.g.cs",
+				"Immediate.Jobs.Generators/Immediate.Jobs.Generators.ImmediateJobsGenerator/IJOB.ServiceCollectionExtensions.g.cs",
+			],
+			result.GeneratedTrees.Select(tree => tree.FilePath.Replace('\\', '/'))
+		);
+
+		_ = await GeneratorTestHelper.VerifyRegistrations(result).UseParameters(framework);
 	}
+
+	public static TheoryData<string> Frameworks => [GeneratorTestHelper.TargetFramework];
 
 	[Fact]
 	public async Task PayloadJobGeneratesTypedSchedulerDirectInvokerAndRegistrations()
@@ -54,19 +70,12 @@ public sealed class ImmediateJobsGeneratorTests
 			""";
 
 		var result = GeneratorTestHelper.RunGenerator(source);
-		var generated = string.Join("\n", result.GeneratedTrees.Select(tree => tree.ToString()));
-
-		Assert.Contains("interface IScheduler : global::Immediate.Jobs.Shared.IJobScheduler<global::Example.SendEmailJob.Payload>", generated, StringComparison.Ordinal);
-		Assert.Contains("sealed class Scheduler(", generated, StringComparison.Ordinal);
-		Assert.Contains("sealed class Invoker", generated, StringComparison.Ordinal);
-		Assert.Contains("SetJobDetails(", generated, StringComparison.Ordinal);
-		Assert.Contains("where TRequest : global::Immediate.Jobs.Shared.IJobRequest", generated, StringComparison.Ordinal);
-		Assert.Contains("handler.HandleAsync(payload, execution.CancellationToken)", generated, StringComparison.Ordinal);
-		Assert.DoesNotContain("PropertyName = \"JobDetails\"", generated, StringComparison.Ordinal);
-		Assert.DoesNotContain("typeof(global::Immediate.Jobs.Shared.JobDetails)", generated, StringComparison.Ordinal);
-		Assert.Contains("AddImmediateJobs(", generated, StringComparison.Ordinal);
-		Assert.Contains("AddSingleton<global::Immediate.Jobs.Shared.JobDefinition>", generated, StringComparison.Ordinal);
-		_ = await Verify(result);
+		GeneratorTestHelper.AssertGeneratedTrees(
+			result,
+			"IH.Example.SendEmailJob.g.cs",
+			"IJOB.global..Example.SendEmailJob.g.cs"
+		);
+		_ = await GeneratorTestHelper.VerifyJob(result);
 	}
 
 	[Fact]
@@ -87,18 +96,12 @@ public sealed class ImmediateJobsGeneratorTests
 			""";
 
 		var result = GeneratorTestHelper.RunGenerator(source);
-		var generated = result.GeneratedTrees
-			.Single(tree => tree.FilePath.Contains("IJOB.global", StringComparison.Ordinal))
-			.ToString();
-
-		Assert.Contains("IJobScheduler<global::PlainRequestJob.Payload>", generated, StringComparison.Ordinal);
-		Assert.Contains("handler.HandleAsync(payload, execution.CancellationToken)", generated, StringComparison.Ordinal);
-		Assert.DoesNotContain("SetJobDetails", generated, StringComparison.Ordinal);
-		_ = await Verify(result);
+		GeneratorTestHelper.AssertGeneratedTrees(result, "IH..PlainRequestJob.g.cs", "IJOB.global..PlainRequestJob.g.cs");
+		_ = await GeneratorTestHelper.VerifyJob(result);
 	}
 
 	[Fact]
-	public void ExplicitJobDetailsOnValueTypeUsesConstrainedByReferenceAssignment()
+	public async Task ExplicitJobDetailsOnValueTypeUsesConstrainedByReferenceAssignment()
 	{
 		var source = """
 			using Immediate.Jobs.Shared;
@@ -119,14 +122,8 @@ public sealed class ImmediateJobsGeneratorTests
 			""";
 
 		var result = GeneratorTestHelper.RunGenerator(source);
-		var generated = result.GeneratedTrees
-			.Single(tree => tree.FilePath.Contains("IJOB.global", StringComparison.Ordinal))
-			.ToString();
-
-		Assert.Contains("ref payload,", generated, StringComparison.Ordinal);
-		Assert.Contains("where TRequest : global::Immediate.Jobs.Shared.IJobRequest => request.JobDetails = details;", generated, StringComparison.Ordinal);
-		Assert.Contains("Unsafe.Unbox<global::StructPayload>(obj).Value = value!", generated, StringComparison.Ordinal);
-		Assert.DoesNotContain("PropertyName = \"JobDetails\"", generated, StringComparison.Ordinal);
+		GeneratorTestHelper.AssertGeneratedTrees(result, "IH..StructJob.g.cs", "IJOB.global..StructJob.g.cs");
+		_ = await GeneratorTestHelper.VerifyJob(result);
 	}
 
 	[Fact]
@@ -146,18 +143,16 @@ public sealed class ImmediateJobsGeneratorTests
 			""";
 
 		var result = GeneratorTestHelper.RunGenerator(source);
-		var generated = string.Join("\n", result.GeneratedTrees.Select(tree => tree.ToString()));
-
-		Assert.Contains("interface IScheduler : global::Immediate.Jobs.Shared.IRecurringJobTrigger", generated, StringComparison.Ordinal);
-		Assert.Contains("TriggerNow", generated, StringComparison.Ordinal);
-		Assert.DoesNotContain("AddOrUpdateRecurring", generated, StringComparison.Ordinal);
-		Assert.DoesNotContain("RemoveRecurring", generated, StringComparison.Ordinal);
-		Assert.Contains("Cron = \"0 */5 * * * *\"", generated, StringComparison.Ordinal);
-		_ = await Verify(result);
+		GeneratorTestHelper.AssertGeneratedTrees(
+			result,
+			"IH..CleanupSessionsJob.g.cs",
+			"IJOB.global..CleanupSessionsJob.g.cs"
+		);
+		_ = await GeneratorTestHelper.VerifyJob(result);
 	}
 
 	[Fact]
-	public void PayloadlessJobWithoutCronGeneratesDynamicRecurringScheduler()
+	public async Task PayloadlessJobWithoutCronGeneratesDynamicRecurringScheduler()
 	{
 		var source = """
 			using Immediate.Jobs.Shared;
@@ -173,16 +168,12 @@ public sealed class ImmediateJobsGeneratorTests
 			""";
 
 		var result = GeneratorTestHelper.RunGenerator(source);
-		var generated = string.Join("\n", result.GeneratedTrees.Select(tree => tree.ToString()));
-
-		Assert.Contains("interface IScheduler : global::Immediate.Jobs.Shared.IRecurringJobScheduler", generated, StringComparison.Ordinal);
-		Assert.Contains("TriggerNow", generated, StringComparison.Ordinal);
-		Assert.Contains("AddOrUpdateRecurring", generated, StringComparison.Ordinal);
-		Assert.Contains("RemoveRecurring", generated, StringComparison.Ordinal);
+		GeneratorTestHelper.AssertGeneratedTrees(result, "IH..TenantCleanupJob.g.cs", "IJOB.global..TenantCleanupJob.g.cs");
+		_ = await GeneratorTestHelper.VerifyJob(result);
 	}
 
 	[Fact]
-	public void InvokerDelegatesExecutionToImmediateHandlersPipeline()
+	public async Task InvokerDelegatesExecutionToImmediateHandlersPipeline()
 	{
 		var source = """
 			using Immediate.Jobs.Shared;
@@ -199,13 +190,8 @@ public sealed class ImmediateJobsGeneratorTests
 			""";
 
 		var result = GeneratorTestHelper.RunGenerator(source);
-		var generated = result.GeneratedTrees
-			.Single(tree => tree.FilePath.Contains("IJOB.global", StringComparison.Ordinal))
-			.ToString();
-
-		Assert.Contains("handler.HandleAsync(payload, execution.CancellationToken)", generated, StringComparison.Ordinal);
-		Assert.DoesNotContain("JobBehavior", generated, StringComparison.Ordinal);
-		Assert.DoesNotContain("JobContext<", generated, StringComparison.Ordinal);
+		GeneratorTestHelper.AssertGeneratedTrees(result, "IH..WorkJob.g.cs", "IJOB.global..WorkJob.g.cs");
+		_ = await GeneratorTestHelper.VerifyJob(result);
 	}
 
 	[Fact]
@@ -254,22 +240,12 @@ public sealed class ImmediateJobsGeneratorTests
 			""";
 
 		var result = GeneratorTestHelper.RunGenerator(source);
-		var generated = string.Join("\n", result.GeneratedTrees.Select(tree => tree.ToString()));
-
-		Assert.Contains("CorrelationExtractor contextExtractor0", generated, StringComparison.Ordinal);
-		Assert.Contains("UsageContextExtractor contextExtractor1", generated, StringComparison.Ordinal);
-		Assert.Contains("CaptureContextAsync", generated, StringComparison.Ordinal);
-		Assert.Contains("contextExtractor0.RestoreAsync", generated, StringComparison.Ordinal);
-		Assert.Contains("contextExtractor1.RestoreAsync", generated, StringComparison.Ordinal);
-		Assert.Contains("JsonTypeInfo<global::CorrelationContext> Context0", generated, StringComparison.Ordinal);
-		Assert.Contains("JsonTypeInfo<global::UsageContext> Context1", generated, StringComparison.Ordinal);
-		Assert.Equal(1, Count(generated, "TryAddScoped(services, typeof(global::UsageContextExtractor))"));
-		Assert.Contains("TryAddScoped(services, typeof(global::ContextualJob.Scheduler))", generated, StringComparison.Ordinal);
-		_ = await Verify(result);
+		GeneratorTestHelper.AssertGeneratedTrees(result, "IH..ContextualJob.g.cs", "IJOB.global..ContextualJob.g.cs");
+		_ = await GeneratorTestHelper.VerifyJob(result);
 	}
 
 	[Fact]
-	public void JobWithoutContextDoesNotEmitCaptureOrRestoreCode()
+	public async Task JobWithoutContextDoesNotEmitCaptureOrRestoreCode()
 	{
 		var source = """
 			using Immediate.Jobs.Shared;
@@ -285,10 +261,8 @@ public sealed class ImmediateJobsGeneratorTests
 			""";
 
 		var result = GeneratorTestHelper.RunGenerator(source);
-		var job = result.GeneratedTrees.Single(tree => tree.FilePath.Contains("IJOB.global", StringComparison.Ordinal)).ToString();
-
-		Assert.DoesNotContain("CaptureContextAsync", job, StringComparison.Ordinal);
-		Assert.DoesNotContain("JobContextEnvelope", job, StringComparison.Ordinal);
+		GeneratorTestHelper.AssertGeneratedTrees(result, "IH..PlainJob.g.cs", "IJOB.global..PlainJob.g.cs");
+		_ = await GeneratorTestHelper.VerifyJob(result);
 	}
 
 	[Fact]
@@ -314,11 +288,8 @@ public sealed class ImmediateJobsGeneratorTests
 			""";
 
 		var result = GeneratorTestHelper.RunGeneratorWithNodaTime(source);
-		var generated = string.Join("\n", result.GeneratedTrees.Select(tree => tree.ToString()));
-
-		Assert.Contains("JsonTypeInfo<global::ClockContext> Context0", generated, StringComparison.Ordinal);
-		Assert.Contains("options.GetConverter(typeof(global::NodaTime.Instant))", generated, StringComparison.Ordinal);
-		_ = await Verify(result);
+		GeneratorTestHelper.AssertGeneratedTrees(result, "IH..ClockJob.g.cs", "IJOB.global..ClockJob.g.cs");
+		_ = await GeneratorTestHelper.VerifyJob(result);
 	}
 
 	[Fact]
@@ -450,16 +421,4 @@ public sealed class ImmediateJobsGeneratorTests
 		Assert.Contains(unrelatedReason, new[] { IncrementalStepRunReason.Cached, IncrementalStepRunReason.Unchanged });
 	}
 
-	private static int Count(string value, string search)
-	{
-		var count = 0;
-		var offset = 0;
-		while ((offset = value.IndexOf(search, offset, StringComparison.Ordinal)) >= 0)
-		{
-			count++;
-			offset += search.Length;
-		}
-
-		return count;
-	}
 }

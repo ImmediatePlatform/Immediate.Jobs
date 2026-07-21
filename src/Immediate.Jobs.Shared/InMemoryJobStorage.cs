@@ -1,15 +1,13 @@
 namespace Immediate.Jobs.Shared;
 
+#pragma warning disable IDE0391 // Keep synchronous storage methods async for .NET 11 runtime-async state machines.
+
 /// <summary>
 /// A best-effort, non-durable, single-node provider intended for development and tests.
 /// </summary>
 public sealed class InMemoryJobStorage(TimeProvider timeProvider) : IJobStorage, IJobStorageReplica
 {
-#if NET9_0_OR_GREATER
 	private readonly Lock _gate = new();
-#else
-	private readonly object _gate = new();
-#endif
 	private readonly Dictionary<string, JobRecord> _jobs = new(StringComparer.Ordinal);
 	private readonly Dictionary<string, RecurringJobSchedule> _recurring = new(StringComparer.Ordinal);
 	private readonly Dictionary<string, JobServerSnapshot> _servers = new(StringComparer.Ordinal);
@@ -37,7 +35,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) : IJobStorage,
 	}
 
 	/// <inheritdoc />
-	public ValueTask<IReadOnlyList<JobRecord>> AcquireDueJobsAsync(
+	public async ValueTask<IReadOnlyList<JobRecord>> AcquireDueJobsAsync(
 		JobAcquisitionRequest request,
 		CancellationToken cancellationToken = default
 	)
@@ -92,12 +90,12 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) : IJobStorage,
 				}
 			}
 
-			return ValueTask.FromResult<IReadOnlyList<JobRecord>>(acquired);
+			return acquired;
 		}
 	}
 
 	/// <inheritdoc />
-	public ValueTask<IReadOnlyList<JobRecord>> AcquireJobsAsync(
+	public async ValueTask<IReadOnlyList<JobRecord>> AcquireJobsAsync(
 		IReadOnlyCollection<string> jobIds,
 		string workerId,
 		TimeSpan lease,
@@ -136,7 +134,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) : IJobStorage,
 				acquired.Add(job);
 			}
 
-			return ValueTask.FromResult<IReadOnlyList<JobRecord>>(acquired);
+			return acquired;
 		}
 	}
 
@@ -244,7 +242,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) : IJobStorage,
 		SetRecurringPaused(name, false, cancellationToken);
 
 	/// <inheritdoc />
-	public ValueTask<IReadOnlyList<RecurringJobSchedule>> GetDueRecurringAsync(
+	public async ValueTask<IReadOnlyList<RecurringJobSchedule>> GetDueRecurringAsync(
 		DateTimeOffset now,
 		int batchSize,
 		CancellationToken cancellationToken = default
@@ -253,14 +251,15 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) : IJobStorage,
 		cancellationToken.ThrowIfCancellationRequested();
 		lock (_gate)
 		{
-			return ValueTask.FromResult<IReadOnlyList<RecurringJobSchedule>>(
-				[.. _recurring.Values.Where(x => !x.IsPaused && x.NextRunAt <= now).OrderBy(x => x.NextRunAt).Take(batchSize)]
-			);
+			return
+			[
+				.. _recurring.Values.Where(x => !x.IsPaused && x.NextRunAt <= now).OrderBy(x => x.NextRunAt).Take(batchSize),
+			];
 		}
 	}
 
 	/// <inheritdoc />
-	public ValueTask<bool> MaterializeRecurringAsync(
+	public async ValueTask<bool> MaterializeRecurringAsync(
 		RecurringJobSchedule schedule,
 		JobRecord job,
 		DateTimeOffset nextRunAt,
@@ -273,18 +272,18 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) : IJobStorage,
 		lock (_gate)
 		{
 			if (!_recurring.TryGetValue(schedule.Name, out var current) || current.NextRunAt != schedule.NextRunAt)
-				return ValueTask.FromResult(false);
+				return false;
 
 			var inserted = job.RecurringKey is null || _recurringKeys.Add(job.RecurringKey);
 			if (inserted)
 				_jobs[job.Id] = job;
 			_recurring[schedule.Name] = current with { LastRunAt = schedule.NextRunAt, NextRunAt = nextRunAt };
-			return ValueTask.FromResult(inserted);
+			return inserted;
 		}
 	}
 
 	/// <inheritdoc />
-	public ValueTask<JobMonitoringSnapshot> GetMonitoringSnapshotAsync(CancellationToken cancellationToken = default)
+	public async ValueTask<JobMonitoringSnapshot> GetMonitoringSnapshotAsync(CancellationToken cancellationToken = default)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
 		lock (_gate)
@@ -292,12 +291,12 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) : IJobStorage,
 			var counts = Enum.GetValues<JobState>().ToDictionary(state => state, state => _jobs.Values.LongCount(x => x.State == state));
 			var cutoff = timeProvider.GetUtcNow() - TimeSpan.FromMinutes(2);
 			IReadOnlyList<JobServerSnapshot> servers = [.. _servers.Values.Where(x => x.LastHeartbeat >= cutoff)];
-			return ValueTask.FromResult(new JobMonitoringSnapshot(timeProvider.GetUtcNow(), counts, [.. _recurring.Values], servers));
+			return new(timeProvider.GetUtcNow(), counts, [.. _recurring.Values], servers);
 		}
 	}
 
 	/// <inheritdoc />
-	public ValueTask<IReadOnlyList<JobRecord>> QueryJobsAsync(JobQuery query, CancellationToken cancellationToken = default)
+	public async ValueTask<IReadOnlyList<JobRecord>> QueryJobsAsync(JobQuery query, CancellationToken cancellationToken = default)
 	{
 		ArgumentNullException.ThrowIfNull(query);
 		cancellationToken.ThrowIfCancellationRequested();
@@ -314,9 +313,10 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) : IJobStorage,
 			if (!string.IsNullOrWhiteSpace(query.Search))
 				jobs = jobs.Where(x => x.JobName.Contains(query.Search, StringComparison.OrdinalIgnoreCase));
 
-			return ValueTask.FromResult<IReadOnlyList<JobRecord>>(
-				[.. jobs.OrderByDescending(x => x.CreatedAt).Skip(Math.Max(0, query.Skip)).Take(Math.Clamp(query.Take, 1, 1000))]
-			);
+			return
+			[
+				.. jobs.OrderByDescending(x => x.CreatedAt).Skip(Math.Max(0, query.Skip)).Take(Math.Clamp(query.Take, 1, 1000)),
+			];
 		}
 	}
 
@@ -382,10 +382,10 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) : IJobStorage,
 	}
 
 	/// <inheritdoc />
-	public ValueTask<bool> IsHealthyAsync(CancellationToken cancellationToken = default)
+	public async ValueTask<bool> IsHealthyAsync(CancellationToken cancellationToken = default)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
-		return ValueTask.FromResult(true);
+		return true;
 	}
 
 	private JobRecord GetOwnedActive(string jobId, string workerId)

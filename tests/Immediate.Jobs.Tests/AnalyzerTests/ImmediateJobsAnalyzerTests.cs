@@ -4,110 +4,242 @@ namespace Immediate.Jobs.Tests.AnalyzerTests;
 
 public sealed class ImmediateJobsAnalyzerTests
 {
-	public static TheoryData<string, string> InvalidJobs => new()
-	{
-		{
+	[Fact]
+	public async Task AnalyzerTriggersForInvalidCron() =>
+		await AssertDiagnostic(
 			"""
-			using Immediate.Jobs.Shared; using Immediate.Handlers.Shared; using System.Threading; using System.Threading.Tasks;
-			[Handler, Job(Cron = "not cron")] public sealed partial class BadCronJob { private ValueTask HandleAsync(NoPayload request, CancellationToken ct) => ValueTask.CompletedTask; }
+			using Immediate.Jobs.Shared;
+			using Immediate.Handlers.Shared;
+			using System.Threading;
+			using System.Threading.Tasks;
+
+			[Handler, Job(Cron = "not cron")]
+			public sealed partial class BadCronJob
+			{
+				private ValueTask HandleAsync(NoPayload request, CancellationToken ct) => ValueTask.CompletedTask;
+			}
 			""",
 			"IJOB001"
-		},
-		{
-			"""
-			using Immediate.Jobs.Shared; using Immediate.Handlers.Shared; using System.Threading; using System.Threading.Tasks;
-			[Handler, Job("same")] public sealed partial class OneJob { private ValueTask HandleAsync(NoPayload request, CancellationToken ct) => ValueTask.CompletedTask; }
-			[Handler, Job("same")] public sealed partial class TwoJob { private ValueTask HandleAsync(NoPayload request, CancellationToken ct) => ValueTask.CompletedTask; }
-			""",
-			"IJOB002"
-		},
-		{
-			"""
-			using Immediate.Jobs.Shared; using Immediate.Handlers.Shared; using System; using System.Threading; using System.Threading.Tasks;
-			[Handler, Job] public sealed partial class UnsupportedJob { public sealed record Payload(Action Callback) : IJobRequest { public JobDetails? JobDetails { get; set; } } private ValueTask HandleAsync(Payload payload, CancellationToken ct) => ValueTask.CompletedTask; }
-			""",
-			"IJOB003"
-		},
-		{
-			"""
-			using Immediate.Jobs.Shared; using Immediate.Handlers.Shared; using System.Threading.Tasks;
-			[Handler, Job] public sealed partial class SignatureJob { private ValueTask HandleAsync() => ValueTask.CompletedTask; }
-			""",
-			"IJOB004"
-		},
-		{
-			"""
-			using Immediate.Jobs.Shared; using Immediate.Handlers.Shared; using System.Threading; using System.Threading.Tasks;
-			[Handler, Job] public sealed class NonPartialJob { private ValueTask HandleAsync(NoPayload request, CancellationToken ct) => ValueTask.CompletedTask; }
-			""",
-			"IJOB005"
-		},
-		{
-			"""
-			using Immediate.Jobs.Shared; using Immediate.Handlers.Shared; using System.Threading; using System.Threading.Tasks;
-			public sealed record Payload(string Value) : IJobRequest { public JobDetails? JobDetails { get; set; } }
-			[Handler, Job(Cron = "0 * * * *")] public sealed partial class CronPayloadJob { private ValueTask HandleAsync(Payload payload, CancellationToken ct) => ValueTask.CompletedTask; }
-			""",
-			"IJOB006"
-		},
-		{
-			"""
-			using Immediate.Jobs.Shared; using Immediate.Handlers.Shared; using System.Threading; using System.Threading.Tasks;
-			namespace NodaTime { public readonly struct Instant { } }
-			public sealed record Payload(NodaTime.Instant Value) : IJobRequest { public JobDetails? JobDetails { get; set; } }
-			[Handler, Job] public sealed partial class NodaJob { private ValueTask HandleAsync(Payload payload, CancellationToken ct) => ValueTask.CompletedTask; }
-			""",
-			"IJOB007"
-		},
-		{
-			"""
-			using Immediate.Jobs.Shared; using Immediate.Handlers.Shared; using System.Threading; using System.Threading.Tasks;
-			[Handler, Job(MaxAttempts = 0)] public sealed partial class InvalidConfigurationJob { private ValueTask HandleAsync(NoPayload request, CancellationToken ct) => ValueTask.CompletedTask; }
-			""",
-			"IJOB008"
-		},
-		{
-			"""
-			using Immediate.Jobs.Shared; using Immediate.Handlers.Shared; using System.Threading; using System.Threading.Tasks;
-			[Job] public sealed partial class NotAHandlerJob { private ValueTask HandleAsync(NoPayload request, CancellationToken ct) => ValueTask.CompletedTask; }
-			""",
-			"IJOB009"
-		},
-		{
-			"""
-			using Immediate.Jobs.Shared;
-			[QueueDefinition(Concurrency = -1)] public sealed class InvalidQueue;
-			""",
-			"IJOB010"
-		},
-		{
-			"""
-			using Immediate.Jobs.Shared; using Immediate.Handlers.Shared; using System.Threading; using System.Threading.Tasks;
-			public sealed class MissingDefinition;
-			[Handler, Job, UsesQueue<MissingDefinition>] public sealed partial class InvalidQueueJob { private ValueTask HandleAsync(NoPayload request, CancellationToken ct) => ValueTask.CompletedTask; }
-			""",
-			"IJOB011"
-		},
-		{
-			"""
-			using Immediate.Jobs.Shared;
-			[QueueDefinition(Name = "same")] public sealed class FirstQueue;
-			[QueueDefinition(Name = "same")] public sealed class SecondQueue;
-			""",
-			"IJOB012"
-		},
-	};
-
-	[Theory]
-	[MemberData(nameof(InvalidJobs))]
-	public async Task ReportsExpectedDiagnostic(string source, string expectedId)
-	{
-		var diagnostics = await GeneratorTestHelper.RunAnalyzer(source);
-		Assert.Contains(diagnostics, diagnostic => diagnostic.Id == expectedId);
-	}
+		);
 
 	[Fact]
-	public async Task JobRequestContractIsOptional()
+	public async Task AnalyzerTriggersForDuplicateJobName() =>
+		await AssertDiagnostic(
+			"""
+			using Immediate.Jobs.Shared;
+			using Immediate.Handlers.Shared;
+			using System.Threading;
+			using System.Threading.Tasks;
+
+			[Handler, Job("same")]
+			public sealed partial class OneJob
+			{
+				private ValueTask HandleAsync(NoPayload request, CancellationToken ct) => ValueTask.CompletedTask;
+			}
+
+			[Handler, Job("same")]
+			public sealed partial class TwoJob
+			{
+				private ValueTask HandleAsync(NoPayload request, CancellationToken ct) => ValueTask.CompletedTask;
+			}
+			""",
+			"IJOB002"
+		);
+
+	[Fact]
+	public async Task AnalyzerTriggersForUnsupportedPayload() =>
+		await AssertDiagnostic(
+			"""
+			using Immediate.Jobs.Shared;
+			using Immediate.Handlers.Shared;
+			using System;
+			using System.Threading;
+			using System.Threading.Tasks;
+
+			[Handler, Job]
+			public sealed partial class UnsupportedJob
+			{
+				public sealed record Payload(Action Callback) : IJobRequest
+				{
+					public JobDetails? JobDetails { get; set; }
+				}
+
+				private ValueTask HandleAsync(Payload payload, CancellationToken ct) => ValueTask.CompletedTask;
+			}
+			""",
+			"IJOB003"
+		);
+
+	[Fact]
+	public async Task AnalyzerTriggersForInvalidMethodSignature() =>
+		await AssertDiagnostic(
+			"""
+			using Immediate.Jobs.Shared;
+			using Immediate.Handlers.Shared;
+			using System.Threading.Tasks;
+
+			[Handler, Job]
+			public sealed partial class SignatureJob
+			{
+				private ValueTask HandleAsync() => ValueTask.CompletedTask;
+			}
+			""",
+			"IJOB004"
+		);
+
+	[Fact]
+	public async Task AnalyzerTriggersForNonPartialJob() =>
+		await AssertDiagnostic(
+			"""
+			using Immediate.Jobs.Shared;
+			using Immediate.Handlers.Shared;
+			using System.Threading;
+			using System.Threading.Tasks;
+
+			[Handler, Job]
+			public sealed class NonPartialJob
+			{
+				private ValueTask HandleAsync(NoPayload request, CancellationToken ct) => ValueTask.CompletedTask;
+			}
+			""",
+			"IJOB005"
+		);
+
+	[Fact]
+	public async Task AnalyzerTriggersForCronJobWithPayload() =>
+		await AssertDiagnostic(
+			"""
+			using Immediate.Jobs.Shared;
+			using Immediate.Handlers.Shared;
+			using System.Threading;
+			using System.Threading.Tasks;
+
+			public sealed record Payload(string Value) : IJobRequest
+			{
+				public JobDetails? JobDetails { get; set; }
+			}
+
+			[Handler, Job(Cron = "0 * * * *")]
+			public sealed partial class CronPayloadJob
+			{
+				private ValueTask HandleAsync(Payload payload, CancellationToken ct) => ValueTask.CompletedTask;
+			}
+			""",
+			"IJOB006"
+		);
+
+	[Fact]
+	public async Task AnalyzerTriggersForNodaTimePayloadWithoutIntegrationPackage() =>
+		await AssertDiagnostic(
+			"""
+			using Immediate.Jobs.Shared;
+			using Immediate.Handlers.Shared;
+			using System.Threading;
+			using System.Threading.Tasks;
+
+			namespace NodaTime
+			{
+				public readonly struct Instant;
+			}
+
+			public sealed record Payload(NodaTime.Instant Value) : IJobRequest
+			{
+				public JobDetails? JobDetails { get; set; }
+			}
+
+			[Handler, Job]
+			public sealed partial class NodaJob
+			{
+				private ValueTask HandleAsync(Payload payload, CancellationToken ct) => ValueTask.CompletedTask;
+			}
+			""",
+			"IJOB007"
+		);
+
+	[Fact]
+	public async Task AnalyzerTriggersForInvalidJobConfiguration() =>
+		await AssertDiagnostic(
+			"""
+			using Immediate.Jobs.Shared;
+			using Immediate.Handlers.Shared;
+			using System.Threading;
+			using System.Threading.Tasks;
+
+			[Handler, Job(MaxAttempts = 0)]
+			public sealed partial class InvalidConfigurationJob
+			{
+				private ValueTask HandleAsync(NoPayload request, CancellationToken ct) => ValueTask.CompletedTask;
+			}
+			""",
+			"IJOB008"
+		);
+
+	[Fact]
+	public async Task AnalyzerTriggersForJobWithoutHandlerAttribute() =>
+		await AssertDiagnostic(
+			"""
+			using Immediate.Jobs.Shared;
+			using System.Threading;
+			using System.Threading.Tasks;
+
+			[Job]
+			public sealed partial class NotAHandlerJob
+			{
+				private ValueTask HandleAsync(NoPayload request, CancellationToken ct) => ValueTask.CompletedTask;
+			}
+			""",
+			"IJOB009"
+		);
+
+	[Fact]
+	public async Task AnalyzerTriggersForInvalidQueueConfiguration() =>
+		await AssertDiagnostic(
+			"""
+			using Immediate.Jobs.Shared;
+
+			[QueueDefinition(Concurrency = -1)]
+			public sealed class InvalidQueue;
+			""",
+			"IJOB010"
+		);
+
+	[Fact]
+	public async Task AnalyzerTriggersForInvalidQueueTarget() =>
+		await AssertDiagnostic(
+			"""
+			using Immediate.Jobs.Shared;
+			using Immediate.Handlers.Shared;
+			using System.Threading;
+			using System.Threading.Tasks;
+
+			public sealed class MissingDefinition;
+
+			[Handler, Job, UsesQueue<MissingDefinition>]
+			public sealed partial class InvalidQueueJob
+			{
+				private ValueTask HandleAsync(NoPayload request, CancellationToken ct) => ValueTask.CompletedTask;
+			}
+			""",
+			"IJOB011"
+		);
+
+	[Fact]
+	public async Task AnalyzerTriggersForDuplicateQueueName() =>
+		await AssertDiagnostic(
+			"""
+			using Immediate.Jobs.Shared;
+
+			[QueueDefinition(Name = "same")]
+			public sealed class FirstQueue;
+
+			[QueueDefinition(Name = "same")]
+			public sealed class SecondQueue;
+			""",
+			"IJOB012"
+		);
+
+	[Fact]
+	public async Task AnalyzerDoesNotTriggerWhenJobRequestContractIsAbsent()
 	{
 		var source = """
 			using Immediate.Jobs.Shared;
@@ -129,57 +261,104 @@ public sealed class ImmediateJobsAnalyzerTests
 		Assert.Empty(diagnostics);
 	}
 
-	[Theory]
-	[InlineData(
-		"public sealed class BadExtractor;",
-		"BadExtractor",
-		"IJOB013"
-	)]
-	[InlineData(
-		"public sealed record BadContext(System.Action Callback); public sealed class BadExtractor : IJobContextExtractor<BadContext> { public string Key => \"bad\"; public ValueTask<BadContext?> CaptureAsync(CancellationToken ct) => ValueTask.FromResult<BadContext?>(null); public ValueTask RestoreAsync(BadContext context, CancellationToken ct) => ValueTask.CompletedTask; }",
-		"BadExtractor",
-		"IJOB014"
-	)]
-	[InlineData(
-		"namespace NodaTime { public readonly struct Instant { } } public sealed record BadContext(NodaTime.Instant Value); public sealed class BadExtractor : IJobContextExtractor<BadContext> { public string Key => \"bad\"; public ValueTask<BadContext?> CaptureAsync(CancellationToken ct) => ValueTask.FromResult<BadContext?>(null); public ValueTask RestoreAsync(BadContext context, CancellationToken ct) => ValueTask.CompletedTask; }",
-		"BadExtractor",
-		"IJOB007"
-	)]
-	public async Task ContextUsageReportsExpectedDiagnostic(string declaration, string extractor, string expectedId)
-	{
-		var source = $$"""
+	[Fact]
+	public async Task AnalyzerTriggersWhenContextExtractorDoesNotImplementContract() =>
+		await AssertDiagnostic(
+			"""
 			using Immediate.Jobs.Shared;
 			using Immediate.Handlers.Shared;
 			using System.Threading;
 			using System.Threading.Tasks;
-			{{declaration}}
-			[Handler, Job, UsesJobContext<{{extractor}}>]
+
+			public sealed class BadExtractor;
+
+			[Handler, Job, UsesJobContext<BadExtractor>]
 			public sealed partial class ContextJob
 			{
 				private ValueTask HandleAsync(NoPayload payload, CancellationToken ct) => ValueTask.CompletedTask;
 			}
-			""";
-
-		var diagnostics = await GeneratorTestHelper.RunAnalyzer(source);
-
-		Assert.Contains(diagnostics, diagnostic => diagnostic.Id == expectedId);
-	}
+			""",
+			"IJOB013"
+		);
 
 	[Fact]
-	public async Task ValidContextUsageIsClean()
+	public async Task AnalyzerTriggersForUnsupportedContext() =>
+		await AssertDiagnostic(
+			"""
+			using Immediate.Jobs.Shared;
+			using Immediate.Handlers.Shared;
+			using System;
+			using System.Threading;
+			using System.Threading.Tasks;
+
+			public sealed record BadContext(Action Callback);
+
+			public sealed class BadExtractor : IJobContextExtractor<BadContext>
+			{
+				public string Key => "bad";
+				public ValueTask<BadContext?> CaptureAsync(CancellationToken ct) => ValueTask.FromResult<BadContext?>(null);
+				public ValueTask RestoreAsync(BadContext context, CancellationToken ct) => ValueTask.CompletedTask;
+			}
+
+			[Handler, Job, UsesJobContext<BadExtractor>]
+			public sealed partial class ContextJob
+			{
+				private ValueTask HandleAsync(NoPayload payload, CancellationToken ct) => ValueTask.CompletedTask;
+			}
+			""",
+			"IJOB014"
+		);
+
+	[Fact]
+	public async Task AnalyzerTriggersForNodaTimeContextWithoutIntegrationPackage() =>
+		await AssertDiagnostic(
+			"""
+			using Immediate.Jobs.Shared;
+			using Immediate.Handlers.Shared;
+			using System.Threading;
+			using System.Threading.Tasks;
+
+			namespace NodaTime
+			{
+				public readonly struct Instant;
+			}
+
+			public sealed record BadContext(NodaTime.Instant Value);
+
+			public sealed class BadExtractor : IJobContextExtractor<BadContext>
+			{
+				public string Key => "bad";
+				public ValueTask<BadContext?> CaptureAsync(CancellationToken ct) => ValueTask.FromResult<BadContext?>(null);
+				public ValueTask RestoreAsync(BadContext context, CancellationToken ct) => ValueTask.CompletedTask;
+			}
+
+			[Handler, Job, UsesJobContext<BadExtractor>]
+			public sealed partial class ContextJob
+			{
+				private ValueTask HandleAsync(NoPayload payload, CancellationToken ct) => ValueTask.CompletedTask;
+			}
+			""",
+			"IJOB007"
+		);
+
+	[Fact]
+	public async Task AnalyzerDoesNotTriggerForValidContextUsage()
 	{
 		var source = """
 			using Immediate.Jobs.Shared;
 			using Immediate.Handlers.Shared;
 			using System.Threading;
 			using System.Threading.Tasks;
+
 			public sealed record ValidContext(string TenantId);
+
 			public sealed class ValidExtractor : IJobContextExtractor<ValidContext>
 			{
 				public string Key => "tenant";
 				public ValueTask<ValidContext?> CaptureAsync(CancellationToken ct) => ValueTask.FromResult<ValidContext?>(new("one"));
 				public ValueTask RestoreAsync(ValidContext context, CancellationToken ct) => ValueTask.CompletedTask;
 			}
+
 			[Handler, Job, UsesJobContext<ValidExtractor>]
 			public sealed partial class ContextJob
 			{
@@ -190,5 +369,12 @@ public sealed class ImmediateJobsAnalyzerTests
 		var diagnostics = await GeneratorTestHelper.RunAnalyzer(source);
 
 		Assert.Empty(diagnostics);
+	}
+
+	private static async Task AssertDiagnostic(string source, string expectedId)
+	{
+		var diagnostics = await GeneratorTestHelper.RunAnalyzer(source);
+
+		Assert.Contains(diagnostics, diagnostic => diagnostic.Id == expectedId);
 	}
 }

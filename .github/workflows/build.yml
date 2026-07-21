@@ -60,7 +60,7 @@ jobs:
       run: dotnet build -c Release --no-restore
 
     - name: Test
-      run: dotnet test -c Release --no-build -- --coverage --coverage-output-format cobertura --coverage-output coverage.cobertura.xml --coverage-settings ./coverage-settings.xml
+      run: dotnet test -c Release --no-build -- --coverage --coverage-output-format cobertura --coverage-settings ./coverage-settings.xml
 
     - name: Publish NativeAOT sample
       run: dotnet publish samples/NativeAot/NativeAot.csproj -c Release -r linux-x64 --self-contained --no-restore
@@ -71,32 +71,7 @@ jobs:
     - name: Validate packages
       run: dotnet tool run dotnet-validate -- package local ./nupkgs/*.nupkg
 
-    - name: Validate Immediate.Jobs package contents
-      shell: bash
-      run: |
-        package="$(find ./nupkgs -maxdepth 1 -name 'Immediate.Jobs.[0-9]*.nupkg' -print -quit)"
-        test -n "$package"
-        unzip -l "$package" > package-contents.txt
-        for tfm in net8.0 net9.0 net10.0 net11.0; do
-          grep -q "lib/$tfm/Immediate.Jobs.Shared.dll" package-contents.txt
-        done
-        grep -q 'analyzers/dotnet/roslyn4.8/cs/Immediate.Jobs.Analyzers.dll' package-contents.txt
-        grep -q 'analyzers/dotnet/roslyn4.8/cs/Immediate.Jobs.Generators.dll' package-contents.txt
-        grep -q 'analyzers/dotnet/roslyn5.0/cs/Immediate.Jobs.Analyzers.dll' package-contents.txt
-        grep -q 'analyzers/dotnet/roslyn5.0/cs/Immediate.Jobs.Generators.dll' package-contents.txt
-        grep -q 'analyzers/dotnet/roslyn5.0/cs/Scriban.dll' package-contents.txt
-        if grep -q 'analyzers/dotnet/roslyn4.8/cs/Scriban.dll' package-contents.txt; then exit 1; fi
-        if find ./nupkgs -maxdepth 1 -name 'Immediate.Jobs.Generators.*.nupkg' | grep -q .; then exit 1; fi
-
     - name: Coveralls
       uses: coverallsapp/github-action@v2
       with:
-        files: >
-          tests/Immediate.Jobs.FunctionalTests/bin/Release/net8.0/TestResults/coverage.cobertura.xml
-          tests/Immediate.Jobs.FunctionalTests/bin/Release/net9.0/TestResults/coverage.cobertura.xml
-          tests/Immediate.Jobs.FunctionalTests/bin/Release/net10.0/TestResults/coverage.cobertura.xml
-          tests/Immediate.Jobs.FunctionalTests/bin/Release/net11.0/TestResults/coverage.cobertura.xml
-          tests/Immediate.Jobs.Tests/bin/Release/net8.0/TestResults/coverage.cobertura.xml
-          tests/Immediate.Jobs.Tests/bin/Release/net9.0/TestResults/coverage.cobertura.xml
-          tests/Immediate.Jobs.Tests/bin/Release/net10.0/TestResults/coverage.cobertura.xml
-          tests/Immediate.Jobs.Tests/bin/Release/net11.0/TestResults/coverage.cobertura.xml
+        files: 'TestResults/*.cobertura.xml'

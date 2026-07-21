@@ -1,55 +1,36 @@
 using System.Collections.Immutable;
 using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
 
 namespace Immediate.Jobs.Generators;
 
-/// <summary>A symbol-free, value-equatable description of one generated job.</summary>
-internal sealed record JobModel
-{
-	public required string HintName { get; init; }
-	public required string? Namespace { get; init; }
-	public required string Accessibility { get; init; }
-	public required string ClassName { get; init; }
-	public required string TypeName { get; init; }
-	public required string PayloadTypeName { get; init; }
-	public required bool HasPayload { get; init; }
-	public required bool HasJobDetails { get; init; }
-	public required string Name { get; init; }
-	public required string QueueName { get; init; }
-	public required int QueuePriority { get; init; }
-	public required int QueueConcurrency { get; init; }
-	public required string? Cron { get; init; }
-	public required string TimeZone { get; init; }
-	public required int MaxAttempts { get; init; }
-	public required string? Timeout { get; init; }
-	public required int MaxConcurrency { get; init; }
-	public required int OverlapPolicy { get; init; }
-	public required int Backoff { get; init; }
-	public required string BackoffBase { get; init; }
-	public required EquatableReadOnlyList<JobContextModel> Contexts { get; init; }
-	public required JsonMetadataRenderModel Json { get; init; }
-}
-
-internal sealed record JobContextModel
-{
-	public required string ExtractorTypeName { get; init; }
-	public required string ContextTypeName { get; init; }
-	public required string JsonPropertyName { get; init; }
-}
-
-internal sealed record QueueModel
-{
-	public required string Name { get; init; }
-	public required int Priority { get; init; }
-	public required int Concurrency { get; init; }
-}
-
-internal static class GeneratorJobDiscovery
+public sealed partial class ImmediateJobsGenerator
 {
 	private static readonly SymbolDisplayFormat TypeDisplayFormat = SymbolDisplayFormat.FullyQualifiedFormat
 		.WithMiscellaneousOptions(SymbolDisplayMiscellaneousOptions.IncludeNullableReferenceTypeModifier);
 
-	public static bool TryCreateModel(INamedTypeSymbol type, Compilation compilation, out JobModel? model)
+	private static JobModel? TransformJob(
+		GeneratorAttributeSyntaxContext context,
+		CancellationToken cancellationToken
+	)
+	{
+		cancellationToken.ThrowIfCancellationRequested();
+		return context.TargetSymbol is INamedTypeSymbol type
+			&& TryCreateJobModel(type, context.SemanticModel.Compilation, out var job)
+				? job
+				: null;
+	}
+
+	private static QueueModel? TransformQueue(
+		GeneratorAttributeSyntaxContext context,
+		CancellationToken cancellationToken
+	)
+	{
+		cancellationToken.ThrowIfCancellationRequested();
+		return context.TargetSymbol is INamedTypeSymbol type ? CreateQueueModel(type) : null;
+	}
+
+	private static bool TryCreateJobModel(INamedTypeSymbol type, Compilation compilation, out JobModel? model)
 	{
 		model = null;
 		var attribute = JobDiscovery.GetJobAttribute(type);
@@ -128,26 +109,44 @@ internal static class GeneratorJobDiscovery
 			OverlapPolicy = JobDiscovery.GetNamedInt(attribute, "OverlapPolicy", 0),
 			Backoff = JobDiscovery.GetNamedInt(attribute, "Backoff", 2),
 			BackoffBase = JobDiscovery.GetNamedString(attribute, "BackoffBase") ?? "00:00:05",
+			Tags = GetHandlerTags(type),
 			Contexts = contexts,
 			Json = JsonMetadataEmitter.CreateModel(resolvedPayload, contextTypes),
 		};
 		return true;
 	}
 
-	public static QueueModel? CreateQueueModel(INamedTypeSymbol queueType)
+	private static string? GetHandlerTags(INamedTypeSymbol type)
+	{
+		var attribute = type.GetAttributes().FirstOrDefault(static candidate =>
+			candidate.AttributeClass.IsHandlerAttribute);
+		var tags = attribute?.NamedArguments.FirstOrDefault(static pair => pair.Key == "Tags").Value;
+		if (tags is not { Kind: TypedConstantKind.Array })
+			return null;
+
+		return string.Join(
+			", ",
+			tags.Value.Values
+				.Select(static value => value.ToCSharpString())
+				.OrderBy(static value => value, StringComparer.Ordinal)
+		);
+	}
+
+	private static QueueModel? CreateQueueModel(INamedTypeSymbol queueType)
 	{
 		if (JobDiscovery.GetQueueDefinitionAttribute(queueType) is not { } definition)
 			return null;
 
 		var name = JobDiscovery.GetQueueName(queueType);
 		var concurrency = JobDiscovery.GetNamedInt(definition, "Concurrency", 0);
-		return string.IsNullOrWhiteSpace(name) || name == "default" || concurrency < 0
-			? null
-			: new()
-			{
-				Name = name,
-				Priority = JobDiscovery.GetNamedInt(definition, "Priority", 0),
-				Concurrency = concurrency,
-			};
+		if (string.IsNullOrWhiteSpace(name) || name == "default" || concurrency < 0)
+			return null;
+
+		return new()
+		{
+			Name = name,
+			Priority = JobDiscovery.GetNamedInt(definition, "Priority", 0),
+			Concurrency = concurrency,
+		};
 	}
 }

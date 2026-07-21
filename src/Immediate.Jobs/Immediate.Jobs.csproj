@@ -17,9 +17,13 @@
 	<PublishRepositoryUrl>true</PublishRepositoryUrl>
   </PropertyGroup>
 
+  <!--
+	This ensures the library will be packaged as a source generator when we use `dotnet pack`
+	-->
   <ItemGroup>
 	<None Include="../../readme.md" Pack="true" PackagePath="/" />
 
+	<!-- IJ.Shared -->
 	<TfmSpecificPackageFile
 	  Include="../Immediate.Jobs.Shared/bin/$(Configuration)/$(TargetFramework)/Immediate.Jobs.Shared.dll"
 	  Pack="true"
@@ -31,6 +35,7 @@
 	  PackagePath="lib/$(TargetFramework)" />
   </ItemGroup>
 
+  <!-- roslyn 4.8 for net8/net9 -->
   <ItemGroup Condition="'$(TargetFramework)' == 'net8.0'">
 	<TfmSpecificPackageFile
 	  Include="../Immediate.Jobs.Analyzers/bin/$(Configuration)/netstandard2.0/Immediate.Jobs.Analyzers.dll"
@@ -43,6 +48,7 @@
 	  PackagePath="analyzers/dotnet/roslyn4.8/cs" />
   </ItemGroup>
 
+  <!-- roslyn 5.0 for net10/net11 -->
   <ItemGroup Condition="'$(TargetFramework)' == 'net10.0'">
 	<TfmSpecificPackageFile
 	  Include="../Immediate.Jobs.Analyzers/bin/$(Configuration)/net10.0/Immediate.Jobs.Analyzers.dll"

@@ -12,6 +12,7 @@
     <PublishRepositoryUrl>true</PublishRepositoryUrl>
   </PropertyGroup>
   <ItemGroup>
+    <Using Include="Immediate.Jobs.Shared" />
     <None Include="../../readme.md" Pack="true" PackagePath="/" />
     <PackageReference Include="Microsoft.EntityFrameworkCore" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" />
