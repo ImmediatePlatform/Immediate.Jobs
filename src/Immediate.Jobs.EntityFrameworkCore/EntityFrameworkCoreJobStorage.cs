@@ -104,7 +104,7 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 
 	/// <inheritdoc />
 	public async ValueTask<IReadOnlyList<JobRecord>> AcquireJobsAsync(
-		IReadOnlyCollection<Guid> jobIds,
+		IReadOnlyCollection<string> jobIds,
 		string workerId,
 		TimeSpan lease,
 		CancellationToken cancellationToken = default
@@ -165,14 +165,14 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 	}
 
 	/// <inheritdoc />
-	public ValueTask RenewLeaseAsync(Guid jobId, string workerId, TimeSpan lease, CancellationToken cancellationToken = default)
+	public ValueTask RenewLeaseAsync(string jobId, string workerId, TimeSpan lease, CancellationToken cancellationToken = default)
 	{
 		ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(lease, TimeSpan.Zero);
 		return MutateOwnedAsync(jobId, workerId, job => job.LeaseExpiresAt = _timeProvider.GetUtcNow() + lease, cancellationToken);
 	}
 
 	/// <inheritdoc />
-	public ValueTask CompleteAsync(Guid jobId, string workerId, CancellationToken cancellationToken = default)
+	public ValueTask CompleteAsync(string jobId, string workerId, CancellationToken cancellationToken = default)
 		=> MutateOwnedAsync(jobId, workerId, job =>
 		{
 			job.State = JobState.Succeeded;
@@ -182,7 +182,7 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 		}, cancellationToken);
 
 	/// <inheritdoc />
-	public ValueTask FailAsync(Guid jobId, string workerId, string error, DateTimeOffset? nextRetryAt, CancellationToken cancellationToken = default)
+	public ValueTask FailAsync(string jobId, string workerId, string error, DateTimeOffset? nextRetryAt, CancellationToken cancellationToken = default)
 		=> MutateOwnedAsync(jobId, workerId, job =>
 		{
 			var now = _timeProvider.GetUtcNow();
@@ -398,7 +398,7 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 	}
 
 	/// <inheritdoc />
-	public async ValueTask RetryAsync(Guid jobId, CancellationToken cancellationToken = default)
+	public async ValueTask RetryAsync(string jobId, CancellationToken cancellationToken = default)
 	{
 		await using var context = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
 		var job = await context.Set<ImmediateJobEntity>()
@@ -417,7 +417,7 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 	}
 
 	/// <inheritdoc />
-	public async ValueTask DeleteAsync(Guid jobId, CancellationToken cancellationToken = default)
+	public async ValueTask DeleteAsync(string jobId, CancellationToken cancellationToken = default)
 	{
 		await using var context = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
 		var job = await context.Set<ImmediateJobEntity>()
@@ -487,7 +487,7 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 		}
 	}
 
-	private async ValueTask MutateOwnedAsync(Guid jobId, string workerId, Action<ImmediateJobEntity> mutate, CancellationToken cancellationToken)
+	private async ValueTask MutateOwnedAsync(string jobId, string workerId, Action<ImmediateJobEntity> mutate, CancellationToken cancellationToken)
 	{
 		await using var context = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
 		var job = await context.Set<ImmediateJobEntity>()

@@ -16,14 +16,14 @@ public interface IJobStorage
 	);
 
 	/// <summary>Extends the lease on an active job owned by the worker.</summary>
-	ValueTask RenewLeaseAsync(Guid jobId, string workerId, TimeSpan lease, CancellationToken cancellationToken = default);
+	ValueTask RenewLeaseAsync(string jobId, string workerId, TimeSpan lease, CancellationToken cancellationToken = default);
 
 	/// <summary>Marks an active job successful.</summary>
-	ValueTask CompleteAsync(Guid jobId, string workerId, CancellationToken cancellationToken = default);
+	ValueTask CompleteAsync(string jobId, string workerId, CancellationToken cancellationToken = default);
 
 	/// <summary>Reschedules or dead-letters a failed attempt.</summary>
 	ValueTask FailAsync(
-		Guid jobId,
+		string jobId,
 		string workerId,
 		string error,
 		DateTimeOffset? nextRetryAt,
@@ -64,10 +64,10 @@ public interface IJobStorage
 	ValueTask<IReadOnlyList<JobRecord>> QueryJobsAsync(JobQuery query, CancellationToken cancellationToken = default);
 
 	/// <summary>Moves a failed invocation back to pending.</summary>
-	ValueTask RetryAsync(Guid jobId, CancellationToken cancellationToken = default);
+	ValueTask RetryAsync(string jobId, CancellationToken cancellationToken = default);
 
 	/// <summary>Deletes a terminal invocation.</summary>
-	ValueTask DeleteAsync(Guid jobId, CancellationToken cancellationToken = default);
+	ValueTask DeleteAsync(string jobId, CancellationToken cancellationToken = default);
 
 	/// <summary>Deletes terminal history older than the supplied retention periods.</summary>
 	ValueTask PurgeAsync(TimeSpan succeededRetention, TimeSpan failedRetention, CancellationToken cancellationToken = default);
@@ -88,7 +88,7 @@ public interface IJobStorageReplica
 {
 	/// <summary>Acquires the specified due invocations for the supplied worker.</summary>
 	ValueTask<IReadOnlyList<JobRecord>> AcquireJobsAsync(
-		IReadOnlyCollection<Guid> jobIds,
+		IReadOnlyCollection<string> jobIds,
 		string workerId,
 		TimeSpan lease,
 		CancellationToken cancellationToken = default

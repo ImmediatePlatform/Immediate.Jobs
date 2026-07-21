@@ -35,8 +35,8 @@ public interface IJobContextAwareInvoker;
 [EditorBrowsable(EditorBrowsableState.Never)]
 public static class JobContextEnvelope
 {
-	private static readonly Action<ILogger, string, Guid, Exception?> LogOrphanedSlice =
-		LoggerMessage.Define<string, Guid>(
+	private static readonly Action<ILogger, string, string, Exception?> LogOrphanedSlice =
+		LoggerMessage.Define<string, string>(
 			LogLevel.Warning,
 			new EventId(1, nameof(LogOrphanedSlices)),
 			"Skipping orphaned context slice {ContextKey} for job {JobId}"

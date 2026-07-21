@@ -13,6 +13,7 @@ internal sealed record JobModel
 	public required string TypeName { get; init; }
 	public required string PayloadTypeName { get; init; }
 	public required bool HasPayload { get; init; }
+	public required bool HasJobDetails { get; init; }
 	public required string Name { get; init; }
 	public required string QueueName { get; init; }
 	public required int QueuePriority { get; init; }
@@ -65,8 +66,7 @@ internal static class GeneratorJobDiscovery
 			.Where(static method => !method.IsImplicitlyDeclared)
 			.ToImmutableArray();
 		if (methods.Length != 1 ||
-			!JobDiscovery.IsValidMethod(methods[0], out var payloadType, out var hasPayload) ||
-			!JobDiscovery.ImplementsJobRequest(payloadType!))
+			!JobDiscovery.IsValidMethod(methods[0], out var payloadType, out var hasPayload))
 			return false;
 
 		var cron = JobDiscovery.GetNamedString(attribute, "Cron");
@@ -115,6 +115,7 @@ internal static class GeneratorJobDiscovery
 			TypeName = type.ToDisplayString(TypeDisplayFormat),
 			PayloadTypeName = resolvedPayload.ToDisplayString(TypeDisplayFormat),
 			HasPayload = hasPayload,
+			HasJobDetails = JobDiscovery.ImplementsJobRequest(resolvedPayload),
 			Name = JobDiscovery.GetName(type),
 			QueueName = queueName,
 			QueuePriority = queuePriority,

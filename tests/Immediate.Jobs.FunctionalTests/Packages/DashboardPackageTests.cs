@@ -78,7 +78,7 @@ public sealed class DashboardPackageTests
 		var storage = new InMemoryJobStorage(TimeProvider.System);
 		await storage.EnqueueAsync(new()
 		{
-			Id = Guid.Parse("86bf8c31-d8e6-415b-8e92-45587a09fc52"),
+			Id = "86bf8c31-d8e6-415b-8e92-45587a09fc52",
 			JobName = "SendGreeting",
 			Payload = "{}",
 			State = JobState.Succeeded,
@@ -124,6 +124,43 @@ public sealed class DashboardPackageTests
 		var job = Assert.Single(document.RootElement.GetProperty("jobs").EnumerateArray());
 		Assert.Equal("SendGreeting", job.GetProperty("jobName").GetString());
 		Assert.Equal("Succeeded", job.GetProperty("state").GetString());
+	}
+
+	[Fact]
+	public async Task JobApiAcceptsOpaqueStringIdentifiers()
+	{
+		const string JobId = "redis:jobs:01J2Z4J5Y6K7M8N9P0Q1R2S3T4";
+		var now = new DateTimeOffset(2026, 7, 21, 12, 0, 0, TimeSpan.Zero);
+		var storage = new InMemoryJobStorage(TimeProvider.System);
+		await storage.EnqueueAsync(new()
+		{
+			Id = JobId,
+			JobName = "SendGreeting",
+			Payload = "{}",
+			State = JobState.Pending,
+			DueAt = now,
+			CreatedAt = now,
+		}, TestContext.Current.CancellationToken);
+
+		var builder = WebApplication.CreateBuilder(new WebApplicationOptions
+		{
+			EnvironmentName = Environments.Development,
+		});
+		_ = builder.WebHost.UseTestServer();
+		_ = builder.Services.AddSingleton<IJobStorage>(storage);
+
+		await using var app = builder.Build();
+		_ = app.MapImmediateJobsDashboard();
+		await app.StartAsync(TestContext.Current.CancellationToken);
+
+		using var response = await app.GetTestClient().GetAsync(
+			new Uri($"/jobs/api/jobs/{JobId}", UriKind.Relative),
+			TestContext.Current.CancellationToken
+		);
+
+		_ = response.EnsureSuccessStatusCode();
+		using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
+		Assert.Equal(JobId, document.RootElement.GetProperty("id").GetString());
 	}
 }
 #pragma warning restore CS1591

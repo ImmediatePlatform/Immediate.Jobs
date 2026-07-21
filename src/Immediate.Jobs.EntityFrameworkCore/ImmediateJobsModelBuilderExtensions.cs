@@ -20,6 +20,7 @@ public static class ImmediateJobsModelBuilderExtensions
 	{
 		_ = entity.ToTable("immediate_jobs", schema);
 		_ = entity.HasKey(job => job.Id);
+		_ = entity.Property(job => job.Id).HasMaxLength(256);
 		_ = entity.Property(job => job.QueueName).HasMaxLength(256).HasDefaultValue(JobQueueDefinition.DefaultName).IsRequired();
 		_ = entity.Property(job => job.JobName).HasMaxLength(256).IsRequired();
 		_ = entity.Property(job => job.Payload).IsRequired();
@@ -86,7 +87,7 @@ public static class ImmediateJobsModelBuilderExtensions
 
 internal sealed class ImmediateJobEntity
 {
-	public Guid Id { get; set; }
+	public string Id { get; set; } = null!;
 	public string QueueName { get; set; } = JobQueueDefinition.DefaultName;
 	public string JobName { get; set; } = null!;
 	public string Payload { get; set; } = null!;

@@ -26,10 +26,7 @@ await app.RunAsync();
 [Handler, Job("send-welcome-email", MaxAttempts = 5, Timeout = "00:02:00")]
 public sealed partial class SendWelcomeEmail(IEmailSender sender)
 {
-	public sealed record Payload(Guid UserId, string Template) : IJobRequest
-	{
-		public JobDetails? JobDetails { get; set; }
-	}
+	public sealed record Payload(Guid UserId, string Template);
 
 	private ValueTask HandleAsync(Payload payload, CancellationToken cancellationToken) =>
 		new(sender.SendAsync(payload.UserId, payload.Template, cancellationToken));

@@ -63,7 +63,8 @@ public sealed class SingleServerJobStorage : IJobStorage, IAsyncDisposable, IDis
 			request.Lease,
 			cancellationToken
 		).ConfigureAwait(false);
-		if (acquired.Count != replicated.Count || !acquired.Select(x => x.Id).ToHashSet().SetEquals(replicated.Select(x => x.Id)))
+		if (acquired.Count != replicated.Count ||
+			!acquired.Select(x => x.Id).ToHashSet(StringComparer.Ordinal).SetEquals(replicated.Select(x => x.Id)))
 		{
 			throw new InvalidOperationException(
 				"The durable job replica has drifted from the authoritative in-memory queue. " +
@@ -76,7 +77,7 @@ public sealed class SingleServerJobStorage : IJobStorage, IAsyncDisposable, IDis
 
 	/// <inheritdoc />
 	public async ValueTask RenewLeaseAsync(
-		Guid jobId,
+		string jobId,
 		string workerId,
 		TimeSpan lease,
 		CancellationToken cancellationToken = default
@@ -88,7 +89,7 @@ public sealed class SingleServerJobStorage : IJobStorage, IAsyncDisposable, IDis
 	}
 
 	/// <inheritdoc />
-	public async ValueTask CompleteAsync(Guid jobId, string workerId, CancellationToken cancellationToken = default)
+	public async ValueTask CompleteAsync(string jobId, string workerId, CancellationToken cancellationToken = default)
 	{
 		await EnsureInitializedAsync(cancellationToken).ConfigureAwait(false);
 		await DurableStorage.CompleteAsync(jobId, workerId, cancellationToken).ConfigureAwait(false);
@@ -97,7 +98,7 @@ public sealed class SingleServerJobStorage : IJobStorage, IAsyncDisposable, IDis
 
 	/// <inheritdoc />
 	public async ValueTask FailAsync(
-		Guid jobId,
+		string jobId,
 		string workerId,
 		string error,
 		DateTimeOffset? nextRetryAt,
@@ -184,7 +185,7 @@ public sealed class SingleServerJobStorage : IJobStorage, IAsyncDisposable, IDis
 	}
 
 	/// <inheritdoc />
-	public async ValueTask RetryAsync(Guid jobId, CancellationToken cancellationToken = default)
+	public async ValueTask RetryAsync(string jobId, CancellationToken cancellationToken = default)
 	{
 		await EnsureInitializedAsync(cancellationToken).ConfigureAwait(false);
 		await DurableStorage.RetryAsync(jobId, cancellationToken).ConfigureAwait(false);
@@ -192,7 +193,7 @@ public sealed class SingleServerJobStorage : IJobStorage, IAsyncDisposable, IDis
 	}
 
 	/// <inheritdoc />
-	public async ValueTask DeleteAsync(Guid jobId, CancellationToken cancellationToken = default)
+	public async ValueTask DeleteAsync(string jobId, CancellationToken cancellationToken = default)
 	{
 		await EnsureInitializedAsync(cancellationToken).ConfigureAwait(false);
 		await DurableStorage.DeleteAsync(jobId, cancellationToken).ConfigureAwait(false);

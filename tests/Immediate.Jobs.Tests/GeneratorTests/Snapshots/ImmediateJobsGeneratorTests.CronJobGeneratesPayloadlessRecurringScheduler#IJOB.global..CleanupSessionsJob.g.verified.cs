@@ -18,7 +18,7 @@ public partial class CleanupSessionsJob
 			storage, serializer, timeProvider, "cleanup-sessions", "default", static options => new PayloadJsonContext(options).Payload), IScheduler
 		{
 
-			public global::System.Threading.Tasks.ValueTask<global::System.Guid> TriggerNow(global::System.Threading.CancellationToken cancellationToken = default) =>
+			public global::System.Threading.Tasks.ValueTask<string> TriggerNow(global::System.Threading.CancellationToken cancellationToken = default) =>
 				Enqueue(default, cancellationToken);
 
 			public global::System.Threading.Tasks.ValueTask AddOrUpdateRecurring(string name, string cron, string timeZone = "UTC", global::System.Threading.CancellationToken cancellationToken = default) =>
@@ -39,7 +39,6 @@ public partial class CleanupSessionsJob
 
 
 						var payload = new global::Immediate.Jobs.Shared.NoPayload();
-
 
 			SetJobDetails(
 				ref payload,

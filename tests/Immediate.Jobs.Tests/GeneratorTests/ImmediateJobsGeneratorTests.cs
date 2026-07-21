@@ -70,6 +70,34 @@ public sealed class ImmediateJobsGeneratorTests
 	}
 
 	[Fact]
+	public async Task PlainRequestGeneratesJobWithoutJobDetailsAssignment()
+	{
+		var source = """
+			using Immediate.Jobs.Shared;
+			using Immediate.Handlers.Shared;
+			using System.Threading;
+			using System.Threading.Tasks;
+
+			[Handler, Job]
+			public sealed partial class PlainRequestJob
+			{
+				public sealed record Payload(string Value);
+				private ValueTask HandleAsync(Payload payload, CancellationToken cancellationToken) => ValueTask.CompletedTask;
+			}
+			""";
+
+		var result = GeneratorTestHelper.RunGenerator(source);
+		var generated = result.GeneratedTrees
+			.Single(tree => tree.FilePath.Contains("IJOB.global", StringComparison.Ordinal))
+			.ToString();
+
+		Assert.Contains("IJobScheduler<global::PlainRequestJob.Payload>", generated, StringComparison.Ordinal);
+		Assert.Contains("handler.HandleAsync(payload, execution.CancellationToken)", generated, StringComparison.Ordinal);
+		Assert.DoesNotContain("SetJobDetails", generated, StringComparison.Ordinal);
+		_ = await Verify(result);
+	}
+
+	[Fact]
 	public void ExplicitJobDetailsOnValueTypeUsesConstrainedByReferenceAssignment()
 	{
 		var source = """
@@ -95,7 +123,7 @@ public sealed class ImmediateJobsGeneratorTests
 			.Single(tree => tree.FilePath.Contains("IJOB.global", StringComparison.Ordinal))
 			.ToString();
 
-		Assert.Contains("SetJobDetails(\n\t\t\t\tref payload", generated, StringComparison.Ordinal);
+		Assert.Contains("ref payload,", generated, StringComparison.Ordinal);
 		Assert.Contains("where TRequest : global::Immediate.Jobs.Shared.IJobRequest => request.JobDetails = details;", generated, StringComparison.Ordinal);
 		Assert.Contains("Unsafe.Unbox<global::StructPayload>(obj).Value = value!", generated, StringComparison.Ordinal);
 		Assert.DoesNotContain("PropertyName = \"JobDetails\"", generated, StringComparison.Ordinal);

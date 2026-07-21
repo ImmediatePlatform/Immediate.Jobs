@@ -16,7 +16,7 @@ public sealed class ContextPropagationTests
 		var probe = new ContextProbe();
 		await using var harness = CreateHarness(probe);
 
-		Guid id;
+		string id;
 		await using (var scope = harness.Services.CreateAsyncScope())
 		{
 			var ambient = scope.ServiceProvider.GetRequiredService<PropagationScopeState>();
@@ -67,7 +67,7 @@ public sealed class ContextPropagationTests
 	{
 		var cancellationToken = TestContext.Current.CancellationToken;
 		await using var harness = CreateHarness(new());
-		Guid id;
+		string id;
 		await using (var scope = harness.Services.CreateAsyncScope())
 		{
 			var scheduler = scope.ServiceProvider.GetRequiredService<RestoreFailureJob.Scheduler>();
@@ -127,7 +127,7 @@ public sealed class ContextPropagationTests
 		var now = harness.TimeProvider.GetUtcNow();
 		var record = new JobRecord
 		{
-			Id = Guid.NewGuid(),
+			Id = Guid.NewGuid().ToString("N"),
 			JobName = "record-message",
 			QueueName = "messages",
 			Payload = "{\"message\":\"orphan\"}",
@@ -215,7 +215,7 @@ public sealed class ContextPropagationTests
 
 	private static JobRecord CreateContextRecord(JobTestHarness harness, string context) => new()
 	{
-		Id = Guid.NewGuid(),
+		Id = Guid.NewGuid().ToString("N"),
 		JobName = "context-round-trip",
 		Payload = "{\"message\":\"legacy\"}",
 		State = JobState.Pending,
@@ -396,7 +396,7 @@ public sealed partial class ContextCronJob(PropagationScopeState state, ContextP
 
 public sealed class ScopedSchedulerConsumer(IServiceScopeFactory scopeFactory)
 {
-	public async ValueTask<Guid> EnqueueAsync(CancellationToken cancellationToken)
+	public async ValueTask<string> EnqueueAsync(CancellationToken cancellationToken)
 	{
 		await using var scope = scopeFactory.CreateAsyncScope();
 		var state = scope.ServiceProvider.GetRequiredService<PropagationScopeState>();

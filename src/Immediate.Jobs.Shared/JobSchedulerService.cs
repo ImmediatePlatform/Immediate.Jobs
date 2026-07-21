@@ -398,7 +398,7 @@ public sealed partial class JobSchedulerService : BackgroundService
 		_ = _jobReservations.AddOrUpdate(record.JobName, 0, static (_, count) => Math.Max(0, count - 1));
 	}
 
-	private async Task RenewLeaseLoopAsync(Guid jobId, CancellationToken cancellationToken)
+	private async Task RenewLeaseLoopAsync(string jobId, CancellationToken cancellationToken)
 	{
 		var interval = TimeSpan.FromTicks(Math.Max(1, _options.LeaseDuration.Ticks / 3));
 		while (true)
@@ -465,7 +465,7 @@ public sealed partial class JobSchedulerService : BackgroundService
 			var (traceParent, traceState) = TraceContextCapture.Current();
 			var record = new JobRecord
 			{
-				Id = Guid.NewGuid(),
+				Id = Guid.NewGuid().ToString("N"),
 				JobName = schedule.JobName,
 				QueueName = definition.Queue.Name,
 				Payload = "{}",
@@ -523,7 +523,7 @@ public sealed partial class JobSchedulerService : BackgroundService
 	private static partial void ShutdownDrainExceeded(ILogger logger, TimeSpan shutdownTimeout);
 
 	[LoggerMessage(EventId = 3, Level = LogLevel.Error, Message = "Unhandled worker error for job {jobId}; its lease will expire")]
-	private static partial void UnhandledWorkerError(ILogger logger, Exception exception, Guid jobId);
+	private static partial void UnhandledWorkerError(ILogger logger, Exception exception, string jobId);
 
 	[LoggerMessage(EventId = 4, Level = LogLevel.Information, Message = "Job completed in {durationMs} ms")]
 	private static partial void JobCompleted(ILogger logger, double durationMs);

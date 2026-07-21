@@ -10,7 +10,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) : IJobStorage,
 #else
 	private readonly object _gate = new();
 #endif
-	private readonly Dictionary<Guid, JobRecord> _jobs = [];
+	private readonly Dictionary<string, JobRecord> _jobs = new(StringComparer.Ordinal);
 	private readonly Dictionary<string, RecurringJobSchedule> _recurring = new(StringComparer.Ordinal);
 	private readonly Dictionary<string, JobServerSnapshot> _servers = new(StringComparer.Ordinal);
 	private readonly HashSet<string> _recurringKeys = new(StringComparer.Ordinal);
@@ -98,7 +98,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) : IJobStorage,
 
 	/// <inheritdoc />
 	public ValueTask<IReadOnlyList<JobRecord>> AcquireJobsAsync(
-		IReadOnlyCollection<Guid> jobIds,
+		IReadOnlyCollection<string> jobIds,
 		string workerId,
 		TimeSpan lease,
 		CancellationToken cancellationToken = default
@@ -141,7 +141,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) : IJobStorage,
 	}
 
 	/// <inheritdoc />
-	public ValueTask RenewLeaseAsync(Guid jobId, string workerId, TimeSpan lease, CancellationToken cancellationToken = default)
+	public ValueTask RenewLeaseAsync(string jobId, string workerId, TimeSpan lease, CancellationToken cancellationToken = default)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
 		lock (_gate)
@@ -154,7 +154,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) : IJobStorage,
 	}
 
 	/// <inheritdoc />
-	public ValueTask CompleteAsync(Guid jobId, string workerId, CancellationToken cancellationToken = default)
+	public ValueTask CompleteAsync(string jobId, string workerId, CancellationToken cancellationToken = default)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
 		lock (_gate)
@@ -174,7 +174,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) : IJobStorage,
 
 	/// <inheritdoc />
 	public ValueTask FailAsync(
-		Guid jobId,
+		string jobId,
 		string workerId,
 		string error,
 		DateTimeOffset? nextRetryAt,
@@ -322,7 +322,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) : IJobStorage,
 	}
 
 	/// <inheritdoc />
-	public ValueTask RetryAsync(Guid jobId, CancellationToken cancellationToken = default)
+	public ValueTask RetryAsync(string jobId, CancellationToken cancellationToken = default)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
 		lock (_gate)
@@ -337,7 +337,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) : IJobStorage,
 	}
 
 	/// <inheritdoc />
-	public ValueTask DeleteAsync(Guid jobId, CancellationToken cancellationToken = default)
+	public ValueTask DeleteAsync(string jobId, CancellationToken cancellationToken = default)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
 		lock (_gate)
@@ -389,7 +389,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) : IJobStorage,
 		return ValueTask.FromResult(true);
 	}
 
-	private JobRecord GetOwnedActive(Guid jobId, string workerId)
+	private JobRecord GetOwnedActive(string jobId, string workerId)
 	{
 		if (!_jobs.TryGetValue(jobId, out var job) || job.State != JobState.Active || job.WorkerId != workerId)
 			throw new InvalidOperationException($"Worker '{workerId}' does not own active job '{jobId}'.");

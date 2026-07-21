@@ -5,7 +5,6 @@ namespace Immediate.Jobs.Testing;
 /// <c>IScheduler</c> interface to inject a strongly typed capture double.
 /// </summary>
 public class CaptureOnlyJobScheduler<TPayload>(TimeProvider? timeProvider = null) : IJobScheduler<TPayload>
-	where TPayload : IJobRequest
 {
 	private readonly List<ScheduledJobCapture<TPayload>> _captures = [];
 	private readonly TimeProvider _timeProvider = timeProvider ?? TimeProvider.System;
@@ -17,11 +16,11 @@ public class CaptureOnlyJobScheduler<TPayload>(TimeProvider? timeProvider = null
 	public ScheduledJobCapture<TPayload>? Last => _captures.Count == 0 ? null : _captures[^1];
 
 	/// <inheritdoc />
-	public virtual ValueTask<Guid> Enqueue(TPayload payload, CancellationToken cancellationToken = default) =>
+	public virtual ValueTask<string> Enqueue(TPayload payload, CancellationToken cancellationToken = default) =>
 		Capture(payload, _timeProvider.GetUtcNow(), cancellationToken);
 
 	/// <inheritdoc />
-	public virtual ValueTask<Guid> Schedule(
+	public virtual ValueTask<string> Schedule(
 		TPayload payload,
 		TimeSpan delay,
 		CancellationToken cancellationToken = default
@@ -33,7 +32,7 @@ public class CaptureOnlyJobScheduler<TPayload>(TimeProvider? timeProvider = null
 	}
 
 	/// <inheritdoc />
-	public virtual ValueTask<Guid> ScheduleAt(
+	public virtual ValueTask<string> ScheduleAt(
 		TPayload payload,
 		DateTimeOffset runAt,
 		CancellationToken cancellationToken = default
@@ -43,9 +42,9 @@ public class CaptureOnlyJobScheduler<TPayload>(TimeProvider? timeProvider = null
 	public void Clear() => _captures.Clear();
 
 	/// <summary>Creates invocation identifiers. Override when a test requires predictable identifiers.</summary>
-	protected virtual Guid CreateId() => Guid.NewGuid();
+	protected virtual string CreateId() => Guid.NewGuid().ToString("N");
 
-	private ValueTask<Guid> Capture(TPayload payload, DateTimeOffset runAt, CancellationToken cancellationToken)
+	private ValueTask<string> Capture(TPayload payload, DateTimeOffset runAt, CancellationToken cancellationToken)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
 		var id = CreateId();
@@ -55,5 +54,4 @@ public class CaptureOnlyJobScheduler<TPayload>(TimeProvider? timeProvider = null
 }
 
 /// <summary>A captured typed scheduler call.</summary>
-public sealed record ScheduledJobCapture<TPayload>(Guid Id, TPayload Payload, DateTimeOffset RunAt)
-	where TPayload : IJobRequest;
+public sealed record ScheduledJobCapture<TPayload>(string Id, TPayload Payload, DateTimeOffset RunAt);

@@ -25,8 +25,8 @@ public sealed record JobRecord
 	/// <summary>The stable persisted queue name.</summary>
 	public string QueueName { get; init; } = JobQueueDefinition.DefaultName;
 
-	/// <summary>The unique invocation identifier.</summary>
-	public required Guid Id { get; init; }
+	/// <summary>The unique opaque invocation identifier.</summary>
+	public required string Id { get; init; }
 
 	/// <summary>The generated stable job name.</summary>
 	public required string JobName { get; init; }
@@ -143,7 +143,7 @@ public sealed record JobDefinition
 public sealed record JobQuery
 {
 	/// <summary>Optional exact invocation identifier.</summary>
-	public Guid? Id { get; init; }
+	public string? Id { get; init; }
 
 	/// <summary>Optional state filter.</summary>
 	public JobState? State { get; init; }

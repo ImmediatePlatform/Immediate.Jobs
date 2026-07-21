@@ -92,7 +92,7 @@ public static class ImmediateJobsDashboardEndpointRouteBuilderExtensions
 			return Results.Json([.. jobs], DashboardJsonSerializerContext.Default.JobRecordArray);
 		});
 
-		_ = api.MapGet("/jobs/{jobId:guid}", GetJobAsync);
+		_ = api.MapGet("/jobs/{jobId}", GetJobAsync);
 		_ = api.MapGet("/recurring", async (IJobStorage storage, CancellationToken cancellationToken) =>
 		{
 			var snapshot = await storage.GetMonitoringSnapshotAsync(cancellationToken).ConfigureAwait(false);
@@ -103,8 +103,8 @@ public static class ImmediateJobsDashboardEndpointRouteBuilderExtensions
 			var snapshot = await storage.GetMonitoringSnapshotAsync(cancellationToken).ConfigureAwait(false);
 			return Results.Json([.. snapshot.Servers], DashboardJsonSerializerContext.Default.JobServerSnapshotArray);
 		});
-		_ = api.MapPost("/jobs/{jobId:guid}/retry", RetryJobAsync);
-		_ = api.MapDelete("/jobs/{jobId:guid}", DeleteJobAsync);
+		_ = api.MapPost("/jobs/{jobId}/retry", RetryJobAsync);
+		_ = api.MapDelete("/jobs/{jobId}", DeleteJobAsync);
 		_ = api.MapPost("/recurring/{name}/trigger", TriggerRecurringAsync);
 		_ = api.MapPost("/recurring/{name}/pause", (
 			string name,
@@ -121,7 +121,7 @@ public static class ImmediateJobsDashboardEndpointRouteBuilderExtensions
 	}
 
 	private static async Task<IResult> GetJobAsync(
-		Guid jobId,
+		string jobId,
 		IJobStorage storage,
 		CancellationToken cancellationToken
 	)
@@ -134,7 +134,7 @@ public static class ImmediateJobsDashboardEndpointRouteBuilderExtensions
 	}
 
 	private static async Task<IResult> RetryJobAsync(
-		Guid jobId,
+		string jobId,
 		IJobStorage storage,
 		CancellationToken cancellationToken
 	)
@@ -155,7 +155,7 @@ public static class ImmediateJobsDashboardEndpointRouteBuilderExtensions
 	}
 
 	private static async Task<IResult> DeleteJobAsync(
-		Guid jobId,
+		string jobId,
 		IJobStorage storage,
 		CancellationToken cancellationToken
 	)
@@ -198,7 +198,7 @@ public static class ImmediateJobsDashboardEndpointRouteBuilderExtensions
 		var now = context.RequestServices.GetService<TimeProvider>()?.GetUtcNow() ?? TimeProvider.System.GetUtcNow();
 		var job = new JobRecord
 		{
-			Id = Guid.NewGuid(),
+			Id = Guid.NewGuid().ToString("N"),
 			JobName = schedule.JobName,
 			QueueName = definition.Queue.Name,
 			Payload = "{}",

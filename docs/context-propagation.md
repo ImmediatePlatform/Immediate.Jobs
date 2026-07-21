@@ -262,10 +262,7 @@ public sealed class UsageContextExtractor(IHttpContextAccessor http, ICurrentUse
     : IJobContextExtractor<UsageContext> { /* Capture/Restore as in §4.2 */ }
 
 // applied to any number of jobs
-public sealed record InvoicePayload(Guid OrderId) : IJobRequest
-{
-    public JobDetails? JobDetails { get; set; }
-}
+public sealed record InvoicePayload(Guid OrderId);
 
 [Handler, Job, UsesJobContext<UsageContextExtractor>]
 public sealed partial class SendInvoiceJob

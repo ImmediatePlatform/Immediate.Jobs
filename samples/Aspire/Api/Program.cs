@@ -69,7 +69,7 @@ app.MapPost("/api/greetings/{name}", async (
 
 await app.RunAsync();
 
-public sealed record EnqueueJobResponse(Guid JobId, Uri DashboardUrl);
+public sealed record EnqueueJobResponse(string JobId, Uri DashboardUrl);
 
 public sealed record OriginatingRequestContext(string ClientIpAddress, string UserAgent);
 
@@ -113,10 +113,7 @@ public sealed partial class AspireGreetingJob(
 	CurrentRequestContext currentRequestContext
 )
 {
-	public sealed record Payload(string Name) : IJobRequest
-	{
-		public JobDetails? JobDetails { get; set; }
-	}
+	public sealed record Payload(string Name);
 
 	private async ValueTask HandleAsync(Payload payload, CancellationToken cancellationToken)
 	{

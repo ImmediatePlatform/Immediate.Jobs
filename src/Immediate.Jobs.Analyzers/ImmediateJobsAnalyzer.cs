@@ -24,8 +24,7 @@ public sealed class ImmediateJobsAnalyzer : DiagnosticAnalyzer
 			DiagnosticDescriptors.InvalidQueueTarget,
 			DiagnosticDescriptors.DuplicateQueueName,
 			DiagnosticDescriptors.InvalidContextExtractor,
-			DiagnosticDescriptors.UnsupportedContext,
-			DiagnosticDescriptors.RequestMustImplementIJobRequest
+			DiagnosticDescriptors.UnsupportedContext
 		);
 
 	/// <inheritdoc />
@@ -128,16 +127,6 @@ public sealed class ImmediateJobsAnalyzer : DiagnosticAnalyzer
 			if (methods.Length != 1 || !JobDiscovery.IsValidMethod(methods[0], out var payloadType, out var hasPayload))
 			{
 				context.ReportDiagnostic(Diagnostic.Create(DiagnosticDescriptors.InvalidMethodSignature, location, job.Name));
-				continue;
-			}
-
-			if (!JobDiscovery.ImplementsJobRequest(payloadType!))
-			{
-				context.ReportDiagnostic(Diagnostic.Create(
-					DiagnosticDescriptors.RequestMustImplementIJobRequest,
-					methods[0].Parameters[0].Locations.FirstOrDefault() ?? location,
-					payloadType!.ToDisplayString()
-				));
 				continue;
 			}
 

@@ -1,6 +1,9 @@
 namespace Immediate.Jobs.Shared;
 
-/// <summary>A request that can receive metadata for its current background-job invocation.</summary>
+/// <summary>
+/// Optional request capability for receiving metadata about the current background-job invocation.
+/// Job request types do not need to implement this interface unless they need access to <see cref="JobDetails"/>.
+/// </summary>
 public interface IJobRequest
 {
 	/// <summary>The current invocation details, or <see langword="null"/> before execution begins.</summary>
@@ -9,7 +12,7 @@ public interface IJobRequest
 
 /// <summary>Immutable metadata describing one background-job execution attempt.</summary>
 public sealed record JobDetails(
-	Guid JobId,
+	string JobId,
 	string JobName,
 	string QueueName,
 	int Attempt,

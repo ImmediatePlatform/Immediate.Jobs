@@ -113,6 +113,33 @@ public sealed class GeneratedJobTests
 		Assert.Equal(["before:7", "job:7", "after:7"], state.Events);
 		Assert.Equal(id, Assert.Single(state.Details).JobId);
 	}
+
+	[Fact]
+	public async Task PlainRequestRunsWithoutJobDetailsCapability()
+	{
+		var cancellationToken = TestContext.Current.CancellationToken;
+		var state = new ExecutionState();
+		await using var harness = new JobTestHarness(services =>
+		{
+			_ = services.AddSingleton(state);
+			_ = services.AddSingleton(new ContextProbe());
+			_ = services.AddScoped<PropagationScopeState>();
+			_ = services.AddImmediateJobsFunctionalTestsBehaviors();
+			_ = services.AddImmediateJobs();
+		});
+		await using var scope = harness.Services.CreateAsyncScope();
+		var scheduler = scope.ServiceProvider.GetRequiredService<PlainRequestJob.Scheduler>();
+
+		var id = await scheduler.Enqueue(new("hello"), cancellationToken);
+		var enqueued = await harness.AssertEnqueuedAsync<PlainRequestJob.Payload>(id, JobState.Pending, cancellationToken);
+		Assert.Equal("hello", enqueued.Payload.Message);
+
+		await harness.DrainAsync(cancellationToken);
+
+		Assert.Equal(["plain:hello"], state.Events);
+		Assert.Empty(state.Details);
+		Assert.Equal(JobState.Succeeded, (await harness.GetJobAsync(id, cancellationToken)).State);
+	}
 }
 
 public sealed class ExecutionState
@@ -193,6 +220,19 @@ public sealed partial class ValueTypeJob(ExecutionState state)
 		_ = cancellationToken;
 		_ = request.JobDetails ?? throw new InvalidOperationException("Job details were not populated.");
 		state.Events.Add($"job:{request.Value}");
+		return ValueTask.CompletedTask;
+	}
+}
+
+[Handler, Job("plain-request")]
+public sealed partial class PlainRequestJob(ExecutionState state)
+{
+	public sealed record Payload(string Message);
+
+	private ValueTask HandleAsync(Payload payload, CancellationToken cancellationToken)
+	{
+		_ = cancellationToken;
+		state.Events.Add("plain:" + payload.Message);
 		return ValueTask.CompletedTask;
 	}
 }

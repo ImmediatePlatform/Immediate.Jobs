@@ -34,7 +34,6 @@ public partial class SendEmailJob
 
 						var payload = serializer.Deserialize(execution.Record.Payload, static options => new PayloadJsonContext(options).Payload);
 
-
 			SetJobDetails(
 				ref payload,
 				new global::Immediate.Jobs.Shared.JobDetails(

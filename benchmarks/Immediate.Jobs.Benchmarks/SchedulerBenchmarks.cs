@@ -35,7 +35,7 @@ public class EnqueueBenchmarks
 	public async Task Cleanup() => await _quartz.Shutdown(waitForJobsToComplete: true);
 
 	[Benchmark(Baseline = true)]
-	public ValueTask<Guid> ImmediateJobs() => _immediate.Enqueue(new(42));
+	public ValueTask<string> ImmediateJobs() => _immediate.Enqueue(new(42));
 
 	[Benchmark]
 	public string Hangfire() => _hangfire.Enqueue(() => BenchmarkOperations.Execute(42));
@@ -111,7 +111,7 @@ public class DispatchBenchmarks
 	{
 		var record = new JobRecord
 		{
-			Id = Guid.NewGuid(),
+			Id = Guid.NewGuid().ToString("N"),
 			JobName = "benchmark-job",
 			Payload = "{\"value\":42}",
 			State = JobState.Active,
@@ -152,11 +152,7 @@ public class DispatchBenchmarks
 	}
 }
 
-public sealed record BenchmarkPayload(int Value) : IJobRequest
-{
-	[JsonIgnore]
-	public JobDetails? JobDetails { get; set; }
-}
+public sealed record BenchmarkPayload(int Value);
 
 [JsonSerializable(typeof(BenchmarkPayload))]
 internal sealed partial class BenchmarkJsonContext : JsonSerializerContext;

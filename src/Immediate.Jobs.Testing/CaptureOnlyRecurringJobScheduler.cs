@@ -36,7 +36,7 @@ public class CaptureOnlyRecurringJobScheduler : IRecurringJobScheduler
 	}
 
 	/// <inheritdoc />
-	public virtual ValueTask<Guid> TriggerNow(CancellationToken cancellationToken = default)
+	public virtual ValueTask<string> TriggerNow(CancellationToken cancellationToken = default)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
 		var id = CreateId();
@@ -48,7 +48,7 @@ public class CaptureOnlyRecurringJobScheduler : IRecurringJobScheduler
 	public void Clear() => _captures.Clear();
 
 	/// <summary>Creates trigger identifiers. Override when a test requires predictable identifiers.</summary>
-	protected virtual Guid CreateId() => Guid.NewGuid();
+	protected virtual string CreateId() => Guid.NewGuid().ToString("N");
 }
 
 /// <summary>The operation represented by a recurring scheduler capture.</summary>
@@ -68,5 +68,5 @@ public sealed record RecurringJobCapture(
 	string? Name = null,
 	string? Cron = null,
 	string? TimeZone = null,
-	Guid? JobId = null
+	string? JobId = null
 );

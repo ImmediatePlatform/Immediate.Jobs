@@ -90,14 +90,6 @@ public sealed class ImmediateJobsAnalyzerTests
 		},
 		{
 			"""
-			using Immediate.Jobs.Shared; using Immediate.Handlers.Shared; using System.Threading; using System.Threading.Tasks;
-			public sealed record Payload(string Value);
-			[Handler, Job] public sealed partial class MissingRequestContractJob { private ValueTask HandleAsync(Payload request, CancellationToken ct) => ValueTask.CompletedTask; }
-			""",
-			"IJOB015"
-		},
-		{
-			"""
 			using Immediate.Jobs.Shared;
 			[QueueDefinition(Name = "same")] public sealed class FirstQueue;
 			[QueueDefinition(Name = "same")] public sealed class SecondQueue;
@@ -112,6 +104,29 @@ public sealed class ImmediateJobsAnalyzerTests
 	{
 		var diagnostics = await GeneratorTestHelper.RunAnalyzer(source);
 		Assert.Contains(diagnostics, diagnostic => diagnostic.Id == expectedId);
+	}
+
+	[Fact]
+	public async Task JobRequestContractIsOptional()
+	{
+		var source = """
+			using Immediate.Jobs.Shared;
+			using Immediate.Handlers.Shared;
+			using System.Threading;
+			using System.Threading.Tasks;
+
+			public sealed record Payload(string Value);
+
+			[Handler, Job]
+			public sealed partial class PlainRequestJob
+			{
+				private ValueTask HandleAsync(Payload request, CancellationToken cancellationToken) => ValueTask.CompletedTask;
+			}
+			""";
+
+		var diagnostics = await GeneratorTestHelper.RunAnalyzer(source);
+
+		Assert.Empty(diagnostics);
 	}
 
 	[Theory]

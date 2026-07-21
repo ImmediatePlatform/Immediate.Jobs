@@ -5,16 +5,15 @@ namespace Immediate.Jobs.Shared;
 
 /// <summary>A typed enqueue and scheduling contract implemented by every generated scheduler.</summary>
 public interface IJobScheduler<TPayload>
-	where TPayload : IJobRequest
 {
-	/// <summary>Enqueues work immediately.</summary>
-	ValueTask<Guid> Enqueue(TPayload payload, CancellationToken cancellationToken = default);
+	/// <summary>Enqueues work immediately and returns its opaque invocation identifier.</summary>
+	ValueTask<string> Enqueue(TPayload payload, CancellationToken cancellationToken = default);
 
-	/// <summary>Schedules work after a delay.</summary>
-	ValueTask<Guid> Schedule(TPayload payload, TimeSpan delay, CancellationToken cancellationToken = default);
+	/// <summary>Schedules work after a delay and returns its opaque invocation identifier.</summary>
+	ValueTask<string> Schedule(TPayload payload, TimeSpan delay, CancellationToken cancellationToken = default);
 
-	/// <summary>Schedules work at an absolute time.</summary>
-	ValueTask<Guid> ScheduleAt(TPayload payload, DateTimeOffset runAt, CancellationToken cancellationToken = default);
+	/// <summary>Schedules work at an absolute time and returns its opaque invocation identifier.</summary>
+	ValueTask<string> ScheduleAt(TPayload payload, DateTimeOffset runAt, CancellationToken cancellationToken = default);
 }
 
 /// <summary>Recurring operations shared by generated cron schedulers.</summary>
@@ -26,8 +25,8 @@ public interface IRecurringJobScheduler
 	/// <summary>Removes a dynamic durable schedule.</summary>
 	ValueTask RemoveRecurring(string name, CancellationToken cancellationToken = default);
 
-	/// <summary>Enqueues the recurring job immediately.</summary>
-	ValueTask<Guid> TriggerNow(CancellationToken cancellationToken = default);
+	/// <summary>Enqueues the recurring job immediately and returns its opaque invocation identifier.</summary>
+	ValueTask<string> TriggerNow(CancellationToken cancellationToken = default);
 }
 
 /// <summary>Runtime base used by source-generated typed schedulers.</summary>
@@ -39,7 +38,6 @@ public abstract class JobScheduler<TPayload>(
 	string queueName,
 	Func<System.Text.Json.JsonSerializerOptions, JsonTypeInfo<TPayload>> payloadTypeInfoFactory
 ) : IJobScheduler<TPayload>
-	where TPayload : IJobRequest
 {
 	/// <summary>Captures the context envelope persisted with a new invocation.</summary>
 	protected virtual ValueTask<string?> CaptureContextAsync(CancellationToken cancellationToken) =>
@@ -61,11 +59,11 @@ public abstract class JobScheduler<TPayload>(
 	protected string QueueName { get; } = queueName;
 
 	/// <inheritdoc />
-	public ValueTask<Guid> Enqueue(TPayload payload, CancellationToken cancellationToken = default) =>
+	public ValueTask<string> Enqueue(TPayload payload, CancellationToken cancellationToken = default) =>
 		ScheduleAt(payload, TimeProvider.GetUtcNow(), cancellationToken);
 
 	/// <inheritdoc />
-	public ValueTask<Guid> Schedule(TPayload payload, TimeSpan delay, CancellationToken cancellationToken = default)
+	public ValueTask<string> Schedule(TPayload payload, TimeSpan delay, CancellationToken cancellationToken = default)
 	{
 		if (delay < TimeSpan.Zero)
 			throw new ArgumentOutOfRangeException(nameof(delay), "A job delay cannot be negative.");
@@ -74,14 +72,14 @@ public abstract class JobScheduler<TPayload>(
 	}
 
 	/// <inheritdoc />
-	public async ValueTask<Guid> ScheduleAt(
+	public async ValueTask<string> ScheduleAt(
 		TPayload payload,
 		DateTimeOffset runAt,
 		CancellationToken cancellationToken = default
 	)
 	{
 		var now = TimeProvider.GetUtcNow();
-		var id = Guid.NewGuid();
+		var id = Guid.NewGuid().ToString("N");
 		var (traceParent, traceState) = TraceContextCapture.Current();
 		var context = await CaptureContextAsync(cancellationToken).ConfigureAwait(false);
 		var record = new JobRecord

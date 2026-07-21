@@ -143,7 +143,7 @@ public sealed class SingleServerJobStorageTests
 
 	private static JobRecord CreateJob(DateTimeOffset dueAt) => new()
 	{
-		Id = Guid.NewGuid(),
+		Id = Guid.NewGuid().ToString("N"),
 		JobName = "example",
 		Payload = "{}",
 		State = dueAt <= DateTimeOffset.UnixEpoch ? JobState.Pending : JobState.Scheduled,

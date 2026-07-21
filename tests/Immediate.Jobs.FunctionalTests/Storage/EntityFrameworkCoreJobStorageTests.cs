@@ -138,7 +138,7 @@ public sealed class EntityFrameworkCoreJobStorageTests
 
 	private static JobRecord CreateJob(DateTimeOffset now, int index) => new()
 	{
-		Id = Guid.NewGuid(),
+		Id = "job-" + Guid.NewGuid().ToString("N"),
 		JobName = "ef-test",
 		Payload = $"{{\"index\":{index}}}",
 		State = JobState.Pending,

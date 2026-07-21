@@ -99,7 +99,7 @@ public sealed class JobTestHarness : IAsyncDisposable, IDisposable
 	) => Storage.QueryJobsAsync(query ?? new() { Take = 1000 }, cancellationToken);
 
 	/// <summary>Finds an invocation by identifier, or throws a test assertion exception.</summary>
-	public async ValueTask<JobRecord> GetJobAsync(Guid jobId, CancellationToken cancellationToken = default)
+	public async ValueTask<JobRecord> GetJobAsync(string jobId, CancellationToken cancellationToken = default)
 	{
 		var jobs = await Storage.QueryJobsAsync(new() { Take = 1000 }, cancellationToken).ConfigureAwait(false);
 		return jobs.FirstOrDefault(job => job.Id == jobId)
@@ -108,11 +108,10 @@ public sealed class JobTestHarness : IAsyncDisposable, IDisposable
 
 	/// <summary>Asserts and deserializes the invocation returned by a typed scheduler call.</summary>
 	public async ValueTask<EnqueuedJob<TPayload>> AssertEnqueuedAsync<TPayload>(
-		Guid jobId,
+		string jobId,
 		JobState? expectedState = null,
 		CancellationToken cancellationToken = default
 	)
-		where TPayload : IJobRequest
 	{
 		var job = await GetJobAsync(jobId, cancellationToken).ConfigureAwait(false);
 		if (expectedState is { } state && job.State != state)
@@ -143,13 +142,12 @@ public sealed class JobTestHarness : IAsyncDisposable, IDisposable
 		TPayload payload,
 		CancellationToken cancellationToken = default
 	)
-		where TPayload : IJobRequest
 	{
 		ArgumentNullException.ThrowIfNull(definition);
 		var now = TimeProvider.GetUtcNow();
 		var record = new JobRecord
 		{
-			Id = Guid.NewGuid(),
+			Id = Guid.NewGuid().ToString("N"),
 			JobName = definition.Name,
 			QueueName = definition.Queue.Name,
 			Payload = _serviceProvider.GetRequiredService<IJobSerializer>().Serialize(payload),
@@ -185,5 +183,4 @@ public sealed class JobTestHarness : IAsyncDisposable, IDisposable
 }
 
 /// <summary>A durable invocation paired with its strongly typed deserialized payload.</summary>
-public sealed record EnqueuedJob<TPayload>(JobRecord Record, TPayload Payload)
-	where TPayload : IJobRequest;
+public sealed record EnqueuedJob<TPayload>(JobRecord Record, TPayload Payload);

@@ -94,6 +94,7 @@ public sealed class ImmediateJobsGenerator : IIncrementalGenerator
 			job.TypeName,
 			job.PayloadTypeName,
 			job.HasPayload,
+			job.HasJobDetails,
 			JobNameLiteral = Literal(job.Name),
 			QueueNameLiteral = Literal(job.QueueName),
 			QueuePriority = job.QueuePriority.ToString(CultureInfo.InvariantCulture),

@@ -6,26 +6,24 @@ namespace Immediate.Jobs.NodaTime;
 public static class NodaTimeJobSchedulerExtensions
 {
 	/// <summary>Schedules a payload after a NodaTime duration.</summary>
-	public static ValueTask<Guid> Schedule<TPayload>(
+	public static ValueTask<string> Schedule<TPayload>(
 		this IJobScheduler<TPayload> scheduler,
 		TPayload payload,
 		Duration delay,
 		CancellationToken cancellationToken = default
 	)
-		where TPayload : IJobRequest
 	{
 		ArgumentNullException.ThrowIfNull(scheduler);
 		return scheduler.Schedule(payload, delay.ToTimeSpan(), cancellationToken);
 	}
 
 	/// <summary>Schedules a payload at a NodaTime instant.</summary>
-	public static ValueTask<Guid> ScheduleAt<TPayload>(
+	public static ValueTask<string> ScheduleAt<TPayload>(
 		this IJobScheduler<TPayload> scheduler,
 		TPayload payload,
 		Instant runAt,
 		CancellationToken cancellationToken = default
 	)
-		where TPayload : IJobRequest
 	{
 		ArgumentNullException.ThrowIfNull(scheduler);
 		return scheduler.ScheduleAt(payload, runAt.ToDateTimeOffset(), cancellationToken);

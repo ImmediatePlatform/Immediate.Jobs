@@ -38,8 +38,8 @@
               <span class="actions">
                 <button class="action" aria-expanded={isSelected(job)} onclick={() => toggleDetails(job)}>{isSelected(job) ? 'Hide' : 'Details'}</button>
                 {#if job.state === 'Failed'}
-                  <button class="action" onclick={() => act(`jobs/${job.id}/retry`)}>Retry</button>
-                  <button class="action danger" onclick={() => act(`jobs/${job.id}`, 'DELETE')}>Delete</button>
+                  <button class="action" onclick={() => act(`jobs/${encodeURIComponent(job.id)}/retry`)}>Retry</button>
+                  <button class="action danger" onclick={() => act(`jobs/${encodeURIComponent(job.id)}`, 'DELETE')}>Delete</button>
                 {/if}
               </span>
             </td>

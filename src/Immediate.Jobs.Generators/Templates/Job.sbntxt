@@ -76,7 +76,7 @@ namespace {{ namespace }};
 		}
 
 		{{ end }}
-		public global::System.Threading.Tasks.ValueTask<global::System.Guid> TriggerNow(global::System.Threading.CancellationToken cancellationToken = default) =>
+		public global::System.Threading.Tasks.ValueTask<string> TriggerNow(global::System.Threading.CancellationToken cancellationToken = default) =>
 			Enqueue(default, cancellationToken);
 
 		public global::System.Threading.Tasks.ValueTask AddOrUpdateRecurring(string name, string cron, string timeZone = "UTC", global::System.Threading.CancellationToken cancellationToken = default) =>
@@ -118,6 +118,7 @@ namespace {{ namespace }};
 			var payload = new global::Immediate.Jobs.Shared.NoPayload();
 			{{ end }}
 
+			{{- if has_job_details }}
 			SetJobDetails(
 				ref payload,
 				new global::Immediate.Jobs.Shared.JobDetails(
@@ -129,16 +130,20 @@ namespace {{ namespace }};
 					execution.Record.DueAt
 				)
 			);
+			{{- end }}
 
 			var handler = global::Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetRequiredService<{{ type_name }}.Handler>(scopedServices);
 			_ = await handler.HandleAsync(payload, execution.CancellationToken).ConfigureAwait(false);
 		}
+
+		{{- if has_job_details }}
 
 		private static void SetJobDetails<TRequest>(
 			ref TRequest request,
 			global::Immediate.Jobs.Shared.JobDetails details
 		)
 			where TRequest : global::Immediate.Jobs.Shared.IJobRequest => request.JobDetails = details;
+		{{- end }}
 	}
 
 	[global::System.ComponentModel.EditorBrowsable(global::System.ComponentModel.EditorBrowsableState.Never)]

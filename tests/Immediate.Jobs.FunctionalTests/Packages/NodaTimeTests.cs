@@ -44,10 +44,7 @@ public sealed class NodaTimeTests
 
 	public sealed record NodaPayload(Instant Instant, Duration Duration, DateTimeZone Zone);
 
-	public sealed record SchedulerRequest(string Value) : IJobRequest
-	{
-		public JobDetails? JobDetails { get; set; }
-	}
+	public sealed record SchedulerRequest(string Value);
 }
 
 [JsonSerializable(typeof(NodaTimeTests.NodaPayload))]

@@ -44,10 +44,7 @@ public sealed partial class CleanupSessionsJob(AppDbContext db)
 [Handler, Job("send-welcome-email", MaxAttempts = 5, Timeout = "00:02:00")]
 public sealed partial class SendWelcomeEmail(IEmailSender sender)
 {
-    public sealed record Payload(Guid UserId, string Template) : IJobRequest
-    {
-        public JobDetails? JobDetails { get; set; }
-    }
+    public sealed record Payload(Guid UserId, string Template);
 
     private async ValueTask HandleAsync(Payload payload, CancellationToken ct)
         => await sender.SendAsync(payload.UserId, payload.Template, ct);
@@ -74,6 +71,8 @@ public sealed class SignupService(SendWelcomeEmail.Scheduler welcomeEmail)
 The generated `Scheduler` is a thin, sealed, scoped class over `IJobStorage` + the generated serializer — fully typed, AOT-safe, mockable for tests (it implements a generated `SendWelcomeEmail.IScheduler` interface). Resolve it from the caller's request or DI scope. Singleton consumers cannot inject a scoped scheduler directly and instead create a scope with `IServiceScopeFactory` for each unit of work.
 
 Cron jobs declared via attribute are registered automatically at startup and expose a payload-less scheduler (`CleanupSessionsJob.Scheduler.TriggerNow(ct)`); dynamic recurring schedules are covered in §2.7.
+
+Every enqueue or trigger operation returns an opaque string invocation ID. The built-in scheduler uses compact GUID-formatted strings, but callers and storage providers must not parse or depend on that format.
 
 ### 2.3 Registration
 
@@ -121,11 +120,10 @@ The generator ships an analyzer emitting, at minimum:
 - `IJOB007` payload contains NodaTime types but `Immediate.Jobs.NodaTime` is not referenced
 - `IJOB008` retry/concurrency/timeout configuration is invalid
 - `IJOB009` `[Job]` class is not also marked with Immediate.Handlers `[Handler]`
-- `IJOB015` job request does not implement `Immediate.Jobs.Shared.IJobRequest`
 
 ### 2.6 Immediate.Handlers behaviors for jobs
 
-Every job uses its normal Immediate.Handlers pipeline because the worker invokes the generated handler. The request implements `IJobRequest`, and the worker attaches non-persisted execution metadata before entering that pipeline:
+Every job uses its normal Immediate.Handlers pipeline because the worker invokes the generated handler. Job requests need no jobs-specific interface. A request may implement the optional `IJobRequest` capability when it needs non-persisted execution metadata; the worker attaches those details before entering the pipeline:
 
 ```csharp
 public sealed class JobLoggingBehavior<TRequest, TResponse>(ILogger<JobLoggingBehavior<TRequest, TResponse>> logger)
@@ -141,7 +139,7 @@ public sealed class JobLoggingBehavior<TRequest, TResponse>(ILogger<JobLoggingBe
 }
 ```
 
-- Register constrained job behaviors through Immediate.Handlers `[assembly: Behaviors(...)]`. The constraint excludes ordinary handler requests that do not implement `IJobRequest`.
+- Register constrained job behaviors through Immediate.Handlers `[assembly: Behaviors(...)]`. The constraint excludes ordinary handlers and jobs that do not opt into `IJobRequest`.
 - Use `[Behaviors(...)]` on one job, or a reusable attribute annotated with `[Behaviors(...)]`, to replace assembly-wide behaviors for that subset.
 - `JobDetails` exposes `JobName`, `JobId`, `QueueName`, `Attempt`, `CreatedAt`, and `ScheduledAt`; the cancellation token remains the normal behavior method parameter.
 - The handler pipeline runs inside the retry boundary; built-in concerns such as lease heartbeat, timeout, serialization, and ambient-context restoration remain infrastructure concerns.

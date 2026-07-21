@@ -15,7 +15,7 @@ public sealed class QueueStorageTests
 		var storage = new InMemoryJobStorage(clock);
 		var job = new JobRecord
 		{
-			Id = Guid.NewGuid(),
+			Id = Guid.NewGuid().ToString("N"),
 			JobName = "context-test",
 			Payload = "{}",
 			Context = context,
@@ -89,7 +89,7 @@ public sealed class QueueStorageTests
 
 		ValueTask Enqueue(string queueName, string jobName, int order) => storage.EnqueueAsync(new()
 		{
-			Id = Guid.NewGuid(),
+			Id = Guid.NewGuid().ToString("N"),
 			QueueName = queueName,
 			JobName = jobName,
 			Payload = "{}",

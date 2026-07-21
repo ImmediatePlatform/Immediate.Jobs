@@ -13,10 +13,7 @@ using Immediate.Jobs.Shared;
 [Handler, Job("send-welcome-email", MaxAttempts = 5, Timeout = "00:02:00")]
 public sealed partial class SendWelcomeEmail(IEmailSender sender)
 {
-	public sealed record Payload(Guid UserId, string Template) : IJobRequest
-	{
-		public JobDetails? JobDetails { get; set; }
-	}
+	public sealed record Payload(Guid UserId, string Template);
 
 	private ValueTask HandleAsync(Payload payload, CancellationToken cancellationToken) =>
 		new(sender.SendAsync(payload.UserId, payload.Template, cancellationToken));
@@ -24,7 +21,7 @@ public sealed partial class SendWelcomeEmail(IEmailSender sender)
 
 public sealed class SignupService(SendWelcomeEmail.Scheduler welcomeEmail)
 {
-	public ValueTask<Guid> Enqueue(Guid userId, CancellationToken cancellationToken) =>
+	public ValueTask<string> Enqueue(Guid userId, CancellationToken cancellationToken) =>
 		welcomeEmail.Enqueue(new(userId, "v2"), cancellationToken);
 }
 ```
@@ -47,6 +44,8 @@ public sealed class ImportWorker(IServiceScopeFactory scopeFactory)
 	}
 }
 ```
+
+`Enqueue`, `Schedule`, `ScheduleAt`, and `TriggerNow` return an opaque string invocation ID. The built-in scheduler currently creates a compact GUID-formatted value, but consumers must not parse it or depend on that format; storage integrations may use another string ID scheme.
 
 ## Queues, priority, and concurrency
 
@@ -80,7 +79,7 @@ builder.Services.AddImmediateJobs(options =>
 
 The EF Core package adds `UseEntityFrameworkCore<TContext>()` in the same options callback. A durable provider implicitly selects single-server mode: memory is the live authority and every transition is written through to the database for restart recovery. Use `options.UseSingleServer()` to state that topology explicitly, `options.UseDistributed()` to make the database authoritative for multi-node coordination, or `options.UseInMemory()` for a non-durable development store.
 
-Adding queue support introduces the required `QueueName` column on `immediate_jobs`; applications using EF Core storage must add a migration. The model supplies `"default"` as the database default so existing rows are backfilled safely.
+Adding queue support introduces the required `QueueName` column on `immediate_jobs`, and invocation IDs are stored as strings with a maximum length of 256. Applications using EF Core storage must add a migration (or recreate a development database created from an earlier draft). The model supplies `"default"` as the queue database default so existing rows are backfilled safely.
 
 ## Recurring work
 
@@ -107,7 +106,14 @@ Code schedules are re-asserted at startup. Storage uses a unique `(schedule name
 
 ## Immediate.Handlers behaviors for jobs
 
-Background dispatch calls the generated Immediate.Handlers handler, so jobs use the same behavior pipeline as inline requests. Every job request implements `IJobRequest`; the worker populates its non-persisted `JobDetails` immediately before entering that pipeline.
+Background dispatch calls the generated Immediate.Handlers handler, so jobs use the same behavior pipeline as inline requests. A job request does not need a jobs-specific base type or interface. Implement the optional `IJobRequest` capability only when the handler or a behavior needs execution metadata; the worker then populates its non-persisted `JobDetails` immediately before entering the pipeline.
+
+```csharp
+public sealed record Payload(Guid UserId, string Template) : IJobRequest
+{
+	public JobDetails? JobDetails { get; set; }
+}
+```
 
 ```csharp
 [assembly: Behaviors(typeof(JobLoggingBehavior<,>))]
@@ -125,7 +131,7 @@ public sealed class JobLoggingBehavior<TRequest, TResponse>(ILogger<JobLoggingBe
 }
 ```
 
-The `IJobRequest` constraint keeps this global behavior out of ordinary handlers. Use Immediate.Handlers `[Behaviors(...)]` directly on a job to replace assembly behaviors, or put `[Behaviors(...)]` on a reusable custom attribute for a named job pipeline. Handler behaviors execute inside the retry boundary.
+The `IJobRequest` constraint keeps this global behavior out of ordinary handlers and jobs that have not opted into execution metadata. Use Immediate.Handlers `[Behaviors(...)]` directly on a job to replace assembly behaviors, or put `[Behaviors(...)]` on a reusable custom attribute for a named job pipeline. Handler behaviors execute inside the retry boundary.
 
 ## Propagating scoped context
 
@@ -219,7 +225,6 @@ The package serves an embedded SPA, JSON monitoring endpoints, and a Server-Sent
 | `IJOB012` | Duplicate persisted queue name |
 | `IJOB013` | `UsesJobContext<T>` targets an invalid extractor type |
 | `IJOB014` | Unsupported context member/type |
-| `IJOB015` | A job request does not implement `IJobRequest` |
 
 ## Observability
 
