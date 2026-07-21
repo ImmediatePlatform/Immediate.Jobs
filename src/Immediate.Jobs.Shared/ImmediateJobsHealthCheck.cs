@@ -16,6 +16,8 @@ public sealed class ImmediateJobsHealthCheck(
 		CancellationToken cancellationToken = default
 	)
 	{
+		ArgumentNullException.ThrowIfNull(context);
+
 		if (!await storage.IsHealthyAsync(cancellationToken).ConfigureAwait(false))
 			return new(context.Registration.FailureStatus, "The Immediate.Jobs storage provider is unavailable.");
 

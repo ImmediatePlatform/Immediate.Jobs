@@ -42,9 +42,8 @@ public sealed class EntityFrameworkCoreJobStorageTests
 
 		var firstClaim = first.AcquireDueJobsAsync(CreateRequest("node-a", 64), cancellationToken).AsTask();
 		var secondClaim = second.AcquireDueJobsAsync(CreateRequest("node-b", 64), cancellationToken).AsTask();
-		await Task.WhenAll(firstClaim, secondClaim);
-
-		var claimed = firstClaim.Result.Concat(secondClaim.Result).ToArray();
+		var claims = await Task.WhenAll(firstClaim, secondClaim);
+		var claimed = claims.SelectMany(static claim => claim).ToArray();
 		Assert.Equal(64, claimed.Length);
 		Assert.Equal(64, claimed.Select(job => job.Id).Distinct().Count());
 	}
@@ -59,7 +58,7 @@ public sealed class EntityFrameworkCoreJobStorageTests
 		var job = CreateJob(fixture.TimeProvider.GetUtcNow(), 1);
 		await first.EnqueueAsync(job, cancellationToken);
 
-		Assert.Single(await first.AcquireDueJobsAsync(CreateRequest("node-a", 1), cancellationToken));
+		_ = Assert.Single(await first.AcquireDueJobsAsync(CreateRequest("node-a", 1), cancellationToken));
 		fixture.TimeProvider.Advance(TimeSpan.FromMinutes(1));
 
 		var recovered = Assert.Single(
@@ -75,11 +74,11 @@ public sealed class EntityFrameworkCoreJobStorageTests
 	{
 		var cancellationToken = TestContext.Current.CancellationToken;
 		await using var fixture = await StorageFixture.CreateAsync(cancellationToken);
-		var firstProcess = new SingleServerJobStorage(fixture.CreateStorage(), fixture.TimeProvider);
+		using var firstProcess = new SingleServerJobStorage(fixture.CreateStorage(), fixture.TimeProvider);
 		var job = CreateJob(fixture.TimeProvider.GetUtcNow(), 1);
 		await firstProcess.EnqueueAsync(job, cancellationToken);
 
-		var restartedProcess = new SingleServerJobStorage(fixture.CreateStorage(), fixture.TimeProvider);
+		using var restartedProcess = new SingleServerJobStorage(fixture.CreateStorage(), fixture.TimeProvider);
 		await restartedProcess.InitializeAsync(cancellationToken);
 
 		Assert.Equal(job.Id, Assert.Single(await restartedProcess.QueryJobsAsync(new(), cancellationToken)).Id);
@@ -148,12 +147,14 @@ public sealed class EntityFrameworkCoreJobStorageTests
 	};
 
 	private sealed class StorageFixture(
-		SqliteConnection anchor,
+		string connectionString,
 		ServiceProvider services,
 		IDbContextFactory<TestDbContext> contextFactory,
 		FakeTimeProvider timeProvider
 	) : IAsyncDisposable
 	{
+		private readonly SqliteConnection _anchor = new(connectionString);
+
 		public FakeTimeProvider TimeProvider { get; } = timeProvider;
 
 		public EntityFrameworkCoreJobStorage<TestDbContext> CreateStorage() => new(contextFactory, TimeProvider);
@@ -164,34 +165,48 @@ public sealed class EntityFrameworkCoreJobStorageTests
 		)
 		{
 			var connectionString = $"Data Source=jobs-{Guid.NewGuid():N};Mode=Memory;Cache=Shared";
-			var anchor = new SqliteConnection(connectionString);
-			await anchor.OpenAsync(cancellationToken);
-
 			var services = new ServiceCollection();
-			services.AddDbContextFactory<TestDbContext>(options =>
+			_ = services.AddDbContextFactory<TestDbContext>(options =>
 			{
-				options.UseSqlite(connectionString);
+				_ = options.UseSqlite(connectionString);
 				if (useRetryingExecutionStrategy)
-					options.ReplaceService<IExecutionStrategyFactory, RetryingExecutionStrategyFactory>();
+					_ = options.ReplaceService<IExecutionStrategyFactory, RetryingExecutionStrategyFactory>();
 			});
 			var provider = services.BuildServiceProvider();
 			var factory = provider.GetRequiredService<IDbContextFactory<TestDbContext>>();
-			await using (var context = await factory.CreateDbContextAsync(cancellationToken))
-				await context.Database.EnsureCreatedAsync(cancellationToken);
-
-			return new(anchor, provider, factory, new(new DateTimeOffset(2026, 7, 21, 8, 0, 0, TimeSpan.Zero)));
+			var fixture = new StorageFixture(
+				connectionString,
+				provider,
+				factory,
+				new(new DateTimeOffset(2026, 7, 21, 8, 0, 0, TimeSpan.Zero))
+			);
+			try
+			{
+				await fixture._anchor.OpenAsync(cancellationToken);
+				await using var context = await factory.CreateDbContextAsync(cancellationToken);
+				_ = await context.Database.EnsureCreatedAsync(cancellationToken);
+				return fixture;
+			}
+			catch
+			{
+				await fixture.DisposeAsync();
+				throw;
+			}
 		}
 
 		public async ValueTask DisposeAsync()
 		{
 			await services.DisposeAsync();
-			await anchor.DisposeAsync();
+			await _anchor.DisposeAsync();
 		}
 	}
 
 	private sealed class TestDbContext(DbContextOptions<TestDbContext> options) : DbContext(options)
 	{
-		protected override void OnModelCreating(ModelBuilder modelBuilder) => modelBuilder.AddImmediateJobs();
+		protected override void OnModelCreating(ModelBuilder modelBuilder)
+		{
+			_ = modelBuilder.AddImmediateJobs();
+		}
 	}
 
 	private sealed class RetryingExecutionStrategyFactory(ExecutionStrategyDependencies dependencies)

@@ -1,6 +1,6 @@
-namespace Immediate.Jobs.Tests.AnalyzerTests;
+using Immediate.Jobs.Tests.GeneratorTests;
 
-using GeneratorTests;
+namespace Immediate.Jobs.Tests.AnalyzerTests;
 
 public sealed class ImmediateJobsAnalyzerTests
 {
@@ -153,7 +153,7 @@ public sealed class ImmediateJobsAnalyzerTests
 	[Fact]
 	public async Task ValidContextUsageIsClean()
 	{
-		const string source = """
+		var source = """
 			using Immediate.Jobs.Shared;
 			using Immediate.Handlers.Shared;
 			using System.Threading;

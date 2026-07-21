@@ -11,7 +11,7 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 ) : IJobStorage, IJobStorageReplica
 	where TContext : DbContext
 {
-	private readonly TimeProvider timeProvider = timeProvider ?? TimeProvider.System;
+	private readonly TimeProvider _timeProvider = timeProvider ?? TimeProvider.System;
 
 	/// <inheritdoc />
 	public async ValueTask InitializeAsync(CancellationToken cancellationToken = default)
@@ -26,8 +26,8 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 	{
 		ArgumentNullException.ThrowIfNull(job);
 		await using var context = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
-		context.Set<ImmediateJobEntity>().Add(ToEntity(job));
-		await context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+		_ = context.Set<ImmediateJobEntity>().Add(ToEntity(job));
+		_ = await context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 	}
 
 	/// <inheritdoc />
@@ -40,7 +40,7 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 		ArgumentException.ThrowIfNullOrWhiteSpace(request.WorkerId);
 		ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(request.Lease, TimeSpan.Zero);
 		ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(request.BatchSize, 0);
-		var now = timeProvider.GetUtcNow();
+		var now = _timeProvider.GetUtcNow();
 		var acquired = new List<JobRecord>(request.BatchSize);
 		foreach (var queue in request.Queues)
 		{
@@ -116,7 +116,7 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 		if (jobIds.Count == 0)
 			return [];
 
-		var now = timeProvider.GetUtcNow();
+		var now = _timeProvider.GetUtcNow();
 		var ids = jobIds.ToArray();
 		await using var readContext = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
 		var candidates = await readContext.Set<ImmediateJobEntity>()
@@ -143,7 +143,7 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 		{
 			await using var context = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
 			var entity = Copy(candidate);
-			context.Attach(entity);
+			_ = context.Attach(entity);
 			entity.State = JobState.Active;
 			entity.WorkerId = workerId;
 			entity.LeaseExpiresAt = now + lease;
@@ -152,7 +152,7 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 			entity.ConcurrencyStamp = Guid.NewGuid();
 			try
 			{
-				await context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+				_ = await context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 				acquired.Add(ToRecord(entity));
 			}
 			catch (DbUpdateConcurrencyException)
@@ -168,7 +168,7 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 	public ValueTask RenewLeaseAsync(Guid jobId, string workerId, TimeSpan lease, CancellationToken cancellationToken = default)
 	{
 		ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(lease, TimeSpan.Zero);
-		return MutateOwnedAsync(jobId, workerId, job => job.LeaseExpiresAt = timeProvider.GetUtcNow() + lease, cancellationToken);
+		return MutateOwnedAsync(jobId, workerId, job => job.LeaseExpiresAt = _timeProvider.GetUtcNow() + lease, cancellationToken);
 	}
 
 	/// <inheritdoc />
@@ -176,7 +176,7 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 		=> MutateOwnedAsync(jobId, workerId, job =>
 		{
 			job.State = JobState.Succeeded;
-			job.CompletedAt = timeProvider.GetUtcNow();
+			job.CompletedAt = _timeProvider.GetUtcNow();
 			job.WorkerId = null;
 			job.LeaseExpiresAt = null;
 		}, cancellationToken);
@@ -185,7 +185,7 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 	public ValueTask FailAsync(Guid jobId, string workerId, string error, DateTimeOffset? nextRetryAt, CancellationToken cancellationToken = default)
 		=> MutateOwnedAsync(jobId, workerId, job =>
 		{
-			var now = timeProvider.GetUtcNow();
+			var now = _timeProvider.GetUtcNow();
 			if (nextRetryAt is null)
 			{
 				job.State = JobState.Failed;
@@ -197,6 +197,7 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 				job.DueAt = nextRetryAt.Value;
 				job.CompletedAt = null;
 			}
+
 			job.LastError = error;
 			job.WorkerId = null;
 			job.LeaseExpiresAt = null;
@@ -210,10 +211,10 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 		if (await UpdateRecurringAsync(context, schedule, cancellationToken).ConfigureAwait(false) != 0)
 			return;
 
-		context.Add(ToEntity(schedule));
+		_ = context.Add(ToEntity(schedule));
 		try
 		{
-			await context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+			_ = await context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 		}
 		catch (DbUpdateException)
 		{
@@ -233,8 +234,8 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 			.ConfigureAwait(false);
 		if (entity is not null)
 		{
-			context.Remove(entity);
-			await context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+			_ = context.Remove(entity);
+			_ = await context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 		}
 	}
 
@@ -312,10 +313,10 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 		entity.LastRunAt = schedule.NextRunAt;
 		entity.NextRunAt = nextRunAt;
 		entity.ConcurrencyStamp = Guid.NewGuid();
-		context.Add(ToEntity(job));
+		_ = context.Add(ToEntity(job));
 		try
 		{
-			await context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+			_ = await context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 			await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
 			return true;
 		}
@@ -362,7 +363,7 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 			.Select(server => new JobServerSnapshot(server.WorkerId, server.LastHeartbeat, server.ActiveWorkers, server.MaxWorkers))
 			.ToListAsync(cancellationToken)
 			.ConfigureAwait(false);
-		return new(timeProvider.GetUtcNow(), counts, recurring, servers);
+		return new(_timeProvider.GetUtcNow(), counts, recurring, servers);
 	}
 
 	/// <inheritdoc />
@@ -393,7 +394,7 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 			.Take(query.Take)
 			.ToListAsync(cancellationToken)
 			.ConfigureAwait(false);
-		return entities.Select(ToRecord).ToList();
+		return [.. entities.Select(ToRecord)];
 	}
 
 	/// <inheritdoc />
@@ -406,13 +407,13 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 		if (job is null)
 			return;
 		job.State = JobState.Pending;
-		job.DueAt = timeProvider.GetUtcNow();
+		job.DueAt = _timeProvider.GetUtcNow();
 		job.WorkerId = null;
 		job.LeaseExpiresAt = null;
 		job.CompletedAt = null;
 		job.LastError = null;
 		job.ConcurrencyStamp = Guid.NewGuid();
-		await context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+		_ = await context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 	}
 
 	/// <inheritdoc />
@@ -425,15 +426,15 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 			.ConfigureAwait(false);
 		if (job is not null)
 		{
-			context.Remove(job);
-			await context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+			_ = context.Remove(job);
+			_ = await context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 		}
 	}
 
 	/// <inheritdoc />
 	public async ValueTask PurgeAsync(TimeSpan succeededRetention, TimeSpan failedRetention, CancellationToken cancellationToken = default)
 	{
-		var now = timeProvider.GetUtcNow();
+		var now = _timeProvider.GetUtcNow();
 		var succeededBefore = now - succeededRetention;
 		var failedBefore = now - failedRetention;
 		await using var context = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
@@ -443,7 +444,7 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 			.ToListAsync(cancellationToken)
 			.ConfigureAwait(false);
 		context.RemoveRange(jobs);
-		await context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+		_ = await context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 	}
 
 	/// <inheritdoc />
@@ -454,7 +455,7 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 		var entity = await context.Set<ImmediateJobServerEntity>().FindAsync([server.WorkerId], cancellationToken).ConfigureAwait(false);
 		if (entity is null)
 		{
-			context.Add(new ImmediateJobServerEntity
+			_ = context.Add(new ImmediateJobServerEntity
 			{
 				WorkerId = server.WorkerId,
 				LastHeartbeat = server.LastHeartbeat,
@@ -468,7 +469,8 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 			entity.ActiveWorkers = server.ActiveWorkers;
 			entity.MaxWorkers = server.MaxWorkers;
 		}
-		await context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+
+		_ = await context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 	}
 
 	/// <inheritdoc />
@@ -497,7 +499,7 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 		job.ConcurrencyStamp = Guid.NewGuid();
 		try
 		{
-			await context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+			_ = await context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 		}
 		catch (DbUpdateConcurrencyException)
 		{
@@ -514,7 +516,7 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 			return;
 		mutate(schedule);
 		schedule.ConcurrencyStamp = Guid.NewGuid();
-		await context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+		_ = await context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 	}
 
 	private static Task<int> UpdateRecurringAsync(

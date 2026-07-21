@@ -33,8 +33,8 @@ public sealed class TestingPackageTests
 		};
 		await using var harness = new JobTestHarness(services =>
 		{
-			services.AddSingleton(counter);
-			services.AddSingleton(definition);
+			_ = services.AddSingleton(counter);
+			_ = services.AddSingleton(definition);
 		});
 		var scheduler = new TestScheduler(
 			harness.Storage,

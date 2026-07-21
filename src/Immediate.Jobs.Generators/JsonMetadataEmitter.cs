@@ -1,5 +1,4 @@
 using System.Collections.Immutable;
-using Immediate.Jobs;
 using Microsoft.CodeAnalysis;
 
 namespace Immediate.Jobs.Generators;
@@ -38,6 +37,7 @@ internal static class JsonMetadataEmitter
 		{
 			Index = index,
 			TypeName = Display(type),
+			IsValueType = type.IsValueType,
 			ConverterName = converterName,
 			IsEnum = isEnum,
 			UsesConfiguredConverter = usesConfiguredConverter,
@@ -50,10 +50,17 @@ internal static class JsonMetadataEmitter
 	{
 		var members = GetMembers(type);
 		var constructor = GetConstructor(type, members);
+		var constructorParameters = constructor is null
+#if NETSTANDARD2_0
+			? ImmutableArray<IParameterSymbol>.Empty
+#else
+			? []
+#endif
+			: constructor.Parameters;
 		return new()
 		{
 			HasParameterlessCreator = constructor is null || constructor.Parameters.Length == 0,
-			ConstructorParameters = (constructor is null ? ImmutableArray<IParameterSymbol>.Empty : constructor.Parameters)
+			ConstructorParameters = constructorParameters
 				.Select((parameter, index) => new JsonConstructorParameterRenderModel
 				{
 					Index = index,
@@ -96,20 +103,29 @@ internal static class JsonMetadataEmitter
 					Visit(GetMemberType(member));
 			}
 		}
+
 		foreach (var root in roots)
 			Visit(root);
+
 		return builder.ToImmutable();
 	}
 
-	private static ImmutableArray<ISymbol> GetMembers(INamedTypeSymbol type) => type.GetMembers()
-		.Where(static member => !JobDiscovery.IsJobDetailsMember(member))
-		.Where(member => member switch
-		{
-			IPropertySymbol property => property.DeclaredAccessibility == Accessibility.Public && !property.IsStatic && property.GetMethod is not null && property.Parameters.Length == 0,
-			IFieldSymbol field => field.DeclaredAccessibility == Accessibility.Public && !field.IsStatic && !field.IsImplicitlyDeclared,
-			_ => false,
-		})
-		.ToImmutableArray();
+	private static ImmutableArray<ISymbol> GetMembers(INamedTypeSymbol type)
+	{
+		var members = type.GetMembers()
+			.Where(static member => !JobDiscovery.IsJobDetailsMember(member))
+			.Where(member => member switch
+			{
+				IPropertySymbol property => property.DeclaredAccessibility == Accessibility.Public && !property.IsStatic && property.GetMethod is not null && property.Parameters.Length == 0,
+				IFieldSymbol field => field.DeclaredAccessibility == Accessibility.Public && !field.IsStatic && !field.IsImplicitlyDeclared,
+				_ => false,
+			});
+#if NETSTANDARD2_0
+		return members.ToImmutableArray();
+#else
+		return [.. members];
+#endif
+	}
 
 	private static IMethodSymbol? GetConstructor(INamedTypeSymbol type, ImmutableArray<ISymbol> members) => type.InstanceConstructors
 		.Where(constructor => constructor.DeclaredAccessibility == Accessibility.Public)
@@ -134,35 +150,33 @@ internal static class JsonMetadataEmitter
 	{
 		if (type is IArrayTypeSymbol array && array.ElementType.SpecialType == SpecialType.System_Byte)
 			return "ByteArrayConverter";
-		return type.SpecialType switch
+		if (type.SpecialType == SpecialType.System_Boolean) return "BooleanConverter";
+		if (type.SpecialType == SpecialType.System_Byte) return "ByteConverter";
+		if (type.SpecialType == SpecialType.System_SByte) return "SByteConverter";
+		if (type.SpecialType == SpecialType.System_Int16) return "Int16Converter";
+		if (type.SpecialType == SpecialType.System_UInt16) return "UInt16Converter";
+		if (type.SpecialType == SpecialType.System_Int32) return "Int32Converter";
+		if (type.SpecialType == SpecialType.System_UInt32) return "UInt32Converter";
+		if (type.SpecialType == SpecialType.System_Int64) return "Int64Converter";
+		if (type.SpecialType == SpecialType.System_UInt64) return "UInt64Converter";
+		if (type.SpecialType == SpecialType.System_Char) return "CharConverter";
+		if (type.SpecialType == SpecialType.System_Single) return "SingleConverter";
+		if (type.SpecialType == SpecialType.System_Double) return "DoubleConverter";
+		if (type.SpecialType == SpecialType.System_Decimal) return "DecimalConverter";
+		if (type.SpecialType == SpecialType.System_String) return "StringConverter";
+		if (type.SpecialType == SpecialType.System_DateTime) return "DateTimeConverter";
+		if (type.SpecialType == SpecialType.System_Object) return "ObjectConverter";
+
+		return type.ToDisplayString() switch
 		{
-			SpecialType.System_Boolean => "BooleanConverter",
-			SpecialType.System_Byte => "ByteConverter",
-			SpecialType.System_SByte => "SByteConverter",
-			SpecialType.System_Int16 => "Int16Converter",
-			SpecialType.System_UInt16 => "UInt16Converter",
-			SpecialType.System_Int32 => "Int32Converter",
-			SpecialType.System_UInt32 => "UInt32Converter",
-			SpecialType.System_Int64 => "Int64Converter",
-			SpecialType.System_UInt64 => "UInt64Converter",
-			SpecialType.System_Char => "CharConverter",
-			SpecialType.System_Single => "SingleConverter",
-			SpecialType.System_Double => "DoubleConverter",
-			SpecialType.System_Decimal => "DecimalConverter",
-			SpecialType.System_String => "StringConverter",
-			SpecialType.System_DateTime => "DateTimeConverter",
-			SpecialType.System_Object => "ObjectConverter",
-			_ => type.ToDisplayString() switch
-			{
-				"System.Guid" => "GuidConverter",
-				"System.DateTimeOffset" => "DateTimeOffsetConverter",
-				"System.TimeSpan" => "TimeSpanConverter",
-				"System.DateOnly" => "DateOnlyConverter",
-				"System.TimeOnly" => "TimeOnlyConverter",
-				"System.Uri" => "UriConverter",
-				"System.Version" => "VersionConverter",
-				_ => null,
-			},
+			"System.Guid" => "GuidConverter",
+			"System.DateTimeOffset" => "DateTimeOffsetConverter",
+			"System.TimeSpan" => "TimeSpanConverter",
+			"System.DateOnly" => "DateOnlyConverter",
+			"System.TimeOnly" => "TimeOnlyConverter",
+			"System.Uri" => "UriConverter",
+			"System.Version" => "VersionConverter",
+			_ => null,
 		};
 	}
 
@@ -191,6 +205,7 @@ internal sealed record JsonTypeRenderModel
 {
 	public required int Index { get; init; }
 	public required string TypeName { get; init; }
+	public required bool IsValueType { get; init; }
 	public required string? ConverterName { get; init; }
 	public required bool IsEnum { get; init; }
 	public required bool UsesConfiguredConverter { get; init; }

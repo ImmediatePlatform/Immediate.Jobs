@@ -72,12 +72,20 @@ public sealed class SystemTextJsonJobSerializer(JsonSerializerOptions options) :
 	public string Serialize<TPayload>(
 		TPayload payload,
 		Func<JsonSerializerOptions, JsonTypeInfo<TPayload>> payloadTypeInfoFactory
-	) => JsonSerializer.Serialize(payload, payloadTypeInfoFactory(new(Options)));
+	)
+	{
+		ArgumentNullException.ThrowIfNull(payloadTypeInfoFactory);
+		return JsonSerializer.Serialize(payload, payloadTypeInfoFactory(new(Options)));
+	}
 
 	/// <inheritdoc />
 	public TPayload Deserialize<TPayload>(
 		string payload,
 		Func<JsonSerializerOptions, JsonTypeInfo<TPayload>> payloadTypeInfoFactory
-	) => JsonSerializer.Deserialize(payload, payloadTypeInfoFactory(new(Options)))
-		?? throw new JsonException($"The payload for {typeof(TPayload).FullName} was null.");
+	)
+	{
+		ArgumentNullException.ThrowIfNull(payloadTypeInfoFactory);
+		return JsonSerializer.Deserialize(payload, payloadTypeInfoFactory(new(Options)))
+			?? throw new JsonException($"The payload for {typeof(TPayload).FullName} was null.");
+	}
 }

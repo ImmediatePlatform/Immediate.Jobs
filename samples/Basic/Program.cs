@@ -6,7 +6,7 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddSingleton<IEmailSender, ConsoleEmailSender>();
 builder.Services.AddImmediateJobs(options =>
 {
-	options.UseInMemory();
+	_ = options.UseInMemory();
 	options.MaxParallelJobs = 4;
 }).AddHealthCheck();
 
@@ -40,7 +40,8 @@ public sealed partial class CleanupSessionsJob(ILogger<CleanupSessionsJob> logge
 {
 	private ValueTask HandleAsync(NoPayload request, CancellationToken cancellationToken)
 	{
-		logger.LogInformation("Cleaning expired sessions");
+		cancellationToken.ThrowIfCancellationRequested();
+		logger.LogInformation("Cleaning expired sessions for job {JobId}", request.JobDetails?.JobId);
 		return ValueTask.CompletedTask;
 	}
 }

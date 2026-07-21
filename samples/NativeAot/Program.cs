@@ -11,12 +11,12 @@ await using var provider = services.BuildServiceProvider();
 
 await using (var scope = provider.CreateAsyncScope())
 {
-	const string expectedContext = "captured before enqueue";
+	const string ExpectedContext = "captured before enqueue";
 	var currentContext = scope.ServiceProvider.GetRequiredService<CurrentGreetingContext>();
-	currentContext.Value = expectedContext;
+	currentContext.Value = ExpectedContext;
 
 	var scheduler = scope.ServiceProvider.GetRequiredService<AotGreetingJob.Scheduler>();
-	await scheduler.Enqueue(new("Native AOT", expectedContext));
+	_ = await scheduler.Enqueue(new("Native AOT", ExpectedContext));
 }
 
 await provider.GetRequiredService<JobSchedulerService>().DrainAsync();
@@ -40,6 +40,8 @@ public sealed class GreetingContextExtractor(CurrentGreetingContext currentConte
 
 	public ValueTask RestoreAsync(GreetingContext context, CancellationToken cancellationToken)
 	{
+		ArgumentNullException.ThrowIfNull(context);
+		cancellationToken.ThrowIfCancellationRequested();
 		currentContext.Value = context.Value;
 		return ValueTask.CompletedTask;
 	}
@@ -55,8 +57,12 @@ public sealed partial class AotGreetingJob(CurrentGreetingContext currentContext
 
 	private Task WriteAsync(Payload payload, CancellationToken cancellationToken)
 	{
+		cancellationToken.ThrowIfCancellationRequested();
+
 		if (currentContext.Value != payload.ExpectedContext)
+		{
 			throw new InvalidOperationException("The enqueue-time context was not restored.");
+		}
 
 		Console.WriteLine($"Hello, {payload.Name}! Restored context: {currentContext.Value}");
 		return Task.CompletedTask;

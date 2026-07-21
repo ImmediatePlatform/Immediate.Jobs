@@ -5,7 +5,11 @@ namespace Immediate.Jobs.Shared;
 /// </summary>
 public sealed class InMemoryJobStorage(TimeProvider timeProvider) : IJobStorage, IJobStorageReplica
 {
+#if NET9_0_OR_GREATER
+	private readonly Lock _gate = new();
+#else
 	private readonly object _gate = new();
+#endif
 	private readonly Dictionary<Guid, JobRecord> _jobs = [];
 	private readonly Dictionary<string, RecurringJobSchedule> _recurring = new(StringComparer.Ordinal);
 	private readonly Dictionary<string, JobServerSnapshot> _servers = new(StringComparer.Ordinal);
@@ -28,6 +32,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) : IJobStorage,
 			if (!_jobs.TryAdd(job.Id, job))
 				throw new InvalidOperationException($"Job '{job.Id}' already exists.");
 		}
+
 		return ValueTask.CompletedTask;
 	}
 
@@ -116,6 +121,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) : IJobStorage,
 					job = job with { State = JobState.Pending, WorkerId = null, LeaseExpiresAt = null };
 					_jobs[id] = job;
 				}
+
 				if (job.State is not (JobState.Pending or JobState.Scheduled) || job.DueAt > now)
 					continue;
 
@@ -129,6 +135,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) : IJobStorage,
 				_jobs[id] = job;
 				acquired.Add(job);
 			}
+
 			return ValueTask.FromResult<IReadOnlyList<JobRecord>>(acquired);
 		}
 	}
@@ -142,6 +149,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) : IJobStorage,
 			var job = GetOwnedActive(jobId, workerId);
 			_jobs[jobId] = job with { LeaseExpiresAt = timeProvider.GetUtcNow() + lease };
 		}
+
 		return ValueTask.CompletedTask;
 	}
 
@@ -160,6 +168,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) : IJobStorage,
 				CompletedAt = timeProvider.GetUtcNow(),
 			};
 		}
+
 		return ValueTask.CompletedTask;
 	}
 
@@ -186,6 +195,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) : IJobStorage,
 				CompletedAt = nextRetryAt.HasValue ? null : timeProvider.GetUtcNow(),
 			};
 		}
+
 		return ValueTask.CompletedTask;
 	}
 
@@ -204,8 +214,10 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) : IJobStorage,
 					LastRunAt = current.LastRunAt,
 				};
 			}
+
 			_recurring[schedule.Name] = schedule;
 		}
+
 		return ValueTask.CompletedTask;
 	}
 
@@ -217,8 +229,10 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) : IJobStorage,
 		{
 			if (_recurring.TryGetValue(name, out var schedule) && schedule.IsCodeDefined)
 				throw new InvalidOperationException("Code-defined recurring schedules cannot be deleted.");
-			_recurring.Remove(name);
+
+			_ = _recurring.Remove(name);
 		}
+
 		return ValueTask.CompletedTask;
 	}
 
@@ -241,7 +255,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) : IJobStorage,
 		lock (_gate)
 		{
 			return ValueTask.FromResult<IReadOnlyList<RecurringJobSchedule>>(
-				_recurring.Values.Where(x => !x.IsPaused && x.NextRunAt <= now).OrderBy(x => x.NextRunAt).Take(batchSize).ToArray()
+				[.. _recurring.Values.Where(x => !x.IsPaused && x.NextRunAt <= now).OrderBy(x => x.NextRunAt).Take(batchSize)]
 			);
 		}
 	}
@@ -254,6 +268,8 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) : IJobStorage,
 		CancellationToken cancellationToken = default
 	)
 	{
+		ArgumentNullException.ThrowIfNull(schedule);
+		ArgumentNullException.ThrowIfNull(job);
 		cancellationToken.ThrowIfCancellationRequested();
 		lock (_gate)
 		{
@@ -276,8 +292,8 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) : IJobStorage,
 		{
 			var counts = Enum.GetValues<JobState>().ToDictionary(state => state, state => _jobs.Values.LongCount(x => x.State == state));
 			var cutoff = timeProvider.GetUtcNow() - TimeSpan.FromMinutes(2);
-			var servers = _servers.Values.Where(x => x.LastHeartbeat >= cutoff).ToArray();
-			return ValueTask.FromResult(new JobMonitoringSnapshot(timeProvider.GetUtcNow(), counts, _recurring.Values.ToArray(), servers));
+			IReadOnlyList<JobServerSnapshot> servers = [.. _servers.Values.Where(x => x.LastHeartbeat >= cutoff)];
+			return ValueTask.FromResult(new JobMonitoringSnapshot(timeProvider.GetUtcNow(), counts, [.. _recurring.Values], servers));
 		}
 	}
 
@@ -295,10 +311,12 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) : IJobStorage,
 				jobs = jobs.Where(x => x.State == state);
 			if (!string.IsNullOrWhiteSpace(query.QueueName))
 				jobs = jobs.Where(x => x.QueueName == query.QueueName);
+
 			if (!string.IsNullOrWhiteSpace(query.Search))
 				jobs = jobs.Where(x => x.JobName.Contains(query.Search, StringComparison.OrdinalIgnoreCase));
+
 			return ValueTask.FromResult<IReadOnlyList<JobRecord>>(
-				jobs.OrderByDescending(x => x.CreatedAt).Skip(Math.Max(0, query.Skip)).Take(Math.Clamp(query.Take, 1, 1000)).ToArray()
+				[.. jobs.OrderByDescending(x => x.CreatedAt).Skip(Math.Max(0, query.Skip)).Take(Math.Clamp(query.Take, 1, 1000))]
 			);
 		}
 	}
@@ -311,8 +329,10 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) : IJobStorage,
 		{
 			if (!_jobs.TryGetValue(jobId, out var job) || job.State != JobState.Failed)
 				throw new InvalidOperationException("Only failed jobs can be retried.");
+
 			_jobs[jobId] = job with { State = JobState.Pending, DueAt = timeProvider.GetUtcNow(), CompletedAt = null };
 		}
+
 		return ValueTask.CompletedTask;
 	}
 
@@ -324,8 +344,10 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) : IJobStorage,
 		{
 			if (_jobs.TryGetValue(jobId, out var job) && job.State is JobState.Active or JobState.Pending or JobState.Scheduled)
 				throw new InvalidOperationException("Only terminal jobs can be deleted.");
-			_jobs.Remove(jobId);
+
+			_ = _jobs.Remove(jobId);
 		}
+
 		return ValueTask.CompletedTask;
 	}
 
@@ -343,15 +365,17 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) : IJobStorage,
 				.Select(x => x.Id)
 				.ToArray())
 			{
-				_jobs.Remove(id);
+				_ = _jobs.Remove(id);
 			}
 		}
+
 		return ValueTask.CompletedTask;
 	}
 
 	/// <inheritdoc />
 	public ValueTask HeartbeatAsync(JobServerSnapshot server, CancellationToken cancellationToken = default)
 	{
+		ArgumentNullException.ThrowIfNull(server);
 		cancellationToken.ThrowIfCancellationRequested();
 		lock (_gate)
 			_servers[server.WorkerId] = server;
@@ -379,8 +403,10 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) : IJobStorage,
 		{
 			if (!_recurring.TryGetValue(name, out var schedule))
 				throw new KeyNotFoundException($"Recurring schedule '{name}' was not found.");
+
 			_recurring[name] = schedule with { IsPaused = isPaused };
 		}
+
 		return ValueTask.CompletedTask;
 	}
 }

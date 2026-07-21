@@ -58,7 +58,7 @@ public sealed class SingleServerJobStorage : IJobStorage, IAsyncDisposable, IDis
 
 		var replica = (IJobStorageReplica)DurableStorage;
 		var replicated = await replica.AcquireJobsAsync(
-			acquired.Select(x => x.Id).ToArray(),
+			[.. acquired.Select(x => x.Id)],
 			request.WorkerId,
 			request.Lease,
 			cancellationToken
@@ -293,7 +293,7 @@ public sealed class SingleServerJobStorage : IJobStorage, IAsyncDisposable, IDis
 		}
 		finally
 		{
-			_initialization.Release();
+			_ = _initialization.Release();
 		}
 	}
 }

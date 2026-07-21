@@ -10,8 +10,8 @@ namespace Immediate.Jobs.Testing;
 /// </summary>
 public sealed class JobTestHarness : IAsyncDisposable, IDisposable
 {
-	private readonly ServiceProvider serviceProvider;
-	private bool disposed;
+	private readonly ServiceProvider _serviceProvider;
+	private bool _disposed;
 
 	/// <summary>Creates a harness at the Unix epoch.</summary>
 	/// <param name="configureServices">
@@ -31,24 +31,24 @@ public sealed class JobTestHarness : IAsyncDisposable, IDisposable
 	{
 		TimeProvider = new(start);
 		var services = new ServiceCollection();
-		services.AddSingleton<TimeProvider>(TimeProvider);
-		services.AddSingleton(TimeProvider);
-		services.AddSingleton(typeof(ILogger<>), typeof(NullLogger<>));
-		services.AddImmediateJobsCore(options =>
+		_ = services.AddSingleton<TimeProvider>(TimeProvider);
+		_ = services.AddSingleton(TimeProvider);
+		_ = services.AddSingleton(typeof(ILogger<>), typeof(NullLogger<>));
+		_ = services.AddImmediateJobsCore(options =>
 		{
-			options.UseInMemory();
+			_ = options.UseInMemory();
 			options.MaxParallelJobs = 1;
 		});
 		configureServices?.Invoke(services);
-		serviceProvider = services.BuildServiceProvider(new ServiceProviderOptions
+		_serviceProvider = services.BuildServiceProvider(new ServiceProviderOptions
 		{
 			ValidateScopes = true,
 			ValidateOnBuild = true,
 		});
 
-		Services = serviceProvider;
-		Storage = serviceProvider.GetRequiredService<IJobStorage>();
-		Scheduler = serviceProvider.GetRequiredService<JobSchedulerService>();
+		Services = _serviceProvider;
+		Storage = _serviceProvider.GetRequiredService<IJobStorage>();
+		Scheduler = _serviceProvider.GetRequiredService<JobSchedulerService>();
 	}
 
 	/// <summary>The controllable clock used by schedulers, storage, retries, and cron materialization.</summary>
@@ -125,7 +125,7 @@ public sealed class JobTestHarness : IAsyncDisposable, IDisposable
 		TPayload payload;
 		try
 		{
-			payload = serviceProvider.GetRequiredService<IJobSerializer>().Deserialize<TPayload>(job.Payload);
+			payload = _serviceProvider.GetRequiredService<IJobSerializer>().Deserialize<TPayload>(job.Payload);
 		}
 		catch (Exception exception)
 		{
@@ -152,13 +152,13 @@ public sealed class JobTestHarness : IAsyncDisposable, IDisposable
 			Id = Guid.NewGuid(),
 			JobName = definition.Name,
 			QueueName = definition.Queue.Name,
-			Payload = serviceProvider.GetRequiredService<IJobSerializer>().Serialize(payload),
+			Payload = _serviceProvider.GetRequiredService<IJobSerializer>().Serialize(payload),
 			State = JobState.Active,
 			DueAt = now,
 			CreatedAt = now,
 			Attempt = 1,
 		};
-		await using var scope = serviceProvider.CreateAsyncScope();
+		await using var scope = _serviceProvider.CreateAsyncScope();
 		await definition.Invoker.InvokeAsync(
 			scope.ServiceProvider,
 			new(record, definition, cancellationToken)
@@ -168,19 +168,19 @@ public sealed class JobTestHarness : IAsyncDisposable, IDisposable
 	/// <inheritdoc />
 	public void Dispose()
 	{
-		if (disposed)
+		if (_disposed)
 			return;
-		disposed = true;
-		serviceProvider.Dispose();
+		_disposed = true;
+		_serviceProvider.Dispose();
 	}
 
 	/// <inheritdoc />
 	public async ValueTask DisposeAsync()
 	{
-		if (disposed)
+		if (_disposed)
 			return;
-		disposed = true;
-		await serviceProvider.DisposeAsync().ConfigureAwait(false);
+		_disposed = true;
+		await _serviceProvider.DisposeAsync().ConfigureAwait(false);
 	}
 }
 

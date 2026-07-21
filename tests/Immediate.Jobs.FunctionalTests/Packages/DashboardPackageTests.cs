@@ -2,7 +2,6 @@ using System.Net;
 using System.Text.Json;
 using Immediate.Jobs.Dashboard;
 using Microsoft.AspNetCore.Builder;
-using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -27,7 +26,7 @@ public sealed class DashboardPackageTests
 	{
 		var options = new ImmediateJobsDashboardOptions();
 
-		Assert.Throws<ArgumentException>(() => options.RequireAuthorization(" "));
+		_ = Assert.Throws<ArgumentException>(() => options.RequireAuthorization(" "));
 	}
 
 	[Theory]
@@ -39,16 +38,16 @@ public sealed class DashboardPackageTests
 		{
 			EnvironmentName = Environments.Development,
 		});
-		builder.WebHost.UseTestServer();
-		builder.Services.AddSingleton<IJobStorage>(new InMemoryJobStorage(TimeProvider.System));
+		_ = builder.WebHost.UseTestServer();
+		_ = builder.Services.AddSingleton<IJobStorage>(new InMemoryJobStorage(TimeProvider.System));
 
 		await using var app = builder.Build();
-		app.MapImmediateJobsDashboard();
+		_ = app.MapImmediateJobsDashboard();
 		await app.StartAsync(TestContext.Current.CancellationToken);
 
-		using var response = await app.GetTestClient().GetAsync(path, TestContext.Current.CancellationToken);
+		using var response = await app.GetTestClient().GetAsync(new Uri(path, UriKind.Relative), TestContext.Current.CancellationToken);
 
-		response.EnsureSuccessStatusCode();
+		_ = response.EnsureSuccessStatusCode();
 		Assert.Equal("text/html", response.Content.Headers.ContentType?.MediaType);
 	}
 
@@ -59,14 +58,14 @@ public sealed class DashboardPackageTests
 		{
 			EnvironmentName = Environments.Development,
 		});
-		builder.WebHost.UseTestServer();
-		builder.Services.AddSingleton<IJobStorage>(new InMemoryJobStorage(TimeProvider.System));
+		_ = builder.WebHost.UseTestServer();
+		_ = builder.Services.AddSingleton<IJobStorage>(new InMemoryJobStorage(TimeProvider.System));
 
 		await using var app = builder.Build();
-		app.MapImmediateJobsDashboard();
+		_ = app.MapImmediateJobsDashboard();
 		await app.StartAsync(TestContext.Current.CancellationToken);
 
-		using var response = await app.GetTestClient().GetAsync("/jobs", TestContext.Current.CancellationToken);
+		using var response = await app.GetTestClient().GetAsync(new Uri("/jobs", UriKind.Relative), TestContext.Current.CancellationToken);
 
 		Assert.Equal(HttpStatusCode.Redirect, response.StatusCode);
 		Assert.Equal("/jobs/", response.Headers.Location?.OriginalString);
@@ -92,11 +91,11 @@ public sealed class DashboardPackageTests
 		{
 			EnvironmentName = Environments.Development,
 		});
-		builder.WebHost.UseTestServer();
-		builder.Services.AddSingleton<IJobStorage>(storage);
+		_ = builder.WebHost.UseTestServer();
+		_ = builder.Services.AddSingleton<IJobStorage>(storage);
 
 		await using var app = builder.Build();
-		app.MapImmediateJobsDashboard();
+		_ = app.MapImmediateJobsDashboard();
 		await app.StartAsync(TestContext.Current.CancellationToken);
 
 		using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
@@ -106,7 +105,7 @@ public sealed class DashboardPackageTests
 			HttpCompletionOption.ResponseHeadersRead,
 			timeout.Token
 		);
-		response.EnsureSuccessStatusCode();
+		_ = response.EnsureSuccessStatusCode();
 		await using var stream = await response.Content.ReadAsStreamAsync(timeout.Token);
 		using var reader = new StreamReader(stream);
 

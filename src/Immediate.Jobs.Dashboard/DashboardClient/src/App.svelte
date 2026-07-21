@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import HistoryChart from './HistoryChart.svelte';
   import JobTable from './JobTable.svelte';
+  import MetricCard from './MetricCard.svelte';
 
   let snapshot = null;
   let jobs = [];
@@ -98,9 +99,7 @@
   {:else if view === 'overview'}
     <div class="grid">
       {#each states as item}
-        {#key count(item)}
-          <article class="card metric {item.toLowerCase()}"><span class="metric-label">{item}</span><strong>{count(item).toLocaleString()}</strong></article>
-        {/key}
+        <MetricCard label={item} value={count(item)} />
       {/each}
     </div>
     <div class="charts">

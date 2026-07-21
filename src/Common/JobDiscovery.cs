@@ -243,6 +243,6 @@ internal static class JobDiscovery
 			result.Add(char.ToLower(current, CultureInfo.InvariantCulture));
 		}
 
-		return new(result.ToArray());
+		return new([.. result]);
 	}
 }

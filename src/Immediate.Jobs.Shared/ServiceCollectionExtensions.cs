@@ -2,7 +2,9 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Hosting;
 
+#pragma warning disable IDE0130 // Extension methods intentionally follow the namespace of the extended type.
 namespace Microsoft.Extensions.DependencyInjection;
+#pragma warning restore IDE0130
 
 /// <summary>Runtime registration methods used by generated application extensions.</summary>
 public static class ImmediateJobsRuntimeServiceCollectionExtensions
@@ -21,18 +23,20 @@ public static class ImmediateJobsRuntimeServiceCollectionExtensions
 		{
 			if (options.StorageModeExplicitlySelected)
 				throw new InvalidOperationException("Select a durable storage provider before choosing single-server or distributed mode.");
-			options.UseInMemory();
+
+			_ = options.UseInMemory();
 		}
+
 		options.Validate();
 
 		services.TryAddSingleton(options);
 		services.TryAddSingleton(TimeProvider.System);
 		services.TryAddSingleton<Immediate.Jobs.Shared.IJobSerializer, Immediate.Jobs.Shared.SystemTextJsonJobSerializer>();
 		services.TryAddSingleton<Immediate.Jobs.Shared.IJobStorage>(sp => options.CreateStorage(sp));
-		services.AddSingleton(Immediate.Jobs.Shared.JobQueueDefinition.Default);
+		_ = services.AddSingleton(Immediate.Jobs.Shared.JobQueueDefinition.Default);
 		services.TryAddSingleton<Immediate.Jobs.Shared.JobSchedulerState>();
 		services.TryAddSingleton<Immediate.Jobs.Shared.JobSchedulerService>();
-		services.AddSingleton<IHostedService>(
+		_ = services.AddSingleton<IHostedService>(
 			static sp => sp.GetRequiredService<Immediate.Jobs.Shared.JobSchedulerService>()
 		);
 		return new(services);
@@ -47,7 +51,7 @@ public static class ImmediateJobsRuntimeServiceCollectionExtensions
 	)
 	{
 		ArgumentNullException.ThrowIfNull(builder);
-		builder.Services.AddHealthChecks().AddCheck<Immediate.Jobs.Shared.ImmediateJobsHealthCheck>(name, failureStatus, tags ?? []);
+		_ = builder.Services.AddHealthChecks().AddCheck<Immediate.Jobs.Shared.ImmediateJobsHealthCheck>(name, failureStatus, tags ?? []);
 		return builder;
 	}
 }

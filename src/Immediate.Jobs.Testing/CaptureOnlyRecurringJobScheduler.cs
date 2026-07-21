@@ -6,13 +6,13 @@ namespace Immediate.Jobs.Testing;
 /// </summary>
 public class CaptureOnlyRecurringJobScheduler : IRecurringJobScheduler
 {
-	private readonly List<RecurringJobCapture> captures = [];
+	private readonly List<RecurringJobCapture> _captures = [];
 
 	/// <summary>All calls captured in call order.</summary>
-	public IReadOnlyList<RecurringJobCapture> Captures => captures;
+	public IReadOnlyList<RecurringJobCapture> Captures => _captures;
 
 	/// <summary>The latest captured call, or <see langword="null"/> when none exists.</summary>
-	public RecurringJobCapture? Last => captures.Count == 0 ? null : captures[^1];
+	public RecurringJobCapture? Last => _captures.Count == 0 ? null : _captures[^1];
 
 	/// <inheritdoc />
 	public virtual ValueTask AddOrUpdateRecurring(
@@ -23,7 +23,7 @@ public class CaptureOnlyRecurringJobScheduler : IRecurringJobScheduler
 	)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
-		captures.Add(new(RecurringJobOperation.AddOrUpdate, name, cron, timeZone));
+		_captures.Add(new(RecurringJobOperation.AddOrUpdate, name, cron, timeZone));
 		return ValueTask.CompletedTask;
 	}
 
@@ -31,7 +31,7 @@ public class CaptureOnlyRecurringJobScheduler : IRecurringJobScheduler
 	public virtual ValueTask RemoveRecurring(string name, CancellationToken cancellationToken = default)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
-		captures.Add(new(RecurringJobOperation.Remove, name));
+		_captures.Add(new(RecurringJobOperation.Remove, name));
 		return ValueTask.CompletedTask;
 	}
 
@@ -40,12 +40,12 @@ public class CaptureOnlyRecurringJobScheduler : IRecurringJobScheduler
 	{
 		cancellationToken.ThrowIfCancellationRequested();
 		var id = CreateId();
-		captures.Add(new(RecurringJobOperation.Trigger, JobId: id));
+		_captures.Add(new(RecurringJobOperation.Trigger, JobId: id));
 		return ValueTask.FromResult(id);
 	}
 
 	/// <summary>Clears every captured call.</summary>
-	public void Clear() => captures.Clear();
+	public void Clear() => _captures.Clear();
 
 	/// <summary>Creates trigger identifiers. Override when a test requires predictable identifiers.</summary>
 	protected virtual Guid CreateId() => Guid.NewGuid();

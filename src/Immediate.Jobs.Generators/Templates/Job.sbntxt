@@ -226,7 +226,11 @@ namespace {{ namespace }};
 						PropertyTypeInfo = (global::System.Text.Json.Serialization.Metadata.JsonTypeInfo<{{ member.type_name }}>)options.GetTypeInfo(typeof({{ member.type_name }})),
 						Getter = static obj => (({{ type.type_name }})obj).{{ member.name }},
 						{{ if member.can_set }}
+						{{ if type.is_value_type }}
+						Setter = static (obj, value) => global::System.Runtime.CompilerServices.Unsafe.Unbox<{{ type.type_name }}>(obj).{{ member.name }} = value!,
+						{{ else }}
 						Setter = static (obj, value) => (({{ type.type_name }})obj).{{ member.name }} = value!,
+						{{ end }}
 						{{ else if member.is_constructor_bound }}
 						Setter = static (obj, value) => throw new global::System.InvalidOperationException("Setting constructor-bound properties is not supported."),
 						{{ end }}

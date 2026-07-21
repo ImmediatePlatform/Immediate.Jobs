@@ -21,8 +21,8 @@ builder.Services.AddDbContextFactory<JobsDbContext>(options =>
 
 builder.Services.AddImmediateJobs(options =>
 {
-	options.UseEntityFrameworkCore<JobsDbContext>();
-	options.UseSingleServer(); // Explicit; EF storage selects single-server mode implicitly when omitted.
+	_ = options.UseEntityFrameworkCore<JobsDbContext>();
+	_ = options.UseSingleServer(); // Explicit; EF storage selects single-server mode implicitly when omitted.
 	options.MaxParallelJobs = 4;
 	options.PollingInterval = TimeSpan.FromSeconds(5);
 }).AddHealthCheck();
@@ -33,16 +33,16 @@ await using (var scope = app.Services.CreateAsyncScope())
 {
 	var dbContextFactory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<JobsDbContext>>();
 	await using var dbContext = await dbContextFactory.CreateDbContextAsync();
-	await dbContext.Database.EnsureCreatedAsync();
+	_ = await dbContext.Database.EnsureCreatedAsync();
 }
 
-app.MapDefaultEndpoints();
-app.MapImmediateJobsDashboard("/jobs");
+_ = app.MapDefaultEndpoints();
+_ = app.MapImmediateJobsDashboard("/jobs");
 
 if (app.Environment.IsDevelopment())
 {
-	app.MapSwagger("/openapi/{documentName}.json");
-	app.MapScalarApiReference(options => options
+	_ = app.MapSwagger("/openapi/{documentName}.json");
+	_ = app.MapScalarApiReference(options => options
 		.WithTitle("Immediate.Jobs Aspire sample")
 		.DisableAgent());
 }
@@ -57,7 +57,10 @@ app.MapPost("/api/greetings/{name}", async (
 ) =>
 {
 	var jobId = await scheduler.Enqueue(new(name), cancellationToken);
-	return Results.Accepted("/jobs", new EnqueueJobResponse(jobId, "/jobs"));
+	return Results.Accepted(
+		"/jobs",
+		new EnqueueJobResponse(jobId, new Uri("/jobs", UriKind.Relative))
+	);
 })
 	.WithName("EnqueueGreeting")
 	.WithSummary("Enqueues a background greeting job")
@@ -66,7 +69,7 @@ app.MapPost("/api/greetings/{name}", async (
 
 await app.RunAsync();
 
-public sealed record EnqueueJobResponse(Guid JobId, string DashboardUrl);
+public sealed record EnqueueJobResponse(Guid JobId, Uri DashboardUrl);
 
 public sealed record OriginatingRequestContext(string ClientIpAddress, string UserAgent);
 
@@ -136,8 +139,10 @@ public sealed partial class AspireHeartbeatJob(
 {
 	private ValueTask HandleAsync(NoPayload payload, CancellationToken cancellationToken)
 	{
+		cancellationToken.ThrowIfCancellationRequested();
 		logger.LogInformation(
-			"Recurring Aspire heartbeat fired at {FiredAt}",
+			"Recurring Aspire heartbeat {JobId} fired at {FiredAt}",
+			payload.JobDetails?.JobId,
 			timeProvider.GetUtcNow()
 		);
 		return ValueTask.CompletedTask;
@@ -149,6 +154,6 @@ public sealed class JobsDbContext(DbContextOptions<JobsDbContext> options) : DbC
 	protected override void OnModelCreating(ModelBuilder modelBuilder)
 	{
 		base.OnModelCreating(modelBuilder);
-		modelBuilder.AddImmediateJobs();
+		_ = modelBuilder.AddImmediateJobs();
 	}
 }

@@ -26,7 +26,7 @@ public static class ImmediateJobsDashboardEndpointRouteBuilderExtensions
 	{
 		ArgumentNullException.ThrowIfNull(endpoints);
 		ArgumentException.ThrowIfNullOrWhiteSpace(prefix);
-		if (!prefix.StartsWith('/'))
+		if (prefix[0] != '/')
 			prefix = "/" + prefix;
 
 		prefix = prefix.TrimEnd('/');
@@ -39,20 +39,19 @@ public static class ImmediateJobsDashboardEndpointRouteBuilderExtensions
 			throw new ArgumentOutOfRangeException(nameof(configure), "The dashboard update interval must be positive.");
 
 		var group = endpoints.MapGroup(prefix).WithTags("Immediate.Jobs Dashboard");
-		if (options.AuthorizationPolicy is { } policy)
-			group.RequireAuthorization(new AuthorizeAttribute(policy));
-		else
-			group.AddEndpointFilter<DevelopmentDashboardFilter>();
+		_ = options.AuthorizationPolicy is { } policy
+			? group.RequireAuthorization(new AuthorizeAttribute(policy))
+			: group.AddEndpointFilter(new DevelopmentDashboardFilter());
 
 		MapApi(group, options);
-		group.MapGet("/", (Delegate)((HttpContext context) =>
-			context.Request.Path.Value?.EndsWith('/') is true
+		_ = group.MapGet("/", (Delegate)((HttpContext context) =>
+			context.Request.Path.Value is { Length: > 0 } path && path[^1] == '/'
 				? DashboardAssets.GetAsync("index.html")
 				: Task.FromResult<IResult>(Results.Redirect(prefix + "/"))
 		)).ExcludeFromDescription();
-		group.MapGet("/app.css", () => DashboardAssets.GetAsync("app.css")).ExcludeFromDescription();
-		group.MapGet("/app.js", () => DashboardAssets.GetAsync("app.js")).ExcludeFromDescription();
-		group.MapGet("/{**path}", (string path) =>
+		_ = group.MapGet("/app.css", () => DashboardAssets.GetAsync("app.css")).ExcludeFromDescription();
+		_ = group.MapGet("/app.js", () => DashboardAssets.GetAsync("app.js")).ExcludeFromDescription();
+		_ = group.MapGet("/{**path}", (string path) =>
 			path.StartsWith("api/", StringComparison.OrdinalIgnoreCase)
 				? Task.FromResult<IResult>(Results.NotFound())
 				: DashboardAssets.GetAsync("index.html")
@@ -65,13 +64,13 @@ public static class ImmediateJobsDashboardEndpointRouteBuilderExtensions
 	{
 		var api = dashboard.MapGroup("/api");
 
-		api.MapGet("/overview", async (IJobStorage storage, CancellationToken cancellationToken) =>
+		_ = api.MapGet("/overview", async (IJobStorage storage, CancellationToken cancellationToken) =>
 		{
 			var snapshot = await storage.GetMonitoringSnapshotAsync(cancellationToken).ConfigureAwait(false);
 			return Results.Json(snapshot, DashboardJsonSerializerContext.Default.JobMonitoringSnapshot);
 		});
 
-		api.MapGet("/jobs", async (
+		_ = api.MapGet("/jobs", async (
 			IJobStorage storage,
 			JobState? state,
 			string? queue,
@@ -90,34 +89,34 @@ public static class ImmediateJobsDashboardEndpointRouteBuilderExtensions
 				Take = Math.Clamp(take ?? 100, 1, 500),
 			};
 			var jobs = await storage.QueryJobsAsync(query, cancellationToken).ConfigureAwait(false);
-			return Results.Json(jobs.ToArray(), DashboardJsonSerializerContext.Default.JobRecordArray);
+			return Results.Json([.. jobs], DashboardJsonSerializerContext.Default.JobRecordArray);
 		});
 
-		api.MapGet("/jobs/{jobId:guid}", GetJobAsync);
-		api.MapGet("/recurring", async (IJobStorage storage, CancellationToken cancellationToken) =>
+		_ = api.MapGet("/jobs/{jobId:guid}", GetJobAsync);
+		_ = api.MapGet("/recurring", async (IJobStorage storage, CancellationToken cancellationToken) =>
 		{
 			var snapshot = await storage.GetMonitoringSnapshotAsync(cancellationToken).ConfigureAwait(false);
-			return Results.Json(snapshot.Recurring.ToArray(), DashboardJsonSerializerContext.Default.RecurringJobScheduleArray);
+			return Results.Json([.. snapshot.Recurring], DashboardJsonSerializerContext.Default.RecurringJobScheduleArray);
 		});
-		api.MapGet("/servers", async (IJobStorage storage, CancellationToken cancellationToken) =>
+		_ = api.MapGet("/servers", async (IJobStorage storage, CancellationToken cancellationToken) =>
 		{
 			var snapshot = await storage.GetMonitoringSnapshotAsync(cancellationToken).ConfigureAwait(false);
-			return Results.Json(snapshot.Servers.ToArray(), DashboardJsonSerializerContext.Default.JobServerSnapshotArray);
+			return Results.Json([.. snapshot.Servers], DashboardJsonSerializerContext.Default.JobServerSnapshotArray);
 		});
-		api.MapPost("/jobs/{jobId:guid}/retry", RetryJobAsync);
-		api.MapDelete("/jobs/{jobId:guid}", DeleteJobAsync);
-		api.MapPost("/recurring/{name}/trigger", TriggerRecurringAsync);
-		api.MapPost("/recurring/{name}/pause", (
+		_ = api.MapPost("/jobs/{jobId:guid}/retry", RetryJobAsync);
+		_ = api.MapDelete("/jobs/{jobId:guid}", DeleteJobAsync);
+		_ = api.MapPost("/recurring/{name}/trigger", TriggerRecurringAsync);
+		_ = api.MapPost("/recurring/{name}/pause", (
 			string name,
 			IJobStorage storage,
 			CancellationToken cancellationToken
 		) => MutateRecurringAsync(storage.PauseRecurringAsync(name, cancellationToken)));
-		api.MapPost("/recurring/{name}/resume", (
+		_ = api.MapPost("/recurring/{name}/resume", (
 			string name,
 			IJobStorage storage,
 			CancellationToken cancellationToken
 		) => MutateRecurringAsync(storage.ResumeRecurringAsync(name, cancellationToken)));
-		api.MapGet("/events", (HttpContext context, IJobStorage storage) =>
+		_ = api.MapGet("/events", (HttpContext context, IJobStorage storage) =>
 			StreamEventsAsync(context, storage, options.UpdateInterval));
 	}
 
@@ -245,7 +244,7 @@ public static class ImmediateJobsDashboardEndpointRouteBuilderExtensions
 			{
 				var snapshot = await storage.GetMonitoringSnapshotAsync(cancellationToken).ConfigureAwait(false);
 				var jobs = await storage.QueryJobsAsync(new() { Take = 100 }, cancellationToken).ConfigureAwait(false);
-				var state = new DashboardState(snapshot, jobs.ToArray());
+				var state = new DashboardState(snapshot, [.. jobs]);
 				var json = JsonSerializer.Serialize(state, DashboardJsonSerializerContext.Default.DashboardState);
 				await context.Response.WriteAsync(
 					"id: " + snapshot.CapturedAt.ToUnixTimeMilliseconds().ToString(CultureInfo.InvariantCulture) + "\n",

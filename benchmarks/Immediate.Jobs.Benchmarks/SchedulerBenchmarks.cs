@@ -25,7 +25,7 @@ public class EnqueueBenchmarks
 			new SystemTextJsonJobSerializer(),
 			_timeProvider
 		);
-		GlobalConfiguration.Configuration.UseMemoryStorage();
+		_ = GlobalConfiguration.Configuration.UseMemoryStorage();
 		_hangfire = new BackgroundJobClient();
 		_quartz = await new StdSchedulerFactory().GetScheduler();
 		await _quartz.Start();
@@ -132,7 +132,7 @@ public class DispatchBenchmarks
 	public ValueTask ImmediateJobs() => _immediateInvoker.InvokeAsync(Services, _execution);
 
 	[Benchmark]
-	public object? Hangfire() => _hangfireJob.Method.Invoke(null, _hangfireJob.Args.ToArray());
+	public object? Hangfire() => _hangfireJob.Method.Invoke(null, [.. _hangfireJob.Args]);
 
 	[Benchmark]
 	public Task Quartz() => _quartzJob.Execute(null!);
@@ -163,9 +163,9 @@ internal sealed partial class BenchmarkJsonContext : JsonSerializerContext;
 
 public static class BenchmarkOperations
 {
-	private static int _value;
+	private static int Value;
 
-	public static void Execute(int value) => Volatile.Write(ref _value, value);
+	public static void Execute(int value) => Volatile.Write(ref Value, value);
 }
 
 [DisallowConcurrentExecution]

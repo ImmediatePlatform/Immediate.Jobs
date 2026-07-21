@@ -1,6 +1,7 @@
 using Immediate.Jobs.Testing;
 using Immediate.Handlers.Shared;
 using Microsoft.Extensions.DependencyInjection;
+using System.Collections.ObjectModel;
 
 [assembly: Behaviors(typeof(Immediate.Jobs.FunctionalTests.JobCountingBehavior<,>))]
 
@@ -14,13 +15,13 @@ public sealed class GeneratedJobTests
 	{
 		var state = new ExecutionState();
 		var services = new ServiceCollection();
-		services.AddSingleton(state);
-		services.AddImmediateJobsFunctionalTestsBehaviors();
-		OrdinaryHandler.AddHandlers(services);
+		_ = services.AddSingleton(state);
+		_ = services.AddImmediateJobsFunctionalTestsBehaviors();
+		_ = OrdinaryHandler.AddHandlers(services);
 		await using var provider = services.BuildServiceProvider();
 
 		var handler = provider.GetRequiredService<OrdinaryHandler.Handler>();
-		await handler.HandleAsync(new("ordinary"), TestContext.Current.CancellationToken);
+		_ = await handler.HandleAsync(new("ordinary"), TestContext.Current.CancellationToken);
 
 		Assert.Equal(["ordinary"], state.Events);
 		Assert.Empty(state.Details);
@@ -33,11 +34,11 @@ public sealed class GeneratedJobTests
 		var state = new ExecutionState();
 		await using var harness = new JobTestHarness(services =>
 		{
-			services.AddSingleton(state);
-			services.AddSingleton(new ContextProbe());
-			services.AddScoped<PropagationScopeState>();
-			services.AddImmediateJobsFunctionalTestsBehaviors();
-			services.AddImmediateJobs();
+			_ = services.AddSingleton(state);
+			_ = services.AddSingleton(new ContextProbe());
+			_ = services.AddScoped<PropagationScopeState>();
+			_ = services.AddImmediateJobsFunctionalTestsBehaviors();
+			_ = services.AddImmediateJobs();
 		});
 		await using var enqueueScope = harness.Services.CreateAsyncScope();
 		var scheduler = enqueueScope.ServiceProvider.GetRequiredService<RecordMessageJob.Scheduler>();
@@ -69,11 +70,11 @@ public sealed class GeneratedJobTests
 		var state = new ExecutionState { FailuresRemaining = 1 };
 		await using var harness = new JobTestHarness(services =>
 		{
-			services.AddSingleton(state);
-			services.AddSingleton(new ContextProbe());
-			services.AddScoped<PropagationScopeState>();
-			services.AddImmediateJobsFunctionalTestsBehaviors();
-			services.AddImmediateJobs();
+			_ = services.AddSingleton(state);
+			_ = services.AddSingleton(new ContextProbe());
+			_ = services.AddScoped<PropagationScopeState>();
+			_ = services.AddImmediateJobsFunctionalTestsBehaviors();
+			_ = services.AddImmediateJobs();
 		});
 		await using var enqueueScope = harness.Services.CreateAsyncScope();
 		var scheduler = enqueueScope.ServiceProvider.GetRequiredService<RetryOnceJob.Scheduler>();
@@ -97,11 +98,11 @@ public sealed class GeneratedJobTests
 		var state = new ExecutionState();
 		await using var harness = new JobTestHarness(services =>
 		{
-			services.AddSingleton(state);
-			services.AddSingleton(new ContextProbe());
-			services.AddScoped<PropagationScopeState>();
-			services.AddImmediateJobsFunctionalTestsBehaviors();
-			services.AddImmediateJobs();
+			_ = services.AddSingleton(state);
+			_ = services.AddSingleton(new ContextProbe());
+			_ = services.AddScoped<PropagationScopeState>();
+			_ = services.AddImmediateJobsFunctionalTestsBehaviors();
+			_ = services.AddImmediateJobs();
 		});
 		await using var scope = harness.Services.CreateAsyncScope();
 		var scheduler = scope.ServiceProvider.GetRequiredService<ValueTypeJob.Scheduler>();
@@ -116,8 +117,8 @@ public sealed class GeneratedJobTests
 
 public sealed class ExecutionState
 {
-	public List<string> Events { get; } = [];
-	public List<JobDetails> Details { get; } = [];
+	public Collection<string> Events { get; } = [];
+	public Collection<JobDetails> Details { get; } = [];
 	public int FailuresRemaining { get; set; }
 }
 
@@ -155,6 +156,7 @@ public sealed partial class RecordMessageJob(ExecutionState state)
 
 	private ValueTask HandleAsync(Payload payload, CancellationToken cancellationToken)
 	{
+		_ = cancellationToken;
 		state.Events.Add("job:" + payload.Message);
 		return ValueTask.CompletedTask;
 	}
@@ -170,6 +172,8 @@ public sealed partial class RetryOnceJob(ExecutionState state)
 
 	private ValueTask HandleAsync(Payload payload, CancellationToken cancellationToken)
 	{
+		_ = payload;
+		_ = cancellationToken;
 		if (state.FailuresRemaining-- > 0)
 			throw new InvalidOperationException("Retry me");
 		return ValueTask.CompletedTask;
@@ -179,15 +183,14 @@ public sealed partial class RetryOnceJob(ExecutionState state)
 [Handler, Job("value-type")]
 public sealed partial class ValueTypeJob(ExecutionState state)
 {
-	public struct Request(int value) : IJobRequest
+	public record struct Request(int Value) : IJobRequest
 	{
-		public int Value { get; } = value;
-
 		public JobDetails? JobDetails { get; set; }
 	}
 
 	private ValueTask HandleAsync(Request request, CancellationToken cancellationToken)
 	{
+		_ = cancellationToken;
 		_ = request.JobDetails ?? throw new InvalidOperationException("Job details were not populated.");
 		state.Events.Add($"job:{request.Value}");
 		return ValueTask.CompletedTask;
@@ -201,6 +204,7 @@ public sealed partial class OrdinaryHandler(ExecutionState state)
 
 	private ValueTask HandleAsync(Request request, CancellationToken cancellationToken)
 	{
+		_ = cancellationToken;
 		state.Events.Add(request.Value);
 		return ValueTask.CompletedTask;
 	}

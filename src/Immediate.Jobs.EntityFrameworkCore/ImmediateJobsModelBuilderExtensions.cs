@@ -18,69 +18,69 @@ public static class ImmediateJobsModelBuilderExtensions
 
 	private static void ConfigureJobs(EntityTypeBuilder<ImmediateJobEntity> entity, string? schema)
 	{
-		entity.ToTable("immediate_jobs", schema);
-		entity.HasKey(job => job.Id);
-		entity.Property(job => job.QueueName).HasMaxLength(256).HasDefaultValue(JobQueueDefinition.DefaultName).IsRequired();
-		entity.Property(job => job.JobName).HasMaxLength(256).IsRequired();
-		entity.Property(job => job.Payload).IsRequired();
-		entity.Property(job => job.Context).IsRequired(false);
-		entity.Property(job => job.State).HasConversion<short>();
-		entity.Property(job => job.DueAt).HasConversion(
+		_ = entity.ToTable("immediate_jobs", schema);
+		_ = entity.HasKey(job => job.Id);
+		_ = entity.Property(job => job.QueueName).HasMaxLength(256).HasDefaultValue(JobQueueDefinition.DefaultName).IsRequired();
+		_ = entity.Property(job => job.JobName).HasMaxLength(256).IsRequired();
+		_ = entity.Property(job => job.Payload).IsRequired();
+		_ = entity.Property(job => job.Context).IsRequired(false);
+		_ = entity.Property(job => job.State).HasConversion<short>();
+		_ = entity.Property(job => job.DueAt).HasConversion(
 			value => value.UtcTicks,
 			value => new DateTimeOffset(value, TimeSpan.Zero)
 		);
-		entity.Property(job => job.CreatedAt).HasConversion(
+		_ = entity.Property(job => job.CreatedAt).HasConversion(
 			value => value.UtcTicks,
 			value => new DateTimeOffset(value, TimeSpan.Zero)
 		);
-		entity.Property(job => job.LeaseExpiresAt).HasConversion(
+		_ = entity.Property(job => job.LeaseExpiresAt).HasConversion(
 			value => value.HasValue ? value.Value.UtcTicks : (long?)null,
 			value => value.HasValue ? new DateTimeOffset(value.Value, TimeSpan.Zero) : null
 		);
-		entity.Property(job => job.CompletedAt).HasConversion(
+		_ = entity.Property(job => job.CompletedAt).HasConversion(
 			value => value.HasValue ? value.Value.UtcTicks : (long?)null,
 			value => value.HasValue ? new DateTimeOffset(value.Value, TimeSpan.Zero) : null
 		);
-		entity.Property(job => job.WorkerId).HasMaxLength(256);
-		entity.Property(job => job.RecurringKey).HasMaxLength(512);
-		entity.Property(job => job.TraceParent).HasMaxLength(256);
-		entity.Property(job => job.ConcurrencyStamp).IsConcurrencyToken();
-		entity.HasIndex(job => job.RecurringKey).IsUnique();
-		entity.HasIndex(job => new { job.State, job.DueAt });
-		entity.HasIndex(job => new { job.State, job.CreatedAt });
-		entity.HasIndex(job => new { job.QueueName, job.State, job.DueAt, job.CreatedAt });
+		_ = entity.Property(job => job.WorkerId).HasMaxLength(256);
+		_ = entity.Property(job => job.RecurringKey).HasMaxLength(512);
+		_ = entity.Property(job => job.TraceParent).HasMaxLength(256);
+		_ = entity.Property(job => job.ConcurrencyStamp).IsConcurrencyToken();
+		_ = entity.HasIndex(job => job.RecurringKey).IsUnique();
+		_ = entity.HasIndex(job => new { job.State, job.DueAt });
+		_ = entity.HasIndex(job => new { job.State, job.CreatedAt });
+		_ = entity.HasIndex(job => new { job.QueueName, job.State, job.DueAt, job.CreatedAt });
 	}
 
 	private static void ConfigureRecurring(EntityTypeBuilder<ImmediateRecurringJobEntity> entity, string? schema)
 	{
-		entity.ToTable("immediate_recurring_jobs", schema);
-		entity.HasKey(schedule => schedule.Name);
-		entity.Property(schedule => schedule.Name).HasMaxLength(256);
-		entity.Property(schedule => schedule.JobName).HasMaxLength(256).IsRequired();
-		entity.Property(schedule => schedule.Cron).HasMaxLength(128).IsRequired();
-		entity.Property(schedule => schedule.TimeZone).HasMaxLength(128).IsRequired();
-		entity.Property(schedule => schedule.NextRunAt).HasConversion(
+		_ = entity.ToTable("immediate_recurring_jobs", schema);
+		_ = entity.HasKey(schedule => schedule.Name);
+		_ = entity.Property(schedule => schedule.Name).HasMaxLength(256);
+		_ = entity.Property(schedule => schedule.JobName).HasMaxLength(256).IsRequired();
+		_ = entity.Property(schedule => schedule.Cron).HasMaxLength(128).IsRequired();
+		_ = entity.Property(schedule => schedule.TimeZone).HasMaxLength(128).IsRequired();
+		_ = entity.Property(schedule => schedule.NextRunAt).HasConversion(
 			value => value.UtcTicks,
 			value => new DateTimeOffset(value, TimeSpan.Zero)
 		);
-		entity.Property(schedule => schedule.LastRunAt).HasConversion(
+		_ = entity.Property(schedule => schedule.LastRunAt).HasConversion(
 			value => value.HasValue ? value.Value.UtcTicks : (long?)null,
 			value => value.HasValue ? new DateTimeOffset(value.Value, TimeSpan.Zero) : null
 		);
-		entity.Property(schedule => schedule.ConcurrencyStamp).IsConcurrencyToken();
-		entity.HasIndex(schedule => new { schedule.IsPaused, schedule.NextRunAt });
+		_ = entity.Property(schedule => schedule.ConcurrencyStamp).IsConcurrencyToken();
+		_ = entity.HasIndex(schedule => new { schedule.IsPaused, schedule.NextRunAt });
 	}
 
 	private static void ConfigureServers(EntityTypeBuilder<ImmediateJobServerEntity> entity, string? schema)
 	{
-		entity.ToTable("immediate_job_servers", schema);
-		entity.HasKey(server => server.WorkerId);
-		entity.Property(server => server.WorkerId).HasMaxLength(256);
-		entity.Property(server => server.LastHeartbeat).HasConversion(
+		_ = entity.ToTable("immediate_job_servers", schema);
+		_ = entity.HasKey(server => server.WorkerId);
+		_ = entity.Property(server => server.WorkerId).HasMaxLength(256);
+		_ = entity.Property(server => server.LastHeartbeat).HasConversion(
 			value => value.UtcTicks,
 			value => new DateTimeOffset(value, TimeSpan.Zero)
 		);
-		entity.HasIndex(server => server.LastHeartbeat);
+		_ = entity.HasIndex(server => server.LastHeartbeat);
 	}
 }
 

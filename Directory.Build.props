@@ -8,7 +8,7 @@
 
 	<ImplicitUsings>enable</ImplicitUsings>
 
-	<AnalysisLevel>latest-recommended</AnalysisLevel>
+	<AnalysisLevel>latest-all</AnalysisLevel>
 	<EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
 
 	<GenerateDocumentationFile>true</GenerateDocumentationFile>
@@ -42,6 +42,7 @@
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(GITHUB_ACTIONS)' == 'true'">
+	<TreatWarningsAsErrors>true</TreatWarningsAsErrors>
 	<ContinuousIntegrationBuild>true</ContinuousIntegrationBuild>
   </PropertyGroup>
 </Project>

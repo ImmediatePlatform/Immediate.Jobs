@@ -4,20 +4,21 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Logging;
 using OpenTelemetry;
-using OpenTelemetry.Logs;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Trace;
 
+#pragma warning disable IDE0130 // Aspire service defaults are exposed through the standard hosting namespace.
 namespace Microsoft.Extensions.Hosting;
+#pragma warning restore IDE0130
 
-public static class Extensions
+public static class ServiceDefaultsExtensions
 {
 	public static TBuilder AddServiceDefaults<TBuilder>(this TBuilder builder)
 		where TBuilder : IHostApplicationBuilder
 	{
 		builder.ConfigureOpenTelemetry();
 
-		builder.Services.AddHealthChecks()
+		_ = builder.Services.AddHealthChecks()
 			.AddCheck("self", static () => HealthCheckResult.Healthy(), ["live"]);
 
 		return builder;
@@ -25,8 +26,8 @@ public static class Extensions
 
 	public static WebApplication MapDefaultEndpoints(this WebApplication app)
 	{
-		app.MapHealthChecks("/health");
-		app.MapHealthChecks("/alive", new HealthCheckOptions
+		_ = app.MapHealthChecks("/health");
+		_ = app.MapHealthChecks("/alive", new HealthCheckOptions
 		{
 			Predicate = static check => check.Tags.Contains("live"),
 		});
@@ -41,7 +42,7 @@ public static class Extensions
 			builder.Configuration["OTEL_EXPORTER_OTLP_ENDPOINT"]
 		);
 
-		builder.Logging.AddOpenTelemetry(logging =>
+		_ = builder.Logging.AddOpenTelemetry(logging =>
 		{
 			logging.IncludeFormattedMessage = true;
 			logging.IncludeScopes = true;
@@ -59,6 +60,6 @@ public static class Extensions
 				.AddHttpClientInstrumentation());
 
 		if (hasOtlpEndpoint)
-			openTelemetry.UseOtlpExporter();
+			_ = openTelemetry.UseOtlpExporter();
 	}
 }

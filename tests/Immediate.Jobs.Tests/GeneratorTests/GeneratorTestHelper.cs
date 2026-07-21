@@ -38,6 +38,7 @@ internal static class GeneratorTestHelper
 			explicitAssemblies.Add(typeof(Immediate.Jobs.NodaTime.NodaTimeJobSerializer).Assembly.Location);
 			explicitAssemblies.Add(typeof(global::NodaTime.Instant).Assembly.Location);
 		}
+
 		var references = GetFrameworkReferences()
 			.Concat(explicitAssemblies.Distinct(StringComparer.Ordinal).Select(path => MetadataReference.CreateFromFile(path)))
 			.GroupBy(reference => reference.Display, StringComparer.Ordinal)
@@ -52,7 +53,7 @@ internal static class GeneratorTestHelper
 		);
 	}
 
-	private static IEnumerable<PortableExecutableReference> GetFrameworkReferences() =>
+	private static ImmutableArray<PortableExecutableReference> GetFrameworkReferences() =>
 #if NET8_0
 		Basic.Reference.Assemblies.Net80.References.All;
 #elif NET9_0

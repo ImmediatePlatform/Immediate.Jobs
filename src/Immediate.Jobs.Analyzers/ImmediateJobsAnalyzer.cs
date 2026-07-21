@@ -1,5 +1,4 @@
 using System.Collections.Immutable;
-using Immediate.Jobs;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.Diagnostics;
 
@@ -32,6 +31,7 @@ public sealed class ImmediateJobsAnalyzer : DiagnosticAnalyzer
 	/// <inheritdoc />
 	public override void Initialize(AnalysisContext context)
 	{
+		ArgumentNullException.ThrowIfNull(context);
 		context.ConfigureGeneratedCodeAnalysis(GeneratedCodeAnalysisFlags.None);
 		context.EnableConcurrentExecution();
 		context.RegisterCompilationAction(AnalyzeCompilation);
@@ -98,6 +98,7 @@ public sealed class ImmediateJobsAnalyzer : DiagnosticAnalyzer
 					));
 				}
 			}
+
 			if (JobDiscovery.GetUsesQueueAttribute(job) is { AttributeClass.TypeArguments: [INamedTypeSymbol queueType] } usesQueue &&
 				JobDiscovery.GetQueueDefinitionAttribute(queueType) is null)
 			{
@@ -108,11 +109,13 @@ public sealed class ImmediateJobsAnalyzer : DiagnosticAnalyzer
 				));
 				continue;
 			}
+
 			if (!JobDiscovery.IsHandler(job))
 			{
 				context.ReportDiagnostic(Diagnostic.Create(DiagnosticDescriptors.JobMustBeHandler, location, job.Name));
 				continue;
 			}
+
 			if (!JobDiscovery.IsPartial(job))
 			{
 				context.ReportDiagnostic(Diagnostic.Create(DiagnosticDescriptors.JobMustBePartial, location, job.Name));
@@ -127,6 +130,7 @@ public sealed class ImmediateJobsAnalyzer : DiagnosticAnalyzer
 				context.ReportDiagnostic(Diagnostic.Create(DiagnosticDescriptors.InvalidMethodSignature, location, job.Name));
 				continue;
 			}
+
 			if (!JobDiscovery.ImplementsJobRequest(payloadType!))
 			{
 				context.ReportDiagnostic(Diagnostic.Create(

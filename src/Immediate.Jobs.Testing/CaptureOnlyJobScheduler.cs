@@ -7,18 +7,18 @@ namespace Immediate.Jobs.Testing;
 public class CaptureOnlyJobScheduler<TPayload>(TimeProvider? timeProvider = null) : IJobScheduler<TPayload>
 	where TPayload : IJobRequest
 {
-	private readonly List<ScheduledJobCapture<TPayload>> captures = [];
-	private readonly TimeProvider timeProvider = timeProvider ?? TimeProvider.System;
+	private readonly List<ScheduledJobCapture<TPayload>> _captures = [];
+	private readonly TimeProvider _timeProvider = timeProvider ?? TimeProvider.System;
 
 	/// <summary>All calls captured in call order.</summary>
-	public IReadOnlyList<ScheduledJobCapture<TPayload>> Captures => captures;
+	public IReadOnlyList<ScheduledJobCapture<TPayload>> Captures => _captures;
 
 	/// <summary>The latest captured call, or <see langword="null"/> when none exists.</summary>
-	public ScheduledJobCapture<TPayload>? Last => captures.Count == 0 ? null : captures[^1];
+	public ScheduledJobCapture<TPayload>? Last => _captures.Count == 0 ? null : _captures[^1];
 
 	/// <inheritdoc />
 	public virtual ValueTask<Guid> Enqueue(TPayload payload, CancellationToken cancellationToken = default) =>
-		Capture(payload, timeProvider.GetUtcNow(), cancellationToken);
+		Capture(payload, _timeProvider.GetUtcNow(), cancellationToken);
 
 	/// <inheritdoc />
 	public virtual ValueTask<Guid> Schedule(
@@ -29,7 +29,7 @@ public class CaptureOnlyJobScheduler<TPayload>(TimeProvider? timeProvider = null
 	{
 		if (delay < TimeSpan.Zero)
 			throw new ArgumentOutOfRangeException(nameof(delay), "A job delay cannot be negative.");
-		return Capture(payload, timeProvider.GetUtcNow() + delay, cancellationToken);
+		return Capture(payload, _timeProvider.GetUtcNow() + delay, cancellationToken);
 	}
 
 	/// <inheritdoc />
@@ -40,7 +40,7 @@ public class CaptureOnlyJobScheduler<TPayload>(TimeProvider? timeProvider = null
 	) => Capture(payload, runAt, cancellationToken);
 
 	/// <summary>Clears every captured call.</summary>
-	public void Clear() => captures.Clear();
+	public void Clear() => _captures.Clear();
 
 	/// <summary>Creates invocation identifiers. Override when a test requires predictable identifiers.</summary>
 	protected virtual Guid CreateId() => Guid.NewGuid();
@@ -49,7 +49,7 @@ public class CaptureOnlyJobScheduler<TPayload>(TimeProvider? timeProvider = null
 	{
 		cancellationToken.ThrowIfCancellationRequested();
 		var id = CreateId();
-		captures.Add(new(id, payload, runAt));
+		_captures.Add(new(id, payload, runAt));
 		return ValueTask.FromResult(id);
 	}
 }

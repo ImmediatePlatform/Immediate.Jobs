@@ -82,7 +82,7 @@ public abstract class JobScheduler<TPayload>(
 	{
 		var now = TimeProvider.GetUtcNow();
 		var id = Guid.NewGuid();
-		var trace = TraceContextCapture.Current();
+		var (traceParent, traceState) = TraceContextCapture.Current();
 		var context = await CaptureContextAsync(cancellationToken).ConfigureAwait(false);
 		var record = new JobRecord
 		{
@@ -93,8 +93,8 @@ public abstract class JobScheduler<TPayload>(
 			State = runAt <= now ? JobState.Pending : JobState.Scheduled,
 			DueAt = runAt,
 			CreatedAt = now,
-			TraceParent = trace.Parent,
-			TraceState = trace.State,
+			TraceParent = traceParent,
+			TraceState = traceState,
 			Context = context,
 		};
 

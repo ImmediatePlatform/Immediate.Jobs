@@ -19,9 +19,9 @@ internal static class CronValidator
 			return false;
 		}
 
-		var ranges = fields.Length == 6
-			? new[] { (0, 59), (0, 59), (0, 23), (1, 31), (1, 12), (0, 7) }
-			: new[] { (0, 59), (0, 23), (1, 31), (1, 12), (0, 7) };
+		(int Minimum, int Maximum)[] ranges = fields.Length == 6
+			? [(0, 59), (0, 59), (0, 23), (1, 31), (1, 12), (0, 7)]
+			: [(0, 59), (0, 23), (1, 31), (1, 12), (0, 7)];
 		for (var index = 0; index < fields.Length; index++)
 		{
 			if (ValidateField(fields[index], ranges[index].Item1, ranges[index].Item2))

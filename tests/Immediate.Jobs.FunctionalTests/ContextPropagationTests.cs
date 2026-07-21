@@ -1,3 +1,4 @@
+using System.Collections.ObjectModel;
 using Immediate.Handlers.Shared;
 using Immediate.Jobs.Testing;
 using Microsoft.Extensions.DependencyInjection;
@@ -26,8 +27,8 @@ public sealed class ContextPropagationTests
 		}
 
 		var enqueued = await harness.GetJobAsync(id, cancellationToken);
-		Assert.Contains("tenant-42", enqueued.Context);
-		Assert.Contains("correlation-7", enqueued.Context);
+		Assert.Contains("tenant-42", enqueued.Context, StringComparison.Ordinal);
+		Assert.Contains("correlation-7", enqueued.Context, StringComparison.Ordinal);
 
 		await harness.DrainAsync(cancellationToken);
 
@@ -80,7 +81,7 @@ public sealed class ContextPropagationTests
 		var failed = await harness.GetJobAsync(id, cancellationToken);
 		Assert.Equal(JobState.Failed, failed.State);
 		Assert.Equal(2, failed.Attempt);
-		Assert.Contains("Restore failed", failed.LastError);
+		Assert.Contains("Restore failed", failed.LastError, StringComparison.Ordinal);
 	}
 
 	[Fact]
@@ -186,7 +187,7 @@ public sealed class ContextPropagationTests
 		var cancellationToken = TestContext.Current.CancellationToken;
 		await using var harness = CreateHarness(new());
 
-		Assert.Throws<InvalidOperationException>(
+		_ = Assert.Throws<InvalidOperationException>(
 			() => harness.Services.GetRequiredService<ContextRoundTripJob.IScheduler>()
 		);
 
@@ -197,14 +198,19 @@ public sealed class ContextPropagationTests
 
 	private static JobTestHarness CreateHarness(ContextProbe probe, bool captureLogs = false) => new(services =>
 	{
-		services.AddSingleton(probe);
-		services.AddSingleton(new ExecutionState());
-		services.AddScoped<PropagationScopeState>();
-		services.AddSingleton<ScopedSchedulerConsumer>();
+		_ = services.AddSingleton(probe);
+		_ = services.AddSingleton(new ExecutionState());
+		_ = services.AddScoped<PropagationScopeState>();
+		_ = services.AddSingleton<ScopedSchedulerConsumer>();
 		if (captureLogs)
-			services.AddLogging(builder => builder.AddProvider(new CapturingLoggerProvider(probe)));
-		services.AddImmediateJobsFunctionalTestsBehaviors();
-		services.AddImmediateJobs();
+		{
+			_ = services.AddLogging(builder =>
+				_ = builder.AddProvider(new CapturingLoggerProvider(probe))
+			);
+		}
+
+		_ = services.AddImmediateJobsFunctionalTestsBehaviors();
+		_ = services.AddImmediateJobs();
 	});
 
 	private static JobRecord CreateContextRecord(JobTestHarness harness, string context) => new()
@@ -221,7 +227,7 @@ public sealed class ContextPropagationTests
 
 public sealed class ContextProbe
 {
-	public List<string> Events { get; } = [];
+	public Collection<string> Events { get; } = [];
 }
 
 public sealed class PropagationScopeState
@@ -248,6 +254,7 @@ public sealed class TenantContextExtractor(PropagationScopeState state, ContextP
 
 	public ValueTask RestoreAsync(TenantContext context, CancellationToken cancellationToken)
 	{
+		ArgumentNullException.ThrowIfNull(context);
 		probe.Events.Add("restore:tenant");
 		state.TenantId = context.TenantId;
 		return ValueTask.CompletedTask;
@@ -267,6 +274,7 @@ public sealed class CorrelationContextExtractor(PropagationScopeState state, Con
 
 	public ValueTask RestoreAsync(CorrelationContext context, CancellationToken cancellationToken)
 	{
+		ArgumentNullException.ThrowIfNull(context);
 		probe.Events.Add("restore:correlation");
 		state.CorrelationId = context.CorrelationId;
 		return ValueTask.CompletedTask;
@@ -332,6 +340,7 @@ public sealed partial class ContextRoundTripJob(PropagationScopeState state, Con
 
 	private ValueTask HandleAsync(Payload payload, CancellationToken cancellationToken)
 	{
+		_ = cancellationToken;
 		probe.Events.Add($"handler:{state.TenantId}/{state.CorrelationId}:{payload.Message}");
 		return ValueTask.CompletedTask;
 	}
@@ -340,21 +349,36 @@ public sealed partial class ContextRoundTripJob(PropagationScopeState state, Con
 [Handler, Job("capture-failure"), UsesJobContext<ThrowingCaptureExtractor>]
 public sealed partial class CaptureFailureJob
 {
-	private ValueTask HandleAsync(NoPayload payload, CancellationToken cancellationToken) => ValueTask.CompletedTask;
+	private ValueTask HandleAsync(NoPayload payload, CancellationToken cancellationToken)
+	{
+		_ = payload;
+		_ = cancellationToken;
+		return ValueTask.CompletedTask;
+	}
 }
 
 [Handler, Job("restore-failure", MaxAttempts = 2, Backoff = BackoffStrategy.Fixed, BackoffBase = "00:00:01")]
 [UsesJobContext<ThrowingRestoreExtractor>]
 public sealed partial class RestoreFailureJob
 {
-	private ValueTask HandleAsync(NoPayload payload, CancellationToken cancellationToken) => ValueTask.CompletedTask;
+	private ValueTask HandleAsync(NoPayload payload, CancellationToken cancellationToken)
+	{
+		_ = payload;
+		_ = cancellationToken;
+		return ValueTask.CompletedTask;
+	}
 }
 
 [Handler, Job("duplicate-context-key")]
 [UsesJobContext<FirstNullExtractor>, UsesJobContext<SecondNullExtractor>]
 public sealed partial class DuplicateContextKeyJob
 {
-	private ValueTask HandleAsync(NoPayload payload, CancellationToken cancellationToken) => ValueTask.CompletedTask;
+	private ValueTask HandleAsync(NoPayload payload, CancellationToken cancellationToken)
+	{
+		_ = payload;
+		_ = cancellationToken;
+		return ValueTask.CompletedTask;
+	}
 }
 
 [Handler, Job("context-cron", Cron = "* * * * * *")]
@@ -363,6 +387,7 @@ public sealed partial class ContextCronJob(PropagationScopeState state, ContextP
 {
 	private ValueTask HandleAsync(NoPayload payload, CancellationToken cancellationToken)
 	{
+		_ = cancellationToken;
 		_ = payload.JobDetails ?? throw new InvalidOperationException("Job details were not populated.");
 		probe.Events.Add(state.TenantId is null ? "cron:no-context" : "cron:" + state.TenantId);
 		return ValueTask.CompletedTask;

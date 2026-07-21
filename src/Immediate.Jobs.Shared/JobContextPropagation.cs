@@ -27,7 +27,9 @@ public sealed class UsesJobContextAttribute<TExtractor> : Attribute;
 
 /// <summary>Marks a generated invoker that consumes persisted context slices itself.</summary>
 [EditorBrowsable(EditorBrowsableState.Never)]
+#pragma warning disable CA1040 // Generated invokers use this marker for a fast runtime capability check.
 public interface IJobContextAwareInvoker;
+#pragma warning restore CA1040
 
 /// <summary>Runtime helpers used by generated context capture and restore code.</summary>
 [EditorBrowsable(EditorBrowsableState.Never)]
@@ -66,8 +68,10 @@ public static class JobContextEnvelope
 				writer.WritePropertyName(slice.Key);
 				writer.WriteRawValue(slice.Value);
 			}
+
 			writer.WriteEndObject();
 		}
+
 		return Encoding.UTF8.GetString(buffer.WrittenSpan);
 	}
 
@@ -85,6 +89,7 @@ public static class JobContextEnvelope
 			if (!slices.TryAdd(property.Name, property.Value.GetRawText()))
 				throw new JsonException($"The job context envelope contains duplicate key '{property.Name}'.");
 		}
+
 		return slices;
 	}
 

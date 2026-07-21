@@ -27,7 +27,7 @@ public static class NodaTimeJsonExtensions
 	)
 	{
 		ArgumentNullException.ThrowIfNull(services);
-		services.Replace(ServiceDescriptor.Singleton<IJobSerializer>(
+		_ = services.Replace(ServiceDescriptor.Singleton<IJobSerializer>(
 			_ => new NodaTimeJobSerializer(timeZoneProvider ?? DateTimeZoneProviders.Tzdb)
 		));
 		return services;
@@ -37,7 +37,7 @@ public static class NodaTimeJsonExtensions
 /// <summary>A System.Text.Json job serializer configured with NodaTime converters.</summary>
 public sealed class NodaTimeJobSerializer : IJobSerializer
 {
-	private readonly SystemTextJsonJobSerializer serializer;
+	private readonly SystemTextJsonJobSerializer _serializer;
 
 	/// <summary>Creates a serializer using the TZDB time-zone provider and web JSON defaults.</summary>
 	public NodaTimeJobSerializer()
@@ -56,27 +56,27 @@ public sealed class NodaTimeJobSerializer : IJobSerializer
 	{
 		ArgumentNullException.ThrowIfNull(options);
 		Options = options.UseNodaTime(timeZoneProvider);
-		serializer = new(Options);
+		_serializer = new(Options);
 	}
 
 	/// <summary>The configured serializer options.</summary>
 	public JsonSerializerOptions Options { get; }
 
 	/// <inheritdoc />
-	public string Serialize<TPayload>(TPayload payload) => serializer.Serialize(payload);
+	public string Serialize<TPayload>(TPayload payload) => _serializer.Serialize(payload);
 
 	/// <inheritdoc />
-	public TPayload Deserialize<TPayload>(string payload) => serializer.Deserialize<TPayload>(payload);
+	public TPayload Deserialize<TPayload>(string payload) => _serializer.Deserialize<TPayload>(payload);
 
 	/// <inheritdoc />
 	public string Serialize<TPayload>(
 		TPayload payload,
 		Func<JsonSerializerOptions, JsonTypeInfo<TPayload>> payloadTypeInfoFactory
-	) => serializer.Serialize(payload, payloadTypeInfoFactory);
+	) => _serializer.Serialize(payload, payloadTypeInfoFactory);
 
 	/// <inheritdoc />
 	public TPayload Deserialize<TPayload>(
 		string payload,
 		Func<JsonSerializerOptions, JsonTypeInfo<TPayload>> payloadTypeInfoFactory
-	) => serializer.Deserialize(payload, payloadTypeInfoFactory);
+	) => _serializer.Deserialize(payload, payloadTypeInfoFactory);
 }

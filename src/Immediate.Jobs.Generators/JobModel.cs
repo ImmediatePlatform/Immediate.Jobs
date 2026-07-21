@@ -85,7 +85,7 @@ internal static class GeneratorJobDiscovery
 
 		var resolvedPayload = payloadType!;
 		var qualified = type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-		var safe = new string(qualified.Select(static character => char.IsLetterOrDigit(character) ? character : '.').ToArray());
+		var safe = new string([.. qualified.Select(static character => char.IsLetterOrDigit(character) ? character : '.')]);
 		var contexts = contextUses.Select((use, index) => new JobContextModel
 		{
 			ExtractorTypeName = use.ExtractorType.ToDisplayString(TypeDisplayFormat),
@@ -97,6 +97,12 @@ internal static class GeneratorJobDiscovery
 
 		if (!JobDiscovery.TryGetQueue(type, out var queueName, out var queuePriority, out var queueConcurrency))
 			return false;
+
+#if NETSTANDARD2_0
+		var contextTypes = contextUses.Select(static use => use.ContextType!).ToImmutableArray();
+#else
+		ImmutableArray<ITypeSymbol> contextTypes = [.. contextUses.Select(static use => use.ContextType!)];
+#endif
 
 		model = new()
 		{
@@ -122,10 +128,7 @@ internal static class GeneratorJobDiscovery
 			Backoff = JobDiscovery.GetNamedInt(attribute, "Backoff", 2),
 			BackoffBase = JobDiscovery.GetNamedString(attribute, "BackoffBase") ?? "00:00:05",
 			Contexts = contexts,
-			Json = JsonMetadataEmitter.CreateModel(
-				resolvedPayload,
-				contextUses.Select(static use => use.ContextType!).ToImmutableArray()
-			),
+			Json = JsonMetadataEmitter.CreateModel(resolvedPayload, contextTypes),
 		};
 		return true;
 	}

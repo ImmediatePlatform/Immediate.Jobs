@@ -18,8 +18,6 @@ public enum JobStorageMode
 /// <summary>Global scheduler and worker options.</summary>
 public sealed class ImmediateJobsOptions
 {
-	private bool _storageModeExplicitlySelected;
-
 	/// <summary>Maximum concurrently executing jobs on this node.</summary>
 	public int MaxParallelJobs { get; set; } = Environment.ProcessorCount;
 
@@ -50,14 +48,14 @@ public sealed class ImmediateJobsOptions
 	/// <summary>The topology used by the scheduler.</summary>
 	public JobStorageMode StorageMode { get; private set; } = JobStorageMode.SingleServer;
 
-	internal bool StorageModeExplicitlySelected => _storageModeExplicitlySelected;
+	internal bool StorageModeExplicitlySelected { get; private set; }
 
 	/// <summary>Selects the non-durable, single-node in-memory provider.</summary>
 	public ImmediateJobsOptions UseInMemory()
 	{
 		StorageFactory = static services => new InMemoryJobStorage(services.GetRequiredService<TimeProvider>());
 		StorageMode = JobStorageMode.InMemory;
-		_storageModeExplicitlySelected = false;
+		StorageModeExplicitlySelected = false;
 		return this;
 	}
 
@@ -69,7 +67,7 @@ public sealed class ImmediateJobsOptions
 	{
 		ArgumentNullException.ThrowIfNull(factory);
 		StorageFactory = factory;
-		if (!_storageModeExplicitlySelected)
+		if (!StorageModeExplicitlySelected)
 			StorageMode = JobStorageMode.SingleServer;
 		return this;
 	}
@@ -78,14 +76,14 @@ public sealed class ImmediateJobsOptions
 	public ImmediateJobsOptions UseSingleServer()
 	{
 		StorageMode = JobStorageMode.SingleServer;
-		_storageModeExplicitlySelected = true;
+		StorageModeExplicitlySelected = true;
 		return this;
 	}
 
 	/// <summary>Selects memory-primary operation with the supplied durable replica.</summary>
 	public ImmediateJobsOptions UseSingleServer(Func<IServiceProvider, IJobStorage> durableStorageFactory)
 	{
-		UseStorage(durableStorageFactory);
+		_ = UseStorage(durableStorageFactory);
 		return UseSingleServer();
 	}
 
@@ -93,7 +91,7 @@ public sealed class ImmediateJobsOptions
 	public ImmediateJobsOptions UseDistributed()
 	{
 		StorageMode = JobStorageMode.Distributed;
-		_storageModeExplicitlySelected = true;
+		StorageModeExplicitlySelected = true;
 		return this;
 	}
 
@@ -101,9 +99,26 @@ public sealed class ImmediateJobsOptions
 	{
 		var storage = StorageFactory!(services)
 			?? throw new InvalidOperationException("The Immediate.Jobs storage factory returned null.");
-		return StorageMode == JobStorageMode.SingleServer
-			? new SingleServerJobStorage(storage, services.GetRequiredService<TimeProvider>())
-			: storage;
+		if (StorageMode != JobStorageMode.SingleServer)
+			return storage;
+
+		try
+		{
+			return new SingleServerJobStorage(storage, services.GetRequiredService<TimeProvider>());
+		}
+		catch
+		{
+			DisposeStorage(storage);
+			throw;
+		}
+	}
+
+	private static void DisposeStorage(IJobStorage storage)
+	{
+		if (storage is IDisposable disposable)
+			disposable.Dispose();
+		else if (storage is IAsyncDisposable asyncDisposable)
+			asyncDisposable.DisposeAsync().AsTask().GetAwaiter().GetResult();
 	}
 
 	internal void Validate()

@@ -12,7 +12,6 @@ public sealed partial class JobSchedulerService : BackgroundService
 {
 	private readonly IServiceScopeFactory _scopeFactory;
 	private readonly IJobStorage _storage;
-	private readonly IJobSerializer _serializer;
 	private readonly ImmediateJobsOptions _options;
 	private readonly TimeProvider _timeProvider;
 	private readonly ILogger<JobSchedulerService> _logger;
@@ -41,9 +40,18 @@ public sealed partial class JobSchedulerService : BackgroundService
 		JobSchedulerState state
 	)
 	{
+		ArgumentNullException.ThrowIfNull(scopeFactory);
+		ArgumentNullException.ThrowIfNull(storage);
+		ArgumentNullException.ThrowIfNull(serializer);
+		ArgumentNullException.ThrowIfNull(definitions);
+		ArgumentNullException.ThrowIfNull(queueDefinitions);
+		ArgumentNullException.ThrowIfNull(options);
+		ArgumentNullException.ThrowIfNull(timeProvider);
+		ArgumentNullException.ThrowIfNull(logger);
+		ArgumentNullException.ThrowIfNull(state);
+
 		_scopeFactory = scopeFactory;
 		_storage = storage;
-		_serializer = serializer;
 		_options = options;
 		_timeProvider = timeProvider;
 		_logger = logger;
@@ -89,7 +97,9 @@ public sealed partial class JobSchedulerService : BackgroundService
 				{
 					break;
 				}
+#pragma warning disable CA1031 // A scheduler iteration failure must not terminate the hosted service.
 				catch (Exception exception)
+#pragma warning restore CA1031
 				{
 					SchedulerIterationFailed(_logger, exception);
 				}
@@ -99,7 +109,7 @@ public sealed partial class JobSchedulerService : BackgroundService
 		}
 		finally
 		{
-			_channel.Writer.TryComplete();
+			_ = _channel.Writer.TryComplete();
 			using var drain = new CancellationTokenSource(_options.ShutdownTimeout, _timeProvider);
 			try
 			{
@@ -113,8 +123,11 @@ public sealed partial class JobSchedulerService : BackgroundService
 	}
 
 	/// <summary>Executes one already-acquired record. Intended for deterministic test harnesses.</summary>
-	public ValueTask ExecuteSingleAsync(JobRecord record, CancellationToken cancellationToken = default) =>
-		ExecuteJobAsync(record, cancellationToken);
+	public ValueTask ExecuteSingleAsync(JobRecord record, CancellationToken cancellationToken = default)
+	{
+		ArgumentNullException.ThrowIfNull(record);
+		return ExecuteJobAsync(record, cancellationToken);
+	}
 
 	/// <summary>
 	/// Materializes and executes all work currently due, returning when the due queue is empty.
@@ -175,7 +188,7 @@ public sealed partial class JobSchedulerService : BackgroundService
 		if (_timeProvider.GetTimestamp() >= Interlocked.Read(ref _nextPurgeTimestamp))
 		{
 			await _storage.PurgeAsync(_options.SucceededRetention, _options.FailedRetention, cancellationToken).ConfigureAwait(false);
-			Interlocked.Exchange(ref _nextPurgeTimestamp, _timeProvider.GetTimestamp() + ToTimestampTicks(_options.PurgeInterval));
+			_ = Interlocked.Exchange(ref _nextPurgeTimestamp, _timeProvider.GetTimestamp() + ToTimestampTicks(_options.PurgeInterval));
 		}
 	}
 
@@ -191,7 +204,9 @@ public sealed partial class JobSchedulerService : BackgroundService
 			{
 				break;
 			}
+#pragma warning disable CA1031 // A failed job must not terminate its worker loop.
 			catch (Exception exception)
+#pragma warning restore CA1031
 			{
 				UnhandledWorkerError(_logger, exception, record.Id);
 			}
@@ -216,6 +231,7 @@ public sealed partial class JobSchedulerService : BackgroundService
 				if (releaseReservation)
 					Release(record);
 			}
+
 			return;
 		}
 
@@ -231,7 +247,7 @@ public sealed partial class JobSchedulerService : BackgroundService
 
 		var parent = default(ActivityContext);
 		if (record.TraceParent is not null)
-			ActivityContext.TryParse(record.TraceParent, record.TraceState, true, out parent);
+			_ = ActivityContext.TryParse(record.TraceParent, record.TraceState, true, out parent);
 		IEnumerable<ActivityLink>? links = parent != default ? [new(parent)] : null;
 		using var activity = JobTelemetry.ActivitySource.StartActivity(
 			$"job {record.JobName}",
@@ -255,18 +271,19 @@ public sealed partial class JobSchedulerService : BackgroundService
 		});
 
 		try
+		{
+			await using var scope = _scopeFactory.CreateAsyncScope();
+			if (record.Context is { } orphanedEnvelope && definition.Invoker is not IJobContextAwareInvoker)
 			{
-				await using var scope = _scopeFactory.CreateAsyncScope();
-				if (record.Context is { } orphanedEnvelope && definition.Invoker is not IJobContextAwareInvoker)
-				{
-					var orphanedSlices = JobContextEnvelope.Read(orphanedEnvelope);
-					JobContextEnvelope.LogOrphanedSlices(scope.ServiceProvider, record, orphanedSlices.Keys);
-				}
-				await definition.Invoker.InvokeAsync(scope.ServiceProvider, new(record, definition, timeout.Token)).ConfigureAwait(false);
+				var orphanedSlices = JobContextEnvelope.Read(orphanedEnvelope);
+				JobContextEnvelope.LogOrphanedSlices(scope.ServiceProvider, record, orphanedSlices.Keys);
+			}
+
+			await definition.Invoker.InvokeAsync(scope.ServiceProvider, new(record, definition, timeout.Token)).ConfigureAwait(false);
 			await _storage.CompleteAsync(record.Id, _workerId, stoppingToken).ConfigureAwait(false);
 			var duration = _timeProvider.GetElapsedTime(started);
 			JobTelemetry.Succeeded(record.JobName, record.QueueName, duration);
-			activity?.SetStatus(ActivityStatusCode.Ok);
+			_ = activity?.SetStatus(ActivityStatusCode.Ok);
 			JobCompleted(_logger, duration.TotalMilliseconds);
 		}
 		catch (Exception exception) when (exception is not OperationCanceledException || !stoppingToken.IsCancellationRequested)
@@ -276,7 +293,7 @@ public sealed partial class JobSchedulerService : BackgroundService
 			await _storage.FailAsync(record.Id, _workerId, exception.ToString(), nextRetryAt, stoppingToken).ConfigureAwait(false);
 			var duration = _timeProvider.GetElapsedTime(started);
 			JobTelemetry.Failed(record.JobName, record.QueueName, duration);
-			activity?.SetStatus(ActivityStatusCode.Error, exception.Message);
+			_ = activity?.SetStatus(ActivityStatusCode.Error, exception.Message);
 
 			if (retry)
 			{
@@ -299,6 +316,7 @@ public sealed partial class JobSchedulerService : BackgroundService
 			catch (OperationCanceledException)
 			{
 			}
+
 			_state.DecrementActive();
 			JobTelemetry.ExecutionFinished();
 			if (releaseReservation)
@@ -368,16 +386,16 @@ public sealed partial class JobSchedulerService : BackgroundService
 
 	private void Reserve(JobRecord record)
 	{
-		Interlocked.Increment(ref _reservations);
-		_queueReservations.AddOrUpdate(record.QueueName, 1, static (_, count) => count + 1);
-		_jobReservations.AddOrUpdate(record.JobName, 1, static (_, count) => count + 1);
+		_ = Interlocked.Increment(ref _reservations);
+		_ = _queueReservations.AddOrUpdate(record.QueueName, 1, static (_, count) => count + 1);
+		_ = _jobReservations.AddOrUpdate(record.JobName, 1, static (_, count) => count + 1);
 	}
 
 	private void Release(JobRecord record)
 	{
-		Interlocked.Decrement(ref _reservations);
-		_queueReservations.AddOrUpdate(record.QueueName, 0, static (_, count) => Math.Max(0, count - 1));
-		_jobReservations.AddOrUpdate(record.JobName, 0, static (_, count) => Math.Max(0, count - 1));
+		_ = Interlocked.Decrement(ref _reservations);
+		_ = _queueReservations.AddOrUpdate(record.QueueName, 0, static (_, count) => Math.Max(0, count - 1));
+		_ = _jobReservations.AddOrUpdate(record.JobName, 0, static (_, count) => Math.Max(0, count - 1));
 	}
 
 	private async Task RenewLeaseLoopAsync(Guid jobId, CancellationToken cancellationToken)
@@ -428,7 +446,7 @@ public sealed partial class JobSchedulerService : BackgroundService
 		}
 		finally
 		{
-			_scheduleInitialization.Release();
+			_ = _scheduleInitialization.Release();
 		}
 	}
 
@@ -444,7 +462,7 @@ public sealed partial class JobSchedulerService : BackgroundService
 			var expression = JobCron.Parse(schedule.Cron);
 			var next = expression.GetNextOccurrence(schedule.NextRunAt, JobCron.GetTimeZone(schedule.TimeZone))
 				?? throw new InvalidOperationException($"Recurring schedule '{schedule.Name}' has no future occurrence.");
-			var trace = TraceContextCapture.Current();
+			var (traceParent, traceState) = TraceContextCapture.Current();
 			var record = new JobRecord
 			{
 				Id = Guid.NewGuid(),
@@ -455,8 +473,8 @@ public sealed partial class JobSchedulerService : BackgroundService
 				DueAt = schedule.NextRunAt,
 				CreatedAt = now,
 				RecurringKey = $"{schedule.Name}:{schedule.NextRunAt.UtcTicks}",
-				TraceParent = trace.Parent,
-				TraceState = trace.State,
+				TraceParent = traceParent,
+				TraceState = traceState,
 			};
 
 			if (definition.OverlapPolicy == OverlapPolicy.Skip)
@@ -490,6 +508,13 @@ public sealed partial class JobSchedulerService : BackgroundService
 	}
 
 	private long ToTimestampTicks(TimeSpan duration) => (long)(duration.TotalSeconds * _timeProvider.TimestampFrequency);
+
+	/// <inheritdoc />
+	public override void Dispose()
+	{
+		_scheduleInitialization.Dispose();
+		base.Dispose();
+	}
 
 	[LoggerMessage(EventId = 1, Level = LogLevel.Error, Message = "Immediate.Jobs scheduler iteration failed; polling will continue")]
 	private static partial void SchedulerIterationFailed(ILogger logger, Exception exception);

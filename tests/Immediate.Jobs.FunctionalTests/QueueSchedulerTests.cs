@@ -15,14 +15,14 @@ public sealed class QueueSchedulerTests
 		var highQueue = new JobQueueDefinition { Name = "high", Priority = 10, Concurrency = 2 };
 		var lowQueue = new JobQueueDefinition { Name = "low", Priority = 0 };
 		var services = new ServiceCollection();
-		services.AddLogging();
-		services.AddImmediateJobsCore(options =>
+		_ = services.AddLogging();
+		_ = services.AddImmediateJobsCore(options =>
 		{
-			options.UseInMemory();
+			_ = options.UseInMemory();
 			options.MaxParallelJobs = 3;
 			options.PollingInterval = TimeSpan.FromMilliseconds(10);
 		});
-		services.AddSingleton(new JobDefinition
+		_ = services.AddSingleton(new JobDefinition
 		{
 			Name = "high-a",
 			Queue = highQueue,
@@ -30,14 +30,14 @@ public sealed class QueueSchedulerTests
 			Invoker = execution,
 			JobType = typeof(BlockingExecution),
 		});
-		services.AddSingleton(new JobDefinition
+		_ = services.AddSingleton(new JobDefinition
 		{
 			Name = "high-b",
 			Queue = highQueue,
 			Invoker = execution,
 			JobType = typeof(BlockingExecution),
 		});
-		services.AddSingleton(new JobDefinition
+		_ = services.AddSingleton(new JobDefinition
 		{
 			Name = "low-a",
 			Queue = lowQueue,
@@ -61,7 +61,7 @@ public sealed class QueueSchedulerTests
 		Assert.Equal(2, execution.MaximumByQueue["high"]);
 		Assert.Equal(1, execution.MaximumByJob["high-a"]);
 
-		execution.Release.TrySetResult();
+		_ = execution.Release.TrySetResult();
 		await hostedService.StopAsync(cancellationToken);
 
 		ValueTask Enqueue(string queueName, string jobName, int order) => storage.EnqueueAsync(new()
@@ -78,9 +78,9 @@ public sealed class QueueSchedulerTests
 
 	private sealed class BlockingExecution : IJobInvoker
 	{
-		private readonly ConcurrentDictionary<string, int> activeByQueue = new(StringComparer.Ordinal);
-		private readonly ConcurrentDictionary<string, int> activeByJob = new(StringComparer.Ordinal);
-		private int started;
+		private readonly ConcurrentDictionary<string, int> _activeByQueue = new(StringComparer.Ordinal);
+		private readonly ConcurrentDictionary<string, int> _activeByJob = new(StringComparer.Ordinal);
+		private int _started;
 
 		public ConcurrentDictionary<string, int> MaximumByQueue { get; } = new(StringComparer.Ordinal);
 		public ConcurrentDictionary<string, int> MaximumByJob { get; } = new(StringComparer.Ordinal);
@@ -90,12 +90,12 @@ public sealed class QueueSchedulerTests
 		public async ValueTask InvokeAsync(IServiceProvider scopedServices, JobExecution execution)
 		{
 			var record = execution.Record;
-			var queueActive = activeByQueue.AddOrUpdate(record.QueueName, 1, static (_, count) => count + 1);
-			var jobActive = activeByJob.AddOrUpdate(record.JobName, 1, static (_, count) => count + 1);
-			MaximumByQueue.AddOrUpdate(record.QueueName, queueActive, (_, maximum) => Math.Max(maximum, queueActive));
-			MaximumByJob.AddOrUpdate(record.JobName, jobActive, (_, maximum) => Math.Max(maximum, jobActive));
-			if (Interlocked.Increment(ref started) == 3)
-				ThreeStarted.TrySetResult();
+			var queueActive = _activeByQueue.AddOrUpdate(record.QueueName, 1, static (_, count) => count + 1);
+			var jobActive = _activeByJob.AddOrUpdate(record.JobName, 1, static (_, count) => count + 1);
+			_ = MaximumByQueue.AddOrUpdate(record.QueueName, queueActive, (_, maximum) => Math.Max(maximum, queueActive));
+			_ = MaximumByJob.AddOrUpdate(record.JobName, jobActive, (_, maximum) => Math.Max(maximum, jobActive));
+			if (Interlocked.Increment(ref _started) == 3)
+				_ = ThreeStarted.TrySetResult();
 
 			try
 			{
@@ -103,8 +103,8 @@ public sealed class QueueSchedulerTests
 			}
 			finally
 			{
-				activeByQueue.AddOrUpdate(record.QueueName, 0, static (_, count) => count - 1);
-				activeByJob.AddOrUpdate(record.JobName, 0, static (_, count) => count - 1);
+				_ = _activeByQueue.AddOrUpdate(record.QueueName, 0, static (_, count) => count - 1);
+				_ = _activeByJob.AddOrUpdate(record.JobName, 0, static (_, count) => count - 1);
 			}
 		}
 	}
