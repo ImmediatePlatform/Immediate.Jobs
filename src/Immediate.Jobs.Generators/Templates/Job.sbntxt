@@ -43,7 +43,7 @@ namespace {{ namespace }};
 		{{ end }}
 	}
 	{{ else }}
-	public interface IScheduler : global::Immediate.Jobs.Shared.IRecurringJobScheduler;
+	public interface IScheduler : global::Immediate.Jobs.Shared.{{ recurring_scheduler_interface }};
 
 	[global::System.CodeDom.Compiler.GeneratedCodeAttribute("Immediate.Jobs", "{{ version }}")]
 	public sealed class Scheduler(
@@ -78,12 +78,13 @@ namespace {{ namespace }};
 		{{ end }}
 		public global::System.Threading.Tasks.ValueTask<string> TriggerNow(global::System.Threading.CancellationToken cancellationToken = default) =>
 			Enqueue(default, cancellationToken);
-
+	{{ if cron_literal == null }}
 		public global::System.Threading.Tasks.ValueTask AddOrUpdateRecurring(string name, string cron, string timeZone = "UTC", global::System.Threading.CancellationToken cancellationToken = default) =>
 			AddOrUpdateRecurringCore(name, cron, timeZone, cancellationToken);
 
 		public global::System.Threading.Tasks.ValueTask RemoveRecurring(string name, global::System.Threading.CancellationToken cancellationToken = default) =>
 			Storage.RemoveRecurringAsync(name, cancellationToken);
+	{{ end -}}
 	}
 	{{ end }}
 

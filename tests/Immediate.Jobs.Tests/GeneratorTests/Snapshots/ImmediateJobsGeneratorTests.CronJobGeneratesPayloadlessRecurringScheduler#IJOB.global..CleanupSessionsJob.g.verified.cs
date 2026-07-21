@@ -8,7 +8,7 @@
 public partial class CleanupSessionsJob
 {
 
-		public interface IScheduler : global::Immediate.Jobs.Shared.IRecurringJobScheduler;
+		public interface IScheduler : global::Immediate.Jobs.Shared.IRecurringJobTrigger;
 
 		public sealed class Scheduler(
 			global::Immediate.Jobs.Shared.IJobStorage storage,
@@ -20,12 +20,6 @@ public partial class CleanupSessionsJob
 
 			public global::System.Threading.Tasks.ValueTask<string> TriggerNow(global::System.Threading.CancellationToken cancellationToken = default) =>
 				Enqueue(default, cancellationToken);
-
-			public global::System.Threading.Tasks.ValueTask AddOrUpdateRecurring(string name, string cron, string timeZone = "UTC", global::System.Threading.CancellationToken cancellationToken = default) =>
-				AddOrUpdateRecurringCore(name, cron, timeZone, cancellationToken);
-
-			public global::System.Threading.Tasks.ValueTask RemoveRecurring(string name, global::System.Threading.CancellationToken cancellationToken = default) =>
-				Storage.RemoveRecurringAsync(name, cancellationToken);
 		}
 
 

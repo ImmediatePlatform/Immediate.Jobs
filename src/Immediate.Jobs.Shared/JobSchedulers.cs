@@ -16,17 +16,21 @@ public interface IJobScheduler<TPayload>
 	ValueTask<string> ScheduleAt(TPayload payload, DateTimeOffset runAt, CancellationToken cancellationToken = default);
 }
 
-/// <summary>Recurring operations shared by generated cron schedulers.</summary>
-public interface IRecurringJobScheduler
+/// <summary>Triggers a payloadless job immediately.</summary>
+public interface IRecurringJobTrigger
+{
+	/// <summary>Enqueues the job immediately and returns its opaque invocation identifier.</summary>
+	ValueTask<string> TriggerNow(CancellationToken cancellationToken = default);
+}
+
+/// <summary>Dynamic recurring operations exposed by payloadless jobs without a code-defined cron.</summary>
+public interface IRecurringJobScheduler : IRecurringJobTrigger
 {
 	/// <summary>Adds or replaces a durable dynamic schedule.</summary>
 	ValueTask AddOrUpdateRecurring(string name, string cron, string timeZone = "UTC", CancellationToken cancellationToken = default);
 
 	/// <summary>Removes a dynamic durable schedule.</summary>
 	ValueTask RemoveRecurring(string name, CancellationToken cancellationToken = default);
-
-	/// <summary>Enqueues the recurring job immediately and returns its opaque invocation identifier.</summary>
-	ValueTask<string> TriggerNow(CancellationToken cancellationToken = default);
 }
 
 /// <summary>Runtime base used by source-generated typed schedulers.</summary>

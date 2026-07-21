@@ -94,15 +94,27 @@ public sealed partial class CleanupSessionsJob(AppDbContext db)
 }
 ```
 
-Inject `CleanupSessionsJob.Scheduler` to trigger it immediately or manage a durable dynamic schedule:
+Inject `CleanupSessionsJob.IScheduler` to trigger the code-defined job immediately:
 
 ```csharp
 await scheduler.TriggerNow(cancellationToken);
-await scheduler.AddOrUpdateRecurring("tenant-42-cleanup", "0 0 3 * * *", "UTC", cancellationToken);
-await scheduler.RemoveRecurring("tenant-42-cleanup", cancellationToken);
 ```
 
-Code schedules are re-asserted at startup. Storage uses a unique `(schedule name, scheduled UTC occurrence)` materialization key, so competing nodes produce one durable invocation for each occurrence.
+Schedulers for jobs with a compile-time `Cron` do not expose dynamic schedule mutation. To manage named schedules at runtime, define a separate payloadless job without `Cron`:
+
+```csharp
+[Handler, Job("tenant-cleanup")]
+public sealed partial class TenantCleanupJob(AppDbContext db)
+{
+	private ValueTask HandleAsync(NoPayload request, CancellationToken cancellationToken) =>
+		new(db.DeleteExpiredSessions(cancellationToken));
+}
+
+await tenantCleanupScheduler.AddOrUpdateRecurring("tenant-42-cleanup", "0 0 3 * * *", "UTC", cancellationToken);
+await tenantCleanupScheduler.RemoveRecurring("tenant-42-cleanup", cancellationToken);
+```
+
+Code schedules are re-asserted at startup. A dynamic schedule cannot replace a code-defined schedule with the same name. Storage uses a unique `(schedule name, scheduled UTC occurrence)` materialization key, so competing nodes produce one durable invocation for each occurrence.
 
 ## Immediate.Handlers behaviors for jobs
 

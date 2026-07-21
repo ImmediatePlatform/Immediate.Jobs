@@ -210,6 +210,7 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 		await using var context = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
 		if (await UpdateRecurringAsync(context, schedule, cancellationToken).ConfigureAwait(false) != 0)
 			return;
+		await ThrowIfReplacingCodeDefinedScheduleAsync(context, schedule, cancellationToken).ConfigureAwait(false);
 
 		_ = context.Add(ToEntity(schedule));
 		try
@@ -220,8 +221,10 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 		{
 			// A competing node inserted the same schedule after our update attempt.
 			await using var retryContext = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
-			if (await UpdateRecurringAsync(retryContext, schedule, cancellationToken).ConfigureAwait(false) == 0)
-				throw;
+			if (await UpdateRecurringAsync(retryContext, schedule, cancellationToken).ConfigureAwait(false) != 0)
+				return;
+			await ThrowIfReplacingCodeDefinedScheduleAsync(retryContext, schedule, cancellationToken).ConfigureAwait(false);
+			throw;
 		}
 	}
 
@@ -527,7 +530,7 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 	{
 		var concurrencyStamp = Guid.NewGuid();
 		return context.Set<ImmediateRecurringJobEntity>()
-			.Where(entity => entity.Name == schedule.Name)
+			.Where(entity => entity.Name == schedule.Name && (schedule.IsCodeDefined || !entity.IsCodeDefined))
 			.ExecuteUpdateAsync(setters => setters
 				.SetProperty(entity => entity.JobName, schedule.JobName)
 				.SetProperty(entity => entity.Cron, schedule.Cron)
@@ -536,6 +539,20 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 				.SetProperty(entity => entity.NextRunAt, schedule.NextRunAt)
 				.SetProperty(entity => entity.ConcurrencyStamp, concurrencyStamp),
 				cancellationToken);
+	}
+
+	private static async Task ThrowIfReplacingCodeDefinedScheduleAsync(
+		TContext context,
+		RecurringJobSchedule schedule,
+		CancellationToken cancellationToken
+	)
+	{
+		if (!schedule.IsCodeDefined && await context.Set<ImmediateRecurringJobEntity>()
+			.AnyAsync(entity => entity.Name == schedule.Name && entity.IsCodeDefined, cancellationToken)
+			.ConfigureAwait(false))
+		{
+			throw new InvalidOperationException("Code-defined recurring schedules cannot be replaced by dynamic schedules.");
+		}
 	}
 
 	private static ImmediateJobEntity ToEntity(JobRecord job) => new()

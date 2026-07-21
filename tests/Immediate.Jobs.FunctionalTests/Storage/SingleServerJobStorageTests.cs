@@ -84,6 +84,39 @@ public sealed class SingleServerJobStorageTests
 	}
 
 	[Fact]
+	public async Task CodeDefinedScheduleCannotBeReplacedByDynamicScheduleInMemory()
+	{
+		var cancellationToken = TestContext.Current.CancellationToken;
+		var timeProvider = new FakeTimeProvider(DateTimeOffset.UnixEpoch);
+		var storage = new InMemoryJobStorage(timeProvider);
+		var codeDefined = new RecurringJobSchedule
+		{
+			Name = "cleanup",
+			JobName = "cleanup",
+			Cron = "0 * * * *",
+			TimeZone = "UTC",
+			IsCodeDefined = true,
+			IsPaused = true,
+			NextRunAt = timeProvider.GetUtcNow() + TimeSpan.FromHours(1),
+		};
+		await storage.UpsertRecurringAsync(codeDefined, cancellationToken);
+
+		var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+			storage.UpsertRecurringAsync(
+				codeDefined with { Cron = "0 0 * * *", IsCodeDefined = false },
+				cancellationToken
+			).AsTask()
+		);
+		Assert.Equal("Code-defined recurring schedules cannot be replaced by dynamic schedules.", exception.Message);
+
+		await storage.UpsertRecurringAsync(codeDefined with { Cron = "0 0 * * *", IsPaused = false }, cancellationToken);
+		var stored = Assert.Single((await storage.GetMonitoringSnapshotAsync(cancellationToken)).Recurring);
+		Assert.Equal("0 0 * * *", stored.Cron);
+		Assert.True(stored.IsCodeDefined);
+		Assert.True(stored.IsPaused);
+	}
+
+	[Fact]
 	public async Task WorkingJobIsRecoveredAndReacquiredAfterItsLeaseExpires()
 	{
 		var cancellationToken = TestContext.Current.CancellationToken;

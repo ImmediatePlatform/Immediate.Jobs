@@ -99,6 +99,7 @@ public sealed class ImmediateJobsGenerator : IIncrementalGenerator
 			QueueNameLiteral = Literal(job.QueueName),
 			QueuePriority = job.QueuePriority.ToString(CultureInfo.InvariantCulture),
 			QueueConcurrency = job.QueueConcurrency.ToString(CultureInfo.InvariantCulture),
+			RecurringSchedulerInterface = job.Cron is null ? "IRecurringJobScheduler" : "IRecurringJobTrigger",
 			CronLiteral = job.Cron is null ? null : Literal(job.Cron),
 			TimeZoneLiteral = Literal(job.TimeZone),
 			MaxAttempts = job.MaxAttempts.ToString(CultureInfo.InvariantCulture),

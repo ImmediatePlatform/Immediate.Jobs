@@ -148,12 +148,37 @@ public sealed class ImmediateJobsGeneratorTests
 		var result = GeneratorTestHelper.RunGenerator(source);
 		var generated = string.Join("\n", result.GeneratedTrees.Select(tree => tree.ToString()));
 
+		Assert.Contains("interface IScheduler : global::Immediate.Jobs.Shared.IRecurringJobTrigger", generated, StringComparison.Ordinal);
+		Assert.Contains("TriggerNow", generated, StringComparison.Ordinal);
+		Assert.DoesNotContain("AddOrUpdateRecurring", generated, StringComparison.Ordinal);
+		Assert.DoesNotContain("RemoveRecurring", generated, StringComparison.Ordinal);
+		Assert.Contains("Cron = \"0 */5 * * * *\"", generated, StringComparison.Ordinal);
+		_ = await Verify(result);
+	}
+
+	[Fact]
+	public void PayloadlessJobWithoutCronGeneratesDynamicRecurringScheduler()
+	{
+		var source = """
+			using Immediate.Jobs.Shared;
+			using Immediate.Handlers.Shared;
+			using System.Threading;
+			using System.Threading.Tasks;
+
+			[Handler, Job]
+			public sealed partial class TenantCleanupJob
+			{
+				private ValueTask HandleAsync(NoPayload payload, CancellationToken cancellationToken) => ValueTask.CompletedTask;
+			}
+			""";
+
+		var result = GeneratorTestHelper.RunGenerator(source);
+		var generated = string.Join("\n", result.GeneratedTrees.Select(tree => tree.ToString()));
+
 		Assert.Contains("interface IScheduler : global::Immediate.Jobs.Shared.IRecurringJobScheduler", generated, StringComparison.Ordinal);
 		Assert.Contains("TriggerNow", generated, StringComparison.Ordinal);
 		Assert.Contains("AddOrUpdateRecurring", generated, StringComparison.Ordinal);
 		Assert.Contains("RemoveRecurring", generated, StringComparison.Ordinal);
-		Assert.Contains("Cron = \"0 */5 * * * *\"", generated, StringComparison.Ordinal);
-		_ = await Verify(result);
 	}
 
 	[Fact]

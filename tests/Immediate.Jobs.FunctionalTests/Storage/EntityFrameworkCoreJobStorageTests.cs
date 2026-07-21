@@ -128,6 +128,39 @@ public sealed class EntityFrameworkCoreJobStorageTests
 		Assert.Equal(nextRunAt, storedSchedule.NextRunAt);
 	}
 
+	[Fact]
+	public async Task CodeDefinedScheduleCannotBeReplacedByDynamicScheduleInEntityFrameworkCore()
+	{
+		var cancellationToken = TestContext.Current.CancellationToken;
+		await using var fixture = await StorageFixture.CreateAsync(cancellationToken);
+		var storage = fixture.CreateStorage();
+		var codeDefined = new RecurringJobSchedule
+		{
+			Name = "cleanup",
+			JobName = "cleanup",
+			Cron = "0 * * * *",
+			TimeZone = "UTC",
+			IsCodeDefined = true,
+			IsPaused = true,
+			NextRunAt = fixture.TimeProvider.GetUtcNow() + TimeSpan.FromHours(1),
+		};
+		await storage.UpsertRecurringAsync(codeDefined, cancellationToken);
+
+		var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+			storage.UpsertRecurringAsync(
+				codeDefined with { Cron = "0 0 * * *", IsCodeDefined = false },
+				cancellationToken
+			).AsTask()
+		);
+		Assert.Equal("Code-defined recurring schedules cannot be replaced by dynamic schedules.", exception.Message);
+
+		await storage.UpsertRecurringAsync(codeDefined with { Cron = "0 0 * * *", IsPaused = false }, cancellationToken);
+		var stored = Assert.Single((await storage.GetMonitoringSnapshotAsync(cancellationToken)).Recurring);
+		Assert.Equal("0 0 * * *", stored.Cron);
+		Assert.True(stored.IsCodeDefined);
+		Assert.True(stored.IsPaused);
+	}
+
 	private static JobAcquisitionRequest CreateRequest(string workerId, int batchSize) => new()
 	{
 		WorkerId = workerId,

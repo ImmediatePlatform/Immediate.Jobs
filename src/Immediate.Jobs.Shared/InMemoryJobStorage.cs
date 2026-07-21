@@ -208,11 +208,10 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) : IJobStorage,
 		{
 			if (_recurring.TryGetValue(schedule.Name, out var current))
 			{
-				schedule = schedule with
-				{
-					IsPaused = current.IsPaused,
-					LastRunAt = current.LastRunAt,
-				};
+				if (current.IsCodeDefined && !schedule.IsCodeDefined)
+					throw new InvalidOperationException("Code-defined recurring schedules cannot be replaced by dynamic schedules.");
+
+				schedule = schedule with { IsPaused = current.IsPaused, LastRunAt = current.LastRunAt };
 			}
 
 			_recurring[schedule.Name] = schedule;
