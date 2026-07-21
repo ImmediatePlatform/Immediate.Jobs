@@ -8,15 +8,14 @@
 public partial class ClockJob
 {
 
-		public interface IScheduler : global::Immediate.Jobs.Shared.IRecurringJobScheduler;
-
 		public sealed class Scheduler(
 			global::Immediate.Jobs.Shared.IJobStorage storage,
 			global::Immediate.Jobs.Shared.IJobSerializer serializer,
 			global::System.TimeProvider timeProvider,
 		global::ClockExtractor contextExtractor0
 		) : global::Immediate.Jobs.Shared.JobScheduler<global::Immediate.Jobs.Shared.NoPayload>(
-			storage, serializer, timeProvider, "clock", "default", static options => new PayloadJsonContext(options).Payload), IScheduler
+			storage, serializer, timeProvider, "clock", "default", static options => new PayloadJsonContext(options).Payload),
+			global::Immediate.Jobs.Shared.IRecurringJobScheduler
 		{
 
 				protected override async global::System.Threading.Tasks.ValueTask<string?> CaptureContextAsync(global::System.Threading.CancellationToken cancellationToken)

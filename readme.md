@@ -26,7 +26,7 @@ public sealed class SignupService(SendWelcomeEmail.Scheduler welcomeEmail)
 }
 ```
 
-`Scheduler` and `IScheduler` are nested generated types. The worker invokes the generated `SendWelcomeEmail.Handler`, so the same handler and its ordinary Immediate.Handlers behaviors work both inline and in the background. `[Job]` is class-only and is rejected unless the class is also marked `[Handler]`.
+`Scheduler` is a nested generated type. The worker invokes the generated `SendWelcomeEmail.Handler`, so the same handler and its ordinary Immediate.Handlers behaviors work both inline and in the background. `[Job]` is class-only and is rejected unless the class is also marked `[Handler]`.
 
 Generated schedulers are scoped services. Resolve or inject them from a request or other DI scope so
 enqueue-time context extractors can read the same scoped state as the caller. A singleton consumer,
@@ -94,7 +94,7 @@ public sealed partial class CleanupSessionsJob(AppDbContext db)
 }
 ```
 
-Inject `CleanupSessionsJob.IScheduler` to trigger the code-defined job immediately:
+Inject `CleanupSessionsJob.Scheduler` to trigger the code-defined job immediately:
 
 ```csharp
 await scheduler.TriggerNow(cancellationToken);

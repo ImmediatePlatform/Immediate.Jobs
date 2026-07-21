@@ -11,13 +11,11 @@ namespace Example;
 public partial class SendEmailJob
 {
 
-		public interface IScheduler : global::Immediate.Jobs.Shared.IJobScheduler<global::Example.SendEmailJob.Payload>;
-
 		public sealed class Scheduler(
 			global::Immediate.Jobs.Shared.IJobStorage storage,
 			global::Immediate.Jobs.Shared.IJobSerializer serializer,
 			global::System.TimeProvider timeProvider
-		) : global::Immediate.Jobs.Shared.JobScheduler<global::Example.SendEmailJob.Payload>(storage, serializer, timeProvider, "send-email", "default", static options => new PayloadJsonContext(options).Payload), IScheduler
+		) : global::Immediate.Jobs.Shared.JobScheduler<global::Example.SendEmailJob.Payload>(storage, serializer, timeProvider, "send-email", "default", static options => new PayloadJsonContext(options).Payload)
 		{
 
 		}

@@ -8,15 +8,13 @@
 public partial class ContextualJob
 {
 
-		public interface IScheduler : global::Immediate.Jobs.Shared.IJobScheduler<global::ContextualJob.Payload>;
-
 		public sealed class Scheduler(
 			global::Immediate.Jobs.Shared.IJobStorage storage,
 			global::Immediate.Jobs.Shared.IJobSerializer serializer,
 			global::System.TimeProvider timeProvider,
 		global::CorrelationExtractor contextExtractor0,
 		global::UsageContextExtractor contextExtractor1
-		) : global::Immediate.Jobs.Shared.JobScheduler<global::ContextualJob.Payload>(storage, serializer, timeProvider, "contextual", "default", static options => new PayloadJsonContext(options).Payload), IScheduler
+		) : global::Immediate.Jobs.Shared.JobScheduler<global::ContextualJob.Payload>(storage, serializer, timeProvider, "contextual", "default", static options => new PayloadJsonContext(options).Payload)
 		{
 
 				protected override async global::System.Threading.Tasks.ValueTask<string?> CaptureContextAsync(global::System.Threading.CancellationToken cancellationToken)

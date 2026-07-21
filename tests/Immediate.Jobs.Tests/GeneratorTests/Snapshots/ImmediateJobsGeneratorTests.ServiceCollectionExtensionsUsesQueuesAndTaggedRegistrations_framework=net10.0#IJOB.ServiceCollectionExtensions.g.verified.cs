@@ -25,7 +25,6 @@ public static class ImmediateJobsGeneratedServiceCollectionExtensions
 		{
 		global::WorkJob.AddHandlers(services);
 		global::Microsoft.Extensions.DependencyInjection.Extensions.ServiceCollectionDescriptorExtensions.TryAddScoped(services, typeof(global::WorkJob.Scheduler));
-		global::Microsoft.Extensions.DependencyInjection.Extensions.ServiceCollectionDescriptorExtensions.TryAddScoped(services, typeof(global::WorkJob.IScheduler), provider => global::Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetRequiredService<global::WorkJob.Scheduler>(provider));
 		global::Microsoft.Extensions.DependencyInjection.Extensions.ServiceCollectionDescriptorExtensions.TryAddSingleton(services, typeof(global::WorkJob.Invoker));
 		global::Microsoft.Extensions.DependencyInjection.Extensions.ServiceCollectionDescriptorExtensions.TryAddScoped(services, typeof(global::WorkContextExtractor));
 		services.AddSingleton<global::Immediate.Jobs.Shared.JobDefinition>(provider => global::WorkJob.CreateJobDefinition(provider));

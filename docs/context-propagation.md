@@ -189,21 +189,21 @@ NodaTime requires the integration package), surfaced via new analyzer diagnostic
 
 ## 6. Scheduler lifetime: singleton → **scoped** (decided)
 
-Generated schedulers move from `TryAddSingleton` to `TryAddScoped` (both the concrete `Scheduler`
-and the `IScheduler` forwarder in `Templates/ServiceCollectionExtensions.sbntxt`).
+Generated schedulers move from `TryAddSingleton` to `TryAddScoped` in
+`Templates/ServiceCollectionExtensions.sbntxt`.
 
 **Why it's safe:** `JobScheduler<TPayload>` holds only immutable dependencies (`IJobStorage`,
 `IJobSerializer`, `TimeProvider`, name/queue, the payload factory) and no per-instance mutable
 state. Nothing in the runtime resolves generated schedulers — the worker enqueues recurring work by
 building `JobRecord`s directly (`MaterializeRecurringAsync`), never via a scheduler. Only user code
-resolves `IScheduler` / `IJobScheduler<T>`.
+resolves a generated `Scheduler`.
 
 **Why it's better:** a scoped scheduler naturally shares the request scope, so capture reads
 request-scoped services directly (not only `AsyncLocal`-backed accessors). This matches the DI
 posture ASP.NET apps already expect (e.g. `DbContext` is scoped).
 
 **DI consequence:** a **singleton** consumer (e.g. an `IHostedService` that enqueues) cannot inject
-`IScheduler` directly — resolving a scoped service from the root throws. Such consumers create a
+`Scheduler` directly — resolving a scoped service from the root throws. Such consumers create a
 scope (`IServiceScopeFactory.CreateScope()`) per unit of work, or inject a factory. This is standard
 scoped-service guidance (same as `DbContext`) and should be documented in the readme.
 
@@ -356,7 +356,7 @@ the Entity Framework Core storage tests in `Immediate.Jobs.FunctionalTests`, and
 ### 14.5 Scheduler lifetime (scoped)
 
 - Enqueue succeeds from a request scope **and** from a manually created `IServiceScopeFactory` scope.
-- Resolving `IScheduler` from the **root** provider throws — asserted so the scoped registration is
+- Resolving `Scheduler` from the **root** provider throws — asserted so the scoped registration is
   intentional and covered.
 - A singleton consumer that enqueues via `IServiceScopeFactory.CreateScope()` works.
 

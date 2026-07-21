@@ -8,14 +8,13 @@
 public partial class CleanupSessionsJob
 {
 
-		public interface IScheduler : global::Immediate.Jobs.Shared.IRecurringJobTrigger;
-
 		public sealed class Scheduler(
 			global::Immediate.Jobs.Shared.IJobStorage storage,
 			global::Immediate.Jobs.Shared.IJobSerializer serializer,
 			global::System.TimeProvider timeProvider
 		) : global::Immediate.Jobs.Shared.JobScheduler<global::Immediate.Jobs.Shared.NoPayload>(
-			storage, serializer, timeProvider, "cleanup-sessions", "default", static options => new PayloadJsonContext(options).Payload), IScheduler
+			storage, serializer, timeProvider, "cleanup-sessions", "default", static options => new PayloadJsonContext(options).Payload),
+			global::Immediate.Jobs.Shared.IRecurringJobTrigger
 		{
 
 			public global::System.Threading.Tasks.ValueTask<string> TriggerNow(global::System.Threading.CancellationToken cancellationToken = default) =>

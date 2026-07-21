@@ -1,8 +1,7 @@
 namespace Immediate.Jobs.Testing;
 
 /// <summary>
-/// A storage-free scheduler double. Derive from this class and implement a generated job's
-/// <c>IScheduler</c> interface to inject a strongly typed capture double.
+/// A storage-free implementation of <see cref="IJobScheduler{TPayload}"/> that records scheduled calls.
 /// </summary>
 public class CaptureOnlyJobScheduler<TPayload>(TimeProvider? timeProvider = null) : IJobScheduler<TPayload>
 {

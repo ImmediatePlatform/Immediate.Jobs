@@ -68,7 +68,7 @@ public sealed class SignupService(SendWelcomeEmail.Scheduler welcomeEmail)
 }
 ```
 
-The generated `Scheduler` is a thin, sealed, scoped class over `IJobStorage` + the generated serializer — fully typed, AOT-safe, mockable for tests (it implements a generated `SendWelcomeEmail.IScheduler` interface). Resolve it from the caller's request or DI scope. Singleton consumers cannot inject a scoped scheduler directly and instead create a scope with `IServiceScopeFactory` for each unit of work.
+The generated `Scheduler` is a thin, sealed, scoped class over `IJobStorage` + the generated serializer — fully typed and AOT-safe. Resolve it from the caller's request or DI scope. Singleton consumers cannot inject a scoped scheduler directly and instead create a scope with `IServiceScopeFactory` for each unit of work.
 
 Cron jobs declared via attribute are registered automatically at startup and expose a payload-less scheduler (`CleanupSessionsJob.Scheduler.TriggerNow(ct)`); dynamic recurring schedules are covered in §2.7.
 
@@ -91,7 +91,7 @@ app.MapImmediateJobsDashboard("/jobs");   // optional, from Immediate.Jobs.Dashb
 
 Jobs may be assigned to compile-time queue definitions with `[UsesQueue<TQueue>]`. Queue definitions provide a stable persisted name, a descending integer priority, and a per-node concurrency limit. Unassigned jobs use the built-in `default` queue. Queue and job concurrency limits are both applied during acquisition so work waiting on one limit does not occupy a worker slot.
 
-`AddImmediateJobs()` calls into generated code that registers every discovered Immediate.Handler plus its nested `Scheduler` (as `Scheduler` and `IScheduler`) — the user never lists jobs manually.
+`AddImmediateJobs()` calls into generated code that registers every discovered Immediate.Handler plus its nested `Scheduler` — the user never lists jobs manually.
 
 ### 2.4 Attribute surface
 
@@ -230,7 +230,7 @@ Dynamic schedules are persisted in storage (they survive restarts and are visibl
 | `Immediate.Jobs.EntityFrameworkCore` | EF Core adapter — works with any relational EF provider; convenience over raw speed                                                                                                     |
 | `Immediate.Jobs.Dashboard`           | Embedded dashboard middleware + compiled Svelte SPA assets                                                                                                                              |
 | `Immediate.Jobs.NodaTime`            | Optional: `Instant`/`Duration`/`DateTimeZone` overloads on generated schedulers; NodaTime STJ converters wired into generated serializer contexts                                       |
-| `Immediate.Jobs.Testing`             | `JobTestHarness` (in-memory provider + `FakeTimeProvider`, advance-time-and-drain), typed enqueue assertions, capture-only `IScheduler` doubles, run-single-job-through-pipeline helper |
+| `Immediate.Jobs.Testing`             | `JobTestHarness` (in-memory provider + `FakeTimeProvider`, advance-time-and-drain), typed enqueue assertions, capture-only scheduler call recorders, run-single-job-through-pipeline helper |
 
 Additional raw providers are post-v1 and can be added through the same abstraction.
 

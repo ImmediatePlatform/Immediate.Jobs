@@ -188,7 +188,7 @@ public sealed class ContextPropagationTests
 		await using var harness = CreateHarness(new());
 
 		_ = Assert.Throws<InvalidOperationException>(
-			() => harness.Services.GetRequiredService<ContextRoundTripJob.IScheduler>()
+			() => harness.Services.GetRequiredService<ContextRoundTripJob.Scheduler>()
 		);
 
 		var consumer = harness.Services.GetRequiredService<ScopedSchedulerConsumer>();

@@ -8,13 +8,11 @@
 public partial class PlainRequestJob
 {
 
-		public interface IScheduler : global::Immediate.Jobs.Shared.IJobScheduler<global::PlainRequestJob.Payload>;
-
 		public sealed class Scheduler(
 			global::Immediate.Jobs.Shared.IJobStorage storage,
 			global::Immediate.Jobs.Shared.IJobSerializer serializer,
 			global::System.TimeProvider timeProvider
-		) : global::Immediate.Jobs.Shared.JobScheduler<global::PlainRequestJob.Payload>(storage, serializer, timeProvider, "plain-request", "default", static options => new PayloadJsonContext(options).Payload), IScheduler
+		) : global::Immediate.Jobs.Shared.JobScheduler<global::PlainRequestJob.Payload>(storage, serializer, timeProvider, "plain-request", "default", static options => new PayloadJsonContext(options).Payload)
 		{
 
 		}

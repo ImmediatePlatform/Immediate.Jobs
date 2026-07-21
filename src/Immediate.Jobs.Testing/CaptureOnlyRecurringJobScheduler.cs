@@ -1,8 +1,7 @@
 namespace Immediate.Jobs.Testing;
 
 /// <summary>
-/// A storage-free recurring scheduler double. Derive from it and implement a generated recurring job's
-/// <c>IScheduler</c> interface when a test needs that exact service type.
+/// A storage-free implementation of <see cref="IRecurringJobScheduler"/> that records recurring calls.
 /// </summary>
 public class CaptureOnlyRecurringJobScheduler : IRecurringJobScheduler
 {

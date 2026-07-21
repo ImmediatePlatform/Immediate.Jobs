@@ -10,15 +10,13 @@ namespace {{ namespace }};
 {{ accessibility }} partial class {{ class_name }}
 {
 	{{ if has_payload }}
-	public interface IScheduler : global::Immediate.Jobs.Shared.IJobScheduler<{{ payload_type_name }}>;
-
 	[global::System.CodeDom.Compiler.GeneratedCodeAttribute("Immediate.Jobs", "{{ version }}")]
 	public sealed class Scheduler(
 		global::Immediate.Jobs.Shared.IJobStorage storage,
 		global::Immediate.Jobs.Shared.IJobSerializer serializer,
 		global::System.TimeProvider timeProvider{{ for context in contexts }},
 		{{ context.extractor_type_name }} contextExtractor{{ context.index }}{{ end }}
-	) : global::Immediate.Jobs.Shared.JobScheduler<{{ payload_type_name }}>(storage, serializer, timeProvider, {{ job_name_literal }}, {{ queue_name_literal }}, static options => new PayloadJsonContext(options).Payload), IScheduler
+	) : global::Immediate.Jobs.Shared.JobScheduler<{{ payload_type_name }}>(storage, serializer, timeProvider, {{ job_name_literal }}, {{ queue_name_literal }}, static options => new PayloadJsonContext(options).Payload)
 	{
 		{{ if contexts.size > 0 }}
 		protected override async global::System.Threading.Tasks.ValueTask<string?> CaptureContextAsync(global::System.Threading.CancellationToken cancellationToken)
@@ -43,8 +41,6 @@ namespace {{ namespace }};
 		{{ end }}
 	}
 	{{ else }}
-	public interface IScheduler : global::Immediate.Jobs.Shared.{{ recurring_scheduler_interface }};
-
 	[global::System.CodeDom.Compiler.GeneratedCodeAttribute("Immediate.Jobs", "{{ version }}")]
 	public sealed class Scheduler(
 		global::Immediate.Jobs.Shared.IJobStorage storage,
@@ -52,7 +48,8 @@ namespace {{ namespace }};
 		global::System.TimeProvider timeProvider{{ for context in contexts }},
 		{{ context.extractor_type_name }} contextExtractor{{ context.index }}{{ end }}
 	) : global::Immediate.Jobs.Shared.JobScheduler<global::Immediate.Jobs.Shared.NoPayload>(
-		storage, serializer, timeProvider, {{ job_name_literal }}, {{ queue_name_literal }}, static options => new PayloadJsonContext(options).Payload), IScheduler
+		storage, serializer, timeProvider, {{ job_name_literal }}, {{ queue_name_literal }}, static options => new PayloadJsonContext(options).Payload),
+		global::Immediate.Jobs.Shared.{{ recurring_scheduler_interface }}
 	{
 		{{ if contexts.size > 0 }}
 		protected override async global::System.Threading.Tasks.ValueTask<string?> CaptureContextAsync(global::System.Threading.CancellationToken cancellationToken)

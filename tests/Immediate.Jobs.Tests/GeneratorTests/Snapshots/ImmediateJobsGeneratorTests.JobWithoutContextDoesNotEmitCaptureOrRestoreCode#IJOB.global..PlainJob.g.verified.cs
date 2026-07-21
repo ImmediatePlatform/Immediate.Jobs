@@ -8,14 +8,13 @@
 public partial class PlainJob
 {
 
-		public interface IScheduler : global::Immediate.Jobs.Shared.IRecurringJobScheduler;
-
 		public sealed class Scheduler(
 			global::Immediate.Jobs.Shared.IJobStorage storage,
 			global::Immediate.Jobs.Shared.IJobSerializer serializer,
 			global::System.TimeProvider timeProvider
 		) : global::Immediate.Jobs.Shared.JobScheduler<global::Immediate.Jobs.Shared.NoPayload>(
-			storage, serializer, timeProvider, "plain", "default", static options => new PayloadJsonContext(options).Payload), IScheduler
+			storage, serializer, timeProvider, "plain", "default", static options => new PayloadJsonContext(options).Payload),
+			global::Immediate.Jobs.Shared.IRecurringJobScheduler
 		{
 
 			public global::System.Threading.Tasks.ValueTask<string> TriggerNow(global::System.Threading.CancellationToken cancellationToken = default) =>
