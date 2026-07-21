@@ -4,6 +4,10 @@
     <_SkipUpgradeNetAnalyzersNuGetWarning>true</_SkipUpgradeNetAnalyzersNuGetWarning>
     <NoWarn>$(NoWarn);CA1050;CA1812</NoWarn>
   </PropertyGroup>
+
+  <PropertyGroup Condition="'$(TargetFramework)' == 'net11.0'">
+	<Features>runtime-async=on</Features>
+  </PropertyGroup>
   <ItemGroup>
     <Using Include="Xunit" />
   </ItemGroup>
@@ -16,7 +20,10 @@
     <PackageReference Include="xunit.v3.mtp-v2" />
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="../../src/Immediate.Jobs/Immediate.Jobs.csproj" />
+	<ProjectReference Include="../../src/Immediate.Jobs.Shared/Immediate.Jobs.Shared.csproj" />
+	<ProjectReference Include="../../src/Immediate.Jobs.Analyzers/Immediate.Jobs.Analyzers.csproj"
+	                  OutputItemType="Analyzer"
+	                  ReferenceOutputAssembly="false" />
 	<ProjectReference Include="../../src/Immediate.Jobs.Dashboard/Immediate.Jobs.Dashboard.csproj" />
 	<ProjectReference Include="../../src/Immediate.Jobs.EntityFrameworkCore/Immediate.Jobs.EntityFrameworkCore.csproj" />
 	<ProjectReference Include="../../src/Immediate.Jobs.NodaTime/Immediate.Jobs.NodaTime.csproj" />

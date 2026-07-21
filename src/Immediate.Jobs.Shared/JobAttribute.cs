@@ -1,4 +1,4 @@
-namespace Immediate.Jobs;
+namespace Immediate.Jobs.Shared;
 
 /// <summary>Marks a partial class as a generated background job.</summary>
 [AttributeUsage(AttributeTargets.Class, AllowMultiple = false, Inherited = false)]
@@ -41,25 +41,14 @@ public sealed class JobAttribute : Attribute
 
 	/// <summary>A <see cref="TimeSpan"/> formatted retry base delay.</summary>
 	public string BackoffBase { get; set; } = "00:00:05";
-
-	/// <summary>Behaviors applied only to this job, replacing assembly behaviors.</summary>
-	public Type[]? Behaviors { get; set; }
-}
-
-/// <summary>Declares the ordered, assembly-wide job behavior pipeline.</summary>
-[AttributeUsage(AttributeTargets.Assembly, AllowMultiple = false)]
-public sealed class JobBehaviorsAttribute(params Type[] behaviorTypes) : Attribute
-{
-	/// <summary>The behavior types in outermost-to-innermost order.</summary>
-	public IReadOnlyList<Type> BehaviorTypes { get; } = behaviorTypes;
 }
 
 /// <summary>Controls overlapping recurring executions.</summary>
 public enum OverlapPolicy
 {
-	/// <summary>Do not materialize a tick while an earlier tick is active.</summary>
+	/// <summary>Do not create a recurring job invocation while an earlier invocation of the same schedule is being processed.</summary>
 	Skip,
-	/// <summary>Materialize the tick and run it after the earlier invocation.</summary>
+	/// <summary>Create the scheduled occurrence and run it after the earlier invocation.</summary>
 	Queue,
 	/// <summary>Allow overlapping invocations.</summary>
 	Concurrent,

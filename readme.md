@@ -7,13 +7,16 @@ Immediate.Jobs is a reflection-free background job scheduler for .NET 8+ built o
 ## Define and enqueue a job
 
 ```csharp
-using Immediate.Jobs;
 using Immediate.Handlers.Shared;
+using Immediate.Jobs.Shared;
 
 [Handler, Job("send-welcome-email", MaxAttempts = 5, Timeout = "00:02:00")]
 public sealed partial class SendWelcomeEmail(IEmailSender sender)
 {
-	public sealed record Payload(Guid UserId, string Template);
+	public sealed record Payload(Guid UserId, string Template) : IJobRequest
+	{
+		public JobDetails? JobDetails { get; set; }
+	}
 
 	private ValueTask HandleAsync(Payload payload, CancellationToken cancellationToken) =>
 		new(sender.SendAsync(payload.UserId, payload.Template, cancellationToken));
@@ -100,27 +103,29 @@ await scheduler.AddOrUpdateRecurring("tenant-42-cleanup", "0 0 3 * * *", "UTC", 
 await scheduler.RemoveRecurring("tenant-42-cleanup", cancellationToken);
 ```
 
-Code schedules are re-asserted at startup. Storage uses a unique `(schedule name, UTC tick)` materialization key, so competing nodes produce one durable invocation for a tick.
+Code schedules are re-asserted at startup. Storage uses a unique `(schedule name, scheduled UTC occurrence)` materialization key, so competing nodes produce one durable invocation for each occurrence.
 
-## Job behaviors
+## Immediate.Handlers behaviors for jobs
 
-Ordinary Immediate.Handlers behaviors are reused unchanged because background dispatch calls the generated handler. An optional job-specific pipeline wraps that handler when a concern needs `JobContext`, attempt information, or scheduling metadata:
+Background dispatch calls the generated Immediate.Handlers handler, so jobs use the same behavior pipeline as inline requests. Every job request implements `IJobRequest`; the worker populates its non-persisted `JobDetails` immediately before entering that pipeline.
 
 ```csharp
-[assembly: JobBehaviors(typeof(JobLoggingBehavior<>))]
+[assembly: Behaviors(typeof(JobLoggingBehavior<,>))]
 
-public sealed class JobLoggingBehavior<TPayload>(ILogger<JobLoggingBehavior<TPayload>> logger)
-	: JobBehavior<TPayload>
+public sealed class JobLoggingBehavior<TRequest, TResponse>(ILogger<JobLoggingBehavior<TRequest, TResponse>> logger)
+	: Behavior<TRequest, TResponse>
+	where TRequest : IJobRequest
 {
-	public override async ValueTask HandleAsync(JobContext<TPayload> context, JobNext<TPayload> next)
+	public override async ValueTask<TResponse> HandleAsync(TRequest request, CancellationToken cancellationToken)
 	{
-		logger.LogInformation("Starting {JobName} attempt {Attempt}", context.JobName, context.Attempt);
-		await next(context);
+		var details = request.JobDetails ?? throw new InvalidOperationException("Job details are unavailable.");
+		logger.LogInformation("Starting {JobName} attempt {Attempt}", details.JobName, details.Attempt);
+		return await Next(request, cancellationToken);
 	}
 }
 ```
 
-Set `Behaviors = [typeof(...)]` on `[Job]` to replace the assembly-wide job pipeline for one job. Both the job-specific pipeline and the nested Immediate.Handlers pipeline execute inside the retry boundary.
+The `IJobRequest` constraint keeps this global behavior out of ordinary handlers. Use Immediate.Handlers `[Behaviors(...)]` directly on a job to replace assembly behaviors, or put `[Behaviors(...)]` on a reusable custom attribute for a named job pipeline. Handler behaviors execute inside the retry boundary.
 
 ## Propagating scoped context
 
@@ -194,7 +199,7 @@ The package serves an embedded SPA, JSON monitoring endpoints, and a Server-Sent
 
 ## Testing
 
-`Immediate.Jobs.Testing` provides `JobTestHarness`, a fake clock, advance-and-drain helpers, capture-only typed schedulers, enqueue assertions, and a single-job pipeline runner. Delayed work, cron ticks, timeout, and backoff tests do not need wall-clock sleeps.
+`Immediate.Jobs.Testing` provides `JobTestHarness`, a fake clock, advance-and-drain helpers, capture-only typed schedulers, enqueue assertions, and a single-job handler-pipeline runner. Delayed work, scheduled occurrences, timeout, and backoff tests do not need wall-clock sleeps.
 
 ## Diagnostics
 
@@ -214,6 +219,7 @@ The package serves an embedded SPA, JSON monitoring endpoints, and a Server-Sent
 | `IJOB012` | Duplicate persisted queue name |
 | `IJOB013` | `UsesJobContext<T>` targets an invalid extractor type |
 | `IJOB014` | Unsupported context member/type |
+| `IJOB015` | A job request does not implement `IJobRequest` |
 
 ## Observability
 

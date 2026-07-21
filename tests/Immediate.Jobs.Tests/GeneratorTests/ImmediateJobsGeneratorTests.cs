@@ -9,7 +9,7 @@ public sealed class ImmediateJobsGeneratorTests
 	public void StronglyTypedQueueFlowsIntoGeneratedSchedulerAndDefinition()
 	{
 		const string source = """
-			using Immediate.Jobs;
+			using Immediate.Jobs.Shared;
 			using Immediate.Handlers.Shared;
 			using System.Threading;
 			using System.Threading.Tasks;
@@ -30,14 +30,14 @@ public sealed class ImmediateJobsGeneratorTests
 		Assert.Contains("\"critical-queue\"", generated);
 		Assert.Contains("Priority = 10", generated);
 		Assert.Contains("Concurrency = 1", generated);
-		Assert.Contains("services.AddSingleton(new global::Immediate.Jobs.JobQueueDefinition", generated);
+		Assert.Contains("services.AddSingleton(new global::Immediate.Jobs.Shared.JobQueueDefinition", generated);
 	}
 
 	[Fact]
 	public async Task PayloadJobGeneratesTypedSchedulerDirectInvokerAndRegistrations()
 	{
 		const string source = """
-			using Immediate.Jobs;
+			using Immediate.Jobs.Shared;
 			using Immediate.Handlers.Shared;
 			using System;
 			using System.Threading;
@@ -48,7 +48,7 @@ public sealed class ImmediateJobsGeneratorTests
 			[Handler, Job("send-email", MaxAttempts = 5, Timeout = "00:02:00")]
 			public sealed partial class SendEmailJob
 			{
-				public sealed record Payload(Guid UserId, string Template);
+				public sealed record Payload(Guid UserId, string Template) : IJobRequest { public JobDetails? JobDetails { get; set; } }
 				private ValueTask HandleAsync(Payload payload, CancellationToken cancellationToken) => ValueTask.CompletedTask;
 			}
 			""";
@@ -56,20 +56,57 @@ public sealed class ImmediateJobsGeneratorTests
 		var result = GeneratorTestHelper.RunGenerator(source);
 		var generated = string.Join("\n", result.GeneratedTrees.Select(tree => tree.ToString()));
 
-		Assert.Contains("interface IScheduler : global::Immediate.Jobs.IJobScheduler<global::Example.SendEmailJob.Payload>", generated);
+		Assert.Contains("interface IScheduler : global::Immediate.Jobs.Shared.IJobScheduler<global::Example.SendEmailJob.Payload>", generated);
 		Assert.Contains("sealed class Scheduler(", generated);
 		Assert.Contains("sealed class Invoker", generated);
+		Assert.Contains("SetJobDetails(", generated);
+		Assert.Contains("where TRequest : global::Immediate.Jobs.Shared.IJobRequest", generated);
 		Assert.Contains("handler.HandleAsync(payload, execution.CancellationToken)", generated);
+		Assert.DoesNotContain("PropertyName = \"JobDetails\"", generated);
+		Assert.DoesNotContain("typeof(global::Immediate.Jobs.Shared.JobDetails)", generated);
 		Assert.Contains("AddImmediateJobs(", generated);
-		Assert.Contains("AddSingleton<global::Immediate.Jobs.JobDefinition>", generated);
+		Assert.Contains("AddSingleton<global::Immediate.Jobs.Shared.JobDefinition>", generated);
 		_ = await Verify(result);
+	}
+
+	[Fact]
+	public void ExplicitJobDetailsOnValueTypeUsesConstrainedByReferenceAssignment()
+	{
+		const string source = """
+			using Immediate.Jobs.Shared;
+			using Immediate.Handlers.Shared;
+			using System.Threading;
+			using System.Threading.Tasks;
+
+			public struct StructPayload(string value) : IJobRequest
+			{
+				public string Value { get; } = value;
+
+				JobDetails? IJobRequest.JobDetails { get; set; }
+			}
+
+			[Handler, Job]
+			public sealed partial class StructJob
+			{
+				private ValueTask HandleAsync(StructPayload payload, CancellationToken cancellationToken) => ValueTask.CompletedTask;
+			}
+			""";
+
+		var result = GeneratorTestHelper.RunGenerator(source);
+		var generated = result.GeneratedTrees
+			.Single(tree => tree.FilePath.Contains("IJOB.global", StringComparison.Ordinal))
+			.ToString();
+
+		Assert.Contains("SetJobDetails(\n\t\t\t\tref payload", generated);
+		Assert.Contains("where TRequest : global::Immediate.Jobs.Shared.IJobRequest => request.JobDetails = details;", generated);
+		Assert.DoesNotContain("PropertyName = \"JobDetails\"", generated);
 	}
 
 	[Fact]
 	public async Task CronJobGeneratesPayloadlessRecurringScheduler()
 	{
 		const string source = """
-			using Immediate.Jobs;
+			using Immediate.Jobs.Shared;
 			using Immediate.Handlers.Shared;
 			using System.Threading;
 			using System.Threading.Tasks;
@@ -84,7 +121,7 @@ public sealed class ImmediateJobsGeneratorTests
 		var result = GeneratorTestHelper.RunGenerator(source);
 		var generated = string.Join("\n", result.GeneratedTrees.Select(tree => tree.ToString()));
 
-		Assert.Contains("interface IScheduler : global::Immediate.Jobs.IRecurringJobScheduler", generated);
+		Assert.Contains("interface IScheduler : global::Immediate.Jobs.Shared.IRecurringJobScheduler", generated);
 		Assert.Contains("TriggerNow", generated);
 		Assert.Contains("AddOrUpdateRecurring", generated);
 		Assert.Contains("RemoveRecurring", generated);
@@ -93,41 +130,30 @@ public sealed class ImmediateJobsGeneratorTests
 	}
 
 	[Fact]
-	public async Task JobBehaviorsAreResolvedInDeclaredOrder()
+	public void InvokerDelegatesExecutionToImmediateHandlersPipeline()
 	{
 		const string source = """
-			using Immediate.Jobs;
+			using Immediate.Jobs.Shared;
 			using Immediate.Handlers.Shared;
 			using System.Threading;
 			using System.Threading.Tasks;
 
-			[assembly: JobBehaviors(typeof(LoggingBehavior<>), typeof(MetricsBehavior<>))]
-
-			public sealed class LoggingBehavior<T> : JobBehavior<T>
-			{
-				public override ValueTask HandleAsync(JobContext<T> context, JobNext<T> next) => next(context);
-			}
-
-			public sealed class MetricsBehavior<T> : JobBehavior<T>
-			{
-				public override ValueTask HandleAsync(JobContext<T> context, JobNext<T> next) => next(context);
-			}
-
 			[Handler, Job]
 			public sealed partial class WorkJob
 			{
-				public sealed record Payload(string Value);
+				public sealed record Payload(string Value) : IJobRequest { public JobDetails? JobDetails { get; set; } }
 				private ValueTask HandleAsync(Payload payload, CancellationToken cancellationToken) => ValueTask.CompletedTask;
 			}
 			""";
 
 		var result = GeneratorTestHelper.RunGenerator(source);
-		var generated = string.Join("\n", result.GeneratedTrees.Select(tree => tree.ToString()));
+		var generated = result.GeneratedTrees
+			.Single(tree => tree.FilePath.Contains("IJOB.global", StringComparison.Ordinal))
+			.ToString();
 
-		Assert.Contains("behavior0.HandleAsync(context, InvokeBehavior1)", generated);
-		Assert.Contains("behavior1.HandleAsync(context, InvokeBehavior2)", generated);
-		Assert.Contains("GetRequiredService<global::LoggingBehavior<global::WorkJob.Payload>>", generated);
-		_ = await Verify(result);
+		Assert.Contains("handler.HandleAsync(payload, execution.CancellationToken)", generated);
+		Assert.DoesNotContain("JobBehavior", generated);
+		Assert.DoesNotContain("JobContext<", generated);
 	}
 
 	[Fact]
@@ -135,7 +161,7 @@ public sealed class ImmediateJobsGeneratorTests
 	{
 		const string source = """
 			#nullable enable
-			using Immediate.Jobs;
+			using Immediate.Jobs.Shared;
 			using Immediate.Handlers.Shared;
 			using System;
 			using System.Threading;
@@ -170,7 +196,7 @@ public sealed class ImmediateJobsGeneratorTests
 			[Handler, Job, UsesJobContext<CorrelationExtractor>, WebJob]
 			public sealed partial class ContextualJob
 			{
-				public sealed record Payload(string Message);
+				public sealed record Payload(string Message) : IJobRequest { public JobDetails? JobDetails { get; set; } }
 				private ValueTask HandleAsync(Payload payload, CancellationToken cancellationToken) => ValueTask.CompletedTask;
 			}
 			""";
@@ -194,7 +220,7 @@ public sealed class ImmediateJobsGeneratorTests
 	public void JobWithoutContextDoesNotEmitCaptureOrRestoreCode()
 	{
 		const string source = """
-			using Immediate.Jobs;
+			using Immediate.Jobs.Shared;
 			using Immediate.Handlers.Shared;
 			using System.Threading;
 			using System.Threading.Tasks;
@@ -218,7 +244,7 @@ public sealed class ImmediateJobsGeneratorTests
 	{
 		const string source = """
 			#nullable enable
-			using Immediate.Jobs;
+			using Immediate.Jobs.Shared;
 			using Immediate.Handlers.Shared;
 			using NodaTime;
 			using System.Threading;
@@ -248,7 +274,7 @@ public sealed class ImmediateJobsGeneratorTests
 	{
 		const string contextBefore = """
 			#nullable enable
-			using Immediate.Jobs;
+			using Immediate.Jobs.Shared;
 			using System.Threading;
 			using System.Threading.Tasks;
 			public sealed record AmbientContext(string Value);
@@ -261,7 +287,7 @@ public sealed class ImmediateJobsGeneratorTests
 			""";
 		const string contextAfter = """
 			#nullable enable
-			using Immediate.Jobs;
+			using Immediate.Jobs.Shared;
 			using System.Threading;
 			using System.Threading.Tasks;
 			public sealed record AmbientContext(string Value, int Version);
@@ -273,12 +299,12 @@ public sealed class ImmediateJobsGeneratorTests
 			}
 			""";
 		const string owner = """
-			using Immediate.Jobs; using Immediate.Handlers.Shared; using System.Threading; using System.Threading.Tasks;
+			using Immediate.Jobs.Shared; using Immediate.Handlers.Shared; using System.Threading; using System.Threading.Tasks;
 			[Handler, Job, UsesJobContext<AmbientExtractor>] public sealed partial class ContextOwnerJob
 			{ private ValueTask HandleAsync(NoPayload payload, CancellationToken ct) => ValueTask.CompletedTask; }
 			""";
 		const string unrelated = """
-			using Immediate.Jobs; using Immediate.Handlers.Shared; using System.Threading; using System.Threading.Tasks;
+			using Immediate.Jobs.Shared; using Immediate.Handlers.Shared; using System.Threading; using System.Threading.Tasks;
 			[Handler, Job] public sealed partial class UnrelatedJob
 			{ private ValueTask HandleAsync(NoPayload payload, CancellationToken ct) => ValueTask.CompletedTask; }
 			""";
@@ -292,6 +318,7 @@ public sealed class ImmediateJobsGeneratorTests
 		var contextTree = compilation.SyntaxTrees.Single(tree => tree.FilePath == "Context.cs");
 		var replacement = CSharpSyntaxTree.ParseText(
 			contextAfter,
+			GeneratorTestHelper.ParseOptions,
 			path: "Context.cs",
 			cancellationToken: TestContext.Current.CancellationToken
 		);
@@ -316,7 +343,7 @@ public sealed class ImmediateJobsGeneratorTests
 			""";
 		const string extractorBefore = """
 			#nullable enable
-			using Immediate.Jobs; using System.Threading; using System.Threading.Tasks;
+			using Immediate.Jobs.Shared; using System.Threading; using System.Threading.Tasks;
 			public sealed class ChangingExtractor : IJobContextExtractor<FirstAmbientContext>
 			{
 				public string Key => "ambient";
@@ -326,7 +353,7 @@ public sealed class ImmediateJobsGeneratorTests
 			""";
 		const string extractorAfter = """
 			#nullable enable
-			using Immediate.Jobs; using System.Threading; using System.Threading.Tasks;
+			using Immediate.Jobs.Shared; using System.Threading; using System.Threading.Tasks;
 			public sealed class ChangingExtractor : IJobContextExtractor<SecondAmbientContext>
 			{
 				public string Key => "ambient";
@@ -335,12 +362,12 @@ public sealed class ImmediateJobsGeneratorTests
 			}
 			""";
 		const string owner = """
-			using Immediate.Jobs; using Immediate.Handlers.Shared; using System.Threading; using System.Threading.Tasks;
+			using Immediate.Jobs.Shared; using Immediate.Handlers.Shared; using System.Threading; using System.Threading.Tasks;
 			[Handler, Job, UsesJobContext<ChangingExtractor>] public sealed partial class ExtractorOwnerJob
 			{ private ValueTask HandleAsync(NoPayload payload, CancellationToken ct) => ValueTask.CompletedTask; }
 			""";
 		const string unrelated = """
-			using Immediate.Jobs; using Immediate.Handlers.Shared; using System.Threading; using System.Threading.Tasks;
+			using Immediate.Jobs.Shared; using Immediate.Handlers.Shared; using System.Threading; using System.Threading.Tasks;
 			[Handler, Job] public sealed partial class OtherJob
 			{ private ValueTask HandleAsync(NoPayload payload, CancellationToken ct) => ValueTask.CompletedTask; }
 			""";
@@ -355,6 +382,7 @@ public sealed class ImmediateJobsGeneratorTests
 		var extractorTree = compilation.SyntaxTrees.Single(tree => tree.FilePath == "Extractor.cs");
 		var replacement = CSharpSyntaxTree.ParseText(
 			extractorAfter,
+			GeneratorTestHelper.ParseOptions,
 			path: "Extractor.cs",
 			cancellationToken: TestContext.Current.CancellationToken
 		);

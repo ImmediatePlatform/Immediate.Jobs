@@ -44,7 +44,10 @@ public sealed partial class CleanupSessionsJob(AppDbContext db)
 [Handler, Job("send-welcome-email", MaxAttempts = 5, Timeout = "00:02:00")]
 public sealed partial class SendWelcomeEmail(IEmailSender sender)
 {
-    public sealed record Payload(Guid UserId, string Template);
+    public sealed record Payload(Guid UserId, string Template) : IJobRequest
+    {
+        public JobDetails? JobDetails { get; set; }
+    }
 
     private async ValueTask HandleAsync(Payload payload, CancellationToken ct)
         => await sender.SendAsync(payload.UserId, payload.Template, ct);
@@ -101,7 +104,7 @@ Jobs may be assigned to compile-time queue definitions with `[UsesQueue<TQueue>]
 | `MaxAttempts`    | int     | 3                   | Total attempts including first run                                                                                                                                                                                                                                                                                                          |
 | `Timeout`        | string? | null                | `TimeSpan` format; per-execution timeout                                                                                                                                                                                                                                                                                                    |
 | `MaxConcurrency` | int     | unbounded           | Max parallel executions of this job type per node                                                                                                                                                                                                                                                                                           |
-| `OverlapPolicy`  | enum    | `Skip`              | `Skip` \| `Queue` \| `Concurrent` — behavior when a cron tick fires while the previous run is active                                                                                                                                                                                                                                        |
+| `OverlapPolicy`  | enum    | `Skip`              | `Skip` \| `Queue` \| `Concurrent` — behavior when a scheduled recurring occurrence is due while the previous invocation is active                                                                                                                                                                                                          |
 | `Backoff`        | enum    | `ExponentialJitter` | `Fixed` \| `Exponential` \| `ExponentialJitter`                                                                                                                                                                                                                                                                                             |
 | `BackoffBase`    | string  | "00:00:05"          | Base delay for backoff                                                                                                                                                                                                                                                                                                                      |
 
@@ -118,28 +121,32 @@ The generator ships an analyzer emitting, at minimum:
 - `IJOB007` payload contains NodaTime types but `Immediate.Jobs.NodaTime` is not referenced
 - `IJOB008` retry/concurrency/timeout configuration is invalid
 - `IJOB009` `[Job]` class is not also marked with Immediate.Handlers `[Handler]`
+- `IJOB015` job request does not implement `Immediate.Jobs.Shared.IJobRequest`
 
-### 2.6 Job behaviors (pipeline)
+### 2.6 Immediate.Handlers behaviors for jobs
 
-Every job reuses its normal Immediate.Handlers pipeline because the worker invokes the generated handler. Jobs may additionally define an outer job-specific pipeline for background-only context such as attempt number, durable id, and scheduled time:
+Every job uses its normal Immediate.Handlers pipeline because the worker invokes the generated handler. The request implements `IJobRequest`, and the worker attaches non-persisted execution metadata before entering that pipeline:
 
 ```csharp
-public sealed class JobLoggingBehavior<TPayload>(ILogger<JobLoggingBehavior<TPayload>> logger)
-    : JobBehavior<TPayload>
+public sealed class JobLoggingBehavior<TRequest, TResponse>(ILogger<JobLoggingBehavior<TRequest, TResponse>> logger)
+    : Behavior<TRequest, TResponse>
+    where TRequest : IJobRequest
 {
-    public override async ValueTask HandleAsync(JobContext<TPayload> ctx, JobNext<TPayload> next)
+    public override async ValueTask<TResponse> HandleAsync(TRequest request, CancellationToken cancellationToken)
     {
-        logger.LogInformation("Starting {JobName} attempt {Attempt}", ctx.JobName, ctx.Attempt);
-        await next(ctx);
+        var details = request.JobDetails ?? throw new InvalidOperationException("Job details are unavailable.");
+        logger.LogInformation("Starting {JobName} attempt {Attempt}", details.JobName, details.Attempt);
+        return await Next(request, cancellationToken);
     }
 }
 ```
 
-- Registered globally via `[assembly: JobBehaviors(typeof(JobLoggingBehavior<>), ...)]` or per-job via `[Job(..., Behaviors = [...])]`; the generator composes the chain at compile time — no runtime pipeline construction.
-- `JobContext<TPayload>` exposes payload, `JobName`, `JobId`, `Attempt`, `ScheduledAt`, and `CancellationToken`.
-- Both behavior pipelines run inside the retry boundary (an exception thrown through either pipeline counts as a failed attempt); built-in concerns (lease heartbeat, timeout, serialization) run outside them and are not user-replaceable.
+- Register constrained job behaviors through Immediate.Handlers `[assembly: Behaviors(...)]`. The constraint excludes ordinary handler requests that do not implement `IJobRequest`.
+- Use `[Behaviors(...)]` on one job, or a reusable attribute annotated with `[Behaviors(...)]`, to replace assembly-wide behaviors for that subset.
+- `JobDetails` exposes `JobName`, `JobId`, `QueueName`, `Attempt`, `CreatedAt`, and `ScheduledAt`; the cancellation token remains the normal behavior method parameter.
+- The handler pipeline runs inside the retry boundary; built-in concerns such as lease heartbeat, timeout, serialization, and ambient-context restoration remain infrastructure concerns.
 
-Ambient request state is a separate capture/restore lifecycle, not a job behavior. A job opts in to
+Ambient request state is a separate capture/restore lifecycle, not a handler behavior. A job opts in to
 a typed extractor whose serializable value is captured by its generated scheduler and restored in
 the worker's execution scope before handler and behavior resolution:
 
@@ -216,10 +223,12 @@ Dynamic schedules are persisted in storage (they survive restarts and are visibl
 
 ### 3.1 Packages
 
-| Package                              | Contents                                                                                                                                                                                |
+| Package or project                   | Contents                                                                                                                                                                                |
 | ------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `Immediate.Jobs`                     | Core runtime: scheduler hosted service, worker pool, storage abstraction, in-memory provider, generated-code contracts                                                                  |
-| `Immediate.Jobs.Generators`          | Roslyn source generator + analyzers (referenced automatically by core)                                                                                                                  |
+| `Immediate.Jobs`                     | Packaging-only NuGet project containing the Shared runtime assemblies and the TFM-appropriate analyzer/generator assets                                                                |
+| `Immediate.Jobs.Shared`              | Non-packable runtime project: scheduler hosted service, worker pool, storage abstraction, in-memory provider, generated-code contracts                                                  |
+| `Immediate.Jobs.Analyzers`           | Non-packable Roslyn analyzer project embedded into the `Immediate.Jobs` package                                                                                                         |
+| `Immediate.Jobs.Generators`          | Non-packable Roslyn source-generator project embedded into the `Immediate.Jobs` package                                                                                                 |
 | `Immediate.Jobs.EntityFrameworkCore` | EF Core adapter — works with any relational EF provider; convenience over raw speed                                                                                                     |
 | `Immediate.Jobs.Dashboard`           | Embedded dashboard middleware + compiled Svelte SPA assets                                                                                                                              |
 | `Immediate.Jobs.NodaTime`            | Optional: `Instant`/`Duration`/`DateTimeZone` overloads on generated schedulers; NodaTime STJ converters wired into generated serializer contexts                                       |
@@ -243,7 +252,7 @@ Payloads are stored as JSON, serialized via the generated `JsonSerializerContext
 ### 3.3 Execution model
 
 - A hosted service (`JobSchedulerService`) runs the acquire → dispatch loop; a `Channel`-based worker pool executes handlers with per-type and global concurrency limits.
-- Each execution creates a DI scope; the generated invoker resolves the Immediate.Handlers-generated nested `Handler` and calls it directly (no reflection). Its ordinary handler behaviors run inside any job-specific behaviors.
+- Each execution creates a DI scope; the generated invoker restores ambient context, attaches `JobDetails`, resolves the Immediate.Handlers-generated nested `Handler`, and calls it directly without reflection.
 - Cron evaluation uses a vetted cron library (Cronos) at runtime for dynamic schedules; literal attribute crons are additionally validated at compile time.
 - Time is abstracted via `TimeProvider` for testability.
 - Graceful shutdown: stop acquiring, signal `CancellationToken`, drain running jobs up to a configurable shutdown timeout; undrained jobs' leases expire and another node picks them up.
@@ -255,7 +264,7 @@ Payloads are stored as JSON, serialized via the generated `JsonSerializerContext
 - **Scale-out model:** peer-to-peer — every node both schedules and executes. Coordination happens entirely through storage; no leader election, no inter-node communication.
 - **Claiming:** `AcquireDueJobsAsync` uses EF Core optimistic concurrency tokens so nodes never successfully claim the same version of a row.
 - **Leases & heartbeats:** claimed jobs carry a lease (default 30s) renewed by a heartbeat while running. If a node dies, the lease expires and the job becomes claimable again → **at-least-once** delivery. Docs prominently state handlers must be idempotent.
-- **Recurring jobs:** each cron tick is materialized as a one-shot job row keyed by `(jobName, scheduledTick)` with a unique constraint, so N nodes materializing the same tick produce exactly one execution.
+- **Recurring jobs:** each scheduled occurrence is materialized as a one-shot job row keyed by `(jobName, scheduledOccurrence)` with a unique constraint, so N nodes materializing the same occurrence produce exactly one execution.
 - **In-memory provider:** best-effort only, single-node, no durability — clearly documented; intended for dev/test and non-critical jobs.
 
 ### 3.5 Failure handling
@@ -303,7 +312,7 @@ Payloads are stored as JSON, serialized via the generated `JsonSerializerContext
 
 | Milestone                      | Scope                                                                                                                                                                                                  |
 | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **M1 — Core**                  | Generator + attribute model, diagnostics, in-memory provider, worker pool, cron/delayed/immediate jobs, job behavior pipeline, dynamic recurring jobs, retries/timeouts/dead-letter, graceful shutdown |
+| **M1 — Core**                  | Generator + attribute model, diagnostics, in-memory provider, worker pool, cron/delayed/immediate jobs, Immediate.Handlers integration, dynamic recurring jobs, retries/timeouts/dead-letter, graceful shutdown |
 | **M2 — Durable & distributed** | Storage abstraction finalized, EF Core adapter with optimistic leases, single-server recovery, and multi-node tests                                                                                  |
 | **M3 — Dashboard**             | Monitoring API (JSON + SSE), Svelte SPA, actions (trigger/retry/delete/pause), auth integration                                                                                                        |
 | **M4 — Polish & ship**         | `Immediate.Jobs.Testing`, OTel + metrics + health checks, AOT CI, benchmarks, docs site, v1.0 to NuGet                                                                                                 |

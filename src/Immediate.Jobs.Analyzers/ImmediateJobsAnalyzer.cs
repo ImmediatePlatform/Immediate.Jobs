@@ -1,31 +1,35 @@
 using System.Collections.Immutable;
+using Immediate.Jobs;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.Diagnostics;
 
-namespace Immediate.Jobs.Generators;
+namespace Immediate.Jobs.Analyzers;
 
-/// <summary>Validates declarations marked with <c>Immediate.Jobs.JobAttribute</c>.</summary>
+/// <summary>Validates declarations marked with <c>Immediate.Jobs.Shared.JobAttribute</c>.</summary>
 [DiagnosticAnalyzer(LanguageNames.CSharp)]
 public sealed class ImmediateJobsAnalyzer : DiagnosticAnalyzer
 {
+	/// <inheritdoc />
 	public override ImmutableArray<DiagnosticDescriptor> SupportedDiagnostics =>
-	ImmutableArray.Create(
-		DiagnosticDescriptors.InvalidCron,
-		DiagnosticDescriptors.DuplicateJobName,
-		DiagnosticDescriptors.UnsupportedPayload,
-		DiagnosticDescriptors.InvalidMethodSignature,
-		DiagnosticDescriptors.InvalidConfiguration,
-		DiagnosticDescriptors.JobMustBePartial,
-		DiagnosticDescriptors.CronPayload,
-		DiagnosticDescriptors.NodaTimePackageRequired,
-		DiagnosticDescriptors.JobMustBeHandler,
-		DiagnosticDescriptors.InvalidQueueConfiguration,
-		DiagnosticDescriptors.InvalidQueueTarget,
-		DiagnosticDescriptors.DuplicateQueueName,
-		DiagnosticDescriptors.InvalidContextExtractor,
-		DiagnosticDescriptors.UnsupportedContext
-	);
+		ImmutableArray.Create(
+			DiagnosticDescriptors.InvalidCron,
+			DiagnosticDescriptors.DuplicateJobName,
+			DiagnosticDescriptors.UnsupportedPayload,
+			DiagnosticDescriptors.InvalidMethodSignature,
+			DiagnosticDescriptors.InvalidConfiguration,
+			DiagnosticDescriptors.JobMustBePartial,
+			DiagnosticDescriptors.CronPayload,
+			DiagnosticDescriptors.NodaTimePackageRequired,
+			DiagnosticDescriptors.JobMustBeHandler,
+			DiagnosticDescriptors.InvalidQueueConfiguration,
+			DiagnosticDescriptors.InvalidQueueTarget,
+			DiagnosticDescriptors.DuplicateQueueName,
+			DiagnosticDescriptors.InvalidContextExtractor,
+			DiagnosticDescriptors.UnsupportedContext,
+			DiagnosticDescriptors.RequestMustImplementIJobRequest
+		);
 
+	/// <inheritdoc />
 	public override void Initialize(AnalysisContext context)
 	{
 		context.ConfigureGeneratedCodeAnalysis(GeneratedCodeAnalysisFlags.None);
@@ -118,9 +122,18 @@ public sealed class ImmediateJobsAnalyzer : DiagnosticAnalyzer
 			var methods = job.GetMembers("HandleAsync").OfType<IMethodSymbol>()
 				.Where(method => !method.IsImplicitlyDeclared)
 				.ToArray();
-			if (methods.Length != 1 || !JobDiscovery.IsValidMethod(methods[0], out var payloadType, out var hasPayload, out _))
+			if (methods.Length != 1 || !JobDiscovery.IsValidMethod(methods[0], out var payloadType, out var hasPayload))
 			{
 				context.ReportDiagnostic(Diagnostic.Create(DiagnosticDescriptors.InvalidMethodSignature, location, job.Name));
+				continue;
+			}
+			if (!JobDiscovery.ImplementsJobRequest(payloadType!))
+			{
+				context.ReportDiagnostic(Diagnostic.Create(
+					DiagnosticDescriptors.RequestMustImplementIJobRequest,
+					methods[0].Parameters[0].Locations.FirstOrDefault() ?? location,
+					payloadType!.ToDisplayString()
+				));
 				continue;
 			}
 

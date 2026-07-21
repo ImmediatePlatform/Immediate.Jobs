@@ -1,4 +1,4 @@
-using Immediate.Jobs;
+using Immediate.Jobs.Shared;
 using Immediate.Handlers.Shared;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -48,7 +48,10 @@ public sealed class GreetingContextExtractor(CurrentGreetingContext currentConte
 [Handler, Job("aot-greeting"), UsesJobContext<GreetingContextExtractor>]
 public sealed partial class AotGreetingJob(CurrentGreetingContext currentContext)
 {
-	public sealed record Payload(string Name, string ExpectedContext);
+	public sealed record Payload(string Name, string ExpectedContext) : IJobRequest
+	{
+		public JobDetails? JobDetails { get; set; }
+	}
 
 	private Task WriteAsync(Payload payload, CancellationToken cancellationToken)
 	{

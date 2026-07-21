@@ -6,7 +6,7 @@
 
 partial class ClockJob
 {
-	public sealed partial class Handler : global::Immediate.Handlers.Shared.IHandler<global::Immediate.Jobs.NoPayload, global::System.ValueTuple>
+	public sealed partial class Handler : global::Immediate.Handlers.Shared.IHandler<global::Immediate.Jobs.Shared.NoPayload, global::System.ValueTuple>
 	{
 		private readonly global::ClockJob.HandleBehavior _handleBehavior;
 
@@ -21,7 +21,7 @@ partial class ClockJob
 		}
 
 		public async global::System.Threading.Tasks.ValueTask<global::System.ValueTuple> HandleAsync(
-			global::Immediate.Jobs.NoPayload request,
+			global::Immediate.Jobs.Shared.NoPayload request,
 			global::System.Threading.CancellationToken cancellationToken = default
 		)
 		{
@@ -32,7 +32,7 @@ partial class ClockJob
 	}
 
 	[global::System.ComponentModel.EditorBrowsable(global::System.ComponentModel.EditorBrowsableState.Never)]
-	public sealed class HandleBehavior : global::Immediate.Handlers.Shared.Behavior<global::Immediate.Jobs.NoPayload, global::System.ValueTuple>
+	public sealed class HandleBehavior : global::Immediate.Handlers.Shared.Behavior<global::Immediate.Jobs.Shared.NoPayload, global::System.ValueTuple>
 	{
 		private readonly global::ClockJob _container;
 
@@ -44,7 +44,7 @@ partial class ClockJob
 		}
 
 		public override async global::System.Threading.Tasks.ValueTask<global::System.ValueTuple> HandleAsync(
-			global::Immediate.Jobs.NoPayload request,
+			global::Immediate.Jobs.Shared.NoPayload request,
 			global::System.Threading.CancellationToken cancellationToken
 		)
 		{
@@ -66,7 +66,7 @@ partial class ClockJob
 	)
 	{
 		services.Add(new(typeof(global::ClockJob.Handler), typeof(global::ClockJob.Handler), lifetime));
-		services.Add(new(typeof(global::Immediate.Handlers.Shared.IHandler<global::Immediate.Jobs.NoPayload, global::System.ValueTuple>), typeof(global::ClockJob.Handler), lifetime));
+		services.Add(new(typeof(global::Immediate.Handlers.Shared.IHandler<global::Immediate.Jobs.Shared.NoPayload, global::System.ValueTuple>), typeof(global::ClockJob.Handler), lifetime));
 		services.Add(new(typeof(global::ClockJob.HandleBehavior), typeof(global::ClockJob.HandleBehavior), lifetime));
 		services.Add(new(typeof(global::ClockJob), typeof(global::ClockJob), lifetime));
 		return services;

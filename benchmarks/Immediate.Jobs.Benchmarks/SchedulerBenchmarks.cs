@@ -152,7 +152,11 @@ public class DispatchBenchmarks
 	}
 }
 
-public sealed record BenchmarkPayload(int Value);
+public sealed record BenchmarkPayload(int Value) : IJobRequest
+{
+	[JsonIgnore]
+	public JobDetails? JobDetails { get; set; }
+}
 
 [JsonSerializable(typeof(BenchmarkPayload))]
 internal sealed partial class BenchmarkJsonContext : JsonSerializerContext;

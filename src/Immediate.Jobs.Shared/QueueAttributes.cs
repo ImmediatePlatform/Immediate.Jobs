@@ -1,4 +1,4 @@
-namespace Immediate.Jobs;
+namespace Immediate.Jobs.Shared;
 
 /// <summary>Defines a strongly typed job queue.</summary>
 [AttributeUsage(AttributeTargets.Class, AllowMultiple = false, Inherited = false)]

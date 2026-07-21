@@ -12,6 +12,7 @@ public static class NodaTimeJobSchedulerExtensions
 		Duration delay,
 		CancellationToken cancellationToken = default
 	)
+		where TPayload : IJobRequest
 	{
 		ArgumentNullException.ThrowIfNull(scheduler);
 		return scheduler.Schedule(payload, delay.ToTimeSpan(), cancellationToken);
@@ -24,6 +25,7 @@ public static class NodaTimeJobSchedulerExtensions
 		Instant runAt,
 		CancellationToken cancellationToken = default
 	)
+		where TPayload : IJobRequest
 	{
 		ArgumentNullException.ThrowIfNull(scheduler);
 		return scheduler.ScheduleAt(payload, runAt.ToDateTimeOffset(), cancellationToken);

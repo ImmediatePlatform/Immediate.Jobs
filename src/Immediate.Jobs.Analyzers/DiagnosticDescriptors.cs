@@ -1,9 +1,9 @@
 using Microsoft.CodeAnalysis;
 
-namespace Immediate.Jobs.Generators;
+namespace Immediate.Jobs.Analyzers;
 
 /// <summary>Diagnostic descriptors produced for invalid job declarations.</summary>
-public static class DiagnosticDescriptors
+internal static class DiagnosticDescriptors
 {
 	private const string Category = "Immediate.Jobs";
 
@@ -89,6 +89,12 @@ public static class DiagnosticDescriptors
 		"IJOB014",
 		"Unsupported job context",
 		"Context type '{0}' cannot be source-generated for JSON serialization: {1}"
+	);
+
+	public static readonly DiagnosticDescriptor RequestMustImplementIJobRequest = Create(
+		"IJOB015",
+		"Job request must implement IJobRequest",
+		"Job request type '{0}' must implement Immediate.Jobs.Shared.IJobRequest"
 	);
 
 	private static DiagnosticDescriptor Create(string id, string title, string message) =>

@@ -1,0 +1,69 @@
+name: Release
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - '**'
+
+jobs:
+  release:
+    permissions:
+      id-token: write
+      contents: write
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v7
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v5
+      with:
+        dotnet-version: |
+          8.0.x
+          9.0.x
+          10.0.x
+
+    - name: Setup preview .NET
+      uses: actions/setup-dotnet@v5
+      with:
+        dotnet-quality: 'preview'
+        dotnet-version: 11.0.x
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: 22
+        cache: npm
+        cache-dependency-path: src/Immediate.Jobs.Dashboard/DashboardClient/package-lock.json
+
+    - name: Build dashboard
+      working-directory: src/Immediate.Jobs.Dashboard/DashboardClient
+      run: |
+        npm ci
+        npm run build
+
+    - name: Restore dependencies
+      run: dotnet restore
+
+    - name: Build
+      run: dotnet build -c Release --no-restore
+
+    - name: Package
+      run: dotnet pack -c Release --no-build --property:PackageOutputPath=${{ github.workspace }}/nupkgs
+
+    - name: NuGet login (OIDC → temp API key)
+      uses: NuGet/login@v1
+      id: login
+      with:
+        user: viceroypenguin
+
+    - name: Push to NuGet
+      run: dotnet nuget push "./nupkgs/*.nupkg" --source "https://api.nuget.org/v3/index.json" --api-key ${{ steps.login.outputs.NUGET_API_KEY }}
+
+    - name: Create release
+      uses: ncipollo/release-action@v1
+      with:
+        generateReleaseNotes: 'true'
+        makeLatest: 'true'

@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using System.Diagnostics;
 using System.Globalization;
 using System.Reflection;
+using Immediate.Jobs;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Scriban;
@@ -13,58 +14,41 @@ namespace Immediate.Jobs.Generators;
 [Generator]
 public sealed class ImmediateJobsGenerator : IIncrementalGenerator
 {
+	/// <inheritdoc />
 	public void Initialize(IncrementalGeneratorInitializationContext context)
 	{
 		var jobs = context.SyntaxProvider
 			.ForAttributeWithMetadataName(
-				"Immediate.Jobs.JobAttribute",
+				JobDiscovery.JobAttributeName,
 				predicate: static (node, _) => node is ClassDeclarationSyntax,
 				transform: static (ctx, cancellationToken) =>
 				{
 					cancellationToken.ThrowIfCancellationRequested();
 					return ctx.TargetSymbol is INamedTypeSymbol type
-						&& JobDiscovery.TryCreateModel(type, ctx.SemanticModel.Compilation, out var job)
+						&& GeneratorJobDiscovery.TryCreateModel(type, ctx.SemanticModel.Compilation, out var job)
 							? job
 							: null;
 				})
-			.Where(static job => job is not null)
-			.Select(static (job, _) => job!)
+			.WhereNotNull()
 			.WithTrackingName("Jobs");
 
-		// Assembly-level default behaviors are their own provider so that editing the [assembly: JobBehaviors(...)]
-		// attribute invalidates and regenerates the jobs that depend on it, rather than being read inline.
-		var assemblyBehaviors = context.SyntaxProvider
-			.ForAttributeWithMetadataName(
-				"Immediate.Jobs.JobBehaviorsAttribute",
-				predicate: static (node, _) => node is CompilationUnitSyntax,
-				transform: static (ctx, cancellationToken) => JobDiscovery.ParseAssemblyBehaviors(ctx, cancellationToken))
-			.SelectMany(static (behaviors, _) => behaviors)
-			.Collect()
-			.WithTrackingName("AssemblyBehaviors");
-
-		var resolvedJobs = jobs
-			.Combine(assemblyBehaviors)
-			.Select(static (pair, _) => ResolveBehaviors(pair.Left, pair.Right))
-			.WithTrackingName("ResolvedJobs");
-
-		var collectedJobs = resolvedJobs.Collect().WithTrackingName("JobsCollected");
+		var collectedJobs = jobs.Collect().WithTrackingName("JobsCollected");
 		var queues = context.SyntaxProvider
 			.ForAttributeWithMetadataName(
-				"Immediate.Jobs.QueueDefinitionAttribute",
+				JobDiscovery.QueueDefinitionAttributeName,
 				predicate: static (node, _) => node is ClassDeclarationSyntax,
 				transform: static (ctx, cancellationToken) =>
 				{
 					cancellationToken.ThrowIfCancellationRequested();
-					return ctx.TargetSymbol is INamedTypeSymbol type ? JobDiscovery.CreateQueueModel(type) : null;
+					return ctx.TargetSymbol is INamedTypeSymbol type ? GeneratorJobDiscovery.CreateQueueModel(type) : null;
 				})
-			.Where(static queue => queue is not null)
-			.Select(static (queue, _) => queue!)
+			.WhereNotNull()
 			.Collect()
 			.WithTrackingName("QueuesCollected");
 
 		var jobTemplate = GetTemplate("Job");
 		var registrationsTemplate = GetTemplate("ServiceCollectionExtensions");
-		context.RegisterSourceOutput(resolvedJobs, (productionContext, model) =>
+		context.RegisterSourceOutput(jobs, (productionContext, model) =>
 		{
 			productionContext.CancellationToken.ThrowIfCancellationRequested();
 			productionContext.AddSource(
@@ -100,21 +84,6 @@ public sealed class ImmediateJobsGenerator : IIncrementalGenerator
 		});
 	}
 
-	// Jobs that don't declare their own behaviors inherit the assembly-level default set, resolved for the job's payload.
-	private static JobModel ResolveBehaviors(JobModel job, ImmutableArray<JobBehaviorModel> assemblyBehaviors)
-	{
-		if (job.HasExplicitBehaviors)
-			return job;
-
-		var behaviors = assemblyBehaviors
-			.Select(behavior => JobDiscovery.ResolveBehavior(behavior, job.PayloadTypeName, job.PayloadMatchName))
-			.Where(name => name is not null)
-			.Select(name => name!)
-			.ToEquatableReadOnlyList();
-
-		return job with { Behaviors = behaviors };
-	}
-
 	private static string RenderJob(JobModel job, Template template, CancellationToken cancellationToken)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
@@ -138,12 +107,6 @@ public sealed class ImmediateJobsGenerator : IIncrementalGenerator
 			OverlapPolicy = job.OverlapPolicy.ToString(CultureInfo.InvariantCulture),
 			Backoff = job.Backoff.ToString(CultureInfo.InvariantCulture),
 			BackoffBaseLiteral = Literal(job.BackoffBase),
-			Behaviors = job.Behaviors.Select((behavior, index) => new
-			{
-				Index = index,
-				NextIndex = index + 1,
-				TypeName = behavior,
-			}).ToArray(),
 			Contexts = job.Contexts.Select((context, index) => new
 			{
 				Index = index,
@@ -194,10 +157,6 @@ public sealed class ImmediateJobsGenerator : IIncrementalGenerator
 				{
 					context.ExtractorTypeName,
 				}).ToArray(),
-				Behaviors = job.Behaviors.Select(behavior => new
-				{
-					TypeName = behavior,
-				}).ToArray(),
 			}).ToArray(),
 			Version = ThisAssembly.InformationalVersion,
 		};
@@ -216,7 +175,9 @@ public sealed class ImmediateJobsGenerator : IIncrementalGenerator
 			LoopLimit = 0,
 		};
 		context.PushGlobal(globals);
-		return template.Render(context);
+		return string.Join("\n", template.Render(context)
+			.Split('\n')
+			.Select(static line => line.TrimEnd()));
 	}
 
 	private static Template GetTemplate(string name)

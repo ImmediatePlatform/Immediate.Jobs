@@ -1,4 +1,4 @@
-namespace Immediate.Jobs;
+namespace Immediate.Jobs.Shared;
 
 /// <summary>The storage seam implemented by all job providers.</summary>
 public interface IJobStorage

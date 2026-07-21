@@ -5,7 +5,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
-namespace Immediate.Jobs;
+namespace Immediate.Jobs.Shared;
 
 /// <summary>Coordinates recurring schedules, durable leases, and the bounded worker pool.</summary>
 public sealed partial class JobSchedulerService : BackgroundService

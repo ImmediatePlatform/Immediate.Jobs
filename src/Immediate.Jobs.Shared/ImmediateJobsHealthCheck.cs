@@ -1,6 +1,6 @@
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 
-namespace Immediate.Jobs;
+namespace Immediate.Jobs.Shared;
 
 /// <summary>Reports scheduler-loop liveness and provider connectivity.</summary>
 public sealed class ImmediateJobsHealthCheck(

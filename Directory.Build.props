@@ -1,18 +1,47 @@
 <Project>
   <PropertyGroup>
-    <TargetFramework>net8.0</TargetFramework>
-    <LangVersion>latest</LangVersion>
-    <Nullable>enable</Nullable>
-    <ImplicitUsings>enable</ImplicitUsings>
-    <GenerateDocumentationFile>true</GenerateDocumentationFile>
-    <IsPackable>false</IsPackable>
-    <WarnOnPackingNonPackableProject>false</WarnOnPackingNonPackableProject>
-    <AnalysisLevel>latest-recommended</AnalysisLevel>
-    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
-    <Deterministic>true</Deterministic>
+	<TargetFrameworks>net8.0;net9.0;net10.0;net11.0</TargetFrameworks>
+	<LangVersion>latest</LangVersion>
+
+	<Nullable>enable</Nullable>
+	<WarningsAsErrors>$(WarningsAsErrors);nullable;</WarningsAsErrors>
+
+	<ImplicitUsings>enable</ImplicitUsings>
+
+	<AnalysisLevel>latest-recommended</AnalysisLevel>
+	<EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+
+	<GenerateDocumentationFile>true</GenerateDocumentationFile>
+
+	<IsPackable>false</IsPackable>
+	<WarnOnPackingNonPackableProject>false</WarnOnPackingNonPackableProject>
+
+	<EmbedUntrackedSources>true</EmbedUntrackedSources>
   </PropertyGroup>
+
+  <PropertyGroup Label="Enabled Polyfills">
+	<Polyfill></Polyfill>
+	<Polyfill>$(Polyfill)|T:System.Index</Polyfill>
+	<Polyfill>$(Polyfill)|T:System.HashCode</Polyfill>
+	<Polyfill>$(Polyfill)|T:System.Range</Polyfill>
+	<Polyfill>$(Polyfill)|T:System.Diagnostics.CodeAnalysis</Polyfill>
+	<Polyfill>$(Polyfill)|T:System.Runtime.CompilerServices.CallerArgumentExpressionAttribute</Polyfill>
+	<Polyfill>$(Polyfill)|T:System.Runtime.CompilerServices.CompilerFeatureRequiredAttribute</Polyfill>
+	<Polyfill>$(Polyfill)|T:System.Runtime.CompilerServices.IsExternalInit</Polyfill>
+	<Polyfill>$(Polyfill)|T:System.Runtime.CompilerServices.RequiredMemberAttribute</Polyfill>
+	<Polyfill>$(Polyfill)|T:System.Runtime.CompilerServices.SkipLocalsInitAttribute</Polyfill>
+	<Polyfill>$(Polyfill)|M:System.ArgumentNullException.ThrowIfNull</Polyfill>
+	<Polyfill>$(Polyfill)|M:System.String.Replace(System.String,System.String,System.StringComparison)</Polyfill>
+	<MeziantouPolyfill_IncludedPolyfills>$(Polyfill)</MeziantouPolyfill_IncludedPolyfills>
+  </PropertyGroup>
+
+  <PropertyGroup Label="MinVer">
+	<MinVerAutoIncrement>minor</MinVerAutoIncrement>
+	<MinVerDefaultPreReleaseIdentifiers>preview</MinVerDefaultPreReleaseIdentifiers>
+	<MinVerTagPrefix>v</MinVerTagPrefix>
+  </PropertyGroup>
+
   <PropertyGroup Condition="'$(GITHUB_ACTIONS)' == 'true'">
-    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
-    <ContinuousIntegrationBuild>true</ContinuousIntegrationBuild>
+	<ContinuousIntegrationBuild>true</ContinuousIntegrationBuild>
   </PropertyGroup>
 </Project>

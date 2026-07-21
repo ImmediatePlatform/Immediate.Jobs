@@ -1,33 +1,79 @@
 <Project Sdk="Microsoft.NET.Sdk">
+
   <PropertyGroup>
-    <IsPackable>true</IsPackable>
-    <Title>Immediate.Jobs</Title>
-    <Description>A reflection-free background job scheduler for .NET using source generation.</Description>
-    <Authors>Immediate.Jobs Developers</Authors>
-    <Copyright>© 2026 Immediate.Jobs Developers</Copyright>
-    <PackageLicenseExpression>MIT</PackageLicenseExpression>
-    <PackageReadmeFile>readme.md</PackageReadmeFile>
-    <PackageTags>background-jobs;scheduler;source-generator;aot</PackageTags>
-    <RepositoryUrl>https://github.com/ImmediatePlatform/Immediate.Jobs</RepositoryUrl>
-    <PublishRepositoryUrl>true</PublishRepositoryUrl>
-	<NoWarn>$(NoWarn);CA1716</NoWarn>
-	<IsAotCompatible>true</IsAotCompatible>
+	<IsPackable>true</IsPackable>
+	<IncludeBuildOutput>false</IncludeBuildOutput>
   </PropertyGroup>
+
+  <PropertyGroup Label="Nuget">
+	<Title>Immediate.Jobs</Title>
+	<Description>A reflection-free background job scheduler for .NET using source generation.</Description>
+	<Authors>Immediate.Jobs Developers</Authors>
+	<Copyright>© 2026 Immediate.Jobs Developers</Copyright>
+	<PackageLicenseExpression>MIT</PackageLicenseExpression>
+	<PackageReadmeFile>readme.md</PackageReadmeFile>
+	<PackageTags>background-jobs;scheduler;source-generator;aot</PackageTags>
+	<RepositoryUrl>https://github.com/ImmediatePlatform/Immediate.Jobs</RepositoryUrl>
+	<PublishRepositoryUrl>true</PublishRepositoryUrl>
+  </PropertyGroup>
+
   <ItemGroup>
-    <None Include="../../readme.md" Pack="true" PackagePath="/" />
-	<None Include="../Immediate.Jobs.Generators/bin/$(Configuration)/netstandard2.0/Immediate.Jobs.Generators.dll"
-	      Pack="true"
-	      PackagePath="analyzers/dotnet/cs" />
-    <PackageReference Include="Cronos" />
-    <PackageReference Include="Immediate.Handlers" />
-    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
-    <PackageReference Include="Microsoft.Extensions.Diagnostics.HealthChecks" />
-    <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" />
-    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+	<None Include="../../readme.md" Pack="true" PackagePath="/" />
+
+	<TfmSpecificPackageFile
+	  Include="../Immediate.Jobs.Shared/bin/$(Configuration)/$(TargetFramework)/Immediate.Jobs.Shared.dll"
+	  Pack="true"
+	  PackagePath="lib/$(TargetFramework)" />
+
+	<TfmSpecificPackageFile
+	  Include="../Immediate.Jobs.Shared/bin/$(Configuration)/$(TargetFramework)/Immediate.Jobs.Shared.xml"
+	  Pack="true"
+	  PackagePath="lib/$(TargetFramework)" />
   </ItemGroup>
+
+  <ItemGroup Condition="'$(TargetFramework)' == 'net8.0'">
+	<TfmSpecificPackageFile
+	  Include="../Immediate.Jobs.Analyzers/bin/$(Configuration)/netstandard2.0/Immediate.Jobs.Analyzers.dll"
+	  Pack="true"
+	  PackagePath="analyzers/dotnet/roslyn4.8/cs" />
+
+	<TfmSpecificPackageFile
+	  Include="../Immediate.Jobs.Generators/bin/$(Configuration)/netstandard2.0/Immediate.Jobs.Generators.dll"
+	  Pack="true"
+	  PackagePath="analyzers/dotnet/roslyn4.8/cs" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(TargetFramework)' == 'net10.0'">
+	<TfmSpecificPackageFile
+	  Include="../Immediate.Jobs.Analyzers/bin/$(Configuration)/net10.0/Immediate.Jobs.Analyzers.dll"
+	  Pack="true"
+	  PackagePath="analyzers/dotnet/roslyn5.0/cs" />
+
+	<TfmSpecificPackageFile
+	  Include="../Immediate.Jobs.Generators/bin/$(Configuration)/net10.0/Immediate.Jobs.Generators.dll"
+	  Pack="true"
+	  PackagePath="analyzers/dotnet/roslyn5.0/cs" />
+
+	<TfmSpecificPackageFile
+	  Include="$(PkgScriban)/lib/net8.0/Scriban.dll"
+	  Pack="true"
+	  PackagePath="analyzers/dotnet/roslyn5.0/cs" />
+  </ItemGroup>
+
   <ItemGroup>
-    <ProjectReference Include="../Immediate.Jobs.Generators/Immediate.Jobs.Generators.csproj"
-                      OutputItemType="Analyzer"
-                      ReferenceOutputAssembly="false" />
+	<PackageReference Include="Cronos" />
+	<PackageReference Include="Immediate.Handlers" />
+	<PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
+	<PackageReference Include="Microsoft.Extensions.Diagnostics.HealthChecks" />
+	<PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" />
+	<PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+	<PackageReference Include="Scriban" PrivateAssets="all" GeneratePathProperty="true" />
   </ItemGroup>
+
+  <ItemGroup>
+	<ProjectReference Include="../Immediate.Jobs.Analyzers/Immediate.Jobs.Analyzers.csproj" ReferenceOutputAssembly="false" />
+	<ProjectReference Include="../Immediate.Jobs.Generators/Immediate.Jobs.Generators.csproj" ReferenceOutputAssembly="false" />
+	<ProjectReference Include="../Immediate.Jobs.Shared/Immediate.Jobs.Shared.csproj" ReferenceOutputAssembly="false" />
+  </ItemGroup>
+
 </Project>

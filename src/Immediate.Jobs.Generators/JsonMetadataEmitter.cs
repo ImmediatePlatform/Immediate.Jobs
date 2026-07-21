@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using Immediate.Jobs;
 using Microsoft.CodeAnalysis;
 
 namespace Immediate.Jobs.Generators;
@@ -101,6 +102,7 @@ internal static class JsonMetadataEmitter
 	}
 
 	private static ImmutableArray<ISymbol> GetMembers(INamedTypeSymbol type) => type.GetMembers()
+		.Where(static member => !JobDiscovery.IsJobDetailsMember(member))
 		.Where(member => member switch
 		{
 			IPropertySymbol property => property.DeclaredAccessibility == Accessibility.Public && !property.IsStatic && property.GetMethod is not null && property.Parameters.Length == 0,

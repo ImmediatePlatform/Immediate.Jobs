@@ -1,4 +1,4 @@
-namespace Immediate.Jobs;
+namespace Immediate.Jobs.Shared;
 
 /// <summary>
 /// A best-effort, non-durable, single-node provider intended for development and tests.

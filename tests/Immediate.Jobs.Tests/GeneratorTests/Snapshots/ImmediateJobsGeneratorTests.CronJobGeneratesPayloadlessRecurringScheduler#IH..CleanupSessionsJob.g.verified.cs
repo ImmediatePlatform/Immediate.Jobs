@@ -6,7 +6,7 @@
 
 partial class CleanupSessionsJob
 {
-	public sealed partial class Handler : global::Immediate.Handlers.Shared.IHandler<global::Immediate.Jobs.NoPayload, global::System.ValueTuple>
+	public sealed partial class Handler : global::Immediate.Handlers.Shared.IHandler<global::Immediate.Jobs.Shared.NoPayload, global::System.ValueTuple>
 	{
 		private readonly global::CleanupSessionsJob.HandleBehavior _handleBehavior;
 
@@ -21,7 +21,7 @@ partial class CleanupSessionsJob
 		}
 
 		public async global::System.Threading.Tasks.ValueTask<global::System.ValueTuple> HandleAsync(
-			global::Immediate.Jobs.NoPayload request,
+			global::Immediate.Jobs.Shared.NoPayload request,
 			global::System.Threading.CancellationToken cancellationToken = default
 		)
 		{
@@ -32,7 +32,7 @@ partial class CleanupSessionsJob
 	}
 
 	[global::System.ComponentModel.EditorBrowsable(global::System.ComponentModel.EditorBrowsableState.Never)]
-	public sealed class HandleBehavior : global::Immediate.Handlers.Shared.Behavior<global::Immediate.Jobs.NoPayload, global::System.ValueTuple>
+	public sealed class HandleBehavior : global::Immediate.Handlers.Shared.Behavior<global::Immediate.Jobs.Shared.NoPayload, global::System.ValueTuple>
 	{
 		private readonly global::CleanupSessionsJob _container;
 
@@ -44,7 +44,7 @@ partial class CleanupSessionsJob
 		}
 
 		public override async global::System.Threading.Tasks.ValueTask<global::System.ValueTuple> HandleAsync(
-			global::Immediate.Jobs.NoPayload request,
+			global::Immediate.Jobs.Shared.NoPayload request,
 			global::System.Threading.CancellationToken cancellationToken
 		)
 		{
@@ -66,7 +66,7 @@ partial class CleanupSessionsJob
 	)
 	{
 		services.Add(new(typeof(global::CleanupSessionsJob.Handler), typeof(global::CleanupSessionsJob.Handler), lifetime));
-		services.Add(new(typeof(global::Immediate.Handlers.Shared.IHandler<global::Immediate.Jobs.NoPayload, global::System.ValueTuple>), typeof(global::CleanupSessionsJob.Handler), lifetime));
+		services.Add(new(typeof(global::Immediate.Handlers.Shared.IHandler<global::Immediate.Jobs.Shared.NoPayload, global::System.ValueTuple>), typeof(global::CleanupSessionsJob.Handler), lifetime));
 		services.Add(new(typeof(global::CleanupSessionsJob.HandleBehavior), typeof(global::CleanupSessionsJob.HandleBehavior), lifetime));
 		services.Add(new(typeof(global::CleanupSessionsJob), typeof(global::CleanupSessionsJob), lifetime));
 		return services;

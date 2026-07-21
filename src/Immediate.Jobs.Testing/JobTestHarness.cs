@@ -112,6 +112,7 @@ public sealed class JobTestHarness : IAsyncDisposable, IDisposable
 		JobState? expectedState = null,
 		CancellationToken cancellationToken = default
 	)
+		where TPayload : IJobRequest
 	{
 		var job = await GetJobAsync(jobId, cancellationToken).ConfigureAwait(false);
 		if (expectedState is { } state && job.State != state)
@@ -142,6 +143,7 @@ public sealed class JobTestHarness : IAsyncDisposable, IDisposable
 		TPayload payload,
 		CancellationToken cancellationToken = default
 	)
+		where TPayload : IJobRequest
 	{
 		ArgumentNullException.ThrowIfNull(definition);
 		var now = TimeProvider.GetUtcNow();
@@ -183,4 +185,5 @@ public sealed class JobTestHarness : IAsyncDisposable, IDisposable
 }
 
 /// <summary>A durable invocation paired with its strongly typed deserialized payload.</summary>
-public sealed record EnqueuedJob<TPayload>(JobRecord Record, TPayload Payload);
+public sealed record EnqueuedJob<TPayload>(JobRecord Record, TPayload Payload)
+	where TPayload : IJobRequest;

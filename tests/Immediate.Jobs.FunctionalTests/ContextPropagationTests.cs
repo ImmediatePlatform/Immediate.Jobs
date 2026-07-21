@@ -37,7 +37,6 @@ public sealed class ContextPropagationTests
 				"capture:correlation",
 				"restore:tenant",
 				"restore:correlation",
-				"job-behavior:tenant-42/correlation-7",
 				"handler-behavior:tenant-42/correlation-7",
 				"handler:tenant-42/correlation-7:hello",
 			],
@@ -305,20 +304,13 @@ public sealed class SecondNullExtractor : IJobContextExtractor<EmptyContext>
 	public ValueTask RestoreAsync(EmptyContext context, CancellationToken cancellationToken) => ValueTask.CompletedTask;
 }
 
-public sealed class ContextJobBehavior<TPayload>(PropagationScopeState state, ContextProbe probe) : JobBehavior<TPayload>
-{
-	public override ValueTask HandleAsync(JobContext<TPayload> context, JobNext<TPayload> next)
-	{
-		probe.Events.Add($"job-behavior:{state.TenantId}/{state.CorrelationId}");
-		return next(context);
-	}
-}
-
 public sealed class ContextHandlerBehavior<TRequest, TResponse>(PropagationScopeState state, ContextProbe probe)
 	: Behavior<TRequest, TResponse>
+	where TRequest : IJobRequest
 {
 	public override ValueTask<TResponse> HandleAsync(TRequest request, CancellationToken cancellationToken)
 	{
+		_ = request.JobDetails ?? throw new InvalidOperationException("Job details were not populated.");
 		probe.Events.Add($"handler-behavior:{state.TenantId}/{state.CorrelationId}");
 		return Next(request, cancellationToken);
 	}
@@ -329,11 +321,14 @@ public sealed class ContextHandlerBehavior<TRequest, TResponse>(PropagationScope
 public sealed class ContextHandlerPipelineAttribute : Attribute;
 
 [Handler, ContextHandlerPipeline]
-[Job("context-round-trip", Behaviors = [typeof(ContextJobBehavior<>)])]
+[Job("context-round-trip")]
 [UsesJobContext<TenantContextExtractor>, UsesJobContext<CorrelationContextExtractor>]
 public sealed partial class ContextRoundTripJob(PropagationScopeState state, ContextProbe probe)
 {
-	public sealed record Payload(string Message);
+	public sealed record Payload(string Message) : IJobRequest
+	{
+		public JobDetails? JobDetails { get; set; }
+	}
 
 	private ValueTask HandleAsync(Payload payload, CancellationToken cancellationToken)
 	{
@@ -342,32 +337,33 @@ public sealed partial class ContextRoundTripJob(PropagationScopeState state, Con
 	}
 }
 
-[Handler, Job("capture-failure", Behaviors = []), UsesJobContext<ThrowingCaptureExtractor>]
+[Handler, Job("capture-failure"), UsesJobContext<ThrowingCaptureExtractor>]
 public sealed partial class CaptureFailureJob
 {
 	private ValueTask HandleAsync(NoPayload payload, CancellationToken cancellationToken) => ValueTask.CompletedTask;
 }
 
-[Handler, Job("restore-failure", MaxAttempts = 2, Backoff = BackoffStrategy.Fixed, BackoffBase = "00:00:01", Behaviors = [])]
+[Handler, Job("restore-failure", MaxAttempts = 2, Backoff = BackoffStrategy.Fixed, BackoffBase = "00:00:01")]
 [UsesJobContext<ThrowingRestoreExtractor>]
 public sealed partial class RestoreFailureJob
 {
 	private ValueTask HandleAsync(NoPayload payload, CancellationToken cancellationToken) => ValueTask.CompletedTask;
 }
 
-[Handler, Job("duplicate-context-key", Behaviors = [])]
+[Handler, Job("duplicate-context-key")]
 [UsesJobContext<FirstNullExtractor>, UsesJobContext<SecondNullExtractor>]
 public sealed partial class DuplicateContextKeyJob
 {
 	private ValueTask HandleAsync(NoPayload payload, CancellationToken cancellationToken) => ValueTask.CompletedTask;
 }
 
-[Handler, Job("context-cron", Cron = "* * * * * *", Behaviors = [])]
+[Handler, Job("context-cron", Cron = "* * * * * *")]
 [UsesJobContext<TenantContextExtractor>]
 public sealed partial class ContextCronJob(PropagationScopeState state, ContextProbe probe)
 {
 	private ValueTask HandleAsync(NoPayload payload, CancellationToken cancellationToken)
 	{
+		_ = payload.JobDetails ?? throw new InvalidOperationException("Job details were not populated.");
 		probe.Events.Add(state.TenantId is null ? "cron:no-context" : "cron:" + state.TenantId);
 		return ValueTask.CompletedTask;
 	}

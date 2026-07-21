@@ -15,10 +15,10 @@ public sealed class NodaTimeTests
 		var cancellationToken = TestContext.Current.CancellationToken;
 		var start = Instant.FromUtc(2026, 7, 20, 10, 0);
 		var clock = new Microsoft.Extensions.Time.Testing.FakeTimeProvider(start.ToDateTimeOffset());
-		var scheduler = new CaptureOnlyJobScheduler<string>(clock);
+		var scheduler = new CaptureOnlyJobScheduler<SchedulerRequest>(clock);
 
-		await scheduler.Schedule("later", Duration.FromMinutes(5), cancellationToken);
-		await scheduler.ScheduleAt("absolute", start + Duration.FromHours(2), cancellationToken);
+		await scheduler.Schedule(new("later"), Duration.FromMinutes(5), cancellationToken);
+		await scheduler.ScheduleAt(new("absolute"), start + Duration.FromHours(2), cancellationToken);
 
 		Assert.Equal(start + Duration.FromMinutes(5), Instant.FromDateTimeOffset(scheduler.Captures[0].RunAt));
 		Assert.Equal(start + Duration.FromHours(2), Instant.FromDateTimeOffset(scheduler.Captures[1].RunAt));
@@ -43,6 +43,11 @@ public sealed class NodaTimeTests
 	}
 
 	public sealed record NodaPayload(Instant Instant, Duration Duration, DateTimeZone Zone);
+
+	public sealed record SchedulerRequest(string Value) : IJobRequest
+	{
+		public JobDetails? JobDetails { get; set; }
+	}
 }
 
 [JsonSerializable(typeof(NodaTimeTests.NodaPayload))]

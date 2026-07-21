@@ -13,7 +13,8 @@
   </PropertyGroup>
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
-    <ProjectReference Include="../Immediate.Jobs/Immediate.Jobs.csproj" />
+    <ProjectReference Include="../Immediate.Jobs.Shared/Immediate.Jobs.Shared.csproj" PrivateAssets="all" />
+    <ProjectReference Include="../Immediate.Jobs/Immediate.Jobs.csproj" ReferenceOutputAssembly="false" />
   </ItemGroup>
   <ItemGroup>
     <EmbeddedResource Include="Assets/**" />

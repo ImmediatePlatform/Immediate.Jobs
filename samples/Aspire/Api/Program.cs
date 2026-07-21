@@ -1,5 +1,5 @@
 using Immediate.Handlers.Shared;
-using Immediate.Jobs;
+using Immediate.Jobs.Shared;
 using Immediate.Jobs.Dashboard;
 using Immediate.Jobs.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
@@ -110,7 +110,10 @@ public sealed partial class AspireGreetingJob(
 	CurrentRequestContext currentRequestContext
 )
 {
-	public sealed record Payload(string Name);
+	public sealed record Payload(string Name) : IJobRequest
+	{
+		public JobDetails? JobDetails { get; set; }
+	}
 
 	private async ValueTask HandleAsync(Payload payload, CancellationToken cancellationToken)
 	{

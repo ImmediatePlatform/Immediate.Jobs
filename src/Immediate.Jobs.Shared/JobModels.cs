@@ -1,6 +1,6 @@
 using System.Diagnostics;
 
-namespace Immediate.Jobs;
+namespace Immediate.Jobs.Shared;
 
 /// <summary>The durable lifecycle state of a job.</summary>
 public enum JobState
@@ -89,13 +89,13 @@ public sealed record RecurringJobSchedule
 	/// <summary>Whether this schedule originated in compiled code.</summary>
 	public required bool IsCodeDefined { get; init; }
 
-	/// <summary>Whether future ticks are paused.</summary>
+	/// <summary>Whether future scheduled occurrences are paused.</summary>
 	public bool IsPaused { get; init; }
 
-	/// <summary>The next UTC tick.</summary>
+	/// <summary>The next scheduled occurrence in UTC.</summary>
 	public required DateTimeOffset NextRunAt { get; init; }
 
-	/// <summary>The most recently materialized UTC tick.</summary>
+	/// <summary>The most recently materialized scheduled occurrence in UTC.</summary>
 	public DateTimeOffset? LastRunAt { get; init; }
 }
 

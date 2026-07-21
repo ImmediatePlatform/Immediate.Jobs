@@ -1,37 +1,102 @@
-name: build
+name: Build
 
 on:
+  workflow_dispatch:
   push:
+    branches:
+      - 'main'
+    paths-ignore:
+      - '**/readme.md'
   pull_request:
+    types: [opened, synchronize, reopened]
 
 jobs:
   build:
     runs-on: ubuntu-latest
+
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-dotnet@v4
-        with:
-          global-json-file: global.json
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: src/Immediate.Jobs.Dashboard/DashboardClient/package-lock.json
-      - run: npm ci
-        working-directory: src/Immediate.Jobs.Dashboard/DashboardClient
-      - run: npm run build
-        working-directory: src/Immediate.Jobs.Dashboard/DashboardClient
-      - run: dotnet restore Immediate.Jobs.slnx
-      - run: dotnet build Immediate.Jobs.slnx -c Release --no-restore
-      - run: tests/Immediate.Jobs.Tests/bin/Release/net8.0/Immediate.Jobs.Tests -noColor -noLogo
-      - run: tests/Immediate.Jobs.FunctionalTests/bin/Release/net8.0/Immediate.Jobs.FunctionalTests -noColor -noLogo
-      - run: dotnet publish samples/NativeAot/NativeAot.csproj -c Release -r linux-x64 --self-contained
-      - name: Pack
-        run: |
-          dotnet pack src/Immediate.Jobs/Immediate.Jobs.csproj -c Release --no-build --no-restore
-          dotnet pack src/Immediate.Jobs.Generators/Immediate.Jobs.Generators.csproj -c Release --no-build --no-restore
-          dotnet pack src/Immediate.Jobs.EntityFrameworkCore/Immediate.Jobs.EntityFrameworkCore.csproj -c Release --no-build --no-restore
-          dotnet pack src/Immediate.Jobs.Dashboard/Immediate.Jobs.Dashboard.csproj -c Release --no-build --no-restore
-          dotnet pack src/Immediate.Jobs.NodaTime/Immediate.Jobs.NodaTime.csproj -c Release --no-build --no-restore
-          dotnet pack src/Immediate.Jobs.Testing/Immediate.Jobs.Testing.csproj -c Release --no-build --no-restore
-      - run: unzip -l src/Immediate.Jobs.Generators/bin/Release/Immediate.Jobs.Generators.1.0.0.nupkg | grep analyzers/dotnet/cs/Immediate.Jobs.Generators.dll
+    - uses: actions/checkout@v7
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v5
+      with:
+        dotnet-version: |
+          8.0.x
+          9.0.x
+          10.0.x
+
+    - name: Setup preview .NET
+      uses: actions/setup-dotnet@v5
+      with:
+        dotnet-quality: 'preview'
+        dotnet-version: 11.0.x
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: 22
+        cache: npm
+        cache-dependency-path: src/Immediate.Jobs.Dashboard/DashboardClient/package-lock.json
+
+    - name: Restore dashboard dependencies
+      run: npm ci
+      working-directory: src/Immediate.Jobs.Dashboard/DashboardClient
+
+    - name: Test dashboard
+      run: npm test
+      working-directory: src/Immediate.Jobs.Dashboard/DashboardClient
+
+    - name: Build dashboard
+      run: npm run build
+      working-directory: src/Immediate.Jobs.Dashboard/DashboardClient
+
+    - name: Restore tools
+      run: dotnet tool restore
+
+    - name: Restore dependencies
+      run: dotnet restore
+
+    - name: Build
+      run: dotnet build -c Release --no-restore
+
+    - name: Test
+      run: dotnet test -c Release --no-build -- --coverage --coverage-output-format cobertura --coverage-output coverage.cobertura.xml --coverage-settings ./coverage-settings.xml
+
+    - name: Publish NativeAOT sample
+      run: dotnet publish samples/NativeAot/NativeAot.csproj -c Release -r linux-x64 --self-contained --no-restore
+
+    - name: Package
+      run: dotnet pack -c Release --no-build --property:PackageOutputPath=${{ github.workspace }}/nupkgs
+
+    - name: Validate packages
+      run: dotnet tool run dotnet-validate -- package local ./nupkgs/*.nupkg
+
+    - name: Validate Immediate.Jobs package contents
+      shell: bash
+      run: |
+        package="$(find ./nupkgs -maxdepth 1 -name 'Immediate.Jobs.[0-9]*.nupkg' -print -quit)"
+        test -n "$package"
+        unzip -l "$package" > package-contents.txt
+        for tfm in net8.0 net9.0 net10.0 net11.0; do
+          grep -q "lib/$tfm/Immediate.Jobs.Shared.dll" package-contents.txt
+        done
+        grep -q 'analyzers/dotnet/roslyn4.8/cs/Immediate.Jobs.Analyzers.dll' package-contents.txt
+        grep -q 'analyzers/dotnet/roslyn4.8/cs/Immediate.Jobs.Generators.dll' package-contents.txt
+        grep -q 'analyzers/dotnet/roslyn5.0/cs/Immediate.Jobs.Analyzers.dll' package-contents.txt
+        grep -q 'analyzers/dotnet/roslyn5.0/cs/Immediate.Jobs.Generators.dll' package-contents.txt
+        grep -q 'analyzers/dotnet/roslyn5.0/cs/Scriban.dll' package-contents.txt
+        if grep -q 'analyzers/dotnet/roslyn4.8/cs/Scriban.dll' package-contents.txt; then exit 1; fi
+        if find ./nupkgs -maxdepth 1 -name 'Immediate.Jobs.Generators.*.nupkg' | grep -q .; then exit 1; fi
+
+    - name: Coveralls
+      uses: coverallsapp/github-action@v2
+      with:
+        files: >
+          tests/Immediate.Jobs.FunctionalTests/bin/Release/net8.0/TestResults/coverage.cobertura.xml
+          tests/Immediate.Jobs.FunctionalTests/bin/Release/net9.0/TestResults/coverage.cobertura.xml
+          tests/Immediate.Jobs.FunctionalTests/bin/Release/net10.0/TestResults/coverage.cobertura.xml
+          tests/Immediate.Jobs.FunctionalTests/bin/Release/net11.0/TestResults/coverage.cobertura.xml
+          tests/Immediate.Jobs.Tests/bin/Release/net8.0/TestResults/coverage.cobertura.xml
+          tests/Immediate.Jobs.Tests/bin/Release/net9.0/TestResults/coverage.cobertura.xml
+          tests/Immediate.Jobs.Tests/bin/Release/net10.0/TestResults/coverage.cobertura.xml
+          tests/Immediate.Jobs.Tests/bin/Release/net11.0/TestResults/coverage.cobertura.xml

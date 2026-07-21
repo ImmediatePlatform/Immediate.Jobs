@@ -1,7 +1,7 @@
 using System.Diagnostics;
 using System.Diagnostics.Metrics;
 
-namespace Immediate.Jobs;
+namespace Immediate.Jobs.Shared;
 
 /// <summary>OpenTelemetry-compatible instrumentation emitted by Immediate.Jobs.</summary>
 public static class JobTelemetry

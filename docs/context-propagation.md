@@ -10,8 +10,7 @@ that ASP.NET populates during an HTTP request. When the same work runs in the ba
 that state is gone: the job executes in a fresh DI scope with no HTTP request, so a behavior that
 reads `ICurrentUser` / `ITenantContext` sees nothing.
 
-Execution-time behaviors (`JobBehavior<TPayload>`, or the handler's own Immediate.Handlers
-`Behavior<,>` pipeline) cannot solve this, because the data is not present at execution time. It
+Execution-time Immediate.Handlers `Behavior<,>` implementations cannot solve this, because the data is not present at execution time. It
 must be **captured while enqueuing** (still inside the originating scope) and **restored before the
 job runs**.
 
@@ -19,9 +18,9 @@ job runs**.
 
 This exact pattern already exists for W3C distributed tracing:
 
-- **Capture** — `JobScheduler<TPayload>.ScheduleAt` (`src/Immediate.Jobs/JobSchedulers.cs`) calls
+- **Capture** — `JobScheduler<TPayload>.ScheduleAt` (`src/Immediate.Jobs.Shared/JobSchedulers.cs`) calls
   `TraceContextCapture.Current()` and persists `JobRecord.TraceParent` / `TraceState`.
-- **Restore** — `JobSchedulerService` (`src/Immediate.Jobs/JobSchedulerService.cs:232`) parses those
+- **Restore** — `JobSchedulerService` (`src/Immediate.Jobs.Shared/JobSchedulerService.cs`) parses those
   back into an `ActivityContext` and starts the execution activity with that parent.
 
 Tracing works from today's **singleton** scheduler only because `Activity.Current` is an ambient
@@ -38,8 +37,7 @@ opt-in, typed** mechanism that also covers state living in scoped DI.
 - Opt-in per job; jobs that don't use it pay nothing.
 
 **Non-goals**
-- Replacing or merging `JobBehavior<TPayload>` (see `context-propagation` vs behaviors — behaviors
-  stay as they are; this is a separate lifecycle hook that runs *outside* the pipeline).
+- Replacing or merging Immediate.Handlers behaviors; context propagation remains a separate lifecycle hook that completes before the handler pipeline.
 - Capturing arbitrary object graphs — context types follow the same serializable-shape rules as
   payloads.
 
@@ -48,7 +46,7 @@ opt-in, typed** mechanism that also covers state living in scoped DI.
 ### 4.1 Extractor abstraction (core package)
 
 ```csharp
-namespace Immediate.Jobs;
+namespace Immediate.Jobs.Shared;
 
 public interface IJobContextExtractor<TContext>
 {
@@ -246,7 +244,7 @@ the nullable `CaptureAsync` return models this explicitly.
 4. Emit the restore block at the top of the generated `Invoker` (resolve extractor, read
    `extractor.Key`, deserialize its slice, `RestoreAsync`).
 5. Emit `TryAddScoped` for referenced extractors; flip scheduler registrations to scoped.
-6. Keep the pipeline incremental: extractors are node-local to the job (like per-job behaviors), so
+6. Keep the pipeline incremental: extractors are node-local to the job, so
    no new cross-cutting provider is required; the model stays symbol-free and equatable.
 
 ## 11. Analyzer diagnostics (new)
@@ -264,6 +262,11 @@ public sealed class UsageContextExtractor(IHttpContextAccessor http, ICurrentUse
     : IJobContextExtractor<UsageContext> { /* Capture/Restore as in §4.2 */ }
 
 // applied to any number of jobs
+public sealed record InvoicePayload(Guid OrderId) : IJobRequest
+{
+    public JobDetails? JobDetails { get; set; }
+}
+
 [Handler, Job, UsesJobContext<UsageContextExtractor>]
 public sealed partial class SendInvoiceJob
 {
@@ -294,7 +297,7 @@ behavior (expected, since those run inside `Handler.HandleAsync`) — covered by
 
 All items are required unless marked _(nice-to-have)_. Tests live in the existing projects:
 `Immediate.Jobs.Tests` (generator/analyzer), `Immediate.Jobs.FunctionalTests` (runtime),
-`Immediate.Jobs.Postgres.Tests` (storage), and the Native AOT sample.
+the Entity Framework Core storage tests in `Immediate.Jobs.FunctionalTests`, and the Native AOT sample.
 
 ### 14.1 Generator — snapshot tests (Verify)
 

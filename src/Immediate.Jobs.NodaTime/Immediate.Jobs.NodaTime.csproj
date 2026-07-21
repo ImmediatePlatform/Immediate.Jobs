@@ -12,7 +12,8 @@
     <PublishRepositoryUrl>true</PublishRepositoryUrl>
   </PropertyGroup>
   <ItemGroup>
-    <ProjectReference Include="../Immediate.Jobs/Immediate.Jobs.csproj" />
+    <ProjectReference Include="../Immediate.Jobs.Shared/Immediate.Jobs.Shared.csproj" PrivateAssets="all" />
+    <ProjectReference Include="../Immediate.Jobs/Immediate.Jobs.csproj" ReferenceOutputAssembly="false" />
     <PackageReference Include="NodaTime" />
     <PackageReference Include="NodaTime.Serialization.SystemTextJson" />
   </ItemGroup>

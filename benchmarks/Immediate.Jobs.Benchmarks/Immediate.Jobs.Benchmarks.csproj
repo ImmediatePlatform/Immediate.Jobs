@@ -1,6 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>Exe</OutputType>
+    <TargetFrameworks>net8.0</TargetFrameworks>
     <GenerateDocumentationFile>false</GenerateDocumentationFile>
 	<NoWarn>$(NoWarn);CA1050;CA1812;CA1822;CA2007</NoWarn>
   </PropertyGroup>
@@ -11,6 +12,6 @@
     <PackageReference Include="Quartz" />
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="../../src/Immediate.Jobs/Immediate.Jobs.csproj" />
+    <ProjectReference Include="../../src/Immediate.Jobs.Shared/Immediate.Jobs.Shared.csproj" />
   </ItemGroup>
 </Project>

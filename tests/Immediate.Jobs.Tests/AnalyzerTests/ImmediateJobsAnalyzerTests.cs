@@ -8,14 +8,14 @@ public sealed class ImmediateJobsAnalyzerTests
 	{
 		{
 			"""
-			using Immediate.Jobs; using Immediate.Handlers.Shared; using System.Threading; using System.Threading.Tasks;
+			using Immediate.Jobs.Shared; using Immediate.Handlers.Shared; using System.Threading; using System.Threading.Tasks;
 			[Handler, Job(Cron = "not cron")] public sealed partial class BadCronJob { private ValueTask HandleAsync(NoPayload request, CancellationToken ct) => ValueTask.CompletedTask; }
 			""",
 			"IJOB001"
 		},
 		{
 			"""
-			using Immediate.Jobs; using Immediate.Handlers.Shared; using System.Threading; using System.Threading.Tasks;
+			using Immediate.Jobs.Shared; using Immediate.Handlers.Shared; using System.Threading; using System.Threading.Tasks;
 			[Handler, Job("same")] public sealed partial class OneJob { private ValueTask HandleAsync(NoPayload request, CancellationToken ct) => ValueTask.CompletedTask; }
 			[Handler, Job("same")] public sealed partial class TwoJob { private ValueTask HandleAsync(NoPayload request, CancellationToken ct) => ValueTask.CompletedTask; }
 			""",
@@ -23,64 +23,66 @@ public sealed class ImmediateJobsAnalyzerTests
 		},
 		{
 			"""
-			using Immediate.Jobs; using Immediate.Handlers.Shared; using System; using System.Threading; using System.Threading.Tasks;
-			[Handler, Job] public sealed partial class UnsupportedJob { public sealed record Payload(Action Callback); private ValueTask HandleAsync(Payload payload, CancellationToken ct) => ValueTask.CompletedTask; }
+			using Immediate.Jobs.Shared; using Immediate.Handlers.Shared; using System; using System.Threading; using System.Threading.Tasks;
+			[Handler, Job] public sealed partial class UnsupportedJob { public sealed record Payload(Action Callback) : IJobRequest { public JobDetails? JobDetails { get; set; } } private ValueTask HandleAsync(Payload payload, CancellationToken ct) => ValueTask.CompletedTask; }
 			""",
 			"IJOB003"
 		},
 		{
 			"""
-			using Immediate.Jobs; using Immediate.Handlers.Shared; using System.Threading.Tasks;
+			using Immediate.Jobs.Shared; using Immediate.Handlers.Shared; using System.Threading.Tasks;
 			[Handler, Job] public sealed partial class SignatureJob { private ValueTask HandleAsync() => ValueTask.CompletedTask; }
 			""",
 			"IJOB004"
 		},
 		{
 			"""
-			using Immediate.Jobs; using Immediate.Handlers.Shared; using System.Threading; using System.Threading.Tasks;
+			using Immediate.Jobs.Shared; using Immediate.Handlers.Shared; using System.Threading; using System.Threading.Tasks;
 			[Handler, Job] public sealed class NonPartialJob { private ValueTask HandleAsync(NoPayload request, CancellationToken ct) => ValueTask.CompletedTask; }
 			""",
 			"IJOB005"
 		},
 		{
 			"""
-			using Immediate.Jobs; using Immediate.Handlers.Shared; using System.Threading; using System.Threading.Tasks;
-			[Handler, Job(Cron = "0 * * * *")] public sealed partial class CronPayloadJob { private ValueTask HandleAsync(string payload, CancellationToken ct) => ValueTask.CompletedTask; }
+			using Immediate.Jobs.Shared; using Immediate.Handlers.Shared; using System.Threading; using System.Threading.Tasks;
+			public sealed record Payload(string Value) : IJobRequest { public JobDetails? JobDetails { get; set; } }
+			[Handler, Job(Cron = "0 * * * *")] public sealed partial class CronPayloadJob { private ValueTask HandleAsync(Payload payload, CancellationToken ct) => ValueTask.CompletedTask; }
 			""",
 			"IJOB006"
 		},
 		{
 			"""
-			using Immediate.Jobs; using Immediate.Handlers.Shared; using System.Threading; using System.Threading.Tasks;
+			using Immediate.Jobs.Shared; using Immediate.Handlers.Shared; using System.Threading; using System.Threading.Tasks;
 			namespace NodaTime { public readonly struct Instant { } }
-			[Handler, Job] public sealed partial class NodaJob { private ValueTask HandleAsync(NodaTime.Instant payload, CancellationToken ct) => ValueTask.CompletedTask; }
+			public sealed record Payload(NodaTime.Instant Value) : IJobRequest { public JobDetails? JobDetails { get; set; } }
+			[Handler, Job] public sealed partial class NodaJob { private ValueTask HandleAsync(Payload payload, CancellationToken ct) => ValueTask.CompletedTask; }
 			""",
 			"IJOB007"
 		},
 		{
 			"""
-			using Immediate.Jobs; using Immediate.Handlers.Shared; using System.Threading; using System.Threading.Tasks;
+			using Immediate.Jobs.Shared; using Immediate.Handlers.Shared; using System.Threading; using System.Threading.Tasks;
 			[Handler, Job(MaxAttempts = 0)] public sealed partial class InvalidConfigurationJob { private ValueTask HandleAsync(NoPayload request, CancellationToken ct) => ValueTask.CompletedTask; }
 			""",
 			"IJOB008"
 		},
 		{
 			"""
-			using Immediate.Jobs; using Immediate.Handlers.Shared; using System.Threading; using System.Threading.Tasks;
+			using Immediate.Jobs.Shared; using Immediate.Handlers.Shared; using System.Threading; using System.Threading.Tasks;
 			[Job] public sealed partial class NotAHandlerJob { private ValueTask HandleAsync(NoPayload request, CancellationToken ct) => ValueTask.CompletedTask; }
 			""",
 			"IJOB009"
 		},
 		{
 			"""
-			using Immediate.Jobs;
+			using Immediate.Jobs.Shared;
 			[QueueDefinition(Concurrency = -1)] public sealed class InvalidQueue;
 			""",
 			"IJOB010"
 		},
 		{
 			"""
-			using Immediate.Jobs; using Immediate.Handlers.Shared; using System.Threading; using System.Threading.Tasks;
+			using Immediate.Jobs.Shared; using Immediate.Handlers.Shared; using System.Threading; using System.Threading.Tasks;
 			public sealed class MissingDefinition;
 			[Handler, Job, UsesQueue<MissingDefinition>] public sealed partial class InvalidQueueJob { private ValueTask HandleAsync(NoPayload request, CancellationToken ct) => ValueTask.CompletedTask; }
 			""",
@@ -88,7 +90,15 @@ public sealed class ImmediateJobsAnalyzerTests
 		},
 		{
 			"""
-			using Immediate.Jobs;
+			using Immediate.Jobs.Shared; using Immediate.Handlers.Shared; using System.Threading; using System.Threading.Tasks;
+			public sealed record Payload(string Value);
+			[Handler, Job] public sealed partial class MissingRequestContractJob { private ValueTask HandleAsync(Payload request, CancellationToken ct) => ValueTask.CompletedTask; }
+			""",
+			"IJOB015"
+		},
+		{
+			"""
+			using Immediate.Jobs.Shared;
 			[QueueDefinition(Name = "same")] public sealed class FirstQueue;
 			[QueueDefinition(Name = "same")] public sealed class SecondQueue;
 			""",
@@ -123,7 +133,7 @@ public sealed class ImmediateJobsAnalyzerTests
 	public async Task ContextUsageReportsExpectedDiagnostic(string declaration, string extractor, string expectedId)
 	{
 		var source = $$"""
-			using Immediate.Jobs;
+			using Immediate.Jobs.Shared;
 			using Immediate.Handlers.Shared;
 			using System.Threading;
 			using System.Threading.Tasks;
@@ -144,7 +154,7 @@ public sealed class ImmediateJobsAnalyzerTests
 	public async Task ValidContextUsageIsClean()
 	{
 		const string source = """
-			using Immediate.Jobs;
+			using Immediate.Jobs.Shared;
 			using Immediate.Handlers.Shared;
 			using System.Threading;
 			using System.Threading.Tasks;

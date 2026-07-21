@@ -1,6 +1,6 @@
 using Microsoft.Extensions.DependencyInjection;
 
-namespace Immediate.Jobs;
+namespace Immediate.Jobs.Shared;
 
 /// <summary>Determines whether workers coordinate through memory or durable storage.</summary>
 public enum JobStorageMode

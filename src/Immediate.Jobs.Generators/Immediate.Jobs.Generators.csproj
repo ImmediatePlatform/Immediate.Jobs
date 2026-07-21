@@ -1,45 +1,48 @@
 <Project Sdk="Microsoft.NET.Sdk">
+
   <PropertyGroup>
-    <TargetFramework>netstandard2.0</TargetFramework>
-    <LangVersion>latest</LangVersion>
-    <Nullable>enable</Nullable>
-    <ImplicitUsings>enable</ImplicitUsings>
-    <IsRoslynComponent>true</IsRoslynComponent>
-    <EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
-    <GenerateDocumentationFile>true</GenerateDocumentationFile>
-    <NoWarn>$(NoWarn);CS1591;RS1036;RS2008</NoWarn>
-    <IsPackable>true</IsPackable>
-    <IncludeBuildOutput>false</IncludeBuildOutput>
-    <SuppressDependenciesWhenPacking>true</SuppressDependenciesWhenPacking>
-    <Title>Immediate.Jobs.Generators</Title>
-    <Description>Source generator and compile-time analyzers for Immediate.Jobs.</Description>
-    <Authors>Immediate.Jobs Developers</Authors>
-    <PackageLicenseExpression>MIT</PackageLicenseExpression>
-    <PackageReadmeFile>readme.md</PackageReadmeFile>
-    <PackageTags>background-jobs;source-generator;roslyn</PackageTags>
-    <RepositoryUrl>https://github.com/ImmediatePlatform/Immediate.Jobs</RepositoryUrl>
+	<TargetFrameworks>netstandard2.0;net10.0</TargetFrameworks>
+	<EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
+	<IsRoslynComponent>true</IsRoslynComponent>
+	<NoWarn>$(NoWarn);CS1591;RS1036;RS1041;RS2008</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="AssemblyMetadata.Generators" PrivateAssets="all" />
-    <PackageReference Include="Microsoft.CodeAnalysis.Analyzers" PrivateAssets="all" />
-    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" PrivateAssets="all" />
-    <PackageReference Include="Meziantou.Polyfill" PrivateAssets="all" />
-    <PackageReference Include="Scriban" PrivateAssets="all" IncludeAssets="Build" />
+	<Compile Include="../Common/*.cs" Link="Common/%(Filename).cs" />
   </ItemGroup>
 
-  <PropertyGroup>
-    <PackageScribanIncludeSource>true</PackageScribanIncludeSource>
-    <DefineConstants>$(DefineConstants);SCRIBAN_NO_ASYNC</DefineConstants>
+  <ItemGroup>
+	<None Remove="Templates/*.sbntxt" />
+	<EmbeddedResource Include="Templates/*.sbntxt" />
+  </ItemGroup>
+
+  <ItemGroup>
+	<PackageReference Include="AssemblyMetadata.Generators" PrivateAssets="all" />
+	<PackageReference Include="Microsoft.CodeAnalysis.Analyzers" PrivateAssets="all" />
+	<PackageReference Include="Microsoft.CodeAnalysis.CSharp" PrivateAssets="all" />
+  </ItemGroup>
+
+  <ItemGroup Condition="!$([MSBuild]::IsTargetFrameworkCompatible('$(TargetFramework)', 'net10.0'))">
+	<PackageReference Include="Scriban" PrivateAssets="all" IncludeAssets="Build" />
+  </ItemGroup>
+
+  <PropertyGroup Condition="!$([MSBuild]::IsTargetFrameworkCompatible('$(TargetFramework)', 'net10.0'))">
+	<PackageScribanIncludeSource>true</PackageScribanIncludeSource>
+	<DefineConstants>$(DefineConstants);SCRIBAN_NO_ASYNC</DefineConstants>
   </PropertyGroup>
 
-  <ItemGroup>
-    <None Remove="Templates/*.sbntxt" />
-    <EmbeddedResource Include="Templates/*.sbntxt" />
+  <ItemGroup Condition="$([MSBuild]::IsTargetFrameworkCompatible('$(TargetFramework)', 'net10.0'))">
+	<PackageReference Include="Scriban" PrivateAssets="all" GeneratePathProperty="true" />
   </ItemGroup>
 
-  <ItemGroup>
-    <None Include="../../readme.md" Pack="true" PackagePath="/" />
-    <None Include="$(TargetPath)" Pack="true" PackagePath="analyzers/dotnet/cs" />
-  </ItemGroup>
+  <PropertyGroup Condition="$([MSBuild]::IsTargetFrameworkCompatible('$(TargetFramework)', 'net10.0'))">
+	<GetTargetPathDependsOn>$(GetTargetPathDependsOn);GetDependencyTargetPaths</GetTargetPathDependsOn>
+  </PropertyGroup>
+
+  <Target Name="GetDependencyTargetPaths" Condition="$([MSBuild]::IsTargetFrameworkCompatible('$(TargetFramework)', 'net10.0'))">
+	<ItemGroup>
+	  <TargetPathWithTargetPlatformMoniker Include="$(PkgScriban)/lib/netstandard2.0/Scriban.dll" IncludeRuntimeDependency="false" />
+	</ItemGroup>
+  </Target>
+
 </Project>

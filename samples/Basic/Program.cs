@@ -1,4 +1,4 @@
-using Immediate.Jobs;
+using Immediate.Jobs.Shared;
 using Immediate.Jobs.Dashboard;
 using Immediate.Handlers.Shared;
 
@@ -26,7 +26,10 @@ await app.RunAsync();
 [Handler, Job("send-welcome-email", MaxAttempts = 5, Timeout = "00:02:00")]
 public sealed partial class SendWelcomeEmail(IEmailSender sender)
 {
-	public sealed record Payload(Guid UserId, string Template);
+	public sealed record Payload(Guid UserId, string Template) : IJobRequest
+	{
+		public JobDetails? JobDetails { get; set; }
+	}
 
 	private ValueTask HandleAsync(Payload payload, CancellationToken cancellationToken) =>
 		new(sender.SendAsync(payload.UserId, payload.Template, cancellationToken));

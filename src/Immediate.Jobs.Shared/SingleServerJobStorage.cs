@@ -1,4 +1,4 @@
-namespace Immediate.Jobs;
+namespace Immediate.Jobs.Shared;
 
 /// <summary>
 /// A single-server storage topology that executes against an authoritative in-process store while

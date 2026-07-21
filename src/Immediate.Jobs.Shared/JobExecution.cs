@@ -2,7 +2,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
 using System.Diagnostics.CodeAnalysis;
 
-namespace Immediate.Jobs;
+namespace Immediate.Jobs.Shared;
 
 /// <summary>The generated invocation boundary used by the worker.</summary>
 public interface IJobInvoker
@@ -17,53 +17,6 @@ public sealed record JobExecution(
 	JobDefinition Definition,
 	CancellationToken CancellationToken
 );
-
-/// <summary>The typed context presented to job behaviors.</summary>
-public sealed class JobContext<TPayload>
-{
-	/// <summary>Creates a context. Generated invokers call this constructor directly.</summary>
-	[System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
-	public JobContext(TPayload payload, JobExecution execution)
-	{
-		Payload = payload;
-		JobName = execution.Record.JobName;
-		JobId = execution.Record.Id;
-		Attempt = execution.Record.Attempt;
-		ScheduledAt = execution.Record.DueAt;
-		CancellationToken = execution.CancellationToken;
-	}
-
-	/// <summary>The deserialized job payload.</summary>
-	public TPayload Payload { get; }
-
-	/// <summary>The stable generated job name.</summary>
-	public string JobName { get; }
-
-	/// <summary>The invocation identifier.</summary>
-	public Guid JobId { get; }
-
-	/// <summary>The one-based execution attempt.</summary>
-	public int Attempt { get; }
-
-	/// <summary>The time at which this invocation became eligible.</summary>
-	public DateTimeOffset ScheduledAt { get; }
-
-	/// <summary>The timeout and shutdown aware cancellation token.</summary>
-	public CancellationToken CancellationToken { get; }
-}
-
-/// <summary>The next compiled behavior in the job pipeline.</summary>
-public delegate ValueTask JobNext<TPayload>(JobContext<TPayload> context);
-
-/// <summary>Base class for a typed job behavior.</summary>
-public abstract class JobBehavior<TPayload>
-{
-	/// <summary>Handles an execution and optionally delegates to the next behavior.</summary>
-	public abstract ValueTask HandleAsync(JobContext<TPayload> context, JobNext<TPayload> next);
-}
-
-/// <summary>Marker payload for jobs whose execute method only accepts cancellation.</summary>
-public readonly record struct NoPayload;
 
 /// <summary>Pluggable payload serialization. The default implementation uses System.Text.Json.</summary>
 public interface IJobSerializer

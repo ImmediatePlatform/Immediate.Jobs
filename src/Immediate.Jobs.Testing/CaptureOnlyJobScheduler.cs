@@ -5,6 +5,7 @@ namespace Immediate.Jobs.Testing;
 /// <c>IScheduler</c> interface to inject a strongly typed capture double.
 /// </summary>
 public class CaptureOnlyJobScheduler<TPayload>(TimeProvider? timeProvider = null) : IJobScheduler<TPayload>
+	where TPayload : IJobRequest
 {
 	private readonly List<ScheduledJobCapture<TPayload>> captures = [];
 	private readonly TimeProvider timeProvider = timeProvider ?? TimeProvider.System;
@@ -54,4 +55,5 @@ public class CaptureOnlyJobScheduler<TPayload>(TimeProvider? timeProvider = null
 }
 
 /// <summary>A captured typed scheduler call.</summary>
-public sealed record ScheduledJobCapture<TPayload>(Guid Id, TPayload Payload, DateTimeOffset RunAt);
+public sealed record ScheduledJobCapture<TPayload>(Guid Id, TPayload Payload, DateTimeOffset RunAt)
+	where TPayload : IJobRequest;

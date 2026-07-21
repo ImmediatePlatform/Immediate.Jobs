@@ -1,10 +1,11 @@
 using Cronos;
 using System.Text.Json.Serialization.Metadata;
 
-namespace Immediate.Jobs;
+namespace Immediate.Jobs.Shared;
 
 /// <summary>A typed enqueue and scheduling contract implemented by every generated scheduler.</summary>
 public interface IJobScheduler<TPayload>
+	where TPayload : IJobRequest
 {
 	/// <summary>Enqueues work immediately.</summary>
 	ValueTask<Guid> Enqueue(TPayload payload, CancellationToken cancellationToken = default);
@@ -38,6 +39,7 @@ public abstract class JobScheduler<TPayload>(
 	string queueName,
 	Func<System.Text.Json.JsonSerializerOptions, JsonTypeInfo<TPayload>> payloadTypeInfoFactory
 ) : IJobScheduler<TPayload>
+	where TPayload : IJobRequest
 {
 	/// <summary>Captures the context envelope persisted with a new invocation.</summary>
 	protected virtual ValueTask<string?> CaptureContextAsync(CancellationToken cancellationToken) =>

@@ -52,7 +52,11 @@ public sealed class TestingPackageTests
 		Assert.Equal(JobState.Succeeded, (await harness.GetJobAsync(id, cancellationToken)).State);
 	}
 
-	public sealed record TestPayload(string Value);
+	public sealed record TestPayload(string Value) : IJobRequest
+	{
+		[JsonIgnore]
+		public JobDetails? JobDetails { get; set; }
+	}
 
 	private sealed class InvocationCounter
 	{

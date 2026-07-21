@@ -1,0 +1,22 @@
+version: 2
+updates:
+  - package-ecosystem: nuget
+    directory: "/"
+    schedule:
+      interval: weekly
+    rebase-strategy: auto
+    ignore:
+      - dependency-name: "Microsoft.CodeAnalysis.Common"
+      - dependency-name: "Microsoft.CodeAnalysis.CSharp"
+
+  - package-ecosystem: npm
+    directory: "/src/Immediate.Jobs.Dashboard/DashboardClient"
+    schedule:
+      interval: weekly
+    rebase-strategy: auto
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    rebase-strategy: auto

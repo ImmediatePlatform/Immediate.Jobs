@@ -1,7 +1,9 @@
 using System.Collections.Immutable;
 using Immediate.Handlers.Shared;
 using Immediate.Handlers.Generators;
+using Immediate.Jobs.Analyzers;
 using Immediate.Jobs.Generators;
+using Immediate.Jobs.Shared;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.Diagnostics;
@@ -11,7 +13,7 @@ namespace Immediate.Jobs.Tests.GeneratorTests;
 
 internal static class GeneratorTestHelper
 {
-	private static readonly CSharpParseOptions ParseOptions = new(LanguageVersion.CSharp12);
+	internal static CSharpParseOptions ParseOptions { get; } = new(LanguageVersion.CSharp12);
 
 	public static CSharpCompilation CreateCompilation(string source)
 		=> CreateCompilationCore([("Test0.cs", source)], includeNodaTime: false);
@@ -36,7 +38,7 @@ internal static class GeneratorTestHelper
 			explicitAssemblies.Add(typeof(Immediate.Jobs.NodaTime.NodaTimeJobSerializer).Assembly.Location);
 			explicitAssemblies.Add(typeof(global::NodaTime.Instant).Assembly.Location);
 		}
-		var references = Basic.Reference.Assemblies.Net80.References.All
+		var references = GetFrameworkReferences()
 			.Concat(explicitAssemblies.Distinct(StringComparer.Ordinal).Select(path => MetadataReference.CreateFromFile(path)))
 			.GroupBy(reference => reference.Display, StringComparer.Ordinal)
 			.Select(group => group.First());
@@ -46,10 +48,24 @@ internal static class GeneratorTestHelper
 			sources.Select(source => CSharpSyntaxTree.ParseText(source.Source, ParseOptions, source.Path)),
 			references,
 			new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary)
+				.WithNullableContextOptions(NullableContextOptions.Enable)
 		);
 	}
 
-	private static readonly string[] TrackedSteps = ["Jobs", "AssemblyBehaviors", "ResolvedJobs", "JobsCollected"];
+	private static IEnumerable<PortableExecutableReference> GetFrameworkReferences() =>
+#if NET8_0
+		Basic.Reference.Assemblies.Net80.References.All;
+#elif NET9_0
+		Basic.Reference.Assemblies.Net90.References.All;
+#elif NET10_0
+		Basic.Reference.Assemblies.Net100.References.All;
+#elif NET11_0
+		Basic.Reference.Assemblies.Net110.References.All;
+#else
+#error Unsupported test target framework.
+#endif
+
+	private static readonly string[] TrackedSteps = ["Jobs", "JobsCollected"];
 
 	public static GeneratorDriverRunResult RunGenerator(string source)
 		=> RunGeneratorCore(source, includeNodaTime: false);
@@ -91,7 +107,10 @@ internal static class GeneratorTestHelper
 		Assert.Empty(diagnostics.Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error));
 		Assert.Empty(
 			output.GetDiagnostics(TestContext.Current.CancellationToken)
-				.Where(diagnostic => diagnostic.Severity is DiagnosticSeverity.Error or DiagnosticSeverity.Warning)
+				.Where(diagnostic =>
+					(diagnostic.Severity is DiagnosticSeverity.Error or DiagnosticSeverity.Warning) &&
+					diagnostic.Id != "CS1701"
+				)
 		);
 		return driver;
 	}
