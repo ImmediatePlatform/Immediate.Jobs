@@ -4,7 +4,7 @@ This sample composes an ASP.NET Core API and PostgreSQL with .NET Aspire. Immedi
 
 The AppHost gives PostgreSQL a named data volume and persists its generated password through its user-secrets identity, so database contents and credentials remain aligned across AppHost restarts.
 
-The Aspire dashboard shows resource health, structured logs, traces, and the `Immediate.Jobs` metrics. The API's `/jobs` dashboard complements it with job history, recurring schedules, retry, and deletion operations.
+The Aspire dashboard shows resource health, structured logs, traces, and the `Immediate.Jobs` metrics. The API's `/jobs` dashboard complements it with job history, recurring schedules, retry, and deletion operations. A code-defined `aspire-heartbeat` job runs at second zero of every minute so the dashboards have recurring activity to display without manual requests.
 
 ## Run it
 
@@ -22,7 +22,7 @@ The raw OpenAPI document is available at `/openapi/v1.json`. You can also enqueu
 curl -X POST http://localhost:<port>/api/greetings/Ada
 ```
 
-Open `http://localhost:<port>/jobs` for the Immediate.Jobs dashboard, find the greeting job, and expand **Details** to inspect its persisted `http-request` context envelope. In the Aspire dashboard, inspect the `jobs-api` resource's logs to see the restored IP address and User-Agent, along with traces, metrics, and health checks. The enqueue HTTP trace is linked to the background job execution activity.
+Open `http://localhost:<port>/jobs` for the Immediate.Jobs dashboard, find the greeting job, and expand **Details** to inspect its persisted `http-request` context envelope. The **Recurring** tab lists `aspire-heartbeat`, configured by `[Job(Cron = "0 * * * * *")]`. In the Aspire dashboard, inspect the `jobs-api` resource's logs to see both the restored IP address and User-Agent and the once-per-minute heartbeat, along with traces, metrics, and health checks. The enqueue HTTP trace is linked to the background job execution activity.
 
 The sample calls `UseSingleServer()` explicitly. Removing that line produces the same topology because selecting a durable EF Core provider defaults to single-server mode. Change it to `UseDistributed()` only when running multiple scheduler processes and using PostgreSQL as the coordination authority.
 

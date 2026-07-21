@@ -125,6 +125,22 @@ public sealed partial class AspireGreetingJob(
 	}
 }
 
+[Handler, Job("aspire-heartbeat", Cron = "0 * * * * *")]
+public sealed partial class AspireHeartbeatJob(
+	ILogger<AspireHeartbeatJob> logger,
+	TimeProvider timeProvider
+)
+{
+	private ValueTask HandleAsync(NoPayload payload, CancellationToken cancellationToken)
+	{
+		logger.LogInformation(
+			"Recurring Aspire heartbeat fired at {FiredAt}",
+			timeProvider.GetUtcNow()
+		);
+		return ValueTask.CompletedTask;
+	}
+}
+
 public sealed class JobsDbContext(DbContextOptions<JobsDbContext> options) : DbContext(options)
 {
 	protected override void OnModelCreating(ModelBuilder modelBuilder)
