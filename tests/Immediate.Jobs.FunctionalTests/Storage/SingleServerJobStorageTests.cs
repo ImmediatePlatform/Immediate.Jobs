@@ -116,6 +116,38 @@ public sealed class SingleServerJobStorageTests
 		Assert.True(stored.IsPaused);
 	}
 
+	[Theory]
+	[InlineData(true)]
+	[InlineData(false)]
+	public async Task ObsoleteCodeDefinedSchedulesAreRemovedFromPrimaryAndDurableStorage(bool preserveCurrent)
+	{
+		var cancellationToken = TestContext.Current.CancellationToken;
+		var timeProvider = new FakeTimeProvider(DateTimeOffset.UnixEpoch);
+		var durable = new InMemoryJobStorage(timeProvider);
+		using var storage = new SingleServerJobStorage(durable, timeProvider);
+		var current = CreateSchedule("current", isCodeDefined: true, timeProvider);
+		var obsolete = CreateSchedule("obsolete", isCodeDefined: true, timeProvider);
+		var dynamic = CreateSchedule("dynamic", isCodeDefined: false, timeProvider);
+		await storage.UpsertRecurringAsync(current, cancellationToken);
+		await storage.UpsertRecurringAsync(obsolete, cancellationToken);
+		await storage.UpsertRecurringAsync(dynamic, cancellationToken);
+
+		await storage.RemoveObsoleteCodeDefinedRecurringAsync(
+			preserveCurrent ? [current.Name] : [],
+			cancellationToken
+		);
+
+		var expectedNames = preserveCurrent ? ["current", "dynamic"] : new[] { "dynamic" };
+		var primaryNames = (await storage.GetMonitoringSnapshotAsync(cancellationToken)).Recurring
+			.Select(static schedule => schedule.Name)
+			.Order(StringComparer.Ordinal);
+		var durableNames = (await durable.GetMonitoringSnapshotAsync(cancellationToken)).Recurring
+			.Select(static schedule => schedule.Name)
+			.Order(StringComparer.Ordinal);
+		Assert.Equal(expectedNames.Order(StringComparer.Ordinal), primaryNames);
+		Assert.Equal(expectedNames.Order(StringComparer.Ordinal), durableNames);
+	}
+
 	[Fact]
 	public async Task WorkingJobIsRecoveredAndReacquiredAfterItsLeaseExpires()
 	{
@@ -182,6 +214,20 @@ public sealed class SingleServerJobStorageTests
 		State = dueAt <= DateTimeOffset.UnixEpoch ? JobState.Pending : JobState.Scheduled,
 		DueAt = dueAt,
 		CreatedAt = DateTimeOffset.UnixEpoch,
+	};
+
+	private static RecurringJobSchedule CreateSchedule(
+		string name,
+		bool isCodeDefined,
+		TimeProvider timeProvider
+	) => new()
+	{
+		Name = name,
+		JobName = "example",
+		Cron = "0 * * * *",
+		TimeZone = "UTC",
+		IsCodeDefined = isCodeDefined,
+		NextRunAt = timeProvider.GetUtcNow() + TimeSpan.FromHours(1),
 	};
 }
 #pragma warning restore CS1591

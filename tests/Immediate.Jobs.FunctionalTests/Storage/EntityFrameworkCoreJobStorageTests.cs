@@ -161,6 +161,33 @@ public sealed class EntityFrameworkCoreJobStorageTests
 		Assert.True(stored.IsPaused);
 	}
 
+	[Theory]
+	[InlineData(true)]
+	[InlineData(false)]
+	public async Task ObsoleteCodeDefinedSchedulesAreRemovedFromEntityFrameworkCore(bool preserveCurrent)
+	{
+		var cancellationToken = TestContext.Current.CancellationToken;
+		await using var fixture = await StorageFixture.CreateAsync(cancellationToken);
+		var storage = fixture.CreateStorage();
+		var current = CreateSchedule("current", isCodeDefined: true, fixture.TimeProvider);
+		var obsolete = CreateSchedule("obsolete", isCodeDefined: true, fixture.TimeProvider);
+		var dynamic = CreateSchedule("dynamic", isCodeDefined: false, fixture.TimeProvider);
+		await storage.UpsertRecurringAsync(current, cancellationToken);
+		await storage.UpsertRecurringAsync(obsolete, cancellationToken);
+		await storage.UpsertRecurringAsync(dynamic, cancellationToken);
+
+		await storage.RemoveObsoleteCodeDefinedRecurringAsync(
+			preserveCurrent ? [current.Name] : [],
+			cancellationToken
+		);
+
+		var expectedNames = preserveCurrent ? ["current", "dynamic"] : new[] { "dynamic" };
+		var names = (await storage.GetMonitoringSnapshotAsync(cancellationToken)).Recurring
+			.Select(static schedule => schedule.Name)
+			.Order(StringComparer.Ordinal);
+		Assert.Equal(expectedNames.Order(StringComparer.Ordinal), names);
+	}
+
 	private static JobAcquisitionRequest CreateRequest(string workerId, int batchSize) => new()
 	{
 		WorkerId = workerId,
@@ -177,6 +204,20 @@ public sealed class EntityFrameworkCoreJobStorageTests
 		State = JobState.Pending,
 		DueAt = now,
 		CreatedAt = now.AddTicks(index),
+	};
+
+	private static RecurringJobSchedule CreateSchedule(
+		string name,
+		bool isCodeDefined,
+		TimeProvider timeProvider
+	) => new()
+	{
+		Name = name,
+		JobName = "ef-test",
+		Cron = "0 * * * *",
+		TimeZone = "UTC",
+		IsCodeDefined = isCodeDefined,
+		NextRunAt = timeProvider.GetUtcNow() + TimeSpan.FromHours(1),
 	};
 
 	private sealed class StorageFixture(

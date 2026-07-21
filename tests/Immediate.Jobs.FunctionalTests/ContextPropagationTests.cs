@@ -182,6 +182,33 @@ public sealed class ContextPropagationTests
 	}
 
 	[Fact]
+	public async Task CodeScheduleInitializationRemovesObsoleteDefinitionsAndPreservesDynamicSchedules()
+	{
+		var cancellationToken = TestContext.Current.CancellationToken;
+		await using var harness = CreateHarness(new());
+		var nextRunAt = harness.TimeProvider.GetUtcNow() + TimeSpan.FromHours(1);
+		await harness.Storage.UpsertRecurringAsync(
+			CreateRecurringSchedule("removed-job", "removed-job", isCodeDefined: true, nextRunAt),
+			cancellationToken
+		);
+		await harness.Storage.UpsertRecurringAsync(
+			CreateRecurringSchedule("context-round-trip", "context-round-trip", isCodeDefined: true, nextRunAt),
+			cancellationToken
+		);
+		await harness.Storage.UpsertRecurringAsync(
+			CreateRecurringSchedule("dynamic-context", "context-round-trip", isCodeDefined: false, nextRunAt),
+			cancellationToken
+		);
+
+		await harness.DrainAsync(cancellationToken);
+
+		var names = (await harness.Storage.GetMonitoringSnapshotAsync(cancellationToken)).Recurring
+			.Select(static schedule => schedule.Name)
+			.Order(StringComparer.Ordinal);
+		Assert.Equal(["context-cron", "dynamic-context"], names);
+	}
+
+	[Fact]
 	public async Task GeneratedSchedulerIsScopedAndSingletonConsumerCanOpenScope()
 	{
 		var cancellationToken = TestContext.Current.CancellationToken;
@@ -222,6 +249,21 @@ public sealed class ContextPropagationTests
 		DueAt = harness.TimeProvider.GetUtcNow(),
 		CreatedAt = harness.TimeProvider.GetUtcNow(),
 		Context = context,
+	};
+
+	private static RecurringJobSchedule CreateRecurringSchedule(
+		string name,
+		string jobName,
+		bool isCodeDefined,
+		DateTimeOffset nextRunAt
+	) => new()
+	{
+		Name = name,
+		JobName = jobName,
+		Cron = "0 * * * *",
+		TimeZone = "UTC",
+		IsCodeDefined = isCodeDefined,
+		NextRunAt = nextRunAt,
 	};
 }
 

@@ -229,6 +229,21 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 	}
 
 	/// <inheritdoc />
+	public async ValueTask RemoveObsoleteCodeDefinedRecurringAsync(
+		IReadOnlyCollection<string> activeScheduleNames,
+		CancellationToken cancellationToken = default
+	)
+	{
+		ArgumentNullException.ThrowIfNull(activeScheduleNames);
+		await using var context = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+		var schedules = context.Set<ImmediateRecurringJobEntity>()
+			.Where(schedule => schedule.IsCodeDefined);
+		if (activeScheduleNames.Count != 0)
+			schedules = schedules.Where(schedule => !activeScheduleNames.Contains(schedule.Name));
+		_ = await schedules.ExecuteDeleteAsync(cancellationToken).ConfigureAwait(false);
+	}
+
+	/// <inheritdoc />
 	public async ValueTask RemoveRecurringAsync(string name, CancellationToken cancellationToken = default)
 	{
 		await using var context = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);

@@ -219,6 +219,28 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) : IJobStorage,
 	}
 
 	/// <inheritdoc />
+	public ValueTask RemoveObsoleteCodeDefinedRecurringAsync(
+		IReadOnlyCollection<string> activeScheduleNames,
+		CancellationToken cancellationToken = default
+	)
+	{
+		ArgumentNullException.ThrowIfNull(activeScheduleNames);
+		cancellationToken.ThrowIfCancellationRequested();
+		var activeNames = activeScheduleNames.ToHashSet(StringComparer.Ordinal);
+		lock (_gate)
+		{
+			var obsoleteNames = _recurring
+				.Where(schedule => schedule.Value.IsCodeDefined && !activeNames.Contains(schedule.Key))
+				.Select(static schedule => schedule.Key)
+				.ToArray();
+			foreach (var name in obsoleteNames)
+				_ = _recurring.Remove(name);
+		}
+
+		return ValueTask.CompletedTask;
+	}
+
+	/// <inheritdoc />
 	public ValueTask RemoveRecurringAsync(string name, CancellationToken cancellationToken = default)
 	{
 		cancellationToken.ThrowIfCancellationRequested();

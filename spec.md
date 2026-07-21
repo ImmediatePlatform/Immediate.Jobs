@@ -213,7 +213,7 @@ await CleanupSessionsJob.Scheduler.AddOrUpdateRecurring(
 await CleanupSessionsJob.Scheduler.RemoveRecurring($"cleanup-{tenantId}", ct);
 ```
 
-Dynamic schedules are persisted in storage (they survive restarts and are visible on all nodes). Attribute-declared crons are re-asserted at startup and marked "code-defined" in the dashboard (pausable, not deletable); dynamic ones are fully editable. Cron strings from runtime input are validated at call time with a clear exception.
+Dynamic schedules are persisted in storage (they survive restarts and are visible on all nodes). Attribute-declared crons are reconciled at startup: current definitions are re-asserted, obsolete persisted definitions are removed, and active definitions are marked "code-defined" in the dashboard (pausable, not deletable); dynamic ones are left unchanged and remain fully editable. Cron strings from runtime input are validated at call time with a clear exception.
 
 ---
 

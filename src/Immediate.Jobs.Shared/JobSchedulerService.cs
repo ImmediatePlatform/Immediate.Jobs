@@ -411,7 +411,8 @@ public sealed partial class JobSchedulerService : BackgroundService
 	private async Task AssertCodeSchedulesAsync(CancellationToken cancellationToken)
 	{
 		var now = _timeProvider.GetUtcNow();
-		foreach (var definition in _definitions.Values.Where(x => x.Cron is not null))
+		var codeDefinitions = _definitions.Values.Where(static definition => definition.Cron is not null).ToArray();
+		foreach (var definition in codeDefinitions)
 		{
 			var zone = JobCron.GetTimeZone(definition.TimeZone);
 			var next = JobCron.Parse(definition.Cron!).GetNextOccurrence(now, zone)
@@ -429,6 +430,12 @@ public sealed partial class JobSchedulerService : BackgroundService
 				cancellationToken
 			).ConfigureAwait(false);
 		}
+
+		var activeScheduleNames = codeDefinitions.Select(static definition => definition.Name).ToArray();
+		await _storage.RemoveObsoleteCodeDefinedRecurringAsync(
+			activeScheduleNames,
+			cancellationToken
+		).ConfigureAwait(false);
 	}
 
 	private async Task EnsureCodeSchedulesAsync(CancellationToken cancellationToken)

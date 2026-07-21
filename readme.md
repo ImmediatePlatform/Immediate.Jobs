@@ -114,7 +114,7 @@ await tenantCleanupScheduler.AddOrUpdateRecurring("tenant-42-cleanup", "0 0 3 * 
 await tenantCleanupScheduler.RemoveRecurring("tenant-42-cleanup", cancellationToken);
 ```
 
-Code schedules are re-asserted at startup. A dynamic schedule cannot replace a code-defined schedule with the same name. Storage uses a unique `(schedule name, scheduled UTC occurrence)` materialization key, so competing nodes produce one durable invocation for each occurrence.
+Code schedules are reconciled at startup: current definitions are re-asserted and persisted code-defined schedules that no longer exist are removed. Dynamic schedules are left unchanged and cannot replace a code-defined schedule with the same name. Storage uses a unique `(schedule name, scheduled UTC occurrence)` materialization key, so competing nodes produce one durable invocation for each occurrence.
 
 ## Immediate.Handlers behaviors for jobs
 

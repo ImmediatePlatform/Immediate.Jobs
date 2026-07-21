@@ -33,6 +33,12 @@ public interface IJobStorage
 	/// <summary>Creates or updates a recurring schedule.</summary>
 	ValueTask UpsertRecurringAsync(RecurringJobSchedule schedule, CancellationToken cancellationToken = default);
 
+	/// <summary>Removes code-defined schedules that are not in the supplied active schedule names.</summary>
+	ValueTask RemoveObsoleteCodeDefinedRecurringAsync(
+		IReadOnlyCollection<string> activeScheduleNames,
+		CancellationToken cancellationToken = default
+	);
+
 	/// <summary>Removes a dynamic recurring schedule.</summary>
 	ValueTask RemoveRecurringAsync(string name, CancellationToken cancellationToken = default);
 

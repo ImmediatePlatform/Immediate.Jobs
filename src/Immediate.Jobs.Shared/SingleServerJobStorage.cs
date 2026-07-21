@@ -119,6 +119,18 @@ public sealed class SingleServerJobStorage : IJobStorage, IAsyncDisposable, IDis
 	}
 
 	/// <inheritdoc />
+	public async ValueTask RemoveObsoleteCodeDefinedRecurringAsync(
+		IReadOnlyCollection<string> activeScheduleNames,
+		CancellationToken cancellationToken = default
+	)
+	{
+		await EnsureInitializedAsync(cancellationToken).ConfigureAwait(false);
+		await DurableStorage.RemoveObsoleteCodeDefinedRecurringAsync(activeScheduleNames, cancellationToken)
+			.ConfigureAwait(false);
+		await _primary.RemoveObsoleteCodeDefinedRecurringAsync(activeScheduleNames, cancellationToken).ConfigureAwait(false);
+	}
+
+	/// <inheritdoc />
 	public async ValueTask RemoveRecurringAsync(string name, CancellationToken cancellationToken = default)
 	{
 		await EnsureInitializedAsync(cancellationToken).ConfigureAwait(false);
