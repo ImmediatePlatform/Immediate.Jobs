@@ -281,6 +281,26 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 	{
 		ArgumentNullException.ThrowIfNull(schedule);
 		ArgumentNullException.ThrowIfNull(job);
+		await using var strategyContext = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+		var strategy = strategyContext.Database.CreateExecutionStrategy();
+		return await strategy.ExecuteAsync(
+			operationCancellationToken => MaterializeRecurringCoreAsync(
+				schedule,
+				job,
+				nextRunAt,
+				operationCancellationToken
+			),
+			cancellationToken
+		).ConfigureAwait(false);
+	}
+
+	private async Task<bool> MaterializeRecurringCoreAsync(
+		RecurringJobSchedule schedule,
+		JobRecord job,
+		DateTimeOffset nextRunAt,
+		CancellationToken cancellationToken
+	)
+	{
 		await using var context = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
 		await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
 		var entity = await context.Set<ImmediateRecurringJobEntity>()
@@ -501,16 +521,20 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 		TContext context,
 		RecurringJobSchedule schedule,
 		CancellationToken cancellationToken
-	) => context.Set<ImmediateRecurringJobEntity>()
-		.Where(entity => entity.Name == schedule.Name)
-		.ExecuteUpdateAsync(setters => setters
-			.SetProperty(entity => entity.JobName, schedule.JobName)
-			.SetProperty(entity => entity.Cron, schedule.Cron)
-			.SetProperty(entity => entity.TimeZone, schedule.TimeZone)
-			.SetProperty(entity => entity.IsCodeDefined, schedule.IsCodeDefined)
-			.SetProperty(entity => entity.NextRunAt, schedule.NextRunAt)
-			.SetProperty(entity => entity.ConcurrencyStamp, Guid.NewGuid()),
-			cancellationToken);
+	)
+	{
+		var concurrencyStamp = Guid.NewGuid();
+		return context.Set<ImmediateRecurringJobEntity>()
+			.Where(entity => entity.Name == schedule.Name)
+			.ExecuteUpdateAsync(setters => setters
+				.SetProperty(entity => entity.JobName, schedule.JobName)
+				.SetProperty(entity => entity.Cron, schedule.Cron)
+				.SetProperty(entity => entity.TimeZone, schedule.TimeZone)
+				.SetProperty(entity => entity.IsCodeDefined, schedule.IsCodeDefined)
+				.SetProperty(entity => entity.NextRunAt, schedule.NextRunAt)
+				.SetProperty(entity => entity.ConcurrencyStamp, concurrencyStamp),
+				cancellationToken);
+	}
 
 	private static ImmediateJobEntity ToEntity(JobRecord job) => new()
 	{

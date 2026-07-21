@@ -1,6 +1,7 @@
 using Immediate.Jobs.EntityFrameworkCore;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Time.Testing;
 
@@ -88,6 +89,46 @@ public sealed class EntityFrameworkCoreJobStorageTests
 		);
 	}
 
+	[Fact]
+	public async Task RecurringMaterializationRunsInsideConfiguredExecutionStrategy()
+	{
+		var cancellationToken = TestContext.Current.CancellationToken;
+		await using var fixture = await StorageFixture.CreateAsync(
+			cancellationToken,
+			useRetryingExecutionStrategy: true
+		);
+		var storage = fixture.CreateStorage();
+		var now = fixture.TimeProvider.GetUtcNow();
+		var nextRunAt = now.AddMinutes(1);
+		var schedule = new RecurringJobSchedule
+		{
+			Name = "retrying-strategy",
+			JobName = "ef-test",
+			Cron = "0 * * * * *",
+			TimeZone = "UTC",
+			IsCodeDefined = true,
+			NextRunAt = now,
+		};
+		var job = CreateJob(now, 1) with
+		{
+			RecurringKey = $"{schedule.Name}:{schedule.NextRunAt.UtcTicks}",
+		};
+		await storage.UpsertRecurringAsync(schedule, cancellationToken);
+
+		var materialized = await storage.MaterializeRecurringAsync(
+			schedule,
+			job,
+			nextRunAt,
+			cancellationToken
+		);
+
+		Assert.True(materialized);
+		Assert.Equal(job.Id, Assert.Single(await storage.QueryJobsAsync(new(), cancellationToken)).Id);
+		var storedSchedule = Assert.Single((await storage.GetMonitoringSnapshotAsync(cancellationToken)).Recurring);
+		Assert.Equal(now, storedSchedule.LastRunAt);
+		Assert.Equal(nextRunAt, storedSchedule.NextRunAt);
+	}
+
 	private static JobAcquisitionRequest CreateRequest(string workerId, int batchSize) => new()
 	{
 		WorkerId = workerId,
@@ -117,14 +158,22 @@ public sealed class EntityFrameworkCoreJobStorageTests
 
 		public EntityFrameworkCoreJobStorage<TestDbContext> CreateStorage() => new(contextFactory, TimeProvider);
 
-		public static async Task<StorageFixture> CreateAsync(CancellationToken cancellationToken)
+		public static async Task<StorageFixture> CreateAsync(
+			CancellationToken cancellationToken,
+			bool useRetryingExecutionStrategy = false
+		)
 		{
 			var connectionString = $"Data Source=jobs-{Guid.NewGuid():N};Mode=Memory;Cache=Shared";
 			var anchor = new SqliteConnection(connectionString);
 			await anchor.OpenAsync(cancellationToken);
 
 			var services = new ServiceCollection();
-			services.AddDbContextFactory<TestDbContext>(options => options.UseSqlite(connectionString));
+			services.AddDbContextFactory<TestDbContext>(options =>
+			{
+				options.UseSqlite(connectionString);
+				if (useRetryingExecutionStrategy)
+					options.ReplaceService<IExecutionStrategyFactory, RetryingExecutionStrategyFactory>();
+			});
 			var provider = services.BuildServiceProvider();
 			var factory = provider.GetRequiredService<IDbContextFactory<TestDbContext>>();
 			await using (var context = await factory.CreateDbContextAsync(cancellationToken))
@@ -143,6 +192,18 @@ public sealed class EntityFrameworkCoreJobStorageTests
 	private sealed class TestDbContext(DbContextOptions<TestDbContext> options) : DbContext(options)
 	{
 		protected override void OnModelCreating(ModelBuilder modelBuilder) => modelBuilder.AddImmediateJobs();
+	}
+
+	private sealed class RetryingExecutionStrategyFactory(ExecutionStrategyDependencies dependencies)
+		: IExecutionStrategyFactory
+	{
+		public IExecutionStrategy Create() => new RetryingExecutionStrategy(dependencies);
+	}
+
+	private sealed class RetryingExecutionStrategy(ExecutionStrategyDependencies dependencies)
+		: ExecutionStrategy(dependencies, DefaultMaxRetryCount, DefaultMaxDelay)
+	{
+		protected override bool ShouldRetryOn(Exception exception) => false;
 	}
 }
 #pragma warning restore CS1591
