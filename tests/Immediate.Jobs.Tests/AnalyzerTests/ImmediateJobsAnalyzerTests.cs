@@ -379,10 +379,10 @@ public sealed class ImmediateJobsAnalyzerTests
 
 			public sealed class Scheduler
 			{
-				public void AddToBatch(JobDetails current, int payload, ContinuationOptions options) { }
+				public void AddToBatchAsync(JobDetails current, int payload, ContinuationOptions options) { }
 
 				public void Schedule(JobDetails current) =>
-					AddToBatch(current, 42, ContinuationOptions.Detached);
+					AddToBatchAsync(current, 42, ContinuationOptions.Detached);
 			}
 			""",
 			"IJOB020"
@@ -397,10 +397,10 @@ public sealed class ImmediateJobsAnalyzerTests
 
 			public sealed class Scheduler
 			{
-				public void AddToBatch(JobDetails current, int payload, ContinuationOptions options) { }
+				public void AddToBatchAsync(JobDetails current, int payload, ContinuationOptions options) { }
 
 				public void Schedule(JobDetails current, ContinuationOptions options) =>
-					AddToBatch(current, 42, options);
+					AddToBatchAsync(current, 42, options);
 			}
 			"""
 		);

@@ -27,57 +27,57 @@ public sealed class OrderFulfillmentWorkflow(
 	{
 		await using var batch = batches.Begin();
 
-		var received = await receiveOrder.AddToBatch(
+		var received = await receiveOrder.AddToBatchAsync(
 			batch,
 			new(orderId),
 			cancellationToken: cancellationToken
 		);
 
-		var inventory = await reserveInventory.ScheduleAfter(
+		var inventory = await reserveInventory.ScheduleAfterAsync(
 			received,
 			new(orderId),
 			cancellationToken: cancellationToken
 		);
-		var fraud = await fraudCheck.ScheduleAfter(
+		var fraud = await fraudCheck.ScheduleAfterAsync(
 			received,
 			new(orderId),
 			cancellationToken: cancellationToken
 		);
-		var payment = await capturePayment.ScheduleAfter(
+		var payment = await capturePayment.ScheduleAfterAsync(
 			received,
 			new(orderId),
 			cancellationToken: cancellationToken
 		);
 
-		var fulfillment = await prepareFulfillment.ScheduleAfter(
+		var fulfillment = await prepareFulfillment.ScheduleAfterAsync(
 			[inventory, fraud, payment],
 			new(orderId),
 			cancellationToken: cancellationToken
 		);
 
-		var label = await createShippingLabel.ScheduleAfter(
+		var label = await createShippingLabel.ScheduleAfterAsync(
 			fulfillment,
 			new(orderId),
 			cancellationToken: cancellationToken
 		);
-		var packed = await packOrder.ScheduleAfter(
+		var packed = await packOrder.ScheduleAfterAsync(
 			fulfillment,
 			new(orderId),
 			cancellationToken: cancellationToken
 		);
 
-		var dispatched = await dispatchOrder.ScheduleAfter(
+		var dispatched = await dispatchOrder.ScheduleAfterAsync(
 			[label, packed],
 			new(orderId),
 			cancellationToken: cancellationToken
 		);
-		var notified = await notifyCustomer.ScheduleAfter(
+		var notified = await notifyCustomer.ScheduleAfterAsync(
 			dispatched,
 			new(orderId),
 			cancellationToken: cancellationToken
 		);
 
-		_ = await writeAudit.ScheduleAfter(
+		_ = await writeAudit.ScheduleAfterAsync(
 			notified,
 			new(orderId),
 			ContinuationTrigger.AllComplete,

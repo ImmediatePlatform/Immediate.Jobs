@@ -320,7 +320,7 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 	{
 		ArgumentNullException.ThrowIfNull(job);
 		if (options == ContinuationOptions.Detached)
-			throw new InvalidOperationException("IJOB020: AddToBatch cannot create a detached job.");
+			throw new InvalidOperationException("IJOB020: AddToBatchAsync cannot create a detached job.");
 		const int MaxConcurrencyAttempts = 5;
 		for (var attempt = 0; attempt < MaxConcurrencyAttempts; attempt++)
 		{

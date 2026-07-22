@@ -324,7 +324,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) : IJobStorage,
 			if (current.BatchId is null || !_batches.ContainsKey(current.BatchId))
 				throw new InvalidOperationException("The current job does not belong to a batch.");
 			if (options == ContinuationOptions.Detached)
-				throw new InvalidOperationException("IJOB020: AddToBatch(JobDetails, ...) cannot create detached work.");
+				throw new InvalidOperationException("IJOB020: AddToBatchAsync(JobDetails, ...) cannot create detached work.");
 			if (options is not (ContinuationOptions.BesideContinuations or ContinuationOptions.BeforeContinuations))
 				throw new ArgumentOutOfRangeException(nameof(options));
 			ValidateNewJob(job);
@@ -441,11 +441,11 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) : IJobStorage,
 
 	/// <inheritdoc />
 	public ValueTask PauseRecurringAsync(string name, CancellationToken cancellationToken = default) =>
-		SetRecurringPaused(name, true, cancellationToken);
+		SetRecurringPausedAsync(name, true, cancellationToken);
 
 	/// <inheritdoc />
 	public ValueTask ResumeRecurringAsync(string name, CancellationToken cancellationToken = default) =>
-		SetRecurringPaused(name, false, cancellationToken);
+		SetRecurringPausedAsync(name, false, cancellationToken);
 
 	/// <inheritdoc />
 	public async ValueTask<IReadOnlyList<RecurringJobSchedule>> GetDueRecurringAsync(
@@ -1261,7 +1261,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) : IJobStorage,
 		return job;
 	}
 
-	private ValueTask SetRecurringPaused(string name, bool isPaused, CancellationToken cancellationToken)
+	private ValueTask SetRecurringPausedAsync(string name, bool isPaused, CancellationToken cancellationToken)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
 		lock (_gate)

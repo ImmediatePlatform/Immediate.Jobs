@@ -23,7 +23,7 @@ public sealed class ContextPropagationTests
 			ambient.TenantId = "tenant-42";
 			ambient.CorrelationId = "correlation-7";
 			var scheduler = scope.ServiceProvider.GetRequiredService<ContextRoundTripJob.Scheduler>();
-			id = await scheduler.Enqueue(new("hello"), cancellationToken);
+			id = await scheduler.EnqueueAsync(new("hello"), cancellationToken);
 		}
 
 		var enqueued = await harness.GetJobAsync(id, cancellationToken);
@@ -55,7 +55,7 @@ public sealed class ContextPropagationTests
 		var scheduler = scope.ServiceProvider.GetRequiredService<CaptureFailureJob.Scheduler>();
 
 		var exception = await Assert.ThrowsAsync<InvalidOperationException>(
-			() => scheduler.Enqueue(default, cancellationToken).AsTask()
+			() => scheduler.EnqueueAsync(default, cancellationToken).AsTask()
 		);
 
 		Assert.Equal("Capture failed", exception.Message);
@@ -71,7 +71,7 @@ public sealed class ContextPropagationTests
 		await using (var scope = harness.Services.CreateAsyncScope())
 		{
 			var scheduler = scope.ServiceProvider.GetRequiredService<RestoreFailureJob.Scheduler>();
-			id = await scheduler.Enqueue(default, cancellationToken);
+			id = await scheduler.EnqueueAsync(default, cancellationToken);
 		}
 
 		await harness.DrainAsync(cancellationToken);
@@ -93,7 +93,7 @@ public sealed class ContextPropagationTests
 		var scheduler = scope.ServiceProvider.GetRequiredService<DuplicateContextKeyJob.Scheduler>();
 
 		var exception = await Assert.ThrowsAsync<InvalidOperationException>(
-			() => scheduler.Enqueue(default, cancellationToken).AsTask()
+			() => scheduler.EnqueueAsync(default, cancellationToken).AsTask()
 		);
 
 		Assert.Contains("duplicate", exception.Message, StringComparison.OrdinalIgnoreCase);
@@ -445,7 +445,7 @@ public sealed class ScopedSchedulerConsumer(IServiceScopeFactory scopeFactory)
 		state.TenantId = "singleton-tenant";
 		state.CorrelationId = "singleton-correlation";
 		var scheduler = scope.ServiceProvider.GetRequiredService<ContextRoundTripJob.Scheduler>();
-		return (await scheduler.Enqueue(new("singleton"), cancellationToken)).Id;
+		return (await scheduler.EnqueueAsync(new("singleton"), cancellationToken)).Id;
 	}
 }
 

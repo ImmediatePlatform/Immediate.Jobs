@@ -42,7 +42,7 @@ public sealed class ImmediateJobsAnalyzer : DiagnosticAnalyzer
 	private static void AnalyzeInvocation(OperationAnalysisContext context)
 	{
 		var invocation = (IInvocationOperation)context.Operation;
-		if (invocation.TargetMethod.Name != "AddToBatch" || invocation.Arguments.Length == 0)
+		if (invocation.TargetMethod.Name != "AddToBatchAsync" || invocation.Arguments.Length == 0)
 			return;
 		if (invocation.Arguments[0].Parameter?.Type.ToDisplayString() != "Immediate.Jobs.Shared.JobDetails")
 			return;

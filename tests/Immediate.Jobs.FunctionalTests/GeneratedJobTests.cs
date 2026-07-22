@@ -43,7 +43,7 @@ public sealed class GeneratedJobTests
 		await using var enqueueScope = harness.Services.CreateAsyncScope();
 		var scheduler = enqueueScope.ServiceProvider.GetRequiredService<RecordMessageJob.Scheduler>();
 
-		var id = await scheduler.Enqueue(new("hello"), cancellationToken);
+		var id = await scheduler.EnqueueAsync(new("hello"), cancellationToken);
 		var enqueued = await harness.AssertEnqueuedAsync<RecordMessageJob.Payload>(id, JobState.Pending, cancellationToken);
 		Assert.Equal("hello", enqueued.Payload.Message);
 		Assert.Null(enqueued.Payload.JobDetails);
@@ -78,7 +78,7 @@ public sealed class GeneratedJobTests
 		});
 		await using var enqueueScope = harness.Services.CreateAsyncScope();
 		var scheduler = enqueueScope.ServiceProvider.GetRequiredService<RetryOnceJob.Scheduler>();
-		var id = await scheduler.Enqueue(new(42), cancellationToken);
+		var id = await scheduler.EnqueueAsync(new(42), cancellationToken);
 
 		await harness.DrainAsync(cancellationToken);
 		Assert.Equal(JobState.Scheduled, (await harness.GetJobAsync(id, cancellationToken)).State);
@@ -107,7 +107,7 @@ public sealed class GeneratedJobTests
 		await using var scope = harness.Services.CreateAsyncScope();
 		var scheduler = scope.ServiceProvider.GetRequiredService<ValueTypeJob.Scheduler>();
 
-		var id = await scheduler.Enqueue(new(7), TestContext.Current.CancellationToken);
+		var id = await scheduler.EnqueueAsync(new(7), TestContext.Current.CancellationToken);
 		await harness.DrainAsync(TestContext.Current.CancellationToken);
 
 		Assert.Equal(["before:7", "job:7", "after:7"], state.Events);
@@ -130,7 +130,7 @@ public sealed class GeneratedJobTests
 		await using var scope = harness.Services.CreateAsyncScope();
 		var scheduler = scope.ServiceProvider.GetRequiredService<PlainRequestJob.Scheduler>();
 
-		var id = await scheduler.Enqueue(new("hello"), cancellationToken);
+		var id = await scheduler.EnqueueAsync(new("hello"), cancellationToken);
 		var enqueued = await harness.AssertEnqueuedAsync<PlainRequestJob.Payload>(id, JobState.Pending, cancellationToken);
 		Assert.Equal("hello", enqueued.Payload.Message);
 

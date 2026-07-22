@@ -18,7 +18,7 @@ job runs**.
 
 This exact pattern already exists for W3C distributed tracing:
 
-- **Capture** — `JobScheduler<TPayload>.ScheduleAt` (`src/Immediate.Jobs.Shared/JobSchedulers.cs`) calls
+- **Capture** — `JobScheduler<TPayload>.ScheduleAtAsync` (`src/Immediate.Jobs.Shared/JobSchedulers.cs`) calls
   `TraceContextCapture.Current()` and persists `JobRecord.TraceParent` / `TraceState`.
 - **Restore** — `JobSchedulerService` (`src/Immediate.Jobs.Shared/JobSchedulerService.cs`) parses those
   back into an `ActivityContext` and starts the execution activity with that parent.
@@ -138,13 +138,13 @@ matches the existing trace-column shape.
 
 ### 5.2 Capture — generated scheduler (enqueue)
 
-`JobScheduler<TPayload>.ScheduleAt` gains a hook the generated subclass overrides:
+`JobScheduler<TPayload>.ScheduleAtAsync` gains a hook the generated subclass overrides:
 
 ```csharp
 // base
 protected virtual ValueTask<string?> CaptureContextAsync(CancellationToken ct) => new((string?)null);
 
-// ScheduleAt, before building the record:
+// ScheduleAtAsync, before building the record:
 var context = await CaptureContextAsync(cancellationToken).ConfigureAwait(false);
 var record = new JobRecord { /* … */ Context = context };
 ```
@@ -274,7 +274,7 @@ public sealed partial class SendInvoiceJob
 }
 
 // enqueue from a controller/endpoint (request scope) — captures automatically
-await scheduler.Enqueue(new InvoicePayload(orderId));
+await scheduler.EnqueueAsync(new InvoicePayload(orderId));
 ```
 
 ## 13. Decisions

@@ -16,7 +16,7 @@ await using (var scope = provider.CreateAsyncScope())
 	currentContext.Value = ExpectedContext;
 
 	var scheduler = scope.ServiceProvider.GetRequiredService<AotGreetingJob.Scheduler>();
-	_ = await scheduler.Enqueue(new("Native AOT", ExpectedContext));
+	_ = await scheduler.EnqueueAsync(new("Native AOT", ExpectedContext));
 }
 
 await provider.GetRequiredService<JobSchedulerService>().DrainAsync();

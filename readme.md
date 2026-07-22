@@ -21,8 +21,8 @@ public sealed partial class SendWelcomeEmail(IEmailSender sender)
 
 public sealed class SignupService(SendWelcomeEmail.Scheduler welcomeEmail)
 {
-	public ValueTask<JobHandle> Enqueue(Guid userId, CancellationToken cancellationToken) =>
-		welcomeEmail.Enqueue(new(userId, "v2"), cancellationToken);
+	public ValueTask<JobHandle> EnqueueAsync(Guid userId, CancellationToken cancellationToken) =>
+		welcomeEmail.EnqueueAsync(new(userId, "v2"), cancellationToken);
 }
 ```
 
@@ -36,16 +36,16 @@ scheduler directly:
 ```csharp
 public sealed class ImportWorker(IServiceScopeFactory scopeFactory)
 {
-	public async ValueTask Enqueue(Guid importId, CancellationToken cancellationToken)
+	public async ValueTask EnqueueAsync(Guid importId, CancellationToken cancellationToken)
 	{
 		await using var scope = scopeFactory.CreateAsyncScope();
 		var scheduler = scope.ServiceProvider.GetRequiredService<ImportJob.Scheduler>();
-		await scheduler.Enqueue(new(importId), cancellationToken);
+		await scheduler.EnqueueAsync(new(importId), cancellationToken);
 	}
 }
 ```
 
-`Enqueue`, `Schedule`, `ScheduleAt`, and `TriggerNow` return a `JobHandle`. Its `Id` is an opaque
+`EnqueueAsync`, `ScheduleAsync`, `ScheduleAtAsync`, and `TriggerNowAsync` return a `JobHandle`. Its `Id` is an opaque
 string invocation ID. Consumers must not parse it or depend on its format; storage integrations may
 use another string ID scheme.
 
@@ -59,13 +59,13 @@ writes nothing.
 ```csharp
 await using var batch = batches.Begin();
 
-var imported = await import.AddToBatch(batch, new(importId), cancellationToken: cancellationToken);
-var indexed = await index.ScheduleAfter(imported, new(importId), cancellationToken: cancellationToken);
+var imported = await import.AddToBatchAsync(batch, new(importId), cancellationToken: cancellationToken);
+var indexed = await index.ScheduleAfterAsync(imported, new(importId), cancellationToken: cancellationToken);
 
-var notifyOwner = await notify.ScheduleAfter(indexed, new(importId), cancellationToken: cancellationToken);
-var updateMetrics = await metrics.ScheduleAfter(indexed, new(importId), cancellationToken: cancellationToken);
+var notifyOwner = await notify.ScheduleAfterAsync(indexed, new(importId), cancellationToken: cancellationToken);
+var updateMetrics = await metrics.ScheduleAfterAsync(indexed, new(importId), cancellationToken: cancellationToken);
 
-await finalize.ScheduleAfter(
+await finalize.ScheduleAfterAsync(
 	[notifyOwner, updateMetrics],
 	new(importId),
 	cancellationToken: cancellationToken
@@ -130,7 +130,7 @@ public sealed partial class CleanupSessionsJob(AppDbContext db)
 Inject `CleanupSessionsJob.Scheduler` to trigger the code-defined job immediately:
 
 ```csharp
-await scheduler.TriggerNow(cancellationToken);
+await scheduler.TriggerNowAsync(cancellationToken);
 ```
 
 Schedulers for jobs with a compile-time `Cron` do not expose dynamic schedule mutation. To manage named schedules at runtime, define a separate payloadless job without `Cron`:
@@ -143,8 +143,8 @@ public sealed partial class TenantCleanupJob(AppDbContext db)
 		new(db.DeleteExpiredSessions(cancellationToken));
 }
 
-await tenantCleanupScheduler.AddOrUpdateRecurring("tenant-42-cleanup", "0 0 3 * * *", "UTC", cancellationToken);
-await tenantCleanupScheduler.RemoveRecurring("tenant-42-cleanup", cancellationToken);
+await tenantCleanupScheduler.AddOrUpdateRecurringAsync("tenant-42-cleanup", "0 0 3 * * *", "UTC", cancellationToken);
+await tenantCleanupScheduler.RemoveRecurringAsync("tenant-42-cleanup", cancellationToken);
 ```
 
 Code schedules are reconciled at startup: current definitions are re-asserted and persisted code-defined schedules that no longer exist are removed. Dynamic schedules are left unchanged and cannot replace a code-defined schedule with the same name. Storage uses a unique `(schedule name, scheduled UTC occurrence)` materialization key, so competing nodes produce one durable invocation for each occurrence.
@@ -278,7 +278,7 @@ are paged on the server in groups of 50; batch members show a link to their work
 | `IJOB017` | Continuation handles belong to unrelated batches |
 | `IJOB018` | A continuation dependency cycle was detected |
 | `IJOB019` | A batch handle was used after commit or disposal |
-| `IJOB020` | `AddToBatch(JobDetails, ..., Detached)` is contradictory |
+| `IJOB020` | `AddToBatchAsync(JobDetails, ..., Detached)` is contradictory |
 
 ## Observability
 
@@ -294,7 +294,7 @@ The repository includes BenchmarkDotNet comparisons with Hangfire MemoryStorage 
 
 Latest `ShortRun` results from 21 July 2026: BenchmarkDotNet 0.15.8, .NET 8.0.22 Arm64 RyuJIT, Apple M3 Pro with 12 cores, macOS 26.5. Each result uses one launch, three warmup iterations, and three measurement iterations. Ratios use Immediate.Jobs as the baseline.
 
-#### Enqueue
+#### EnqueueAsync
 
 | Framework | Mean | Ratio | Allocated | Allocation ratio |
 |---|---:|---:|---:|---:|

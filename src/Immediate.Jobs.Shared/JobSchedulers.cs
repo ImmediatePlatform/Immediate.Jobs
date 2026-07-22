@@ -7,30 +7,30 @@ namespace Immediate.Jobs.Shared;
 public interface IJobScheduler<TPayload>
 {
 	/// <summary>Enqueues work immediately and returns its opaque invocation identifier.</summary>
-	ValueTask<JobHandle> Enqueue(TPayload payload, CancellationToken cancellationToken = default);
+	ValueTask<JobHandle> EnqueueAsync(TPayload payload, CancellationToken cancellationToken = default);
 
 	/// <summary>Schedules work after a delay and returns its opaque invocation identifier.</summary>
-	ValueTask<JobHandle> Schedule(TPayload payload, TimeSpan delay, CancellationToken cancellationToken = default);
+	ValueTask<JobHandle> ScheduleAsync(TPayload payload, TimeSpan delay, CancellationToken cancellationToken = default);
 
 	/// <summary>Schedules work at an absolute time and returns its opaque invocation identifier.</summary>
-	ValueTask<JobHandle> ScheduleAt(TPayload payload, DateTimeOffset runAt, CancellationToken cancellationToken = default);
+	ValueTask<JobHandle> ScheduleAtAsync(TPayload payload, DateTimeOffset runAt, CancellationToken cancellationToken = default);
 }
 
 /// <summary>Triggers a payloadless job immediately.</summary>
 public interface IRecurringJobTrigger
 {
 	/// <summary>Enqueues the job immediately and returns its opaque invocation identifier.</summary>
-	ValueTask<JobHandle> TriggerNow(CancellationToken cancellationToken = default);
+	ValueTask<JobHandle> TriggerNowAsync(CancellationToken cancellationToken = default);
 }
 
 /// <summary>Dynamic recurring operations exposed by payloadless jobs without a code-defined cron.</summary>
 public interface IRecurringJobScheduler : IRecurringJobTrigger
 {
 	/// <summary>Adds or replaces a durable dynamic schedule.</summary>
-	ValueTask AddOrUpdateRecurring(string name, string cron, string timeZone = "UTC", CancellationToken cancellationToken = default);
+	ValueTask AddOrUpdateRecurringAsync(string name, string cron, string timeZone = "UTC", CancellationToken cancellationToken = default);
 
 	/// <summary>Removes a dynamic durable schedule.</summary>
-	ValueTask RemoveRecurring(string name, CancellationToken cancellationToken = default);
+	ValueTask RemoveRecurringAsync(string name, CancellationToken cancellationToken = default);
 }
 
 /// <summary>Runtime base used by source-generated typed schedulers.</summary>
@@ -63,20 +63,20 @@ public abstract class JobScheduler<TPayload>(
 	protected string QueueName { get; } = queueName;
 
 	/// <inheritdoc />
-	public ValueTask<JobHandle> Enqueue(TPayload payload, CancellationToken cancellationToken = default) =>
-		ScheduleAt(payload, TimeProvider.GetUtcNow(), cancellationToken);
+	public ValueTask<JobHandle> EnqueueAsync(TPayload payload, CancellationToken cancellationToken = default) =>
+		ScheduleAtAsync(payload, TimeProvider.GetUtcNow(), cancellationToken);
 
 	/// <inheritdoc />
-	public ValueTask<JobHandle> Schedule(TPayload payload, TimeSpan delay, CancellationToken cancellationToken = default)
+	public ValueTask<JobHandle> ScheduleAsync(TPayload payload, TimeSpan delay, CancellationToken cancellationToken = default)
 	{
 		if (delay < TimeSpan.Zero)
 			throw new ArgumentOutOfRangeException(nameof(delay), "A job delay cannot be negative.");
 
-		return ScheduleAt(payload, TimeProvider.GetUtcNow() + delay, cancellationToken);
+		return ScheduleAtAsync(payload, TimeProvider.GetUtcNow() + delay, cancellationToken);
 	}
 
 	/// <inheritdoc />
-	public async ValueTask<JobHandle> ScheduleAt(
+	public async ValueTask<JobHandle> ScheduleAtAsync(
 		TPayload payload,
 		DateTimeOffset runAt,
 		CancellationToken cancellationToken = default
@@ -89,7 +89,7 @@ public abstract class JobScheduler<TPayload>(
 	}
 
 	/// <summary>Adds work to an atomic batch for immediate execution after commit.</summary>
-	public ValueTask<JobHandle> AddToBatch(
+	public ValueTask<JobHandle> AddToBatchAsync(
 		IJobBatch batch,
 		TPayload payload,
 		TimeSpan? delay = null,
@@ -99,11 +99,11 @@ public abstract class JobScheduler<TPayload>(
 		ArgumentNullException.ThrowIfNull(batch);
 		if (delay < TimeSpan.Zero)
 			throw new ArgumentOutOfRangeException(nameof(delay), "A job delay cannot be negative.");
-		return AddToBatchAt(batch, payload, TimeProvider.GetUtcNow() + (delay ?? TimeSpan.Zero), cancellationToken);
+		return AddToBatchAtAsync(batch, payload, TimeProvider.GetUtcNow() + (delay ?? TimeSpan.Zero), cancellationToken);
 	}
 
 	/// <summary>Adds absolute-time work to an atomic batch.</summary>
-	public async ValueTask<JobHandle> AddToBatchAt(
+	public async ValueTask<JobHandle> AddToBatchAtAsync(
 		IJobBatch batch,
 		TPayload payload,
 		DateTimeOffset runAt,
@@ -119,16 +119,16 @@ public abstract class JobScheduler<TPayload>(
 	}
 
 	/// <summary>Schedules work after one parent job.</summary>
-	public ValueTask<JobHandle> ScheduleAfter(
+	public ValueTask<JobHandle> ScheduleAfterAsync(
 		JobHandle parent,
 		TPayload payload,
 		ContinuationTrigger on = ContinuationTrigger.AllSucceeded,
 		TimeSpan? delay = null,
 		CancellationToken cancellationToken = default
-	) => ScheduleAfter([parent], payload, on, delay, cancellationToken);
+	) => ScheduleAfterAsync([parent], payload, on, delay, cancellationToken);
 
 	/// <summary>Schedules work after every supplied parent job.</summary>
-	public ValueTask<JobHandle> ScheduleAfter(
+	public ValueTask<JobHandle> ScheduleAfterAsync(
 		ReadOnlySpan<JobHandle> parents,
 		TPayload payload,
 		ContinuationTrigger on = ContinuationTrigger.AllSucceeded,
@@ -140,11 +140,11 @@ public abstract class JobScheduler<TPayload>(
 			throw new ArgumentOutOfRangeException(nameof(delay), "A job delay cannot be negative.");
 		if (parents.IsEmpty)
 			throw new ArgumentException("At least one continuation parent is required.", nameof(parents));
-		return ScheduleAfterCore(parents.ToArray(), payload, on, delay, cancellationToken);
+		return ScheduleAfterCoreAsync(parents.ToArray(), payload, on, delay, cancellationToken);
 	}
 
 	/// <summary>Schedules work after a whole batch reaches a terminal state.</summary>
-	public async ValueTask<JobHandle> ScheduleAfter(
+	public async ValueTask<JobHandle> ScheduleAfterAsync(
 		BatchHandle parent,
 		TPayload payload,
 		ContinuationTrigger on = ContinuationTrigger.AllSucceeded,
@@ -171,7 +171,7 @@ public abstract class JobScheduler<TPayload>(
 	}
 
 	/// <summary>Buffers work relative to the running job and persists it only if the attempt succeeds.</summary>
-	public async ValueTask<JobHandle> ScheduleAfter(
+	public async ValueTask<JobHandle> ScheduleAfterAsync(
 		JobDetails current,
 		TPayload payload,
 		ContinuationOptions options = ContinuationOptions.BeforeContinuations,
@@ -192,7 +192,7 @@ public abstract class JobScheduler<TPayload>(
 	}
 
 	/// <summary>Immediately adds concurrent work to the running job's batch.</summary>
-	public async ValueTask<JobHandle> AddToBatch(
+	public async ValueTask<JobHandle> AddToBatchAsync(
 		JobDetails current,
 		TPayload payload,
 		ContinuationOptions options = ContinuationOptions.BeforeContinuations,
@@ -201,7 +201,7 @@ public abstract class JobScheduler<TPayload>(
 	{
 		ArgumentNullException.ThrowIfNull(current);
 		if (options == ContinuationOptions.Detached)
-			throw new InvalidOperationException("IJOB020: AddToBatch(JobDetails, ...) cannot create detached work.");
+			throw new InvalidOperationException("IJOB020: AddToBatchAsync(JobDetails, ...) cannot create detached work.");
 		if (current.Buffer is null)
 			throw new InvalidOperationException("JobDetails can add work only during its active execution attempt.");
 		if (current.BatchId is null)
@@ -214,7 +214,7 @@ public abstract class JobScheduler<TPayload>(
 		return new(record.Id);
 	}
 
-	private async ValueTask<JobHandle> ScheduleAfterCore(
+	private async ValueTask<JobHandle> ScheduleAfterCoreAsync(
 		JobHandle[] parents,
 		TPayload payload,
 		ContinuationTrigger on,
@@ -275,7 +275,7 @@ public abstract class JobScheduler<TPayload>(
 	}
 
 	/// <summary>Validates and persists a dynamic recurring schedule.</summary>
-	protected async ValueTask AddOrUpdateRecurringCore(
+	protected async ValueTask AddOrUpdateRecurringCoreAsync(
 		string name,
 		string cron,
 		string timeZone,

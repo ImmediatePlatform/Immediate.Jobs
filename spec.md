@@ -2,7 +2,12 @@
 
 **A fast, reflection-free background job scheduler for .NET, built with source generators.**
 
-Status: Draft v0.1 · Date: 2026-07-20 · License: MIT · Target: .NET 8+
+Status: Draft v0.2 · Date: 2026-07-22 · License: MIT · Target: .NET 8+
+
+> **Since v0.1:** job continuations/chains and atomic batches — originally listed as v1 non-goals —
+> are now implemented and part of the core package. See §2.8 and §3.2 here, and the full design in
+> [`docs/batches-and-continuations.md`](docs/batches-and-continuations.md). SQS-style *fair queues*
+> are designed but not yet built; see [`docs/fair-queues.md`](docs/fair-queues.md).
 
 ---
 
@@ -13,12 +18,19 @@ Immediate.Jobs is to Hangfire/Quartz what Immediate.Handlers is to MediatR: all 
 **Value proposition:**
 
 - Startup cost near zero — no assembly scanning.
-- Enqueue/dispatch is a direct generated call, not `MethodInfo.Invoke`.
+- EnqueueAsync/dispatch is a direct generated call, not `MethodInfo.Invoke`.
 - Serialization uses generated `JsonSerializerContext` — AOT-safe, fast.
 - Compile-time errors for invalid cron expressions and unsupported payload types, instead of runtime surprises.
 - Modern real-time dashboard included, MIT licensed (unlike Hangfire's licensing pressure and dated UI).
 
-**Non-goals for v1** (candidates for v2): job continuations/chains, batch jobs, workflow/saga features, calendar exclusions (holidays), multi-tenancy/schema isolation in storage providers.
+**Now implemented (was a v1 non-goal):** job continuations/chains and atomic batch jobs — a full
+DAG workflow surface (fan-out, fan-in, diamonds, batch continuations, mid-job dynamic expansion). See
+§2.8.
+
+**Remaining non-goals** (candidates for later): workflow/saga compensation & rollback, result-passing
+between parent and child jobs, human-in-the-loop suspension, calendar exclusions (holidays), and
+multi-tenancy/schema isolation in storage providers. *Fair queues* (SQS-style per-group fairness) are
+designed and slated but not yet shipped.
 
 ---
 
@@ -61,18 +73,23 @@ public sealed class SignupService(SendWelcomeEmail.Scheduler welcomeEmail)
     public async Task SignUpAsync(Guid userId, CancellationToken ct)
     {
         // ...
-        await welcomeEmail.Enqueue(new(userId, "v2"), ct);                       // ASAP
-        await welcomeEmail.Schedule(new(userId, "v2"), TimeSpan.FromHours(1), ct); // delayed
-        await welcomeEmail.ScheduleAt(new(userId, "v2"), runAt, ct);             // at time
+        await welcomeEmail.EnqueueAsync(new(userId, "v2"), ct);                       // ASAP
+        await welcomeEmail.ScheduleAsync(new(userId, "v2"), TimeSpan.FromHours(1), ct); // delayed
+        await welcomeEmail.ScheduleAtAsync(new(userId, "v2"), runAt, ct);             // at time
     }
 }
 ```
 
 The generated `Scheduler` is a thin, sealed, scoped class over `IJobStorage` + the generated serializer — fully typed and AOT-safe. Resolve it from the caller's request or DI scope. Singleton consumers cannot inject a scoped scheduler directly and instead create a scope with `IServiceScopeFactory` for each unit of work.
 
-Cron jobs declared via attribute are registered automatically at startup and expose a payload-less scheduler (`CleanupSessionsJob.Scheduler.TriggerNow(ct)`); dynamic recurring schedules are covered in §2.7.
+Cron jobs declared via attribute are registered automatically at startup and expose a payload-less scheduler (`CleanupSessionsJob.Scheduler.TriggerNowAsync(ct)`); dynamic recurring schedules are covered in §2.7.
 
-Every enqueue or trigger operation returns an opaque string invocation ID. The built-in scheduler uses compact GUID-formatted strings, but callers and storage providers must not parse or depend on that format.
+Every enqueue or trigger operation returns a `JobHandle` — an opaque value carrying the invocation's
+`.Id` (still available as `handle.Id` when only the string is wanted). The built-in scheduler uses
+compact GUID-formatted strings, but callers and storage providers must not parse or depend on that
+format. IDs are client-generated *before* storage, so a handle carries a real ID immediately — even
+for a job still buffered in an uncommitted batch — which is what makes intra-batch continuations
+resolvable before commit (§2.8).
 
 ### 2.3 Registration
 
@@ -194,11 +211,11 @@ scheduler, just as it would for a scoped `DbContext`:
 ```csharp
 public sealed class InvoicePoller(IServiceScopeFactory scopeFactory)
 {
-    public async ValueTask Enqueue(Guid invoiceId, CancellationToken ct)
+    public async ValueTask EnqueueAsync(Guid invoiceId, CancellationToken ct)
     {
         await using var scope = scopeFactory.CreateAsyncScope();
         var scheduler = scope.ServiceProvider.GetRequiredService<SendInvoiceJob.Scheduler>();
-        await scheduler.Enqueue(new(invoiceId), ct);
+        await scheduler.EnqueueAsync(new(invoiceId), ct);
     }
 }
 ```
@@ -208,12 +225,54 @@ public sealed class InvoicePoller(IServiceScopeFactory scopeFactory)
 Recurring jobs can be added, updated, and removed at runtime with full parity to attribute-declared crons (same overlap policy, retry, timeout, and dashboard treatment):
 
 ```csharp
-await CleanupSessionsJob.Scheduler.AddOrUpdateRecurring(
+await CleanupSessionsJob.Scheduler.AddOrUpdateRecurringAsync(
     name: $"cleanup-{tenantId}", cron: "0 0 3 * * *", timeZone: tz, ct);
-await CleanupSessionsJob.Scheduler.RemoveRecurring($"cleanup-{tenantId}", ct);
+await CleanupSessionsJob.Scheduler.RemoveRecurringAsync($"cleanup-{tenantId}", ct);
 ```
 
 Dynamic schedules are persisted in storage (they survive restarts and are visible on all nodes). Attribute-declared crons are reconciled at startup: current definitions are re-asserted, obsolete persisted definitions are removed, and active definitions are marked "code-defined" in the dashboard (pausable, not deletable); dynamic ones are left unchanged and remain fully editable. Cron strings from runtime input are validated at call time with a clear exception.
+
+### 2.8 Batches & continuations (DAG workflows)
+
+Atomic batches and continuations are in the core package. They keep the **generated scheduler as the
+subject** — `sendEmail.AddToBatchAsync(batch, payload)` and `two.ScheduleAfterAsync(oneHandle, payload)` read
+exactly like `sendEmail.EnqueueAsync(payload)`. Nothing but data is ever persisted: no closures, no
+expression trees, no `MethodInfo` — so no reflective dispatch is introduced. Full design in
+[`docs/batches-and-continuations.md`](docs/batches-and-continuations.md).
+
+**Atomic batches.** `IJobBatchScheduler` is a scoped service. `Begin()` opens an in-memory buffer;
+each job's generated `AddToBatchAsync`/`AddToBatchAtAsync` buffers a fully-serialized `JobRecord`; `CommitAsync`
+flushes the whole buffer in **one atomic unit** (all rows or none). Disposing without committing rolls
+back. Because storage is touched only at commit, retrying the whole method after a mid-loop failure
+cannot double-enqueue. `RunAsync(body)` is sugar over `Begin → body → CommitAsync`.
+
+**Continuations.** Every scheduler has generated `ScheduleAfterAsync(parent, payload)` — it schedules *its
+own* job to run after `parent`, returning a new `JobHandle` so chains compose. Passing several parents
+as a collection (`[a, b, c]`) expresses **fan-in**; calling `ScheduleAfterAsync` on the same parent twice
+expresses **fan-out**; diamonds and continuations-of-continuations follow naturally. Parents may be a
+`JobHandle`, a collection of handles, or a committed batch's `BatchHandle` (a job that runs once the
+whole batch completes). Continuations work inside or outside a batch; a standalone continuation whose
+parent is already terminal is evaluated immediately rather than waiting forever.
+
+**Mid-job dynamic expansion.** A running member can expand the workflow at execution time using its
+own `JobDetails` (from `IJobRequest`) as the "I am running inside this job" token:
+`ScheduleAfterAsync(JobDetails, …)` is *gated* (buffered until the current job succeeds, so retries don't
+double-schedule) and `AddToBatchAsync(JobDetails, …)` is *concurrent* (written immediately). A
+`ContinuationOptions` value (`Detached` | `BesideContinuations` | `BeforeContinuations`, default
+`BeforeContinuations`) chooses how the current job's existing waiters relate to the new work; the
+default performs an additive splice so downstream waits on both.
+
+**Triggers.** `ContinuationTrigger.AllSucceeded` (default) cancels the child (cascading to its
+subtree) if any parent does not succeed; `AllComplete` runs the child once all parents reach any
+terminal state (for cleanup/notification steps).
+
+**Non-goals for this feature:** result-passing between parent and child (a continuation observes a
+parent's *outcome*, not its return value), human-in-the-loop suspension, and saga/compensation
+rollback.
+
+New compile-time diagnostics accompany the feature (e.g. `IJOB020` rejects the contradictory
+`AddToBatchAsync(JobDetails, Detached)`); batch-tracking calls from a job with no batch are guarded at run
+time.
 
 ---
 
@@ -236,16 +295,29 @@ Additional raw providers are post-v1 and can be added through the same abstracti
 
 ### 3.2 Storage abstraction
 
-`IJobStorage` is the single seam providers implement. Core operations (all async, all `CancellationToken`-aware):
+`IJobStorage` is the single seam providers implement — all async and `CancellationToken`-aware.
+Grouped by concern:
 
-- `EnqueueAsync(JobRecord)` — insert pending job
-- `AcquireDueJobsAsync(workerId, lease, batchSize)` — atomically claim due jobs (the concurrency-critical call)
-- `RenewLeaseAsync` / `CompleteAsync` / `FailAsync(nextRetryAt | deadLetter)`
-- `UpsertRecurringAsync` / `PauseRecurringAsync` / `ResumeRecurringAsync`
-- `GetMonitoringSnapshotAsync`, `QueryJobsAsync(filter)` — dashboard reads
-- `PurgeAsync(retention)` — history cleanup
+- **Enqueue & claim:** `EnqueueAsync(JobRecord)`; `AcquireDueJobsAsync(JobAcquisitionRequest)` —
+  atomically claims due work honoring per-queue and per-job capacities in priority order (the
+  concurrency-critical call); `RenewLeaseAsync` / `CompleteAsync` / `FailAsync(nextRetryAt |
+  deadLetter)`.
+- **Continuations & batches:** `EnqueueContinuationAsync` (child + edges, atomic),
+  `EnqueueBatchAsync` (header + members + edges, atomic), `CompleteWithContinuationsAsync` (complete +
+  flush gated dynamic continuations), `AddBatchJobAsync`, `CancelBatchAsync`, `DeleteBatchAsync`.
+- **Recurring:** `UpsertRecurringAsync` / `PauseRecurringAsync` / `ResumeRecurringAsync` /
+  `RemoveRecurringAsync` / `RemoveObsoleteCodeDefinedRecurringAsync`; `GetDueRecurringAsync` +
+  `MaterializeRecurringAsync` (create occurrence + advance schedule, atomic).
+- **Reads (dashboard/monitoring):** `GetMonitoringSnapshotAsync`, `QueryJobsAsync`,
+  `GetJobStatusAsync`, `QueryBatchesAsync`, `QueryBatchMembersAsync`, `GetBatchStatusAsync`,
+  `GetBatchGraphAsync`.
+- **Maintenance & health:** `RetryAsync`, `DeleteAsync`, `PurgeAsync(retention)`, `HeartbeatAsync`,
+  `IsHealthyAsync`, `InitializeAsync`.
 
-Payloads are stored as JSON, serialized via the generated `JsonSerializerContext`. A pluggable `IJobSerializer` exists with the generated STJ implementation as default.
+Single-server mode additionally uses the small `IJobStorageReplica` capability to mirror the exact set
+of jobs its authoritative in-memory queue selected. Payloads are stored as JSON, serialized via the
+generated `JsonSerializerContext`. A pluggable `IJobSerializer` exists with the generated STJ
+implementation as default.
 
 ### 3.3 Execution model
 
@@ -271,7 +343,11 @@ Payloads are stored as JSON, serialized via the generated `JsonSerializerContext
 - **Timeouts:** per-job `Timeout` triggers cancellation of the handler's token; a timeout counts as a failed attempt.
 - **Dead-letter:** exhausted jobs move to `Failed` state, retained (default 7 days, configurable), visible and re-runnable from the dashboard.
 - **Poison-safety:** an unhandled exception in one job never affects the worker pool or other jobs.
-- **Job states:** `Scheduled → Pending → Active → Succeeded | Failed` (+ `Cancelled`). Succeeded history retained (default 24h, configurable).
+- **Job states:** `Scheduled → Pending → Active → Succeeded | Failed | Cancelled`. Continuation
+  children are created parked in `AwaitingContinuation` and flip to `Pending` (or `Cancelled`) as
+  their incoming edges are satisfied; `AwaitingParameters` is a reserved, currently-unused state for a
+  future deferred-input capability (providers treat it as non-acquirable, like `AwaitingContinuation`).
+  Succeeded history retained (default 24h, configurable).
 
 ---
 
@@ -280,8 +356,8 @@ Payloads are stored as JSON, serialized via the generated `JsonSerializerContext
 - **Stack:** Vue 3 + TypeScript SPA with Vue Router, TanStack Query, VueUse, and Tailwind CSS, compiled to static assets embedded in the NuGet package (no Node required by consumers). Small bundle target: < 200 KB gzipped.
 - **Hosting:** `app.MapImmediateJobsDashboard("/jobs")` maps the SPA plus a JSON API under the same prefix.
 - **Real-time:** Server-Sent Events for live updates (no SignalR dependency — keeps core lean and works everywhere); SPA falls back to polling.
-- **Views:** overview (throughput, queue depth, success/failure sparklines), recurring jobs (next/last run, pause state), job list per state with filtering/search, job detail (payload, attempts, errors, timings), servers/nodes (heartbeat, active workers).
-- **Actions:** trigger recurring job now · retry failed · delete failed · pause/resume recurring schedule.
+- **Views:** overview (throughput, queue depth, success/failure sparklines), recurring jobs (next/last run, pause state), job list per state with filtering/search, job detail (payload, attempts, errors, timings, incoming dependencies), batches (progress: total/pending/succeeded/failed/cancelled, per-member status, and the continuation **dependency graph**), servers/nodes (heartbeat, active workers).
+- **Actions:** trigger recurring job now · retry failed · delete failed · pause/resume recurring schedule · cancel a running batch · delete a terminal batch.
 - **Auth:** dashboard endpoints integrate with ASP.NET Core authorization — `MapImmediateJobsDashboard(o => o.RequireAuthorization("policy"))`. Default: allowed only in `Development` unless a policy is configured (Hangfire's local-only default, but explicit).
 - **Read/write split:** the JSON+SSE monitoring API is a documented, stable surface usable without the SPA.
 
@@ -314,6 +390,7 @@ Payloads are stored as JSON, serialized via the generated `JsonSerializerContext
 | **M2 — Durable & distributed** | Storage abstraction finalized, EF Core adapter with optimistic leases, single-server recovery, and multi-node tests                                                                                  |
 | **M3 — Dashboard**             | Monitoring API (JSON + SSE), Vue SPA, actions (trigger/retry/delete/pause), auth integration                                                                                                           |
 | **M4 — Polish & ship**         | `Immediate.Jobs.Testing`, OTel + metrics + health checks, AOT CI, benchmarks, docs site, v1.0 to NuGet                                                                                                 |
+| **M5 — Batches & continuations** | Atomic batches, job→job and batch continuations, fan-out/fan-in/diamonds, mid-job dynamic expansion, `AwaitingContinuation` state + edge/counter storage across providers, batch dashboard views & graph, new diagnostics |
 
 ---
 

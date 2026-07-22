@@ -36,7 +36,7 @@ public static class SampleApiEndpoints
 		CancellationToken cancellationToken
 	)
 	{
-		var job = await scheduler.Enqueue(new(name), cancellationToken);
+		var job = await scheduler.EnqueueAsync(new(name), cancellationToken);
 		return Results.Accepted(
 			"/jobs",
 			new EnqueueJobResponse(job.Id, new Uri("/jobs", UriKind.Relative))

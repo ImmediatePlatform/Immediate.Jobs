@@ -13,7 +13,7 @@ public sealed class TestingPackageTests
 		var scheduler = new CaptureOnlyJobScheduler<TestPayload>();
 		var payload = new TestPayload("hello");
 
-		var id = await scheduler.Enqueue(payload, TestContext.Current.CancellationToken);
+		var id = await scheduler.EnqueueAsync(payload, TestContext.Current.CancellationToken);
 
 		var capture = Assert.Single(scheduler.Captures);
 		Assert.Equal(id.Id, capture.Id);
@@ -42,7 +42,7 @@ public sealed class TestingPackageTests
 			harness.TimeProvider
 		);
 
-		var id = await scheduler.Schedule(new("payload"), TimeSpan.FromMinutes(5), cancellationToken);
+		var id = await scheduler.ScheduleAsync(new("payload"), TimeSpan.FromMinutes(5), cancellationToken);
 		var queued = await harness.AssertEnqueuedAsync<TestPayload>(id, JobState.Scheduled, cancellationToken);
 		Assert.Equal("payload", queued.Payload.Value);
 

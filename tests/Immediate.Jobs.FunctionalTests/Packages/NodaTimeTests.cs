@@ -18,8 +18,8 @@ public sealed class NodaTimeTests
 		var clock = new Microsoft.Extensions.Time.Testing.FakeTimeProvider(start.ToDateTimeOffset());
 		var scheduler = new CaptureOnlyJobScheduler<SchedulerRequest>(clock);
 
-		_ = await scheduler.Schedule(new("later"), Duration.FromMinutes(5), cancellationToken);
-		_ = await scheduler.ScheduleAt(new("absolute"), start + Duration.FromHours(2), cancellationToken);
+		_ = await scheduler.ScheduleAsync(new("later"), Duration.FromMinutes(5), cancellationToken);
+		_ = await scheduler.ScheduleAtAsync(new("absolute"), start + Duration.FromHours(2), cancellationToken);
 
 		Assert.Equal(start + Duration.FromMinutes(5), Instant.FromDateTimeOffset(scheduler.Captures[0].RunAt));
 		Assert.Equal(start + Duration.FromHours(2), Instant.FromDateTimeOffset(scheduler.Captures[1].RunAt));
@@ -38,34 +38,34 @@ public sealed class NodaTimeTests
 		);
 		await using var batch = harness.Batches.Begin();
 
-		var delayedBatchMember = await scheduler.AddToBatch(
+		var delayedBatchMember = await scheduler.AddToBatchAsync(
 			batch,
 			new("delayed-batch-member"),
 			Duration.FromMinutes(5),
 			cancellationToken
 		);
-		var absoluteBatchMember = await scheduler.AddToBatchAt(
+		var absoluteBatchMember = await scheduler.AddToBatchAtAsync(
 			batch,
 			new("absolute-batch-member"),
 			start + Duration.FromHours(2),
 			cancellationToken
 		);
-		var firstParent = await scheduler.AddToBatch(batch, new("first-parent"), cancellationToken: cancellationToken);
-		var secondParent = await scheduler.AddToBatch(batch, new("second-parent"), cancellationToken: cancellationToken);
-		var jobContinuation = await scheduler.ScheduleAfter(
+		var firstParent = await scheduler.AddToBatchAsync(batch, new("first-parent"), cancellationToken: cancellationToken);
+		var secondParent = await scheduler.AddToBatchAsync(batch, new("second-parent"), cancellationToken: cancellationToken);
+		var jobContinuation = await scheduler.ScheduleAfterAsync(
 			firstParent,
 			new("job-continuation"),
 			delay: Duration.FromMinutes(10),
 			cancellationToken: cancellationToken
 		);
-		var fanInContinuation = await scheduler.ScheduleAfter(
+		var fanInContinuation = await scheduler.ScheduleAfterAsync(
 			[firstParent, secondParent],
 			new("fan-in-continuation"),
 			delay: Duration.FromMinutes(15),
 			cancellationToken: cancellationToken
 		);
 		var batchHandle = await batch.CommitAsync(cancellationToken);
-		var batchContinuation = await scheduler.ScheduleAfter(
+		var batchContinuation = await scheduler.ScheduleAfterAsync(
 			batchHandle,
 			new("batch-continuation"),
 			delay: Duration.FromMinutes(20),
@@ -87,7 +87,7 @@ public sealed class NodaTimeTests
 		var scheduler = new CaptureOnlyRecurringJobScheduler();
 		var zone = DateTimeZoneProviders.Tzdb["Europe/Vienna"];
 
-		await scheduler.AddOrUpdateRecurring(
+		await scheduler.AddOrUpdateRecurringAsync(
 			"daily-report",
 			"0 8 * * *",
 			zone,

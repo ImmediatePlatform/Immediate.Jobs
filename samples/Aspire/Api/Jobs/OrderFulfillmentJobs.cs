@@ -43,7 +43,7 @@ public sealed partial class FraudCheckJob(
 
 		var currentJob = payload.JobDetails
 			?? throw new InvalidOperationException("Job details were not populated.");
-		_ = await recordFraudAssessment.ScheduleAfter(
+		_ = await recordFraudAssessment.ScheduleAfterAsync(
 			currentJob,
 			new(payload.OrderId),
 			ContinuationOptions.BeforeContinuations,

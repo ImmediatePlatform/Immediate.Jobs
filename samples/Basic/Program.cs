@@ -17,7 +17,7 @@ app.MapPost("/welcome/{userId:guid}", async (
 	CancellationToken cancellationToken
 ) =>
 {
-	var jobId = await scheduler.Enqueue(new(userId, "v2"), cancellationToken);
+	var jobId = await scheduler.EnqueueAsync(new(userId, "v2"), cancellationToken);
 	return Results.Accepted($"/jobs/api/jobs?search=send-welcome-email", new { jobId = jobId.Id });
 });
 app.MapImmediateJobsDashboard("/jobs");

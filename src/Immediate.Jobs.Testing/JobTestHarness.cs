@@ -152,7 +152,7 @@ public sealed class JobTestHarness : IAsyncDisposable, IDisposable
 	) => AssertEnqueuedAsync<TPayload>(job.Id, expectedState, cancellationToken);
 
 	/// <summary>Asserts that a committed batch and exactly the expected number of members are visible together.</summary>
-	public async ValueTask AssertBatchCommittedAtomically(
+	public async ValueTask AssertBatchCommittedAtomicallyAsync(
 		BatchHandle batch,
 		int expectedMembers,
 		CancellationToken cancellationToken = default
@@ -175,7 +175,7 @@ public sealed class JobTestHarness : IAsyncDisposable, IDisposable
 	}
 
 	/// <summary>Asserts that the child has a persisted dependency on the supplied parent.</summary>
-	public async ValueTask AssertContinuationReleasedAfter(
+	public async ValueTask AssertContinuationReleasedAfterAsync(
 		JobHandle parent,
 		JobHandle child,
 		CancellationToken cancellationToken = default
@@ -195,7 +195,7 @@ public sealed class JobTestHarness : IAsyncDisposable, IDisposable
 	}
 
 	/// <summary>Asserts that every supplied invocation was cancelled by a dependency cascade.</summary>
-	public async ValueTask AssertCascadeCancelled(
+	public async ValueTask AssertCascadeCancelledAsync(
 		IReadOnlyCollection<JobHandle> subtree,
 		CancellationToken cancellationToken = default
 	)

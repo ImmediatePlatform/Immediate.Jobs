@@ -6,7 +6,7 @@ namespace Immediate.Jobs.NodaTime;
 public static class NodaTimeJobSchedulerExtensions
 {
 	/// <summary>Schedules a payload after a NodaTime duration.</summary>
-	public static ValueTask<JobHandle> Schedule<TPayload>(
+	public static ValueTask<JobHandle> ScheduleAsync<TPayload>(
 		this IJobScheduler<TPayload> scheduler,
 		TPayload payload,
 		Duration delay,
@@ -14,11 +14,11 @@ public static class NodaTimeJobSchedulerExtensions
 	)
 	{
 		ArgumentNullException.ThrowIfNull(scheduler);
-		return scheduler.Schedule(payload, delay.ToTimeSpan(), cancellationToken);
+		return scheduler.ScheduleAsync(payload, delay.ToTimeSpan(), cancellationToken);
 	}
 
 	/// <summary>Schedules a payload at a NodaTime instant.</summary>
-	public static ValueTask<JobHandle> ScheduleAt<TPayload>(
+	public static ValueTask<JobHandle> ScheduleAtAsync<TPayload>(
 		this IJobScheduler<TPayload> scheduler,
 		TPayload payload,
 		Instant runAt,
@@ -26,11 +26,11 @@ public static class NodaTimeJobSchedulerExtensions
 	)
 	{
 		ArgumentNullException.ThrowIfNull(scheduler);
-		return scheduler.ScheduleAt(payload, runAt.ToDateTimeOffset(), cancellationToken);
+		return scheduler.ScheduleAtAsync(payload, runAt.ToDateTimeOffset(), cancellationToken);
 	}
 
 	/// <summary>Adds a payload to an atomic batch after a NodaTime duration.</summary>
-	public static ValueTask<JobHandle> AddToBatch<TPayload>(
+	public static ValueTask<JobHandle> AddToBatchAsync<TPayload>(
 		this JobScheduler<TPayload> scheduler,
 		IJobBatch batch,
 		TPayload payload,
@@ -39,11 +39,11 @@ public static class NodaTimeJobSchedulerExtensions
 	)
 	{
 		ArgumentNullException.ThrowIfNull(scheduler);
-		return scheduler.AddToBatch(batch, payload, delay?.ToTimeSpan(), cancellationToken);
+		return scheduler.AddToBatchAsync(batch, payload, delay?.ToTimeSpan(), cancellationToken);
 	}
 
 	/// <summary>Adds a payload to an atomic batch at a NodaTime instant.</summary>
-	public static ValueTask<JobHandle> AddToBatchAt<TPayload>(
+	public static ValueTask<JobHandle> AddToBatchAtAsync<TPayload>(
 		this JobScheduler<TPayload> scheduler,
 		IJobBatch batch,
 		TPayload payload,
@@ -52,11 +52,11 @@ public static class NodaTimeJobSchedulerExtensions
 	)
 	{
 		ArgumentNullException.ThrowIfNull(scheduler);
-		return scheduler.AddToBatchAt(batch, payload, runAt.ToDateTimeOffset(), cancellationToken);
+		return scheduler.AddToBatchAtAsync(batch, payload, runAt.ToDateTimeOffset(), cancellationToken);
 	}
 
 	/// <summary>Schedules a payload after one parent job with an optional NodaTime delay.</summary>
-	public static ValueTask<JobHandle> ScheduleAfter<TPayload>(
+	public static ValueTask<JobHandle> ScheduleAfterAsync<TPayload>(
 		this JobScheduler<TPayload> scheduler,
 		JobHandle parent,
 		TPayload payload,
@@ -66,11 +66,11 @@ public static class NodaTimeJobSchedulerExtensions
 	)
 	{
 		ArgumentNullException.ThrowIfNull(scheduler);
-		return scheduler.ScheduleAfter(parent, payload, on, delay?.ToTimeSpan(), cancellationToken);
+		return scheduler.ScheduleAfterAsync(parent, payload, on, delay?.ToTimeSpan(), cancellationToken);
 	}
 
 	/// <summary>Schedules a payload after every supplied parent job with an optional NodaTime delay.</summary>
-	public static ValueTask<JobHandle> ScheduleAfter<TPayload>(
+	public static ValueTask<JobHandle> ScheduleAfterAsync<TPayload>(
 		this JobScheduler<TPayload> scheduler,
 		ReadOnlySpan<JobHandle> parents,
 		TPayload payload,
@@ -80,11 +80,11 @@ public static class NodaTimeJobSchedulerExtensions
 	)
 	{
 		ArgumentNullException.ThrowIfNull(scheduler);
-		return scheduler.ScheduleAfter(parents, payload, on, delay?.ToTimeSpan(), cancellationToken);
+		return scheduler.ScheduleAfterAsync(parents, payload, on, delay?.ToTimeSpan(), cancellationToken);
 	}
 
 	/// <summary>Schedules a payload after a whole batch with an optional NodaTime delay.</summary>
-	public static ValueTask<JobHandle> ScheduleAfter<TPayload>(
+	public static ValueTask<JobHandle> ScheduleAfterAsync<TPayload>(
 		this JobScheduler<TPayload> scheduler,
 		BatchHandle parent,
 		TPayload payload,
@@ -94,11 +94,11 @@ public static class NodaTimeJobSchedulerExtensions
 	)
 	{
 		ArgumentNullException.ThrowIfNull(scheduler);
-		return scheduler.ScheduleAfter(parent, payload, on, delay?.ToTimeSpan(), cancellationToken);
+		return scheduler.ScheduleAfterAsync(parent, payload, on, delay?.ToTimeSpan(), cancellationToken);
 	}
 
 	/// <summary>Adds or replaces a recurring schedule in the supplied NodaTime zone.</summary>
-	public static ValueTask AddOrUpdateRecurring(
+	public static ValueTask AddOrUpdateRecurringAsync(
 		this IRecurringJobScheduler scheduler,
 		string name,
 		string cron,
@@ -108,6 +108,6 @@ public static class NodaTimeJobSchedulerExtensions
 	{
 		ArgumentNullException.ThrowIfNull(scheduler);
 		ArgumentNullException.ThrowIfNull(timeZone);
-		return scheduler.AddOrUpdateRecurring(name, cron, timeZone.Id, cancellationToken);
+		return scheduler.AddOrUpdateRecurringAsync(name, cron, timeZone.Id, cancellationToken);
 	}
 }
