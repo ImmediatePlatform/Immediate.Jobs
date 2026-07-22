@@ -173,14 +173,9 @@ public sealed class UsageContextExtractor(CurrentUsage current)
 {
     public string Key => "usage";
 
-    public ValueTask<UsageContext?> CaptureAsync(CancellationToken ct) =>
-        ValueTask.FromResult(current.Value);
+	public UsageContext? Capture() => current.Value;
 
-    public ValueTask RestoreAsync(UsageContext context, CancellationToken ct)
-    {
-        current.Value = context;
-        return ValueTask.CompletedTask;
-    }
+	public void Restore(UsageContext context) => current.Value = context;
 }
 
 [Handler, Job, UsesJobContext<UsageContextExtractor>]
@@ -188,7 +183,7 @@ public sealed partial class SendInvoiceJob { /* ... */ }
 ```
 
 `Key` is the stable name of the persisted envelope slice and must be unique among the extractors
-used by a job. `CaptureAsync` returns `null` when there is no context to persist. Context values use
+used by a job. `Capture` returns `null` when there is no context to persist. Context values use
 generated `JsonTypeInfo`, with the same supported-shape and Native AOT guarantees as job payloads.
 Capture failures fail enqueue; restore failures fail the current attempt and enter normal retry
 handling.
@@ -235,13 +230,13 @@ Dynamic schedules are persisted in storage (they survive restarts and are visibl
 ### 2.8 Batches & continuations (DAG workflows)
 
 Atomic batches and continuations are in the core package. They keep the **generated scheduler as the
-subject** — `sendEmail.AddToBatchAsync(batch, payload)` and `two.ScheduleAfterAsync(oneHandle, payload)` read
+subject** — `sendEmail.AddToBatch(batch, payload)` and `two.ScheduleAfterAsync(oneHandle, payload)` read
 exactly like `sendEmail.EnqueueAsync(payload)`. Nothing but data is ever persisted: no closures, no
 expression trees, no `MethodInfo` — so no reflective dispatch is introduced. Full design in
 [`docs/batches-and-continuations.md`](docs/batches-and-continuations.md).
 
 **Atomic batches.** `IJobBatchScheduler` is a scoped service. `Begin()` opens an in-memory buffer;
-each job's generated `AddToBatchAsync`/`AddToBatchAtAsync` buffers a fully-serialized `JobRecord`; `CommitAsync`
+each job's generated `AddToBatch`/`AddToBatchAt` buffers a fully-serialized `JobRecord`; `CommitAsync`
 flushes the whole buffer in **one atomic unit** (all rows or none). Disposing without committing rolls
 back. Because storage is touched only at commit, retrying the whole method after a mid-loop failure
 cannot double-enqueue. `RunAsync(body)` is sugar over `Begin → body → CommitAsync`.
@@ -256,7 +251,7 @@ parent is already terminal is evaluated immediately rather than waiting forever.
 
 **Mid-job dynamic expansion.** A running member can expand the workflow at execution time using its
 own `JobDetails` (from `IJobRequest`) as the "I am running inside this job" token:
-`ScheduleAfterAsync(JobDetails, …)` is *gated* (buffered until the current job succeeds, so retries don't
+`ScheduleAfter(JobDetails, …)` is *gated* (buffered until the current job succeeds, so retries don't
 double-schedule) and `AddToBatchAsync(JobDetails, …)` is *concurrent* (written immediately). A
 `ContinuationOptions` value (`Detached` | `BesideContinuations` | `BeforeContinuations`, default
 `BeforeContinuations`) chooses how the current job's existing waiters relate to the new work; the

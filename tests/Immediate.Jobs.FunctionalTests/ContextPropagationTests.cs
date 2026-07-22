@@ -92,7 +92,7 @@ public sealed class ContextPropagationTests
 		await using var scope = harness.Services.CreateAsyncScope();
 		var scheduler = scope.ServiceProvider.GetRequiredService<DuplicateContextKeyJob.Scheduler>();
 
-		var exception = await Assert.ThrowsAsync<InvalidOperationException>(
+		var exception = await Assert.ThrowsAsync<ImmediateJobException>(
 			() => scheduler.EnqueueAsync(default, cancellationToken).AsTask()
 		);
 
@@ -179,6 +179,43 @@ public sealed class ContextPropagationTests
 		Assert.Null(job.Context);
 		Assert.Equal(JobState.Succeeded, job.State);
 		Assert.Contains("cron:no-context", probe.Events);
+	}
+
+	[Fact]
+	public async Task CustomIdGeneratorCreatesJobBatchAndRecurringIds()
+	{
+		var cancellationToken = TestContext.Current.CancellationToken;
+		var probe = new ContextProbe();
+		await using var harness = new JobTestHarness(services =>
+		{
+			_ = services.AddSingleton(probe);
+			_ = services.AddSingleton(new ExecutionState());
+			_ = services.AddScoped<PropagationScopeState>();
+			_ = services.AddSingleton<IIdGenerator, ReplacedIdGenerator>();
+			_ = services.AddImmediateJobsFunctionalTestsBehaviors();
+			_ = services.AddImmediateJobs().UseIdGenerator<TestIdGenerator>();
+		});
+
+		_ = Assert.IsType<TestIdGenerator>(harness.Services.GetRequiredService<IIdGenerator>());
+		await using var scope = harness.Services.CreateAsyncScope();
+		var scheduler = scope.ServiceProvider.GetRequiredService<ContextRoundTripJob.Scheduler>();
+		var batches = scope.ServiceProvider.GetRequiredService<IJobBatchScheduler>();
+		var job = await scheduler.EnqueueAsync(new("custom-id"), cancellationToken);
+		await using var batch = batches.Begin();
+		var batchJob = scheduler.AddToBatch(batch, new("batch-id"));
+		var batchHandle = await batch.CommitAsync(cancellationToken);
+
+		await harness.DrainAsync(cancellationToken);
+		await harness.AdvanceTimeAndDrainAsync(TimeSpan.FromSeconds(1), cancellationToken);
+		var recurring = Assert.Single(
+			await harness.QueryJobsAsync(cancellationToken: cancellationToken),
+			candidate => candidate.JobName == "context-cron"
+		);
+
+		Assert.StartsWith("job_", job.Id, StringComparison.Ordinal);
+		Assert.StartsWith("job_", batchJob.Id, StringComparison.Ordinal);
+		Assert.StartsWith("batch_", batchHandle.Id, StringComparison.Ordinal);
+		Assert.StartsWith("job_", recurring.Id, StringComparison.Ordinal);
 	}
 
 	[Fact]
@@ -288,18 +325,17 @@ public sealed class TenantContextExtractor(PropagationScopeState state, ContextP
 {
 	public string Key => "tenant";
 
-	public ValueTask<TenantContext?> CaptureAsync(CancellationToken cancellationToken)
+	public TenantContext? Capture()
 	{
 		probe.Events.Add("capture:tenant");
-		return ValueTask.FromResult(state.TenantId is null ? null : new TenantContext(state.TenantId));
+		return state.TenantId is null ? null : new TenantContext(state.TenantId);
 	}
 
-	public ValueTask RestoreAsync(TenantContext context, CancellationToken cancellationToken)
+	public void Restore(TenantContext context)
 	{
 		ArgumentNullException.ThrowIfNull(context);
 		probe.Events.Add("restore:tenant");
 		state.TenantId = context.TenantId;
-		return ValueTask.CompletedTask;
 	}
 }
 
@@ -308,50 +344,69 @@ public sealed class CorrelationContextExtractor(PropagationScopeState state, Con
 {
 	public string Key => "correlation";
 
-	public ValueTask<CorrelationContext?> CaptureAsync(CancellationToken cancellationToken)
+	public CorrelationContext? Capture()
 	{
 		probe.Events.Add("capture:correlation");
-		return ValueTask.FromResult(state.CorrelationId is null ? null : new CorrelationContext(state.CorrelationId));
+		return state.CorrelationId is null ? null : new CorrelationContext(state.CorrelationId);
 	}
 
-	public ValueTask RestoreAsync(CorrelationContext context, CancellationToken cancellationToken)
+	public void Restore(CorrelationContext context)
 	{
 		ArgumentNullException.ThrowIfNull(context);
 		probe.Events.Add("restore:correlation");
 		state.CorrelationId = context.CorrelationId;
-		return ValueTask.CompletedTask;
 	}
 }
 
 public sealed class ThrowingCaptureExtractor : IJobContextExtractor<FailureContext>
 {
 	public string Key => "capture-failure";
-	public ValueTask<FailureContext?> CaptureAsync(CancellationToken cancellationToken) =>
+	public FailureContext? Capture() =>
 		throw new InvalidOperationException("Capture failed");
-	public ValueTask RestoreAsync(FailureContext context, CancellationToken cancellationToken) => ValueTask.CompletedTask;
+	public void Restore(FailureContext context) { }
 }
 
 public sealed class ThrowingRestoreExtractor : IJobContextExtractor<FailureContext>
 {
 	public string Key => "restore-failure";
-	public ValueTask<FailureContext?> CaptureAsync(CancellationToken cancellationToken) =>
-		ValueTask.FromResult<FailureContext?>(new("captured"));
-	public ValueTask RestoreAsync(FailureContext context, CancellationToken cancellationToken) =>
+	public FailureContext? Capture() => new("captured");
+	public void Restore(FailureContext context) =>
 		throw new InvalidOperationException("Restore failed");
 }
 
 public sealed class FirstNullExtractor : IJobContextExtractor<EmptyContext>
 {
 	public string Key => "duplicate";
-	public ValueTask<EmptyContext?> CaptureAsync(CancellationToken cancellationToken) => ValueTask.FromResult<EmptyContext?>(null);
-	public ValueTask RestoreAsync(EmptyContext context, CancellationToken cancellationToken) => ValueTask.CompletedTask;
+	public EmptyContext? Capture() => null;
+	public void Restore(EmptyContext context) { }
 }
 
 public sealed class SecondNullExtractor : IJobContextExtractor<EmptyContext>
 {
 	public string Key => "duplicate";
-	public ValueTask<EmptyContext?> CaptureAsync(CancellationToken cancellationToken) => ValueTask.FromResult<EmptyContext?>(null);
-	public ValueTask RestoreAsync(EmptyContext context, CancellationToken cancellationToken) => ValueTask.CompletedTask;
+	public EmptyContext? Capture() => null;
+	public void Restore(EmptyContext context) { }
+}
+
+public sealed class ReplacedIdGenerator : IIdGenerator
+{
+	public string CreateId(IdKind kind) => "replaced";
+}
+
+public sealed class TestIdGenerator(TimeProvider timeProvider) : IIdGenerator
+{
+	private int _sequence;
+
+	public string CreateId(IdKind kind)
+	{
+		var prefix = kind switch
+		{
+			IdKind.Job => "job",
+			IdKind.Batch => "batch",
+			_ => throw new ArgumentOutOfRangeException(nameof(kind)),
+		};
+		return $"{prefix}_{timeProvider.GetUtcNow().UtcTicks}_{Interlocked.Increment(ref _sequence)}";
+	}
 }
 
 public sealed class ContextHandlerBehavior<TRequest, TResponse>(PropagationScopeState state, ContextProbe probe)

@@ -49,6 +49,20 @@ public sealed class ImportWorker(IServiceScopeFactory scopeFactory)
 string invocation ID. Consumers must not parse it or depend on its format; storage integrations may
 use another string ID scheme.
 
+Applications that need Snowflake, ULID, or another identifier format can replace the singleton ID
+generator. The implementation is resolved from DI and must be thread-safe:
+
+```csharp
+services.AddImmediateJobs(options => options.UseInMemory())
+	.UseIdGenerator<SnowflakeIdGenerator>();
+
+sealed class SnowflakeIdGenerator(ISnowflakeService snowflakes) : IIdGenerator
+{
+	public string CreateId(IdKind kind) =>
+		$"{(kind is IdKind.Job ? "job" : "batch")}_{snowflakes.GenerateSnowflakeId()}";
+}
+```
+
 ## Batches and continuations
 
 Inject `IJobBatchScheduler` to create an atomic group. Generated schedulers add their own typed
@@ -59,7 +73,7 @@ writes nothing.
 ```csharp
 await using var batch = batches.Begin();
 
-var imported = await import.AddToBatchAsync(batch, new(importId), cancellationToken: cancellationToken);
+var imported = import.AddToBatch(batch, new(importId));
 var indexed = await index.ScheduleAfterAsync(imported, new(importId), cancellationToken: cancellationToken);
 
 var notifyOwner = await notify.ScheduleAfterAsync(indexed, new(importId), cancellationToken: cancellationToken);
@@ -198,14 +212,9 @@ public sealed class UsageContextExtractor(CurrentUsage current)
 {
 	public string Key => "usage"; // stable across extractor type renames
 
-	public ValueTask<UsageContext?> CaptureAsync(CancellationToken cancellationToken) =>
-		ValueTask.FromResult(current.Value);
+	public UsageContext? Capture() => current.Value;
 
-	public ValueTask RestoreAsync(UsageContext context, CancellationToken cancellationToken)
-	{
-		current.Value = context;
-		return ValueTask.CompletedTask;
-	}
+	public void Restore(UsageContext context) => current.Value = context;
 }
 
 [Handler, Job, UsesJobContext<UsageContextExtractor>]
@@ -230,7 +239,7 @@ public sealed partial class SendInvoiceJob
 ```
 
 Extractor keys identify persisted envelope slices and must be unique for a job. Return `null` from
-`CaptureAsync` when there is no context to persist, as is typical when recurring work is
+`Capture` when there is no context to persist, as is typical when recurring work is
 materialized outside a request.
 
 ## Storage providers
@@ -333,6 +342,9 @@ are paged on the server in groups of 50; batch members show a link to their work
 | `IJOB018` | A continuation dependency cycle was detected |
 | `IJOB019` | A batch handle was used after commit or disposal |
 | `IJOB020` | `AddToBatchAsync(JobDetails, ..., Detached)` is contradictory |
+
+Invalid Immediate.Jobs runtime operations and states throw `ImmediateJobException`. Invalid method
+arguments, cron expressions, serialized data, and missing records retain their standard exception types.
 
 ## Observability
 

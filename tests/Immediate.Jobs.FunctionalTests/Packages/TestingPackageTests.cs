@@ -39,7 +39,8 @@ public sealed class TestingPackageTests
 		var scheduler = new TestScheduler(
 			harness.Storage,
 			harness.Services.GetRequiredService<IJobSerializer>(),
-			harness.TimeProvider
+			harness.TimeProvider,
+			harness.Services.GetRequiredService<IIdGenerator>()
 		);
 
 		var id = await scheduler.ScheduleAsync(new("payload"), TimeSpan.FromMinutes(5), cancellationToken);
@@ -59,11 +60,17 @@ public sealed class TestingPackageTests
 		public int Count { get; set; }
 	}
 
-	private sealed class TestScheduler(IJobStorage storage, IJobSerializer serializer, TimeProvider timeProvider)
+	private sealed class TestScheduler(
+		IJobStorage storage,
+		IJobSerializer serializer,
+		TimeProvider timeProvider,
+		IIdGenerator idGenerator
+	)
 		: JobScheduler<TestPayload>(
 			storage,
 			serializer,
 			timeProvider,
+			idGenerator,
 			"test-job",
 			JobQueueDefinition.DefaultName,
 			static options => new TestingJsonContext(options).TestPayload

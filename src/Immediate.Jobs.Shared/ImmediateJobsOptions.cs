@@ -104,7 +104,7 @@ public sealed class ImmediateJobsOptions
 	internal IJobStorage CreateStorage(IServiceProvider services)
 	{
 		var storage = StorageFactory!(services)
-			?? throw new InvalidOperationException("The Immediate.Jobs storage factory returned null.");
+			?? throw new ImmediateJobException("The Immediate.Jobs storage factory returned null.");
 		if (StorageMode != JobStorageMode.SingleServer)
 			return storage;
 
@@ -130,19 +130,19 @@ public sealed class ImmediateJobsOptions
 	internal void Validate()
 	{
 		if (MaxParallelJobs <= 0)
-			throw new InvalidOperationException("MaxParallelJobs must be greater than zero.");
+			throw new ImmediateJobException("MaxParallelJobs must be greater than zero.");
 		if (AcquisitionBatchSize <= 0)
-			throw new InvalidOperationException("AcquisitionBatchSize must be greater than zero.");
+			throw new ImmediateJobException("AcquisitionBatchSize must be greater than zero.");
 		if (PollingInterval <= TimeSpan.Zero)
-			throw new InvalidOperationException("PollingInterval must be greater than zero.");
+			throw new ImmediateJobException("PollingInterval must be greater than zero.");
 		if (LeaseDuration <= TimeSpan.Zero)
-			throw new InvalidOperationException("LeaseDuration must be greater than zero.");
+			throw new ImmediateJobException("LeaseDuration must be greater than zero.");
 		if (ShutdownTimeout < TimeSpan.Zero)
-			throw new InvalidOperationException("ShutdownTimeout cannot be negative.");
+			throw new ImmediateJobException("ShutdownTimeout cannot be negative.");
 		if (SucceededRetention < TimeSpan.Zero || FailedRetention < TimeSpan.Zero ||
 			BatchSucceededRetention < TimeSpan.Zero || BatchFailedRetention < TimeSpan.Zero)
 		{
-			throw new InvalidOperationException("Retention periods cannot be negative.");
+			throw new ImmediateJobException("Retention periods cannot be negative.");
 		}
 	}
 }

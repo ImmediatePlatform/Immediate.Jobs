@@ -146,7 +146,7 @@ public sealed class EntityFrameworkCoreJobStorageTests
 		};
 		await storage.UpsertRecurringAsync(codeDefined, cancellationToken);
 
-		var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+		var exception = await Assert.ThrowsAsync<ImmediateJobException>(() =>
 			storage.UpsertRecurringAsync(
 				codeDefined with { Cron = "0 0 * * *", IsCodeDefined = false },
 				cancellationToken

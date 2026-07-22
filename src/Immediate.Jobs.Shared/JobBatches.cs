@@ -27,16 +27,21 @@ public interface IJobBatchScheduler
 }
 
 /// <summary>Default scoped atomic-batch scheduler.</summary>
-public sealed class JobBatchScheduler(IJobStorage storage, TimeProvider timeProvider) : IJobBatchScheduler
+public sealed class JobBatchScheduler(
+	IJobStorage storage,
+	TimeProvider timeProvider,
+	IIdGenerator idGenerator
+) : IJobBatchScheduler
 {
 	/// <inheritdoc />
-	public IJobBatch Begin() => new JobBatch(storage, timeProvider, after: null, ContinuationTrigger.Success);
+	public IJobBatch Begin() =>
+		new JobBatch(storage, timeProvider, idGenerator, after: null, ContinuationTrigger.Success);
 
 	/// <inheritdoc />
 	public IJobBatch Begin(BatchHandle after, ContinuationTrigger on = ContinuationTrigger.Success)
 	{
 		ArgumentNullException.ThrowIfNull(after);
-		return new JobBatch(storage, timeProvider, after, on);
+		return new JobBatch(storage, timeProvider, idGenerator, after, on);
 	}
 
 	/// <inheritdoc />
@@ -55,6 +60,7 @@ public sealed class JobBatchScheduler(IJobStorage storage, TimeProvider timeProv
 internal sealed class JobBatch(
 	IJobStorage storage,
 	TimeProvider timeProvider,
+	IIdGenerator idGenerator,
 	BatchHandle? after,
 	ContinuationTrigger trigger
 ) : IJobBatch
@@ -63,7 +69,7 @@ internal sealed class JobBatch(
 	private readonly List<JobContinuationEdge> _edges = [];
 	private bool _finished;
 
-	public string Id { get; } = Guid.NewGuid().ToString("N");
+	public string Id { get; } = idGenerator.CreateId(IdKind.Batch);
 
 	internal JobHandle Add(JobRecord record, ReadOnlySpan<JobHandle> parents, ContinuationTrigger on)
 	{
@@ -78,9 +84,9 @@ internal sealed class JobBatch(
 		foreach (var parent in parents)
 		{
 			if (parent.Batch != this)
-				throw new InvalidOperationException("IJOB017: Continuation handles must belong to the same open batch.");
+				throw new ImmediateJobException("IJOB017: Continuation handles must belong to the same open batch.");
 			if (!parentIds.Add(parent.Id))
-				throw new InvalidOperationException($"Duplicate continuation parent '{parent.Id}'.");
+				throw new ImmediateJobException($"Duplicate continuation parent '{parent.Id}'.");
 		}
 
 		_jobs.Add(record with
@@ -106,7 +112,7 @@ internal sealed class JobBatch(
 	{
 		EnsureOpen();
 		if (_jobs.Count == 0)
-			throw new InvalidOperationException("IJOB016: An atomic batch cannot be committed without jobs.");
+			throw new ImmediateJobException("IJOB016: An atomic batch cannot be committed without jobs.");
 
 		if (after is { } parentBatch)
 		{
@@ -156,7 +162,7 @@ internal sealed class JobBatch(
 	internal void EnsureOpen()
 	{
 		if (_finished)
-			throw new InvalidOperationException("IJOB019: A batch or one of its handles was used after commit or disposal.");
+			throw new ImmediateJobException("IJOB019: A batch or one of its handles was used after commit or disposal.");
 	}
 }
 

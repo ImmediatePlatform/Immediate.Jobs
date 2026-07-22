@@ -14,6 +14,7 @@ public sealed partial class JobSchedulerService : BackgroundService
 	private readonly IJobStorage _storage;
 	private readonly ImmediateJobsOptions _options;
 	private readonly TimeProvider _timeProvider;
+	private readonly IIdGenerator _idGenerator;
 	private readonly ILogger<JobSchedulerService> _logger;
 	private readonly JobSchedulerState _state;
 	private readonly IReadOnlyDictionary<string, JobDefinition> _definitions;
@@ -36,6 +37,7 @@ public sealed partial class JobSchedulerService : BackgroundService
 		IEnumerable<JobQueueDefinition> queueDefinitions,
 		ImmediateJobsOptions options,
 		TimeProvider timeProvider,
+		IIdGenerator idGenerator,
 		ILogger<JobSchedulerService> logger,
 		JobSchedulerState state
 	)
@@ -47,6 +49,7 @@ public sealed partial class JobSchedulerService : BackgroundService
 		ArgumentNullException.ThrowIfNull(queueDefinitions);
 		ArgumentNullException.ThrowIfNull(options);
 		ArgumentNullException.ThrowIfNull(timeProvider);
+		ArgumentNullException.ThrowIfNull(idGenerator);
 		ArgumentNullException.ThrowIfNull(logger);
 		ArgumentNullException.ThrowIfNull(state);
 
@@ -54,6 +57,7 @@ public sealed partial class JobSchedulerService : BackgroundService
 		_storage = storage;
 		_options = options;
 		_timeProvider = timeProvider;
+		_idGenerator = idGenerator;
 		_logger = logger;
 		_state = state;
 		_definitions = definitions.ToDictionary(x => x.Name, StringComparer.Ordinal);
@@ -431,7 +435,7 @@ public sealed partial class JobSchedulerService : BackgroundService
 		{
 			var zone = JobCron.GetTimeZone(definition.TimeZone);
 			var next = JobCron.Parse(definition.Cron!).GetNextOccurrence(now, zone)
-				?? throw new InvalidOperationException($"Cron for '{definition.Name}' has no future occurrence.");
+				?? throw new ImmediateJobException($"Cron for '{definition.Name}' has no future occurrence.");
 			await _storage.UpsertRecurringAsync(
 				new()
 				{
@@ -483,11 +487,11 @@ public sealed partial class JobSchedulerService : BackgroundService
 
 			var expression = JobCron.Parse(schedule.Cron);
 			var next = expression.GetNextOccurrence(schedule.NextRunAt, JobCron.GetTimeZone(schedule.TimeZone))
-				?? throw new InvalidOperationException($"Recurring schedule '{schedule.Name}' has no future occurrence.");
+				?? throw new ImmediateJobException($"Recurring schedule '{schedule.Name}' has no future occurrence.");
 			var (traceParent, traceState) = TraceContextCapture.Current();
 			var record = new JobRecord
 			{
-				Id = Guid.NewGuid().ToString("N"),
+				Id = _idGenerator.CreateId(IdKind.Job),
 				JobName = schedule.JobName,
 				QueueName = definition.Queue.Name,
 				Payload = "{}",

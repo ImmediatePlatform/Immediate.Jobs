@@ -11,25 +11,24 @@ public partial class CleanupSessionsJob
 		public sealed class Scheduler(
 			global::Immediate.Jobs.Shared.IJobStorage storage,
 			global::Immediate.Jobs.Shared.IJobSerializer serializer,
-			global::System.TimeProvider timeProvider
+			global::System.TimeProvider timeProvider,
+			global::Immediate.Jobs.Shared.IIdGenerator idGenerator
 		) : global::Immediate.Jobs.Shared.JobScheduler<global::Immediate.Jobs.Shared.NoPayload>(
-			storage, serializer, timeProvider, "cleanup-sessions", "default", static options => new PayloadJsonContext(options).Payload),
+			storage, serializer, timeProvider, idGenerator, "cleanup-sessions", "default", static options => new PayloadJsonContext(options).Payload),
 			global::Immediate.Jobs.Shared.IRecurringJobTrigger
 		{
 
-			public new global::System.Threading.Tasks.ValueTask<global::Immediate.Jobs.Shared.JobHandle> AddToBatchAsync(
+			public new global::Immediate.Jobs.Shared.JobHandle AddToBatch(
 				global::Immediate.Jobs.Shared.IJobBatch batch,
 				global::Immediate.Jobs.Shared.NoPayload payload,
-				global::System.TimeSpan? delay = null,
-				global::System.Threading.CancellationToken cancellationToken = default) =>
-				base.AddToBatchAsync(batch, payload, delay, cancellationToken);
+				global::System.TimeSpan? delay = null) =>
+				base.AddToBatch(batch, payload, delay);
 
-			public new global::System.Threading.Tasks.ValueTask<global::Immediate.Jobs.Shared.JobHandle> AddToBatchAtAsync(
+			public new global::Immediate.Jobs.Shared.JobHandle AddToBatchAt(
 				global::Immediate.Jobs.Shared.IJobBatch batch,
 				global::Immediate.Jobs.Shared.NoPayload payload,
-				global::System.DateTimeOffset runAt,
-				global::System.Threading.CancellationToken cancellationToken = default) =>
-				base.AddToBatchAtAsync(batch, payload, runAt, cancellationToken);
+				global::System.DateTimeOffset runAt) =>
+				base.AddToBatchAt(batch, payload, runAt);
 
 			public new global::System.Threading.Tasks.ValueTask<global::Immediate.Jobs.Shared.JobHandle> ScheduleAfterAsync(
 				global::Immediate.Jobs.Shared.JobHandle parent,
@@ -55,12 +54,11 @@ public partial class CleanupSessionsJob
 				global::System.Threading.CancellationToken cancellationToken = default) =>
 				base.ScheduleAfterAsync(parent, payload, on, delay, cancellationToken);
 
-			public new global::System.Threading.Tasks.ValueTask<global::Immediate.Jobs.Shared.JobHandle> ScheduleAfterAsync(
+			public new global::Immediate.Jobs.Shared.JobHandle ScheduleAfter(
 				global::Immediate.Jobs.Shared.JobDetails current,
 				global::Immediate.Jobs.Shared.NoPayload payload,
-				global::Immediate.Jobs.Shared.ContinuationOptions options = global::Immediate.Jobs.Shared.ContinuationOptions.BeforeContinuations,
-				global::System.Threading.CancellationToken cancellationToken = default) =>
-				base.ScheduleAfterAsync(current, payload, options, cancellationToken);
+				global::Immediate.Jobs.Shared.ContinuationOptions options = global::Immediate.Jobs.Shared.ContinuationOptions.BeforeContinuations) =>
+				base.ScheduleAfter(current, payload, options);
 
 			public new global::System.Threading.Tasks.ValueTask<global::Immediate.Jobs.Shared.JobHandle> AddToBatchAsync(
 				global::Immediate.Jobs.Shared.JobDetails current,

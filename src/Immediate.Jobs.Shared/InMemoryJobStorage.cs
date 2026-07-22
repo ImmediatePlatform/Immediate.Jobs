@@ -31,7 +31,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) : IJobStorage,
 		lock (_gate)
 		{
 			if (!_jobs.TryAdd(job.Id, job))
-				throw new InvalidOperationException($"Job '{job.Id}' already exists.");
+				throw new ImmediateJobException($"Job '{job.Id}' already exists.");
 		}
 
 		return ValueTask.CompletedTask;
@@ -258,21 +258,21 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) : IJobStorage,
 				ArgumentNullException.ThrowIfNull(addition.Job);
 				ValidateNewJob(addition.Job);
 				if (!newJobIds.Add(addition.Job.Id))
-					throw new InvalidOperationException($"Job '{addition.Job.Id}' occurs more than once in the completion buffer.");
+					throw new ImmediateJobException($"Job '{addition.Job.Id}' occurs more than once in the completion buffer.");
 				if (addition.Job.State is not (JobState.Pending or JobState.Scheduled))
-					throw new InvalidOperationException($"Dynamic continuation '{addition.Job.Id}' has invalid state '{addition.Job.State}'.");
+					throw new ImmediateJobException($"Dynamic continuation '{addition.Job.Id}' has invalid state '{addition.Job.State}'.");
 				if (!Enum.IsDefined(addition.Trigger))
 					throw new ArgumentOutOfRangeException(nameof(additions), "Unknown continuation trigger.");
 
 				if (addition.Options == ContinuationOptions.Detached)
 				{
 					if (addition.Job.BatchId is not null)
-						throw new InvalidOperationException("A detached continuation cannot belong to a batch.");
+						throw new ImmediateJobException("A detached continuation cannot belong to a batch.");
 				}
 				else if (addition.Options is ContinuationOptions.BesideContinuations or ContinuationOptions.BeforeContinuations)
 				{
 					if (current.BatchId is null || addition.Job.BatchId != current.BatchId)
-						throw new InvalidOperationException("A batch-tracked continuation must belong to the current job's batch.");
+						throw new ImmediateJobException("A batch-tracked continuation must belong to the current job's batch.");
 					trackedAdditions++;
 				}
 				else
@@ -320,18 +320,18 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) : IJobStorage,
 		lock (_gate)
 		{
 			if (!_jobs.TryGetValue(currentJobId, out var current) || current.State != JobState.Active)
-				throw new InvalidOperationException($"Job '{currentJobId}' is not currently active.");
+				throw new ImmediateJobException($"Job '{currentJobId}' is not currently active.");
 			if (current.BatchId is null || !_batches.ContainsKey(current.BatchId))
-				throw new InvalidOperationException("The current job does not belong to a batch.");
+				throw new ImmediateJobException("The current job does not belong to a batch.");
 			if (options == ContinuationOptions.Detached)
-				throw new InvalidOperationException("IJOB020: AddToBatchAsync(JobDetails, ...) cannot create detached work.");
+				throw new ImmediateJobException("IJOB020: AddToBatchAsync(JobDetails, ...) cannot create detached work.");
 			if (options is not (ContinuationOptions.BesideContinuations or ContinuationOptions.BeforeContinuations))
 				throw new ArgumentOutOfRangeException(nameof(options));
 			ValidateNewJob(job);
 			if (job.BatchId != current.BatchId)
-				throw new InvalidOperationException("The new job must belong to the current job's batch.");
+				throw new ImmediateJobException("The new job must belong to the current job's batch.");
 			if (job.State is JobState.Active or JobState.AwaitingContinuation || IsTerminal(job.State))
-				throw new InvalidOperationException($"Concurrent batch member '{job.Id}' has invalid state '{job.State}'.");
+				throw new ImmediateJobException($"Concurrent batch member '{job.Id}' has invalid state '{job.State}'.");
 
 			var existingWaiters = options == ContinuationOptions.BeforeContinuations
 				? GetUnsettledWaiters(currentJobId)
@@ -391,7 +391,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) : IJobStorage,
 			if (_recurring.TryGetValue(schedule.Name, out var current))
 			{
 				if (current.IsCodeDefined && !schedule.IsCodeDefined)
-					throw new InvalidOperationException("Code-defined recurring schedules cannot be replaced by dynamic schedules.");
+					throw new ImmediateJobException("Code-defined recurring schedules cannot be replaced by dynamic schedules.");
 
 				schedule = schedule with { IsPaused = current.IsPaused, LastRunAt = current.LastRunAt };
 			}
@@ -431,7 +431,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) : IJobStorage,
 		lock (_gate)
 		{
 			if (_recurring.TryGetValue(name, out var schedule) && schedule.IsCodeDefined)
-				throw new InvalidOperationException("Code-defined recurring schedules cannot be deleted.");
+				throw new ImmediateJobException("Code-defined recurring schedules cannot be deleted.");
 
 			_ = _recurring.Remove(name);
 		}
@@ -678,7 +678,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) : IJobStorage,
 			if (!_batches.TryGetValue(batchId, out var batch))
 				throw new KeyNotFoundException($"Batch '{batchId}' was not found.");
 			if (batch.State != BatchState.Executing)
-				throw new InvalidOperationException("Only an executing batch can be cancelled.");
+				throw new ImmediateJobException("Only an executing batch can be cancelled.");
 
 			foreach (var jobId in _jobs.Values
 				.Where(job => job.BatchId == batchId && !IsTerminal(job.State))
@@ -702,7 +702,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) : IJobStorage,
 			if (!_batches.TryGetValue(batchId, out var batch))
 				throw new KeyNotFoundException($"Batch '{batchId}' was not found.");
 			if (batch.State == BatchState.Executing)
-				throw new InvalidOperationException("Only a terminal batch can be deleted.");
+				throw new ImmediateJobException("Only a terminal batch can be deleted.");
 
 			var jobIds = _jobs.Values
 				.Where(job => job.BatchId == batchId)
@@ -724,7 +724,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) : IJobStorage,
 		lock (_gate)
 		{
 			if (!_jobs.TryGetValue(jobId, out var job) || job.State != JobState.Failed)
-				throw new InvalidOperationException("Only failed jobs can be retried.");
+				throw new ImmediateJobException("Only failed jobs can be retried.");
 
 			_jobs[jobId] = job with
 			{
@@ -757,9 +757,9 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) : IJobStorage,
 			if (!_jobs.TryGetValue(jobId, out var job))
 				return ValueTask.CompletedTask;
 			if (!IsTerminal(job.State))
-				throw new InvalidOperationException("Only terminal jobs can be deleted.");
+				throw new ImmediateJobException("Only terminal jobs can be deleted.");
 			if (job.BatchId is not null)
-				throw new InvalidOperationException("Batch members cannot be deleted individually.");
+				throw new ImmediateJobException("Batch members cannot be deleted individually.");
 
 			_ = _jobs.Remove(jobId);
 			RemoveEdgesForJobs(new(StringComparer.Ordinal) { jobId });
@@ -834,7 +834,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) : IJobStorage,
 		ArgumentException.ThrowIfNullOrWhiteSpace(job.Id);
 		ArgumentException.ThrowIfNullOrWhiteSpace(job.JobName);
 		if (_jobs.ContainsKey(job.Id))
-			throw new InvalidOperationException($"Job '{job.Id}' already exists.");
+			throw new ImmediateJobException($"Job '{job.Id}' already exists.");
 	}
 
 	private void ValidateBatch(
@@ -845,9 +845,9 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) : IJobStorage,
 	{
 		ArgumentException.ThrowIfNullOrWhiteSpace(batch.Id);
 		if (_batches.ContainsKey(batch.Id))
-			throw new InvalidOperationException($"Batch '{batch.Id}' already exists.");
+			throw new ImmediateJobException($"Batch '{batch.Id}' already exists.");
 		if (jobs.Count == 0)
-			throw new InvalidOperationException("An atomic batch cannot be empty.");
+			throw new ImmediateJobException("An atomic batch cannot be empty.");
 		var succeeded = jobs.Count(static job => job.State == JobState.Succeeded);
 		var failed = jobs.Count(static job => job.State == JobState.Failed);
 		var cancelled = jobs.Count(static job => job.State == JobState.Cancelled);
@@ -863,7 +863,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) : IJobStorage,
 			batch.State != expectedState ||
 			(pending == 0) != (batch.CompletedAt is not null))
 		{
-			throw new InvalidOperationException("A batch header does not match its members or aggregate state.");
+			throw new ImmediateJobException("A batch header does not match its members or aggregate state.");
 		}
 
 		var jobIds = new HashSet<string>(StringComparer.Ordinal);
@@ -871,9 +871,9 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) : IJobStorage,
 		{
 			ValidateNewJob(job);
 			if (!jobIds.Add(job.Id))
-				throw new InvalidOperationException($"Job '{job.Id}' occurs more than once in the batch.");
+				throw new ImmediateJobException($"Job '{job.Id}' occurs more than once in the batch.");
 			if (job.BatchId != batch.Id)
-				throw new InvalidOperationException($"Job '{job.Id}' does not belong to batch '{batch.Id}'.");
+				throw new ImmediateJobException($"Job '{job.Id}' does not belong to batch '{batch.Id}'.");
 		}
 
 		ValidateEdges(jobs, edges, batch.Id);
@@ -886,7 +886,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) : IJobStorage,
 	)
 	{
 		if (batchId is null && edges.Count == 0)
-			throw new InvalidOperationException("A continuation must have at least one parent.");
+			throw new ImmediateJobException("A continuation must have at least one parent.");
 
 		var newJobIds = newJobs.Select(static job => job.Id).ToHashSet(StringComparer.Ordinal);
 		var logicalEdges = new HashSet<(string Child, string ParentKind, string Parent)>(
@@ -901,22 +901,22 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) : IJobStorage,
 			if (!Enum.IsDefined(edge.Trigger))
 				throw new ArgumentOutOfRangeException(nameof(edges), "Unknown continuation trigger.");
 			if (!newJobIds.Contains(edge.ChildJobId))
-				throw new InvalidOperationException($"Continuation child '{edge.ChildJobId}' is not part of the atomic insert.");
+				throw new ImmediateJobException($"Continuation child '{edge.ChildJobId}' is not part of the atomic insert.");
 
 			var hasJobParent = !string.IsNullOrWhiteSpace(edge.ParentJobId);
 			var hasBatchParent = !string.IsNullOrWhiteSpace(edge.ParentBatchId);
 			if (hasJobParent == hasBatchParent)
-				throw new InvalidOperationException("A continuation edge must have exactly one job or batch parent.");
+				throw new ImmediateJobException("A continuation edge must have exactly one job or batch parent.");
 
 			if (hasJobParent)
 			{
 				var parentId = edge.ParentJobId!;
 				if (parentId == edge.ChildJobId)
-					throw new InvalidOperationException($"Continuation job '{edge.ChildJobId}' cannot depend on itself.");
+					throw new ImmediateJobException($"Continuation job '{edge.ChildJobId}' cannot depend on itself.");
 				if (!newJobIds.Contains(parentId) && !_jobs.ContainsKey(parentId))
 					throw new KeyNotFoundException($"Continuation parent job '{parentId}' was not found.");
 				if (!logicalEdges.Add((edge.ChildJobId, "job", parentId)))
-					throw new InvalidOperationException($"Duplicate continuation edge '{parentId}' -> '{edge.ChildJobId}'.");
+					throw new ImmediateJobException($"Duplicate continuation edge '{parentId}' -> '{edge.ChildJobId}'.");
 
 				if (newJobIds.Contains(parentId))
 				{
@@ -930,7 +930,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) : IJobStorage,
 				if (!_batches.ContainsKey(parentId))
 					throw new KeyNotFoundException($"Continuation parent batch '{parentId}' was not found.");
 				if (!logicalEdges.Add((edge.ChildJobId, "batch", parentId)))
-					throw new InvalidOperationException($"Duplicate continuation edge from batch '{parentId}' to '{edge.ChildJobId}'.");
+					throw new ImmediateJobException($"Duplicate continuation edge from batch '{parentId}' to '{edge.ChildJobId}'.");
 			}
 		}
 
@@ -947,7 +947,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) : IJobStorage,
 		}
 
 		if (visited != newJobIds.Count)
-			throw new InvalidOperationException("IJOB018: The continuation graph contains a dependency cycle.");
+			throw new ImmediateJobException("IJOB018: The continuation graph contains a dependency cycle.");
 	}
 
 	private static JobRecord NormalizeWaitingJob(JobRecord job, int dependencyCount) => job with
@@ -1196,7 +1196,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) : IJobStorage,
 			if (_jobs.TryGetValue(existingEdge.ChildJobId, out var child) &&
 				child.RemainingDependencies > int.MaxValue - additions)
 			{
-				throw new InvalidOperationException($"Continuation dependency count overflow for job '{child.Id}'.");
+				throw new ImmediateJobException($"Continuation dependency count overflow for job '{child.Id}'.");
 			}
 		}
 	}
@@ -1206,9 +1206,9 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) : IJobStorage,
 		if (count == 0)
 			return;
 		if (batchId is null || !_batches.TryGetValue(batchId, out var batch))
-			throw new InvalidOperationException("The current job's batch was not found.");
+			throw new ImmediateJobException("The current job's batch was not found.");
 		if (batch.TotalJobs > int.MaxValue - count || batch.PendingCount > int.MaxValue - count)
-			throw new InvalidOperationException($"Batch '{batchId}' member count overflow.");
+			throw new ImmediateJobException($"Batch '{batchId}' member count overflow.");
 
 		_batches[batchId] = batch with
 		{
@@ -1276,7 +1276,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) : IJobStorage,
 	private JobRecord GetOwnedActive(string jobId, string workerId)
 	{
 		if (!_jobs.TryGetValue(jobId, out var job) || job.State != JobState.Active || job.WorkerId != workerId)
-			throw new InvalidOperationException($"Worker '{workerId}' does not own active job '{jobId}'.");
+			throw new ImmediateJobException($"Worker '{workerId}' does not own active job '{jobId}'.");
 		return job;
 	}
 

@@ -21,8 +21,8 @@ public sealed class ImmediateJobsGeneratorTests
 			public sealed class WorkContextExtractor : IJobContextExtractor<string>
 			{
 				public string Key => "work";
-				public ValueTask<string?> CaptureAsync(CancellationToken cancellationToken) => ValueTask.FromResult<string?>(null);
-				public ValueTask RestoreAsync(string context, CancellationToken cancellationToken) => ValueTask.CompletedTask;
+				public string? Capture() => null;
+				public void Restore(string context) { }
 			}
 
 			[Handler(Tags = ["critical"]), Job, UsesQueue<CriticalQueue>, UsesJobContext<WorkContextExtractor>]
@@ -216,15 +216,15 @@ public sealed class ImmediateJobsGeneratorTests
 			public sealed class UsageContextExtractor : IJobContextExtractor<UsageContext>
 			{
 				public string Key => "usage";
-				public ValueTask<UsageContext?> CaptureAsync(CancellationToken cancellationToken) => ValueTask.FromResult<UsageContext?>(new(Guid.Empty, Region.Europe));
-				public ValueTask RestoreAsync(UsageContext context, CancellationToken cancellationToken) => ValueTask.CompletedTask;
+				public UsageContext? Capture() => new(Guid.Empty, Region.Europe);
+				public void Restore(UsageContext context) { }
 			}
 
 			public sealed class CorrelationExtractor : IJobContextExtractor<CorrelationContext>
 			{
 				public string Key => "correlation";
-				public ValueTask<CorrelationContext?> CaptureAsync(CancellationToken cancellationToken) => ValueTask.FromResult<CorrelationContext?>(new("abc"));
-				public ValueTask RestoreAsync(CorrelationContext context, CancellationToken cancellationToken) => ValueTask.CompletedTask;
+				public CorrelationContext? Capture() => new("abc");
+				public void Restore(CorrelationContext context) { }
 			}
 
 			[UsesJobContext<UsageContextExtractor>]
@@ -279,8 +279,8 @@ public sealed class ImmediateJobsGeneratorTests
 			public sealed class ClockExtractor : IJobContextExtractor<ClockContext>
 			{
 				public string Key => "clock";
-				public ValueTask<ClockContext?> CaptureAsync(CancellationToken ct) => ValueTask.FromResult<ClockContext?>(new(Instant.FromUnixTimeTicks(1)));
-				public ValueTask RestoreAsync(ClockContext context, CancellationToken ct) => ValueTask.CompletedTask;
+				public ClockContext? Capture() => new(Instant.FromUnixTimeTicks(1));
+				public void Restore(ClockContext context) { }
 			}
 			[Handler, Job, UsesJobContext<ClockExtractor>]
 			public sealed partial class ClockJob
@@ -304,8 +304,8 @@ public sealed class ImmediateJobsGeneratorTests
 			public sealed class AmbientExtractor : IJobContextExtractor<AmbientContext>
 			{
 				public string Key => "ambient";
-				public ValueTask<AmbientContext?> CaptureAsync(CancellationToken ct) => ValueTask.FromResult<AmbientContext?>(new("one"));
-				public ValueTask RestoreAsync(AmbientContext context, CancellationToken ct) => ValueTask.CompletedTask;
+				public AmbientContext? Capture() => new("one");
+				public void Restore(AmbientContext context) { }
 			}
 			""";
 		var contextAfter = """
@@ -317,8 +317,8 @@ public sealed class ImmediateJobsGeneratorTests
 			public sealed class AmbientExtractor : IJobContextExtractor<AmbientContext>
 			{
 				public string Key => "ambient";
-				public ValueTask<AmbientContext?> CaptureAsync(CancellationToken ct) => ValueTask.FromResult<AmbientContext?>(new("one", 2));
-				public ValueTask RestoreAsync(AmbientContext context, CancellationToken ct) => ValueTask.CompletedTask;
+				public AmbientContext? Capture() => new("one", 2);
+				public void Restore(AmbientContext context) { }
 			}
 			""";
 		var owner = """
@@ -370,8 +370,8 @@ public sealed class ImmediateJobsGeneratorTests
 			public sealed class ChangingExtractor : IJobContextExtractor<FirstAmbientContext>
 			{
 				public string Key => "ambient";
-				public ValueTask<FirstAmbientContext?> CaptureAsync(CancellationToken ct) => ValueTask.FromResult<FirstAmbientContext?>(new("one"));
-				public ValueTask RestoreAsync(FirstAmbientContext context, CancellationToken ct) => ValueTask.CompletedTask;
+				public FirstAmbientContext? Capture() => new("one");
+				public void Restore(FirstAmbientContext context) { }
 			}
 			""";
 		var extractorAfter = """
@@ -380,8 +380,8 @@ public sealed class ImmediateJobsGeneratorTests
 			public sealed class ChangingExtractor : IJobContextExtractor<SecondAmbientContext>
 			{
 				public string Key => "ambient";
-				public ValueTask<SecondAmbientContext?> CaptureAsync(CancellationToken ct) => ValueTask.FromResult<SecondAmbientContext?>(new("two"));
-				public ValueTask RestoreAsync(SecondAmbientContext context, CancellationToken ct) => ValueTask.CompletedTask;
+				public SecondAmbientContext? Capture() => new("two");
+				public void Restore(SecondAmbientContext context) { }
 			}
 			""";
 		var owner = """

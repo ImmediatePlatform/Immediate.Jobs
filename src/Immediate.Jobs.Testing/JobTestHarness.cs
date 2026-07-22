@@ -48,7 +48,11 @@ public sealed class JobTestHarness : IAsyncDisposable, IDisposable
 
 		Services = _serviceProvider;
 		Storage = _serviceProvider.GetRequiredService<IJobStorage>();
-		Batches = new JobBatchScheduler(Storage, TimeProvider);
+		Batches = new JobBatchScheduler(
+			Storage,
+			TimeProvider,
+			_serviceProvider.GetRequiredService<IIdGenerator>()
+		);
 		Scheduler = _serviceProvider.GetRequiredService<JobSchedulerService>();
 	}
 
@@ -220,7 +224,7 @@ public sealed class JobTestHarness : IAsyncDisposable, IDisposable
 		var now = TimeProvider.GetUtcNow();
 		var record = new JobRecord
 		{
-			Id = Guid.NewGuid().ToString("N"),
+			Id = _serviceProvider.GetRequiredService<IIdGenerator>().CreateId(IdKind.Job),
 			JobName = definition.Name,
 			QueueName = definition.Queue.Name,
 			Payload = _serviceProvider.GetRequiredService<IJobSerializer>().Serialize(payload),

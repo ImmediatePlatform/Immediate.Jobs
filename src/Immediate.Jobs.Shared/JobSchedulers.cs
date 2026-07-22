@@ -38,14 +38,14 @@ public abstract class JobScheduler<TPayload>(
 	IJobStorage storage,
 	IJobSerializer serializer,
 	TimeProvider timeProvider,
+	IIdGenerator idGenerator,
 	string jobName,
 	string queueName,
 	Func<System.Text.Json.JsonSerializerOptions, JsonTypeInfo<TPayload>> payloadTypeInfoFactory
 ) : IJobScheduler<TPayload>
 {
 	/// <summary>Captures the context envelope persisted with a new invocation.</summary>
-	protected virtual ValueTask<string?> CaptureContextAsync(CancellationToken cancellationToken) =>
-		ValueTask.FromResult<string?>(null);
+	protected virtual string? CaptureContext() => null;
 
 	/// <summary>The storage provider.</summary>
 	protected IJobStorage Storage { get; } = storage;
@@ -82,39 +82,37 @@ public abstract class JobScheduler<TPayload>(
 		CancellationToken cancellationToken = default
 	)
 	{
-		var record = await CreateRecordAsync(payload, runAt, cancellationToken).ConfigureAwait(false);
+		var record = CreateRecord(payload, runAt);
 		await Storage.EnqueueAsync(record, cancellationToken).ConfigureAwait(false);
 		JobTelemetry.Enqueued(JobName, QueueName);
 		return new(record.Id);
 	}
 
 	/// <summary>Adds work to an atomic batch for immediate execution after commit.</summary>
-	public ValueTask<JobHandle> AddToBatchAsync(
+	public JobHandle AddToBatch(
 		IJobBatch batch,
 		TPayload payload,
-		TimeSpan? delay = null,
-		CancellationToken cancellationToken = default
+		TimeSpan? delay = null
 	)
 	{
 		ArgumentNullException.ThrowIfNull(batch);
 		if (delay < TimeSpan.Zero)
 			throw new ArgumentOutOfRangeException(nameof(delay), "A job delay cannot be negative.");
-		return AddToBatchAtAsync(batch, payload, TimeProvider.GetUtcNow() + (delay ?? TimeSpan.Zero), cancellationToken);
+		return AddToBatchAt(batch, payload, TimeProvider.GetUtcNow() + (delay ?? TimeSpan.Zero));
 	}
 
 	/// <summary>Adds absolute-time work to an atomic batch.</summary>
-	public async ValueTask<JobHandle> AddToBatchAtAsync(
+	public JobHandle AddToBatchAt(
 		IJobBatch batch,
 		TPayload payload,
-		DateTimeOffset runAt,
-		CancellationToken cancellationToken = default
+		DateTimeOffset runAt
 	)
 	{
 		ArgumentNullException.ThrowIfNull(batch);
 		if (batch is not JobBatch jobBatch)
 			throw new ArgumentException("The batch was not created by Immediate.Jobs.", nameof(batch));
 		jobBatch.EnsureOpen();
-		var record = await CreateRecordAsync(payload, runAt, cancellationToken).ConfigureAwait(false);
+		var record = CreateRecord(payload, runAt);
 		return jobBatch.Add(record, [], ContinuationTrigger.Success);
 	}
 
@@ -155,11 +153,7 @@ public abstract class JobScheduler<TPayload>(
 		ArgumentNullException.ThrowIfNull(parent);
 		if (delay < TimeSpan.Zero)
 			throw new ArgumentOutOfRangeException(nameof(delay), "A job delay cannot be negative.");
-		var record = await CreateRecordAsync(
-			payload,
-			TimeProvider.GetUtcNow() + (delay ?? TimeSpan.Zero),
-			cancellationToken
-		).ConfigureAwait(false);
+		var record = CreateRecord(payload, TimeProvider.GetUtcNow() + (delay ?? TimeSpan.Zero));
 		var waiting = record with { State = JobState.AwaitingContinuation, RemainingDependencies = 1 };
 		await Storage.EnqueueContinuationAsync(
 			waiting,
@@ -171,20 +165,19 @@ public abstract class JobScheduler<TPayload>(
 	}
 
 	/// <summary>Buffers work relative to the running job and persists it only if the attempt succeeds.</summary>
-	public async ValueTask<JobHandle> ScheduleAfterAsync(
+	public JobHandle ScheduleAfter(
 		JobDetails current,
 		TPayload payload,
-		ContinuationOptions options = ContinuationOptions.BeforeContinuations,
-		CancellationToken cancellationToken = default
+		ContinuationOptions options = ContinuationOptions.BeforeContinuations
 	)
 	{
 		ArgumentNullException.ThrowIfNull(current);
 		var buffer = current.Buffer
-			?? throw new InvalidOperationException("JobDetails can schedule work only during its active execution attempt.");
+			?? throw new ImmediateJobException("JobDetails can schedule work only during its active execution attempt.");
 		if (options != ContinuationOptions.Detached && current.BatchId is null)
-			throw new InvalidOperationException("The current job does not belong to a batch; only Detached scheduling is valid.");
+			throw new ImmediateJobException("The current job does not belong to a batch; only Detached scheduling is valid.");
 
-		var record = await CreateRecordAsync(payload, TimeProvider.GetUtcNow(), cancellationToken).ConfigureAwait(false);
+		var record = CreateRecord(payload, TimeProvider.GetUtcNow());
 		if (options != ContinuationOptions.Detached)
 			record = record with { BatchId = current.BatchId };
 		buffer.Add(new() { Job = record, Options = options });
@@ -201,13 +194,13 @@ public abstract class JobScheduler<TPayload>(
 	{
 		ArgumentNullException.ThrowIfNull(current);
 		if (options == ContinuationOptions.Detached)
-			throw new InvalidOperationException("IJOB020: AddToBatchAsync(JobDetails, ...) cannot create detached work.");
+			throw new ImmediateJobException("IJOB020: AddToBatchAsync(JobDetails, ...) cannot create detached work.");
 		if (current.Buffer is null)
-			throw new InvalidOperationException("JobDetails can add work only during its active execution attempt.");
+			throw new ImmediateJobException("JobDetails can add work only during its active execution attempt.");
 		if (current.BatchId is null)
-			throw new InvalidOperationException("The current job does not belong to a batch.");
+			throw new ImmediateJobException("The current job does not belong to a batch.");
 
-		var record = await CreateRecordAsync(payload, TimeProvider.GetUtcNow(), cancellationToken).ConfigureAwait(false);
+		var record = CreateRecord(payload, TimeProvider.GetUtcNow());
 		record = record with { BatchId = current.BatchId };
 		await Storage.AddBatchJobAsync(current.JobId, record, options, cancellationToken).ConfigureAwait(false);
 		JobTelemetry.Enqueued(JobName, QueueName);
@@ -227,17 +220,17 @@ public abstract class JobScheduler<TPayload>(
 		if (batch is not null)
 		{
 			batch.EnsureOpen();
-			var batchRecord = await CreateRecordAsync(payload, runAt, cancellationToken).ConfigureAwait(false);
+			var batchRecord = CreateRecord(payload, runAt);
 			return batch.Add(batchRecord, parents, on);
 		}
 
 		if (parents.Any(static parent => parent.Batch is not null))
-			throw new InvalidOperationException("IJOB017: Continuation handles from unrelated scopes cannot be mixed.");
+			throw new ImmediateJobException("IJOB017: Continuation handles from unrelated scopes cannot be mixed.");
 
 		var parentIds = parents.Select(static parent => parent.Id).ToHashSet(StringComparer.Ordinal);
 		if (parentIds.Count != parents.Length)
-			throw new InvalidOperationException("Duplicate continuation parents are not allowed.");
-		var record = await CreateRecordAsync(payload, runAt, cancellationToken).ConfigureAwait(false);
+			throw new ImmediateJobException("Duplicate continuation parents are not allowed.");
+		var record = CreateRecord(payload, runAt);
 		var waiting = record with { State = JobState.AwaitingContinuation, RemainingDependencies = parents.Length };
 		var edges = parentIds.Select(parentId => new JobContinuationEdge
 		{
@@ -250,18 +243,14 @@ public abstract class JobScheduler<TPayload>(
 		return new(record.Id);
 	}
 
-	private async ValueTask<JobRecord> CreateRecordAsync(
-		TPayload payload,
-		DateTimeOffset runAt,
-		CancellationToken cancellationToken
-	)
+	private JobRecord CreateRecord(TPayload payload, DateTimeOffset runAt)
 	{
 		var now = TimeProvider.GetUtcNow();
 		var (traceParent, traceState) = TraceContextCapture.Current();
-		var context = await CaptureContextAsync(cancellationToken).ConfigureAwait(false);
+		var context = CaptureContext();
 		return new()
 		{
-			Id = Guid.NewGuid().ToString("N"),
+			Id = idGenerator.CreateId(IdKind.Job),
 			JobName = JobName,
 			QueueName = QueueName,
 			Payload = Serializer.Serialize(payload, payloadTypeInfoFactory),

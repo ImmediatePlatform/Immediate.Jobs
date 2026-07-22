@@ -216,7 +216,7 @@ public static class ImmediateJobsDashboardEndpointRouteBuilderExtensions
 		{
 			return Results.NotFound();
 		}
-		catch (InvalidOperationException exception)
+		catch (ImmediateJobException exception)
 		{
 			return Results.Problem(detail: exception.Message, statusCode: StatusCodes.Status409Conflict);
 		}
@@ -237,7 +237,7 @@ public static class ImmediateJobsDashboardEndpointRouteBuilderExtensions
 		{
 			return Results.NotFound();
 		}
-		catch (InvalidOperationException exception)
+		catch (ImmediateJobException exception)
 		{
 			return Results.Problem(detail: exception.Message, statusCode: StatusCodes.Status409Conflict);
 		}
@@ -247,6 +247,7 @@ public static class ImmediateJobsDashboardEndpointRouteBuilderExtensions
 		string name,
 		HttpContext context,
 		IJobStorage storage,
+		IIdGenerator idGenerator,
 		IEnumerable<JobDefinition> definitions,
 		CancellationToken cancellationToken
 	)
@@ -266,7 +267,7 @@ public static class ImmediateJobsDashboardEndpointRouteBuilderExtensions
 		var now = context.RequestServices.GetService<TimeProvider>()?.GetUtcNow() ?? TimeProvider.System.GetUtcNow();
 		var job = new JobRecord
 		{
-			Id = Guid.NewGuid().ToString("N"),
+			Id = idGenerator.CreateId(IdKind.Job),
 			JobName = schedule.JobName,
 			QueueName = definition.Queue.Name,
 			Payload = "{}",
@@ -302,7 +303,7 @@ public static class ImmediateJobsDashboardEndpointRouteBuilderExtensions
 		{
 			return Results.NotFound();
 		}
-		catch (InvalidOperationException exception)
+		catch (ImmediateJobException exception)
 		{
 			return Results.Problem(detail: exception.Message, statusCode: StatusCodes.Status409Conflict);
 		}

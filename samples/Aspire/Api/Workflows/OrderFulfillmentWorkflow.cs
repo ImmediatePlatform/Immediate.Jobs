@@ -27,10 +27,9 @@ public sealed class OrderFulfillmentWorkflow(
 	{
 		await using var batch = batches.Begin();
 
-		var received = await receiveOrder.AddToBatchAsync(
+		var received = receiveOrder.AddToBatch(
 			batch,
-			new(orderId),
-			cancellationToken: cancellationToken
+			new(orderId)
 		);
 
 		var inventory = await reserveInventory.ScheduleAfterAsync(

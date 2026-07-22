@@ -18,7 +18,7 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 	{
 		await using var context = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
 		_ = context.Model.FindEntityType(typeof(ImmediateJobEntity))
-			?? throw new InvalidOperationException("Immediate.Jobs entities are not configured. Call modelBuilder.AddImmediateJobs() from OnModelCreating.");
+			?? throw new ImmediateJobException("Immediate.Jobs entities are not configured. Call modelBuilder.AddImmediateJobs() from OnModelCreating.");
 	}
 
 	/// <inheritdoc />
@@ -54,7 +54,7 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 		ArgumentNullException.ThrowIfNull(jobs);
 		ArgumentNullException.ThrowIfNull(edges);
 		if (jobs.Count == 0)
-			throw new InvalidOperationException("IJOB016: An atomic batch cannot be committed without jobs.");
+			throw new ImmediateJobException("IJOB016: An atomic batch cannot be committed without jobs.");
 		await ExecuteGraphInsertAsync(batch, jobs, edges, cancellationToken).ConfigureAwait(false);
 	}
 
@@ -82,15 +82,15 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 	{
 		var jobIds = jobs.Select(static job => job.Id).ToHashSet(StringComparer.Ordinal);
 		if (jobIds.Count != jobs.Count)
-			throw new InvalidOperationException("A batch or continuation insert contains duplicate job identifiers.");
+			throw new ImmediateJobException("A batch or continuation insert contains duplicate job identifiers.");
 		if (batch is not null && jobs.Any(job => job.BatchId != batch.Id))
-			throw new InvalidOperationException("Every atomic batch member must carry the committed batch identifier.");
+			throw new ImmediateJobException("Every atomic batch member must carry the committed batch identifier.");
 
 		var edgeEntities = edges.Select(ToEntity).ToArray();
 		if (edgeEntities.Any(edge => !jobIds.Contains(edge.ChildJobId)))
-			throw new InvalidOperationException("Every continuation edge must target a job inserted by the same operation.");
+			throw new ImmediateJobException("Every continuation edge must target a job inserted by the same operation.");
 		if (edgeEntities.DistinctBy(static edge => (edge.ChildJobId, edge.ParentKind, edge.ParentId)).Count() != edgeEntities.Length)
-			throw new InvalidOperationException("Duplicate continuation edges are not allowed.");
+			throw new ImmediateJobException("Duplicate continuation edges are not allowed.");
 		ThrowIfCyclic(jobIds, edgeEntities);
 
 		await using var context = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
@@ -320,7 +320,7 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 	{
 		ArgumentNullException.ThrowIfNull(job);
 		if (options == ContinuationOptions.Detached)
-			throw new InvalidOperationException("IJOB020: AddToBatchAsync cannot create a detached job.");
+			throw new ImmediateJobException("IJOB020: AddToBatchAsync cannot create a detached job.");
 		const int MaxConcurrencyAttempts = 5;
 		for (var attempt = 0; attempt < MaxConcurrencyAttempts; attempt++)
 		{
@@ -732,7 +732,7 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 			.ConfigureAwait(false)
 			?? throw new KeyNotFoundException($"Batch '{batchId}' was not found.");
 		if (batch.State != BatchState.Executing)
-			throw new InvalidOperationException("Only an executing batch can be cancelled.");
+			throw new ImmediateJobException("Only an executing batch can be cancelled.");
 
 		var jobs = await context.Set<ImmediateJobEntity>()
 			.Where(job => job.BatchId == batchId)
@@ -773,7 +773,7 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 			.ConfigureAwait(false)
 			?? throw new KeyNotFoundException($"Batch '{batchId}' was not found.");
 		if (batch.State == BatchState.Executing)
-			throw new InvalidOperationException("Only a terminal batch can be deleted.");
+			throw new ImmediateJobException("Only a terminal batch can be deleted.");
 
 		var jobs = await context.Set<ImmediateJobEntity>()
 			.Where(job => job.BatchId == batchId)
@@ -845,7 +845,7 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 		if (job is not null)
 		{
 			if (job.BatchId is not null)
-				throw new InvalidOperationException("Batch members are deleted with their batch so the workflow remains coherent.");
+				throw new ImmediateJobException("Batch members are deleted with their batch so the workflow remains coherent.");
 			var outgoing = await context.Set<ImmediateJobContinuationEntity>()
 				.Where(edge => edge.ParentKind == ContinuationParentKind.Job && edge.ParentId == jobId)
 				.ToListAsync(cancellationToken)
@@ -1107,9 +1107,9 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 		var current = await context.Set<ImmediateJobEntity>()
 			.SingleOrDefaultAsync(job => job.Id == currentJobId && job.State == JobState.Active, cancellationToken)
 			.ConfigureAwait(false)
-			?? throw new InvalidOperationException($"The current active job '{currentJobId}' was not found.");
+			?? throw new ImmediateJobException($"The current active job '{currentJobId}' was not found.");
 		if (current.BatchId is not { } batchId)
-			throw new InvalidOperationException("The current job does not belong to a batch.");
+			throw new ImmediateJobException("The current job does not belong to a batch.");
 		var batch = await context.Set<ImmediateJobBatchEntity>()
 			.SingleAsync(item => item.Id == batchId && item.State == BatchState.Executing, cancellationToken)
 			.ConfigureAwait(false);
@@ -1149,7 +1149,7 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 	{
 		var ids = additions.Select(static addition => addition.Job.Id).ToHashSet(StringComparer.Ordinal);
 		if (ids.Count != additions.Count)
-			throw new InvalidOperationException("Buffered continuations contain duplicate job identifiers.");
+			throw new ImmediateJobException("Buffered continuations contain duplicate job identifiers.");
 		var waiters = additions.Any(static addition => addition.Options == ContinuationOptions.BeforeContinuations)
 			? await GetActiveWaitersAsync(context, current.Id, cancellationToken).ConfigureAwait(false)
 			: [];
@@ -1158,7 +1158,7 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 		if (trackedAdditions != 0)
 		{
 			if (current.BatchId is not { } batchId)
-				throw new InvalidOperationException("The current job does not belong to a batch.");
+				throw new ImmediateJobException("The current job does not belong to a batch.");
 			batch = await context.Set<ImmediateJobBatchEntity>()
 				.SingleAsync(item => item.Id == batchId && item.State == BatchState.Executing, cancellationToken)
 				.ConfigureAwait(false);
@@ -1323,7 +1323,7 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 			case JobState.Scheduled:
 			case JobState.Pending:
 			case JobState.Active:
-				throw new InvalidOperationException($"Job '{job.Id}' is not terminal.");
+				throw new ImmediateJobException($"Job '{job.Id}' is not terminal.");
 			default:
 				throw new ArgumentOutOfRangeException(nameof(job), job.State, "Unknown job state.");
 		}
@@ -1374,7 +1374,7 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 				.ToDictionaryAsync(batch => batch.Id, batch => batch.State, StringComparer.Ordinal, cancellationToken)
 				.ConfigureAwait(false);
 		if (externalJobs.Count != externalJobIds.Length || externalBatches.Count != externalBatchIds.Length)
-			throw new InvalidOperationException("A continuation parent does not exist.");
+			throw new ImmediateJobException("A continuation parent does not exist.");
 
 		var incoming = edges.ToLookup(static edge => edge.ChildJobId, StringComparer.Ordinal);
 		var changed = true;
@@ -1481,7 +1481,7 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 		}
 
 		if (visited != jobIds.Count)
-			throw new InvalidOperationException("IJOB018: The continuation graph contains a dependency cycle.");
+			throw new ImmediateJobException("IJOB018: The continuation graph contains a dependency cycle.");
 	}
 
 	private static bool IsTerminal(JobState state) =>
@@ -1531,7 +1531,7 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 			.AnyAsync(entity => entity.Name == schedule.Name && entity.IsCodeDefined, cancellationToken)
 			.ConfigureAwait(false))
 		{
-			throw new InvalidOperationException("Code-defined recurring schedules cannot be replaced by dynamic schedules.");
+			throw new ImmediateJobException("Code-defined recurring schedules cannot be replaced by dynamic schedules.");
 		}
 	}
 
@@ -1564,7 +1564,7 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 		var hasJobParent = edge.ParentJobId is not null;
 		var hasBatchParent = edge.ParentBatchId is not null;
 		if (hasJobParent == hasBatchParent)
-			throw new InvalidOperationException("A continuation edge must identify exactly one parent job or batch.");
+			throw new ImmediateJobException("A continuation edge must identify exactly one parent job or batch.");
 		return new()
 		{
 			ChildJobId = edge.ChildJobId,

@@ -91,7 +91,7 @@ public sealed class SingleServerJobStorage : IJobStorage, IAsyncDisposable, IDis
 		if (acquired.Count != replicated.Count ||
 			!acquired.Select(x => x.Id).ToHashSet(StringComparer.Ordinal).SetEquals(replicated.Select(x => x.Id)))
 		{
-			throw new InvalidOperationException(
+			throw new ImmediateJobException(
 				"The durable job replica has drifted from the authoritative in-memory queue. " +
 				"Single-server mode must not be used by multiple scheduler processes."
 			);
@@ -440,9 +440,9 @@ public sealed class SingleServerJobStorage : IJobStorage, IAsyncDisposable, IDis
 			foreach (var batchId in batchIds)
 			{
 				var status = await DurableStorage.GetBatchStatusAsync(batchId, cancellationToken).ConfigureAwait(false)
-					?? throw new InvalidOperationException($"Batch '{batchId}' has members but no durable batch header.");
+					?? throw new ImmediateJobException($"Batch '{batchId}' has members but no durable batch header.");
 				var graph = await DurableStorage.GetBatchGraphAsync(batchId, cancellationToken).ConfigureAwait(false)
-					?? throw new InvalidOperationException($"Batch '{batchId}' has members but no durable dependency graph.");
+					?? throw new ImmediateJobException($"Batch '{batchId}' has members but no durable dependency graph.");
 				recoveredBatches.Add(batchId, new(
 					new()
 					{
@@ -475,7 +475,7 @@ public sealed class SingleServerJobStorage : IJobStorage, IAsyncDisposable, IDis
 				if (ready.Length == 0)
 				{
 					var unresolved = string.Join(", ", recoveredBatches.Keys.Order(StringComparer.Ordinal));
-					throw new InvalidOperationException(
+					throw new ImmediateJobException(
 						$"Durable batches have cyclic or missing parent-batch dependencies: {unresolved}."
 					);
 				}
@@ -496,7 +496,7 @@ public sealed class SingleServerJobStorage : IJobStorage, IAsyncDisposable, IDis
 			foreach (var job in recoveredJobs.Where(static job => job.BatchId is null))
 			{
 				var status = await DurableStorage.GetJobStatusAsync(job.Id, cancellationToken).ConfigureAwait(false)
-					?? throw new InvalidOperationException($"Job '{job.Id}' was queried but has no durable status.");
+					?? throw new ImmediateJobException($"Job '{job.Id}' was queried but has no durable status.");
 				if (status.DependsOn.Count == 0)
 					await recoveredPrimary.EnqueueAsync(job, cancellationToken).ConfigureAwait(false);
 				else

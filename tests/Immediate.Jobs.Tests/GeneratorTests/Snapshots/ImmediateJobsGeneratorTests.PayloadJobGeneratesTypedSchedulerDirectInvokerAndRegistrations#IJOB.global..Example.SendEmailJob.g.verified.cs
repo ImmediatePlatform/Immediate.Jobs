@@ -14,24 +14,23 @@ public partial class SendEmailJob
 		public sealed class Scheduler(
 			global::Immediate.Jobs.Shared.IJobStorage storage,
 			global::Immediate.Jobs.Shared.IJobSerializer serializer,
-			global::System.TimeProvider timeProvider
-		) : global::Immediate.Jobs.Shared.JobScheduler<global::Example.SendEmailJob.Payload>(storage, serializer, timeProvider, "send-email", "default", static options => new PayloadJsonContext(options).Payload)
+			global::System.TimeProvider timeProvider,
+			global::Immediate.Jobs.Shared.IIdGenerator idGenerator
+		) : global::Immediate.Jobs.Shared.JobScheduler<global::Example.SendEmailJob.Payload>(storage, serializer, timeProvider, idGenerator, "send-email", "default", static options => new PayloadJsonContext(options).Payload)
 		{
 
 
-			public new global::System.Threading.Tasks.ValueTask<global::Immediate.Jobs.Shared.JobHandle> AddToBatchAsync(
+			public new global::Immediate.Jobs.Shared.JobHandle AddToBatch(
 				global::Immediate.Jobs.Shared.IJobBatch batch,
 				global::Example.SendEmailJob.Payload payload,
-				global::System.TimeSpan? delay = null,
-				global::System.Threading.CancellationToken cancellationToken = default) =>
-				base.AddToBatchAsync(batch, payload, delay, cancellationToken);
+				global::System.TimeSpan? delay = null) =>
+				base.AddToBatch(batch, payload, delay);
 
-			public new global::System.Threading.Tasks.ValueTask<global::Immediate.Jobs.Shared.JobHandle> AddToBatchAtAsync(
+			public new global::Immediate.Jobs.Shared.JobHandle AddToBatchAt(
 				global::Immediate.Jobs.Shared.IJobBatch batch,
 				global::Example.SendEmailJob.Payload payload,
-				global::System.DateTimeOffset runAt,
-				global::System.Threading.CancellationToken cancellationToken = default) =>
-				base.AddToBatchAtAsync(batch, payload, runAt, cancellationToken);
+				global::System.DateTimeOffset runAt) =>
+				base.AddToBatchAt(batch, payload, runAt);
 
 			public new global::System.Threading.Tasks.ValueTask<global::Immediate.Jobs.Shared.JobHandle> ScheduleAfterAsync(
 				global::Immediate.Jobs.Shared.JobHandle parent,
@@ -57,12 +56,11 @@ public partial class SendEmailJob
 				global::System.Threading.CancellationToken cancellationToken = default) =>
 				base.ScheduleAfterAsync(parent, payload, on, delay, cancellationToken);
 
-			public new global::System.Threading.Tasks.ValueTask<global::Immediate.Jobs.Shared.JobHandle> ScheduleAfterAsync(
+			public new global::Immediate.Jobs.Shared.JobHandle ScheduleAfter(
 				global::Immediate.Jobs.Shared.JobDetails current,
 				global::Example.SendEmailJob.Payload payload,
-				global::Immediate.Jobs.Shared.ContinuationOptions options = global::Immediate.Jobs.Shared.ContinuationOptions.BeforeContinuations,
-				global::System.Threading.CancellationToken cancellationToken = default) =>
-				base.ScheduleAfterAsync(current, payload, options, cancellationToken);
+				global::Immediate.Jobs.Shared.ContinuationOptions options = global::Immediate.Jobs.Shared.ContinuationOptions.BeforeContinuations) =>
+				base.ScheduleAfter(current, payload, options);
 
 			public new global::System.Threading.Tasks.ValueTask<global::Immediate.Jobs.Shared.JobHandle> AddToBatchAsync(
 				global::Immediate.Jobs.Shared.JobDetails current,

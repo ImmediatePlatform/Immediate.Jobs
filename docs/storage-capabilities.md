@@ -116,13 +116,13 @@ early**, never silently. Three layers, outermost first:
    `IJobGraphStorage`, log an informational line ("Batch & continuation features are disabled: the
    configured storage 'RedisJobStorage' implements the queue capability only. Configure a SQL provider
    to enable them.") and **do not register** `IJobBatchScheduler`.
-2. **Resolve-time guard.** `IJobBatchScheduler` (and the generated `AddToBatchAsync` / `ScheduleAfterAsync`
+2. **Resolve-time guard.** `IJobBatchScheduler` (and the generated `AddToBatch` / `ScheduleAfterAsync`
    entry points) resolve a graph capability; when absent they throw `NotSupportedException` with the
    same actionable message. This catches code paths the startup scan can't prove are unused.
 3. **No partial writes.** Because the guard trips *before* any storage write, a batch attempt on a
    queue-only provider does nothing — consistent with the atomic-batch contract.
 
-The generated `AddToBatchAsync` / `ScheduleAfterAsync` methods still **compile** (they're emitted per job
+The generated `AddToBatch` / `ScheduleAfterAsync` methods still **compile** (they're emitted per job
 regardless of provider); they just throw at runtime under a queue-only provider. This keeps the
 generator provider-agnostic. *(Optional later: an analyzer hint if the project references only a
 queue-only provider package — deferred; provider choice isn't reliably known at compile time.)*
@@ -169,7 +169,7 @@ Ships as `Immediate.Jobs.Redis` implementing **`IJobQueueStorage`** and (recomme
 - **Segregation refactor:** existing suite must pass unchanged (proves back-compat of the `IJobStorage`
   union).
 - **Capability guard:** register a queue-only fake provider; assert `IJobBatchScheduler` is not
-  registered, and that `AddToBatchAsync` / `ScheduleAfterAsync` throw `NotSupportedException` with the guidance
+  registered, and that `AddToBatch` / `ScheduleAfterAsync` throw `NotSupportedException` with the guidance
   message; assert queue/recurring paths work.
 - **Dashboard:** batch views hidden when graph capability absent.
 - **Redis provider:** its own queue + recurring integration tests (claim under contention, lease

@@ -39,12 +39,12 @@ public sealed class SingleServerJobStorageTests
 	public void ExplicitDurableModeRequiresAProvider()
 	{
 		var singleServerServices = new ServiceCollection();
-		_ = Assert.Throws<InvalidOperationException>(() =>
+		_ = Assert.Throws<ImmediateJobException>(() =>
 			singleServerServices.AddImmediateJobsCore(options => options.UseSingleServer())
 		);
 
 		var distributedServices = new ServiceCollection();
-		_ = Assert.Throws<InvalidOperationException>(() =>
+		_ = Assert.Throws<ImmediateJobException>(() =>
 			distributedServices.AddImmediateJobsCore(options => options.UseDistributed())
 		);
 	}
@@ -168,7 +168,7 @@ public sealed class SingleServerJobStorageTests
 		};
 		await storage.UpsertRecurringAsync(codeDefined, cancellationToken);
 
-		var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+		var exception = await Assert.ThrowsAsync<ImmediateJobException>(() =>
 			storage.UpsertRecurringAsync(
 				codeDefined with { Cron = "0 0 * * *", IsCodeDefined = false },
 				cancellationToken

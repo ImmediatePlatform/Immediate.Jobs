@@ -26,7 +26,7 @@ has three warts we deliberately remove:
 
 Immediate.Jobs replaces all three by keeping **the generated scheduler as the subject** — exactly as
 `sendEmail.EnqueueAsync(payload)` reads today. The job you are scheduling is always the receiver:
-`sendEmail.AddToBatchAsync(batch, payload)` adds it to an atomic batch, and `two.ScheduleAfterAsync(oneBJob,
+`sendEmail.AddToBatch(batch, payload)` adds it to an atomic batch, and `two.ScheduleAfterAsync(oneBJob,
 payload)` schedules it after a parent. **Typed handles** (`JobHandle`, `BatchHandle`) are the
 currency passed between schedulers to wire dependencies — a `[a, b, c]`
 collection of handles expresses a fan-in. Nothing but data is
@@ -70,7 +70,7 @@ string id = h.Id;                                    // still available when you
 
 This is a small change to the existing v1 scheduler surface (return type `ValueTask<string>` →
 `ValueTask<JobHandle>`). The handle is what a downstream scheduler consumes via `ScheduleAfterAsync` (§3.3).
-Because job IDs are **client-generated before storage** (`Guid.NewGuid().ToString("N")`), a handle
+Because job IDs are **client-generated before storage** (`IIdGenerator.CreateId(IdKind.Job)`), a handle
 carries a real ID immediately — even for a job still buffered in an uncommitted batch — which is what
 makes intra-batch continuations resolvable before commit.
 
@@ -78,7 +78,7 @@ makes intra-batch continuations resolvable before commit.
 
 `IJobBatchScheduler` is an injected, scoped service (resolve it from a request/DI scope exactly like
 a generated `Scheduler`). `Begin()` opens an in-memory buffer; you add work by calling each job's
-generated **`AddToBatchAsync`** — the job is the receiver, exactly as with `EnqueueAsync`; `CommitAsync` flushes
+generated **`AddToBatch`** — the job is the receiver, exactly as with `EnqueueAsync`; `CommitAsync` flushes
 the buffer in one atomic unit. Disposing without committing rolls the buffer back — giving Hangfire's
 "exception before commit ⇒ nothing enqueued" guarantee mechanically.
 
@@ -92,40 +92,41 @@ public sealed class CampaignService(
         await using var batch = batches.Begin();
 
         foreach (var id in recipients)
-            await sendEmail.AddToBatchAsync(batch, new(id));   // job is the subject, like EnqueueAsync
+			sendEmail.AddToBatch(batch, new(id));   // job is the subject, like EnqueueAsync
 
         await batch.CommitAsync(ct);                       // single atomic flush — all rows, or none
     }
 }
 ```
 
-`AddToBatchAsync` is generated per scheduler (like `EnqueueAsync`), so it is typed, F12-navigable, and needs no
+`AddToBatch` is generated per scheduler (like `EnqueueAsync`), so it is typed, F12-navigable, and needs no
 generic `Add<T>(scheduler, payload)` seam. If storage is unavailable mid-loop, **nothing** was
 written (the buffer only touches storage at commit), so retrying the whole method cannot double-send —
 the "1000 emails" scenario, solved without duplicate-tracking bookkeeping.
 
-`AddToBatchAsync` mirrors the scheduler timing surface — immediate, delayed, and absolute-time:
+`AddToBatch` mirrors the scheduler timing surface — immediate, delayed, and absolute-time:
 
 ```csharp
-await sendEmail.AddToBatchAsync(batch, new(id));
-await sendEmail.AddToBatchAsync(batch, new(id), delay: TimeSpan.FromMinutes(5));
-await sendEmail.AddToBatchAtAsync(batch, new(id), runAt);
+sendEmail.AddToBatch(batch, new(id));
+sendEmail.AddToBatch(batch, new(id), delay: TimeSpan.FromMinutes(5));
+sendEmail.AddToBatchAt(batch, new(id), runAt);
 ```
 
 For callers who prefer a block, `RunAsync` is a thin wrapper over `Begin` → body → `CommitAsync`
 (rollback on throw). It is sugar, not the canonical form:
 
 ```csharp
-var batch = await batches.RunAsync(async b =>
+var batch = await batches.RunAsync(b =>
 {
     foreach (var id in recipients)
-        await sendEmail.AddToBatchAsync(b, new(id));
+		sendEmail.AddToBatch(b, new(id));
+	return ValueTask.CompletedTask;
 }, ct);
 ```
 
 > **Ambient auto-join is intentionally not offered.** An `AsyncLocal` batch that silently captures
 > ordinary `sendEmail.EnqueueAsync` calls is terse but unsafe across `await`/`Task.WhenAll` and hides
-> where durable writes happen. `sendEmail.AddToBatchAsync(batch, ...)` is the one obvious way to enqueue
+> where durable writes happen. `sendEmail.AddToBatch(batch, ...)` is the one obvious way to enqueue
 > into a batch.
 
 ### 3.3 Continuations (chains & branches)
@@ -139,7 +140,7 @@ Calling `ScheduleAfterAsync` with the same parent twice **fans out**:
 ```csharp
 await using var batch = batches.Begin();
 
-var built = await buildArtifact.AddToBatchAsync(batch, new(commit));
+var built = buildArtifact.AddToBatch(batch, new(commit));
 
 await deployStaging.ScheduleAfterAsync(built, new());   // branch A — runs after `built`
 await publishDocs.ScheduleAfterAsync(built, new());     // branch B — runs after `built`
@@ -150,7 +151,7 @@ await batch.CommitAsync(ct);
 Continuations chain because `ScheduleAfterAsync` returns the new job's `JobHandle`:
 
 ```csharp
-var h1 = await step1.AddToBatchAsync(batch, new(), delay: TimeSpan.FromSeconds(1));
+var h1 = step1.AddToBatch(batch, new(), delay: TimeSpan.FromSeconds(1));
 var h2 = await step2.ScheduleAfterAsync(h1, new());
 await step3.ScheduleAfterAsync(h2, new());              // step1 → step2 → step3
 ```
@@ -175,9 +176,9 @@ many-parent edge set), fires on whatever node is free, and needs no in-process w
 expression binds allocation-free to the `ReadOnlySpan<JobHandle>` overload:
 
 ```csharp
-var a = await deployRegionA.AddToBatchAsync(batch, new());
-var b = await deployRegionB.AddToBatchAsync(batch, new());
-var c = await deployRegionC.AddToBatchAsync(batch, new());
+var a = deployRegionA.AddToBatch(batch, new());
+var b = deployRegionB.AddToBatch(batch, new());
+var c = deployRegionC.AddToBatch(batch, new());
 
 await runSmokeTests.ScheduleAfterAsync([a, b, c], new(), on: ContinuationTrigger.Success);
 ```
@@ -199,10 +200,11 @@ A committed batch yields a `BatchHandle`. A single job continues after the **ent
 that handle as its parent:
 
 ```csharp
-var emailBatch = await batches.RunAsync(async b =>
+var emailBatch = await batches.RunAsync(b =>
 {
     foreach (var id in recipients)
-        await sendEmail.AddToBatchAsync(b, new(id));
+		sendEmail.AddToBatch(b, new(id));
+	return ValueTask.CompletedTask;
 }, ct);
 
 await notifyAdministrator.ScheduleAfterAsync(emailBatch, new());   // runs once the whole batch is done
@@ -213,8 +215,8 @@ it adds also waits on the prior batch:
 
 ```csharp
 await using var wrapUp = batches.Begin(after: emailBatch, on: ContinuationTrigger.Success);
-await markCampaignFinished.AddToBatchAsync(wrapUp, new(campaignId));
-await notifyAdministrator.AddToBatchAsync(wrapUp, new());
+markCampaignFinished.AddToBatch(wrapUp, new(campaignId));
+notifyAdministrator.AddToBatch(wrapUp, new());
 await wrapUp.CommitAsync(ct);
 ```
 
@@ -228,7 +230,7 @@ the explicit "I am running inside this job" token — no ambient state.
 
 The two existing verbs keep their meaning, now pointed at the current job `C`:
 
-- **`ScheduleAfterAsync(JobDetails, payload, options)`** — *gated*: `C → J`, so J runs after C. Its
+- **`ScheduleAfter(JobDetails, payload, options)`** — *gated*: `C → J`, so J runs after C. Its
   creation is **buffered until C completes successfully**, so a C that fails and retries does not
   double-schedule J.
 - **`AddToBatchAsync(JobDetails, payload, options)`** — *concurrent*: J joins C's batch as an unordered
@@ -249,9 +251,9 @@ public sealed partial class ProcessOrder(SendEmail.Scheduler sendEmail)
 
         // Splice the email before post-processing: everything that waited on this job now
         // waits on {this job, email}.
-        await sendEmail.ScheduleAfterAsync(command.JobDetails!,
+		sendEmail.ScheduleAfter(command.JobDetails!,
             new(order.CustomerEmail, order.Summary),
-            options: ContinuationOptions.BeforeContinuations, ct);
+			options: ContinuationOptions.BeforeContinuations);
     }
 }
 ```
@@ -268,7 +270,7 @@ public sealed partial class ProcessOrder(SendEmail.Scheduler sendEmail)
 edge `J → X` while keeping `C → X`, so each former waiter now depends on **both**. This is correct
 regardless of whether J finishes before or after C — `X` cannot start until both are satisfied.
 
-> **The verb also picks durability — by design.** `ScheduleAfterAsync(JobDetails, …)` is gated and
+> **The verb also picks durability — by design.** `ScheduleAfter(JobDetails, …)` is gated and
 > buffered, so it is retry-safe: if C fails and retries, J is never double-created.
 > `AddToBatchAsync(JobDetails, …)` is concurrent and written immediately, so **J can fire even if C then
 > fails and retries** — it must be idempotent, like any at-least-once job. Asking for work to run
@@ -276,14 +278,14 @@ regardless of whether J finishes before or after C — `X` cannot start until bo
 
 > **`AddToBatchAsync(JobDetails, Detached)` is a contradiction** ("add to the batch" + "detached from the
 > batch") and is rejected — by the analyzer (`IJOB020`) at compile time when the option is a constant,
-> and by a runtime guard otherwise. `Detached` is meaningful only on `ScheduleAfterAsync(JobDetails, …)`.
+> and by a runtime guard otherwise. `Detached` is meaningful only on `ScheduleAfter(JobDetails, …)`.
 
 > **The batch-tracking paths require the current job to be in a batch.** Whether the executing job is
 > a batch member is only known at run time, so this is a **runtime** guard, not an analyzer check:
 > when the current job has **no batch**, `AddToBatchAsync(JobDetails, …)` and
-> `ScheduleAfterAsync(JobDetails, …)` with `BesideContinuations` or `BeforeContinuations` **throw** — there
+> `ScheduleAfter(JobDetails, …)` with `BesideContinuations` or `BeforeContinuations` **throw** — there
 > is no batch to add to, track, or splice into. The only valid mid-job call for a batch-less job is
-> `ScheduleAfterAsync(JobDetails, …, Detached)`, i.e. a plain standalone continuation after it.
+> `ScheduleAfter(JobDetails, …, Detached)`, i.e. a plain standalone continuation after it.
 
 ### 3.7 Observing completion
 
@@ -307,10 +309,11 @@ batch state is `Failed`; cancellation alone does not count as failure. For fan-i
 `Complete` is the `finally` trigger for cleanup or notification work that runs regardless of outcome.
 
 ```csharp
-var batch = await batches.RunAsync(async b =>
+var batch = await batches.RunAsync(b =>
 {
-    await importCustomers.AddToBatchAsync(b, new(importId));
-    await updateSearchIndex.AddToBatchAsync(b, new(importId));
+	importCustomers.AddToBatch(b, new(importId));
+	updateSearchIndex.AddToBatch(b, new(importId));
+	return ValueTask.CompletedTask;
 }, ct);
 
 await handleImportFailure.ScheduleAfterAsync(
@@ -429,7 +432,7 @@ affected edge/child set) so a wide fan-out doesn't degrade to N round-trips.
 Mid-job scheduling (§3.6) reuses the batch/edge machinery; it adds two execution-time paths keyed off
 the current job `C`'s `JobDetails`:
 
-- **`ScheduleAfterAsync(JobDetails, …)` — gated, buffered.** The new job `J` is accumulated in a
+- **`ScheduleAfter(JobDetails, …)` — gated, buffered.** The new job `J` is accumulated in a
   per-execution buffer and flushed **in the same transaction as `C`'s successful `CompleteAsync`**.
   The flush inserts `J` (as `AwaitingContinuation` with edge `C → J`), increments the batch's
   `TotalJobs`/`PendingCount`, and — because it runs before `C`'s own completion is finalized — closes
@@ -446,8 +449,8 @@ left intact — never a re-parent. `BesideContinuations` adds no `J → X` edges
 skips batch membership (and is rejected for `AddToBatchAsync`, see `IJOB020`).
 
 Both batch-tracking paths first check `C`'s `JobDetails` for batch membership: if `C` has no batch,
-`AddToBatchAsync(JobDetails, …)` and `ScheduleAfterAsync(JobDetails, …)` with `BesideContinuations`/
-`BeforeContinuations` throw before any write (§3.6) — only `ScheduleAfterAsync(JobDetails, …, Detached)`
+`AddToBatchAsync(JobDetails, …)` and `ScheduleAfter(JobDetails, …)` with `BesideContinuations`/
+`BeforeContinuations` throw before any write (§3.6) — only `ScheduleAfter(JobDetails, …, Detached)`
 proceeds, as an ordinary standalone continuation.
 
 ### 4.6 Topology behavior
@@ -507,17 +510,17 @@ still within its window.
 
 ## 6. Compile-time & runtime diagnostics
 
-`AddToBatchAsync`/`ScheduleAfterAsync` are generated per scheduler and strongly typed against the job's
+`AddToBatch`/`ScheduleAfterAsync` are generated per scheduler and strongly typed against the job's
 `IJobRequest` payload, so wrong-payload and unserializable-payload errors reuse the existing
 `IJOB003`/`IJOB015` analyzers. New diagnostics:
 
 | ID        | Meaning                                                                        |
 | --------- | ------------------------------------------------------------------------------ |
-| `IJOB016` | Batch committed empty (no `AddToBatchAsync`) — likely a mistake                     |
+| `IJOB016` | Batch committed empty (no `AddToBatch`) — likely a mistake                     |
 | `IJOB017` | `ScheduleAfterAsync` mixes handles from different, unrelated batches                |
 | `IJOB018` | Continuation would create a dependency cycle (detectable when handles are known at build of the batch) |
 | `IJOB019` | `JobHandle` used after its batch was committed or disposed                     |
-| `IJOB020` | `AddToBatchAsync(JobDetails, …, Detached)` — contradictory (§3.6); `Detached` is valid only on `ScheduleAfterAsync(JobDetails, …)` |
+| `IJOB020` | `AddToBatchAsync(JobDetails, …, Detached)` — contradictory (§3.6); `Detached` is valid only on `ScheduleAfter(JobDetails, …)` |
 
 `IJOB018` cycle detection is best-effort at the buffer level (the buffer holds the intended edge set
 before commit); a runtime guard in `EnqueueBatchAsync` remains the backstop. `IJOB020` fires at
@@ -682,10 +685,8 @@ concrete generated member, not a shared interface):
     ValueTask<JobHandle> ScheduleAtAsync(Payload payload, DateTimeOffset runAt, CancellationToken ct = default);
 
     // batch membership (root member, no dependency)
-    ValueTask<JobHandle> AddToBatchAsync(IJobBatch batch, Payload payload,
-        TimeSpan? delay = null, CancellationToken ct = default);
-    ValueTask<JobHandle> AddToBatchAtAsync(IJobBatch batch, Payload payload,
-        DateTimeOffset runAt, CancellationToken ct = default);
+	JobHandle AddToBatch(IJobBatch batch, Payload payload, TimeSpan? delay = null);
+	JobHandle AddToBatchAt(IJobBatch batch, Payload payload, DateTimeOffset runAt);
 
     // continuations — this job runs after the parent(s); works in a batch or standalone
     ValueTask<JobHandle> ScheduleAfterAsync(JobHandle parent, Payload payload,
@@ -699,8 +700,8 @@ concrete generated member, not a shared interface):
         TimeSpan? delay = null, CancellationToken ct = default);
 
     // mid-job scheduling (§3.6) — relative to the currently-executing job via its JobDetails
-    ValueTask<JobHandle> ScheduleAfterAsync(JobDetails current, Payload payload,   // gated, buffered, retry-safe
-        ContinuationOptions options = ContinuationOptions.BeforeContinuations, CancellationToken ct = default);
+	JobHandle ScheduleAfter(JobDetails current, Payload payload,   // gated, buffered, retry-safe
+		ContinuationOptions options = ContinuationOptions.BeforeContinuations);
     ValueTask<JobHandle> AddToBatchAsync(JobDetails current, Payload payload,      // concurrent, immediate
         ContinuationOptions options = ContinuationOptions.BeforeContinuations, CancellationToken ct = default);
 }
@@ -736,13 +737,13 @@ public enum ContinuationTrigger { Success, Failure, Complete }
 // how a mid-job (§3.6) scheduled job relates to the current job's existing waiters
 public enum ContinuationOptions
 {
-    Detached,             // not tracked by the batch; waiters unaffected (ScheduleAfterAsync only)
+	Detached,             // not tracked by the batch; waiters unaffected (ScheduleAfter only)
     BesideContinuations,  // batch member; runs as a parallel branch, waiters do not wait for it
     BeforeContinuations,  // batch member; waiters wait on {current, new} (additive splice)
 }
 ```
 
-> `AddToBatchAsync`/`ScheduleAfterAsync` are generated on each job's scheduler exactly like `EnqueueAsync`, so the
+> `AddToBatch`/`ScheduleAfterAsync` are generated on each job's scheduler exactly like `EnqueueAsync`, so the
 > job you are scheduling is always the receiver — F12 navigates straight to the job class, and there
 > is no generic `Add<T>(scheduler, payload)` seam.
 
@@ -753,10 +754,10 @@ public enum ContinuationOptions
 | Milestone   | Scope                                                                                             |
 | ----------- | ------------------------------------------------------------------------------------------------- |
 | **B0**      | v1 scheduler change: `EnqueueAsync`/`ScheduleAsync`/`ScheduleAtAsync` return `JobHandle` instead of `string`     |
-| **B1**      | `IJobBatchScheduler` + `Begin`/`AddToBatchAsync`/`CommitAsync`, atomic `EnqueueBatchAsync`, in-memory + EF Core |
+| **B1**      | `IJobBatchScheduler` + `Begin`/`AddToBatch`/`CommitAsync`, atomic `EnqueueBatchAsync`, in-memory + EF Core |
 | **B2**      | `ScheduleAfterAsync` continuations (chains + fan-out), `AwaitingContinuation`, transactional release   |
 | **B3**      | Fan-in joins (`ScheduleAfterAsync([...])`), cascade-cancel, cycle detection, batch continuations (`Begin(after:)`) |
-| **B4**      | Mid-job scheduling (§3.6) — `ScheduleAfterAsync`/`AddToBatchAsync(JobDetails, …)`, `ContinuationOptions`, execution buffer + flush, `IJOB020` |
+| **B4**      | Mid-job scheduling (§3.6) — `ScheduleAfter`/`AddToBatchAsync(JobDetails, …)`, `ContinuationOptions`, execution buffer + flush, `IJOB020` |
 | **B5**      | Read API (§8) — `IJobBatchMonitor` + `IJobMonitor`, batch-row counters, backing storage reads    |
 | **B6**      | Batch-atom retention (§4.7), dashboard batches list + workflow viewer + retry/cancel/delete, testing helpers, docs |
 | **B7** *(v1.x)* | **Retry from here** subtree re-materialization (§7.3) and its `job/{id}/retry-subtree` endpoint |
@@ -776,7 +777,7 @@ public enum ContinuationOptions
   cascade, and metrics.)*
 
 - **Scheduler is the subject (§3):** batch membership and continuations are generated per-scheduler
-  methods — `sendEmail.AddToBatchAsync(batch, …)`, `two.ScheduleAfterAsync(parent, …)` — so the job being
+  methods — `sendEmail.AddToBatch(batch, …)`, `two.ScheduleAfterAsync(parent, …)` — so the job being
   scheduled is always the receiver, matching `EnqueueAsync`. This requires `EnqueueAsync`/`ScheduleAsync`/
   `ScheduleAtAsync` to return a `JobHandle` (carrying `.Id`) rather than a bare `string` (**B0**).
   *(Rejected: `batch.Add(scheduler, payload)` / `parent.ContinueWith(childScheduler, payload)`, which
@@ -789,15 +790,15 @@ public enum ContinuationOptions
   choice, kept separate from the dashboard's own JSON API.)*
 
 - **Mid-job scheduling (§3.6):** a running member expands the workflow relative to itself via its own
-  `JobDetails`. Two axes: the **verb** picks ordering + durability — `ScheduleAfterAsync(JobDetails, …)` is
+  `JobDetails`. Two axes: the **verb** picks ordering + durability — `ScheduleAfter(JobDetails, …)` is
   gated after the job and buffered until it succeeds (retry-safe); `AddToBatchAsync(JobDetails, …)` is a
   concurrent, immediately-written batch member (fires even if the job later fails/retries — must be
   idempotent). `ContinuationOptions` (`Detached`/`BesideContinuations`/`BeforeContinuations`) picks
   how existing waiters relate to the new job, with `BeforeContinuations` performing an **additive**
   `{C, J}` splice (never a re-parent). `AddToBatchAsync(JobDetails, Detached)` is contradictory and
   rejected (`IJOB020`, compile-time + runtime); and when the current job has no batch, the
-  batch-tracking paths (`AddToBatchAsync(JobDetails, …)` and non-`Detached` `ScheduleAfterAsync(JobDetails, …)`)
-  throw at run time, leaving `ScheduleAfterAsync(JobDetails, …, Detached)` as the only valid batch-less
+  batch-tracking paths (`AddToBatchAsync(JobDetails, …)` and non-`Detached` `ScheduleAfter(JobDetails, …)`)
+  throw at run time, leaving `ScheduleAfter(JobDetails, …, Detached)` as the only valid batch-less
   call. *(Rejected: re-parenting waiters onto `J` alone, which drops their dependency on `C`; and a
   single ambient "current batch" — the token is the explicit `JobDetails`.)*
 

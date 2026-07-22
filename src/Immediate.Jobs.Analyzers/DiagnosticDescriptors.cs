@@ -94,7 +94,7 @@ internal static class DiagnosticDescriptors
 	public static readonly DiagnosticDescriptor DetachedMidJobBatchAddition = Create(
 		"IJOB020",
 		"Detached work cannot be added to a batch",
-		"AddToBatchAsync(JobDetails, ...) cannot use ContinuationOptions.Detached; use ScheduleAfterAsync for detached work"
+		"AddToBatchAsync(JobDetails, ...) cannot use ContinuationOptions.Detached; use ScheduleAfter for detached work"
 	);
 
 	private static DiagnosticDescriptor Create(string id, string title, string message) =>

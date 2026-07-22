@@ -14,10 +14,10 @@ public interface IJobContextExtractor<TContext>
 	string Key { get; }
 
 	/// <summary>Captures context from the enqueueing scope, or returns no value when none is available.</summary>
-	ValueTask<TContext?> CaptureAsync(CancellationToken cancellationToken);
+	TContext? Capture();
 
 	/// <summary>Restores captured context into services in the job execution scope.</summary>
-	ValueTask RestoreAsync(TContext context, CancellationToken cancellationToken);
+	void Restore(TContext context);
 }
 
 /// <summary>Applies a context extractor to a generated job or reusable job marker attribute.</summary>
@@ -49,7 +49,7 @@ public static class JobContextEnvelope
 		ArgumentNullException.ThrowIfNull(key);
 		ArgumentNullException.ThrowIfNull(value);
 		if (!slices.TryAdd(key, value))
-			throw new InvalidOperationException($"Multiple job context extractors use the key '{key}'.");
+			throw new ImmediateJobException($"Multiple job context extractors use the key '{key}'.");
 	}
 
 	/// <summary>Creates a JSON envelope, or returns no envelope when every extractor captured nothing.</summary>

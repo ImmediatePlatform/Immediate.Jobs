@@ -34,24 +34,23 @@ public sealed class NodaTimeTests
 		var scheduler = new BatchWorkflowJob.Scheduler(
 			harness.Storage,
 			harness.Services.GetRequiredService<IJobSerializer>(),
-			harness.TimeProvider
+			harness.TimeProvider,
+			harness.Services.GetRequiredService<IIdGenerator>()
 		);
 		await using var batch = harness.Batches.Begin();
 
-		var delayedBatchMember = await scheduler.AddToBatchAsync(
+		var delayedBatchMember = scheduler.AddToBatch(
 			batch,
 			new("delayed-batch-member"),
-			Duration.FromMinutes(5),
-			cancellationToken
+			Duration.FromMinutes(5)
 		);
-		var absoluteBatchMember = await scheduler.AddToBatchAtAsync(
+		var absoluteBatchMember = scheduler.AddToBatchAt(
 			batch,
 			new("absolute-batch-member"),
-			start + Duration.FromHours(2),
-			cancellationToken
+			start + Duration.FromHours(2)
 		);
-		var firstParent = await scheduler.AddToBatchAsync(batch, new("first-parent"), cancellationToken: cancellationToken);
-		var secondParent = await scheduler.AddToBatchAsync(batch, new("second-parent"), cancellationToken: cancellationToken);
+		var firstParent = scheduler.AddToBatch(batch, new("first-parent"));
+		var secondParent = scheduler.AddToBatch(batch, new("second-parent"));
 		var jobContinuation = await scheduler.ScheduleAfterAsync(
 			firstParent,
 			new("job-continuation"),
