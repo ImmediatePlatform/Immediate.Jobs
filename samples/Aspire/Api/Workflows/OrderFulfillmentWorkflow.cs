@@ -80,7 +80,7 @@ public sealed class OrderFulfillmentWorkflow(
 		_ = await writeAudit.ScheduleAfterAsync(
 			notified,
 			new(orderId),
-			ContinuationTrigger.AllComplete,
+			ContinuationTrigger.Complete,
 			cancellationToken: cancellationToken
 		);
 

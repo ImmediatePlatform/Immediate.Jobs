@@ -79,6 +79,9 @@ public sealed record JobRecord
 
 	/// <summary>Number of incoming continuation dependencies not yet satisfied.</summary>
 	public int RemainingDependencies { get; init; }
+
+	/// <summary>Number of settled incoming continuation dependencies whose parent failed.</summary>
+	public int FailedDependencies { get; init; }
 }
 
 /// <summary>A persisted recurring schedule.</summary>

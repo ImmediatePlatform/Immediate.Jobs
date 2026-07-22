@@ -19,6 +19,7 @@ export const completedJob: JobRecord = {
 	traceParent: null,
 	traceState: null,
 	remainingDependencies: 0,
+	failedDependencies: 0,
 };
 
 export const executingBatch: BatchStatus = {
@@ -44,9 +45,9 @@ export const workflowGraph: BatchGraph = {
 		{ jobId: 'smoke', jobName: 'order-record-fraud-assessment', state: 'AwaitingContinuation' },
 	],
 	edges: [
-		{ childJobId: 'region-a', parentJobId: 'build', parentBatchId: null, trigger: 'AllSucceeded' },
-		{ childJobId: 'region-b', parentJobId: 'build', parentBatchId: null, trigger: 'AllSucceeded' },
-		{ childJobId: 'smoke', parentJobId: 'region-a', parentBatchId: null, trigger: 'AllComplete' },
-		{ childJobId: 'smoke', parentJobId: 'region-b', parentBatchId: null, trigger: 'AllComplete' },
+		{ childJobId: 'region-a', parentJobId: 'build', parentBatchId: null, trigger: 'Success' },
+		{ childJobId: 'region-b', parentJobId: 'build', parentBatchId: null, trigger: 'Success' },
+		{ childJobId: 'smoke', parentJobId: 'region-a', parentBatchId: null, trigger: 'Complete' },
+		{ childJobId: 'smoke', parentJobId: 'region-b', parentBatchId: null, trigger: 'Complete' },
 	],
 };

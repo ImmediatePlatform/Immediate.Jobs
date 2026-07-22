@@ -17,7 +17,7 @@ public interface IJobBatchScheduler
 	IJobBatch Begin();
 
 	/// <summary>Begins a follow-up batch whose root members wait for a prior batch.</summary>
-	IJobBatch Begin(BatchHandle after, ContinuationTrigger on = ContinuationTrigger.AllSucceeded);
+	IJobBatch Begin(BatchHandle after, ContinuationTrigger on = ContinuationTrigger.Success);
 
 	/// <summary>Runs a batch body and commits it when the body succeeds.</summary>
 	ValueTask<BatchHandle> RunAsync(
@@ -30,10 +30,10 @@ public interface IJobBatchScheduler
 public sealed class JobBatchScheduler(IJobStorage storage, TimeProvider timeProvider) : IJobBatchScheduler
 {
 	/// <inheritdoc />
-	public IJobBatch Begin() => new JobBatch(storage, timeProvider, after: null, ContinuationTrigger.AllSucceeded);
+	public IJobBatch Begin() => new JobBatch(storage, timeProvider, after: null, ContinuationTrigger.Success);
 
 	/// <inheritdoc />
-	public IJobBatch Begin(BatchHandle after, ContinuationTrigger on = ContinuationTrigger.AllSucceeded)
+	public IJobBatch Begin(BatchHandle after, ContinuationTrigger on = ContinuationTrigger.Success)
 	{
 		ArgumentNullException.ThrowIfNull(after);
 		return new JobBatch(storage, timeProvider, after, on);

@@ -17,6 +17,7 @@
   <Folder Name="/Source/">
     <Project Path="src/Immediate.Jobs.Dashboard/Immediate.Jobs.Dashboard.csproj" />
     <Project Path="src/Immediate.Jobs.EntityFrameworkCore/Immediate.Jobs.EntityFrameworkCore.csproj" />
+    <Project Path="src/Immediate.Jobs.LinqToDB/Immediate.Jobs.LinqToDB.csproj" />
     <Project Path="src/Immediate.Jobs.Analyzers/Immediate.Jobs.Analyzers.csproj" />
     <Project Path="src/Immediate.Jobs.Generators/Immediate.Jobs.Generators.csproj" />
     <Project Path="src/Immediate.Jobs.NodaTime/Immediate.Jobs.NodaTime.csproj" />
@@ -27,6 +28,7 @@
   <Folder Name="/Tests/">
     <Project Path="tests/Immediate.Jobs.Tests/Immediate.Jobs.Tests.csproj" />
     <Project Path="tests/Immediate.Jobs.FunctionalTests/Immediate.Jobs.FunctionalTests.csproj" />
+    <Project Path="tests/Immediate.Jobs.StorageTests/Immediate.Jobs.StorageTests.csproj" />
   </Folder>
   <Folder Name="/Benchmarks/">
     <Project Path="benchmarks/Immediate.Jobs.Benchmarks/Immediate.Jobs.Benchmarks.csproj" />

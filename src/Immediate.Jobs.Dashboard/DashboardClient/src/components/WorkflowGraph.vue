@@ -105,7 +105,7 @@ function hasAlternatePath(excluded: BatchGraphEdge, excludedIndex: number, edges
 		return false;
 	}
 
-	const requireSuccess = excluded.trigger === 'AllSucceeded';
+	const requiredTrigger = excluded.trigger;
 	const visited = new Set<string>([excluded.parentJobId]);
 	const pending = [{ jobId: excluded.parentJobId, depth: 0 }];
 	while (pending.length > 0) {
@@ -114,8 +114,7 @@ function hasAlternatePath(excluded: BatchGraphEdge, excludedIndex: number, edges
 			continue;
 		}
 		for (const { edge, index } of edgesByParent.get(current.jobId) ?? []) {
-			if (index === excludedIndex
-				|| (requireSuccess && edge.trigger !== 'AllSucceeded')) {
+			if (index === excludedIndex || edge.trigger !== requiredTrigger) {
 				continue;
 			}
 			if (edge.childJobId === excluded.childJobId && current.depth > 0) {
@@ -352,7 +351,7 @@ function handleNodeKeydown(event: KeyboardEvent, jobId: string): void {
 					v-for="edge in drawing.edges"
 					:key="`${edge.childJobId}-${edge.parentJobId}-${edge.index}`"
 					class="workflow-edge"
-					:class="{ dashed: edge.trigger === 'AllComplete' }"
+					:class="{ dashed: edge.trigger === 'Complete', failure: edge.trigger === 'Failure' }"
 					:data-parent-job-id="edge.parentJobId"
 					:data-child-job-id="edge.childJobId"
 					:data-trigger="edge.trigger"

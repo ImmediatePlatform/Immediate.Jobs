@@ -36,7 +36,7 @@ public partial class SendEmailJob
 			public new global::System.Threading.Tasks.ValueTask<global::Immediate.Jobs.Shared.JobHandle> ScheduleAfterAsync(
 				global::Immediate.Jobs.Shared.JobHandle parent,
 				global::Example.SendEmailJob.Payload payload,
-				global::Immediate.Jobs.Shared.ContinuationTrigger on = global::Immediate.Jobs.Shared.ContinuationTrigger.AllSucceeded,
+				global::Immediate.Jobs.Shared.ContinuationTrigger on = global::Immediate.Jobs.Shared.ContinuationTrigger.Success,
 				global::System.TimeSpan? delay = null,
 				global::System.Threading.CancellationToken cancellationToken = default) =>
 				base.ScheduleAfterAsync(parent, payload, on, delay, cancellationToken);
@@ -44,7 +44,7 @@ public partial class SendEmailJob
 			public new global::System.Threading.Tasks.ValueTask<global::Immediate.Jobs.Shared.JobHandle> ScheduleAfterAsync(
 				global::System.ReadOnlySpan<global::Immediate.Jobs.Shared.JobHandle> parents,
 				global::Example.SendEmailJob.Payload payload,
-				global::Immediate.Jobs.Shared.ContinuationTrigger on = global::Immediate.Jobs.Shared.ContinuationTrigger.AllSucceeded,
+				global::Immediate.Jobs.Shared.ContinuationTrigger on = global::Immediate.Jobs.Shared.ContinuationTrigger.Success,
 				global::System.TimeSpan? delay = null,
 				global::System.Threading.CancellationToken cancellationToken = default) =>
 				base.ScheduleAfterAsync(parents, payload, on, delay, cancellationToken);
@@ -52,7 +52,7 @@ public partial class SendEmailJob
 			public new global::System.Threading.Tasks.ValueTask<global::Immediate.Jobs.Shared.JobHandle> ScheduleAfterAsync(
 				global::Immediate.Jobs.Shared.BatchHandle parent,
 				global::Example.SendEmailJob.Payload payload,
-				global::Immediate.Jobs.Shared.ContinuationTrigger on = global::Immediate.Jobs.Shared.ContinuationTrigger.AllSucceeded,
+				global::Immediate.Jobs.Shared.ContinuationTrigger on = global::Immediate.Jobs.Shared.ContinuationTrigger.Success,
 				global::System.TimeSpan? delay = null,
 				global::System.Threading.CancellationToken cancellationToken = default) =>
 				base.ScheduleAfterAsync(parent, payload, on, delay, cancellationToken);

@@ -74,8 +74,8 @@ await finalize.ScheduleAfterAsync(
 BatchHandle committed = await batch.CommitAsync(cancellationToken);
 ```
 
-`ContinuationTrigger.AllSucceeded` is the default; `AllComplete` runs after every parent settles,
-regardless of outcome. A running batch member can also expand its workflow through its injected
+`ContinuationTrigger.Success` is the default; `Failure` runs after every parent settles when at
+least one failed, and `Complete` runs regardless of outcome. A running batch member can also expand its workflow through its injected
 `JobDetails`, with additions buffered until the attempt succeeds so retries do not duplicate work.
 Use `IJobBatchMonitor` and `IJobMonitor` for status, member, graph, and job reads. See
 [Batches & Continuations](docs/batches-and-continuations.md) for the complete API and semantics.
@@ -110,7 +110,12 @@ builder.Services.AddImmediateJobs(options =>
 }).AddHealthCheck();
 ```
 
-The EF Core package adds `UseEntityFrameworkCore<TContext>()` in the same options callback. A durable provider implicitly selects single-server mode: memory is the live authority and every transition is written through to the database for restart recovery. Use `options.UseSingleServer()` to state that topology explicitly, `options.UseDistributed()` to make the database authoritative for multi-node coordination, or `options.UseInMemory()` for a non-durable development store.
+The EF Core package adds `UseEntityFrameworkCore<TContext>()`; the LinqToDB package adds
+`UseLinqToDB(dataOptions, schema)`. A durable provider implicitly selects single-server mode: memory
+is the live authority and every transition is written through to the database for restart recovery.
+Use `options.UseSingleServer()` to state that topology explicitly, `options.UseDistributed()` to
+make the database authoritative for multi-node coordination, or `options.UseInMemory()` for a
+non-durable development store.
 
 Adding queue support introduces the required `QueueName` column on `immediate_jobs`, and invocation IDs are stored as strings with a maximum length of 256. Applications using EF Core storage must add a migration (or recreate a development database created from an earlier draft). The model supplies `"default"` as the queue database default so existing rows are backfilled safely.
 
@@ -231,9 +236,58 @@ materialized outside a request.
 ## Storage providers
 
 - `Immediate.Jobs` includes the development-only in-memory provider, the memory-primary durable single-server topology, and the channel-backed worker pool.
-- `Immediate.Jobs.EntityFrameworkCore` provides relational EF Core persistence and optimistic concurrency.
+- `Immediate.Jobs.EntityFrameworkCore` is the provider-neutral EF Core adapter, validated with PostgreSQL, SQLite, and SQL Server.
+- `Immediate.Jobs.LinqToDB` is the provider-neutral LinqToDB adapter, validated with PostgreSQL, SQLite, and SQL Server.
 
 All providers implement `IJobStorage`. Single-server mode restores unfinished jobs and recurring schedules into memory when the process starts. Distributed mode uses provider leases; if a process dies, its lease expires and another node can acquire the invocation.
+
+### EF Core configuration
+
+Register an `IDbContextFactory<TContext>`, select the database through its normal EF provider, and
+include the jobs model in the application context:
+
+```csharp
+builder.Services.AddDbContextFactory<AppDbContext>(db =>
+	db.UseNpgsql(connectionString));       // PostgreSQL
+// db.UseSqlite(connectionString);       // SQLite
+// db.UseSqlServer(connectionString);    // SQL Server
+
+builder.Services.AddImmediateJobs(options =>
+	options.UseEntityFrameworkCore<AppDbContext>());
+
+protected override void OnModelCreating(ModelBuilder modelBuilder)
+{
+	modelBuilder.AddImmediateJobs(schema: "background"); // omit the schema for SQLite
+}
+```
+
+The application owns EF migrations. Add a migration after calling `AddImmediateJobs`, or use
+`EnsureCreatedAsync` only for disposable development/test databases. The adapter does not reference
+Npgsql, SQLite, or SQL Server provider packages.
+
+### LinqToDB configuration
+
+Configure and reuse an immutable `DataOptions`, then pass it to both bootstrap and registration:
+
+```csharp
+var dataOptions = new DataOptions().UsePostgreSQL(connectionString);
+// new DataOptions().UseSQLite(connectionString);
+// new DataOptions().UseSqlServer(connectionString);
+
+await dataOptions.CreateImmediateJobsSchemaAsync(
+	schema: "background", // must be null for SQLite
+	cancellationToken);
+
+builder.Services.AddImmediateJobs(options =>
+	options.UseLinqToDB(dataOptions, schema: "background"));
+```
+
+`CreateImmediateJobsSchemaAsync` is an explicit, idempotent bootstrap helper for a fresh database.
+It is never called by `InitializeAsync` and is not a production migration system. Applications own
+the matching ADO.NET driver (`Npgsql`, `Microsoft.Data.Sqlite`, or `Microsoft.Data.SqlClient`); the
+adapter package deliberately carries none of them. Named schemas are supported on PostgreSQL and
+SQL Server. SQLite has no server schemas and is normally embedded/file-backed, including in the
+storage conformance tests.
 
 Queue-aware dispatch changes the provider acquisition seam to `AcquireDueJobsAsync(JobAcquisitionRequest, ...)`. Custom providers must honor the request's queue order, queue capacities, and per-job capacities when upgrading.
 

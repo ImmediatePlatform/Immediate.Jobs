@@ -262,9 +262,10 @@ double-schedule) and `AddToBatchAsync(JobDetails, …)` is *concurrent* (written
 `BeforeContinuations`) chooses how the current job's existing waiters relate to the new work; the
 default performs an additive splice so downstream waits on both.
 
-**Triggers.** `ContinuationTrigger.AllSucceeded` (default) cancels the child (cascading to its
-subtree) if any parent does not succeed; `AllComplete` runs the child once all parents reach any
-terminal state (for cleanup/notification steps).
+**Triggers.** `ContinuationTrigger.Success` (default) cancels the child (cascading to its
+subtree) if any parent does not succeed. `Failure` waits for every parent and runs when at least one
+parent failed; for a batch parent, this means the aggregate batch state is `Failed`. `Complete` runs
+the child once all parents reach any terminal state (for cleanup/notification steps).
 
 **Non-goals for this feature:** result-passing between parent and child (a continuation observes a
 parent's *outcome*, not its return value), human-in-the-loop suspension, and saga/compensation
@@ -287,11 +288,15 @@ time.
 | `Immediate.Jobs.Analyzers`           | Non-packable Roslyn analyzer project embedded into the `Immediate.Jobs` package                                                                                                         |
 | `Immediate.Jobs.Generators`          | Non-packable Roslyn source-generator project embedded into the `Immediate.Jobs` package                                                                                                 |
 | `Immediate.Jobs.EntityFrameworkCore` | EF Core adapter — works with any relational EF provider; convenience over raw speed                                                                                                     |
+| `Immediate.Jobs.LinqToDB`            | Provider-neutral LinqToDB adapter — schema-compatible with EF Core and validated on PostgreSQL, SQLite, and SQL Server                                                                  |
 | `Immediate.Jobs.Dashboard`           | Embedded dashboard middleware + compiled Vue SPA assets                                                                                                                                 |
 | `Immediate.Jobs.NodaTime`            | Optional: `Instant`/`Duration`/`DateTimeZone` overloads on generated schedulers; NodaTime STJ converters wired into generated serializer contexts                                       |
 | `Immediate.Jobs.Testing`             | `JobTestHarness` (in-memory provider + `FakeTimeProvider`, advance-time-and-drain), typed enqueue assertions, capture-only scheduler call recorders, run-single-job-through-pipeline helper |
 
-Additional raw providers are post-v1 and can be added through the same abstraction.
+Both relational adapters use the same five-table schema, UTC-tick timestamps, enum values, and
+optimistic concurrency stamps. EF applications own migrations; LinqToDB applications explicitly
+bootstrap fresh databases with `CreateImmediateJobsSchemaAsync`. Database drivers remain application
+dependencies rather than adapter dependencies.
 
 ### 3.2 Storage abstraction
 
@@ -376,7 +381,10 @@ implementation as default.
 
 - `Immediate.Jobs.Testing` ships in v1 (see packages table); `TimeProvider` injection throughout core makes cron/backoff behavior deterministic under `FakeTimeProvider`.
 - Generator snapshot tests (Verify), analyzer tests for every diagnostic, and incremental-generator cacheability tests asserting the pipeline re-runs nothing when unrelated source changes.
-- Integration test matrix: relational EF Core provider tests covering two-node optimistic claiming, lease recovery, and single-server restart recovery.
+- .NET 10 storage conformance matrix: EF Core and LinqToDB against PostgreSQL, file-backed SQLite,
+  and SQL Server, including optimistic contention, lease recovery, batches/continuations, recurring
+  deduplication, monitoring/maintenance, and cross-adapter schema compatibility. PostgreSQL and SQL
+  Server use one Testcontainers instance per assembly; SQLite remains embedded and isolated per test.
 - Benchmarks (BenchmarkDotNet) vs Hangfire and Quartz.NET: enqueue throughput, dispatch latency, startup time, allocations — published in the README.
 - Native AOT sample app compiled in CI to guard the reflection-free claim.
 

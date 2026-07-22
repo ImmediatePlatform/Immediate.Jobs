@@ -115,14 +115,14 @@ public abstract class JobScheduler<TPayload>(
 			throw new ArgumentException("The batch was not created by Immediate.Jobs.", nameof(batch));
 		jobBatch.EnsureOpen();
 		var record = await CreateRecordAsync(payload, runAt, cancellationToken).ConfigureAwait(false);
-		return jobBatch.Add(record, [], ContinuationTrigger.AllSucceeded);
+		return jobBatch.Add(record, [], ContinuationTrigger.Success);
 	}
 
 	/// <summary>Schedules work after one parent job.</summary>
 	public ValueTask<JobHandle> ScheduleAfterAsync(
 		JobHandle parent,
 		TPayload payload,
-		ContinuationTrigger on = ContinuationTrigger.AllSucceeded,
+		ContinuationTrigger on = ContinuationTrigger.Success,
 		TimeSpan? delay = null,
 		CancellationToken cancellationToken = default
 	) => ScheduleAfterAsync([parent], payload, on, delay, cancellationToken);
@@ -131,7 +131,7 @@ public abstract class JobScheduler<TPayload>(
 	public ValueTask<JobHandle> ScheduleAfterAsync(
 		ReadOnlySpan<JobHandle> parents,
 		TPayload payload,
-		ContinuationTrigger on = ContinuationTrigger.AllSucceeded,
+		ContinuationTrigger on = ContinuationTrigger.Success,
 		TimeSpan? delay = null,
 		CancellationToken cancellationToken = default
 	)
@@ -147,7 +147,7 @@ public abstract class JobScheduler<TPayload>(
 	public async ValueTask<JobHandle> ScheduleAfterAsync(
 		BatchHandle parent,
 		TPayload payload,
-		ContinuationTrigger on = ContinuationTrigger.AllSucceeded,
+		ContinuationTrigger on = ContinuationTrigger.Success,
 		TimeSpan? delay = null,
 		CancellationToken cancellationToken = default
 	)

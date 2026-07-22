@@ -179,7 +179,7 @@ var a = await deployRegionA.AddToBatchAsync(batch, new());
 var b = await deployRegionB.AddToBatchAsync(batch, new());
 var c = await deployRegionC.AddToBatchAsync(batch, new());
 
-await runSmokeTests.ScheduleAfterAsync([a, b, c], new(), on: ContinuationTrigger.AllSucceeded);
+await runSmokeTests.ScheduleAfterAsync([a, b, c], new(), on: ContinuationTrigger.Success);
 ```
 
 For a dynamic number of parents, pass a `JobHandle[]` directly, or `CollectionsMarshal.AsSpan(list)`
@@ -212,7 +212,7 @@ To run an **atomic group** after a batch, open the follow-up batch with `after:`
 it adds also waits on the prior batch:
 
 ```csharp
-await using var wrapUp = batches.Begin(after: emailBatch, on: ContinuationTrigger.AllSucceeded);
+await using var wrapUp = batches.Begin(after: emailBatch, on: ContinuationTrigger.Success);
 await markCampaignFinished.AddToBatchAsync(wrapUp, new(campaignId));
 await notifyAdministrator.AddToBatchAsync(wrapUp, new());
 await wrapUp.CommitAsync(ct);
@@ -294,13 +294,31 @@ dashboard (§7).
 
 ### 3.8 Continuation triggers
 
-| Trigger                       | Fires when …                                   | On a violated parent                              |
-| ----------------------------- | ---------------------------------------------- | ------------------------------------------------- |
-| `AllSucceeded` **(default)**  | every parent reached `Succeeded`               | child is **cancelled**, cascading to its subtree  |
-| `AllComplete`                 | every parent reached a terminal state          | child runs; it may inspect parent outcomes        |
+| Trigger                 | Fires when …                                               | When the condition is not met                    |
+| ----------------------- | ---------------------------------------------------------- | ------------------------------------------------ |
+| `Success` **(default)** | every parent reached `Succeeded`                           | child is **cancelled**, cascading to its subtree |
+| `Failure`               | every parent is terminal and at least one reached `Failed` | child is **cancelled**, cascading to its subtree |
+| `Complete`              | every parent reached any terminal state                    | always runs                                      |
 
-`AllSucceeded` is the safe default: a broken upstream step never silently runs downstream work.
-`AllComplete` matches Hangfire's default for cleanup/notification steps that must run regardless.
+`Success` is the safe default: a broken upstream step never silently runs downstream work.
+`Failure` is the failure-handler trigger. For a `BatchHandle`, it fires only when the aggregate
+batch state is `Failed`; cancellation alone does not count as failure. For fan-in over several
+`JobHandle`s, it waits until every parent settles and fires when at least one parent failed.
+`Complete` is the `finally` trigger for cleanup or notification work that runs regardless of outcome.
+
+```csharp
+var batch = await batches.RunAsync(async b =>
+{
+    await importCustomers.AddToBatchAsync(b, new(importId));
+    await updateSearchIndex.AddToBatchAsync(b, new(importId));
+}, ct);
+
+await handleImportFailure.ScheduleAfterAsync(
+    batch,
+    new(importId),
+    on: ContinuationTrigger.Failure,
+    cancellationToken: ct);
+```
 
 ---
 
@@ -351,7 +369,7 @@ are incremented in the same completion transaction that already decrements `Pend
 | `ChildJobId`      | string (FK)   | The waiting invocation                               |
 | `ParentJobId`     | string? (FK)  | Set for job→job edges                                |
 | `ParentBatchId`   | string? (FK)  | Set for batch→job edges                              |
-| `Trigger`         | enum          | `AllSucceeded | AllComplete`                         |
+| `Trigger`         | enum          | `Success | Failure | Complete`                       |
 
 Primary key `(ChildJobId, ParentJobId, ParentBatchId)`. Exactly one parent column is non-null per row.
 
@@ -361,9 +379,11 @@ Primary key `(ChildJobId, ParentJobId, ParentBatchId)`. Exactly one parent colum
 | ------------------------ | -------- | --------------------------------------------------------- |
 | `BatchId`                | string?  | Membership in an atomic batch                             |
 | `RemainingDependencies`  | int      | Count of unsatisfied incoming edges; `0` ⇒ releasable     |
+| `FailedDependencies`     | int      | Settled incoming edges whose parent reached `Failed`      |
 
-`RemainingDependencies` is a denormalized counter maintained transactionally alongside the edge
-table so the hot "release?" check is a single indexed read, never a join-and-count.
+The dependency counters are maintained transactionally alongside the edge table so the hot
+"release?" check is a single indexed read, never a join-and-count. `FailedDependencies` lets a
+`Failure` continuation wait for every parent and then decide whether any parent actually failed.
 
 ### 4.3 Atomic commit
 
@@ -391,12 +411,15 @@ transaction** as the state change:
    `Succeeded`/`Failed`/`CancelledCount` (and set `StartedAt` on the first `Active` transition); if
    `PendingCount` reaches `0`, finalize the batch's `State`, stamp `CompletedAt`, and treat the batch
    as a terminal parent for batch→job edges.
-2. For each outgoing edge from this job (or batch):
-   - **Satisfied** (terminal, and success if `Trigger = AllSucceeded`): decrement the child's
-     `RemainingDependencies`; if it hits `0`, release `AwaitingContinuation → Pending`.
-   - **Violated** (`AllSucceeded` edge whose parent did not succeed): move the child to `Cancelled`
-     and **recurse** — the child's own outgoing edges are violated, cascading cancellation through
-     the subtree.
+2. For each outgoing edge from this job (or batch), decrement the child's `RemainingDependencies`
+   and increment `FailedDependencies` when the parent failed.
+   - **`Success`:** a non-successful parent immediately moves the child to `Cancelled`; otherwise,
+     release it when `RemainingDependencies` reaches `0`.
+   - **`Failure`:** wait until `RemainingDependencies` reaches `0`, then release if
+     `FailedDependencies > 0`; otherwise move the child to `Cancelled`.
+   - **`Complete`:** release when `RemainingDependencies` reaches `0`, regardless of outcomes.
+   Cancellation **recurses** through outgoing edges, cascading the resulting outcome through the
+   subtree.
 
 Release and cancellation are set-based within the provider (EF Core: `ExecuteUpdate` over the
 affected edge/child set) so a wide fan-out doesn't degrade to N round-trips.
@@ -527,8 +550,8 @@ edges — a pipeline/graph canvas, not a list.
   badge. Selecting a node opens the existing job-detail panel (payload, attempts, errors, timings)
   in a side drawer without leaving the graph.
 - **Edges** are continuation dependencies, drawn `parent → child` and styled by trigger
-  (`AllSucceeded` solid, `AllComplete` dashed). Fan-out, fan-in (join), and diamonds render as their
-  true shape; a **violated `AllSucceeded` edge and the subtree it cancelled are dimmed/struck** so a
+  (`Success` solid, `Failure` red/dotted, `Complete` dashed). Fan-out, fan-in (join), and diamonds render as their
+  true shape; a **violated `Success` edge and the subtree it cancelled are dimmed/struck** so a
   cascade is visible at a glance.
 - **Layered layout** (topological rank) with pan/zoom and a mini-map for large fan-outs; nodes with
   hundreds of siblings collapse into a **"×N same job"** group that expands on demand, so a
@@ -666,13 +689,13 @@ concrete generated member, not a shared interface):
 
     // continuations — this job runs after the parent(s); works in a batch or standalone
     ValueTask<JobHandle> ScheduleAfterAsync(JobHandle parent, Payload payload,
-        ContinuationTrigger on = ContinuationTrigger.AllSucceeded,
+        ContinuationTrigger on = ContinuationTrigger.Success,
         TimeSpan? delay = null, CancellationToken ct = default);
     ValueTask<JobHandle> ScheduleAfterAsync(ReadOnlySpan<JobHandle> parents, Payload payload,   // fan-in
-        ContinuationTrigger on = ContinuationTrigger.AllSucceeded,
+        ContinuationTrigger on = ContinuationTrigger.Success,
         TimeSpan? delay = null, CancellationToken ct = default);
     ValueTask<JobHandle> ScheduleAfterAsync(BatchHandle parentBatch, Payload payload,
-        ContinuationTrigger on = ContinuationTrigger.AllSucceeded,
+        ContinuationTrigger on = ContinuationTrigger.Success,
         TimeSpan? delay = null, CancellationToken ct = default);
 
     // mid-job scheduling (§3.6) — relative to the currently-executing job via its JobDetails
@@ -689,7 +712,7 @@ Batch and handle types:
 public interface IJobBatchScheduler
 {
     IJobBatch Begin();
-    IJobBatch Begin(BatchHandle after, ContinuationTrigger on = ContinuationTrigger.AllSucceeded);
+    IJobBatch Begin(BatchHandle after, ContinuationTrigger on = ContinuationTrigger.Success);
     ValueTask<BatchHandle> RunAsync(Func<IJobBatch, ValueTask> build, CancellationToken ct = default);
 }
 
@@ -708,7 +731,7 @@ public sealed class BatchHandle           // carries the batch Id
     string Id { get; }
 }
 
-public enum ContinuationTrigger { AllSucceeded, AllComplete }
+public enum ContinuationTrigger { Success, Failure, Complete }
 
 // how a mid-job (§3.6) scheduled job relates to the current job's existing waiters
 public enum ContinuationOptions

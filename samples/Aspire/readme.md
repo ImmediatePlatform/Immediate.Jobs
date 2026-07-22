@@ -21,7 +21,7 @@ dotnet run --project samples/Aspire/AppHost/Immediate.Jobs.Aspire.AppHost.csproj
 Open the Aspire dashboard URL printed in the console, then select the `jobs-api` endpoint. It opens
 Scalar at `/scalar`. `POST /api/greetings/{name}` demonstrates captured request context.
 `POST /api/order-fulfillment-batches` creates an atomic ten-job workflow with chains, parallel
-inventory/fraud/payment work, two fan-in joins, and an `AllComplete` audit continuation. While the
+inventory/fraud/payment work, two fan-in joins, and a `Complete` audit continuation. While the
 fraud-check member runs, it uses its `JobDetails` to schedule a retry-safe eleventh member before the
 fulfillment join. The response contains the batch ID, initial and expected job counts, and dashboard
 URL.

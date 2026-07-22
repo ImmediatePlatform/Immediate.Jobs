@@ -22,7 +22,7 @@ public static class SampleApiEndpoints
 			.WithSummary("Creates a complex order-fulfillment batch")
 			.WithDescription(
 				"Creates an atomic ten-job workflow with chains, parallel branches, two fan-in joins, "
-				+ "an AllComplete audit continuation, and a retry-safe mid-job expansion that adds an "
+				+ "a Complete audit continuation, and a retry-safe mid-job expansion that adds an "
 				+ "eleventh fraud-assessment job. Open the returned dashboard URL to watch it run."
 			)
 			.Produces<CreateOrderBatchResponse>(StatusCodes.Status202Accepted);

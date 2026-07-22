@@ -1045,6 +1045,11 @@ tbody tr[data-selected="true"] td:first-child {
 	stroke-dasharray: 6 5;
 }
 
+.workflow-edge.failure {
+	stroke: var(--danger);
+	stroke-dasharray: 2 4;
+}
+
 .workflow-join circle {
 	fill: var(--panel);
 	stroke: var(--text-subtle);

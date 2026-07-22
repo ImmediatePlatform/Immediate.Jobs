@@ -103,7 +103,7 @@ public sealed class BatchesAndContinuationsTests
 	}
 
 	[Fact]
-	public async Task FailedParentCancelsAllSucceededChildButReleasesAllCompleteChild()
+	public async Task FailedParentCancelsSuccessChildButReleasesFailureAndCompleteChildren()
 	{
 		var cancellationToken = TestContext.Current.CancellationToken;
 		var state = new BatchWorkflowState();
@@ -119,10 +119,16 @@ public sealed class BatchesAndContinuationsTests
 			cancellationToken: cancellationToken
 		);
 		var successOnly = await scheduler.ScheduleAfterAsync(parent, new("success-only"), cancellationToken: cancellationToken);
+		var failureOnly = await scheduler.ScheduleAfterAsync(
+			parent,
+			new("failure-only"),
+			ContinuationTrigger.Failure,
+			cancellationToken: cancellationToken
+		);
 		var always = await scheduler.ScheduleAfterAsync(
 			parent,
 			new("always"),
-			ContinuationTrigger.AllComplete,
+			ContinuationTrigger.Complete,
 			cancellationToken: cancellationToken
 		);
 		_ = await batch.CommitAsync(cancellationToken);
@@ -131,8 +137,57 @@ public sealed class BatchesAndContinuationsTests
 
 		Assert.Equal(JobState.Failed, (await harness.GetJobAsync(parent.Id, cancellationToken)).State);
 		Assert.Equal(JobState.Cancelled, (await harness.GetJobAsync(successOnly.Id, cancellationToken)).State);
+		Assert.Equal(JobState.Succeeded, (await harness.GetJobAsync(failureOnly.Id, cancellationToken)).State);
 		Assert.Equal(JobState.Succeeded, (await harness.GetJobAsync(always.Id, cancellationToken)).State);
-		Assert.Equal(["parent", "always"], state.Events);
+		Assert.Equal(["always", "failure-only", "parent"], state.Events.Order(StringComparer.Ordinal));
+	}
+
+	[Fact]
+	public async Task FailedBatchReleasesFailureAndCompleteContinuations()
+	{
+		var cancellationToken = TestContext.Current.CancellationToken;
+		var state = new BatchWorkflowState();
+		await using var harness = CreateHarness(state);
+		await using var scope = harness.Services.CreateAsyncScope();
+		var batches = scope.ServiceProvider.GetRequiredService<IJobBatchScheduler>();
+		var scheduler = scope.ServiceProvider.GetRequiredService<BatchWorkflowJob.Scheduler>();
+		await using var batch = batches.Begin();
+		_ = await scheduler.AddToBatchAsync(
+			batch,
+			new("batch-parent", Fail: true),
+			cancellationToken: cancellationToken
+		);
+		var batchHandle = await batch.CommitAsync(cancellationToken);
+
+		var successOnly = await scheduler.ScheduleAfterAsync(
+			batchHandle,
+			new("batch-success"),
+			ContinuationTrigger.Success,
+			cancellationToken: cancellationToken
+		);
+		var failureOnly = await scheduler.ScheduleAfterAsync(
+			batchHandle,
+			new("batch-failure"),
+			ContinuationTrigger.Failure,
+			cancellationToken: cancellationToken
+		);
+		var always = await scheduler.ScheduleAfterAsync(
+			batchHandle,
+			new("batch-complete"),
+			ContinuationTrigger.Complete,
+			cancellationToken: cancellationToken
+		);
+
+		await harness.DrainAsync(cancellationToken);
+
+		Assert.Equal(
+			BatchState.Failed,
+			(await harness.Storage.GetBatchStatusAsync(batchHandle.Id, cancellationToken))!.State
+		);
+		Assert.Equal(JobState.Cancelled, (await harness.GetJobAsync(successOnly, cancellationToken)).State);
+		Assert.Equal(JobState.Succeeded, (await harness.GetJobAsync(failureOnly, cancellationToken)).State);
+		Assert.Equal(JobState.Succeeded, (await harness.GetJobAsync(always, cancellationToken)).State);
+		Assert.Equal(["batch-complete", "batch-failure", "batch-parent"], state.Events.Order(StringComparer.Ordinal));
 	}
 
 	[Fact]

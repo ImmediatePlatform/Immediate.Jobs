@@ -14,7 +14,7 @@ export type JobState = (typeof jobStates)[number];
 export const batchStates = ['Executing', 'Succeeded', 'Failed', 'Cancelled'] as const;
 
 export type BatchState = (typeof batchStates)[number];
-export type ContinuationTrigger = 'AllSucceeded' | 'AllComplete';
+export type ContinuationTrigger = 'Success' | 'Failure' | 'Complete';
 export type IsoDateTime = string;
 
 export interface JobRecord {
@@ -36,6 +36,7 @@ export interface JobRecord {
 	traceState: string | null;
 	batchId: string | null;
 	remainingDependencies: number;
+	failedDependencies: number;
 }
 
 export interface RecurringJobSchedule {

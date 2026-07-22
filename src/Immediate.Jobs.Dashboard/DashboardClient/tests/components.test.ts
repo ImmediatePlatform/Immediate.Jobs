@@ -98,9 +98,9 @@ describe('dashboard components', () => {
 				{ jobId: 'fulfillment', jobName: 'order-prepare-fulfillment', state: 'Succeeded' as const },
 			],
 			edges: [
-				{ childJobId: 'assessment', parentJobId: 'fraud-check', parentBatchId: null, trigger: 'AllSucceeded' as const },
-				{ childJobId: 'fulfillment', parentJobId: 'fraud-check', parentBatchId: null, trigger: 'AllSucceeded' as const },
-				{ childJobId: 'fulfillment', parentJobId: 'assessment', parentBatchId: null, trigger: 'AllSucceeded' as const },
+				{ childJobId: 'assessment', parentJobId: 'fraud-check', parentBatchId: null, trigger: 'Success' as const },
+				{ childJobId: 'fulfillment', parentJobId: 'fraud-check', parentBatchId: null, trigger: 'Success' as const },
+				{ childJobId: 'fulfillment', parentJobId: 'assessment', parentBatchId: null, trigger: 'Success' as const },
 			],
 		};
 		const wrapper = mount(WorkflowGraph, { props: { graph } });
@@ -124,9 +124,9 @@ describe('dashboard components', () => {
 				{ jobId: 'waiter', jobName: 'Waiter', state: 'Cancelled' as const },
 			],
 			edges: [
-				{ childJobId: 'inserted', parentJobId: 'current', parentBatchId: null, trigger: 'AllComplete' as const },
-				{ childJobId: 'waiter', parentJobId: 'current', parentBatchId: null, trigger: 'AllSucceeded' as const },
-				{ childJobId: 'waiter', parentJobId: 'inserted', parentBatchId: null, trigger: 'AllSucceeded' as const },
+				{ childJobId: 'inserted', parentJobId: 'current', parentBatchId: null, trigger: 'Complete' as const },
+				{ childJobId: 'waiter', parentJobId: 'current', parentBatchId: null, trigger: 'Success' as const },
+				{ childJobId: 'waiter', parentJobId: 'inserted', parentBatchId: null, trigger: 'Success' as const },
 			],
 		};
 		const wrapper = mount(WorkflowGraph, { props: { graph } });

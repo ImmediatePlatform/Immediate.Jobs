@@ -94,7 +94,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) : IJobStorage,
 						? job
 						: incomingCounts.TryGetValue(job.Id, out var dependencyCount)
 						? NormalizeWaitingJob(job, dependencyCount)
-						: job with { BatchId = batch.Id, RemainingDependencies = 0 }
+						: job with { BatchId = batch.Id, RemainingDependencies = 0, FailedDependencies = 0 }
 				);
 			}
 
@@ -954,6 +954,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) : IJobStorage,
 	{
 		State = dependencyCount == 0 ? job.State : JobState.AwaitingContinuation,
 		RemainingDependencies = dependencyCount,
+		FailedDependencies = 0,
 		WorkerId = null,
 		LeaseExpiresAt = null,
 		CompletedAt = null,
@@ -1095,7 +1096,11 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) : IJobStorage,
 			.ToArray())
 		{
 			_ = _settledEdges.Add(edge);
-			SettleEdge(edge, parent.State == JobState.Succeeded);
+			SettleEdge(
+				edge,
+				parentSucceeded: parent.State == JobState.Succeeded,
+				parentFailed: parent.State == JobState.Failed
+			);
 		}
 	}
 
@@ -1109,27 +1114,41 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) : IJobStorage,
 			.ToArray())
 		{
 			_ = _settledEdges.Add(edge);
-			SettleEdge(edge, parent.State == BatchState.Succeeded);
+			SettleEdge(
+				edge,
+				parentSucceeded: parent.State == BatchState.Succeeded,
+				parentFailed: parent.State == BatchState.Failed
+			);
 		}
 	}
 
-	private void SettleEdge(JobContinuationEdge edge, bool parentSucceeded)
+	private void SettleEdge(JobContinuationEdge edge, bool parentSucceeded, bool parentFailed)
 	{
 		if (!_jobs.TryGetValue(edge.ChildJobId, out var child) || IsTerminal(child.State))
 			return;
-		if (edge.Trigger == ContinuationTrigger.AllSucceeded && !parentSucceeded)
+		if (edge.Trigger == ContinuationTrigger.Success && !parentSucceeded)
 		{
+			_jobs[child.Id] = child with { RemainingDependencies = 0 };
 			TransitionToTerminal(child.Id, JobState.Cancelled, error: null, timeProvider.GetUtcNow());
 			return;
 		}
 
 		var remaining = Math.Max(0, child.RemainingDependencies - 1);
+		var failed = child.FailedDependencies + (parentFailed ? 1 : 0);
+		if (remaining == 0 && edge.Trigger == ContinuationTrigger.Failure && failed == 0)
+		{
+			_jobs[child.Id] = child with { RemainingDependencies = 0, FailedDependencies = failed };
+			TransitionToTerminal(child.Id, JobState.Cancelled, error: null, timeProvider.GetUtcNow());
+			return;
+		}
+
 		_jobs[child.Id] = child with
 		{
 			State = remaining == 0 && child.State == JobState.AwaitingContinuation
 				? GetReadyState(child)
 				: child.State,
 			RemainingDependencies = remaining,
+			FailedDependencies = failed,
 		};
 	}
 

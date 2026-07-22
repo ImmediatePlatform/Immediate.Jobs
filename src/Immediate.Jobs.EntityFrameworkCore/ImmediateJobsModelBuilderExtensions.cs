@@ -174,6 +174,7 @@ internal sealed class ImmediateJobEntity
 	public string? TraceState { get; set; }
 	public string? BatchId { get; set; }
 	public int RemainingDependencies { get; set; }
+	public int FailedDependencies { get; set; }
 	public Guid ConcurrencyStamp { get; set; }
 }
 

@@ -60,7 +60,7 @@ public static class NodaTimeJobSchedulerExtensions
 		this JobScheduler<TPayload> scheduler,
 		JobHandle parent,
 		TPayload payload,
-		ContinuationTrigger on = ContinuationTrigger.AllSucceeded,
+		ContinuationTrigger on = ContinuationTrigger.Success,
 		Duration? delay = null,
 		CancellationToken cancellationToken = default
 	)
@@ -74,7 +74,7 @@ public static class NodaTimeJobSchedulerExtensions
 		this JobScheduler<TPayload> scheduler,
 		ReadOnlySpan<JobHandle> parents,
 		TPayload payload,
-		ContinuationTrigger on = ContinuationTrigger.AllSucceeded,
+		ContinuationTrigger on = ContinuationTrigger.Success,
 		Duration? delay = null,
 		CancellationToken cancellationToken = default
 	)
@@ -88,7 +88,7 @@ public static class NodaTimeJobSchedulerExtensions
 		this JobScheduler<TPayload> scheduler,
 		BatchHandle parent,
 		TPayload payload,
-		ContinuationTrigger on = ContinuationTrigger.AllSucceeded,
+		ContinuationTrigger on = ContinuationTrigger.Success,
 		Duration? delay = null,
 		CancellationToken cancellationToken = default
 	)

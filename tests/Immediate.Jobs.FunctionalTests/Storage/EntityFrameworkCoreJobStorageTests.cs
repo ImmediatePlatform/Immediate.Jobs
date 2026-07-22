@@ -235,6 +235,46 @@ public sealed class EntityFrameworkCoreJobStorageTests
 		Assert.Equal(0, status.Remaining);
 	}
 
+	[Theory]
+	[InlineData(true, JobState.Pending)]
+	[InlineData(false, JobState.Cancelled)]
+	public async Task EntityFrameworkCoreFailureContinuationRunsOnlyWhenParentFails(
+		bool parentFails,
+		JobState expectedState
+	)
+	{
+		var cancellationToken = TestContext.Current.CancellationToken;
+		await using var fixture = await StorageFixture.CreateAsync(cancellationToken);
+		var storage = fixture.CreateStorage();
+		var now = fixture.TimeProvider.GetUtcNow();
+		var parent = CreateJob(now, 1) with { Id = "failure-trigger-parent" };
+		var child = CreateJob(now, 2) with
+		{
+			Id = "failure-trigger-child",
+			State = JobState.AwaitingContinuation,
+			RemainingDependencies = 1,
+		};
+		await storage.EnqueueAsync(parent, cancellationToken);
+		await storage.EnqueueContinuationAsync(
+			child,
+			[new()
+			{
+				ChildJobId = child.Id,
+				ParentJobId = parent.Id,
+				Trigger = ContinuationTrigger.Failure,
+			}],
+			cancellationToken
+		);
+		_ = Assert.Single(await storage.AcquireDueJobsAsync(CreateRequest("failure-worker", 1), cancellationToken));
+
+		if (parentFails)
+			await storage.FailAsync(parent.Id, "failure-worker", "expected", nextRetryAt: null, cancellationToken);
+		else
+			await storage.CompleteAsync(parent.Id, "failure-worker", cancellationToken);
+
+		Assert.Equal(expectedState, (await storage.GetJobStatusAsync(child.Id, cancellationToken))!.State);
+	}
+
 	[Fact]
 	public async Task InvalidEntityFrameworkCoreBatchRollsBackEveryRow()
 	{
