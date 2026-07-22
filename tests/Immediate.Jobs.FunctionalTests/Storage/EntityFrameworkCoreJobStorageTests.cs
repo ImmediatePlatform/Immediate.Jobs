@@ -188,6 +188,156 @@ public sealed class EntityFrameworkCoreJobStorageTests
 		Assert.Equal(expectedNames.Order(StringComparer.Ordinal), names);
 	}
 
+	[Fact]
+	public async Task BatchCommitAndContinuationReleaseAreAtomicInEntityFrameworkCore()
+	{
+		var cancellationToken = TestContext.Current.CancellationToken;
+		await using var fixture = await StorageFixture.CreateAsync(cancellationToken);
+		var storage = fixture.CreateStorage();
+		var now = fixture.TimeProvider.GetUtcNow();
+		var parent = CreateJob(now, 1) with { Id = "batch-parent", BatchId = "batch-one" };
+		var child = CreateJob(now, 2) with
+		{
+			Id = "batch-child",
+			BatchId = "batch-one",
+			State = JobState.AwaitingContinuation,
+			RemainingDependencies = 1,
+		};
+		await storage.EnqueueBatchAsync(
+			new()
+			{
+				Id = "batch-one",
+				CreatedAt = now,
+				TotalJobs = 2,
+				PendingCount = 2,
+				State = BatchState.Executing,
+			},
+			[parent, child],
+			[new() { ChildJobId = child.Id, ParentJobId = parent.Id }],
+			cancellationToken
+		);
+
+		Assert.Equal(2, (await storage.GetBatchStatusAsync("batch-one", cancellationToken))!.Total);
+		var acquiredParent = Assert.Single(await storage.AcquireDueJobsAsync(CreateRequest("ef-worker", 1), cancellationToken));
+		Assert.Equal(parent.Id, acquiredParent.Id);
+		await storage.CompleteAsync(parent.Id, "ef-worker", cancellationToken);
+		Assert.Equal(
+			JobState.Pending,
+			(await storage.GetJobStatusAsync(child.Id, cancellationToken))!.State
+		);
+
+		var acquiredChild = Assert.Single(await storage.AcquireDueJobsAsync(CreateRequest("ef-worker", 1), cancellationToken));
+		Assert.Equal(child.Id, acquiredChild.Id);
+		await storage.CompleteAsync(child.Id, "ef-worker", cancellationToken);
+		var status = await storage.GetBatchStatusAsync("batch-one", cancellationToken);
+		Assert.Equal(BatchState.Succeeded, status!.State);
+		Assert.Equal(2, status.Succeeded);
+		Assert.Equal(0, status.Remaining);
+	}
+
+	[Fact]
+	public async Task InvalidEntityFrameworkCoreBatchRollsBackEveryRow()
+	{
+		var cancellationToken = TestContext.Current.CancellationToken;
+		await using var fixture = await StorageFixture.CreateAsync(cancellationToken);
+		var storage = fixture.CreateStorage();
+		var now = fixture.TimeProvider.GetUtcNow();
+		var child = CreateJob(now, 1) with
+		{
+			Id = "invalid-child",
+			BatchId = "invalid-batch",
+			State = JobState.AwaitingContinuation,
+			RemainingDependencies = 1,
+		};
+
+		_ = await Assert.ThrowsAnyAsync<Exception>(() => storage.EnqueueBatchAsync(
+			new()
+			{
+				Id = "invalid-batch",
+				CreatedAt = now,
+				TotalJobs = 1,
+				PendingCount = 1,
+				State = BatchState.Executing,
+			},
+			[child],
+			[new() { ChildJobId = child.Id, ParentJobId = "missing-parent" }],
+			cancellationToken
+		).AsTask());
+
+		Assert.Null(await storage.GetBatchStatusAsync("invalid-batch", cancellationToken));
+		Assert.Empty(await storage.QueryJobsAsync(new(), cancellationToken));
+	}
+
+	[Fact]
+	public async Task PurgeRunsInsideConfiguredExecutionStrategy()
+	{
+		var cancellationToken = TestContext.Current.CancellationToken;
+		await using var fixture = await StorageFixture.CreateAsync(
+			cancellationToken,
+			useRetryingExecutionStrategy: true
+		);
+		var storage = fixture.CreateStorage();
+
+		await storage.PurgeAsync(
+			TimeSpan.FromHours(1),
+			TimeSpan.FromHours(1),
+			TimeSpan.FromHours(1),
+			TimeSpan.FromHours(1),
+			cancellationToken
+		);
+	}
+
+	[Fact]
+	public async Task EntityFrameworkCoreCancelsAndDeletesBatchAsOneUnit()
+	{
+		var cancellationToken = TestContext.Current.CancellationToken;
+		await using var fixture = await StorageFixture.CreateAsync(
+			cancellationToken,
+			useRetryingExecutionStrategy: true
+		);
+		var storage = fixture.CreateStorage();
+		var now = fixture.TimeProvider.GetUtcNow();
+		var parent = CreateJob(now, 1) with { Id = "cancel-parent", BatchId = "cancel-batch" };
+		var child = CreateJob(now, 2) with
+		{
+			Id = "cancel-child",
+			BatchId = "cancel-batch",
+			State = JobState.AwaitingContinuation,
+			RemainingDependencies = 1,
+		};
+		await storage.EnqueueBatchAsync(
+			new()
+			{
+				Id = "cancel-batch",
+				CreatedAt = now,
+				TotalJobs = 2,
+				PendingCount = 2,
+				State = BatchState.Executing,
+			},
+			[parent, child],
+			[new() { ChildJobId = child.Id, ParentJobId = parent.Id }],
+			cancellationToken
+		);
+
+		await storage.CancelBatchAsync("cancel-batch", cancellationToken);
+
+		var cancelled = Assert.IsType<BatchStatus>(
+			await storage.GetBatchStatusAsync("cancel-batch", cancellationToken)
+		);
+		Assert.Equal(BatchState.Cancelled, cancelled.State);
+		Assert.Equal(2, cancelled.Cancelled);
+		Assert.All(
+			await storage.QueryBatchMembersAsync("cancel-batch", new(), cancellationToken),
+			static member => Assert.Equal(JobState.Cancelled, member.State)
+		);
+
+		await storage.DeleteBatchAsync("cancel-batch", cancellationToken);
+
+		Assert.Null(await storage.GetBatchStatusAsync("cancel-batch", cancellationToken));
+		Assert.Null(await storage.GetBatchGraphAsync("cancel-batch", cancellationToken));
+		Assert.Empty(await storage.QueryJobsAsync(new(), cancellationToken));
+	}
+
 	private static JobAcquisitionRequest CreateRequest(string workerId, int batchSize) => new()
 	{
 		WorkerId = workerId,

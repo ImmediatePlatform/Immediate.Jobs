@@ -39,6 +39,12 @@ public sealed class ImmediateJobsOptions
 	/// <summary>Retention for failed history.</summary>
 	public TimeSpan FailedRetention { get; set; } = TimeSpan.FromDays(7);
 
+	/// <summary>Retention for successful batches and all of their members and edges.</summary>
+	public TimeSpan BatchSucceededRetention { get; set; } = TimeSpan.FromHours(24);
+
+	/// <summary>Retention for failed or cancelled batches and all of their members and edges.</summary>
+	public TimeSpan BatchFailedRetention { get; set; } = TimeSpan.FromDays(7);
+
 	/// <summary>How frequently terminal history is purged.</summary>
 	public TimeSpan PurgeInterval { get; set; } = TimeSpan.FromHours(1);
 
@@ -133,6 +139,11 @@ public sealed class ImmediateJobsOptions
 			throw new InvalidOperationException("LeaseDuration must be greater than zero.");
 		if (ShutdownTimeout < TimeSpan.Zero)
 			throw new InvalidOperationException("ShutdownTimeout cannot be negative.");
+		if (SucceededRetention < TimeSpan.Zero || FailedRetention < TimeSpan.Zero ||
+			BatchSucceededRetention < TimeSpan.Zero || BatchFailedRetention < TimeSpan.Zero)
+		{
+			throw new InvalidOperationException("Retention periods cannot be negative.");
+		}
 	}
 }
 

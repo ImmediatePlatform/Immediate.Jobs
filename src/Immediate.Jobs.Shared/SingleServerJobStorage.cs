@@ -46,6 +46,31 @@ public sealed class SingleServerJobStorage : IJobStorage, IAsyncDisposable, IDis
 	}
 
 	/// <inheritdoc />
+	public async ValueTask EnqueueContinuationAsync(
+		JobRecord job,
+		IReadOnlyList<JobContinuationEdge> edges,
+		CancellationToken cancellationToken = default
+	)
+	{
+		await EnsureInitializedAsync(cancellationToken).ConfigureAwait(false);
+		await DurableStorage.EnqueueContinuationAsync(job, edges, cancellationToken).ConfigureAwait(false);
+		await _primary.EnqueueContinuationAsync(job, edges, cancellationToken).ConfigureAwait(false);
+	}
+
+	/// <inheritdoc />
+	public async ValueTask EnqueueBatchAsync(
+		JobBatchRecord batch,
+		IReadOnlyList<JobRecord> jobs,
+		IReadOnlyList<JobContinuationEdge> edges,
+		CancellationToken cancellationToken = default
+	)
+	{
+		await EnsureInitializedAsync(cancellationToken).ConfigureAwait(false);
+		await DurableStorage.EnqueueBatchAsync(batch, jobs, edges, cancellationToken).ConfigureAwait(false);
+		await _primary.EnqueueBatchAsync(batch, jobs, edges, cancellationToken).ConfigureAwait(false);
+	}
+
+	/// <inheritdoc />
 	public async ValueTask<IReadOnlyList<JobRecord>> AcquireDueJobsAsync(
 		JobAcquisitionRequest request,
 		CancellationToken cancellationToken = default
@@ -94,6 +119,34 @@ public sealed class SingleServerJobStorage : IJobStorage, IAsyncDisposable, IDis
 		await EnsureInitializedAsync(cancellationToken).ConfigureAwait(false);
 		await DurableStorage.CompleteAsync(jobId, workerId, cancellationToken).ConfigureAwait(false);
 		await _primary.CompleteAsync(jobId, workerId, cancellationToken).ConfigureAwait(false);
+	}
+
+	/// <inheritdoc />
+	public async ValueTask CompleteWithContinuationsAsync(
+		string jobId,
+		string workerId,
+		IReadOnlyList<JobContinuationAddition> additions,
+		CancellationToken cancellationToken = default
+	)
+	{
+		await EnsureInitializedAsync(cancellationToken).ConfigureAwait(false);
+		await DurableStorage.CompleteWithContinuationsAsync(jobId, workerId, additions, cancellationToken)
+			.ConfigureAwait(false);
+		await _primary.CompleteWithContinuationsAsync(jobId, workerId, additions, cancellationToken)
+			.ConfigureAwait(false);
+	}
+
+	/// <inheritdoc />
+	public async ValueTask AddBatchJobAsync(
+		string currentJobId,
+		JobRecord job,
+		ContinuationOptions options,
+		CancellationToken cancellationToken = default
+	)
+	{
+		await EnsureInitializedAsync(cancellationToken).ConfigureAwait(false);
+		await DurableStorage.AddBatchJobAsync(currentJobId, job, options, cancellationToken).ConfigureAwait(false);
+		await _primary.AddBatchJobAsync(currentJobId, job, options, cancellationToken).ConfigureAwait(false);
 	}
 
 	/// <inheritdoc />
@@ -197,6 +250,73 @@ public sealed class SingleServerJobStorage : IJobStorage, IAsyncDisposable, IDis
 	}
 
 	/// <inheritdoc />
+	public async ValueTask<BatchStatus?> GetBatchStatusAsync(
+		string batchId,
+		CancellationToken cancellationToken = default
+	)
+	{
+		await EnsureInitializedAsync(cancellationToken).ConfigureAwait(false);
+		return await _primary.GetBatchStatusAsync(batchId, cancellationToken).ConfigureAwait(false);
+	}
+
+	/// <inheritdoc />
+	public async ValueTask<IReadOnlyList<BatchStatus>> QueryBatchesAsync(
+		JobBatchQuery query,
+		CancellationToken cancellationToken = default
+	)
+	{
+		await EnsureInitializedAsync(cancellationToken).ConfigureAwait(false);
+		return await _primary.QueryBatchesAsync(query, cancellationToken).ConfigureAwait(false);
+	}
+
+	/// <inheritdoc />
+	public async ValueTask<IReadOnlyList<BatchMemberStatus>> QueryBatchMembersAsync(
+		string batchId,
+		BatchMemberQuery query,
+		CancellationToken cancellationToken = default
+	)
+	{
+		await EnsureInitializedAsync(cancellationToken).ConfigureAwait(false);
+		return await _primary.QueryBatchMembersAsync(batchId, query, cancellationToken).ConfigureAwait(false);
+	}
+
+	/// <inheritdoc />
+	public async ValueTask<BatchGraph?> GetBatchGraphAsync(
+		string batchId,
+		CancellationToken cancellationToken = default
+	)
+	{
+		await EnsureInitializedAsync(cancellationToken).ConfigureAwait(false);
+		return await _primary.GetBatchGraphAsync(batchId, cancellationToken).ConfigureAwait(false);
+	}
+
+	/// <inheritdoc />
+	public async ValueTask<JobStatus?> GetJobStatusAsync(
+		string jobId,
+		CancellationToken cancellationToken = default
+	)
+	{
+		await EnsureInitializedAsync(cancellationToken).ConfigureAwait(false);
+		return await _primary.GetJobStatusAsync(jobId, cancellationToken).ConfigureAwait(false);
+	}
+
+	/// <inheritdoc />
+	public async ValueTask CancelBatchAsync(string batchId, CancellationToken cancellationToken = default)
+	{
+		await EnsureInitializedAsync(cancellationToken).ConfigureAwait(false);
+		await DurableStorage.CancelBatchAsync(batchId, cancellationToken).ConfigureAwait(false);
+		await _primary.CancelBatchAsync(batchId, cancellationToken).ConfigureAwait(false);
+	}
+
+	/// <inheritdoc />
+	public async ValueTask DeleteBatchAsync(string batchId, CancellationToken cancellationToken = default)
+	{
+		await EnsureInitializedAsync(cancellationToken).ConfigureAwait(false);
+		await DurableStorage.DeleteBatchAsync(batchId, cancellationToken).ConfigureAwait(false);
+		await _primary.DeleteBatchAsync(batchId, cancellationToken).ConfigureAwait(false);
+	}
+
+	/// <inheritdoc />
 	public async ValueTask RetryAsync(string jobId, CancellationToken cancellationToken = default)
 	{
 		await EnsureInitializedAsync(cancellationToken).ConfigureAwait(false);
@@ -216,12 +336,26 @@ public sealed class SingleServerJobStorage : IJobStorage, IAsyncDisposable, IDis
 	public async ValueTask PurgeAsync(
 		TimeSpan succeededRetention,
 		TimeSpan failedRetention,
+		TimeSpan batchSucceededRetention,
+		TimeSpan batchFailedRetention,
 		CancellationToken cancellationToken = default
 	)
 	{
 		await EnsureInitializedAsync(cancellationToken).ConfigureAwait(false);
-		await DurableStorage.PurgeAsync(succeededRetention, failedRetention, cancellationToken).ConfigureAwait(false);
-		await _primary.PurgeAsync(succeededRetention, failedRetention, cancellationToken).ConfigureAwait(false);
+		await DurableStorage.PurgeAsync(
+			succeededRetention,
+			failedRetention,
+			batchSucceededRetention,
+			batchFailedRetention,
+			cancellationToken
+		).ConfigureAwait(false);
+		await _primary.PurgeAsync(
+			succeededRetention,
+			failedRetention,
+			batchSucceededRetention,
+			batchFailedRetention,
+			cancellationToken
+		).ConfigureAwait(false);
 	}
 
 	/// <inheritdoc />
@@ -280,6 +414,7 @@ public sealed class SingleServerJobStorage : IJobStorage, IAsyncDisposable, IDis
 			var recoveredPrimary = new InMemoryJobStorage(_timeProvider);
 			await recoveredPrimary.InitializeAsync(cancellationToken).ConfigureAwait(false);
 
+			var recoveredJobs = new List<JobRecord>();
 			foreach (var state in Enum.GetValues<JobState>())
 			{
 				var skip = 0;
@@ -289,12 +424,87 @@ public sealed class SingleServerJobStorage : IJobStorage, IAsyncDisposable, IDis
 						new() { State = state, Skip = skip, Take = RecoveryBatchSize },
 						cancellationToken
 					).ConfigureAwait(false);
-					foreach (var job in jobs)
-						await recoveredPrimary.EnqueueAsync(job, cancellationToken).ConfigureAwait(false);
+					recoveredJobs.AddRange(jobs);
 					if (jobs.Count < RecoveryBatchSize)
 						break;
 					skip += jobs.Count;
 				}
+			}
+
+			var batchIds = recoveredJobs
+				.Where(static job => job.BatchId is not null)
+				.Select(static job => job.BatchId!)
+				.Distinct(StringComparer.Ordinal)
+				.ToArray();
+			var recoveredBatches = new Dictionary<string, RecoveredBatch>(batchIds.Length, StringComparer.Ordinal);
+			foreach (var batchId in batchIds)
+			{
+				var status = await DurableStorage.GetBatchStatusAsync(batchId, cancellationToken).ConfigureAwait(false)
+					?? throw new InvalidOperationException($"Batch '{batchId}' has members but no durable batch header.");
+				var graph = await DurableStorage.GetBatchGraphAsync(batchId, cancellationToken).ConfigureAwait(false)
+					?? throw new InvalidOperationException($"Batch '{batchId}' has members but no durable dependency graph.");
+				recoveredBatches.Add(batchId, new(
+					new()
+					{
+						Id = status.Id,
+						CreatedAt = status.CreatedAt,
+						TotalJobs = status.Total,
+						PendingCount = status.Remaining,
+						SucceededCount = status.Succeeded,
+						FailedCount = status.Failed,
+						CancelledCount = status.Cancelled,
+						StartedAt = status.StartedAt,
+						CompletedAt = status.CompletedAt,
+						State = status.State,
+					},
+					[.. recoveredJobs.Where(job => job.BatchId == batchId)],
+					[.. graph.Edges.Select(ToContinuationEdge)]
+				));
+			}
+
+			var restoredBatchIds = new HashSet<string>(StringComparer.Ordinal);
+			while (recoveredBatches.Count != 0)
+			{
+				var ready = recoveredBatches.Values
+					.Where(batch => batch.Edges
+						.Where(static edge => edge.ParentBatchId is not null)
+						.All(edge => restoredBatchIds.Contains(edge.ParentBatchId!)))
+					.OrderBy(static batch => batch.Record.CreatedAt)
+					.ThenBy(static batch => batch.Record.Id, StringComparer.Ordinal)
+					.ToArray();
+				if (ready.Length == 0)
+				{
+					var unresolved = string.Join(", ", recoveredBatches.Keys.Order(StringComparer.Ordinal));
+					throw new InvalidOperationException(
+						$"Durable batches have cyclic or missing parent-batch dependencies: {unresolved}."
+					);
+				}
+
+				foreach (var batch in ready)
+				{
+					await recoveredPrimary.EnqueueBatchAsync(
+						batch.Record,
+						batch.Jobs,
+						batch.Edges,
+						cancellationToken
+					).ConfigureAwait(false);
+					_ = recoveredBatches.Remove(batch.Record.Id);
+					_ = restoredBatchIds.Add(batch.Record.Id);
+				}
+			}
+
+			foreach (var job in recoveredJobs.Where(static job => job.BatchId is null))
+			{
+				var status = await DurableStorage.GetJobStatusAsync(job.Id, cancellationToken).ConfigureAwait(false)
+					?? throw new InvalidOperationException($"Job '{job.Id}' was queried but has no durable status.");
+				if (status.DependsOn.Count == 0)
+					await recoveredPrimary.EnqueueAsync(job, cancellationToken).ConfigureAwait(false);
+				else
+					await recoveredPrimary.EnqueueContinuationAsync(
+						job,
+						[.. status.DependsOn.Select(ToContinuationEdge)],
+						cancellationToken
+					).ConfigureAwait(false);
 			}
 
 			var snapshot = await DurableStorage.GetMonitoringSnapshotAsync(cancellationToken).ConfigureAwait(false);
@@ -309,4 +519,18 @@ public sealed class SingleServerJobStorage : IJobStorage, IAsyncDisposable, IDis
 			_ = _initialization.Release();
 		}
 	}
+
+	private static JobContinuationEdge ToContinuationEdge(BatchGraphEdge edge) => new()
+	{
+		ChildJobId = edge.ChildJobId,
+		ParentJobId = edge.ParentJobId,
+		ParentBatchId = edge.ParentBatchId,
+		Trigger = edge.Trigger,
+	};
+
+	private sealed record RecoveredBatch(
+		JobBatchRecord Record,
+		IReadOnlyList<JobRecord> Jobs,
+		IReadOnlyList<JobContinuationEdge> Edges
+	);
 }

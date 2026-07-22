@@ -35,12 +35,12 @@ public class CaptureOnlyRecurringJobScheduler : IRecurringJobScheduler
 	}
 
 	/// <inheritdoc />
-	public virtual ValueTask<string> TriggerNow(CancellationToken cancellationToken = default)
+	public virtual ValueTask<JobHandle> TriggerNow(CancellationToken cancellationToken = default)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
 		var id = CreateId();
 		_captures.Add(new(RecurringJobOperation.Trigger, JobId: id));
-		return ValueTask.FromResult(id);
+		return ValueTask.FromResult(new JobHandle(id));
 	}
 
 	/// <summary>Clears every captured call.</summary>

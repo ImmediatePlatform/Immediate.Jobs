@@ -16,7 +16,7 @@ public sealed class TestingPackageTests
 		var id = await scheduler.Enqueue(payload, TestContext.Current.CancellationToken);
 
 		var capture = Assert.Single(scheduler.Captures);
-		Assert.Equal(id, capture.Id);
+		Assert.Equal(id.Id, capture.Id);
 		Assert.Equal(payload, capture.Payload);
 	}
 

@@ -91,6 +91,12 @@ internal static class DiagnosticDescriptors
 		"Context type '{0}' cannot be source-generated for JSON serialization: {1}"
 	);
 
+	public static readonly DiagnosticDescriptor DetachedMidJobBatchAddition = Create(
+		"IJOB020",
+		"Detached work cannot be added to a batch",
+		"AddToBatch(JobDetails, ...) cannot use ContinuationOptions.Detached; use ScheduleAfter for detached work"
+	);
+
 	private static DiagnosticDescriptor Create(string id, string title, string message) =>
 		new(id, title, message, Category, DiagnosticSeverity.Error, isEnabledByDefault: true);
 }

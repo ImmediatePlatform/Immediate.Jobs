@@ -21,7 +21,7 @@ public sealed partial class SendWelcomeEmail(IEmailSender sender)
 
 public sealed class SignupService(SendWelcomeEmail.Scheduler welcomeEmail)
 {
-	public ValueTask<string> Enqueue(Guid userId, CancellationToken cancellationToken) =>
+	public ValueTask<JobHandle> Enqueue(Guid userId, CancellationToken cancellationToken) =>
 		welcomeEmail.Enqueue(new(userId, "v2"), cancellationToken);
 }
 ```
@@ -45,7 +45,40 @@ public sealed class ImportWorker(IServiceScopeFactory scopeFactory)
 }
 ```
 
-`Enqueue`, `Schedule`, `ScheduleAt`, and `TriggerNow` return an opaque string invocation ID. The built-in scheduler currently creates a compact GUID-formatted value, but consumers must not parse it or depend on that format; storage integrations may use another string ID scheme.
+`Enqueue`, `Schedule`, `ScheduleAt`, and `TriggerNow` return a `JobHandle`. Its `Id` is an opaque
+string invocation ID. Consumers must not parse it or depend on its format; storage integrations may
+use another string ID scheme.
+
+## Batches and continuations
+
+Inject `IJobBatchScheduler` to create an atomic group. Generated schedulers add their own typed
+payloads to the batch and return handles that can be connected into chains, fan-out branches, and
+fan-in joins. Storage receives the entire batch in one transaction; disposing without committing
+writes nothing.
+
+```csharp
+await using var batch = batches.Begin();
+
+var imported = await import.AddToBatch(batch, new(importId), cancellationToken: cancellationToken);
+var indexed = await index.ScheduleAfter(imported, new(importId), cancellationToken: cancellationToken);
+
+var notifyOwner = await notify.ScheduleAfter(indexed, new(importId), cancellationToken: cancellationToken);
+var updateMetrics = await metrics.ScheduleAfter(indexed, new(importId), cancellationToken: cancellationToken);
+
+await finalize.ScheduleAfter(
+	[notifyOwner, updateMetrics],
+	new(importId),
+	cancellationToken: cancellationToken
+);
+
+BatchHandle committed = await batch.CommitAsync(cancellationToken);
+```
+
+`ContinuationTrigger.AllSucceeded` is the default; `AllComplete` runs after every parent settles,
+regardless of outcome. A running batch member can also expand its workflow through its injected
+`JobDetails`, with additions buffered until the attempt succeeds so retries do not duplicate work.
+Use `IJobBatchMonitor` and `IJobMonitor` for status, member, graph, and job reads. See
+[Batches & Continuations](docs/batches-and-continuations.md) for the complete API and semantics.
 
 ## Queues, priority, and concurrency
 
@@ -213,7 +246,11 @@ app.MapImmediateJobsDashboard("/jobs", options =>
 	options.RequireAuthorization("operations"));
 ```
 
-The package serves an embedded SPA, JSON monitoring endpoints, and a Server-Sent Events stream. Without an authorization policy, dashboard access is allowed only in the `Development` environment. The monitoring API supports snapshots, filtered jobs, recurring schedule actions, retry, and deletion.
+The package serves an embedded SPA, JSON monitoring endpoints, and Server-Sent Events streams.
+Without an authorization policy, dashboard access is allowed only in the `Development` environment.
+The dashboard includes batch progress and a live dependency-graph viewer alongside filtered jobs,
+recurring schedule actions, retry, cancellation, and atomic batch deletion. Job search and filters
+are paged on the server in groups of 50; batch members show a link to their workflow.
 
 ## Testing
 
@@ -237,6 +274,11 @@ The package serves an embedded SPA, JSON monitoring endpoints, and a Server-Sent
 | `IJOB012` | Duplicate persisted queue name |
 | `IJOB013` | `UsesJobContext<T>` targets an invalid extractor type |
 | `IJOB014` | Unsupported context member/type |
+| `IJOB016` | An empty atomic batch was committed |
+| `IJOB017` | Continuation handles belong to unrelated batches |
+| `IJOB018` | A continuation dependency cycle was detected |
+| `IJOB019` | A batch handle was used after commit or disposal |
+| `IJOB020` | `AddToBatch(JobDetails, ..., Detached)` is contradictory |
 
 ## Observability
 

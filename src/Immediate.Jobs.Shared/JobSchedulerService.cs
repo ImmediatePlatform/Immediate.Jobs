@@ -187,7 +187,13 @@ public sealed partial class JobSchedulerService : BackgroundService
 
 		if (_timeProvider.GetTimestamp() >= Interlocked.Read(ref _nextPurgeTimestamp))
 		{
-			await _storage.PurgeAsync(_options.SucceededRetention, _options.FailedRetention, cancellationToken).ConfigureAwait(false);
+			await _storage.PurgeAsync(
+				_options.SucceededRetention,
+				_options.FailedRetention,
+				_options.BatchSucceededRetention,
+				_options.BatchFailedRetention,
+				cancellationToken
+			).ConfigureAwait(false);
 			_ = Interlocked.Exchange(ref _nextPurgeTimestamp, _timeProvider.GetTimestamp() + ToTimestampTicks(_options.PurgeInterval));
 		}
 	}
@@ -279,8 +285,17 @@ public sealed partial class JobSchedulerService : BackgroundService
 				JobContextEnvelope.LogOrphanedSlices(scope.ServiceProvider, record, orphanedSlices.Keys);
 			}
 
-			await definition.Invoker.InvokeAsync(scope.ServiceProvider, new(record, definition, timeout.Token)).ConfigureAwait(false);
-			await _storage.CompleteAsync(record.Id, _workerId, stoppingToken).ConfigureAwait(false);
+			var executionBuffer = new JobExecutionBuffer();
+			await definition.Invoker.InvokeAsync(
+				scope.ServiceProvider,
+				new(record, definition, timeout.Token, executionBuffer)
+			).ConfigureAwait(false);
+			await _storage.CompleteWithContinuationsAsync(
+				record.Id,
+				_workerId,
+				executionBuffer.Snapshot(),
+				stoppingToken
+			).ConfigureAwait(false);
 			var duration = _timeProvider.GetElapsedTime(started);
 			JobTelemetry.Succeeded(record.JobName, record.QueueName, duration);
 			_ = activity?.SetStatus(ActivityStatusCode.Ok);

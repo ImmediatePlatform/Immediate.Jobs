@@ -6,7 +6,7 @@ namespace Immediate.Jobs.NodaTime;
 public static class NodaTimeJobSchedulerExtensions
 {
 	/// <summary>Schedules a payload after a NodaTime duration.</summary>
-	public static ValueTask<string> Schedule<TPayload>(
+	public static ValueTask<JobHandle> Schedule<TPayload>(
 		this IJobScheduler<TPayload> scheduler,
 		TPayload payload,
 		Duration delay,
@@ -18,7 +18,7 @@ public static class NodaTimeJobSchedulerExtensions
 	}
 
 	/// <summary>Schedules a payload at a NodaTime instant.</summary>
-	public static ValueTask<string> ScheduleAt<TPayload>(
+	public static ValueTask<JobHandle> ScheduleAt<TPayload>(
 		this IJobScheduler<TPayload> scheduler,
 		TPayload payload,
 		Instant runAt,
