@@ -42,7 +42,9 @@ jobs:
       working-directory: src/Immediate.Jobs.Dashboard/DashboardClient
       run: |
         npm ci
+        npm run check
         npm run build
+        npm run size
 
     - name: Restore dependencies
       run: dotnet restore

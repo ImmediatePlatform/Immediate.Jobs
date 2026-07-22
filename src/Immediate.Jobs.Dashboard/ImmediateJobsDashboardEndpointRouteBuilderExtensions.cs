@@ -46,15 +46,15 @@ public static class ImmediateJobsDashboardEndpointRouteBuilderExtensions
 		MapApi(group, options);
 		_ = group.MapGet("/", (Delegate)((HttpContext context) =>
 			context.Request.Path.Value is { Length: > 0 } path && path[^1] == '/'
-				? DashboardAssets.GetAsync("index.html")
+				? DashboardAssets.GetIndexAsync(context, prefix)
 				: Task.FromResult<IResult>(Results.Redirect(prefix + "/"))
 		)).ExcludeFromDescription();
 		_ = group.MapGet("/app.css", () => DashboardAssets.GetAsync("app.css")).ExcludeFromDescription();
 		_ = group.MapGet("/app.js", () => DashboardAssets.GetAsync("app.js")).ExcludeFromDescription();
-		_ = group.MapGet("/{**path}", (string path) =>
+		_ = group.MapGet("/{**path}", (string path, HttpContext context) =>
 			path.StartsWith("api/", StringComparison.OrdinalIgnoreCase)
 				? Task.FromResult<IResult>(Results.NotFound())
-				: DashboardAssets.GetAsync("index.html")
+				: DashboardAssets.GetIndexAsync(context, prefix)
 		).WithOrder(int.MaxValue).ExcludeFromDescription();
 
 		return group;
