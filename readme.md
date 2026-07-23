@@ -209,24 +209,37 @@ the job's execution scope before the handler and its behaviors are resolved. The
 serialized with generated metadata, so it remains trimming- and Native AOT-safe.
 
 ```csharp
-public sealed record UsageContext(Guid UserId, string TenantId);
+// This is the durable, serializable value stored with the job.
+public sealed record UsageContextSnapshot(Guid UserId, string TenantId);
+
+// This is the scoped application service populated by the request and injected through DI.
+public sealed class CurrentUsage
+{
+	public UsageContextSnapshot? Value { get; set; }
+}
 
 public sealed class UsageContextExtractor(CurrentUsage current)
-	: IJobContextExtractor<UsageContext>
+	: IJobContextExtractor<UsageContextSnapshot>
 {
 	public string Key => "usage"; // stable across extractor type renames
 
-	public UsageContext? Capture() => current.Value;
+	public UsageContextSnapshot? Capture() => current.Value;
 
-	public void Restore(UsageContext context) => current.Value = context;
+	public void Restore(UsageContextSnapshot context) => current.Value = context;
 }
 
 [Handler, Job, UsesJobContext<UsageContextExtractor>]
 public sealed partial class AuditUsageJob(CurrentUsage current)
 {
-	// The generated scheduler captures UsageContext and the worker restores it before this runs.
+	// current.Value contains the enqueueing scope's snapshot when this job runs.
 }
 ```
+
+Register the application-owned holder as scoped: `builder.Services.AddScoped<CurrentUsage>()`.
+The generated job registrations add `UsageContextExtractor` as scoped automatically. At enqueue,
+the extractor reads the caller's `CurrentUsage`; at execution, it writes the deserialized snapshot
+into the new job scope's `CurrentUsage` before the job and its behaviors are resolved. The snapshot
+itself is persisted data passed to `Restore`, not a service resolved from DI.
 
 For a family of jobs, put one or more extractor markers on a reusable attribute:
 

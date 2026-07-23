@@ -70,22 +70,35 @@ guarded at runtime (§8) rather than at compile time, since the value isn't a co
 ### 4.2 A reusable extractor (user code)
 
 ```csharp
-public sealed record UsageContext(Guid UserId, string TenantId);
+// Durable data serialized into the job's context envelope.
+public sealed record UsageContextSnapshot(Guid UserId, string TenantId);
 
-public sealed class UsageContextExtractor(IHttpContextAccessor http, ICurrentUserSetter setter)
-    : IJobContextExtractor<UsageContext>
+// Application-owned scoped state used by request and job code.
+public sealed class CurrentUsage
 {
-    public string Key => "usage";   // stable; renaming this class won't break in-flight records
-
-	public UsageContext? Capture() =>
-		http.HttpContext is { } c ? new(c.User.GetUserId(), c.GetTenant()) : null;
-
-	public void Restore(UsageContext ctx) =>
-		setter.Set(ctx.UserId, ctx.TenantId);   // your existing scoped service, repopulated
+	public UsageContextSnapshot? Value { get; set; }
 }
+
+public sealed class UsageContextExtractor(CurrentUsage current)
+	: IJobContextExtractor<UsageContextSnapshot>
+{
+	public string Key => "usage";   // stable; renaming this class won't break in-flight records
+
+	public UsageContextSnapshot? Capture() => current.Value;
+
+	public void Restore(UsageContextSnapshot snapshot) => current.Value = snapshot;
+}
+
+builder.Services.AddScoped<CurrentUsage>();
 ```
 
-The context type is defined **with the extractor**, not the job — that is what makes it reusable.
+`CurrentUsage` is the service injected from DI. The request pipeline populates it in the enqueueing
+scope, and jobs or behaviors inject it to consume the restored state. `UsageContextSnapshot` is not
+a DI service: it is the durable value returned by `Capture`, serialized with the job, and supplied
+to `Restore` in the execution scope. The generator registers each referenced extractor as scoped;
+the application registers its own scoped holder and any dependencies used to populate it.
+
+The snapshot type is defined **with the extractor**, not the job — that is what makes it reusable.
 
 ### 4.3 Opt-in marker (core package + generator)
 
@@ -113,9 +126,9 @@ public sealed partial class SendInvoiceJob { /* ... */ }
   `AllowMultiple = true`); a job may stack several, directly and/or via marker attributes.
 - **Assembly-wide `[assembly: UsesJobContext<T>]` is out of scope** — the reusable marker covers
   "apply to a family of jobs" without silently capturing context on jobs that don't need it.
-- Registration of the extractor itself is a normal DI registration
-  (`services.AddScoped<UsageContextExtractor>()`), or the generator can emit
-  `TryAddScoped` for every referenced extractor (mirrors how behaviors are registered).
+- The generator emits `TryAddScoped` for every referenced extractor (mirrors how behaviors are
+  registered). Application-owned dependencies such as `CurrentUsage` still require their normal
+  DI registrations.
 
 ## 5. Runtime & generator changes
 
@@ -165,7 +178,7 @@ restore **before** the handler/behavior pipeline:
 if (execution.Record.Context is { } envelope)
 {
     var extractor = ServiceProviderServiceExtensions.GetRequiredService<UsageContextExtractor>(scopedServices);
-    if (TryReadSlice<UsageContext>(envelope, extractor.Key) is { } ctx)
+    if (TryReadSlice<UsageContextSnapshot>(envelope, extractor.Key) is { } ctx)
 		extractor.Restore(ctx);
 }
 // … then existing handler + behavior invocation …
@@ -254,19 +267,25 @@ the nullable `Capture` return models this explicitly.
 
 ```csharp
 // once, reusable
-public sealed record UsageContext(Guid UserId, string TenantId);
-public sealed class UsageContextExtractor(IHttpContextAccessor http, ICurrentUserSetter setter)
-    : IJobContextExtractor<UsageContext> { /* Capture/Restore as in §4.2 */ }
+public sealed record UsageContextSnapshot(Guid UserId, string TenantId);
+public sealed class CurrentUsage
+{
+	public UsageContextSnapshot? Value { get; set; }
+}
+public sealed class UsageContextExtractor(CurrentUsage current)
+	: IJobContextExtractor<UsageContextSnapshot> { /* Capture/Restore as in §4.2 */ }
+
+builder.Services.AddScoped<CurrentUsage>();
 
 // applied to any number of jobs
 public sealed record InvoicePayload(Guid OrderId);
 
 [Handler, Job, UsesJobContext<UsageContextExtractor>]
-public sealed partial class SendInvoiceJob
+public sealed partial class SendInvoiceJob(CurrentUsage current)
 {
     private ValueTask HandleAsync(InvoicePayload payload, CancellationToken ct)
     {
-        // ICurrentUser here is populated from the enqueue-time request, in the background.
+        // current.Value was restored from the enqueue-time request.
     }
 }
 
