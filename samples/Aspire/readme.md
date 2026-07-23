@@ -8,7 +8,10 @@ The Aspire dashboard shows resource health, structured logs, traces, and the `Im
 metrics. The API's `/jobs` dashboard complements it with job history, recurring schedules, batch
 progress, workflow graphs, retry, cancellation, and deletion operations. A code-defined
 `aspire-heartbeat` job runs at second zero of every minute so the dashboards have recurring activity
-to display without manual requests.
+to display without manual requests. Selecting a job after its first attempt starts also offers
+**Trace** and **Logs** actions backed by Aspire. The AppHost passes its frontend
+URL to the API as `Telemetry__AspireDashboardUrl`; set `Telemetry:AspireDashboardUrl` yourself when
+running the API without the AppHost.
 
 ## Run it
 
@@ -57,12 +60,13 @@ curl -X POST http://localhost:<port>/api/game-release-batches/Starfall
 
 Open `http://localhost:<port>/jobs` for the Immediate.Jobs dashboard. The **Batches** tab shows the
 order and game-release workflows progressing through their real dependency graphs; select any node
-for payload, timing, attempt, and error details. Watch for `order-record-fraud-assessment` appearing
-dynamically after the fraud check succeeds. The **Jobs** tab pages on the server in groups of 50 and
-links each batch member back to its workflow. The **Recurring** tab lists `aspire-heartbeat`, configured by
-`[Job(Cron = "0 * * * * *")]`. In the Aspire dashboard, inspect the `jobs-api` resource's logs to see
-the order steps, restored request context, once-per-minute heartbeat, traces, metrics, and health
-checks.
+for payload, timing, attempt, error, and Aspire telemetry links. The trace action opens the latest
+attempt's trace and span; the logs action opens structured logs filtered to that attempt. Watch for
+`order-record-fraud-assessment` appearing dynamically after the fraud check succeeds. The **Jobs**
+tab pages on the server in groups of 50 and links each batch member back to its workflow. The
+**Recurring** tab lists `aspire-heartbeat`, configured by `[Job(Cron = "0 * * * * *")]`. In the
+Aspire dashboard, inspect the `jobs-api` resource's logs to see the order steps, restored request
+context, once-per-minute heartbeat, traces, metrics, and health checks.
 
 The sample calls `UseSingleServer()` explicitly. Removing that line produces the same topology because selecting a durable EF Core provider defaults to single-server mode. Change it to `UseDistributed()` only when running multiple scheduler processes and using PostgreSQL as the coordination authority.
 

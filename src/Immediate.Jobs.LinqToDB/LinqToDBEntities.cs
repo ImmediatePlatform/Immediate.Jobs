@@ -71,6 +71,12 @@ internal sealed class ImmediateJobEntity
 	public string? TraceParent { get; set; }
 	[Column(DataType = DataType.Text, CanBeNull = true)]
 	public string? TraceState { get; set; }
+	[Column(Length = 32, CanBeNull = true)]
+	public string? ExecutionTraceId { get; set; }
+	[Column(Length = 16, CanBeNull = true)]
+	public string? ExecutionSpanId { get; set; }
+	[Column(DataType = DataType.Int64, CanBeNull = true)]
+	public long? ExecutionStartedAt { get; set; }
 	[Column(Length = 256, CanBeNull = true)]
 	public string? BatchId { get; set; }
 	[Column]

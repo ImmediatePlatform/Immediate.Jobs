@@ -101,6 +101,35 @@ public sealed class SingleServerJobStorage : IJobStorage, IAsyncDisposable, IDis
 	}
 
 	/// <inheritdoc />
+	public async ValueTask SetExecutionTelemetryAsync(
+		string jobId,
+		string workerId,
+		string? traceId,
+		string? spanId,
+		DateTimeOffset startedAt,
+		CancellationToken cancellationToken = default
+	)
+	{
+		await EnsureInitializedAsync(cancellationToken).ConfigureAwait(false);
+		await DurableStorage.SetExecutionTelemetryAsync(
+			jobId,
+			workerId,
+			traceId,
+			spanId,
+			startedAt,
+			cancellationToken
+		).ConfigureAwait(false);
+		await _primary.SetExecutionTelemetryAsync(
+			jobId,
+			workerId,
+			traceId,
+			spanId,
+			startedAt,
+			cancellationToken
+		).ConfigureAwait(false);
+	}
+
+	/// <inheritdoc />
 	public async ValueTask RenewLeaseAsync(
 		string jobId,
 		string workerId,

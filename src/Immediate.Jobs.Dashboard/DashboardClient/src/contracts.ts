@@ -34,6 +34,9 @@ export interface JobRecord {
 	recurringKey: string | null;
 	traceParent: string | null;
 	traceState: string | null;
+	executionTraceId: string | null;
+	executionSpanId: string | null;
+	executionStartedAt: IsoDateTime | null;
 	batchId: string | null;
 	remainingDependencies: number;
 	failedDependencies: number;
@@ -102,6 +105,14 @@ export interface BatchGraph {
 	batchId: string;
 	nodes: BatchGraphNode[];
 	edges: BatchGraphEdge[];
+}
+
+export type JobTelemetryLinkKind = 'Trace' | 'Logs';
+
+export interface JobTelemetryLink {
+	label: string;
+	kind: JobTelemetryLinkKind;
+	url: string;
 }
 
 export interface DashboardState {

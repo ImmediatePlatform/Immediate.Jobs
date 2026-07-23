@@ -11,7 +11,7 @@ import StateBadge from '@/components/StateBadge.vue';
 import WorkflowGraph from '@/components/WorkflowGraph.vue';
 import { formatDate } from '@/format';
 import { errorText } from '@/notifications';
-import { useBatchGraphQuery, useBatchQuery, useJobQuery } from '@/query';
+import { useBatchGraphQuery, useBatchQuery, useJobQuery, useJobTelemetryLinksQuery } from '@/query';
 import { useBatchMutations, useJobMutations } from '@/use-dashboard-mutations';
 import { useBatchStream } from '@/use-dashboard-stream';
 
@@ -31,6 +31,7 @@ const selectedJobId = computed(() => {
 const batchQuery = useBatchQuery(batchId);
 const graphQuery = useBatchGraphQuery(batchId);
 const jobQuery = useJobQuery(selectedJobId);
+const telemetryLinksQuery = useJobTelemetryLinksQuery(selectedJobId);
 const batchMutations = useBatchMutations();
 const jobMutations = useJobMutations();
 useBatchStream(batchId);
@@ -181,6 +182,7 @@ async function confirmAction(): Promise<void> {
 						<JobDetail
 							v-else-if="jobQuery.data.value"
 							:job="jobQuery.data.value"
+							:telemetry-links="telemetryLinksQuery.data.value ?? []"
 							:pending="jobMutations.busyJobId.value === selectedJobId"
 							@close="closeGraphJob"
 							@retry="(job) => jobMutations.retryJob(job.id)"

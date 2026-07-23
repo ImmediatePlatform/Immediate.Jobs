@@ -74,6 +74,15 @@ public sealed record JobRecord
 	/// <summary>W3C trace state captured while enqueueing.</summary>
 	public string? TraceState { get; init; }
 
+	/// <summary>Trace identifier created for the latest execution attempt.</summary>
+	public string? ExecutionTraceId { get; init; }
+
+	/// <summary>Span identifier created for the latest execution attempt.</summary>
+	public string? ExecutionSpanId { get; init; }
+
+	/// <summary>UTC start time of the latest execution attempt.</summary>
+	public DateTimeOffset? ExecutionStartedAt { get; init; }
+
 	/// <summary>The atomic batch containing this invocation, if any.</summary>
 	public string? BatchId { get; init; }
 

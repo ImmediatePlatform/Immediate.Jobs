@@ -101,6 +101,11 @@ public static class ImmediateJobsDashboardEndpointRouteBuilderExtensions
 		});
 
 		_ = api.MapGet("/jobs/{jobId}", GetJobAsync);
+		_ = api.MapGet("/jobs/{jobId}/telemetry-links", (
+			string jobId,
+			IJobStorage storage,
+			CancellationToken cancellationToken
+		) => GetJobTelemetryLinksAsync(jobId, storage, options, cancellationToken));
 		_ = api.MapGet("/batches", async (
 			IJobStorage storage,
 			BatchState? state,
@@ -199,6 +204,42 @@ public static class ImmediateJobsDashboardEndpointRouteBuilderExtensions
 		return job is null
 			? Results.NotFound()
 			: Results.Json(job, DashboardJsonSerializerContext.Default.JobRecord);
+	}
+
+	private static async Task<IResult> GetJobTelemetryLinksAsync(
+		string jobId,
+		IJobStorage storage,
+		ImmediateJobsDashboardOptions options,
+		CancellationToken cancellationToken
+	)
+	{
+		var jobs = await storage.QueryJobsAsync(new() { Id = jobId, Take = 1 }, cancellationToken).ConfigureAwait(false);
+		var job = jobs.SingleOrDefault();
+		if (job is null)
+			return Results.NotFound();
+		if (options.TelemetryLinks.Count == 0)
+			return Results.Json([], DashboardJsonSerializerContext.Default.JobTelemetryLinkArray);
+
+		var context = new JobTelemetryLinkContext(job);
+		var links = new List<JobTelemetryLink>(options.TelemetryLinks.Count);
+		foreach (var registration in options.TelemetryLinks)
+		{
+			var url = registration.CreateUrl(context);
+			if (url is null)
+				continue;
+			if (url.IsAbsoluteUri &&
+				url.Scheme != Uri.UriSchemeHttp &&
+				url.Scheme != Uri.UriSchemeHttps)
+			{
+				throw new ImmediateJobException(
+					$"Telemetry link '{registration.Label}' must use HTTP or HTTPS."
+				);
+			}
+
+			links.Add(new(registration.Label, registration.Kind, url));
+		}
+
+		return Results.Json([.. links], DashboardJsonSerializerContext.Default.JobTelemetryLinkArray);
 	}
 
 	private static async Task<IResult> RetryJobAsync(

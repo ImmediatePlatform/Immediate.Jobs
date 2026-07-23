@@ -16,12 +16,24 @@ describe('dashboard components', () => {
 		expect(table.text()).toContain('Succeeded');
 		expect(table.text()).toContain('batch-42');
 
-		const detail = mount(JobDetail, { props: { job: completedJob } });
+		const detail = mount(JobDetail, {
+			props: {
+				job: completedJob,
+				telemetryLinks: [
+					{ label: 'View trace', kind: 'Trace', url: 'https://telemetry.example/traces/4bf92f' },
+					{ label: 'View all retry logs', kind: 'Logs', url: 'https://telemetry.example/logs?job=86bf8c31' },
+				],
+			},
+		});
 		expect(detail.attributes('aria-label')).toBe('Details for SendGreeting');
 		expect(detail.text()).toContain('Payload');
 		expect(detail.text()).toContain('Duke');
 		expect(detail.text()).toContain('Context envelope');
 		expect(detail.text()).toContain('curl/8.7.1');
+		expect(detail.text()).toContain('4bf92f3577b34da6a3ce929d0e0e4736');
+		expect(detail.get('a[href="https://telemetry.example/traces/4bf92f"]').attributes('target')).toBe('_blank');
+		expect(detail.get('a[aria-label="View all retry logs"]').text()).toContain('Logs');
+		expect(detail.text()).not.toContain('Observability');
 	});
 
 	it('expands selected job details immediately below its row and scrolls the row into view', async () => {

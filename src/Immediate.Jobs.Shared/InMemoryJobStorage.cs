@@ -160,6 +160,9 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) : IJobStorage,
 						Attempt = candidate.Attempt + 1,
 						WorkerId = request.WorkerId,
 						LeaseExpiresAt = now + request.Lease,
+						ExecutionTraceId = null,
+						ExecutionSpanId = null,
+						ExecutionStartedAt = null,
 					};
 					_jobs[job.Id] = job;
 					MarkBatchStarted(job.BatchId, now);
@@ -208,6 +211,9 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) : IJobStorage,
 					Attempt = job.Attempt + 1,
 					WorkerId = workerId,
 					LeaseExpiresAt = now + lease,
+					ExecutionTraceId = null,
+					ExecutionSpanId = null,
+					ExecutionStartedAt = null,
 				};
 				_jobs[id] = job;
 				MarkBatchStarted(job.BatchId, now);
@@ -216,6 +222,31 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) : IJobStorage,
 
 			return acquired;
 		}
+	}
+
+	/// <inheritdoc />
+	public ValueTask SetExecutionTelemetryAsync(
+		string jobId,
+		string workerId,
+		string? traceId,
+		string? spanId,
+		DateTimeOffset startedAt,
+		CancellationToken cancellationToken = default
+	)
+	{
+		cancellationToken.ThrowIfCancellationRequested();
+		lock (_gate)
+		{
+			var job = GetOwnedActive(jobId, workerId);
+			_jobs[jobId] = job with
+			{
+				ExecutionTraceId = traceId,
+				ExecutionSpanId = spanId,
+				ExecutionStartedAt = startedAt,
+			};
+		}
+
+		return ValueTask.CompletedTask;
 	}
 
 	/// <inheritdoc />

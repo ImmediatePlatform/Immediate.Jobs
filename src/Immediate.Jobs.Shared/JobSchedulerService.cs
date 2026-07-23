@@ -248,6 +248,7 @@ public sealed partial class JobSchedulerService : BackgroundService
 		_state.IncrementActive();
 		JobTelemetry.ExecutionStarted();
 		var started = _timeProvider.GetTimestamp();
+		var startedAt = _timeProvider.GetUtcNow();
 		using var timeout = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
 		ITimer? timeoutTimer = definition.Timeout is { } timeoutValue
 			? _timeProvider.CreateTimer(static state => ((CancellationTokenSource)state!).Cancel(), timeout, timeoutValue, Timeout.InfiniteTimeSpan)
@@ -282,6 +283,14 @@ public sealed partial class JobSchedulerService : BackgroundService
 
 		try
 		{
+			await _storage.SetExecutionTelemetryAsync(
+				record.Id,
+				_workerId,
+				activity?.TraceId.ToString(),
+				activity?.SpanId.ToString(),
+				startedAt,
+				stoppingToken
+			).ConfigureAwait(false);
 			await using var scope = _scopeFactory.CreateAsyncScope();
 			if (record.Context is { } orphanedEnvelope && definition.Invoker is not IJobContextAwareInvoker)
 			{

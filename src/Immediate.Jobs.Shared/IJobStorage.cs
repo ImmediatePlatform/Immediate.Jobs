@@ -30,6 +30,16 @@ public interface IJobStorage
 		CancellationToken cancellationToken = default
 	);
 
+	/// <summary>Records OpenTelemetry correlation for the active execution attempt.</summary>
+	ValueTask SetExecutionTelemetryAsync(
+		string jobId,
+		string workerId,
+		string? traceId,
+		string? spanId,
+		DateTimeOffset startedAt,
+		CancellationToken cancellationToken = default
+	);
+
 	/// <summary>Extends the lease on an active job owned by the worker.</summary>
 	ValueTask RenewLeaseAsync(string jobId, string workerId, TimeSpan lease, CancellationToken cancellationToken = default);
 

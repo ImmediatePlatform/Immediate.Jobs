@@ -84,6 +84,34 @@ public sealed class SingleServerJobStorageTests
 	}
 
 	[Fact]
+	public async Task ExecutionTelemetryIsWrittenThroughToDurableStorage()
+	{
+		var cancellationToken = TestContext.Current.CancellationToken;
+		var timeProvider = new FakeTimeProvider(DateTimeOffset.UnixEpoch);
+		var durable = new InMemoryJobStorage(timeProvider);
+		using var storage = new SingleServerJobStorage(durable, timeProvider);
+		var job = CreateJob(timeProvider.GetUtcNow());
+		await storage.EnqueueAsync(job, cancellationToken);
+		_ = Assert.Single(await storage.AcquireDueJobsAsync(CreateRequest("worker"), cancellationToken));
+
+		var startedAt = timeProvider.GetUtcNow();
+		await storage.SetExecutionTelemetryAsync(
+			job.Id,
+			"worker",
+			"4bf92f3577b34da6a3ce929d0e0e4736",
+			"00f067aa0ba902b7",
+			startedAt,
+			cancellationToken
+		);
+
+		var primaryJob = Assert.Single(await storage.QueryJobsAsync(new() { Id = job.Id }, cancellationToken));
+		var durableJob = Assert.Single(await durable.QueryJobsAsync(new() { Id = job.Id }, cancellationToken));
+		Assert.Equal(primaryJob.ExecutionTraceId, durableJob.ExecutionTraceId);
+		Assert.Equal(primaryJob.ExecutionSpanId, durableJob.ExecutionSpanId);
+		Assert.Equal(primaryJob.ExecutionStartedAt, durableJob.ExecutionStartedAt);
+	}
+
+	[Fact]
 	public async Task ChainedBatchesRestoreParentBeforeFollowUpBatch()
 	{
 		var cancellationToken = TestContext.Current.CancellationToken;

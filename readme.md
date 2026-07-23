@@ -131,7 +131,11 @@ Use `options.UseSingleServer()` to state that topology explicitly, `options.UseD
 make the database authoritative for multi-node coordination, or `options.UseInMemory()` for a
 non-durable development store.
 
-Adding queue support introduces the required `QueueName` column on `immediate_jobs`, and invocation IDs are stored as strings with a maximum length of 256. Applications using EF Core storage must add a migration (or recreate a development database created from an earlier draft). The model supplies `"default"` as the queue database default so existing rows are backfilled safely.
+Adding queue support introduces the required `QueueName` column on `immediate_jobs`, and invocation
+IDs are stored as strings with a maximum length of 256. Execution correlation adds nullable
+`ExecutionTraceId`, `ExecutionSpanId`, and `ExecutionStartedAt` columns. Applications using EF Core
+storage must add a migration (or recreate a development database created from an earlier draft).
+The model supplies `"default"` as the queue database default so existing rows are backfilled safely.
 
 ## Recurring work
 
@@ -305,8 +309,24 @@ Queue-aware dispatch changes the provider acquisition seam to `AcquireDueJobsAsy
 Reference `Immediate.Jobs.Dashboard`, then map it after building the app:
 
 ```csharp
+var traceExplorer = new Uri("https://traces.example/");
+var logExplorer = new Uri("https://logs.example/");
+
 app.MapImmediateJobsDashboard("/jobs", options =>
-	options.RequireAuthorization("operations"));
+{
+	_ = options.RequireAuthorization("operations");
+	_ = options.AddTelemetryLink(
+		"View latest trace",
+		JobTelemetryLinkKind.Trace,
+		context => context.Job.ExecutionTraceId is { } traceId
+			? new(traceExplorer, $"trace/{traceId}")
+			: null);
+	_ = options.AddTelemetryLink(
+		"View all retry logs",
+		JobTelemetryLinkKind.Logs,
+		context => new(logExplorer,
+			$"search?jobId={Uri.EscapeDataString(context.Job.Id)}"));
+});
 ```
 
 The package serves an embedded SPA, JSON monitoring endpoints, and Server-Sent Events streams.
@@ -314,6 +334,15 @@ Without an authorization policy, dashboard access is allowed only in the `Develo
 The dashboard includes batch progress and a live dependency-graph viewer alongside filtered jobs,
 recurring schedule actions, retry, cancellation, and atomic batch deletion. Job search and filters
 are paged on the server in groups of 50; batch members show a link to their workflow.
+
+Telemetry destinations are application-defined because Aspire, Jaeger, Grafana, Seq, Azure Monitor,
+and other systems use different query URLs. Each execution attempt creates a distinct `Activity`
+linked to the enqueue context; the persisted trace and span identify the latest attempt. A job-ID log
+query covers every retry because the structured logging scope includes
+`{JobName, JobId, Attempt}` on every attempt. Immediate.Jobs currently stores the attempt count and
+latest failure rather than a separate row per attempt, so it cannot offer individual links for older
+attempt spans. `AddTelemetryLink` may return `null` when a destination does not apply, and accepts
+HTTP(S) or dashboard-relative URLs.
 
 ## Testing
 

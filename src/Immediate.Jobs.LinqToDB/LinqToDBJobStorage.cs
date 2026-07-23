@@ -233,6 +233,9 @@ public sealed class LinqToDBJobStorage : IJobStorage, IJobStorageReplica
 				candidate.LeaseExpiresAt = now + lease.Ticks;
 				candidate.Attempt++;
 				candidate.CompletedAt = null;
+				candidate.ExecutionTraceId = null;
+				candidate.ExecutionSpanId = null;
+				candidate.ExecutionStartedAt = null;
 				candidate.ConcurrencyStamp = Guid.NewGuid();
 				if (!await UpdateJobAsync(connection, candidate, oldStamp, cancellationToken).ConfigureAwait(false))
 				{
@@ -264,6 +267,27 @@ public sealed class LinqToDBJobStorage : IJobStorage, IJobStorageReplica
 		}
 
 		return acquired;
+	}
+
+	/// <inheritdoc />
+	public async ValueTask SetExecutionTelemetryAsync(
+		string jobId,
+		string workerId,
+		string? traceId,
+		string? spanId,
+		DateTimeOffset startedAt,
+		CancellationToken cancellationToken = default
+	)
+	{
+		await using var connection = CreateConnection();
+		_ = await Jobs(connection)
+			.Where(job => job.Id == jobId && job.State == JobState.Active && job.WorkerId == workerId)
+			.Set(job => job.ExecutionTraceId, traceId)
+			.Set(job => job.ExecutionSpanId, spanId)
+			.Set(job => job.ExecutionStartedAt, startedAt.UtcTicks)
+			.Set(job => job.ConcurrencyStamp, Guid.NewGuid())
+			.UpdateAsync(cancellationToken)
+			.ConfigureAwait(false);
 	}
 
 	/// <inheritdoc />
@@ -1446,6 +1470,9 @@ public sealed class LinqToDBJobStorage : IJobStorage, IJobStorageReplica
 			.Set(entity => entity.RecurringKey, job.RecurringKey)
 			.Set(entity => entity.TraceParent, job.TraceParent)
 			.Set(entity => entity.TraceState, job.TraceState)
+			.Set(entity => entity.ExecutionTraceId, job.ExecutionTraceId)
+			.Set(entity => entity.ExecutionSpanId, job.ExecutionSpanId)
+			.Set(entity => entity.ExecutionStartedAt, job.ExecutionStartedAt)
 			.Set(entity => entity.BatchId, job.BatchId)
 			.Set(entity => entity.RemainingDependencies, job.RemainingDependencies)
 			.Set(entity => entity.FailedDependencies, job.FailedDependencies)
@@ -1559,6 +1586,9 @@ public sealed class LinqToDBJobStorage : IJobStorage, IJobStorageReplica
 		RecurringKey = job.RecurringKey,
 		TraceParent = job.TraceParent,
 		TraceState = job.TraceState,
+		ExecutionTraceId = job.ExecutionTraceId,
+		ExecutionSpanId = job.ExecutionSpanId,
+		ExecutionStartedAt = Ticks(job.ExecutionStartedAt),
 		BatchId = job.BatchId,
 		RemainingDependencies = job.RemainingDependencies,
 		FailedDependencies = job.FailedDependencies,
@@ -1598,6 +1628,9 @@ public sealed class LinqToDBJobStorage : IJobStorage, IJobStorageReplica
 		RecurringKey = job.RecurringKey,
 		TraceParent = job.TraceParent,
 		TraceState = job.TraceState,
+		ExecutionTraceId = job.ExecutionTraceId,
+		ExecutionSpanId = job.ExecutionSpanId,
+		ExecutionStartedAt = FromTicks(job.ExecutionStartedAt),
 		BatchId = job.BatchId,
 		RemainingDependencies = job.RemainingDependencies,
 		FailedDependencies = job.FailedDependencies,

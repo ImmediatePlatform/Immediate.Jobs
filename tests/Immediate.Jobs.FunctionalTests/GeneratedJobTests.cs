@@ -1,7 +1,8 @@
+using System.Collections.ObjectModel;
+using System.Diagnostics;
 using Immediate.Jobs.Testing;
 using Immediate.Handlers.Shared;
 using Microsoft.Extensions.DependencyInjection;
-using System.Collections.ObjectModel;
 
 [assembly: Behaviors(typeof(Immediate.Jobs.FunctionalTests.JobCountingBehavior<,>))]
 
@@ -31,6 +32,7 @@ public sealed class GeneratedJobTests
 	public async Task TypedSchedulerRoundTripsPayloadAndRunsGeneratedPipeline()
 	{
 		var cancellationToken = TestContext.Current.CancellationToken;
+		using var activityListener = ListenForJobActivities();
 		var state = new ExecutionState();
 		await using var harness = new JobTestHarness(services =>
 		{
@@ -60,13 +62,18 @@ public sealed class GeneratedJobTests
 		Assert.Equal(1, details.Attempt);
 		Assert.Equal(enqueued.Record.CreatedAt, details.CreatedAt);
 		Assert.Equal(enqueued.Record.DueAt, details.ScheduledAt);
-		Assert.Equal(JobState.Succeeded, (await harness.GetJobAsync(id, cancellationToken)).State);
+		var completed = await harness.GetJobAsync(id, cancellationToken);
+		Assert.Equal(JobState.Succeeded, completed.State);
+		Assert.Equal(32, completed.ExecutionTraceId?.Length);
+		Assert.Equal(16, completed.ExecutionSpanId?.Length);
+		_ = Assert.NotNull(completed.ExecutionStartedAt);
 	}
 
 	[Fact]
 	public async Task FailedJobRetriesAfterGeneratedBackoff()
 	{
 		var cancellationToken = TestContext.Current.CancellationToken;
+		using var activityListener = ListenForJobActivities();
 		var state = new ExecutionState { FailuresRemaining = 1 };
 		await using var harness = new JobTestHarness(services =>
 		{
@@ -81,15 +88,47 @@ public sealed class GeneratedJobTests
 		var id = await scheduler.EnqueueAsync(new(42), cancellationToken);
 
 		await harness.DrainAsync(cancellationToken);
-		Assert.Equal(JobState.Scheduled, (await harness.GetJobAsync(id, cancellationToken)).State);
+		var failedAttempt = await harness.GetJobAsync(id, cancellationToken);
+		Assert.Equal(JobState.Scheduled, failedAttempt.State);
+		_ = Assert.IsType<string>(failedAttempt.ExecutionTraceId);
+		var firstSpanId = Assert.IsType<string>(failedAttempt.ExecutionSpanId);
 
 		await harness.AdvanceTimeAndDrainAsync(TimeSpan.FromSeconds(1), cancellationToken);
 		var completed = await harness.GetJobAsync(id, cancellationToken);
 		Assert.Equal(JobState.Succeeded, completed.State);
 		Assert.Equal(2, completed.Attempt);
+		_ = Assert.IsType<string>(completed.ExecutionTraceId);
+		var secondSpanId = Assert.IsType<string>(completed.ExecutionSpanId);
+		Assert.NotEqual(firstSpanId, secondSpanId);
 		Assert.Equal([1, 2], state.Details
 			.Where(details => details.JobId == id.Id)
 			.Select(details => details.Attempt));
+	}
+
+	private static ActivityListener ListenForJobActivities()
+	{
+		var listener = new ActivityListener
+		{
+			ShouldListenTo = ShouldListenToJobs,
+			Sample = SampleJobActivity,
+			SampleUsingParentId = SampleJobActivityWithParentId,
+		};
+		ActivitySource.AddActivityListener(listener);
+		return listener;
+	}
+
+	private static bool ShouldListenToJobs(ActivitySource source) => source.Name == "Immediate.Jobs";
+
+	private static ActivitySamplingResult SampleJobActivity(ref ActivityCreationOptions<ActivityContext> options)
+	{
+		_ = options;
+		return ActivitySamplingResult.AllDataAndRecorded;
+	}
+
+	private static ActivitySamplingResult SampleJobActivityWithParentId(ref ActivityCreationOptions<string> options)
+	{
+		_ = options;
+		return ActivitySamplingResult.AllDataAndRecorded;
 	}
 
 	[Fact]

@@ -12,7 +12,7 @@ import JobTable from '@/components/JobTable.vue';
 import PageHeader from '@/components/PageHeader.vue';
 import { jobStates, type JobFilters, type JobRecord, type JobState } from '@/contracts';
 import { errorText } from '@/notifications';
-import { useJobQuery, useJobsQuery } from '@/query';
+import { useJobQuery, useJobsQuery, useJobTelemetryLinksQuery } from '@/query';
 import { useJobMutations } from '@/use-dashboard-mutations';
 
 const route = useRoute();
@@ -45,6 +45,7 @@ const filters = computed<JobFilters>(() => ({
 
 const jobsQuery = useJobsQuery(filters);
 const selectedJobQuery = useJobQuery(selectedJobId);
+const telemetryLinksQuery = useJobTelemetryLinksQuery(selectedJobId);
 const jobMutations = useJobMutations();
 const error = computed(() => jobsQuery.error.value ?? selectedJobQuery.error.value);
 
@@ -150,6 +151,7 @@ async function confirmDelete(): Promise<void> {
 						<JobDetail
 							v-else-if="selectedJobQuery.data.value"
 							:job="selectedJobQuery.data.value"
+							:telemetry-links="telemetryLinksQuery.data.value ?? []"
 							:pending="jobMutations.busyJobId.value === selectedJobId"
 							@close="closeJob"
 							@retry="(job) => jobMutations.retryJob(job.id)"

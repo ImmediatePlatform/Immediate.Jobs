@@ -252,6 +252,9 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 			entity.LeaseExpiresAt = now + lease;
 			entity.Attempt++;
 			entity.CompletedAt = null;
+			entity.ExecutionTraceId = null;
+			entity.ExecutionSpanId = null;
+			entity.ExecutionStartedAt = null;
 			entity.ConcurrencyStamp = Guid.NewGuid();
 			if (entity.BatchId is { } batchId)
 			{
@@ -278,6 +281,21 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 
 		return acquired;
 	}
+
+	/// <inheritdoc />
+	public ValueTask SetExecutionTelemetryAsync(
+		string jobId,
+		string workerId,
+		string? traceId,
+		string? spanId,
+		DateTimeOffset startedAt,
+		CancellationToken cancellationToken = default
+	) => MutateOwnedAsync(jobId, workerId, job =>
+	{
+		job.ExecutionTraceId = traceId;
+		job.ExecutionSpanId = spanId;
+		job.ExecutionStartedAt = startedAt;
+	}, cancellationToken);
 
 	/// <inheritdoc />
 	public ValueTask RenewLeaseAsync(string jobId, string workerId, TimeSpan lease, CancellationToken cancellationToken = default)
@@ -1553,6 +1571,9 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 		RecurringKey = job.RecurringKey,
 		TraceParent = job.TraceParent,
 		TraceState = job.TraceState,
+		ExecutionTraceId = job.ExecutionTraceId,
+		ExecutionSpanId = job.ExecutionSpanId,
+		ExecutionStartedAt = job.ExecutionStartedAt,
 		BatchId = job.BatchId,
 		RemainingDependencies = job.RemainingDependencies,
 		FailedDependencies = job.FailedDependencies,
@@ -1592,6 +1613,9 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 		RecurringKey = job.RecurringKey,
 		TraceParent = job.TraceParent,
 		TraceState = job.TraceState,
+		ExecutionTraceId = job.ExecutionTraceId,
+		ExecutionSpanId = job.ExecutionSpanId,
+		ExecutionStartedAt = job.ExecutionStartedAt,
 		BatchId = job.BatchId,
 		RemainingDependencies = job.RemainingDependencies,
 		FailedDependencies = job.FailedDependencies,
@@ -1616,6 +1640,9 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 		RecurringKey = job.RecurringKey,
 		TraceParent = job.TraceParent,
 		TraceState = job.TraceState,
+		ExecutionTraceId = job.ExecutionTraceId,
+		ExecutionSpanId = job.ExecutionSpanId,
+		ExecutionStartedAt = job.ExecutionStartedAt,
 		BatchId = job.BatchId,
 		RemainingDependencies = job.RemainingDependencies,
 		FailedDependencies = job.FailedDependencies,

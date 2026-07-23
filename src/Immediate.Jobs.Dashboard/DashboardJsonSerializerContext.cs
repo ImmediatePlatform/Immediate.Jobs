@@ -8,6 +8,7 @@ namespace Immediate.Jobs.Dashboard;
 [JsonSerializable(typeof(DashboardJobPage))]
 [JsonSerializable(typeof(JobRecord))]
 [JsonSerializable(typeof(JobRecord[]))]
+[JsonSerializable(typeof(JobTelemetryLink[]))]
 [JsonSerializable(typeof(RecurringJobSchedule[]))]
 [JsonSerializable(typeof(JobServerSnapshot[]))]
 [JsonSerializable(typeof(BatchStatus))]

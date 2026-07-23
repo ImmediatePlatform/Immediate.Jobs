@@ -76,6 +76,7 @@ public static class LinqToDBSchemaExtensions
 			"Context" TEXT NULL, "State" INTEGER NOT NULL, "DueAt" INTEGER NOT NULL, "CreatedAt" INTEGER NOT NULL,
 			"Attempt" INTEGER NOT NULL, "WorkerId" TEXT NULL, "LeaseExpiresAt" INTEGER NULL, "LastError" TEXT NULL,
 			"CompletedAt" INTEGER NULL, "RecurringKey" TEXT NULL, "TraceParent" TEXT NULL, "TraceState" TEXT NULL,
+			"ExecutionTraceId" TEXT NULL, "ExecutionSpanId" TEXT NULL, "ExecutionStartedAt" INTEGER NULL,
 			"BatchId" TEXT NULL, "RemainingDependencies" INTEGER NOT NULL, "FailedDependencies" INTEGER NOT NULL,
 			"ConcurrencyStamp" TEXT NOT NULL,
 			CONSTRAINT "FK_immediate_jobs_immediate_job_batches_BatchId" FOREIGN KEY ("BatchId")

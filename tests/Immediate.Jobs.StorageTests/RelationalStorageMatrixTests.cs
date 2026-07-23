@@ -55,6 +55,19 @@ public sealed class RelationalStorageMatrixTests(StorageContainers containers)
 		var acquiredParent = Assert.Single(await storage.AcquireDueJobsAsync(CreateRequest("worker", 1), cancellationToken));
 		Assert.Equal(parent.Id, acquiredParent.Id);
 		Assert.Equal(parent.Context, acquiredParent.Context);
+		var executionStartedAt = now.AddSeconds(1);
+		await storage.SetExecutionTelemetryAsync(
+			parent.Id,
+			"worker",
+			"4bf92f3577b34da6a3ce929d0e0e4736",
+			"00f067aa0ba902b7",
+			executionStartedAt,
+			cancellationToken
+		);
+		var correlated = Assert.Single(await storage.QueryJobsAsync(new() { Id = parent.Id }, cancellationToken));
+		Assert.Equal("4bf92f3577b34da6a3ce929d0e0e4736", correlated.ExecutionTraceId);
+		Assert.Equal("00f067aa0ba902b7", correlated.ExecutionSpanId);
+		Assert.Equal(executionStartedAt, correlated.ExecutionStartedAt);
 		await storage.CompleteAsync(parent.Id, "worker", cancellationToken);
 		var acquiredChild = Assert.Single(await storage.AcquireDueJobsAsync(CreateRequest("worker", 1), cancellationToken));
 		Assert.Equal(child.Id, acquiredChild.Id);
@@ -89,10 +102,21 @@ public sealed class RelationalStorageMatrixTests(StorageContainers containers)
 		await first.EnqueueAsync(leased, cancellationToken);
 		fixture.TimeProvider.Advance(TimeSpan.FromMinutes(1));
 		_ = Assert.Single(await first.AcquireDueJobsAsync(CreateRequest("node-a", 1), cancellationToken));
+		await first.SetExecutionTelemetryAsync(
+			leased.Id,
+			"node-a",
+			"4bf92f3577b34da6a3ce929d0e0e4736",
+			"00f067aa0ba902b7",
+			fixture.TimeProvider.GetUtcNow(),
+			cancellationToken
+		);
 		fixture.TimeProvider.Advance(TimeSpan.FromMinutes(2));
 		var recovered = Assert.Single(await second.AcquireDueJobsAsync(CreateRequest("node-b", 1), cancellationToken));
 		Assert.Equal("leased", recovered.Id);
 		Assert.Equal(2, recovered.Attempt);
+		Assert.Null(recovered.ExecutionTraceId);
+		Assert.Null(recovered.ExecutionSpanId);
+		Assert.Null(recovered.ExecutionStartedAt);
 	}
 
 	[Theory]

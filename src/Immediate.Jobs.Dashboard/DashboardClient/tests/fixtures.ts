@@ -18,6 +18,9 @@ export const completedJob: JobRecord = {
 	recurringKey: null,
 	traceParent: null,
 	traceState: null,
+	executionTraceId: '4bf92f3577b34da6a3ce929d0e0e4736',
+	executionSpanId: '00f067aa0ba902b7',
+	executionStartedAt: '2026-07-21T12:00:00Z',
 	remainingDependencies: 0,
 	failedDependencies: 0,
 };
