@@ -213,32 +213,32 @@ serialized with generated metadata, so it remains trimming- and Native AOT-safe.
 public sealed record UsageContextSnapshot(Guid UserId, string TenantId);
 
 // This is the scoped application service populated by the request and injected through DI.
-public sealed class CurrentUsage
+public sealed class UsageContext
 {
 	public UsageContextSnapshot? Value { get; set; }
 }
 
-public sealed class UsageContextExtractor(CurrentUsage current)
+public sealed class UsageContextExtractor(UsageContext usage)
 	: IJobContextExtractor<UsageContextSnapshot>
 {
 	public string Key => "usage"; // stable across extractor type renames
 
-	public UsageContextSnapshot? Capture() => current.Value;
+	public UsageContextSnapshot? Capture() => usage.Value;
 
-	public void Restore(UsageContextSnapshot context) => current.Value = context;
+	public void Restore(UsageContextSnapshot context) => usage.Value = context;
 }
 
 [Handler, Job, UsesJobContext<UsageContextExtractor>]
-public sealed partial class AuditUsageJob(CurrentUsage current)
+public sealed partial class AuditUsageJob(UsageContext usage)
 {
-	// current.Value contains the enqueueing scope's snapshot when this job runs.
+	// usage.Value contains the enqueueing scope's snapshot when this job runs.
 }
 ```
 
-Register the application-owned holder as scoped: `builder.Services.AddScoped<CurrentUsage>()`.
+Register the application-owned holder as scoped: `builder.Services.AddScoped<UsageContext>()`.
 The generated job registrations add `UsageContextExtractor` as scoped automatically. At enqueue,
-the extractor reads the caller's `CurrentUsage`; at execution, it writes the deserialized snapshot
-into the new job scope's `CurrentUsage` before the job and its behaviors are resolved. The snapshot
+the extractor reads the caller's `UsageContext`; at execution, it writes the deserialized snapshot
+into the new job scope's `UsageContext` before the job and its behaviors are resolved. The snapshot
 itself is persisted data passed to `Restore`, not a service resolved from DI.
 
 For a family of jobs, put one or more extractor markers on a reusable attribute:

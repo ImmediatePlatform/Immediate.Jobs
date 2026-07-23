@@ -74,25 +74,25 @@ guarded at runtime (§8) rather than at compile time, since the value isn't a co
 public sealed record UsageContextSnapshot(Guid UserId, string TenantId);
 
 // Application-owned scoped state used by request and job code.
-public sealed class CurrentUsage
+public sealed class UsageContext
 {
 	public UsageContextSnapshot? Value { get; set; }
 }
 
-public sealed class UsageContextExtractor(CurrentUsage current)
+public sealed class UsageContextExtractor(UsageContext usage)
 	: IJobContextExtractor<UsageContextSnapshot>
 {
 	public string Key => "usage";   // stable; renaming this class won't break in-flight records
 
-	public UsageContextSnapshot? Capture() => current.Value;
+	public UsageContextSnapshot? Capture() => usage.Value;
 
-	public void Restore(UsageContextSnapshot snapshot) => current.Value = snapshot;
+	public void Restore(UsageContextSnapshot snapshot) => usage.Value = snapshot;
 }
 
-builder.Services.AddScoped<CurrentUsage>();
+builder.Services.AddScoped<UsageContext>();
 ```
 
-`CurrentUsage` is the service injected from DI. The request pipeline populates it in the enqueueing
+`UsageContext` is the service injected from DI. The request pipeline populates it in the enqueueing
 scope, and jobs or behaviors inject it to consume the restored state. `UsageContextSnapshot` is not
 a DI service: it is the durable value returned by `Capture`, serialized with the job, and supplied
 to `Restore` in the execution scope. The generator registers each referenced extractor as scoped;
@@ -127,7 +127,7 @@ public sealed partial class SendInvoiceJob { /* ... */ }
 - **Assembly-wide `[assembly: UsesJobContext<T>]` is out of scope** — the reusable marker covers
   "apply to a family of jobs" without silently capturing context on jobs that don't need it.
 - The generator emits `TryAddScoped` for every referenced extractor (mirrors how behaviors are
-  registered). Application-owned dependencies such as `CurrentUsage` still require their normal
+  registered). Application-owned dependencies such as `UsageContext` still require their normal
   DI registrations.
 
 ## 5. Runtime & generator changes
@@ -268,24 +268,24 @@ the nullable `Capture` return models this explicitly.
 ```csharp
 // once, reusable
 public sealed record UsageContextSnapshot(Guid UserId, string TenantId);
-public sealed class CurrentUsage
+public sealed class UsageContext
 {
 	public UsageContextSnapshot? Value { get; set; }
 }
-public sealed class UsageContextExtractor(CurrentUsage current)
+public sealed class UsageContextExtractor(UsageContext usage)
 	: IJobContextExtractor<UsageContextSnapshot> { /* Capture/Restore as in §4.2 */ }
 
-builder.Services.AddScoped<CurrentUsage>();
+builder.Services.AddScoped<UsageContext>();
 
 // applied to any number of jobs
 public sealed record InvoicePayload(Guid OrderId);
 
 [Handler, Job, UsesJobContext<UsageContextExtractor>]
-public sealed partial class SendInvoiceJob(CurrentUsage current)
+public sealed partial class SendInvoiceJob(UsageContext usage)
 {
     private ValueTask HandleAsync(InvoicePayload payload, CancellationToken ct)
     {
-        // current.Value was restored from the enqueue-time request.
+        // usage.Value was restored from the enqueue-time request.
     }
 }
 
