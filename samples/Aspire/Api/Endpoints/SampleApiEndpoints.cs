@@ -27,6 +27,17 @@ public static class SampleApiEndpoints
 			)
 			.Produces<CreateOrderBatchResponse>(StatusCodes.Status202Accepted);
 
+		_ = endpoints.MapPost("/api/game-release-batches/{title}", CreateGameReleaseBatchAsync)
+			.WithName("CreateGameReleaseBatch")
+			.WithSummary("Creates a global game-release workflow")
+			.WithDescription(
+				"Creates an atomic 19-job workflow with repeated fan-out and fan-in diamonds: "
+				+ "client and service workstreams split independently, converge into a release "
+				+ "candidate, fan out across four distribution tasks, then converge and fan out "
+				+ "again for the global launch."
+			)
+			.Produces<CreateGameReleaseBatchResponse>(StatusCodes.Status202Accepted);
+
 		return endpoints;
 	}
 
@@ -57,6 +68,27 @@ public static class SampleApiEndpoints
 				batch.Id,
 				OrderFulfillmentWorkflow.InitialJobCount,
 				OrderFulfillmentWorkflow.ExpectedJobCount,
+				new Uri("/jobs", UriKind.Relative),
+				new Uri($"/jobs/api/batches/{batch.Id}", UriKind.Relative)
+			)
+		);
+	}
+
+	private static async ValueTask<IResult> CreateGameReleaseBatchAsync(
+		string title,
+		GameReleaseWorkflow workflow,
+		CancellationToken cancellationToken
+	)
+	{
+		var releaseId = Guid.NewGuid();
+		var batch = await workflow.CreateAsync(releaseId, title, cancellationToken);
+		return Results.Accepted(
+			$"/jobs/api/batches/{batch.Id}",
+			new CreateGameReleaseBatchResponse(
+				releaseId,
+				title,
+				batch.Id,
+				GameReleaseWorkflow.JobCount,
 				new Uri("/jobs", UriKind.Relative),
 				new Uri($"/jobs/api/batches/{batch.Id}", UriKind.Relative)
 			)

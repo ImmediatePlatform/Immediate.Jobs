@@ -16,8 +16,17 @@ interface PositionedEdge extends BatchGraphEdge {
 	from?: PositionedNode;
 	to: PositionedNode;
 	joinsFanIn: boolean;
-	startY?: number;
+	channelX?: number;
+	startX: number;
+	startY: number;
 	endY: number;
+	path: string;
+}
+
+interface PositionedFork {
+	parentJobId: string;
+	x: number;
+	y: number;
 	path: string;
 }
 
@@ -36,6 +45,7 @@ interface IndexedEdge {
 interface Drawing {
 	nodes: PositionedNode[];
 	edges: PositionedEdge[];
+	forks: PositionedFork[];
 	joins: PositionedJoin[];
 	width: number;
 	height: number;
@@ -55,6 +65,10 @@ const columnGap = 90;
 const rowGap = 26;
 const graphPadding = 24;
 const nodeHorizontalPadding = 30;
+const minimumGraphHeight = 270;
+const layoutSweepCount = 4;
+const edgeCornerRadius = 9;
+const junctionOffset = 24;
 
 const viewport = ref<HTMLElement>();
 const showAllConstraints = ref(false);
@@ -73,17 +87,35 @@ function measureNodeWidth(jobName: string): number {
 	return Math.max(minimumNodeWidth, Math.ceil(textWidth + nodeHorizontalPadding));
 }
 
-function portY(node: PositionedNode, index: number, portCount: number): number {
-	return node.y + nodeHeight * (index + 1) / (portCount + 1);
-}
+function pipelineEdgePath(startX: number, startY: number, endX: number, endY: number, channelX?: number): string {
+	const availableWidth = endX - startX;
+	if (availableWidth < 24) {
+		return `M ${startX} ${startY} L ${endX} ${endY}`;
+	}
 
-function edgePath(startX: number, startY: number, endX: number, endY: number): string {
-	const controlOffset = Math.max(36, (endX - startX) / 2);
+	const preferredChannelX = channelX ?? startX + availableWidth / 2;
+	const routeX = Math.min(
+		endX - 12,
+		Math.max(startX + 12, preferredChannelX),
+	);
+	if (startY === endY) {
+		return `M ${startX} ${startY} H ${endX}`;
+	}
+
+	const verticalDirection = endY > startY ? 1 : -1;
+	const radius = Math.min(
+		edgeCornerRadius,
+		Math.abs(endY - startY) / 2,
+		routeX - startX,
+		endX - routeX,
+	);
 	return [
 		`M ${startX} ${startY}`,
-		`C ${startX + controlOffset} ${startY},`,
-		`${endX - controlOffset} ${endY},`,
-		`${endX} ${endY}`,
+		`H ${routeX - radius}`,
+		`Q ${routeX} ${startY} ${routeX} ${startY + verticalDirection * radius}`,
+		`V ${endY - verticalDirection * radius}`,
+		`Q ${routeX} ${endY} ${routeX + radius} ${endY}`,
+		`H ${endX}`,
 	].join(' ');
 }
 
@@ -134,8 +166,92 @@ function essentialEdges(edges: BatchGraphEdge[]): BatchGraphEdge[] {
 	return edges.filter((edge, index) => !hasAlternatePath(edge, index, edgesByParent));
 }
 
+function groupConnectedJobs(
+	edges: BatchGraphEdge[],
+): { parentsByJob: Map<string, string[]>; childrenByJob: Map<string, string[]> } {
+	const parentsByJob = new Map<string, string[]>();
+	const childrenByJob = new Map<string, string[]>();
+	for (const edge of edges) {
+		if (!edge.parentJobId) {
+			continue;
+		}
+
+		const parents = parentsByJob.get(edge.childJobId) ?? [];
+		parents.push(edge.parentJobId);
+		parentsByJob.set(edge.childJobId, parents);
+
+		const children = childrenByJob.get(edge.parentJobId) ?? [];
+		children.push(edge.childJobId);
+		childrenByJob.set(edge.parentJobId, children);
+	}
+	return { parentsByJob, childrenByJob };
+}
+
+function normalizedNodePositions(layers: PositionedNode[][]): Map<string, number> {
+	const positions = new Map<string, number>();
+	for (const layer of layers) {
+		const denominator = Math.max(1, layer.length - 1);
+		layer.forEach((node, index) => {
+			positions.set(node.jobId, layer.length === 1 ? 0.5 : index / denominator);
+		});
+	}
+	return positions;
+}
+
+function orderLayerByNeighbors(
+	layer: PositionedNode[],
+	neighborsByJob: Map<string, string[]>,
+	positions: Map<string, number>,
+): void {
+	const previousOrder = new Map(layer.map((node, index) => [node.jobId, index]));
+	const scores = new Map<string, number>();
+	for (const node of layer) {
+		const neighborPositions = (neighborsByJob.get(node.jobId) ?? [])
+			.flatMap((jobId) => {
+				const position = positions.get(jobId);
+				return position === undefined ? [] : [position];
+			});
+		if (neighborPositions.length > 0) {
+			const total = neighborPositions.reduce((sum, position) => sum + position, 0);
+			scores.set(node.jobId, total / neighborPositions.length);
+		}
+	}
+
+	layer.sort((left, right) => {
+		const leftScore = scores.get(left.jobId);
+		const rightScore = scores.get(right.jobId);
+		if (leftScore !== undefined && rightScore !== undefined && leftScore !== rightScore) {
+			return leftScore - rightScore;
+		}
+		if (leftScore !== undefined && rightScore === undefined) {
+			return -1;
+		}
+		if (leftScore === undefined && rightScore !== undefined) {
+			return 1;
+		}
+		return (previousOrder.get(left.jobId) ?? 0) - (previousOrder.get(right.jobId) ?? 0);
+	});
+}
+
+function orderLayers(layers: PositionedNode[][], edges: BatchGraphEdge[]): void {
+	const { parentsByJob, childrenByJob } = groupConnectedJobs(edges);
+	for (const layer of layers) {
+		layer.sort((left, right) => left.jobName.localeCompare(right.jobName));
+	}
+
+	for (let sweep = 0; sweep < layoutSweepCount; sweep++) {
+		for (let rank = 1; rank < layers.length; rank++) {
+			orderLayerByNeighbors(layers[rank] ?? [], parentsByJob, normalizedNodePositions(layers));
+		}
+		for (let rank = layers.length - 2; rank >= 0; rank--) {
+			orderLayerByNeighbors(layers[rank] ?? [], childrenByJob, normalizedNodePositions(layers));
+		}
+	}
+}
+
 function createEdges(edgesToDraw: BatchGraphEdge[], positions: Map<string, PositionedNode>): {
 	edges: PositionedEdge[];
+	forks: PositionedFork[];
 	joins: PositionedJoin[];
 } {
 	const edges = edgesToDraw.flatMap((edge, index) => {
@@ -144,7 +260,17 @@ function createEdges(edgesToDraw: BatchGraphEdge[], positions: Map<string, Posit
 			return [];
 		}
 		const from = edge.parentJobId ? positions.get(edge.parentJobId) : undefined;
-		return [{ ...edge, index, from, to, joinsFanIn: false, endY: to.y + nodeHeight / 2 }];
+		const endY = to.y + nodeHeight / 2;
+		return [{
+			...edge,
+			index,
+			from,
+			to,
+			joinsFanIn: false,
+			startX: from ? from.x + from.width : 4,
+			startY: from ? from.y + nodeHeight / 2 : endY,
+			endY,
+		}];
 	});
 	const incomingByJob = new Map<string, typeof edges>();
 	const outgoingByJob = new Map<string, typeof edges>();
@@ -162,7 +288,6 @@ function createEdges(edgesToDraw: BatchGraphEdge[], positions: Map<string, Posit
 
 	const joins: PositionedJoin[] = [];
 	for (const [childJobId, incoming] of incomingByJob) {
-		incoming.sort((left, right) => (left.from?.y ?? left.index) - (right.from?.y ?? right.index));
 		if (incoming.length === 1) {
 			continue;
 		}
@@ -171,10 +296,12 @@ function createEdges(edgesToDraw: BatchGraphEdge[], positions: Map<string, Posit
 		if (!to) {
 			continue;
 		}
-		const joinX = to.x - 32;
+		const joinX = to.x - junctionOffset;
 		const joinY = to.y + nodeHeight / 2;
+		const channelX = joinX - junctionOffset;
 		for (const edge of incoming) {
 			edge.joinsFanIn = true;
+			edge.channelX = channelX;
 			edge.endY = joinY;
 		}
 		joins.push({
@@ -184,30 +311,42 @@ function createEdges(edgesToDraw: BatchGraphEdge[], positions: Map<string, Posit
 			path: `M ${joinX} ${joinY} L ${to.x} ${joinY}`,
 		});
 	}
-	for (const outgoing of outgoingByJob.values()) {
-		outgoing.sort((left, right) => left.to.y - right.to.y);
-		outgoing.forEach((edge, index) => {
-			if (edge.from) {
-				edge.startY = portY(edge.from, index, outgoing.length);
-			}
+
+	const forks: PositionedFork[] = [];
+	for (const [parentJobId, outgoing] of outgoingByJob) {
+		const from = outgoing[0]?.from;
+		if (outgoing.length < 2 || !from) {
+			continue;
+		}
+
+		const sourceX = from.x + from.width;
+		const forkX = sourceX + junctionOffset;
+		const forkY = from.y + nodeHeight / 2;
+		for (const edge of outgoing) {
+			edge.startX = forkX;
+			edge.startY = forkY;
+		}
+		forks.push({
+			parentJobId,
+			x: forkX,
+			y: forkY,
+			path: `M ${sourceX} ${forkY} L ${forkX} ${forkY}`,
 		});
 	}
 
 	const positionedEdges = edges.map((edge) => {
-		const startX = edge.from ? edge.from.x + edge.from.width : 4;
-		const startY = edge.startY ?? edge.endY;
-		const endX = edge.joinsFanIn ? edge.to.x - 32 : edge.to.x;
+		const endX = edge.joinsFanIn ? edge.to.x - junctionOffset : edge.to.x;
 		return {
 			...edge,
-			path: edgePath(startX, startY, endX, edge.endY),
+			path: pipelineEdgePath(edge.startX, edge.startY, endX, edge.endY, edge.channelX),
 		};
 	});
-	return { edges: positionedEdges, joins };
+	return { edges: positionedEdges, forks, joins };
 }
 
 function layout(graph: BatchGraph | undefined, edgesToDraw: BatchGraphEdge[]): Drawing {
 	if (!graph) {
-		return { nodes: [], edges: [], joins: [], width: 0, height: 0 };
+		return { nodes: [], edges: [], forks: [], joins: [], width: 0, height: 0 };
 	}
 
 	const nodesById = new Map(graph.nodes.map((node) => [
@@ -240,15 +379,22 @@ function layout(graph: BatchGraph | undefined, edgesToDraw: BatchGraphEdge[]): D
 	for (const node of nodesById.values()) {
 		(layers[node.rank] ??= []).push(node);
 	}
+	orderLayers(layers, edgesToDraw);
+
+	const largestLayer = Math.max(1, ...layers.map((layer) => layer.length));
+	const contentHeight = largestLayer * nodeHeight + (largestLayer - 1) * rowGap;
+	const height = Math.max(minimumGraphHeight, graphPadding * 2 + contentHeight);
 	const nodes: PositionedNode[] = [];
 	let nextLayerX = graphPadding;
 	let contentRight = graphPadding;
 	for (const layer of layers) {
-		layer.sort((left, right) => left.jobName.localeCompare(right.jobName));
 		const layerWidth = Math.max(...layer.map((node) => node.width));
+		const layerHeight = layer.length * nodeHeight + (layer.length - 1) * rowGap;
+		const layerTop = (height - layerHeight) / 2;
 		layer.forEach((node, row) => {
-			node.x = nextLayerX + (layerWidth - node.width) / 2;
-			node.y = graphPadding + row * (nodeHeight + rowGap);
+			node.width = layerWidth;
+			node.x = nextLayerX;
+			node.y = layerTop + row * (nodeHeight + rowGap);
 			nodes.push(node);
 		});
 		contentRight = nextLayerX + layerWidth;
@@ -256,14 +402,14 @@ function layout(graph: BatchGraph | undefined, edgesToDraw: BatchGraphEdge[]): D
 	}
 
 	const positions = new Map(nodes.map((node) => [node.jobId, node]));
-	const largestLayer = Math.max(1, ...layers.map((layer) => layer.length));
-	const { edges, joins } = createEdges(edgesToDraw, positions);
+	const { edges, forks, joins } = createEdges(edgesToDraw, positions);
 	return {
 		nodes,
 		edges,
+		forks,
 		joins,
 		width: Math.max(420, contentRight + graphPadding),
-		height: Math.max(240, graphPadding * 2 + largestLayer * nodeHeight + (largestLayer - 1) * rowGap),
+		height,
 	};
 }
 
@@ -358,6 +504,15 @@ function handleNodeKeydown(event: KeyboardEvent, jobId: string): void {
 					:d="edge.path"
 					:marker-end="edge.joinsFanIn ? undefined : 'url(#workflow-arrow)'"
 				/>
+				<g
+					v-for="fork in drawing.forks"
+					:key="`fork-${fork.parentJobId}`"
+					class="workflow-fork"
+					:data-parent-job-id="fork.parentJobId"
+				>
+					<path :d="fork.path" />
+					<circle :cx="fork.x" :cy="fork.y" r="3.5" />
+				</g>
 				<g
 					v-for="join in drawing.joins"
 					:key="`join-${join.childJobId}`"

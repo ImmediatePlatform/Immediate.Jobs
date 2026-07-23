@@ -26,18 +26,40 @@ fraud-check member runs, it uses its `JobDetails` to schedule a retry-safe eleve
 fulfillment join. The response contains the batch ID, initial and expected job counts, and dashboard
 URL.
 
+`POST /api/game-release-batches/{title}` creates an atomic 19-job global game-release workflow. It
+starts with approval, fans out into client and online-service workstreams, splits each workstream
+again, and joins each pair into separate certifications. Those certifications converge into one
+release candidate, which fans out across store publishing, service deployment, CDN prewarming, and
+support preparation. A four-way release gate then fans out into announcement, matchmaking, and
+telemetry work before the final global-launch confirmation:
+
+```text
+approval
+├─ client build ─┬─ compatibility ─┐
+│                └─ binary signing ┴─ client certification ─┐
+└─ services ─────┬─ data migration ─┐                       │
+                 └─ load testing ───┴─ service certification┴─ release candidate
+                                                               ├─ store publish ─┐
+                                                               ├─ deploy services│
+                                                               ├─ prewarm CDN ───┼─ release gate
+                                                               └─ brief support ─┘      ├─ announcement ─┐
+                                                                                         ├─ matchmaking ──┼─ launch confirmed
+                                                                                         └─ telemetry ─────┘
+```
+
 The raw OpenAPI document is available at `/openapi/v1.json`. You can also enqueue work from a terminal using the endpoint displayed by Aspire:
 
 ```console
 curl -X POST http://localhost:<port>/api/greetings/Ada
 curl -X POST http://localhost:<port>/api/order-fulfillment-batches
+curl -X POST http://localhost:<port>/api/game-release-batches/Starfall
 ```
 
 Open `http://localhost:<port>/jobs` for the Immediate.Jobs dashboard. The **Batches** tab shows the
-order workflow progressing through its real dependency graph; select any node for payload, timing,
-attempt, and error details. Watch for `order-record-fraud-assessment` appearing dynamically after
-the fraud check succeeds. The **Jobs** tab pages on the server in groups of 50 and links each batch
-member back to its workflow. The **Recurring** tab lists `aspire-heartbeat`, configured by
+order and game-release workflows progressing through their real dependency graphs; select any node
+for payload, timing, attempt, and error details. Watch for `order-record-fraud-assessment` appearing
+dynamically after the fraud check succeeds. The **Jobs** tab pages on the server in groups of 50 and
+links each batch member back to its workflow. The **Recurring** tab lists `aspire-heartbeat`, configured by
 `[Job(Cron = "0 * * * * *")]`. In the Aspire dashboard, inspect the `jobs-api` resource's logs to see
 the order steps, restored request context, once-per-minute heartbeat, traces, metrics, and health
 checks.

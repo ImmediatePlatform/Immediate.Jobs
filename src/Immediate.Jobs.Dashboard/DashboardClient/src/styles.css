@@ -1034,11 +1034,15 @@ tbody tr[data-selected="true"] td:first-child {
 }
 
 .workflow-edge,
+.workflow-fork path,
 .workflow-join path {
 	fill: none;
 	stroke: var(--text-subtle);
 	stroke-width: 1.4;
+	stroke-linecap: round;
+	stroke-linejoin: round;
 	opacity: 0.75;
+	shape-rendering: geometricPrecision;
 }
 
 .workflow-edge.dashed {
@@ -1050,6 +1054,7 @@ tbody tr[data-selected="true"] td:first-child {
 	stroke-dasharray: 2 4;
 }
 
+.workflow-fork circle,
 .workflow-join circle {
 	fill: var(--panel);
 	stroke: var(--text-subtle);

@@ -14,6 +14,7 @@ builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<CurrentRequestContext>();
+builder.Services.AddScoped<GameReleaseWorkflow>();
 builder.Services.AddScoped<OrderFulfillmentWorkflow>();
 
 var connectionString = builder.Configuration.GetConnectionString("jobs")
