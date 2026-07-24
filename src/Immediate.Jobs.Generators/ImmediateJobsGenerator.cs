@@ -21,7 +21,7 @@ public sealed partial class ImmediateJobsGenerator : IIncrementalGenerator
 
 		var jobs = context.SyntaxProvider
 			.ForAttributeWithMetadataName(
-				JobDiscovery.JobAttributeName,
+				"Immediate.Jobs.Shared.JobAttribute",
 				predicate: static (node, _) => node is ClassDeclarationSyntax,
 				transform: TransformJob
 			)
@@ -38,7 +38,7 @@ public sealed partial class ImmediateJobsGenerator : IIncrementalGenerator
 
 		var queues = context.SyntaxProvider
 			.ForAttributeWithMetadataName(
-				JobDiscovery.QueueDefinitionAttributeName,
+				"Immediate.Jobs.Shared.QueueDefinitionAttribute",
 				predicate: static (node, _) => node is ClassDeclarationSyntax,
 				transform: TransformQueue
 			)

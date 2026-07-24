@@ -8,7 +8,7 @@
 namespace Example;
 
 
-public partial class SendEmailJob
+partial class SendEmailJob
 {
 	
 		public sealed class Scheduler(
@@ -125,7 +125,7 @@ public partial class SendEmailJob
 				Timeout = global::System.TimeSpan.Parse("00:02:00", global::System.Globalization.CultureInfo.InvariantCulture),
 				
 		MaxConcurrency = 0,
-		OverlapPolicy = (global::Immediate.Jobs.Shared.OverlapPolicy)0,
+		OverlapPolicy = global::Immediate.Jobs.Shared.OverlapPolicy.Skip,
 		Backoff = (global::Immediate.Jobs.Shared.BackoffStrategy)2,
 		BackoffBase = global::System.TimeSpan.Parse("00:00:05", global::System.Globalization.CultureInfo.InvariantCulture),
 	};

@@ -16,7 +16,6 @@ public sealed partial class ImmediateJobsGenerator
 		var model = new
 		{
 			job.Namespace,
-			job.Accessibility,
 			job.ClassName,
 			job.TypeName,
 			job.PayloadTypeName,
@@ -113,15 +112,16 @@ public sealed partial class ImmediateJobsGenerator
 
 	private static Template GetTemplate(string name)
 	{
-		using var stream = Assembly.GetExecutingAssembly().GetManifestResourceStream(
-			$"Immediate.Jobs.Generators.Templates.{name}.sbntxt"
-		);
+		using var stream = Assembly
+			.GetExecutingAssembly()
+			.GetManifestResourceStream(
+				$"Immediate.Jobs.Generators.Templates.{name}.sbntxt"
+			);
+
 		Debug.Assert(stream is not null);
+
 		using var reader = new StreamReader(stream);
-		var template = Template.Parse(reader.ReadToEnd());
-		if (template.HasErrors)
-			throw new InvalidOperationException(string.Join("\n", template.Messages));
-		return template;
+		return Template.Parse(reader.ReadToEnd());
 	}
 
 	private static string Literal(string value) =>

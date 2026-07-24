@@ -14,9 +14,6 @@ internal readonly record struct JobContextUse(
 
 internal static class JobDiscovery
 {
-	public const string JobAttributeName = "Immediate.Jobs.Shared.JobAttribute";
-	public const string QueueDefinitionAttributeName = "Immediate.Jobs.Shared.QueueDefinitionAttribute";
-
 	public static ImmutableArray<INamedTypeSymbol> FindJobs(Compilation compilation, CancellationToken cancellationToken) =>
 		FindAttributedClasses(compilation, GetJobAttribute, cancellationToken);
 
@@ -65,14 +62,6 @@ internal static class JobDiscovery
 	public static bool IsHandler(INamedTypeSymbol symbol) =>
 		symbol.GetAttributes().Any(static attribute =>
 			attribute.AttributeClass.IsHandlerAttribute);
-
-	public static bool IsPartial(INamedTypeSymbol symbol) => symbol.DeclaringSyntaxReferences
-		.Select(static reference => reference.GetSyntax())
-		.OfType<TypeDeclarationSyntax>()
-		.Any(static declaration => declaration.Modifiers.Any(SyntaxKind.PartialKeyword));
-
-	public static bool ImplementsJobRequest(ITypeSymbol type) =>
-		type.IsIJobRequest || type.AllInterfaces.Any(static candidate => candidate.IsIJobRequest);
 
 	public static bool IsJobDetailsMember(ISymbol member)
 	{

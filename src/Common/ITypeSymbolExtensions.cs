@@ -110,6 +110,32 @@ internal static class ITypeSymbolExtensions
 				Name: "ValueTask",
 				ContainingNamespace.IsSystemThreadingTasks: true,
 			};
+
+		public bool ImplementsJobRequest => typeSymbol is INamedTypeSymbol { ImplementsJobRequest: true };
+	}
+
+	extension(INamedTypeSymbol namedTypeSymbol)
+	{
+		public IMethodSymbol? GetValidHandleMethod()
+		{
+			if (namedTypeSymbol
+					.GetMembers()
+					.OfType<IMethodSymbol>()
+					.Where(m => m.Name is "Handle" or "HandleAsync")
+					.Take(2)
+					.ToList() is not [var handleMethod])
+			{
+				return null;
+			}
+
+			// must have request type
+			if (handleMethod.Parameters.Length is 0)
+				return null;
+
+			return handleMethod;
+		}
+
+		public bool ImplementsJobRequest => namedTypeSymbol.AllInterfaces.Any(static i => i.IsIJobRequest);
 	}
 
 	extension(INamespaceSymbol namespaceSymbol)

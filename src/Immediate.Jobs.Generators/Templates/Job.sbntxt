@@ -7,7 +7,7 @@
 namespace {{ namespace }};
 
 {{ end }}
-{{ accessibility }} partial class {{ class_name }}
+partial class {{ class_name }}
 {
 	{{ if has_payload }}
 	[global::System.CodeDom.Compiler.GeneratedCodeAttribute("Immediate.Jobs", "{{ version }}")]
@@ -266,7 +266,7 @@ namespace {{ namespace }};
 		Timeout = global::System.TimeSpan.Parse({{ timeout_literal }}, global::System.Globalization.CultureInfo.InvariantCulture),
 		{{ end }}
 		MaxConcurrency = {{ max_concurrency }},
-		OverlapPolicy = (global::Immediate.Jobs.Shared.OverlapPolicy){{ overlap_policy }},
+		OverlapPolicy = global::Immediate.Jobs.Shared.OverlapPolicy.{{ overlap_policy }},
 		Backoff = (global::Immediate.Jobs.Shared.BackoffStrategy){{ backoff }},
 		BackoffBase = global::System.TimeSpan.Parse({{ backoff_base_literal }}, global::System.Globalization.CultureInfo.InvariantCulture),
 	};

@@ -5,7 +5,7 @@
 #pragma warning disable CS1591
 
 
-public partial class TenantCleanupJob
+partial class TenantCleanupJob
 {
 	
 		public sealed class Scheduler(
@@ -130,7 +130,7 @@ public partial class TenantCleanupJob
 		MaxAttempts = 3,
 		
 		MaxConcurrency = 0,
-		OverlapPolicy = (global::Immediate.Jobs.Shared.OverlapPolicy)0,
+		OverlapPolicy = global::Immediate.Jobs.Shared.OverlapPolicy.Skip,
 		Backoff = (global::Immediate.Jobs.Shared.BackoffStrategy)2,
 		BackoffBase = global::System.TimeSpan.Parse("00:00:05", global::System.Globalization.CultureInfo.InvariantCulture),
 	};
