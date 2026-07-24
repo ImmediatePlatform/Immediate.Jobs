@@ -4,7 +4,7 @@ using Immediate.Handlers.Shared;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddSingleton<IEmailSender, ConsoleEmailSender>();
-builder.Services.AddImmediateJobs(options =>
+builder.Services.AddBasicJobs(options =>
 {
 	_ = options.UseInMemory();
 	options.MaxParallelJobs = 4;

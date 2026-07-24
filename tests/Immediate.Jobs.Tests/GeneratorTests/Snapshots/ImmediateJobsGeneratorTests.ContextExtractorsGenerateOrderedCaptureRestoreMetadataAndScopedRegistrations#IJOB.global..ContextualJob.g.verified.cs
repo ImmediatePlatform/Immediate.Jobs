@@ -377,4 +377,27 @@ public partial class ContextualJob
 				}
 
 	}
+
+
+	[global::System.ComponentModel.EditorBrowsable(global::System.ComponentModel.EditorBrowsableState.Never)]
+	internal static global::Microsoft.Extensions.DependencyInjection.IServiceCollection AddJob(
+		global::Microsoft.Extensions.DependencyInjection.IServiceCollection services
+	)
+	{
+		services.Add(
+			new global::Microsoft.Extensions.DependencyInjection.ServiceDescriptor(
+				typeof(global::Immediate.Jobs.Shared.JobDefinition),
+				ContextualJob.CreateJobDefinition,
+				global::Microsoft.Extensions.DependencyInjection.ServiceLifetime.Singleton
+			)
+		);
+
+		global::Microsoft.Extensions.DependencyInjection.Extensions.ServiceCollectionDescriptorExtensions.TryAddScoped(services, typeof(ContextualJob.Scheduler));
+		global::Microsoft.Extensions.DependencyInjection.Extensions.ServiceCollectionDescriptorExtensions.TryAddSingleton(services, typeof(ContextualJob.Invoker));
+
+		global::Microsoft.Extensions.DependencyInjection.Extensions.ServiceCollectionDescriptorExtensions.TryAddScoped(services, typeof(global::CorrelationExtractor));
+		global::Microsoft.Extensions.DependencyInjection.Extensions.ServiceCollectionDescriptorExtensions.TryAddScoped(services, typeof(global::UsageContextExtractor));
+
+		return services;
+	}
 }

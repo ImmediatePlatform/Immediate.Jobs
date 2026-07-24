@@ -6,6 +6,7 @@ public sealed partial class ImmediateJobsGenerator
 {
 	private sealed record AssemblyDefaults
 	{
+		public required string AssemblyName { get; init; }
 		public required LanguageVersion LanguageVersion { get; init; }
 	}
 

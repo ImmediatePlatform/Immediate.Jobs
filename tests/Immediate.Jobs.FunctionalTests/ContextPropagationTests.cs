@@ -192,8 +192,9 @@ public sealed class ContextPropagationTests
 			_ = services.AddSingleton(new ExecutionState());
 			_ = services.AddScoped<PropagationScopeState>();
 			_ = services.AddSingleton<IIdGenerator, ReplacedIdGenerator>();
+			_ = services.AddImmediateJobsFunctionalTestsHandlers();
 			_ = services.AddImmediateJobsFunctionalTestsBehaviors();
-			_ = services.AddImmediateJobs().UseIdGenerator<TestIdGenerator>();
+			_ = services.AddImmediateJobsFunctionalTestsJobs().UseIdGenerator<TestIdGenerator>();
 		});
 
 		_ = Assert.IsType<TestIdGenerator>(harness.Services.GetRequiredService<IIdGenerator>());
@@ -274,8 +275,9 @@ public sealed class ContextPropagationTests
 			);
 		}
 
+		_ = services.AddImmediateJobsFunctionalTestsHandlers();
 		_ = services.AddImmediateJobsFunctionalTestsBehaviors();
-		_ = services.AddImmediateJobs();
+		_ = services.AddImmediateJobsFunctionalTestsJobs();
 	});
 
 	private static JobRecord CreateContextRecord(JobTestHarness harness, string context) => new()

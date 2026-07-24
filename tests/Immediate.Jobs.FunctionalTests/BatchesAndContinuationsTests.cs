@@ -324,8 +324,9 @@ public sealed class BatchesAndContinuationsTests
 		_ = services.AddSingleton(new ExecutionState());
 		_ = services.AddSingleton(new ContextProbe());
 		_ = services.AddScoped<PropagationScopeState>();
+		_ = services.AddImmediateJobsFunctionalTestsHandlers();
 		_ = services.AddImmediateJobsFunctionalTestsBehaviors();
-		_ = services.AddImmediateJobs();
+		_ = services.AddImmediateJobsFunctionalTestsJobs();
 	});
 
 	private static void AssertBefore(IReadOnlyList<string> events, string first, string second)

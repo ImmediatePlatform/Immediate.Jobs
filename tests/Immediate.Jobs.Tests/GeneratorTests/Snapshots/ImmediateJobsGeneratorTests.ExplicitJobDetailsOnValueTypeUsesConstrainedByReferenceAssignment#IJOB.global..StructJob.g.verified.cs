@@ -199,4 +199,25 @@ public partial class StructJob
 				}
 
 	}
+
+
+	[global::System.ComponentModel.EditorBrowsable(global::System.ComponentModel.EditorBrowsableState.Never)]
+	internal static global::Microsoft.Extensions.DependencyInjection.IServiceCollection AddJob(
+		global::Microsoft.Extensions.DependencyInjection.IServiceCollection services
+	)
+	{
+		services.Add(
+			new global::Microsoft.Extensions.DependencyInjection.ServiceDescriptor(
+				typeof(global::Immediate.Jobs.Shared.JobDefinition),
+				StructJob.CreateJobDefinition,
+				global::Microsoft.Extensions.DependencyInjection.ServiceLifetime.Singleton
+			)
+		);
+
+		global::Microsoft.Extensions.DependencyInjection.Extensions.ServiceCollectionDescriptorExtensions.TryAddScoped(services, typeof(StructJob.Scheduler));
+		global::Microsoft.Extensions.DependencyInjection.Extensions.ServiceCollectionDescriptorExtensions.TryAddSingleton(services, typeof(StructJob.Invoker));
+
+
+		return services;
+	}
 }

@@ -27,7 +27,7 @@ var aspireDashboardUrl = builder.Configuration["Telemetry:AspireDashboardUrl"] i
 builder.Services.AddDbContextFactory<JobsDbContext>(options =>
 	options.UseNpgsql(connectionString, npgsql => npgsql.EnableRetryOnFailure()));
 
-builder.Services.AddImmediateJobs(options =>
+builder.Services.AddImmediateJobsAspireApiJobs(options =>
 {
 	_ = options.UseEntityFrameworkCore<JobsDbContext>();
 	_ = options.UseSingleServer(); // Explicit; EF storage selects single-server mode implicitly when omitted.

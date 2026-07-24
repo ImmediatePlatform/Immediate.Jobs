@@ -197,4 +197,25 @@ public partial class WorkJob
 				}
 
 	}
+
+
+	[global::System.ComponentModel.EditorBrowsable(global::System.ComponentModel.EditorBrowsableState.Never)]
+	internal static global::Microsoft.Extensions.DependencyInjection.IServiceCollection AddJob(
+		global::Microsoft.Extensions.DependencyInjection.IServiceCollection services
+	)
+	{
+		services.Add(
+			new global::Microsoft.Extensions.DependencyInjection.ServiceDescriptor(
+				typeof(global::Immediate.Jobs.Shared.JobDefinition),
+				WorkJob.CreateJobDefinition,
+				global::Microsoft.Extensions.DependencyInjection.ServiceLifetime.Singleton
+			)
+		);
+
+		global::Microsoft.Extensions.DependencyInjection.Extensions.ServiceCollectionDescriptorExtensions.TryAddScoped(services, typeof(WorkJob.Scheduler));
+		global::Microsoft.Extensions.DependencyInjection.Extensions.ServiceCollectionDescriptorExtensions.TryAddSingleton(services, typeof(WorkJob.Invoker));
+
+
+		return services;
+	}
 }

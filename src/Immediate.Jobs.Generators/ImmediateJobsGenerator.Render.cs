@@ -80,7 +80,9 @@ public sealed partial class ImmediateJobsGenerator
 
 		var model = new
 		{
+			assemblyDefaults.AssemblyName,
 			assemblyDefaults.LanguageVersion,
+
 			Queues = queues
 				.Concat(models.Select(job => new QueueModel
 				{
@@ -98,6 +100,7 @@ public sealed partial class ImmediateJobsGenerator
 					Concurrency = queue.Concurrency.ToString(CultureInfo.InvariantCulture),
 				})
 				.ToArray(),
+
 			JobsByTag = models.GroupBy(job => job.Tags, StringComparer.Ordinal),
 			Version = ThisAssembly.InformationalVersion,
 		};
