@@ -15,6 +15,22 @@ internal static class ITypeSymbolExtensions
 				ContainingNamespace.IsImmediateJobsShared: true,
 			};
 
+		public bool IsJobDetails =>
+			typeSymbol is INamedTypeSymbol
+			{
+				Arity: 0,
+				Name: "JobDetails",
+				ContainingNamespace.IsImmediateJobsShared: true,
+			};
+
+		public bool IsContinuationOptions =>
+			typeSymbol is INamedTypeSymbol
+			{
+				Arity: 0,
+				Name: "ContinuationOptions",
+				ContainingNamespace.IsImmediateJobsShared: true,
+			};
+
 		public bool IsQueueDefinitionAttribute =>
 			typeSymbol is INamedTypeSymbol
 			{

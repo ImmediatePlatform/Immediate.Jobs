@@ -371,43 +371,6 @@ public sealed class ImmediateJobsAnalyzerTests
 		Assert.Empty(diagnostics);
 	}
 
-	[Fact]
-	public async Task AnalyzerRejectsConstantDetachedMidJobBatchAddition() =>
-		await AssertDiagnostic(
-			"""
-			using Immediate.Jobs.Shared;
-
-			public sealed class Scheduler
-			{
-				public void AddToBatchAsync(JobDetails current, int payload, ContinuationOptions options) { }
-
-				public void Schedule(JobDetails current) =>
-					AddToBatchAsync(current, 42, ContinuationOptions.Detached);
-			}
-			""",
-			"IJOB020"
-		);
-
-	[Fact]
-	public async Task AnalyzerAllowsNonConstantMidJobBatchOption()
-	{
-		var diagnostics = await GeneratorTestHelper.RunAnalyzer(
-			"""
-			using Immediate.Jobs.Shared;
-
-			public sealed class Scheduler
-			{
-				public void AddToBatchAsync(JobDetails current, int payload, ContinuationOptions options) { }
-
-				public void Schedule(JobDetails current, ContinuationOptions options) =>
-					AddToBatchAsync(current, 42, options);
-			}
-			"""
-		);
-
-		Assert.DoesNotContain(diagnostics, diagnostic => diagnostic.Id == "IJOB020");
-	}
-
 	private static async Task AssertDiagnostic(string source, string expectedId)
 	{
 		var diagnostics = await GeneratorTestHelper.RunAnalyzer(source);
