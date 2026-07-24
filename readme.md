@@ -450,11 +450,11 @@ The [Aspire sample](samples/Aspire/readme.md) runs the EF Core provider against 
 
 ## Benchmarks
 
-The repository includes BenchmarkDotNet comparisons with Hangfire MemoryStorage and Quartz.NET for enqueue, direct dispatch, startup, and allocations. These are microbenchmarks of deliberately different framework APIs—not end-to-end durability or worker-latency measurements—so run them on the deployment target before drawing conclusions.
+The repository includes BenchmarkDotNet comparisons with TickerQ, Hangfire MemoryStorage, and Quartz.NET. In addition to enqueue, direct dispatch, and startup, the suite covers concurrent throughput, cron expressions, delegate invocation, job creation, serialization, and startup registration. These are microbenchmarks of deliberately different framework APIs—not end-to-end durability or worker-latency measurements—so run them on the deployment target before drawing conclusions.
 
 ### Results
 
-Latest `ShortRun` results from 21 July 2026: BenchmarkDotNet 0.15.8, .NET 8.0.22 Arm64 RyuJIT, Apple M3 Pro with 12 cores, macOS 26.5. Each result uses one launch, three warmup iterations, and three measurement iterations. Ratios use Immediate.Jobs as the baseline.
+The tables below are the historical `ShortRun` results from 21 July 2026: BenchmarkDotNet 0.15.8, .NET 8.0.22 Arm64 RyuJIT, Apple M3 Pro with 12 cores, macOS 26.5. Each result uses one launch, three warmup iterations, and three measurement iterations. Ratios use Immediate.Jobs as the baseline. The expanded TickerQ suite targets .NET 10 and does not yet have checked-in results.
 
 #### EnqueueAsync
 

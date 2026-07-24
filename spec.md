@@ -400,8 +400,13 @@ implementation as default.
 | **M4 — Polish & ship**         | `Immediate.Jobs.Testing`, OTel + metrics + health checks, AOT CI, benchmarks, docs site, v1.0 to NuGet                                                                                                 |
 | **M5 — Batches & continuations** | Atomic batches, job→job and batch continuations, fan-out/fan-in/diamonds, mid-job dynamic expansion, `AwaitingContinuation` state + edge/counter storage across providers, batch dashboard views & graph, new diagnostics |
 
+**Designed, not yet scheduled:** SQS-style *fair queues* (per-group fairness at acquisition) —
+[`docs/fair-queues.md`](docs/fair-queues.md).
+
 ---
 
 ## 8. Open Questions
 
-None — all interview questions resolved.
+None open for shipped features. The fair-queues design ([`docs/fair-queues.md`](docs/fair-queues.md))
+carries a few small implementation-time decisions (group-id max length, threshold scope, cardinality
+guard) that are recorded and resolved there.
