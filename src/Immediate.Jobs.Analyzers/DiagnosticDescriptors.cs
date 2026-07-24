@@ -37,12 +37,6 @@ internal static class DiagnosticDescriptors
 		"Job '{0}' has invalid configuration: {1}"
 	);
 
-	public static readonly DiagnosticDescriptor JobMustBePartial = Create(
-		"IJOB005",
-		"Job class must be partial",
-		"Job class '{0}' must be declared partial"
-	);
-
 	public static readonly DiagnosticDescriptor CronPayload = Create(
 		"IJOB006",
 		"Cron job cannot have a payload",

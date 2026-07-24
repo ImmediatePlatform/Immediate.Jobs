@@ -88,24 +88,6 @@ public sealed class ImmediateJobsAnalyzerTests
 		);
 
 	[Fact]
-	public async Task AnalyzerTriggersForNonPartialJob() =>
-		await AssertDiagnostic(
-			"""
-			using Immediate.Jobs.Shared;
-			using Immediate.Handlers.Shared;
-			using System.Threading;
-			using System.Threading.Tasks;
-
-			[Handler, Job]
-			public sealed class NonPartialJob
-			{
-				private ValueTask HandleAsync(NoPayload request, CancellationToken ct) => ValueTask.CompletedTask;
-			}
-			""",
-			"IJOB005"
-		);
-
-	[Fact]
 	public async Task AnalyzerTriggersForCronJobWithPayload() =>
 		await AssertDiagnostic(
 			"""

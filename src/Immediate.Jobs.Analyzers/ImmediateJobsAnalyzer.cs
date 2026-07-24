@@ -16,7 +16,6 @@ public sealed class ImmediateJobsAnalyzer : DiagnosticAnalyzer
 			DiagnosticDescriptors.UnsupportedPayload,
 			DiagnosticDescriptors.InvalidMethodSignature,
 			DiagnosticDescriptors.InvalidConfiguration,
-			DiagnosticDescriptors.JobMustBePartial,
 			DiagnosticDescriptors.CronPayload,
 			DiagnosticDescriptors.NodaTimePackageRequired,
 			DiagnosticDescriptors.JobMustBeHandler,
@@ -112,12 +111,6 @@ public sealed class ImmediateJobsAnalyzer : DiagnosticAnalyzer
 			if (!JobDiscovery.IsHandler(job))
 			{
 				context.ReportDiagnostic(Diagnostic.Create(DiagnosticDescriptors.JobMustBeHandler, location, job.Name));
-				continue;
-			}
-
-			if (!JobDiscovery.IsPartial(job))
-			{
-				context.ReportDiagnostic(Diagnostic.Create(DiagnosticDescriptors.JobMustBePartial, location, job.Name));
 				continue;
 			}
 
