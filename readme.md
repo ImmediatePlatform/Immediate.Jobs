@@ -264,8 +264,30 @@ materialized outside a request.
 - `Immediate.Jobs` includes the development-only in-memory provider, the memory-primary durable single-server topology, and the channel-backed worker pool.
 - `Immediate.Jobs.EntityFrameworkCore` is the provider-neutral EF Core adapter, validated with PostgreSQL, SQLite, and SQL Server.
 - `Immediate.Jobs.LinqToDB` is the provider-neutral LinqToDB adapter, validated with PostgreSQL, SQLite, and SQL Server.
+- `Immediate.Jobs.Redis` is the distributed queue + recurring adapter. It does not implement batches
+  or continuations; those features require one of the graph-capable SQL providers.
 
-All providers implement `IJobStorage`. Single-server mode restores unfinished jobs and recurring schedules into memory when the process starts. Distributed mode uses provider leases; if a process dies, its lease expires and another node can acquire the invocation.
+All providers implement `IJobStorage`. Single-server mode restores unfinished jobs and recurring schedules into memory when the process starts. Distributed mode uses provider leases; if a process dies, its lease expires and another node can acquire the invocation. Redis always selects distributed mode because the single-server durable-replica topology requires all storage capabilities.
+
+### Redis configuration
+
+Pass either a StackExchange.Redis configuration string or an application-owned
+`IConnectionMultiplexer`. `UseRedis` selects distributed mode automatically:
+
+```csharp
+builder.Services.AddImmediateJobs(options =>
+	options.UseRedis("localhost:6379", redis =>
+	{
+		redis.Database = 1;
+		redis.KeyPrefix = "billing-jobs";
+	}));
+```
+
+The prefix isolates applications and is also used as the Redis Cluster hash tag, keeping every
+atomic Lua transition in one slot. The provider owns connections it creates from a configuration
+string; it does not dispose an `IConnectionMultiplexer` supplied by the application. Terminal job
+history is tracked in completion-time sorted indexes and removed by the normal
+`SucceededRetention` / `FailedRetention` purge loop.
 
 ### EF Core configuration
 

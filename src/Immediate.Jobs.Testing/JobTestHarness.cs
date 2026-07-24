@@ -11,6 +11,7 @@ namespace Immediate.Jobs.Testing;
 public sealed class JobTestHarness : IAsyncDisposable, IDisposable
 {
 	private readonly ServiceProvider _serviceProvider;
+	private readonly IJobGraphStorage _graphStorage;
 	private bool _disposed;
 
 	/// <summary>Creates a harness at the Unix epoch.</summary>
@@ -48,6 +49,11 @@ public sealed class JobTestHarness : IAsyncDisposable, IDisposable
 
 		Services = _serviceProvider;
 		Storage = _serviceProvider.GetRequiredService<IJobStorage>();
+		_graphStorage = Storage as IJobGraphStorage
+			?? throw new NotSupportedException(
+				"Batches & continuations require a graph-capable storage provider (a SQL database). " +
+				"The configured provider implements the queue capability only."
+			);
 		Batches = new JobBatchScheduler(
 			Storage,
 			TimeProvider,
@@ -163,9 +169,9 @@ public sealed class JobTestHarness : IAsyncDisposable, IDisposable
 	)
 	{
 		ArgumentNullException.ThrowIfNull(batch);
-		var status = await Storage.GetBatchStatusAsync(batch.Id, cancellationToken).ConfigureAwait(false)
+		var status = await _graphStorage.GetBatchStatusAsync(batch.Id, cancellationToken).ConfigureAwait(false)
 			?? throw new JobTestAssertionException($"Expected batch '{batch.Id}' to be committed, but it was not found.");
-		var members = await Storage.QueryBatchMembersAsync(
+		var members = await _graphStorage.QueryBatchMembersAsync(
 			batch.Id,
 			new() { Take = Math.Max(1, expectedMembers + 1) },
 			cancellationToken

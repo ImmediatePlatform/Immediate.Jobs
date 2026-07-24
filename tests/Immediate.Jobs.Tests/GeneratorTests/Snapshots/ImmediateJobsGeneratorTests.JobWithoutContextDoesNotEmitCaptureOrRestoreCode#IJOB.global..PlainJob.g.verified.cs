@@ -74,7 +74,7 @@ public partial class PlainJob
 				AddOrUpdateRecurringCoreAsync(name, cron, timeZone, cancellationToken);
 
 			public global::System.Threading.Tasks.ValueTask RemoveRecurringAsync(string name, global::System.Threading.CancellationToken cancellationToken = default) =>
-				Storage.RemoveRecurringAsync(name, cancellationToken);
+				RemoveRecurringCoreAsync(name, cancellationToken);
 		}
 
 

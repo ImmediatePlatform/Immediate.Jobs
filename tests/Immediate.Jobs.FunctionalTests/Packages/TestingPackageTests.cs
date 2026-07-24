@@ -13,11 +13,12 @@ public sealed class TestingPackageTests
 		var scheduler = new CaptureOnlyJobScheduler<TestPayload>();
 		var payload = new TestPayload("hello");
 
-		var id = await scheduler.EnqueueAsync(payload, TestContext.Current.CancellationToken);
+		var id = await scheduler.EnqueueAsync(payload, "tenant-a", TestContext.Current.CancellationToken);
 
 		var capture = Assert.Single(scheduler.Captures);
 		Assert.Equal(id.Id, capture.Id);
 		Assert.Equal(payload, capture.Payload);
+		Assert.Equal("tenant-a", capture.GroupId);
 	}
 
 	[Fact]

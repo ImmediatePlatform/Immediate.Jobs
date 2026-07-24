@@ -1,6 +1,6 @@
 # Storage capabilities (segmented providers)
 
-> **Status:** Design / implementation plan. Not yet implemented.
+> **Status:** Implemented.
 > **Goal:** Split the single `IJobStorage` seam into **capability interfaces** so a provider can
 > implement a subset — e.g. a Redis connector that does the queue only. Batches and continuations
 > require a **graph-capable** provider (a SQL database); when the active provider lacks that
@@ -226,14 +226,21 @@ services.AddImmediateJobs(o =>
 
 ## 6. Redis provider scope (first partial provider)
 
-Ships as `Immediate.Jobs.Redis` implementing **`IJobStorage`** (queue) and (recommended)
+Ships as `Immediate.Jobs.Redis` implementing **`IJobStorage`** (queue) and
 **`IRecurringJobStorage`**:
 
-- Sorted set per queue keyed by `DueAt` for due-work selection; hash per job; per-worker lease set /
-  GSI-style index on `LeaseExpiresAt` for orphan reclaim.
-- Claim = a Lua script (atomic select-and-mark under capacity), mirroring the optimistic-claim model.
-- Recurring materialization dedupe = conditional write on `jobName#occurrence`.
-- Job-history purge via key TTLs.
+- Sorted set per queue keyed by `DueAt` for due-work selection; hash per job; a lease-expiry sorted
+  index for orphan reclaim. Fixed-width due/created/id members preserve deterministic ordering when
+  Redis scores share a millisecond.
+- Claim = a Lua script (atomic ordered select-and-mark under global, queue, and job capacity),
+  including atomic lease recovery.
+- Recurring materialization dedupe = one Lua conditional write over the schedule CAS, occurrence key,
+  invocation, and indexes.
+- Terminal completion-time indexes drive the existing configurable job-history purge API. This is
+  used instead of completion-time TTLs because retention is supplied to `PurgeJobsAsync`, not to the
+  terminal transition.
+- `UseRedis` selects distributed mode automatically. Single-server mode requires a full-capability
+  durable replica, which Redis intentionally is not.
 - **Not implemented:** `IJobGraphStorage`. Documented as "batching requires a SQL provider."
 - Fair queues (per [`fair-queues.md`](fair-queues.md)) slot into this provider's claim script
   later, independently — orthogonal to segregation.
@@ -297,13 +304,10 @@ Build it only when there's a concrete need to keep a high-volume standalone-job 
 relational store *while still* using batches. Until then, single-provider capability detection is the
 shipping feature.
 
-## 10. Open questions
+## 10. Resolved implementation decisions
 
-1. **Recurring on Redis** — ship recurring in the first Redis release (it's a clean conditional-write
-   fit), or queue-only to start and add recurring next? Leaning: include it.
-2. **`StorageCapabilities` surface** — expose on the monitoring snapshot only, or also as a typed
-   property on the provider for tooling?
-3. **`PurgeAsync` shape** — keep a unified `PurgeAsync` default somewhere for back-compat, or move
-   callers fully onto the split `PurgeJobsAsync` / `PurgeBatchesAsync`? (With the base no longer a
-   union, a default would have to live on `IJobGraphStorage` or an extension helper, not on
-   `IJobStorage`.)
+1. **Recurring on Redis** — included in the first provider release.
+2. **`StorageCapabilities` surface** — derived from interface checks, exposed on monitoring
+   snapshots and health-check data, and used by the dashboard to hide unavailable views.
+3. **Purge shape** — callers use the capability-aligned `PurgeJobsAsync` and `PurgeBatchesAsync`
+   methods directly; there is no unified compatibility method on the queue base.

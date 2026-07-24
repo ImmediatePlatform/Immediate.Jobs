@@ -65,6 +65,7 @@ export interface JobMonitoringSnapshot {
 	counts: Partial<Record<JobState, number>>;
 	recurring: RecurringJobSchedule[];
 	servers: JobServerSnapshot[];
+	capabilities?: string;
 }
 
 export interface DashboardJobPage {

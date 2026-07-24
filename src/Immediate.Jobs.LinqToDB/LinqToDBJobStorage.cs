@@ -6,7 +6,7 @@ using LinqToDB.Data;
 namespace Immediate.Jobs.LinqToDB;
 
 /// <summary>An optimistic-concurrency LinqToDB implementation of <see cref="IJobStorage"/>.</summary>
-public sealed class LinqToDBJobStorage : IJobStorage, IJobStorageReplica
+public sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorage, IJobStorageReplica
 {
 	private const int MaxConcurrencyAttempts = 5;
 	private readonly DataOptions _dataOptions;
@@ -531,7 +531,10 @@ public sealed class LinqToDBJobStorage : IJobStorage, IJobStorageReplica
 				server.ActiveWorkers,
 				server.MaxWorkers
 			))]
-		);
+		)
+		{
+			Capabilities = this.GetCapabilities(),
+		};
 	}
 
 	/// <inheritdoc />
@@ -840,9 +843,46 @@ public sealed class LinqToDBJobStorage : IJobStorage, IJobStorageReplica
 	}
 
 	/// <inheritdoc />
-	public async ValueTask PurgeAsync(
+	public async ValueTask PurgeJobsAsync(
 		TimeSpan succeededRetention,
 		TimeSpan failedRetention,
+		CancellationToken cancellationToken = default
+	)
+	{
+		var now = _timeProvider.GetUtcNow();
+		await using var connection = CreateConnection();
+		_ = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+		try
+		{
+			var jobIds = await Jobs(connection)
+				.Where(job => job.BatchId == null &&
+					(job.State == JobState.Succeeded && job.CompletedAt < (now - succeededRetention).UtcTicks
+						|| (job.State == JobState.Failed || job.State == JobState.Cancelled)
+							&& job.CompletedAt < (now - failedRetention).UtcTicks))
+				.Select(job => job.Id)
+				.ToArrayAsync(cancellationToken)
+				.ConfigureAwait(false);
+			if (jobIds.Length != 0)
+			{
+				_ = await Continuations(connection)
+					.Where(edge => jobIds.Contains(edge.ChildJobId)
+						|| jobIds.Contains(edge.ParentId) && edge.ParentKind == ContinuationParentKind.Job)
+					.DeleteAsync(cancellationToken).ConfigureAwait(false);
+				_ = await Jobs(connection).Where(job => jobIds.Contains(job.Id)).DeleteAsync(cancellationToken)
+					.ConfigureAwait(false);
+			}
+
+			await connection.CommitTransactionAsync(cancellationToken).ConfigureAwait(false);
+		}
+		catch
+		{
+			await connection.RollbackTransactionAsync(cancellationToken).ConfigureAwait(false);
+			throw;
+		}
+	}
+
+	/// <inheritdoc />
+	public async ValueTask PurgeBatchesAsync(
 		TimeSpan batchSucceededRetention,
 		TimeSpan batchFailedRetention,
 		CancellationToken cancellationToken = default
@@ -872,24 +912,6 @@ public sealed class LinqToDBJobStorage : IJobStorage, IJobStorageReplica
 				_ = await Jobs(connection).Where(job => job.BatchId != null && batchIds.Contains(job.BatchId))
 					.DeleteAsync(cancellationToken).ConfigureAwait(false);
 				_ = await Batches(connection).Where(batch => batchIds.Contains(batch.Id)).DeleteAsync(cancellationToken)
-					.ConfigureAwait(false);
-			}
-
-			var jobIds = await Jobs(connection)
-				.Where(job => job.BatchId == null &&
-					(job.State == JobState.Succeeded && job.CompletedAt < (now - succeededRetention).UtcTicks
-						|| (job.State == JobState.Failed || job.State == JobState.Cancelled)
-							&& job.CompletedAt < (now - failedRetention).UtcTicks))
-				.Select(job => job.Id)
-				.ToArrayAsync(cancellationToken)
-				.ConfigureAwait(false);
-			if (jobIds.Length != 0)
-			{
-				_ = await Continuations(connection)
-					.Where(edge => jobIds.Contains(edge.ChildJobId)
-						|| jobIds.Contains(edge.ParentId) && edge.ParentKind == ContinuationParentKind.Job)
-					.DeleteAsync(cancellationToken).ConfigureAwait(false);
-				_ = await Jobs(connection).Where(job => jobIds.Contains(job.Id)).DeleteAsync(cancellationToken)
 					.ConfigureAwait(false);
 			}
 

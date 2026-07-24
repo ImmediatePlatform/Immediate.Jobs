@@ -17,17 +17,32 @@ public sealed class ImmediateJobsHealthCheck(
 	)
 	{
 		ArgumentNullException.ThrowIfNull(context);
+		var data = new Dictionary<string, object>
+		{
+			["storageCapabilities"] = storage.GetCapabilities().ToString(),
+		};
 
 		if (!await storage.IsHealthyAsync(cancellationToken).ConfigureAwait(false))
-			return new(context.Registration.FailureStatus, "The Immediate.Jobs storage provider is unavailable.");
+			return new(
+				context.Registration.FailureStatus,
+				"The Immediate.Jobs storage provider is unavailable.",
+				data: data
+			);
 
 		if (state.StartedAt is null)
-			return HealthCheckResult.Degraded("The Immediate.Jobs scheduler has not started.");
+			return HealthCheckResult.Degraded("The Immediate.Jobs scheduler has not started.", data: data);
 
 		var allowedSilence = TimeSpan.FromTicks(options.PollingInterval.Ticks * 3);
 		if (state.LastHeartbeat is not { } heartbeat || timeProvider.GetUtcNow() - heartbeat > allowedSilence)
-			return new(context.Registration.FailureStatus, "The Immediate.Jobs scheduler heartbeat is stale.");
+			return new(
+				context.Registration.FailureStatus,
+				"The Immediate.Jobs scheduler heartbeat is stale.",
+				data: data
+			);
 
-		return HealthCheckResult.Healthy("The Immediate.Jobs scheduler and storage provider are healthy.");
+		return HealthCheckResult.Healthy(
+			"The Immediate.Jobs scheduler and storage provider are healthy.",
+			data
+		);
 	}
 }

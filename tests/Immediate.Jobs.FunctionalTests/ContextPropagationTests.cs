@@ -223,16 +223,17 @@ public sealed class ContextPropagationTests
 	{
 		var cancellationToken = TestContext.Current.CancellationToken;
 		await using var harness = CreateHarness(new());
+		var recurringStorage = Assert.IsAssignableFrom<IRecurringJobStorage>(harness.Storage);
 		var nextRunAt = harness.TimeProvider.GetUtcNow() + TimeSpan.FromHours(1);
-		await harness.Storage.UpsertRecurringAsync(
+		await recurringStorage.UpsertRecurringAsync(
 			CreateRecurringSchedule("removed-job", "removed-job", isCodeDefined: true, nextRunAt),
 			cancellationToken
 		);
-		await harness.Storage.UpsertRecurringAsync(
+		await recurringStorage.UpsertRecurringAsync(
 			CreateRecurringSchedule("context-round-trip", "context-round-trip", isCodeDefined: true, nextRunAt),
 			cancellationToken
 		);
-		await harness.Storage.UpsertRecurringAsync(
+		await recurringStorage.UpsertRecurringAsync(
 			CreateRecurringSchedule("dynamic-context", "context-round-trip", isCodeDefined: false, nextRunAt),
 			cancellationToken
 		);

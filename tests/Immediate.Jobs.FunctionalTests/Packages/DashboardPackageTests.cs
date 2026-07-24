@@ -98,6 +98,39 @@ public sealed class DashboardPackageTests
 		Assert.Contains("job%3Awith%20retries", links[1].GetProperty("url").GetString(), StringComparison.Ordinal);
 	}
 
+	[Fact]
+	public async Task QueueOnlyStorageReportsCapabilitiesAndDisablesBatchApi()
+	{
+		var builder = WebApplication.CreateBuilder(new WebApplicationOptions
+		{
+			EnvironmentName = Environments.Development,
+		});
+		_ = builder.WebHost.UseTestServer();
+		_ = builder.Services.AddSingleton<IJobStorage>(
+			new StorageCapabilityTests.QueueOnlyStorage(TimeProvider.System)
+		);
+
+		await using var app = builder.Build();
+		_ = app.MapImmediateJobsDashboard();
+		await app.StartAsync(TestContext.Current.CancellationToken);
+
+		using var overviewResponse = await app.GetTestClient().GetAsync(
+			new Uri("/jobs/api/overview", UriKind.Relative),
+			TestContext.Current.CancellationToken
+		);
+		_ = overviewResponse.EnsureSuccessStatusCode();
+		using var overview = JsonDocument.Parse(
+			await overviewResponse.Content.ReadAsStringAsync(TestContext.Current.CancellationToken)
+		);
+		Assert.Equal("Queue", overview.RootElement.GetProperty("capabilities").GetString());
+
+		using var batchesResponse = await app.GetTestClient().GetAsync(
+			new Uri("/jobs/api/batches", UriKind.Relative),
+			TestContext.Current.CancellationToken
+		);
+		Assert.Equal(HttpStatusCode.NotFound, batchesResponse.StatusCode);
+	}
+
 	[Theory]
 	[InlineData("/jobs/")]
 	[InlineData("/jobs/invocations")]

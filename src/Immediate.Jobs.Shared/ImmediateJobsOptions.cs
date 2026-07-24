@@ -15,6 +15,41 @@ public enum JobStorageMode
 	Distributed,
 }
 
+/// <summary>Configures noisy-neighbor detection and group scheduling for fair queues.</summary>
+public sealed class FairQueueOptions
+{
+	/// <summary>
+	/// In-flight share above which a group may be considered noisy. The value must be greater
+	/// than zero and less than or equal to one.
+	/// </summary>
+	public double ConcurrencyShareThreshold { get; set; } = 0.10;
+
+	/// <summary>Minimum number of a group's in-flight jobs before it may be considered noisy.</summary>
+	public int MinInflightForNoisy { get; set; } = 30;
+
+	/// <summary>Whether due work is interleaved across groups independently of noisy-neighbor detection.</summary>
+	public bool GroupRoundRobin { get; set; } = true;
+
+	internal void Validate()
+	{
+		if (double.IsNaN(ConcurrencyShareThreshold)
+			|| ConcurrencyShareThreshold <= 0
+			|| ConcurrencyShareThreshold > 1)
+		{
+			throw new ImmediateJobException("Fair queue ConcurrencyShareThreshold must be greater than zero and less than or equal to one.");
+		}
+
+		if (MinInflightForNoisy <= 0)
+			throw new ImmediateJobException("Fair queue MinInflightForNoisy must be greater than zero.");
+	}
+
+	internal FairQueuePolicy ToPolicy() => new(
+		ConcurrencyShareThreshold,
+		MinInflightForNoisy,
+		GroupRoundRobin
+	);
+}
+
 /// <summary>Global scheduler and worker options.</summary>
 public sealed class ImmediateJobsOptions
 {
@@ -54,7 +89,19 @@ public sealed class ImmediateJobsOptions
 	/// <summary>The topology used by the scheduler.</summary>
 	public JobStorageMode StorageMode { get; private set; } = JobStorageMode.SingleServer;
 
+	/// <summary>Fair queue settings, or <see langword="null"/> when fair acquisition is disabled.</summary>
+	public FairQueueOptions? FairQueues { get; private set; }
+
 	internal bool StorageModeExplicitlySelected { get; private set; }
+
+	/// <summary>Enables fair acquisition for jobs carrying a runtime group id.</summary>
+	public ImmediateJobsOptions UseFairQueues(Action<FairQueueOptions>? configure = null)
+	{
+		var options = new FairQueueOptions();
+		configure?.Invoke(options);
+		FairQueues = options;
+		return this;
+	}
 
 	/// <summary>Selects the non-durable, single-node in-memory provider.</summary>
 	public ImmediateJobsOptions UseInMemory()
@@ -144,6 +191,8 @@ public sealed class ImmediateJobsOptions
 		{
 			throw new ImmediateJobException("Retention periods cannot be negative.");
 		}
+
+		FairQueues?.Validate();
 	}
 }
 

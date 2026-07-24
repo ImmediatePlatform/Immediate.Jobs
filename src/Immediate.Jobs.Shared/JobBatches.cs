@@ -35,13 +35,25 @@ public sealed class JobBatchScheduler(
 {
 	/// <inheritdoc />
 	public IJobBatch Begin() =>
-		new JobBatch(storage, timeProvider, idGenerator, after: null, ContinuationTrigger.Success);
+		new JobBatch(
+			JobStorageCapabilityGuards.RequireGraph(storage),
+			timeProvider,
+			idGenerator,
+			after: null,
+			ContinuationTrigger.Success
+		);
 
 	/// <inheritdoc />
 	public IJobBatch Begin(BatchHandle after, ContinuationTrigger on = ContinuationTrigger.Success)
 	{
 		ArgumentNullException.ThrowIfNull(after);
-		return new JobBatch(storage, timeProvider, idGenerator, after, on);
+		return new JobBatch(
+			JobStorageCapabilityGuards.RequireGraph(storage),
+			timeProvider,
+			idGenerator,
+			after,
+			on
+		);
 	}
 
 	/// <inheritdoc />
@@ -58,7 +70,7 @@ public sealed class JobBatchScheduler(
 }
 
 internal sealed class JobBatch(
-	IJobStorage storage,
+	IJobGraphStorage storage,
 	TimeProvider timeProvider,
 	IIdGenerator idGenerator,
 	BatchHandle? after,
@@ -171,18 +183,18 @@ public sealed class JobMonitor(IJobStorage storage, IEnumerable<JobDefinition> d
 {
 	/// <inheritdoc />
 	public ValueTask<BatchStatus?> GetStatusAsync(string batchId, CancellationToken cancellationToken = default) =>
-		storage.GetBatchStatusAsync(batchId, cancellationToken);
+		JobStorageCapabilityGuards.RequireGraph(storage).GetBatchStatusAsync(batchId, cancellationToken);
 
 	/// <inheritdoc />
 	public ValueTask<IReadOnlyList<BatchMemberStatus>> QueryMembersAsync(
 		string batchId,
 		BatchMemberQuery query,
 		CancellationToken cancellationToken = default
-	) => storage.QueryBatchMembersAsync(batchId, query, cancellationToken);
+	) => JobStorageCapabilityGuards.RequireGraph(storage).QueryBatchMembersAsync(batchId, query, cancellationToken);
 
 	/// <inheritdoc />
 	public ValueTask<BatchGraph?> GetGraphAsync(string batchId, CancellationToken cancellationToken = default) =>
-		storage.GetBatchGraphAsync(batchId, cancellationToken);
+		JobStorageCapabilityGuards.RequireGraph(storage).GetBatchGraphAsync(batchId, cancellationToken);
 
 	/// <inheritdoc />
 	public async ValueTask<JobStatus?> GetJobAsync(string jobId, CancellationToken cancellationToken = default)

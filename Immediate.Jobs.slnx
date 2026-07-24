@@ -18,6 +18,7 @@
     <Project Path="src/Immediate.Jobs.Dashboard/Immediate.Jobs.Dashboard.csproj" />
     <Project Path="src/Immediate.Jobs.EntityFrameworkCore/Immediate.Jobs.EntityFrameworkCore.csproj" />
     <Project Path="src/Immediate.Jobs.LinqToDB/Immediate.Jobs.LinqToDB.csproj" />
+    <Project Path="src/Immediate.Jobs.Redis/Immediate.Jobs.Redis.csproj" />
     <Project Path="src/Immediate.Jobs.Analyzers/Immediate.Jobs.Analyzers.csproj" />
     <Project Path="src/Immediate.Jobs.Generators/Immediate.Jobs.Generators.csproj" />
     <Project Path="src/Immediate.Jobs.NodaTime/Immediate.Jobs.NodaTime.csproj" />

@@ -17,6 +17,19 @@ public static class NodaTimeJobSchedulerExtensions
 		return scheduler.ScheduleAsync(payload, delay.ToTimeSpan(), cancellationToken);
 	}
 
+	/// <summary>Schedules grouped payload work after a NodaTime duration.</summary>
+	public static ValueTask<JobHandle> ScheduleAsync<TPayload>(
+		this IJobScheduler<TPayload> scheduler,
+		TPayload payload,
+		Duration delay,
+		string? groupId,
+		CancellationToken cancellationToken = default
+	)
+	{
+		ArgumentNullException.ThrowIfNull(scheduler);
+		return scheduler.ScheduleAsync(payload, delay.ToTimeSpan(), groupId, cancellationToken);
+	}
+
 	/// <summary>Schedules a payload at a NodaTime instant.</summary>
 	public static ValueTask<JobHandle> ScheduleAtAsync<TPayload>(
 		this IJobScheduler<TPayload> scheduler,
@@ -27,6 +40,19 @@ public static class NodaTimeJobSchedulerExtensions
 	{
 		ArgumentNullException.ThrowIfNull(scheduler);
 		return scheduler.ScheduleAtAsync(payload, runAt.ToDateTimeOffset(), cancellationToken);
+	}
+
+	/// <summary>Schedules grouped payload work at a NodaTime instant.</summary>
+	public static ValueTask<JobHandle> ScheduleAtAsync<TPayload>(
+		this IJobScheduler<TPayload> scheduler,
+		TPayload payload,
+		Instant runAt,
+		string? groupId,
+		CancellationToken cancellationToken = default
+	)
+	{
+		ArgumentNullException.ThrowIfNull(scheduler);
+		return scheduler.ScheduleAtAsync(payload, runAt.ToDateTimeOffset(), groupId, cancellationToken);
 	}
 
 	/// <summary>Adds a payload to an atomic batch after a NodaTime duration.</summary>

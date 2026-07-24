@@ -9,11 +9,30 @@ public interface IJobScheduler<TPayload>
 	/// <summary>Enqueues work immediately and returns its opaque invocation identifier.</summary>
 	ValueTask<JobHandle> EnqueueAsync(TPayload payload, CancellationToken cancellationToken = default);
 
+	/// <summary>Enqueues grouped work immediately and returns its opaque invocation identifier.</summary>
+	ValueTask<JobHandle> EnqueueAsync(TPayload payload, string? groupId, CancellationToken cancellationToken = default);
+
 	/// <summary>Schedules work after a delay and returns its opaque invocation identifier.</summary>
 	ValueTask<JobHandle> ScheduleAsync(TPayload payload, TimeSpan delay, CancellationToken cancellationToken = default);
 
+	/// <summary>Schedules grouped work after a delay and returns its opaque invocation identifier.</summary>
+	ValueTask<JobHandle> ScheduleAsync(
+		TPayload payload,
+		TimeSpan delay,
+		string? groupId,
+		CancellationToken cancellationToken = default
+	);
+
 	/// <summary>Schedules work at an absolute time and returns its opaque invocation identifier.</summary>
 	ValueTask<JobHandle> ScheduleAtAsync(TPayload payload, DateTimeOffset runAt, CancellationToken cancellationToken = default);
+
+	/// <summary>Schedules grouped work at an absolute time and returns its opaque invocation identifier.</summary>
+	ValueTask<JobHandle> ScheduleAtAsync(
+		TPayload payload,
+		DateTimeOffset runAt,
+		string? groupId,
+		CancellationToken cancellationToken = default
+	);
 }
 
 /// <summary>Triggers a payloadless job immediately.</summary>
@@ -67,6 +86,13 @@ public abstract class JobScheduler<TPayload>(
 		ScheduleAtAsync(payload, TimeProvider.GetUtcNow(), cancellationToken);
 
 	/// <inheritdoc />
+	public ValueTask<JobHandle> EnqueueAsync(
+		TPayload payload,
+		string? groupId,
+		CancellationToken cancellationToken = default
+	) => ScheduleAtAsync(payload, TimeProvider.GetUtcNow(), groupId, cancellationToken);
+
+	/// <inheritdoc />
 	public ValueTask<JobHandle> ScheduleAsync(TPayload payload, TimeSpan delay, CancellationToken cancellationToken = default)
 	{
 		if (delay < TimeSpan.Zero)
@@ -76,13 +102,36 @@ public abstract class JobScheduler<TPayload>(
 	}
 
 	/// <inheritdoc />
-	public async ValueTask<JobHandle> ScheduleAtAsync(
+	public ValueTask<JobHandle> ScheduleAsync(
+		TPayload payload,
+		TimeSpan delay,
+		string? groupId,
+		CancellationToken cancellationToken = default
+	)
+	{
+		if (delay < TimeSpan.Zero)
+			throw new ArgumentOutOfRangeException(nameof(delay), "A job delay cannot be negative.");
+
+		return ScheduleAtAsync(payload, TimeProvider.GetUtcNow() + delay, groupId, cancellationToken);
+	}
+
+	/// <inheritdoc />
+	public ValueTask<JobHandle> ScheduleAtAsync(
 		TPayload payload,
 		DateTimeOffset runAt,
 		CancellationToken cancellationToken = default
 	)
+		=> ScheduleAtAsync(payload, runAt, groupId: null, cancellationToken);
+
+	/// <inheritdoc />
+	public async ValueTask<JobHandle> ScheduleAtAsync(
+		TPayload payload,
+		DateTimeOffset runAt,
+		string? groupId,
+		CancellationToken cancellationToken = default
+	)
 	{
-		var record = CreateRecord(payload, runAt);
+		var record = CreateRecord(payload, runAt, groupId);
 		await Storage.EnqueueAsync(record, cancellationToken).ConfigureAwait(false);
 		JobTelemetry.Enqueued(JobName, QueueName);
 		return new(record.Id);
@@ -109,6 +158,7 @@ public abstract class JobScheduler<TPayload>(
 	)
 	{
 		ArgumentNullException.ThrowIfNull(batch);
+		_ = JobStorageCapabilityGuards.RequireGraph(Storage);
 		if (batch is not JobBatch jobBatch)
 			throw new ArgumentException("The batch was not created by Immediate.Jobs.", nameof(batch));
 		jobBatch.EnsureOpen();
@@ -153,9 +203,10 @@ public abstract class JobScheduler<TPayload>(
 		ArgumentNullException.ThrowIfNull(parent);
 		if (delay < TimeSpan.Zero)
 			throw new ArgumentOutOfRangeException(nameof(delay), "A job delay cannot be negative.");
+		var graphStorage = JobStorageCapabilityGuards.RequireGraph(Storage);
 		var record = CreateRecord(payload, TimeProvider.GetUtcNow() + (delay ?? TimeSpan.Zero));
 		var waiting = record with { State = JobState.AwaitingContinuation, RemainingDependencies = 1 };
-		await Storage.EnqueueContinuationAsync(
+		await graphStorage.EnqueueContinuationAsync(
 			waiting,
 			[new() { ChildJobId = record.Id, ParentBatchId = parent.Id, Trigger = on }],
 			cancellationToken
@@ -172,6 +223,7 @@ public abstract class JobScheduler<TPayload>(
 	)
 	{
 		ArgumentNullException.ThrowIfNull(current);
+		_ = JobStorageCapabilityGuards.RequireGraph(Storage);
 		var buffer = current.Buffer
 			?? throw new ImmediateJobException("JobDetails can schedule work only during its active execution attempt.");
 		if (options != ContinuationOptions.Detached && current.BatchId is null)
@@ -193,6 +245,7 @@ public abstract class JobScheduler<TPayload>(
 	)
 	{
 		ArgumentNullException.ThrowIfNull(current);
+		var graphStorage = JobStorageCapabilityGuards.RequireGraph(Storage);
 		if (options == ContinuationOptions.Detached)
 			throw new ImmediateJobException("IJOB020: AddToBatchAsync(JobDetails, ...) cannot create detached work.");
 		if (current.Buffer is null)
@@ -202,7 +255,7 @@ public abstract class JobScheduler<TPayload>(
 
 		var record = CreateRecord(payload, TimeProvider.GetUtcNow());
 		record = record with { BatchId = current.BatchId };
-		await Storage.AddBatchJobAsync(current.JobId, record, options, cancellationToken).ConfigureAwait(false);
+		await graphStorage.AddBatchJobAsync(current.JobId, record, options, cancellationToken).ConfigureAwait(false);
 		JobTelemetry.Enqueued(JobName, QueueName);
 		return new(record.Id);
 	}
@@ -215,6 +268,7 @@ public abstract class JobScheduler<TPayload>(
 		CancellationToken cancellationToken
 	)
 	{
+		var graphStorage = JobStorageCapabilityGuards.RequireGraph(Storage);
 		var runAt = TimeProvider.GetUtcNow() + (delay ?? TimeSpan.Zero);
 		var batch = parents[0].Batch;
 		if (batch is not null)
@@ -238,13 +292,14 @@ public abstract class JobScheduler<TPayload>(
 			ParentJobId = parentId,
 			Trigger = on,
 		}).ToArray();
-		await Storage.EnqueueContinuationAsync(waiting, edges, cancellationToken).ConfigureAwait(false);
+		await graphStorage.EnqueueContinuationAsync(waiting, edges, cancellationToken).ConfigureAwait(false);
 		JobTelemetry.Enqueued(JobName, QueueName);
 		return new(record.Id);
 	}
 
-	private JobRecord CreateRecord(TPayload payload, DateTimeOffset runAt)
+	private JobRecord CreateRecord(TPayload payload, DateTimeOffset runAt, string? groupId = null)
 	{
+		groupId = NormalizeGroupId(groupId);
 		var now = TimeProvider.GetUtcNow();
 		var (traceParent, traceState) = TraceContextCapture.Current();
 		var context = CaptureContext();
@@ -253,6 +308,7 @@ public abstract class JobScheduler<TPayload>(
 			Id = idGenerator.CreateId(IdKind.Job),
 			JobName = JobName,
 			QueueName = QueueName,
+			GroupId = groupId,
 			Payload = Serializer.Serialize(payload, payloadTypeInfoFactory),
 			State = runAt <= now ? JobState.Pending : JobState.Scheduled,
 			DueAt = runAt,
@@ -261,6 +317,15 @@ public abstract class JobScheduler<TPayload>(
 			TraceState = traceState,
 			Context = context,
 		};
+	}
+
+	private static string? NormalizeGroupId(string? groupId)
+	{
+		if (string.IsNullOrWhiteSpace(groupId))
+			return null;
+		if (groupId.Length > 128)
+			throw new ArgumentException("A fair queue group id cannot exceed 128 characters.", nameof(groupId));
+		return groupId;
 	}
 
 	/// <summary>Validates and persists a dynamic recurring schedule.</summary>
@@ -277,7 +342,8 @@ public abstract class JobScheduler<TPayload>(
 		var next = expression.GetNextOccurrence(TimeProvider.GetUtcNow(), zone)
 			?? throw new ArgumentException("The cron expression has no future occurrence.", nameof(cron));
 
-		await Storage.UpsertRecurringAsync(
+		var recurringStorage = JobStorageCapabilityGuards.RequireRecurring(Storage);
+		await recurringStorage.UpsertRecurringAsync(
 			new()
 			{
 				Name = name,
@@ -289,6 +355,17 @@ public abstract class JobScheduler<TPayload>(
 			},
 			cancellationToken
 		).ConfigureAwait(false);
+	}
+
+	/// <summary>Removes a dynamic recurring schedule.</summary>
+	protected ValueTask RemoveRecurringCoreAsync(
+		string name,
+		CancellationToken cancellationToken
+	)
+	{
+		ArgumentException.ThrowIfNullOrWhiteSpace(name);
+		return JobStorageCapabilityGuards.RequireRecurring(Storage)
+			.RemoveRecurringAsync(name, cancellationToken);
 	}
 }
 

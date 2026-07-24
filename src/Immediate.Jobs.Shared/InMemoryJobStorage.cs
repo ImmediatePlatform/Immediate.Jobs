@@ -5,7 +5,10 @@ namespace Immediate.Jobs.Shared;
 /// <summary>
 /// A best-effort, non-durable, single-node provider intended for development and tests.
 /// </summary>
-public sealed class InMemoryJobStorage(TimeProvider timeProvider) : IJobStorage, IJobStorageReplica
+public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
+	IRecurringJobStorage,
+	IJobGraphStorage,
+	IJobStorageReplica
 {
 	private readonly Lock _gate = new();
 	private readonly Dictionary<string, JobRecord> _jobs = new(StringComparer.Ordinal);
@@ -528,7 +531,10 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) : IJobStorage,
 			var counts = Enum.GetValues<JobState>().ToDictionary(state => state, state => _jobs.Values.LongCount(x => x.State == state));
 			var cutoff = timeProvider.GetUtcNow() - TimeSpan.FromMinutes(2);
 			IReadOnlyList<JobServerSnapshot> servers = [.. _servers.Values.Where(x => x.LastHeartbeat >= cutoff)];
-			return new(timeProvider.GetUtcNow(), counts, [.. _recurring.Values], servers);
+			return new(timeProvider.GetUtcNow(), counts, [.. _recurring.Values], servers)
+			{
+				Capabilities = this.GetCapabilities(),
+			};
 		}
 	}
 
@@ -800,9 +806,33 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) : IJobStorage,
 	}
 
 	/// <inheritdoc />
-	public ValueTask PurgeAsync(
+	public ValueTask PurgeJobsAsync(
 		TimeSpan succeededRetention,
 		TimeSpan failedRetention,
+		CancellationToken cancellationToken = default
+	)
+	{
+		cancellationToken.ThrowIfCancellationRequested();
+		var now = timeProvider.GetUtcNow();
+		lock (_gate)
+		{
+			var standaloneJobIds = _jobs.Values
+				.Where(static job => job.BatchId is null)
+				.Where(x => x.CompletedAt is { } completed &&
+					(x.State == JobState.Succeeded && completed < now - succeededRetention ||
+					 x.State is JobState.Failed or JobState.Cancelled && completed < now - failedRetention))
+				.Select(static job => job.Id)
+				.ToHashSet(StringComparer.Ordinal);
+			foreach (var id in standaloneJobIds)
+				_ = _jobs.Remove(id);
+			RemoveEdgesForJobs(standaloneJobIds);
+		}
+
+		return ValueTask.CompletedTask;
+	}
+
+	/// <inheritdoc />
+	public ValueTask PurgeBatchesAsync(
 		TimeSpan batchSucceededRetention,
 		TimeSpan batchFailedRetention,
 		CancellationToken cancellationToken = default
@@ -827,17 +857,6 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) : IJobStorage,
 			foreach (var batchId in batchIds)
 				_ = _batches.Remove(batchId);
 			RemoveEdgesForJobs(batchJobIds, batchIds);
-
-			var standaloneJobIds = _jobs.Values
-				.Where(static job => job.BatchId is null)
-				.Where(x => x.CompletedAt is { } completed &&
-					(x.State == JobState.Succeeded && completed < now - succeededRetention ||
-					 x.State is JobState.Failed or JobState.Cancelled && completed < now - failedRetention))
-				.Select(static job => job.Id)
-				.ToHashSet(StringComparer.Ordinal);
-			foreach (var id in standaloneJobIds)
-				_ = _jobs.Remove(id);
-			RemoveEdgesForJobs(standaloneJobIds);
 		}
 
 		return ValueTask.CompletedTask;

@@ -8,7 +8,7 @@ namespace Immediate.Jobs.EntityFrameworkCore;
 public sealed class EntityFrameworkCoreJobStorage<TContext>(
 	IDbContextFactory<TContext> contextFactory,
 	TimeProvider? timeProvider = null
-) : IJobStorage, IJobStorageReplica
+) : IRecurringJobStorage, IJobGraphStorage, IJobStorageReplica
 	where TContext : DbContext
 {
 	private readonly TimeProvider _timeProvider = timeProvider ?? TimeProvider.System;
@@ -550,7 +550,10 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 			.Select(server => new JobServerSnapshot(server.WorkerId, server.LastHeartbeat, server.ActiveWorkers, server.MaxWorkers))
 			.ToListAsync(cancellationToken)
 			.ConfigureAwait(false);
-		return new(_timeProvider.GetUtcNow(), counts, recurring, servers);
+		return new(_timeProvider.GetUtcNow(), counts, recurring, servers)
+		{
+			Capabilities = this.GetCapabilities(),
+		};
 	}
 
 	/// <inheritdoc />
@@ -875,9 +878,25 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 	}
 
 	/// <inheritdoc />
-	public ValueTask PurgeAsync(
+	public ValueTask PurgeJobsAsync(
 		TimeSpan succeededRetention,
 		TimeSpan failedRetention,
+		CancellationToken cancellationToken = default
+	)
+	{
+		var now = _timeProvider.GetUtcNow();
+		return ExecuteWithStrategyAsync(
+			operationCancellationToken => PurgeJobsCoreAsync(
+				now - succeededRetention,
+				now - failedRetention,
+				operationCancellationToken
+			),
+			cancellationToken
+		);
+	}
+
+	/// <inheritdoc />
+	public ValueTask PurgeBatchesAsync(
 		TimeSpan batchSucceededRetention,
 		TimeSpan batchFailedRetention,
 		CancellationToken cancellationToken = default
@@ -885,9 +904,7 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 	{
 		var now = _timeProvider.GetUtcNow();
 		return ExecuteWithStrategyAsync(
-			operationCancellationToken => PurgeCoreAsync(
-				now - succeededRetention,
-				now - failedRetention,
+			operationCancellationToken => PurgeBatchesCoreAsync(
 				now - batchSucceededRetention,
 				now - batchFailedRetention,
 				operationCancellationToken
@@ -896,9 +913,38 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 		);
 	}
 
-	private async Task PurgeCoreAsync(
+	private async Task PurgeJobsCoreAsync(
 		DateTimeOffset succeededBefore,
 		DateTimeOffset failedBefore,
+		CancellationToken cancellationToken
+	)
+	{
+		await using var context = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+		await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+		var jobs = await context.Set<ImmediateJobEntity>()
+			.Where(job => job.BatchId == null
+				&& ((job.State == JobState.Succeeded && job.CompletedAt < succeededBefore)
+				|| ((job.State == JobState.Failed || job.State == JobState.Cancelled) && job.CompletedAt < failedBefore))
+			)
+			.ToListAsync(cancellationToken)
+			.ConfigureAwait(false);
+		if (jobs.Count != 0)
+		{
+			var jobIds = jobs.Select(static job => job.Id).ToArray();
+			var edges = await context.Set<ImmediateJobContinuationEntity>()
+				.Where(edge => jobIds.Contains(edge.ChildJobId)
+					|| jobIds.Contains(edge.ParentId) && edge.ParentKind == ContinuationParentKind.Job)
+				.ToListAsync(cancellationToken)
+				.ConfigureAwait(false);
+			context.RemoveRange(edges);
+		}
+
+		context.RemoveRange(jobs);
+		_ = await context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+		await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+	}
+
+	private async Task PurgeBatchesCoreAsync(
 		DateTimeOffset batchSucceededBefore,
 		DateTimeOffset batchFailedBefore,
 		CancellationToken cancellationToken
@@ -930,25 +976,6 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 			context.RemoveRange(batches);
 		}
 
-		var jobs = await context.Set<ImmediateJobEntity>()
-			.Where(job => job.BatchId == null
-				&& ((job.State == JobState.Succeeded && job.CompletedAt < succeededBefore)
-				|| ((job.State == JobState.Failed || job.State == JobState.Cancelled) && job.CompletedAt < failedBefore))
-			)
-			.ToListAsync(cancellationToken)
-			.ConfigureAwait(false);
-		if (jobs.Count != 0)
-		{
-			var jobIds = jobs.Select(static job => job.Id).ToArray();
-			var edges = await context.Set<ImmediateJobContinuationEntity>()
-				.Where(edge => jobIds.Contains(edge.ChildJobId)
-					|| jobIds.Contains(edge.ParentId) && edge.ParentKind == ContinuationParentKind.Job)
-				.ToListAsync(cancellationToken)
-				.ConfigureAwait(false);
-			context.RemoveRange(edges);
-		}
-
-		context.RemoveRange(jobs);
 		_ = await context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 		await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
 	}

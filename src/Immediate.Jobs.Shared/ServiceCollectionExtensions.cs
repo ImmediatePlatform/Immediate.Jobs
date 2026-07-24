@@ -35,10 +35,22 @@ public static class ImmediateJobsRuntimeServiceCollectionExtensions
 		services.TryAddSingleton<Immediate.Jobs.Shared.IIdGenerator>(Immediate.Jobs.Shared.GuidIdGenerator.Instance);
 		services.TryAddSingleton<Immediate.Jobs.Shared.IJobSerializer, Immediate.Jobs.Shared.SystemTextJsonJobSerializer>();
 		services.TryAddSingleton<Immediate.Jobs.Shared.IJobStorage>(sp => options.CreateStorage(sp));
-		services.TryAddScoped<Immediate.Jobs.Shared.IJobBatchScheduler, Immediate.Jobs.Shared.JobBatchScheduler>();
+		services.TryAddSingleton<Immediate.Jobs.Shared.IRecurringJobStorage>(static sp =>
+			sp.GetRequiredService<Immediate.Jobs.Shared.IJobStorage>() as Immediate.Jobs.Shared.IRecurringJobStorage
+				?? null!);
+		services.TryAddSingleton<Immediate.Jobs.Shared.IJobGraphStorage>(static sp =>
+			sp.GetRequiredService<Immediate.Jobs.Shared.IJobStorage>() as Immediate.Jobs.Shared.IJobGraphStorage
+				?? null!);
+		services.TryAddScoped<Immediate.Jobs.Shared.JobBatchScheduler>();
+		services.TryAddScoped<Immediate.Jobs.Shared.IJobBatchScheduler>(static sp =>
+			sp.GetService<Immediate.Jobs.Shared.IJobGraphStorage>() is null
+				? null!
+				: sp.GetRequiredService<Immediate.Jobs.Shared.JobBatchScheduler>());
 		services.TryAddScoped<Immediate.Jobs.Shared.JobMonitor>();
 		services.TryAddScoped<Immediate.Jobs.Shared.IJobBatchMonitor>(static sp =>
-			sp.GetRequiredService<Immediate.Jobs.Shared.JobMonitor>());
+			sp.GetService<Immediate.Jobs.Shared.IJobGraphStorage>() is null
+				? null!
+				: sp.GetRequiredService<Immediate.Jobs.Shared.JobMonitor>());
 		services.TryAddScoped<Immediate.Jobs.Shared.IJobMonitor>(static sp =>
 			sp.GetRequiredService<Immediate.Jobs.Shared.JobMonitor>());
 		_ = services.AddSingleton(Immediate.Jobs.Shared.JobQueueDefinition.Default);

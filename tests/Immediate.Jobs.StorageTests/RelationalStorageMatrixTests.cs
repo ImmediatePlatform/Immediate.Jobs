@@ -29,7 +29,7 @@ public sealed class RelationalStorageMatrixTests(StorageContainers containers)
 	{
 		var cancellationToken = TestContext.Current.CancellationToken;
 		await using var fixture = await CreateFixtureAsync(database, adapter, cancellationToken);
-		var storage = fixture.Storage;
+		var storage = fixture.GraphStorage;
 		var now = fixture.TimeProvider.GetUtcNow();
 		var parent = CreateJob("parent", now) with { Context = "{\"tenant\":\"matrix\"}", BatchId = "batch" };
 		var child = CreateJob("child", now) with
@@ -128,7 +128,8 @@ public sealed class RelationalStorageMatrixTests(StorageContainers containers)
 	{
 		var cancellationToken = TestContext.Current.CancellationToken;
 		await using var fixture = await CreateFixtureAsync(database, adapter, cancellationToken);
-		var storage = fixture.CreateStorage();
+		var storage = fixture.RecurringStorage;
+		var graphStorage = fixture.GraphStorage;
 		var now = fixture.TimeProvider.GetUtcNow();
 		var schedule = new RecurringJobSchedule
 		{
@@ -150,7 +151,7 @@ public sealed class RelationalStorageMatrixTests(StorageContainers containers)
 			State = JobState.AwaitingContinuation,
 			RemainingDependencies = 1,
 		};
-		_ = await Assert.ThrowsAnyAsync<Exception>(() => storage.EnqueueContinuationAsync(
+		_ = await Assert.ThrowsAnyAsync<Exception>(() => graphStorage.EnqueueContinuationAsync(
 			invalid,
 			[new() { ChildJobId = invalid.Id, ParentJobId = "missing" }],
 			cancellationToken
@@ -308,6 +309,8 @@ public sealed class RelationalStorageMatrixTests(StorageContainers containers)
 		public IJobStorage Storage => adapter == AdapterKind.LinqToDB
 			? new LinqToDBJobStorage(dataOptions, schema, TimeProvider)
 			: CreateEntityFrameworkCoreStorage();
+		public IRecurringJobStorage RecurringStorage => (IRecurringJobStorage)Storage;
+		public IJobGraphStorage GraphStorage => (IJobGraphStorage)Storage;
 
 		public IJobStorage CreateStorage() => Storage;
 

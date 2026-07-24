@@ -178,9 +178,10 @@ public sealed class BatchesAndContinuationsTests
 
 		await harness.DrainAsync(cancellationToken);
 
+		var graphStorage = Assert.IsAssignableFrom<IJobGraphStorage>(harness.Storage);
 		Assert.Equal(
 			BatchState.Failed,
-			(await harness.Storage.GetBatchStatusAsync(batchHandle.Id, cancellationToken))!.State
+			(await graphStorage.GetBatchStatusAsync(batchHandle.Id, cancellationToken))!.State
 		);
 		Assert.Equal(JobState.Cancelled, (await harness.GetJobAsync(successOnly, cancellationToken)).State);
 		Assert.Equal(JobState.Succeeded, (await harness.GetJobAsync(failureOnly, cancellationToken)).State);

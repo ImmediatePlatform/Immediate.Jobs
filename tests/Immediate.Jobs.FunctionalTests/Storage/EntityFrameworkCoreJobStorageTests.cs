@@ -318,9 +318,12 @@ public sealed class EntityFrameworkCoreJobStorageTests
 		);
 		var storage = fixture.CreateStorage();
 
-		await storage.PurgeAsync(
+		await storage.PurgeJobsAsync(
 			TimeSpan.FromHours(1),
 			TimeSpan.FromHours(1),
+			cancellationToken
+		);
+		await storage.PurgeBatchesAsync(
 			TimeSpan.FromHours(1),
 			TimeSpan.FromHours(1),
 			cancellationToken
