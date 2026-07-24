@@ -12,7 +12,6 @@ public sealed partial class ImmediateJobsGenerator
 
 	private sealed record JobModel
 	{
-		public required string HintName { get; init; }
 		public required string? Namespace { get; init; }
 		public required string Accessibility { get; init; }
 		public required string ClassName { get; init; }

@@ -38,8 +38,8 @@ public sealed class ImmediateJobsGeneratorTests
 			[
 				"Immediate.Handlers.Generators/Immediate.Handlers.Generators.ImmediateHandlersGenerator/IH..WorkJob.g.cs",
 				"Immediate.Handlers.Generators/Immediate.Handlers.Generators.ImmediateHandlersGenerator/IH.ServiceCollectionExtensions.g.cs",
-				"Immediate.Jobs.Generators/Immediate.Jobs.Generators.ImmediateJobsGenerator/IJOB.global..WorkJob.g.cs",
-				"Immediate.Jobs.Generators/Immediate.Jobs.Generators.ImmediateJobsGenerator/IJOB.ServiceCollectionExtensions.g.cs",
+				"Immediate.Jobs.Generators/Immediate.Jobs.Generators.ImmediateJobsGenerator/IJ..WorkJob.g.cs",
+				"Immediate.Jobs.Generators/Immediate.Jobs.Generators.ImmediateJobsGenerator/IJ.ServiceCollectionExtensions.g.cs",
 			],
 			result.GeneratedTrees.Select(tree => tree.FilePath.Replace('\\', '/'))
 		);
@@ -73,7 +73,7 @@ public sealed class ImmediateJobsGeneratorTests
 		GeneratorTestHelper.AssertGeneratedTrees(
 			result,
 			"IH.Example.SendEmailJob.g.cs",
-			"IJOB.global..Example.SendEmailJob.g.cs"
+			"IJ.Example.SendEmailJob.g.cs"
 		);
 		_ = await GeneratorTestHelper.VerifyJob(result);
 	}
@@ -96,7 +96,7 @@ public sealed class ImmediateJobsGeneratorTests
 			""";
 
 		var result = GeneratorTestHelper.RunGenerator(source);
-		GeneratorTestHelper.AssertGeneratedTrees(result, "IH..PlainRequestJob.g.cs", "IJOB.global..PlainRequestJob.g.cs");
+		GeneratorTestHelper.AssertGeneratedTrees(result, "IH..PlainRequestJob.g.cs", "IJ..PlainRequestJob.g.cs");
 		_ = await GeneratorTestHelper.VerifyJob(result);
 	}
 
@@ -122,7 +122,7 @@ public sealed class ImmediateJobsGeneratorTests
 			""";
 
 		var result = GeneratorTestHelper.RunGenerator(source);
-		GeneratorTestHelper.AssertGeneratedTrees(result, "IH..StructJob.g.cs", "IJOB.global..StructJob.g.cs");
+		GeneratorTestHelper.AssertGeneratedTrees(result, "IH..StructJob.g.cs", "IJ..StructJob.g.cs");
 		_ = await GeneratorTestHelper.VerifyJob(result);
 	}
 
@@ -146,7 +146,7 @@ public sealed class ImmediateJobsGeneratorTests
 		GeneratorTestHelper.AssertGeneratedTrees(
 			result,
 			"IH..CleanupSessionsJob.g.cs",
-			"IJOB.global..CleanupSessionsJob.g.cs"
+			"IJ..CleanupSessionsJob.g.cs"
 		);
 		_ = await GeneratorTestHelper.VerifyJob(result);
 	}
@@ -168,7 +168,7 @@ public sealed class ImmediateJobsGeneratorTests
 			""";
 
 		var result = GeneratorTestHelper.RunGenerator(source);
-		GeneratorTestHelper.AssertGeneratedTrees(result, "IH..TenantCleanupJob.g.cs", "IJOB.global..TenantCleanupJob.g.cs");
+		GeneratorTestHelper.AssertGeneratedTrees(result, "IH..TenantCleanupJob.g.cs", "IJ..TenantCleanupJob.g.cs");
 		_ = await GeneratorTestHelper.VerifyJob(result);
 	}
 
@@ -190,7 +190,7 @@ public sealed class ImmediateJobsGeneratorTests
 			""";
 
 		var result = GeneratorTestHelper.RunGenerator(source);
-		GeneratorTestHelper.AssertGeneratedTrees(result, "IH..WorkJob.g.cs", "IJOB.global..WorkJob.g.cs");
+		GeneratorTestHelper.AssertGeneratedTrees(result, "IH..WorkJob.g.cs", "IJ..WorkJob.g.cs");
 		_ = await GeneratorTestHelper.VerifyJob(result);
 	}
 
@@ -240,7 +240,7 @@ public sealed class ImmediateJobsGeneratorTests
 			""";
 
 		var result = GeneratorTestHelper.RunGenerator(source);
-		GeneratorTestHelper.AssertGeneratedTrees(result, "IH..ContextualJob.g.cs", "IJOB.global..ContextualJob.g.cs");
+		GeneratorTestHelper.AssertGeneratedTrees(result, "IH..ContextualJob.g.cs", "IJ..ContextualJob.g.cs");
 		_ = await GeneratorTestHelper.VerifyJob(result);
 	}
 
@@ -261,7 +261,7 @@ public sealed class ImmediateJobsGeneratorTests
 			""";
 
 		var result = GeneratorTestHelper.RunGenerator(source);
-		GeneratorTestHelper.AssertGeneratedTrees(result, "IH..PlainJob.g.cs", "IJOB.global..PlainJob.g.cs");
+		GeneratorTestHelper.AssertGeneratedTrees(result, "IH..PlainJob.g.cs", "IJ..PlainJob.g.cs");
 		_ = await GeneratorTestHelper.VerifyJob(result);
 	}
 
@@ -288,7 +288,7 @@ public sealed class ImmediateJobsGeneratorTests
 			""";
 
 		var result = GeneratorTestHelper.RunGeneratorWithNodaTime(source);
-		GeneratorTestHelper.AssertGeneratedTrees(result, "IH..ClockJob.g.cs", "IJOB.global..ClockJob.g.cs");
+		GeneratorTestHelper.AssertGeneratedTrees(result, "IH..ClockJob.g.cs", "IJ..ClockJob.g.cs");
 		_ = await GeneratorTestHelper.VerifyJob(result);
 	}
 

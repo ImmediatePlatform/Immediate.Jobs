@@ -79,4 +79,7 @@ file static class Extensions
 			.Replace("-", string.Empty, StringComparison.Ordinal)
 			.Trim();
 	}
+
+	public static IncrementalValuesProvider<T> WhereNotNull<T>(this IncrementalValuesProvider<T?> values)
+		where T : class => values.Where(static value => value is not null)!;
 }

@@ -4,7 +4,6 @@ using System.Globalization;
 using System.Reflection;
 using Microsoft.CodeAnalysis;
 using Scriban;
-using Scriban.Runtime;
 
 namespace Immediate.Jobs.Generators;
 
@@ -18,7 +17,7 @@ public sealed partial class ImmediateJobsGenerator
 		{
 			job.Namespace,
 			job.Accessibility,
-			ClassName = Escape(job.ClassName),
+			job.ClassName,
 			job.TypeName,
 			job.PayloadTypeName,
 			job.HasPayload,
@@ -47,9 +46,10 @@ public sealed partial class ImmediateJobsGenerator
 			Version = ThisAssembly.InformationalVersion,
 		};
 
-		var source = Render(template, model);
+		var source = template.Render(model);
+
 		cancellationToken.ThrowIfCancellationRequested();
-		context.AddSource(job.HintName, source);
+		context.AddSource($"IJ.{job.Namespace}.{job.ClassName}.g.cs", source);
 	}
 
 	private static void RenderRegistrations(
@@ -105,23 +105,10 @@ public sealed partial class ImmediateJobsGenerator
 			Version = ThisAssembly.InformationalVersion,
 		};
 
-		var source = Render(template, model);
-		cancellationToken.ThrowIfCancellationRequested();
-		context.AddSource("IJOB.ServiceCollectionExtensions.g.cs", source);
-	}
+		var source = template.Render(model);
 
-	private static string Render(Template template, object model)
-	{
-		var globals = new ScriptObject(StringComparer.Ordinal);
-		globals.Import(model);
-		var context = new TemplateContext(StringComparer.Ordinal)
-		{
-			LoopLimit = 0,
-		};
-		context.PushGlobal(globals);
-		return string.Join("\n", template.Render(context)
-			.Split('\n')
-			.Select(static line => line.TrimEnd()));
+		cancellationToken.ThrowIfCancellationRequested();
+		context.AddSource("IJ.ServiceCollectionExtensions.g.cs", source);
 	}
 
 	private static Template GetTemplate(string name)
@@ -136,11 +123,6 @@ public sealed partial class ImmediateJobsGenerator
 			throw new InvalidOperationException(string.Join("\n", template.Messages));
 		return template;
 	}
-
-	private static string Escape(string identifier) =>
-		Microsoft.CodeAnalysis.CSharp.SyntaxFacts.GetKeywordKind(identifier) != Microsoft.CodeAnalysis.CSharp.SyntaxKind.None
-			? "@" + identifier
-			: identifier;
 
 	private static string Literal(string value) =>
 		Microsoft.CodeAnalysis.CSharp.SymbolDisplay.FormatLiteral(value, quote: true);

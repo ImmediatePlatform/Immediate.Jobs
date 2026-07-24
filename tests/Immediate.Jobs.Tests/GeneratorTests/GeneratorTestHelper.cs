@@ -180,7 +180,7 @@ internal static class GeneratorTestHelper
 		.IgnoreGeneratedResult(static generated =>
 			Path.GetFileName(generated.HintName).StartsWith("IH.", StringComparison.Ordinal))
 		.IgnoreGeneratedResult(static generated =>
-			Path.GetFileName(generated.HintName) == "IJOB.ServiceCollectionExtensions.g.cs");
+			Path.GetFileName(generated.HintName) == "IJ.ServiceCollectionExtensions.g.cs");
 
 	public static SettingsTask VerifyRegistrations(
 		GeneratorDriverRunResult result,
@@ -189,7 +189,7 @@ internal static class GeneratorTestHelper
 		.IgnoreGeneratedResult(static generated =>
 			Path.GetFileName(generated.HintName).StartsWith("IH.", StringComparison.Ordinal))
 		.IgnoreGeneratedResult(static generated =>
-			Path.GetFileName(generated.HintName) != "IJOB.ServiceCollectionExtensions.g.cs");
+			Path.GetFileName(generated.HintName) != "IJ.ServiceCollectionExtensions.g.cs");
 
 	public static void AssertGeneratedTrees(
 		GeneratorDriverRunResult result,
@@ -200,7 +200,7 @@ internal static class GeneratorTestHelper
 			$"Immediate.Handlers.Generators/Immediate.Handlers.Generators.ImmediateHandlersGenerator/{handlerHintName}",
 			"Immediate.Handlers.Generators/Immediate.Handlers.Generators.ImmediateHandlersGenerator/IH.ServiceCollectionExtensions.g.cs",
 			$"Immediate.Jobs.Generators/Immediate.Jobs.Generators.ImmediateJobsGenerator/{jobHintName}",
-			"Immediate.Jobs.Generators/Immediate.Jobs.Generators.ImmediateJobsGenerator/IJOB.ServiceCollectionExtensions.g.cs",
+			"Immediate.Jobs.Generators/Immediate.Jobs.Generators.ImmediateJobsGenerator/IJ.ServiceCollectionExtensions.g.cs",
 		],
 		result.GeneratedTrees.Select(static tree => tree.FilePath.Replace('\\', '/'))
 	);

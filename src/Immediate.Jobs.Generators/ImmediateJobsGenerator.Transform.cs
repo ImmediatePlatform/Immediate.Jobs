@@ -66,7 +66,6 @@ public sealed partial class ImmediateJobsGenerator
 
 		var resolvedPayload = payloadType!;
 		var qualified = type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-		var safe = new string([.. qualified.Select(static character => char.IsLetterOrDigit(character) ? character : '.')]);
 		var contexts = contextUses.Select((use, index) => new JobContextModel
 		{
 			ExtractorTypeName = use.ExtractorType.ToDisplayString(TypeDisplayFormat),
@@ -87,7 +86,6 @@ public sealed partial class ImmediateJobsGenerator
 
 		model = new()
 		{
-			HintName = $"IJOB.{safe}.g.cs",
 			Namespace = type.ContainingNamespace.IsGlobalNamespace
 				? null
 				: type.ContainingNamespace.ToDisplayString(),
