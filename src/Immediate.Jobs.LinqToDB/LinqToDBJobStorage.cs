@@ -24,6 +24,9 @@ public sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorage,
 	}
 
 	/// <inheritdoc />
+	public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+
+	/// <inheritdoc />
 	public ValueTask InitializeAsync(CancellationToken cancellationToken = default) => ValueTask.CompletedTask;
 
 	/// <inheritdoc />
@@ -140,6 +143,9 @@ public sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorage,
 		ArgumentException.ThrowIfNullOrWhiteSpace(request.WorkerId);
 		ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(request.Lease, TimeSpan.Zero);
 		ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(request.BatchSize, 0);
+		if (request.FairQueues is not null)
+			return await AcquireDueJobsFairAsync(request, cancellationToken).ConfigureAwait(false);
+
 		var now = _timeProvider.GetUtcNow().UtcTicks;
 		var acquired = new List<JobRecord>(request.BatchSize);
 		foreach (var queue in request.Queues)
@@ -186,6 +192,388 @@ public sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorage,
 
 		return acquired;
 	}
+
+	private async ValueTask<IReadOnlyList<JobRecord>> AcquireDueJobsFairAsync(
+		JobAcquisitionRequest request,
+		CancellationToken cancellationToken
+	)
+	{
+		var now = _timeProvider.GetUtcNow().UtcTicks;
+		var acquired = new List<JobRecord>(request.BatchSize);
+		foreach (var queue in request.Queues)
+		{
+			var queueCapacity = Math.Min(queue.Capacity, request.BatchSize - acquired.Count);
+			if (queueCapacity <= 0)
+				continue;
+
+			var jobCapacities = queue.JobCapacities.ToDictionary(
+				static pair => pair.Key,
+				static pair => pair.Value,
+				StringComparer.Ordinal
+			);
+			while (queueCapacity > 0)
+			{
+				var eligibleNames = jobCapacities
+					.Where(static pair => pair.Value > 0)
+					.Select(static pair => pair.Key)
+					.ToArray();
+				if (eligibleNames.Length == 0)
+					break;
+
+				await using var readConnection = CreateConnection();
+				var eligibleQuery = Jobs(readConnection)
+					.Where(job => job.QueueName == queue.QueueName && eligibleNames.Contains(job.JobName) &&
+						(((job.State == JobState.Scheduled || job.State == JobState.Pending) && job.DueAt <= now)
+							|| (job.State == JobState.Active && job.LeaseExpiresAt <= now)));
+				if (!await eligibleQuery.AnyAsync(static job => job.GroupId != null, cancellationToken).ConfigureAwait(false))
+				{
+					var fastPath = await AcquireFairFastPathAsync(
+						queue.QueueName,
+						jobCapacities,
+						queueCapacity,
+						request.WorkerId,
+						request.Lease,
+						now,
+						cancellationToken
+					).ConfigureAwait(false);
+					queueCapacity -= fastPath.Count;
+					acquired.AddRange(fastPath);
+					break;
+				}
+
+				var groupedHeads = await eligibleQuery
+					.Where(static job => job.GroupId != null)
+					.GroupBy(static job => job.GroupId)
+					.Select(static group => group
+						.OrderBy(job => job.DueAt)
+						.ThenBy(job => job.CreatedAt)
+						.ThenBy(job => job.Id)
+						.First())
+					.ToListAsync(cancellationToken)
+					.ConfigureAwait(false);
+				var ungroupedHead = await eligibleQuery
+					.Where(static job => job.GroupId == null)
+					.OrderBy(job => job.DueAt)
+					.ThenBy(job => job.CreatedAt)
+					.ThenBy(job => job.Id)
+					.FirstOrDefaultAsync(cancellationToken)
+					.ConfigureAwait(false);
+				if (groupedHeads.Count == 0)
+					continue;
+
+				var activeQuery = Jobs(readConnection)
+					.Where(job => job.QueueName == queue.QueueName
+						&& job.State == JobState.Active
+						&& job.LeaseExpiresAt > now);
+				var totalInflight = await activeQuery.CountAsync(cancellationToken).ConfigureAwait(false);
+				var groupedHeadIds = groupedHeads.Select(static job => job.Id).ToArray();
+				var cursorQuery = FairQueueGroups(readConnection)
+					.Where(group => group.QueueName == queue.QueueName);
+				var groupStateQuery = eligibleQuery
+					.Where(job => groupedHeadIds.Contains(job.Id));
+				var groupStates = request.FairQueues!.GroupRoundRobin
+					? await groupStateQuery
+						.Select(job => new FairQueueCandidateState(
+							job.Id,
+							activeQuery.Count(active => active.GroupId == job.GroupId),
+							cursorQuery
+								.Where(cursor => cursor.GroupId == job.GroupId)
+								.Select(static cursor => cursor.LastServedSequence)
+								.FirstOrDefault()
+						))
+						.ToDictionaryAsync(static state => state.JobId, cancellationToken)
+						.ConfigureAwait(false)
+					: await groupStateQuery
+						.Select(job => new FairQueueCandidateState(
+							job.Id,
+							activeQuery.Count(active => active.GroupId == job.GroupId),
+							0
+						))
+						.ToDictionaryAsync(static state => state.JobId, cancellationToken)
+						.ConfigureAwait(false);
+				var nextSequence = 0L;
+				if (request.FairQueues.GroupRoundRobin)
+				{
+					var maxSequence = await cursorQuery
+						.Select(static group => (long?)group.LastServedSequence)
+						.MaxAsync(cancellationToken)
+						.ConfigureAwait(false);
+					nextSequence = checked((maxSequence ?? 0) + 1);
+				}
+
+				var candidates = ungroupedHead is null ? groupedHeads : [.. groupedHeads, ungroupedHead];
+				var ranked = candidates.Select(job =>
+				{
+					var state = job.GroupId is null ? null : groupStates[job.Id];
+					var noisy = IsNoisy(job.GroupId, state?.Inflight ?? 0, totalInflight, request.FairQueues);
+					return new
+					{
+						Job = job,
+						Noisy = noisy,
+						NoisyInflight = noisy ? state!.Inflight : 0,
+						LastServedSequence = state?.LastServedSequence ?? 0,
+					};
+				});
+				var selected = ranked
+					.OrderBy(static candidate => candidate.Noisy)
+					.ThenBy(static candidate => candidate.NoisyInflight)
+					.ThenBy(candidate => request.FairQueues.GroupRoundRobin
+						? candidate.LastServedSequence
+						: 0)
+					.ThenBy(static candidate => candidate.Job.DueAt)
+					.ThenBy(static candidate => candidate.Job.CreatedAt)
+					.ThenBy(static candidate => candidate.Job.Id, StringComparer.Ordinal)
+					.First()
+					.Job;
+				var claimedJob = request.FairQueues.GroupRoundRobin
+					? await AcquireFairCandidateAsync(
+						selected,
+						request.WorkerId,
+						request.Lease,
+						now,
+						nextSequence,
+						cancellationToken
+					).ConfigureAwait(false)
+					: GetFirstOrDefault(await AcquireCandidatesAsync(
+							[selected],
+							request.WorkerId,
+							request.Lease,
+							now,
+							cancellationToken
+						).ConfigureAwait(false));
+				if (claimedJob is null)
+					continue;
+
+				jobCapacities[claimedJob.JobName]--;
+				queueCapacity--;
+				acquired.Add(claimedJob);
+			}
+		}
+
+		return acquired;
+	}
+
+	private async ValueTask<IReadOnlyList<JobRecord>> AcquireFairFastPathAsync(
+		string queueName,
+		Dictionary<string, int> jobCapacities,
+		int queueCapacity,
+		string workerId,
+		TimeSpan lease,
+		long now,
+		CancellationToken cancellationToken
+	)
+	{
+		var acquired = new List<JobRecord>(queueCapacity);
+		while (queueCapacity > 0)
+		{
+			var eligibleNames = jobCapacities
+				.Where(static pair => pair.Value > 0)
+				.Select(static pair => pair.Key)
+				.ToArray();
+			if (eligibleNames.Length == 0)
+				break;
+
+			await using var readConnection = CreateConnection();
+			var candidates = await Jobs(readConnection)
+				.Where(job => job.QueueName == queueName && eligibleNames.Contains(job.JobName) &&
+					(((job.State == JobState.Scheduled || job.State == JobState.Pending) && job.DueAt <= now)
+						|| (job.State == JobState.Active && job.LeaseExpiresAt <= now)))
+				.OrderBy(job => job.DueAt)
+				.ThenBy(job => job.CreatedAt)
+				.ThenBy(job => job.Id)
+				.Take(queueCapacity)
+				.ToListAsync(cancellationToken)
+				.ConfigureAwait(false);
+			if (candidates.Count == 0)
+				break;
+
+			var selected = new List<ImmediateJobEntity>(candidates.Count);
+			var selectionCapacities = new Dictionary<string, int>(jobCapacities, StringComparer.Ordinal);
+			foreach (var candidate in candidates)
+			{
+				if (selectionCapacities[candidate.JobName] <= 0)
+					continue;
+				selectionCapacities[candidate.JobName]--;
+				selected.Add(candidate);
+			}
+
+			var claimed = await AcquireCandidatesAsync(
+				selected,
+				workerId,
+				lease,
+				now,
+				cancellationToken
+			).ConfigureAwait(false);
+			foreach (var job in claimed)
+			{
+				jobCapacities[job.JobName]--;
+				queueCapacity--;
+				acquired.Add(job);
+			}
+
+			if (claimed.Count == 0)
+				break;
+		}
+
+		return acquired;
+	}
+
+	private async ValueTask<JobRecord?> AcquireFairCandidateAsync(
+		ImmediateJobEntity candidate,
+		string workerId,
+		TimeSpan lease,
+		long now,
+		long nextSequence,
+		CancellationToken cancellationToken
+	)
+	{
+		await using var connection = CreateConnection();
+		_ = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+		Guid? observedCursorStamp = null;
+		var cursorWasMissing = false;
+		try
+		{
+			var oldStamp = candidate.ConcurrencyStamp;
+			candidate.State = JobState.Active;
+			candidate.WorkerId = workerId;
+			candidate.LeaseExpiresAt = now + lease.Ticks;
+			candidate.Attempt++;
+			candidate.CompletedAt = null;
+			candidate.ExecutionTraceId = null;
+			candidate.ExecutionSpanId = null;
+			candidate.ExecutionStartedAt = null;
+			candidate.ConcurrencyStamp = Guid.NewGuid();
+			if (!await UpdateJobAsync(connection, candidate, oldStamp, cancellationToken).ConfigureAwait(false))
+				throw new LostRaceException();
+
+			if (candidate.BatchId is { } batchId)
+			{
+				var batch = await Batches(connection).SingleOrDefaultAsync(item => item.Id == batchId, cancellationToken)
+					.ConfigureAwait(false);
+				if (batch is not null && batch.StartedAt is null)
+				{
+					var batchStamp = batch.ConcurrencyStamp;
+					batch.StartedAt = now;
+					batch.ConcurrencyStamp = Guid.NewGuid();
+					if (!await UpdateBatchAsync(connection, batch, batchStamp, cancellationToken).ConfigureAwait(false))
+						throw new LostRaceException();
+				}
+			}
+
+			if (candidate.GroupId is { } groupId)
+			{
+				var cursor = await FairQueueGroups(connection)
+					.SingleOrDefaultAsync(
+						group => group.QueueName == candidate.QueueName && group.GroupId == groupId,
+						cancellationToken
+					)
+					.ConfigureAwait(false);
+				if (cursor is null)
+				{
+					cursorWasMissing = true;
+					_ = await InsertAsync(connection, new ImmediateFairQueueGroupEntity
+					{
+						QueueName = candidate.QueueName,
+						GroupId = groupId,
+						LastServedSequence = nextSequence,
+						ConcurrencyStamp = Guid.NewGuid(),
+					}, cancellationToken).ConfigureAwait(false);
+				}
+				else if (cursor.LastServedSequence >= nextSequence)
+				{
+					throw new LostRaceException();
+				}
+				else
+				{
+					var cursorStamp = cursor.ConcurrencyStamp;
+					observedCursorStamp = cursorStamp;
+					cursor.LastServedSequence = nextSequence;
+					cursor.ConcurrencyStamp = Guid.NewGuid();
+					if (!await UpdateFairQueueGroupAsync(connection, cursor, cursorStamp, cancellationToken)
+						.ConfigureAwait(false))
+					{
+						throw new LostRaceException();
+					}
+				}
+			}
+
+			await connection.CommitTransactionAsync(cancellationToken).ConfigureAwait(false);
+			return ToRecord(candidate);
+		}
+		catch (LostRaceException)
+		{
+			await connection.RollbackTransactionAsync(cancellationToken).ConfigureAwait(false);
+			return null;
+		}
+		catch (DbException)
+		{
+			try
+			{
+				await connection.RollbackTransactionAsync(cancellationToken).ConfigureAwait(false);
+			}
+			catch (DbException)
+			{
+				// The original database error remains authoritative.
+			}
+
+			if (await FairQueueCursorChangedAsync(
+				candidate.QueueName,
+				candidate.GroupId,
+				observedCursorStamp,
+				cursorWasMissing,
+				cancellationToken
+			).ConfigureAwait(false))
+			{
+				return null;
+			}
+
+			throw;
+		}
+	}
+
+	private async ValueTask<bool> FairQueueCursorChangedAsync(
+		string queueName,
+		string? groupId,
+		Guid? observedCursorStamp,
+		bool cursorWasMissing,
+		CancellationToken cancellationToken
+	)
+	{
+		if (groupId is null || !cursorWasMissing && observedCursorStamp is null)
+			return false;
+
+		await using var connection = CreateConnection();
+		var currentStamp = await FairQueueGroups(connection)
+			.Where(group => group.QueueName == queueName && group.GroupId == groupId)
+			.Select(static group => (Guid?)group.ConcurrencyStamp)
+			.SingleOrDefaultAsync(cancellationToken)
+			.ConfigureAwait(false);
+		return cursorWasMissing
+			? currentStamp is not null
+			: currentStamp != observedCursorStamp;
+	}
+
+	private static JobRecord? GetFirstOrDefault(IReadOnlyList<JobRecord> jobs) =>
+		jobs.Count == 0 ? null : jobs[0];
+
+	private static bool IsNoisy(
+		string? groupId,
+		int inflight,
+		int totalInflight,
+		FairQueuePolicy policy
+	)
+	{
+		return groupId is not null
+			&& totalInflight > 0
+			&& inflight >= policy.MinInflightForNoisy
+			&& (double)inflight / totalInflight > policy.ConcurrencyShareThreshold;
+	}
+
+	private sealed record FairQueueCandidateState(
+		string JobId,
+		int Inflight,
+		long LastServedSequence
+	);
 
 	/// <inheritdoc />
 	public async ValueTask<IReadOnlyList<JobRecord>> AcquireJobsAsync(
@@ -703,18 +1091,26 @@ public sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorage,
 	}
 
 	/// <inheritdoc />
-	public ValueTask CancelBatchAsync(string batchId, CancellationToken cancellationToken = default)
+	public async ValueTask CancelBatchAsync(string batchId, CancellationToken cancellationToken = default)
 	{
 		ArgumentException.ThrowIfNullOrWhiteSpace(batchId);
-		return RetryConcurrencyAsync(
-			connection => CancelBatchCoreAsync(connection, batchId, cancellationToken),
+		var terminalGroups = new HashSet<(string QueueName, string GroupId)>();
+		await RetryConcurrencyAsync(
+			connection => CancelBatchCoreAsync(
+				connection,
+				batchId,
+				terminalGroups,
+				cancellationToken
+			),
 			cancellationToken
-		);
+		).ConfigureAwait(false);
+		await CleanupFairQueueGroupsAsync(terminalGroups).ConfigureAwait(false);
 	}
 
 	private async Task CancelBatchCoreAsync(
 		DataConnection connection,
 		string batchId,
+		ISet<(string QueueName, string GroupId)> terminalGroups,
 		CancellationToken cancellationToken
 	)
 	{
@@ -738,7 +1134,13 @@ public sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorage,
 			job.ConcurrencyStamp = Guid.NewGuid();
 			if (!await UpdateJobAsync(connection, job, oldStamp, cancellationToken).ConfigureAwait(false))
 				throw new LostRaceException();
-			await PropagateTerminalAsync(connection, job, now, cancellationToken).ConfigureAwait(false);
+			await PropagateTerminalAsync(
+				connection,
+				job,
+				now,
+				terminalGroups,
+				cancellationToken
+			).ConfigureAwait(false);
 		}
 	}
 
@@ -975,7 +1377,7 @@ public sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorage,
 		}
 	}
 
-	private ValueTask MutateOwnedWithDependenciesAsync(
+	private async ValueTask MutateOwnedWithDependenciesAsync(
 		string jobId,
 		string workerId,
 		string? error,
@@ -983,19 +1385,62 @@ public sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorage,
 		bool succeeded,
 		IReadOnlyList<JobContinuationAddition> additions,
 		CancellationToken cancellationToken
-	) => RetryConcurrencyAsync(
-		connection => MutateOwnedCoreAsync(
-			connection,
-			jobId,
-			workerId,
-			error,
-			nextRetryAt,
-			succeeded,
-			additions,
+	)
+	{
+		var terminalGroups = new HashSet<(string QueueName, string GroupId)>();
+		await RetryConcurrencyAsync(
+			connection => MutateOwnedCoreAsync(
+				connection,
+				jobId,
+				workerId,
+				error,
+				nextRetryAt,
+				succeeded,
+				additions,
+				terminalGroups,
+				cancellationToken
+			),
 			cancellationToken
-		),
-		cancellationToken
-	);
+		).ConfigureAwait(false);
+		await CleanupFairQueueGroupsAsync(terminalGroups).ConfigureAwait(false);
+	}
+
+	private async Task CleanupFairQueueGroupsAsync(
+		IEnumerable<(string QueueName, string GroupId)> groups
+	)
+	{
+		foreach (var (queueName, groupId) in groups.Distinct())
+		{
+			try
+			{
+				await using var connection = CreateConnection();
+				if (await Jobs(connection)
+					.AnyAsync(
+						item => item.QueueName == queueName
+							&& item.GroupId == groupId
+							&& (item.State == JobState.Pending
+								|| item.State == JobState.Scheduled
+								|| item.State == JobState.Active),
+						CancellationToken.None
+					)
+					.ConfigureAwait(false))
+				{
+					continue;
+				}
+
+				_ = await FairQueueGroups(connection)
+					.Where(group => group.QueueName == queueName && group.GroupId == groupId)
+					.DeleteAsync(CancellationToken.None)
+					.ConfigureAwait(false);
+			}
+#pragma warning disable CA1031 // Cleanup cannot make an already committed job transition appear to fail.
+			catch (Exception)
+#pragma warning restore CA1031
+			{
+				// Cleanup is best-effort metadata maintenance and must not invalidate a committed transition.
+			}
+		}
+	}
 
 	private async Task MutateOwnedCoreAsync(
 		DataConnection connection,
@@ -1005,6 +1450,7 @@ public sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorage,
 		DateTimeOffset? nextRetryAt,
 		bool succeeded,
 		IReadOnlyList<JobContinuationAddition> additions,
+		ISet<(string QueueName, string GroupId)> terminalGroups,
 		CancellationToken cancellationToken
 	)
 	{
@@ -1039,7 +1485,13 @@ public sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorage,
 		job.CompletedAt = now;
 		if (!await UpdateJobAsync(connection, job, oldStamp, cancellationToken).ConfigureAwait(false))
 			throw new LostRaceException();
-		await PropagateTerminalAsync(connection, job, now, cancellationToken).ConfigureAwait(false);
+		await PropagateTerminalAsync(
+			connection,
+			job,
+			now,
+			terminalGroups,
+			cancellationToken
+		).ConfigureAwait(false);
 	}
 
 	private async Task AddBatchJobCoreAsync(
@@ -1179,9 +1631,11 @@ public sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorage,
 		DataConnection connection,
 		ImmediateJobEntity terminalJob,
 		long now,
+		ISet<(string QueueName, string GroupId)> terminalGroups,
 		CancellationToken cancellationToken
 	)
 	{
+		AddFairQueueGroup(terminalGroups, terminalJob);
 		var parents = new Queue<(ContinuationParentKind Kind, string Id, bool Succeeded, bool Failed)>();
 		var processed = new HashSet<(ContinuationParentKind Kind, string Id)>();
 		parents.Enqueue((
@@ -1218,6 +1672,7 @@ public sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorage,
 					child.ConcurrencyStamp = Guid.NewGuid();
 					if (!await UpdateJobAsync(connection, child, childStamp, cancellationToken).ConfigureAwait(false))
 						throw new LostRaceException();
+					AddFairQueueGroup(terminalGroups, child);
 					parents.Enqueue((ContinuationParentKind.Job, child.Id, Succeeded: false, Failed: false));
 					await UpdateBatchForTerminalJobAsync(connection, child, now, parents, cancellationToken)
 						.ConfigureAwait(false);
@@ -1235,6 +1690,7 @@ public sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorage,
 					{
 						child.State = JobState.Cancelled;
 						child.CompletedAt = now;
+						AddFairQueueGroup(terminalGroups, child);
 						parents.Enqueue((ContinuationParentKind.Job, child.Id, Succeeded: false, Failed: false));
 						await UpdateBatchForTerminalJobAsync(connection, child, now, parents, cancellationToken)
 							.ConfigureAwait(false);
@@ -1250,6 +1706,15 @@ public sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorage,
 					throw new LostRaceException();
 			}
 		}
+	}
+
+	private static void AddFairQueueGroup(
+		ISet<(string QueueName, string GroupId)> groups,
+		ImmediateJobEntity job
+	)
+	{
+		if (job.GroupId is { } groupId)
+			_ = groups.Add((job.QueueName, groupId));
 	}
 
 	private async Task UpdateBatchForTerminalJobAsync(
@@ -1479,6 +1944,7 @@ public sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorage,
 			.Where(entity => entity.Id == job.Id && entity.ConcurrencyStamp == oldStamp)
 			.Set(entity => entity.QueueName, job.QueueName)
 			.Set(entity => entity.JobName, job.JobName)
+			.Set(entity => entity.GroupId, job.GroupId)
 			.Set(entity => entity.Payload, job.Payload)
 			.Set(entity => entity.Context, job.Context)
 			.Set(entity => entity.State, job.State)
@@ -1499,6 +1965,24 @@ public sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorage,
 			.Set(entity => entity.RemainingDependencies, job.RemainingDependencies)
 			.Set(entity => entity.FailedDependencies, job.FailedDependencies)
 			.Set(entity => entity.ConcurrencyStamp, job.ConcurrencyStamp)
+			.UpdateAsync(cancellationToken)
+			.ConfigureAwait(false);
+		return updated != 0;
+	}
+
+	private async Task<bool> UpdateFairQueueGroupAsync(
+		DataConnection connection,
+		ImmediateFairQueueGroupEntity group,
+		Guid oldStamp,
+		CancellationToken cancellationToken
+	)
+	{
+		var updated = await FairQueueGroups(connection)
+			.Where(entity => entity.QueueName == group.QueueName
+				&& entity.GroupId == group.GroupId
+				&& entity.ConcurrencyStamp == oldStamp)
+			.Set(entity => entity.LastServedSequence, group.LastServedSequence)
+			.Set(entity => entity.ConcurrencyStamp, group.ConcurrencyStamp)
 			.UpdateAsync(cancellationToken)
 			.ConfigureAwait(false);
 		return updated != 0;
@@ -1558,6 +2042,9 @@ public sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorage,
 	private ITable<ImmediateJobBatchEntity> Batches(DataConnection connection) =>
 		WithSchema(connection.GetTable<ImmediateJobBatchEntity>());
 
+	private ITable<ImmediateFairQueueGroupEntity> FairQueueGroups(DataConnection connection) =>
+		WithSchema(connection.GetTable<ImmediateFairQueueGroupEntity>());
+
 	private ITable<ImmediateJobContinuationEntity> Continuations(DataConnection connection) =>
 		WithSchema(connection.GetTable<ImmediateJobContinuationEntity>());
 
@@ -1597,6 +2084,7 @@ public sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorage,
 		JobName = job.JobName,
 		Payload = job.Payload,
 		Context = job.Context,
+		GroupId = job.GroupId,
 		State = job.State,
 		DueAt = job.DueAt.UtcTicks,
 		CreatedAt = job.CreatedAt.UtcTicks,
@@ -1639,6 +2127,7 @@ public sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorage,
 		JobName = job.JobName,
 		Payload = job.Payload,
 		Context = job.Context,
+		GroupId = job.GroupId,
 		State = job.State,
 		DueAt = FromTicks(job.DueAt),
 		CreatedAt = FromTicks(job.CreatedAt),

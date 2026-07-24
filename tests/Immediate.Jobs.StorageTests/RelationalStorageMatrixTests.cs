@@ -4,6 +4,7 @@ using global::LinqToDB;
 using global::LinqToDB.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Time.Testing;
 using System.Text.RegularExpressions;
 
@@ -22,6 +23,12 @@ public sealed class RelationalStorageMatrixTests(StorageContainers containers)
 		{ DatabaseKind.SqlServer, AdapterKind.EntityFrameworkCore },
 		{ DatabaseKind.SqlServer, AdapterKind.LinqToDB },
 	};
+
+	public static TheoryData<AdapterKind> SqlServerAdapters =>
+	[
+		AdapterKind.EntityFrameworkCore,
+		AdapterKind.LinqToDB,
+	];
 
 	[Theory]
 	[MemberData(nameof(Matrix))]
@@ -117,6 +124,96 @@ public sealed class RelationalStorageMatrixTests(StorageContainers containers)
 		Assert.Null(recovered.ExecutionTraceId);
 		Assert.Null(recovered.ExecutionSpanId);
 		Assert.Null(recovered.ExecutionStartedAt);
+	}
+
+	[Theory]
+	[MemberData(nameof(Matrix))]
+	public async Task AdapterRotatesToAGroupThatArrivesAfterEarlierService(
+		DatabaseKind database,
+		AdapterKind adapter
+	)
+	{
+		var cancellationToken = TestContext.Current.CancellationToken;
+		await using var fixture = await CreateFixtureAsync(database, adapter, cancellationToken);
+		var storage = fixture.Storage;
+		var now = fixture.TimeProvider.GetUtcNow();
+		await storage.EnqueueAsync(
+			CreateJob("group-a-first", now) with { GroupId = "group-a" },
+			cancellationToken
+		);
+		await storage.EnqueueAsync(
+			CreateJob("group-a-second", now) with
+			{
+				GroupId = "group-a",
+				CreatedAt = now.AddTicks(1),
+			},
+			cancellationToken
+		);
+
+		var request = CreateRequest("fair-worker", 1) with
+		{
+			FairQueues = new(0.10, 30, true),
+		};
+		var first = Assert.Single(await storage.AcquireDueJobsAsync(request, cancellationToken));
+		Assert.Equal("group-a-first", first.Id);
+		await storage.CompleteAsync(first.Id, "fair-worker", cancellationToken);
+		await storage.EnqueueAsync(
+			CreateJob("group-b-first", now) with
+			{
+				GroupId = "group-b",
+				CreatedAt = now.AddTicks(2),
+			},
+			cancellationToken
+		);
+
+		var second = Assert.Single(await storage.AcquireDueJobsAsync(request, cancellationToken));
+		Assert.Equal("group-b-first", second.Id);
+		Assert.Equal("group-b", second.GroupId);
+	}
+
+	[Theory]
+	[MemberData(nameof(SqlServerAdapters))]
+	public async Task SqlServerCollationIsUsedConsistentlyForGroupState(AdapterKind adapter)
+	{
+		var cancellationToken = TestContext.Current.CancellationToken;
+		await using var fixture = await CreateFixtureAsync(
+			DatabaseKind.SqlServer,
+			adapter,
+			cancellationToken
+		);
+		var storage = fixture.Storage;
+		var now = fixture.TimeProvider.GetUtcNow();
+		await storage.EnqueueAsync(
+			CreateJob("tenant-first", now) with { GroupId = "Tenant" },
+			cancellationToken
+		);
+		await storage.EnqueueAsync(
+			CreateJob("tenant-second", now) with
+			{
+				GroupId = "tenant",
+				CreatedAt = now.AddTicks(1),
+			},
+			cancellationToken
+		);
+		var request = CreateRequest("fair-worker", 1) with
+		{
+			FairQueues = new(0.10, 30, true),
+		};
+		var first = Assert.Single(await storage.AcquireDueJobsAsync(request, cancellationToken));
+		Assert.Equal("tenant-first", first.Id);
+		await storage.CompleteAsync(first.Id, "fair-worker", cancellationToken);
+		await storage.EnqueueAsync(
+			CreateJob("quiet-first", now) with
+			{
+				GroupId = "quiet",
+				CreatedAt = now.AddTicks(2),
+			},
+			cancellationToken
+		);
+
+		var second = Assert.Single(await storage.AcquireDueJobsAsync(request, cancellationToken));
+
+		Assert.Equal("quiet-first", second.Id);
 	}
 
 	[Theory]
@@ -240,23 +337,40 @@ public sealed class RelationalStorageMatrixTests(StorageContainers containers)
 
 		_ = contextOptions.ReplaceService<IModelCacheKeyFactory, SchemaModelCacheKeyFactory>();
 		var contextFactory = new MatrixDbContextFactory(contextOptions.Options, schema);
-		if (adapter == AdapterKind.LinqToDB)
+		var fixture = new MatrixFixture(
+			database,
+			connectionString,
+			schema,
+			sqlitePath,
+			dataOptions,
+			contextFactory,
+			adapter
+		);
+		try
 		{
-			await dataOptions.CreateImmediateJobsSchemaAsync(schema, cancellationToken);
-			await dataOptions.CreateImmediateJobsSchemaAsync(schema, cancellationToken);
-		}
-		else
-		{
-			await using var context = contextFactory.CreateDbContext();
-			var script = context.Database.GenerateCreateScript();
-			foreach (var batch in Regex.Split(script, @"^\s*GO\s*$", RegexOptions.Multiline | RegexOptions.IgnoreCase))
+			if (adapter == AdapterKind.LinqToDB)
 			{
-				if (!string.IsNullOrWhiteSpace(batch))
-					_ = await context.Database.ExecuteSqlRawAsync(batch, cancellationToken);
+				await dataOptions.CreateImmediateJobsSchemaAsync(schema, cancellationToken);
+				await dataOptions.CreateImmediateJobsSchemaAsync(schema, cancellationToken);
 			}
-		}
+			else
+			{
+				await using var context = contextFactory.CreateDbContext();
+				var script = context.Database.GenerateCreateScript();
+				foreach (var batch in Regex.Split(script, @"^\s*GO\s*$", RegexOptions.Multiline | RegexOptions.IgnoreCase))
+				{
+					if (!string.IsNullOrWhiteSpace(batch))
+						_ = await context.Database.ExecuteSqlRawAsync(batch, cancellationToken);
+				}
+			}
 
-		return new(database, connectionString, schema, sqlitePath, dataOptions, contextFactory, adapter);
+			return fixture;
+		}
+		catch
+		{
+			await fixture.DisposeAsync();
+			throw;
+		}
 	}
 
 	private static JobAcquisitionRequest CreateRequest(string workerId, int batchSize) => new()
@@ -305,24 +419,39 @@ public sealed class RelationalStorageMatrixTests(StorageContainers containers)
 		AdapterKind adapter
 	) : IAsyncDisposable
 	{
+		private readonly List<IJobStorage> _storages = [];
+
 		public FakeTimeProvider TimeProvider { get; } = new(new DateTimeOffset(2026, 7, 22, 10, 0, 0, TimeSpan.Zero));
 		public IJobStorage Storage => adapter == AdapterKind.LinqToDB
-			? new LinqToDBJobStorage(dataOptions, schema, TimeProvider)
+			? CreateLinqToDBStorage()
 			: CreateEntityFrameworkCoreStorage();
 		public IRecurringJobStorage RecurringStorage => (IRecurringJobStorage)Storage;
 		public IJobGraphStorage GraphStorage => (IJobGraphStorage)Storage;
 
 		public IJobStorage CreateStorage() => Storage;
 
-		public EntityFrameworkCoreJobStorage<MatrixDbContext> CreateEntityFrameworkCoreStorage() =>
-			new(contextFactory, TimeProvider);
+		public EntityFrameworkCoreJobStorage<MatrixDbContext> CreateEntityFrameworkCoreStorage()
+		{
+			var storage = new EntityFrameworkCoreJobStorage<MatrixDbContext>(contextFactory, TimeProvider);
+			_storages.Add(storage);
+			return storage;
+		}
 
-		public LinqToDBJobStorage CreateLinqToDBStorage() => new(dataOptions, schema, TimeProvider);
+		public LinqToDBJobStorage CreateLinqToDBStorage()
+		{
+			var storage = new LinqToDBJobStorage(dataOptions, schema, TimeProvider);
+			_storages.Add(storage);
+			return storage;
+		}
 
 		public async ValueTask DisposeAsync()
 		{
+			foreach (var storage in _storages.AsEnumerable().Reverse())
+				await storage.DisposeAsync();
+
 			if (sqlitePath is not null)
 			{
+				SqliteConnection.ClearAllPools();
 				File.Delete(sqlitePath);
 				return;
 			}
@@ -340,6 +469,7 @@ public sealed class RelationalStorageMatrixTests(StorageContainers containers)
 				foreach (var table in new[]
 				{
 					"immediate_job_continuations",
+					"immediate_fair_queue_groups",
 					"immediate_jobs",
 					"immediate_job_batches",
 					"immediate_recurring_jobs",
@@ -354,6 +484,7 @@ public sealed class RelationalStorageMatrixTests(StorageContainers containers)
 				);
 			}
 		}
+
 	}
 
 	private sealed class MatrixDbContextFactory(

@@ -74,11 +74,12 @@ exact split the capability model expects. Ship it implementing `IJobQueueStorage
 
 ## 4. Fair queues across backends
 
-Per-group fairness ([`fair-queues.md`](fair-queues.md)) lives entirely inside the acquisition path and
-is provider-specific by design, so it travels with the **queue** capability regardless of backend:
-per-group in-flight counters are cheap atomic increments, and the round-robin ordering is done
-client-side over a candidate window (or, in Redis, inside the claim Lua script). No backend makes this
-especially hard; it's an additive concern on the claim path.
+Per-group fairness ([`fair-queues.md`](fair-queues.md)) lives inside the acquisition path, but it does
+not automatically travel with the queue capability. The stateful round-robin cursor must be made
+atomic with each provider's claim operation. Phase 1 implements that contract in memory and in the
+EF Core and LinqToDB SQL providers; single-server mode inherits the in-memory decision. Redis persists
+`GroupId` but explicitly rejects fair acquisition until its Lua claim path gains equivalent
+cluster-wide cursor semantics.
 
 ## 5. Recommendations
 

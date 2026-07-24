@@ -12,6 +12,7 @@ public static class ImmediateJobsModelBuilderExtensions
 		ArgumentNullException.ThrowIfNull(modelBuilder);
 		ConfigureBatches(modelBuilder.Entity<ImmediateJobBatchEntity>(), schema);
 		ConfigureJobs(modelBuilder.Entity<ImmediateJobEntity>(), schema);
+		ConfigureFairQueueGroups(modelBuilder.Entity<ImmediateFairQueueGroupEntity>(), schema);
 		ConfigureContinuations(modelBuilder.Entity<ImmediateJobContinuationEntity>(), schema);
 		ConfigureRecurring(modelBuilder.Entity<ImmediateRecurringJobEntity>(), schema);
 		ConfigureServers(modelBuilder.Entity<ImmediateJobServerEntity>(), schema);
@@ -47,6 +48,7 @@ public static class ImmediateJobsModelBuilderExtensions
 		_ = entity.Property(job => job.Id).HasMaxLength(256);
 		_ = entity.Property(job => job.QueueName).HasMaxLength(256).HasDefaultValue(JobQueueDefinition.DefaultName).IsRequired();
 		_ = entity.Property(job => job.JobName).HasMaxLength(256).IsRequired();
+		_ = entity.Property(job => job.GroupId).HasMaxLength(128);
 		_ = entity.Property(job => job.Payload).IsRequired();
 		_ = entity.Property(job => job.Context).IsRequired(false);
 		_ = entity.Property(job => job.State).HasConversion<short>();
@@ -86,6 +88,19 @@ public static class ImmediateJobsModelBuilderExtensions
 		_ = entity.HasIndex(job => new { job.State, job.DueAt });
 		_ = entity.HasIndex(job => new { job.State, job.CreatedAt });
 		_ = entity.HasIndex(job => new { job.QueueName, job.State, job.DueAt, job.CreatedAt });
+		_ = entity.HasIndex(job => new { job.QueueName, job.State, job.GroupId });
+	}
+
+	private static void ConfigureFairQueueGroups(
+		EntityTypeBuilder<ImmediateFairQueueGroupEntity> entity,
+		string? schema
+	)
+	{
+		_ = entity.ToTable("immediate_fair_queue_groups", schema);
+		_ = entity.HasKey(group => new { group.QueueName, group.GroupId });
+		_ = entity.Property(group => group.QueueName).HasMaxLength(256);
+		_ = entity.Property(group => group.GroupId).HasMaxLength(128);
+		_ = entity.Property(group => group.ConcurrencyStamp).IsConcurrencyToken();
 	}
 
 	private static void ConfigureContinuations(
@@ -165,6 +180,7 @@ internal sealed class ImmediateJobEntity
 	public string Id { get; set; } = null!;
 	public string QueueName { get; set; } = JobQueueDefinition.DefaultName;
 	public string JobName { get; set; } = null!;
+	public string? GroupId { get; set; }
 	public string Payload { get; set; } = null!;
 	public string? Context { get; set; }
 	public JobState State { get; set; }
@@ -184,6 +200,14 @@ internal sealed class ImmediateJobEntity
 	public string? BatchId { get; set; }
 	public int RemainingDependencies { get; set; }
 	public int FailedDependencies { get; set; }
+	public Guid ConcurrencyStamp { get; set; }
+}
+
+internal sealed class ImmediateFairQueueGroupEntity
+{
+	public string QueueName { get; set; } = null!;
+	public string GroupId { get; set; } = null!;
+	public long LastServedSequence { get; set; }
 	public Guid ConcurrencyStamp { get; set; }
 }
 

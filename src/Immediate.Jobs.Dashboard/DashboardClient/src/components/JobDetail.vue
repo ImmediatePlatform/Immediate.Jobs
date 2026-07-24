@@ -58,6 +58,10 @@ const emit = defineEmits<{
 					<dt>Queue</dt>
 					<dd><code>{{ job.queueName }}</code></dd>
 				</div>
+				<div v-if="job.groupId">
+					<dt>Group</dt>
+					<dd><code>{{ job.groupId }}</code></dd>
+				</div>
 				<div v-if="job.batchId">
 					<dt>Batch</dt>
 					<dd><code>{{ job.batchId }}</code></dd>

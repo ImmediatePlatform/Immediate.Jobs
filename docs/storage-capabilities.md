@@ -70,10 +70,10 @@ The direction of the hierarchy is the whole ballgame. The **required queue capab
 type `IJobStorage`**, and each optional capability *extends* it:
 
 ```csharp
-public interface IJobStorage
+public interface IJobStorage : IAsyncDisposable
 {
     // the required queue capability — init, enqueue, acquire/claim, lease,
-    // complete, fail, retry, delete, reads, health, PurgeJobsAsync
+    // complete, fail, retry, delete, reads, health, PurgeJobsAsync, async disposal
 }
 
 public interface IRecurringJobStorage : IJobStorage

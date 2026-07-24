@@ -161,17 +161,22 @@ public sealed class ImmediateJobsOptions
 		}
 		catch
 		{
-			DisposeStorage(storage);
+			TryDisposeStorage(storage);
 			throw;
 		}
 	}
 
-	private static void DisposeStorage(IJobStorage storage)
+	private static void TryDisposeStorage(IJobStorage storage)
 	{
-		if (storage is IDisposable disposable)
-			disposable.Dispose();
-		else if (storage is IAsyncDisposable asyncDisposable)
-			asyncDisposable.DisposeAsync().AsTask().GetAwaiter().GetResult();
+		try
+		{
+			storage.DisposeAsync().AsTask().GetAwaiter().GetResult();
+		}
+#pragma warning disable CA1031 // Cleanup must not replace the storage-construction exception.
+		catch (Exception)
+#pragma warning restore CA1031
+		{
+		}
 	}
 
 	internal void Validate()

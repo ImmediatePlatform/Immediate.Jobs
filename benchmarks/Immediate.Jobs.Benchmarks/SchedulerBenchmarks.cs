@@ -4,15 +4,17 @@ using Hangfire.Common;
 using Hangfire.MemoryStorage;
 using Quartz;
 using Quartz.Impl;
+using System.Diagnostics.CodeAnalysis;
 using System.Text.Json.Serialization;
 
 namespace Immediate.Jobs.Benchmarks;
 
 [MemoryDiagnoser]
-public class EnqueueBenchmarks
+public class EnqueueBenchmarks : IAsyncDisposable
 {
 	private readonly TimeProvider _timeProvider = TimeProvider.System;
 	private BenchmarkScheduler _immediate = null!;
+	private InMemoryJobStorage? _immediateStorage;
 	private IBackgroundJobClient _hangfire = null!;
 	private IScheduler _quartz = null!;
 	private long _sequence;
@@ -20,8 +22,9 @@ public class EnqueueBenchmarks
 	[GlobalSetup]
 	public async Task Setup()
 	{
+		_immediateStorage = new InMemoryJobStorage(_timeProvider);
 		_immediate = new(
-			new InMemoryJobStorage(_timeProvider),
+			_immediateStorage,
 			new SystemTextJsonJobSerializer(),
 			_timeProvider,
 			BenchmarkIdGenerator.Instance
@@ -33,7 +36,20 @@ public class EnqueueBenchmarks
 	}
 
 	[GlobalCleanup]
-	public async Task Cleanup() => await _quartz.Shutdown(waitForJobsToComplete: true);
+	public async Task Cleanup()
+	{
+		await _quartz.Shutdown(waitForJobsToComplete: true);
+		await DisposeAsync();
+	}
+
+	public async ValueTask DisposeAsync()
+	{
+		if (_immediateStorage is null)
+			return;
+		await _immediateStorage.DisposeAsync();
+		_immediateStorage = null;
+		GC.SuppressFinalize(this);
+	}
 
 	[Benchmark(Baseline = true)]
 	public ValueTask<JobHandle> ImmediateJobs() => _immediate.EnqueueAsync(new(42));
@@ -77,11 +93,15 @@ public class EnqueueBenchmarks
 public class StartupBenchmarks
 {
 	[Benchmark(Baseline = true)]
+	[SuppressMessage(
+		"Reliability",
+		"CA2000",
+		Justification = "The returned scheduler owns the benchmark-only in-memory storage."
+	)]
 	public object ImmediateJobs()
 	{
-		var storage = new InMemoryJobStorage(TimeProvider.System);
 		return new StartupScheduler(
-			storage,
+			new InMemoryJobStorage(TimeProvider.System),
 			new SystemTextJsonJobSerializer(),
 			TimeProvider.System,
 			BenchmarkIdGenerator.Instance
@@ -98,13 +118,21 @@ public class StartupBenchmarks
 	[Benchmark]
 	public object Quartz() => new StdSchedulerFactory();
 
-	private sealed class StartupScheduler(
-		IJobStorage storage,
-		IJobSerializer serializer,
-		TimeProvider timeProvider,
-		IIdGenerator idGenerator
-	)
-		: JobScheduler<BenchmarkPayload>(
+	[SuppressMessage(
+		"Style",
+		"IDE0290",
+		Justification = "The explicit constructor makes transferred storage ownership unambiguous."
+	)]
+	private sealed class StartupScheduler : JobScheduler<BenchmarkPayload>, IAsyncDisposable
+	{
+		private readonly IJobStorage _storage;
+
+		public StartupScheduler(
+			IJobStorage storage,
+			IJobSerializer serializer,
+			TimeProvider timeProvider,
+			IIdGenerator idGenerator
+		) : base(
 			storage,
 			serializer,
 			timeProvider,
@@ -112,7 +140,13 @@ public class StartupBenchmarks
 			"benchmark-job",
 			JobQueueDefinition.DefaultName,
 			static options => new BenchmarkJsonContext(options).BenchmarkPayload
-		);
+		)
+		{
+			_storage = storage;
+		}
+
+		public ValueTask DisposeAsync() => _storage.DisposeAsync();
+	}
 }
 
 internal sealed class BenchmarkIdGenerator : IIdGenerator

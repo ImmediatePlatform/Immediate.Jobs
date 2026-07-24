@@ -1,233 +1,331 @@
 # Fair queues (SQS-style noisy-neighbor fairness)
 
-> **Status:** Design / implementation plan. Not yet implemented.
-> **Goal:** Let callers tag each enqueued job with a runtime *group id* (SQS `MessageGroupId`) so that a large backlog in one group cannot starve other groups' jobs of consumer capacity.
+> **Status:** Implemented and verified across the supported target frameworks and storage-provider matrix.
+> **Goal:** Let callers tag directly enqueued jobs with a runtime group id so a large backlog in one group cannot starve quieter groups of consumer capacity.
 
-## 1. Semantics we are building (and not building)
-
-Decisions taken during design:
+## 1. Final behavior
 
 | Question | Decision |
 | --- | --- |
-| Core behavior | **Fairness only.** Mirror SQS *fair queues* (the 2024 standard-queue feature), **not** SQS FIFO. |
-| Ordering within a group | **None guaranteed.** No FIFO cursor. |
-| In-group concurrency | **Unbounded.** If the node has capacity, many jobs of the same group run in parallel. No per-group serialization or exclusivity. |
-| Group id source | **Runtime enqueue argument**, opaque string, scoped within the job's queue. |
-| Ungrouped jobs | **Unrestricted, as today.** A null/empty group id means "own singleton tenant" — behaves exactly like current jobs. |
-| Providers in v1 | In-memory, EF Core, single-server. (Single-server selection is delegated to the in-memory primary, so it comes for free — see §6.) |
-| Activation | **Opt-in via `o.UseFairQueues(...)`.** Off by default; when not registered the acquisition path is byte-for-byte today's code with zero added cost (see §5.0 / §8). |
+| Core behavior | Fairness only. This is not FIFO: jobs within a group are neither serialized nor given a new ordering guarantee. |
+| Group id | An opaque runtime string scoped to a queue. Empty or whitespace input is normalized to `null`; values longer than 128 characters are rejected. |
+| Ungrouped work | A job with no group id is its own singleton tenant. When no grouped work is eligible, acquisition uses the existing order exactly. |
+| Backlog fairness | Stateful round-robin service across groups, enabled by default when fair queues are enabled. This makes a quiet group's job advance even when acquisition capacity is one. |
+| Noisy-neighbor fairness | A group with a disproportionate share of non-expired in-flight jobs is served after quiet groups. |
+| Activation | Opt-in through `UseFairQueues(...)`. Group ids may be persisted while fairness is disabled, but they do not affect acquisition. |
+| Phase 1 providers | In-memory, EF Core, LinqToDB, and single-server. Direct distributed acquisition by Redis rejects a fair-queue request in this version. |
 
-The **only** guarantee: a group that is consuming a disproportionate share of consumer capacity gets deprioritized so quieter groups keep flowing. Jobs are never dropped or throttled — a noisy group's jobs simply wait longer while quiet work exists, and return to normal once its backlog clears.
+The implementation does not drop, throttle, or serialize a noisy group's jobs. It changes only which eligible job is claimed next while other groups have work.
 
-## 2. How AWS implements it (reference)
+## 2. Why the original stateless plan changed
 
-Source: [SQS fair queues detailed](https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/sqs-fair-queues-detailed.html).
+The initial proposal used a per-acquisition `ROW_NUMBER() OVER (PARTITION BY GroupId ...)`. That interleaves groups inside one candidate batch, but its rank starts over on every poll. With acquisition capacity one, the oldest job in one group can therefore win every poll and continue starving another group.
 
-- **Tenant = `MessageGroupId`.** A message with no group id is its own distinct tenant.
-- **Noisy-neighbor detection**, via two independent measures:
-  - **Concurrency share** — a tenant's *in-flight* messages as a fraction of all in-flight messages in the queue. Marked noisy when the tenant has **> 10 %** of in-flight messages **and** at least **30** of its own in flight.
-  - **Processing-time share** — the tenant's recent share of total consumer processing time. Marked noisy when **> 10 %**. (Catches few-but-slow tenants that never build up in-flight count.)
-- **On receive:** once a tenant is noisy, consumers are served messages from quiet tenants whenever quiet messages exist. Among multiple noisy tenants, the one with the **fewest in-flight** messages is served first.
-- **Reset:** a tenant stops being noisy when its backlog is fully consumed **or** it has had no in-flight messages for **5 continuous minutes**.
-- **Caveat AWS calls out:** the concurrency-share measure only works if consumers run enough messages concurrently for one tenant to stand out. Size the fleet accordingly.
+Phase 1 instead keeps a durable last-served cursor for each `(QueueName, GroupId)` and advances it with the job claim. The cursor survives acquisition calls and scheduler nodes, so the capacity-one case has the same fairness guarantee as a larger batch. The in-memory provider keeps the equivalent cursor under its existing lock.
 
-## 3. The one decision that matters: in-flight fairness vs. backlog fairness
+The cursor deliberately has no queue-wide counter row. A single `NextSequence` row would be updated by every claim in the queue and would serialize otherwise independent scheduler nodes on the hottest path. Instead, an acquisition reads the greatest group order it currently observes and assigns the selected group `max + 1`. Concurrent nodes may assign the same value to different groups; that creates a temporary ordering tie, not a correctness failure. A later claim advances one of the tied groups and the order converges again.
 
-This deserves a call-out because AWS's real mechanism does **not**, on its own, deliver the example that motivated this work:
+A wall-clock `LastServedAt` was considered but rejected. Worker clock skew can place a group far in the past or future, while database timestamp precision differs by provider. A logical order derived from the already-read group cursors has neither dependency.
 
-> "There's a backlog of 1000 jobs for group 1, and one job for group 2 comes in — that one is next in line."
+This is intentionally backlog-aware. AWS SQS noisy-neighbor detection is based on in-flight and processing-time share; in-flight thresholds alone cannot promptly solve a 1,000-to-1 backlog on a low-concurrency worker.
 
-AWS detects noisy neighbors from **in-flight** count, not **backlog**. If your worker concurrency is, say, 10, group 1 can never have ≥ 30 jobs in flight, so it is **never marked noisy**, and group 2's single (newer) job simply queues behind the 1000 older group-1 jobs by `DueAt`. AWS resolves the scenario only *over time*, as group 1 accumulates enough in-flight/processing share to trip the threshold — and it leans on large consumer fleets to make that happen quickly.
+## 3. Public model and API
 
-We have two options:
+### 3.1 `JobRecord`
 
-- **Option A — Faithful AWS (in-flight fairness).** Deprioritize a group only once it is detected noisy by concurrency share (and later, processing-time share). Simple, matches AWS exactly, but on low-concurrency workers your stated example is only satisfied eventually, not immediately.
-- **Option B — Backlog-aware round-robin (recommended).** In addition to noisy-neighbor deprioritization, order the *eligible* candidates by round-robin across distinct groups rather than pure `DueAt`. This directly delivers "1 lone group-2 job jumps ahead of 1000 backlogged group-1 jobs," independent of worker concurrency. It is a superset of Option A's mechanism using the same ordering key (§5).
-
-**Decision: Option B.** We implement backlog-aware round-robin across groups, with the noisy-neighbor concurrency-share signal layered on top, and expose a config switch (`GroupRoundRobin`) to fall back to faithful AWS (Option A) if ever desired. Option B is what actually matches the intended behavior ("1 lone group-2 job jumps ahead of a 1000-job group-1 backlog"); the noisy-neighbor signal remains useful for the "few-but-hogging-capacity" case.
-
-The rest of this plan is written against **Option B**, and notes where Option A is a strict subset.
-
-## 4. Data model & API changes
-
-### 4.1 `JobRecord`
-
-Add one optional field to `src/Immediate.Jobs.Shared/JobModels.cs`:
+`JobRecord` gains:
 
 ```csharp
-/// <summary>Optional fairness group (tenant) key, scoped within the queue. Null = own singleton tenant.</summary>
+/// <summary>Optional fairness group key, scoped within the queue.</summary>
 public string? GroupId { get; init; }
 ```
 
-### 4.2 EF Core entity + schema
+The value is copied through every provider representation so it survives persistence, restart, leasing, and single-server replication.
 
-- Add `GroupId` (nullable `varchar(128)`) to `ImmediateJobEntity`.
-- Add a covering index for the fairness query and candidate selection:
-  `(QueueName, State, GroupId)` — used to count in-flight per group and to order candidates.
-  Confirm it composes with the existing acquisition index (`QueueName, JobName, State, DueAt`).
-- Migration: additive, nullable column — no backfill needed. Update `ImmediateJobsModelBuilderExtensions`.
+### 3.2 Source-compatible scheduler overloads
 
-### 4.3 In-memory store
-
-`InMemoryJobStorage` keeps `JobRecord` directly, so the new field is carried automatically. No schema step.
-
-### 4.4 EnqueueAsync API (source generator)
-
-The enqueue entry points live in the **non-generated** base `JobScheduler<TPayload>` (`src/Immediate.Jobs.Shared/JobSchedulers.cs`) — `EnqueueAsync`, `ScheduleAsync`, `ScheduleAtAsync`, and `CreateRecord`. This is the clean seam:
-
-- Add an optional `string? groupId = null` parameter to `EnqueueAsync`, `ScheduleAsync`, `ScheduleAtAsync` (and the `IJobScheduler<TPayload>` interface).
-- Thread it into `CreateRecord` → `JobRecord.GroupId`.
-- **Validation (decided):** normalize empty/whitespace to `null` (ungrouped = own singleton tenant); reject group ids longer than **128** characters with `ArgumentException`. Matches SQS's `MessageGroupId` limit and keeps the index key tight.
+The existing cancellation-token overloads remain unchanged:
 
 ```csharp
-public ValueTask<JobHandle> EnqueueAsync(
+ValueTask<JobHandle> EnqueueAsync(
     TPayload payload,
-    string? groupId = null,
-    CancellationToken cancellationToken = default) =>
-    ScheduleAtAsync(payload, TimeProvider.GetUtcNow(), groupId, cancellationToken);
+    CancellationToken cancellationToken = default);
 ```
 
-Because these are inherited (not emitted per-job), the Scriban template `Templates/Job.sbntxt` needs **no** change for the basic case. Continuation/batch/recurring enqueue paths can gain the parameter in a later pass if grouping is wanted there; v1 targets the direct `EnqueueAsync`/`ScheduleAsync` paths.
-
-Usage:
+Group-aware overloads are added alongside them:
 
 ```csharp
-await welcomeEmail.EnqueueAsync(new(userId, "v2"), groupId: tenantId, cancellationToken);
+ValueTask<JobHandle> EnqueueAsync(
+    TPayload payload,
+    CancellationToken cancellationToken,
+    string? groupId);
 ```
 
-## 5. The fairness algorithm (acquisition)
-
-### 5.0 Gating — the fairness path is opt-in
-
-Fairness is behind a single branch at the top of `AcquireDueJobsAsync`:
-
-- **Not registered (default):** run the **exact current selection** — `OrderBy(DueAt).ThenBy(CreatedAt).ThenBy(Id)` + `Take` — with **no** grouped-count query and **no** window function. Zero cost, unchanged query plan. This matters because acquisition is the hottest path in the system (every worker polls it continuously); the fairness machinery (an extra `GROUP BY` round-trip + `ROW_NUMBER` ordering) must not tax users who don't use it.
-- **Registered via `o.UseFairQueues(...)`:** run the fairness ordering below.
-
-The `GroupId` column and the `groupId` enqueue parameter are **always** present regardless of registration — a nullable column is free when unused, and an optional arg is harmless. Only the *dispatch ordering behavior* is gated. A group id supplied while fair queues are not registered is persisted but **inert** (no fairness effect); we log a one-time startup/debug warning rather than throwing on a stored-but-unused value.
-
-**Cheap fast-path even when enabled:** for any queue whose current candidate window contains no non-null `GroupId`, skip the grouped-count query and window function and fall back to the simple order. So enabling fairness globally does not tax queues that happen not to use grouping.
-
-### 5.1 Ordering
-
-The behavioral change lives in `AcquireDueJobsAsync`. Today, per queue, candidates are ordered by `DueAt → CreatedAt → Id` up to per-queue and per-job-name capacity. We insert a fairness ordering key **in front of** that existing order. Everything else (capacity accounting, lease, claim) is unchanged.
-
-Per queue, once per acquisition pass:
-
-1. **Count in-flight per group.**
-   `inflight[g] = count(State == Active && QueueName == q && GroupId == g)`.
-   Let `N = total Active in q`. Ungrouped jobs each count as their own tenant (in-flight ≤ 1 apiece).
-
-2. **Mark noisy groups** (concurrency-share, faithful to AWS):
-   `noisy(g) = inflight[g] >= MinInflightForNoisy (30) && inflight[g] / N > ConcurrencyShareThreshold (0.10)`.
-   Ungrouped jobs are never noisy.
-
-3. **Order eligible due candidates** by this composite key (ascending):
-   1. `noisy(group)` — quiet groups (0) before noisy groups (1).
-   2. among **noisy** only: `inflight[group]` ascending — fewest-in-flight noisy tenant first (AWS tie-break).
-   3. **[Option B]** round-robin rank across distinct groups — the *k*-th job of any given group sorts after the *(k-1)*-th job of every other group, so one job per group is interleaved before a group's second job is considered.
-   4. `DueAt → CreatedAt → Id` — existing order, as the final tiebreak.
-
-4. **Take up to capacity**, honoring existing per-queue capacity and per-job-name `MaxConcurrency`, exactly as today.
-
-Properties:
-
-- **Stateless / self-resetting.** Noisy status is recomputed each pass from current `Active` counts, so AWS's "reset when backlog clears" is automatic; the 5-minute idle reset only matters for the stateful processing-time measure (§7, deferred).
-- **Ungrouped == today.** If no job carries a group id, every group is quiet, round-robin rank is uniform, and ordering collapses to `DueAt → CreatedAt → Id` — byte-for-byte current behavior.
-- **Option A is a strict subset:** drop step 3.3 to get faithful AWS.
-
-### 5.2 Round-robin rank (Option B) — how to compute it cheaply
-
-For the candidate set being considered in a pass, assign each job a per-group sequence number (0,1,2,… in `DueAt` order within its group); order primarily by that sequence number, then by group signals. In-memory this is a `GroupBy` + index. In SQL it is `ROW_NUMBER() OVER (PARTITION BY GroupId ORDER BY DueAt, CreatedAt, Id)` as the leading sort term. This is bounded by the candidate window (`Take(queueCapacity)` territory), not the whole table.
-
-## 6. Per-provider implementation
-
-There are only **two** real selection sites:
-
-Both selection sites branch on whether fairness is registered (§5.0): unregistered ⇒ the existing code path untouched; registered ⇒ the fairness ordering. In-memory, this branch is essentially free; in EF Core it avoids the extra query and heavier plan entirely when off.
-
-### 6.1 `InMemoryJobStorage.AcquireDueJobsAsync`
-- When fairness is off, leave the current sort exactly as-is.
-- When on: compute `inflight[]`/`N` from `_jobs.Values` under the existing `_gate` lock and replace the `OrderBy(DueAt).ThenBy(CreatedAt).ThenBy(Id)` candidate sort with the composite key from §5.1.
-- Everything else (capacity loop, state transition) unchanged.
-
-### 6.2 `SingleServerJobStorage` — **free**
-Its `AcquireDueJobsAsync` delegates selection to `_primary` (an `InMemoryJobStorage`) and only mirrors the chosen ids to the durable replica via `IJobStorageReplica.AcquireJobsAsync`. Fixing the in-memory selection (§6.1) covers single-server automatically. No change needed beyond carrying `GroupId` through the replica's `AcquireJobsAsync`/`Copy`.
-
-### 6.3 `EntityFrameworkCoreJobStorage.AcquireDueJobsAsync`
-- When fairness is off, keep the current query and ordering unchanged — no grouped-count round-trip, no window function.
-- When on (and the fast-path in §5.0 doesn't short-circuit), add a grouped in-flight count query per queue:
-  `SELECT GroupId, COUNT(*) FROM jobs WHERE QueueName=@q AND State=Active GROUP BY GroupId` → build `inflight[]`, `N`, and the (small) noisy-group set in memory.
-- Modify the candidate query's `ORDER BY` to prepend the fairness key. Noisy groups are few (each > 10 % share ⇒ < 10 of them), so passing them as a parameter list into a `CASE`/`ROW_NUMBER` expression is cheap.
-- The existing claim loop (per-candidate optimistic concurrency via `ConcurrencyStamp`) is untouched — we only reorder which candidates are attempted first.
-- Carry `GroupId` through `Copy`, `ToRecord`, and the entity mapping.
-
-## 7. Processing-time share (deferred to Phase 2)
-
-The second AWS measure — deprioritize a group whose jobs are few but slow — needs a rolling, cluster-wide accumulator of per-group processing time (a windowed sum keyed by group, updated on `Complete`/`Fail`, with the 5-minute idle decay). That is genuinely stateful and provider-specific.
-
-**Recommendation:** ship Phase 1 with concurrency-share + round-robin only. It delivers the motivating example. Add processing-time share later behind the same ordering key (an extra `noisy(g)` disjunct) once we decide where to store the rolling window (candidate: a small `group_load` table / in-memory ring per node).
-
-## 8. Configuration & activation
-
-Fair queues are **opt-in**: calling `UseFairQueues` on the Immediate.Jobs options builder is what enables the fairness dispatch path (§5.0). The registration *is* the on-switch — there is no separate `FairnessEnabled` boolean. Not calling it leaves acquisition byte-for-byte as today.
+`ScheduleAsync` and `ScheduleAtAsync` follow the same pattern. The cancellation token remains in its
+existing positional slot, so calls such as `EnqueueAsync(payload, default)` remain unambiguous.
+Grouped calls normally name the final argument:
 
 ```csharp
-services.AddImmediateJobs(o =>
+await scheduler.EnqueueAsync(payload, cancellationToken, groupId: tenantId);
+```
+
+The new `IJobScheduler<TPayload>` members have default interface implementations that delegate
+null, empty, and whitespace-only group ids to the existing methods and reject a normalized non-empty
+group id. Existing third-party scheduler implementations therefore remain compatible, while
+Immediate.Jobs' generated and testing schedulers override the grouped operations.
+
+The non-generated `JobScheduler<TPayload>` normalizes the value once:
+
+- `null`, empty, or whitespace-only becomes `null`;
+- a value longer than 128 characters throws `ArgumentException`;
+- otherwise the original opaque value is stored on `JobRecord.GroupId`.
+
+Direct enqueue and schedule entry points are in Phase 1. Group parameters for continuations, batches, and recurring definitions remain Phase 2 work.
+
+## 4. Configuration and request propagation
+
+Fair acquisition is disabled unless the application opts in:
+
+```csharp
+services.AddImmediateJobs(options =>
 {
-    // ...
-    o.UseFairQueues(); // defaults below
-    // or tune:
-    o.UseFairQueues(f =>
+    options.UseFairQueues();
+
+    // Or:
+    options.UseFairQueues(fair =>
     {
-        f.ConcurrencyShareThreshold = 0.10;
-        f.MinInflightForNoisy = 30;
-        f.GroupRoundRobin = true;
+        fair.ConcurrencyShareThreshold = 0.10;
+        fair.MinInflightForNoisy = 30;
+        fair.GroupRoundRobin = true;
     });
 });
 ```
 
-The knobs live on a `FairQueueOptions` passed to the callback (SQS defaults). **Decided: global scope for v1** — one set of values for the whole app, no per-queue override. Fairness is still computed per-queue at runtime; per-queue *threshold* overrides via `QueueDefinitionAttribute` can be added later if a real need appears (§12).
-
 | Setting | Default | Meaning |
 | --- | --- | --- |
-| `ConcurrencyShareThreshold` | `0.10` | Noisy if in-flight share exceeds this. |
-| `MinInflightForNoisy` | `30` | Minimum own in-flight before noisy applies. |
-| `GroupRoundRobin` (Option B) | `true` | Interleave eligible candidates across groups. `false` ⇒ faithful AWS (Option A). |
+| `ConcurrencyShareThreshold` | `0.10` | A group is potentially noisy when its share is strictly greater than this value. Must be in `(0, 1]`. |
+| `MinInflightForNoisy` | `30` | Minimum non-expired in-flight jobs in the group before it can be noisy. Must be positive. |
+| `GroupRoundRobin` | `true` | Use the stateful group cursor. `false` retains noisy-neighbor prioritization without backlog round-robin. |
 
-## 9. Observability
+`ImmediateJobsOptions` converts these mutable startup options to an immutable `FairQueuePolicy` carried on each `JobAcquisitionRequest`. A `null` policy means the provider must execute its existing acquisition path.
 
-- **Dashboard:** show `GroupId` on job detail; add an optional `GroupId` filter to `JobQuery` and the jobs list.
-- **Monitoring snapshot:** optionally surface top in-flight groups per queue and which are currently marked noisy — useful for tuning the thresholds.
-- **Telemetry:** tag existing enqueue/acquire metrics with group id (bounded-cardinality caution — make it opt-in).
+If grouped jobs are acquired while the policy is disabled, the scheduler emits a one-time warning that the stored group ids are inert.
 
-## 10. Testing
+## 5. Persistence model
 
-- **Unit (in-memory, deterministic):** seed N `Active` group-1 jobs to force noisy, plus pending group-2 job; assert group-2 is acquired before remaining group-1 jobs. Toggle `GroupRoundRobin` to assert Option A vs B ordering.
-- **Ungrouped regression:** with no group ids, assert acquisition order is identical to pre-change (`DueAt → CreatedAt → Id`).
-- **EF Core:** integration test with a real/containerized DB verifying the grouped count query, ordering, and that concurrent claim still resolves via `ConcurrencyStamp`.
-- **Single-server:** verify primary selection drives the replica mirror unchanged.
-- **Capacity interaction:** confirm fairness ordering never violates per-queue capacity or per-job `MaxConcurrency`.
+### 5.1 Job column and index
 
-## 11. Scope & phasing
+All durable job representations gain nullable `GroupId` with a maximum length of 128. EF Core and LinqToDB add an index shaped for group-state lookups:
 
-**Phase 1 (this plan):**
-1. `JobRecord.GroupId` + EF column/index/migration (always present, independent of activation).
-2. `groupId` param on `EnqueueAsync`/`ScheduleAsync`/`ScheduleAtAsync` in `JobScheduler<TPayload>`, with 128-char validation.
-3. `o.UseFairQueues(...)` registration + `FairQueueOptions`; the acquisition gating branch (§5.0) incl. the no-grouped-work fast-path and the inert-group-id startup warning.
-4. Fairness ordering (concurrency-share + optional round-robin) in `InMemoryJobStorage` and `EntityFrameworkCoreJobStorage`; single-server inherited.
-5. Tests + docs.
+```text
+(QueueName, State, GroupId)
+```
 
-**Phase 2 (later):** processing-time-share measure; grouping on continuation/batch/recurring enqueue paths; dashboard/monitoring surfacing.
+The existing acquisition indexes remain in place.
 
-**Effort:** Phase 1 is moderate. The mechanical parts (field, API param, config, in-memory ordering, single-server) are small and low-risk. The bulk of the effort and the only real risk is the EF Core acquisition query — getting the grouped-count + fairness `ORDER BY` correct and efficient, and keeping the optimistic-concurrency claim loop intact under load.
+### 5.2 SQL cursor table
 
-## 12. Resolved decisions
+EF Core and LinqToDB add one internal entity with the same table shape:
 
-All design questions are settled for Phase 1:
+```text
+immediate_fair_queue_groups
+  QueueName             composite primary key
+  GroupId               composite primary key
+  LastServedSequence    bigint
+  ConcurrencyStamp      concurrency token
+```
 
-1. **Option A vs B** — **Option B** (backlog-aware round-robin), with `GroupRoundRobin` config to fall back to Option A. See §3.
-2. **Group id validation** — normalize empty/whitespace to `null`; cap at **128** chars (SQS limit), reject longer with `ArgumentException`. Column `varchar(128)`. See §4.
-3. **Threshold scope** — **global only** for v1 via `FairQueueOptions`; per-queue override deferred until a concrete need arises. See §8.
-4. **Cardinality guard** — **none.** The singleton-tenant model degrades gracefully: a unique id per job just makes every job its own quiet tenant (≈ ungrouped/today), and the grouped-count query is bounded by in-flight (`Active`) rows, which are few. Optional dev-time cardinality warning can be revisited in Phase 2 if it proves useful.
-5. **Activation & performance** — **opt-in via `o.UseFairQueues(...)`**, not always-on. Off by default ⇒ the hot acquisition path is unchanged (no grouped-count query, no window function). `GroupId` column and `groupId` enqueue arg exist regardless but are inert until registered. Even when enabled, queues with no grouped work in the candidate window short-circuit to the simple order. See §5.0 / §8.
+`LastServedSequence` is a logical, queue-local service order. Before selecting a group, the fair path reads the maximum value visible in that queue. It assigns the chosen group the next local value. The value is monotonic within one acquisition pass but is not required to be globally unique: concurrent passes may use the same value without compromising job ownership or eventual rotation.
+
+The selected job and its group cursor are updated in the same EF transaction. The job's existing `ConcurrencyStamp` remains the authority for exclusive ownership. The group cursor has its own concurrency token so a delayed writer cannot move a group backward. Concurrent claims from the same group, or concurrent insertion of the same new group row, retry after their conflict. Different groups do not contend even when concurrent nodes assign them the same logical sequence.
+
+Applications own their EF migrations. Adopting this version requires a migration that adds `GroupId`, its index, and the cursor table; the library does not ship an application-specific migration. LinqToDB's schema bootstrap creates the same table for new installations, while existing databases need an equivalent additive schema upgrade.
+
+SQL group identity follows the database collation of `GroupId`. Candidate heads, in-flight counts, cursor lookup, and cursor updates all use database-side equality so a case-insensitive database cannot split one logical group between SQL and in-memory state. Applications that need case-sensitive or trailing-space-sensitive group ids must configure an appropriate binary/ordinal collation for both `GroupId` columns in their migration.
+
+### 5.3 In-memory cursor state
+
+`InMemoryJobStorage` keeps group last-served values in a dictionary protected by its existing `_gate`. It derives the next logical order from the maximum value in the queue. Candidate selection, claim, and cursor advancement occur inside the same critical section.
+
+### 5.4 LinqToDB schema
+
+LinqToDB carries `GroupId`, adds the group-state index, and creates `immediate_fair_queue_groups` in every supported schema-bootstrap dialect. Its distributed acquisition path uses the same logical cursor and transactional claim semantics as EF Core. Existing databases need the equivalent additive schema upgrade.
+
+### 5.5 Redis
+
+Redis persists `GroupId` as part of the job record but does not implement the cluster-wide fair cursor in Phase 1. Direct Redis acquisition rejects a fair-queue request. This makes the provider boundary explicit instead of silently ignoring the policy.
+
+## 6. Acquisition algorithm
+
+Acquisition remains queue-local and continues to honor the existing global batch size, queue capacity, job-name capacity, leases, and optimistic claims.
+
+### 6.1 Disabled and no-group fast paths
+
+- When `JobAcquisitionRequest.FairQueues` is `null`, execute the pre-existing candidate query and order unchanged.
+- When fairness is enabled but a queue has no eligible job with a non-null group id, use that same existing path for the queue.
+
+The existing order is:
+
+```text
+DueAt, CreatedAt, Id
+```
+
+This keeps the feature opt-in and avoids cursor or group-count work for ungrouped queues.
+
+### 6.2 Reclaim before measuring
+
+Expired leases are returned to pending state before fairness is calculated. Only `Active` jobs whose lease has not expired contribute to in-flight counts. A stale lease therefore cannot keep a group classified as noisy.
+
+### 6.3 Noisy-group classification
+
+For one queue:
+
+```text
+inflight[g] = count(
+  State == Active
+  && LeaseExpiresAt > now
+  && QueueName == queue
+  && GroupId == g)
+
+N = total non-expired Active jobs in the queue
+
+noisy(g) =
+  inflight[g] >= MinInflightForNoisy
+  && inflight[g] / N > ConcurrencyShareThreshold
+```
+
+Ungrouped jobs are always quiet. Among noisy groups, fewer in-flight jobs sort first.
+
+### 6.4 Stateful group selection
+
+For each available slot, the provider must consider the head eligible job from every group; it must not truncate candidates by due time before group selection. Candidates are ranked by:
+
+1. quiet before noisy;
+2. among noisy groups, lower in-flight count first;
+3. when `GroupRoundRobin` is enabled, the group's `LastServedSequence` ascending;
+4. `DueAt`, `CreatedAt`, and `Id`.
+
+A group without a cursor is treated as never served and therefore advances ahead of already-served backlogged groups. After a grouped job is claimed:
+
+1. compute one more than the greatest group sequence observed for the queue;
+2. store that value as the group's `LastServedSequence`;
+3. re-rank remaining candidates for the next slot.
+
+Re-ranking per slot is important: a single acquisition batch cannot consume repeatedly from one group before considering the others.
+
+When a group's pending, scheduled, and active backlog clears, its cursor is removed. A later, genuinely new backlog then rejoins as a never-served group rather than inheriting historical scheduling debt. This intentionally lets an intermittent quiet group jump ahead when it returns.
+
+Cursor cleanup is fairness metadata maintenance, not job correctness state. An enqueue racing with cleanup may leave the cursor absent or retained for one pass; either result self-corrects after the next successful claim. Cleanup must never be allowed to roll back or corrupt a valid job transition.
+
+### 6.5 Ungrouped behavior
+
+Each ungrouped job behaves as a singleton tenant:
+
+- it is always quiet;
+- it has no persistent group cursor;
+- the existing `DueAt`, `CreatedAt`, `Id` order decides between ungrouped jobs;
+- when all eligible work is ungrouped, the fast path produces the exact pre-feature behavior.
+
+### 6.6 `GroupRoundRobin = false`
+
+Disabling round-robin removes step 3 from the ranking. Quiet groups still precede noisy groups, and the existing due-time order breaks remaining ties. This is the Phase 1 approximation closest to AWS concurrency-share fairness.
+
+## 7. Provider behavior
+
+### 7.1 In-memory
+
+The in-memory provider computes in-flight counts and selects candidates under `_gate`. The stateful cursor and job state change are atomic relative to other in-memory operations.
+
+### 7.2 EF Core
+
+The EF provider uses group cursor rows rather than a queue-wide counter. It reads the relevant non-expired active counts and the head eligible candidate for each group, selects the next group, and atomically claims the job and advances cursor state. Job concurrency conflicts are retried by re-reading current state.
+
+The fairness branch changes selection only. Existing capacity calculation, lease ownership, retry state, and job-name concurrency limits still apply.
+
+This stateful guarantee costs more than the disabled path. The SQL providers already write each optimistic job claim separately; fair acquisition piggybacks the group-cursor update on that claim transaction, so it does not add a separate cursor-write round-trip. It does add a selection re-read when another slot remains, because the next group must be chosen using the cursor just advanced. Thus a fair batch is an iterative select-and-claim loop rather than one `ORDER BY ... TAKE n` candidate read. The feature remains opt-in, and queues without grouped eligible work retain the original batched candidate query.
+
+The first implementation favors the capacity-one guarantee and cross-node correctness over a provider-specific bulk SQL optimization. A later optimization may select and claim a balanced block in one database command, provided it preserves per-job capacity limits and the same cursor semantics.
+
+### 7.3 Single-server
+
+`SingleServerJobStorage` delegates selection to its in-memory primary. The primary applies the fair policy and the durable replica mirrors the selected ids, so EF Core or LinqToDB replicas do not run a second fairness decision.
+
+### 7.4 LinqToDB
+
+The LinqToDB provider implements the same stateful selection rules with provider-neutral transactions and compare-and-swap updates. Its disabled and ungrouped fast paths retain the existing batched query. Schema bootstrap creates the group cursor table for supported SQL dialects; it does not mutate existing tables.
+
+### 7.5 Unsupported direct distributed provider
+
+Direct Redis fair acquisition throws `NotSupportedException` in Phase 1. Redis continues to work normally when fair queues are not enabled. This is a deliberate provider boundary, not a silent downgrade.
+
+### 7.6 Operational tradeoffs
+
+Compared with the rejected stateless window rank, the stateful design adds one internal table, an application migration, cursor reads and writes, and cleanup behavior. It also makes enabled EF acquisition more iterative. In exchange, fairness works when capacity is one and persists across scheduler nodes.
+
+There is no queue-wide mutable row, so unrelated groups do not contend on a shared sequence record. Claims for the same group still serialize their small claim-and-cursor transactions through that group's row. This can cause scoped retry churn for one dominant group, but does not serialize the entire queue. A sole grouped tenant still records service history so a quiet group that arrives later can advance immediately; only a queue with no eligible grouped work can take the cursorless fast path.
+
+Group cardinality should track tenant count, not job count. A unique non-null group id per job makes fair selection scale with the number of distinct groups and creates a cursor for every job; callers should pass `null` for ungrouped work instead.
+
+Storage lifetime is explicit: `IJobStorage` extends `IAsyncDisposable`, and built-in providers release connections or owned inner stores during asynchronous disposal. File-backed SQLite test fixtures dispose every storage instance, clear provider pools, and only then delete the database file, which keeps teardown portable to Windows.
+
+## 8. Verification
+
+The verified suite covers:
+
+- **Capacity-one starvation regression:** after acquiring and completing a group-1 job, a group-2 job enqueued afterward is selected before the next group-1 backlog item, including beyond a deep backlog.
+- **Batch interleaving:** one acquisition request re-ranks after each claim and distributes available slots across groups.
+- **Cross-instance EF behavior:** two EF storage instances cannot duplicate a claim or corrupt the shared cursor.
+- **Concurrent cursor ties:** duplicate logical sequence values converge without starving an unserved group.
+- **SQL collation:** candidate state uses the same database equality as group selection on SQL Server.
+- **Noisy neighbor:** a group over both thresholds is served after quiet work; expired leases do not count.
+- **Round-robin switch:** `GroupRoundRobin = false` disables cursor ordering while retaining noisy classification.
+- **Ungrouped regression:** acquisition order without group ids remains `DueAt`, `CreatedAt`, `Id`.
+- **Capacity regression:** fairness never exceeds queue, job-name, or request capacity.
+- **Cursor reset and cleanup failure:** clearing a group's backlog removes its scheduling history, while cleanup failure cannot roll back a committed terminal transition.
+- **Activation:** grouped jobs are inert when the policy is disabled, with a one-time scheduler warning.
+- **Validation:** whitespace normalizes to `null`; 129-character group ids fail before persistence.
+- **LinqToDB parity:** direct distributed LinqToDB passes the same rotation, classification, capacity, cursor-reset, and contention cases as EF Core.
+- **Provider boundary:** direct Redis rejects a fair policy; its normal acquisition remains unchanged when it is absent.
+- **Single-server:** primary selection and replica mirroring preserve `GroupId` and the chosen ids.
+
+Verification includes the full solution build, every target framework in the unit and functional suites, the EF Core/LinqToDB matrix on SQLite, PostgreSQL, and SQL Server, Redis integration tests, and dashboard lint, type, and unit checks.
+
+## 9. Phase 1 deliverables
+
+1. `JobRecord.GroupId` and provider persistence mappings.
+2. Source-compatible direct enqueue/schedule overloads with normalization and length validation.
+3. `FairQueueOptions`, `UseFairQueues(...)`, immutable acquisition policy, and disabled-policy warning.
+4. In-memory queue/group cursor state and fair acquisition.
+5. EF Core group-cursor entity, schema configuration, transactional acquisition, and migration guidance.
+6. Single-server propagation through its in-memory primary.
+7. LinqToDB cursor schema and direct distributed fair acquisition; explicit Redis rejection.
+8. Focused regression, concurrency, provider-boundary, and validation tests.
+9. Async storage disposal and Windows-safe file-backed fixture teardown.
+10. Dashboard group display in job lists and details.
+11. README and provider guidance aligned with the verified behavior.
+
+## 10. Deferred work
+
+- Processing-time-share detection for groups whose few jobs consume disproportionate execution time.
+- The five-minute idle decay needed by that processing-time signal.
+- Group parameters for continuation, batch, and recurring enqueue paths.
+- `JobQuery` group filtering and per-group monitoring snapshots.
+- Per-queue threshold overrides.
+- Direct distributed fair cursors for Redis.
+- Opt-in telemetry dimensions, subject to cardinality controls.
+
+## 11. Resolved decisions
+
+1. Backlog fairness uses a stateful cursor, not a stateless SQL window rank.
+2. The cursor is scoped to `(QueueName, GroupId)` and advanced atomically with the claim.
+3. There is no queue-wide sequence row. The next logical order is derived from the greatest observed group order; duplicate values from concurrent nodes are harmless temporary ties.
+4. Empty group ids normalize to `null`; the maximum length is 128.
+5. Existing cancellation-token scheduler overloads remain source compatible, including positional `default` calls; grouped parameters follow the cancellation token.
+6. Fair acquisition is opt-in and has an exact disabled path plus an ungrouped fast path.
+7. Thresholds are global in Phase 1.
+8. Ungrouped jobs are singleton quiet tenants and do not receive durable cursor rows.
+9. Cursor state is cleared with the group's backlog; returning quiet groups intentionally re-enter as never served.
+10. EF applications supply their own migrations.
+11. Phase 1 direct distributed SQL support includes EF Core and LinqToDB; Redis rejects fair acquisition rather than ignoring it.
+12. Processing-time fairness and group observability remain Phase 2.
+13. Non-null group ids identify reusable tenants. Unique-per-job group ids are an unsupported usage pattern; ungrouped work should use `null`.

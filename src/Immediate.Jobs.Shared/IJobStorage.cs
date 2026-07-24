@@ -1,7 +1,10 @@
 namespace Immediate.Jobs.Shared;
 
-/// <summary>The storage seam implemented by all job providers.</summary>
-public interface IJobStorage
+/// <summary>
+/// The storage seam implemented by all job providers. Implementations must tolerate repeated
+/// <see cref="IAsyncDisposable.DisposeAsync"/> calls because one instance may expose multiple storage capabilities.
+/// </summary>
+public interface IJobStorage : IAsyncDisposable
 {
 	/// <summary>Creates or upgrades provider storage.</summary>
 	ValueTask InitializeAsync(CancellationToken cancellationToken = default);

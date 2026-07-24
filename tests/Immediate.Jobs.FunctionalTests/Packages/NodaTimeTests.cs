@@ -18,8 +18,18 @@ public sealed class NodaTimeTests
 		var clock = new Microsoft.Extensions.Time.Testing.FakeTimeProvider(start.ToDateTimeOffset());
 		var scheduler = new CaptureOnlyJobScheduler<SchedulerRequest>(clock);
 
-		_ = await scheduler.ScheduleAsync(new("later"), Duration.FromMinutes(5), "tenant-a", cancellationToken);
-		_ = await scheduler.ScheduleAtAsync(new("absolute"), start + Duration.FromHours(2), "tenant-b", cancellationToken);
+		_ = await scheduler.ScheduleAsync(
+			new("later"),
+			Duration.FromMinutes(5),
+			cancellationToken,
+			groupId: "tenant-a"
+		);
+		_ = await scheduler.ScheduleAtAsync(
+			new("absolute"),
+			start + Duration.FromHours(2),
+			cancellationToken,
+			groupId: "tenant-b"
+		);
 
 		Assert.Equal(start + Duration.FromMinutes(5), Instant.FromDateTimeOffset(scheduler.Captures[0].RunAt));
 		Assert.Equal(start + Duration.FromHours(2), Instant.FromDateTimeOffset(scheduler.Captures[1].RunAt));

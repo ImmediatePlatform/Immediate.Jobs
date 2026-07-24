@@ -1,6 +1,7 @@
 using System.Text.Json.Serialization;
 using Immediate.Jobs.Testing;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 
 namespace Immediate.Jobs.FunctionalTests.Packages;
 
@@ -13,12 +14,103 @@ public sealed class TestingPackageTests
 		var scheduler = new CaptureOnlyJobScheduler<TestPayload>();
 		var payload = new TestPayload("hello");
 
-		var id = await scheduler.EnqueueAsync(payload, "tenant-a", TestContext.Current.CancellationToken);
+		var id = await scheduler.EnqueueAsync(
+			payload,
+			TestContext.Current.CancellationToken,
+			groupId: "tenant-a"
+		);
 
 		var capture = Assert.Single(scheduler.Captures);
 		Assert.Equal(id.Id, capture.Id);
 		Assert.Equal(payload, capture.Payload);
 		Assert.Equal("tenant-a", capture.GroupId);
+	}
+
+	[Fact]
+	public async Task ExistingSchedulerImplementationsKeepCancellationTokenCalls()
+	{
+		IJobScheduler<TestPayload> scheduler = new LegacyScheduler();
+
+#pragma warning disable xUnit1051 // The default literal is the source-compatibility case under test.
+		_ = await scheduler.EnqueueAsync(new("legacy"), default);
+#pragma warning restore xUnit1051
+		_ = await scheduler.EnqueueAsync(new("ungrouped"), CancellationToken.None, groupId: null);
+		_ = await Assert.ThrowsAsync<NotSupportedException>(
+			() => scheduler.EnqueueAsync(
+				new("grouped"),
+				CancellationToken.None,
+				groupId: "tenant-a"
+			).AsTask()
+		);
+	}
+
+	[Fact]
+	public async Task SchedulerNormalizesAndValidatesFairQueueGroupIds()
+	{
+		var cancellationToken = TestContext.Current.CancellationToken;
+		await using var harness = new JobTestHarness();
+		var scheduler = new TestScheduler(
+			harness.Storage,
+			harness.Services.GetRequiredService<IJobSerializer>(),
+			harness.TimeProvider,
+			harness.Services.GetRequiredService<IIdGenerator>()
+		);
+
+		var grouped = await scheduler.EnqueueAsync(new("grouped"), cancellationToken, groupId: "tenant-a");
+		var ungrouped = await scheduler.EnqueueAsync(new("ungrouped"), cancellationToken, groupId: " \t ");
+
+		Assert.Equal("tenant-a", (await harness.GetJobAsync(grouped, cancellationToken)).GroupId);
+		Assert.Null((await harness.GetJobAsync(ungrouped, cancellationToken)).GroupId);
+		var exception = await Assert.ThrowsAsync<ArgumentException>(async () =>
+			await scheduler.EnqueueAsync(new("too-long"), cancellationToken, groupId: new string('x', 129))
+		);
+		Assert.Equal("groupId", exception.ParamName);
+	}
+
+	[Fact]
+	public void FairQueueOptionsRejectInvalidThresholds()
+	{
+		var services = new ServiceCollection();
+
+		_ = Assert.Throws<ImmediateJobException>(() => services.AddImmediateJobsCore(options =>
+			options.UseFairQueues(fairQueues => fairQueues.ConcurrencyShareThreshold = 0)
+		));
+		_ = Assert.Throws<ImmediateJobException>(() => services.AddImmediateJobsCore(options =>
+			options.UseFairQueues(fairQueues => fairQueues.MinInflightForNoisy = 0)
+		));
+	}
+
+	[Fact]
+	public async Task GroupedJobsLogOneWarningWhenFairQueuesAreDisabled()
+	{
+		var cancellationToken = TestContext.Current.CancellationToken;
+		var logger = new CapturingSchedulerLogger();
+		var counter = new InvocationCounter();
+		await using var harness = new JobTestHarness(services =>
+		{
+			_ = services.AddSingleton(counter);
+			_ = services.AddSingleton(new JobDefinition
+			{
+				Name = "test-job",
+				JobType = typeof(TestingPackageTests),
+				Invoker = new TestInvoker(),
+			});
+			_ = services.AddSingleton<ILogger<JobSchedulerService>>(logger);
+		});
+		var scheduler = new TestScheduler(
+			harness.Storage,
+			harness.Services.GetRequiredService<IJobSerializer>(),
+			harness.TimeProvider,
+			harness.Services.GetRequiredService<IIdGenerator>()
+		);
+
+		_ = await scheduler.EnqueueAsync(new("first"), cancellationToken, groupId: "tenant-a");
+		await harness.DrainAsync(cancellationToken);
+		_ = await scheduler.EnqueueAsync(new("second"), cancellationToken, groupId: "tenant-b");
+		await harness.DrainAsync(cancellationToken);
+
+		Assert.Equal(2, counter.Count);
+		Assert.Equal(1, logger.EventIds.Count(static eventId => eventId == 8));
 	}
 
 	[Fact]
@@ -77,6 +169,26 @@ public sealed class TestingPackageTests
 			static options => new TestingJsonContext(options).TestPayload
 		);
 
+	private sealed class LegacyScheduler : IJobScheduler<TestPayload>
+	{
+		public ValueTask<JobHandle> EnqueueAsync(
+			TestPayload payload,
+			CancellationToken cancellationToken = default
+		) => ValueTask.FromResult(new JobHandle("legacy"));
+
+		public ValueTask<JobHandle> ScheduleAsync(
+			TestPayload payload,
+			TimeSpan delay,
+			CancellationToken cancellationToken = default
+		) => ValueTask.FromResult(new JobHandle("legacy"));
+
+		public ValueTask<JobHandle> ScheduleAtAsync(
+			TestPayload payload,
+			DateTimeOffset runAt,
+			CancellationToken cancellationToken = default
+		) => ValueTask.FromResult(new JobHandle("legacy"));
+	}
+
 	private sealed class TestInvoker : IJobInvoker
 	{
 		public ValueTask InvokeAsync(IServiceProvider scopedServices, JobExecution execution)
@@ -84,6 +196,23 @@ public sealed class TestingPackageTests
 			scopedServices.GetRequiredService<InvocationCounter>().Count++;
 			return ValueTask.CompletedTask;
 		}
+	}
+
+	private sealed class CapturingSchedulerLogger : ILogger<JobSchedulerService>
+	{
+		public List<int> EventIds { get; } = [];
+
+		public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+		public bool IsEnabled(LogLevel logLevel) => true;
+
+		public void Log<TState>(
+			LogLevel logLevel,
+			EventId eventId,
+			TState state,
+			Exception? exception,
+			Func<TState, Exception?, string> formatter
+		) => EventIds.Add(eventId.Id);
 	}
 }
 

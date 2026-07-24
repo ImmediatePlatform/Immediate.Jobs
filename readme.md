@@ -113,6 +113,38 @@ Larger priority values are acquired first. Queues at the same priority are consi
 
 When `Name` is omitted it is derived from the queue type (`TransactionalEmailQueue` becomes `transactional-email-queue`). Jobs without `UsesQueue<TQueue>` use the unbounded priority-zero `default` queue. Queue names are persisted with each invocation: keep an old definition until its nonterminal jobs drain, or migrate those rows before renaming/removing it.
 
+### Fair queues
+
+Fair queues prevent one tenant's backlog from starving quieter tenants in the same queue. Supply a
+runtime group id when directly enqueueing or scheduling work, then opt into fair acquisition:
+
+```csharp
+await welcomeEmail.EnqueueAsync(
+	new(userId, "v2"),
+	groupId: tenantId,
+	cancellationToken: cancellationToken
+);
+
+builder.Services.AddImmediateJobs(options =>
+{
+	options.UseEntityFrameworkCore<AppDbContext>();
+	options.UseDistributed();
+	options.UseFairQueues();
+});
+```
+
+Fair queues are not FIFO and do not serialize a group. They rotate eligible work across groups and
+deprioritize a group only when its non-expired in-flight share exceeds the configured threshold.
+Null, empty, or whitespace group ids are ungrouped and retain the existing due-time order. Group ids
+should identify reusable tenants, not individual jobs; use `null` for ordinary ungrouped work.
+
+In-memory, EF Core, LinqToDB, and single-server storage support fair acquisition. Redis persists the
+group id but rejects fair acquisition in this release. EF applications must migrate the nullable
+`GroupId` column, `(QueueName, State, GroupId)` index, and `immediate_fair_queue_groups` table.
+LinqToDB schema bootstrap creates them for new databases; existing databases need the equivalent
+additive upgrade. See [Fair queues](docs/fair-queues.md) for the algorithm, schema, tradeoffs, and
+provider details.
+
 Register the generated application job module:
 
 ```csharp

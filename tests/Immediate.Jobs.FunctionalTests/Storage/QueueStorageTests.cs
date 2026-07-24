@@ -12,7 +12,7 @@ public sealed class QueueStorageTests
 	{
 		var cancellationToken = TestContext.Current.CancellationToken;
 		var clock = new FakeTimeProvider(DateTimeOffset.UnixEpoch);
-		var storage = new InMemoryJobStorage(clock);
+		await using var storage = new InMemoryJobStorage(clock);
 		var job = new JobRecord
 		{
 			Id = Guid.NewGuid().ToString("N"),
@@ -51,7 +51,7 @@ public sealed class QueueStorageTests
 	{
 		var cancellationToken = TestContext.Current.CancellationToken;
 		var clock = new FakeTimeProvider(DateTimeOffset.UnixEpoch);
-		var storage = new InMemoryJobStorage(clock);
+		await using var storage = new InMemoryJobStorage(clock);
 		await storage.InitializeAsync(cancellationToken);
 
 		await Enqueue("low", "low-job", 0);
