@@ -4,7 +4,7 @@ using Immediate.Jobs.Shared;
 
 namespace Immediate.Jobs.Aspire.Api.Jobs;
 
-[Handler, Job("aspire-greeting", MaxAttempts = 3), UsesJobContext<RequestContextExtractor>]
+[Handler, Job(Name = "aspire-greeting", MaxAttempts = 3), UsesJobContext<RequestContextExtractor>]
 public sealed partial class AspireGreetingJob(
 	ILogger<AspireGreetingJob> logger,
 	CurrentRequestContext currentRequestContext

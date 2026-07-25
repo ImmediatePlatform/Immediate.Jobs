@@ -23,7 +23,7 @@ app.MapPost("/welcome/{userId:guid}", async (
 app.MapImmediateJobsDashboard("/jobs");
 await app.RunAsync();
 
-[Handler, Job("send-welcome-email", MaxAttempts = 5, Timeout = "00:02:00")]
+[Handler, Job(Name = "send-welcome-email", MaxAttempts = 5, Timeout = "00:02:00")]
 public sealed partial class SendWelcomeEmail(IEmailSender sender)
 {
 	public sealed record Payload(Guid UserId, string Template);

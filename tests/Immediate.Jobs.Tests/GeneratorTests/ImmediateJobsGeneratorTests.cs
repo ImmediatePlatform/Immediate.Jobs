@@ -18,7 +18,7 @@ public sealed class ImmediateJobsGeneratorTests
 
 			namespace Example;
 
-			[Handler, Job("send-email", MaxAttempts = 5, Timeout = "00:02:00")]
+			[Handler, Job(Name = "send-email", MaxAttempts = 5, Timeout = "00:02:00")]
 			public sealed partial class SendEmailJob
 			{
 				public sealed record Payload(Guid UserId, string Template) : IJobRequest { public JobDetails? JobDetails { get; set; } }

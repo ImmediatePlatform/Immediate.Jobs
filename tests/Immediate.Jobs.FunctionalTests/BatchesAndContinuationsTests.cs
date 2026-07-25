@@ -350,7 +350,7 @@ public sealed class DynamicExpansionState
 	public int Attempts { get; set; }
 }
 
-[Handler, Job("batch-workflow-test", MaxAttempts = 1)]
+[Handler, Job(Name = "batch-workflow-test", MaxAttempts = 1)]
 public sealed partial class BatchWorkflowJob(BatchWorkflowState? state = null)
 {
 	public sealed record Payload(string Name, bool Fail = false);
@@ -365,7 +365,7 @@ public sealed partial class BatchWorkflowJob(BatchWorkflowState? state = null)
 	}
 }
 
-[Handler, Job("dynamic-expansion-test", MaxAttempts = 2, Backoff = BackoffStrategy.Fixed, BackoffBase = "00:00:01")]
+[Handler, Job(Name = "dynamic-expansion-test", MaxAttempts = 2, Backoff = BackoffStrategy.Fixed, BackoffBase = "00:00:01")]
 public sealed partial class DynamicExpansionJob(
 	BatchWorkflowJob.Scheduler scheduler,
 	DynamicExpansionState? state = null

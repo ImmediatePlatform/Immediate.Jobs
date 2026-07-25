@@ -3,7 +3,7 @@ using Immediate.Jobs.Shared;
 
 namespace Immediate.Jobs.Aspire.Api.Jobs;
 
-[Handler, Job("order-received")]
+[Handler, Job(Name = "order-received")]
 public sealed partial class ReceiveOrderJob(ILogger<ReceiveOrderJob> logger)
 {
 	public sealed record Payload(Guid OrderId);
@@ -12,7 +12,7 @@ public sealed partial class ReceiveOrderJob(ILogger<ReceiveOrderJob> logger)
 		OrderWorkflowStep.RunAsync(logger, payload.OrderId, "received", cancellationToken);
 }
 
-[Handler, Job("order-reserve-inventory")]
+[Handler, Job(Name = "order-reserve-inventory")]
 public sealed partial class ReserveInventoryJob(ILogger<ReserveInventoryJob> logger)
 {
 	public sealed record Payload(Guid OrderId);
@@ -21,7 +21,7 @@ public sealed partial class ReserveInventoryJob(ILogger<ReserveInventoryJob> log
 		OrderWorkflowStep.RunAsync(logger, payload.OrderId, "inventory reserved", cancellationToken);
 }
 
-[Handler, Job("order-fraud-check")]
+[Handler, Job(Name = "order-fraud-check")]
 public sealed partial class FraudCheckJob(
 	ILogger<FraudCheckJob> logger,
 	RecordFraudAssessmentJob.Scheduler recordFraudAssessment
@@ -51,7 +51,7 @@ public sealed partial class FraudCheckJob(
 	}
 }
 
-[Handler, Job("order-record-fraud-assessment")]
+[Handler, Job(Name = "order-record-fraud-assessment")]
 public sealed partial class RecordFraudAssessmentJob(ILogger<RecordFraudAssessmentJob> logger)
 {
 	public sealed record Payload(Guid OrderId);
@@ -65,7 +65,7 @@ public sealed partial class RecordFraudAssessmentJob(ILogger<RecordFraudAssessme
 		);
 }
 
-[Handler, Job("order-capture-payment")]
+[Handler, Job(Name = "order-capture-payment")]
 public sealed partial class CapturePaymentJob(ILogger<CapturePaymentJob> logger)
 {
 	public sealed record Payload(Guid OrderId);
@@ -74,7 +74,7 @@ public sealed partial class CapturePaymentJob(ILogger<CapturePaymentJob> logger)
 		OrderWorkflowStep.RunAsync(logger, payload.OrderId, "payment captured", cancellationToken);
 }
 
-[Handler, Job("order-prepare-fulfillment")]
+[Handler, Job(Name = "order-prepare-fulfillment")]
 public sealed partial class PrepareFulfillmentJob(ILogger<PrepareFulfillmentJob> logger)
 {
 	public sealed record Payload(Guid OrderId);
@@ -83,7 +83,7 @@ public sealed partial class PrepareFulfillmentJob(ILogger<PrepareFulfillmentJob>
 		OrderWorkflowStep.RunAsync(logger, payload.OrderId, "fulfillment prepared", cancellationToken);
 }
 
-[Handler, Job("order-create-label")]
+[Handler, Job(Name = "order-create-label")]
 public sealed partial class CreateShippingLabelJob(ILogger<CreateShippingLabelJob> logger)
 {
 	public sealed record Payload(Guid OrderId);
@@ -92,7 +92,7 @@ public sealed partial class CreateShippingLabelJob(ILogger<CreateShippingLabelJo
 		OrderWorkflowStep.RunAsync(logger, payload.OrderId, "shipping label created", cancellationToken);
 }
 
-[Handler, Job("order-pack")]
+[Handler, Job(Name = "order-pack")]
 public sealed partial class PackOrderJob(ILogger<PackOrderJob> logger)
 {
 	public sealed record Payload(Guid OrderId);
@@ -101,7 +101,7 @@ public sealed partial class PackOrderJob(ILogger<PackOrderJob> logger)
 		OrderWorkflowStep.RunAsync(logger, payload.OrderId, "packed", cancellationToken);
 }
 
-[Handler, Job("order-dispatch")]
+[Handler, Job(Name = "order-dispatch")]
 public sealed partial class DispatchOrderJob(ILogger<DispatchOrderJob> logger)
 {
 	public sealed record Payload(Guid OrderId);
@@ -110,7 +110,7 @@ public sealed partial class DispatchOrderJob(ILogger<DispatchOrderJob> logger)
 		OrderWorkflowStep.RunAsync(logger, payload.OrderId, "dispatched", cancellationToken);
 }
 
-[Handler, Job("order-notify-customer")]
+[Handler, Job(Name = "order-notify-customer")]
 public sealed partial class NotifyCustomerJob(ILogger<NotifyCustomerJob> logger)
 {
 	public sealed record Payload(Guid OrderId);
@@ -119,7 +119,7 @@ public sealed partial class NotifyCustomerJob(ILogger<NotifyCustomerJob> logger)
 		OrderWorkflowStep.RunAsync(logger, payload.OrderId, "customer notified", cancellationToken);
 }
 
-[Handler, Job("order-write-audit")]
+[Handler, Job(Name = "order-write-audit")]
 public sealed partial class WriteOrderAuditJob(ILogger<WriteOrderAuditJob> logger)
 {
 	public sealed record Payload(Guid OrderId);

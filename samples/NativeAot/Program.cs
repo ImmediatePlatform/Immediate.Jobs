@@ -43,7 +43,7 @@ public sealed class GreetingContextExtractor(CurrentGreetingContext currentConte
 	}
 }
 
-[Handler, Job("aot-greeting"), UsesJobContext<GreetingContextExtractor>]
+[Handler, Job(Name = "aot-greeting"), UsesJobContext<GreetingContextExtractor>]
 public sealed partial class AotGreetingJob(CurrentGreetingContext currentContext)
 {
 	public sealed record Payload(string Name, string ExpectedContext);

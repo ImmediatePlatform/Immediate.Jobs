@@ -15,13 +15,13 @@ public sealed class DuplicateElementsAnalyzerTests
 			
 			namespace Dummy;
 			
-			[Handler, Job(name: "my-name")]
+			[Handler, Job(Name = "my-name")]
 			public sealed partial class {|IJOB0002:JobOne|}
 			{
 				private async ValueTask Handle(NoPayload _, CancellationToken token) { }
 			}
 			
-			[Handler, Job(name: "my-name")]
+			[Handler, Job(Name = "my-name")]
 			public sealed partial class {|IJOB0002:JobTwo|}
 			{
 				private async ValueTask Handle(NoPayload _, CancellationToken token) { }
@@ -40,7 +40,7 @@ public sealed class DuplicateElementsAnalyzerTests
 			
 			namespace Dummy;
 			
-			[Handler, Job(name: "my-name")]
+			[Handler, Job(Name = "my-name")]
 			public sealed partial class {|IJOB0002:JobOne|}
 			{
 				private async ValueTask Handle(NoPayload _, CancellationToken token) { }

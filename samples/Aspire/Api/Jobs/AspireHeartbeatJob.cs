@@ -3,7 +3,7 @@ using Immediate.Jobs.Shared;
 
 namespace Immediate.Jobs.Aspire.Api.Jobs;
 
-[Handler, Job("aspire-heartbeat", Cron = "0 * * * * *")]
+[Handler, Job(Name = "aspire-heartbeat", Cron = "0 * * * * *")]
 public sealed partial class AspireHeartbeatJob(
 	ILogger<AspireHeartbeatJob> logger,
 	TimeProvider timeProvider

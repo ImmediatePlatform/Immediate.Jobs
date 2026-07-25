@@ -4,43 +4,32 @@ namespace Immediate.Jobs.Shared;
 [AttributeUsage(AttributeTargets.Class, AllowMultiple = false, Inherited = false)]
 public sealed class JobAttribute : Attribute
 {
-	/// <summary>Creates a job whose persisted name is derived from its class name.</summary>
-	public JobAttribute()
-	{
-	}
-
-	/// <summary>Creates a job with a stable persisted name.</summary>
-	public JobAttribute(string name)
-	{
-		Name = name;
-	}
-
 	/// <summary>The explicit persisted job name, or <see langword="null"/> to derive it.</summary>
-	public string? Name { get; }
+	public string? Name { get; init; }
 
 	/// <summary>A five- or six-field cron expression.</summary>
-	public string? Cron { get; set; }
+	public string? Cron { get; init; }
 
 	/// <summary>An IANA time-zone identifier. Defaults to UTC.</summary>
-	public string? TimeZone { get; set; }
+	public string? TimeZone { get; init; }
 
 	/// <summary>Total execution attempts, including the first attempt.</summary>
-	public int MaxAttempts { get; set; } = 3;
+	public int MaxAttempts { get; init; } = 3;
 
 	/// <summary>A <see cref="TimeSpan"/> formatted execution timeout.</summary>
-	public string? Timeout { get; set; }
+	public string? Timeout { get; init; }
 
 	/// <summary>Maximum simultaneous executions per node. Zero means unbounded.</summary>
-	public int MaxConcurrency { get; set; }
+	public int MaxConcurrency { get; init; }
 
 	/// <summary>Controls what happens when a recurring invocation overlaps.</summary>
-	public OverlapPolicy OverlapPolicy { get; set; } = OverlapPolicy.Skip;
+	public OverlapPolicy OverlapPolicy { get; init; } = OverlapPolicy.Skip;
 
 	/// <summary>The retry-delay algorithm.</summary>
-	public BackoffStrategy Backoff { get; set; } = BackoffStrategy.ExponentialJitter;
+	public BackoffStrategy Backoff { get; init; } = BackoffStrategy.ExponentialJitter;
 
 	/// <summary>A <see cref="TimeSpan"/> formatted retry base delay.</summary>
-	public string BackoffBase { get; set; } = "00:00:05";
+	public string BackoffBase { get; init; } = "00:00:05";
 }
 
 /// <summary>Controls overlapping recurring executions.</summary>

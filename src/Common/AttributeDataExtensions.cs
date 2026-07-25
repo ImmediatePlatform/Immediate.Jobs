@@ -20,11 +20,7 @@ internal static class AttributeDataExtensions
 	extension(AttributeData attribute)
 	{
 		public string GetJobName(string className) =>
-			attribute.ConstructorArguments switch
-			{
-				[{ } arg] when arg.GetStringValue() is { } name => name,
-				_ => className.AsJobName(),
-			};
+			attribute.NamedArguments.GetStringValue("Name") ?? className.AsJobName();
 
 		public string GetQueueName(string className) =>
 			attribute.NamedArguments.GetStringValue("Name") ?? className.AsQueueName();
