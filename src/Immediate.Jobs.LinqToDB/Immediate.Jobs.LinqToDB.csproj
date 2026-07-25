@@ -1,24 +1,33 @@
 <Project Sdk="Microsoft.NET.Sdk">
-  <PropertyGroup>
-    <IsPackable>true</IsPackable>
+
+  <PropertyGroup Label="Nuget">
+	<IsPackable>true</IsPackable>
+
     <Title>Immediate.Jobs.LinqToDB</Title>
     <Description>LinqToDB storage provider for Immediate.Jobs.</Description>
-    <Authors>Immediate.Jobs Developers</Authors>
-    <Copyright>© 2026 Immediate.Jobs Developers</Copyright>
-    <PackageLicenseExpression>MIT</PackageLicenseExpression>
-    <PackageReadmeFile>readme.md</PackageReadmeFile>
     <PackageTags>background-jobs;scheduler;linq2db;postgresql;sqlite;sql-server</PackageTags>
-    <RepositoryUrl>https://github.com/ImmediatePlatform/Immediate.Jobs</RepositoryUrl>
-    <PublishRepositoryUrl>true</PublishRepositoryUrl>
   </PropertyGroup>
+
+  <ItemGroup Label="Nuget">
+	<None Include="../../readme.md" Pack="true" PackagePath="/" />
+  </ItemGroup>
+
+  <PropertyGroup Condition="'$(TargetFramework)' == 'net11.0'">
+	<Features>runtime-async=on</Features>
+  </PropertyGroup>
+
   <ItemGroup>
-    <Using Include="Immediate.Jobs.Shared" />
-    <None Include="../../readme.md" Pack="true" PackagePath="/" />
-    <PackageReference Include="linq2db" />
+	<Using Include="Immediate.Jobs.Shared" />
+  </ItemGroup>
+
+  <ItemGroup>
+	<PackageReference Include="linq2db" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
   </ItemGroup>
+
   <ItemGroup>
     <ProjectReference Include="../Immediate.Jobs.Shared/Immediate.Jobs.Shared.csproj" PrivateAssets="all" />
     <ProjectReference Include="../Immediate.Jobs/Immediate.Jobs.csproj" ReferenceOutputAssembly="false" />
   </ItemGroup>
+
 </Project>
