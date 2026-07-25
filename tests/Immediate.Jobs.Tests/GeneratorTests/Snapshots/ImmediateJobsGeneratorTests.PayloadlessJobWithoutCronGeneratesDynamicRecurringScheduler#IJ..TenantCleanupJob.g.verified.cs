@@ -131,7 +131,7 @@ partial class TenantCleanupJob
 		
 		MaxConcurrency = 0,
 		OverlapPolicy = global::Immediate.Jobs.Shared.OverlapPolicy.Skip,
-		Backoff = (global::Immediate.Jobs.Shared.BackoffStrategy)2,
+		Backoff = global::Immediate.Jobs.Shared.BackoffStrategy.ExponentialJitter,
 		BackoffBase = global::System.TimeSpan.Parse("00:00:05", global::System.Globalization.CultureInfo.InvariantCulture),
 	};
 

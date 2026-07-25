@@ -55,8 +55,12 @@ public sealed partial class ImmediateJobsGenerator
 		if (maxConcurrency < 0)
 			return null;
 
-		var backoff = arguments.GetIntValue("Backoff", 2);
-		if (backoff < 0)
+		var backoff = arguments.GetArgumentValue("Backoff") switch
+		{
+			{ } av => av.GetEnumValue()?.Name,
+			_ => "ExponentialJitter",
+		};
+		if (backoff is not { })
 			return null;
 
 		var overlapPolicy = arguments.GetArgumentValue("OverlapPolicy") switch
