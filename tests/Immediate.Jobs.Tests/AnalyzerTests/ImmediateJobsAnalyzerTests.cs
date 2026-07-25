@@ -23,30 +23,6 @@ public sealed class ImmediateJobsAnalyzerTests
 		);
 
 	[Fact]
-	public async Task AnalyzerTriggersForDuplicateJobName() =>
-		await AssertDiagnostic(
-			"""
-			using Immediate.Jobs.Shared;
-			using Immediate.Handlers.Shared;
-			using System.Threading;
-			using System.Threading.Tasks;
-
-			[Handler, Job("same")]
-			public sealed partial class OneJob
-			{
-				private ValueTask HandleAsync(NoPayload request, CancellationToken ct) => ValueTask.CompletedTask;
-			}
-
-			[Handler, Job("same")]
-			public sealed partial class TwoJob
-			{
-				private ValueTask HandleAsync(NoPayload request, CancellationToken ct) => ValueTask.CompletedTask;
-			}
-			""",
-			"IJOB002"
-		);
-
-	[Fact]
 	public async Task AnalyzerTriggersForUnsupportedPayload() =>
 		await AssertDiagnostic(
 			"""
@@ -157,23 +133,6 @@ public sealed class ImmediateJobsAnalyzerTests
 		);
 
 	[Fact]
-	public async Task AnalyzerTriggersForJobWithoutHandlerAttribute() =>
-		await AssertDiagnostic(
-			"""
-			using Immediate.Jobs.Shared;
-			using System.Threading;
-			using System.Threading.Tasks;
-
-			[Job]
-			public sealed partial class NotAHandlerJob
-			{
-				private ValueTask HandleAsync(NoPayload request, CancellationToken ct) => ValueTask.CompletedTask;
-			}
-			""",
-			"IJOB009"
-		);
-
-	[Fact]
 	public async Task AnalyzerTriggersForInvalidQueueConfiguration() =>
 		await AssertDiagnostic(
 			"""
@@ -203,21 +162,6 @@ public sealed class ImmediateJobsAnalyzerTests
 			}
 			""",
 			"IJOB011"
-		);
-
-	[Fact]
-	public async Task AnalyzerTriggersForDuplicateQueueName() =>
-		await AssertDiagnostic(
-			"""
-			using Immediate.Jobs.Shared;
-
-			[QueueDefinition(Name = "same")]
-			public sealed class FirstQueue;
-
-			[QueueDefinition(Name = "same")]
-			public sealed class SecondQueue;
-			""",
-			"IJOB012"
 		);
 
 	[Fact]

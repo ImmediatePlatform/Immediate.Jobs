@@ -1,6 +1,5 @@
 using System.Collections.Immutable;
 using System.Globalization;
-using System.Text;
 using Microsoft.CodeAnalysis;
 
 namespace Immediate.Jobs.Generators;
@@ -20,7 +19,7 @@ public sealed partial class ImmediateJobsGenerator
 		if (symbol.GetValidHandleMethod() is not { } handleMethod)
 			return null;
 
-		if (!attributes.Any(a => a is { AttributeClass.IsHandlerAttribute: true }))
+		if (attributes.GetHandlerAttribute() is null)
 			return null;
 
 		var @namespace = symbol.ContainingNamespace.ToDisplayString().NullIf("<global namespace>");
@@ -29,11 +28,7 @@ public sealed partial class ImmediateJobsGenerator
 		var hasPayload = !parameterType.IsNoPayload;
 
 		var attribute = context.Attributes[0];
-		var jobName = attribute.ConstructorArguments switch
-		{
-			[{ } arg] when arg.GetStringValue() is { } name => name,
-			_ => symbol.Name.RemoveJobSuffix().ToKebabCase(),
-		};
+		var jobName = attribute.GetJobName(className: symbol.Name);
 
 		var arguments = attribute.NamedArguments;
 
@@ -160,35 +155,4 @@ file static class Extensions
 {
 	public static string? NullIf(this string value, string check) =>
 		value.Equals(check, StringComparison.Ordinal) ? null : value;
-
-	public static string RemoveJobSuffix(this string value) =>
-		value.EndsWith("job", StringComparison.OrdinalIgnoreCase)
-			? value[..^3]
-			: value;
-	public static string ToKebabCase(this string value)
-	{
-		var result = new StringBuilder(value.Length + 8);
-		_ = result.Append(char.ToLower(value[0], CultureInfo.InvariantCulture));
-
-		for (var index = 1; index < value.Length; index++)
-		{
-			var current = value[index];
-
-			if (
-				char.IsUpper(current)
-				&& (char.IsLower(value[index - 1])
-					|| (index + 1 < value.Length
-						&& char.IsLower(value[index + 1])
-					)
-				)
-			)
-			{
-				_ = result.Append('-');
-			}
-
-			_ = result.Append(char.ToLower(current, CultureInfo.InvariantCulture));
-		}
-
-		return result.ToString();
-	}
 }

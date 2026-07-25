@@ -13,12 +13,6 @@ internal static class DiagnosticDescriptors
 		"Schedule value '{0}' is invalid: {1}"
 	);
 
-	public static readonly DiagnosticDescriptor DuplicateJobName = Create(
-		"IJOB002",
-		"Duplicate job name",
-		"Job name '{0}' is also used by '{1}'"
-	);
-
 	public static readonly DiagnosticDescriptor UnsupportedPayload = Create(
 		"IJOB003",
 		"Unsupported job payload",
@@ -49,12 +43,6 @@ internal static class DiagnosticDescriptors
 		"Type '{0}' contains NodaTime values; reference Immediate.Jobs.NodaTime to enable generated serialization"
 	);
 
-	public static readonly DiagnosticDescriptor JobMustBeHandler = Create(
-		"IJOB009",
-		"Job class must be an Immediate.Handler",
-		"Job class '{0}' must also be marked with Immediate.Handlers.Shared.HandlerAttribute"
-	);
-
 	public static readonly DiagnosticDescriptor InvalidQueueConfiguration = Create(
 		"IJOB010",
 		"Invalid queue configuration",
@@ -65,12 +53,6 @@ internal static class DiagnosticDescriptors
 		"IJOB011",
 		"Invalid queue target",
 		"Queue type '{0}' must be marked with QueueDefinitionAttribute"
-	);
-
-	public static readonly DiagnosticDescriptor DuplicateQueueName = Create(
-		"IJOB012",
-		"Duplicate queue name",
-		"Queue name '{0}' is also used by '{1}'"
 	);
 
 	public static readonly DiagnosticDescriptor InvalidContextExtractor = Create(

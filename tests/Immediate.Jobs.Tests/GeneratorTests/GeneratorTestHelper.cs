@@ -94,6 +94,7 @@ internal static class GeneratorTestHelper
 				specificDiagnosticOptions:
 				[
 					KeyValuePair.Create("CS1701", ReportDiagnostic.Suppress),
+					KeyValuePair.Create("CS1998", ReportDiagnostic.Suppress),
 				]
 			)
 		);

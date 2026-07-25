@@ -12,7 +12,7 @@ public sealed class MissingHandlerAttributeAnalyzer : DiagnosticAnalyzer
 			id: DiagnosticIds.IJOB0001MissingHandlerAttribute,
 			title: "[Handler] must be used",
 			messageFormat: "Handler `{0}` must be marked with [Handler]",
-			category: "ImmediateApis",
+			category: "ImmediateJobs",
 			defaultSeverity: DiagnosticSeverity.Error,
 			isEnabledByDefault: true,
 			description: "An endpoint registration can only be generated for an Immediate.Handlers handler."
@@ -44,12 +44,12 @@ public sealed class MissingHandlerAttributeAnalyzer : DiagnosticAnalyzer
 
 		var attributes = namedTypeSymbol.GetAttributes();
 
-		if (!attributes.Any(x => x.AttributeClass.IsJobAttribute))
+		if (attributes.GetJobAttribute() is null)
 			return;
 
 		token.ThrowIfCancellationRequested();
 
-		if (attributes.Any(x => x.AttributeClass.IsHandlerAttribute))
+		if (attributes.GetHandlerAttribute() is { })
 			return;
 
 		context.ReportDiagnostic(

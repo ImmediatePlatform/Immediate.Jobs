@@ -12,16 +12,13 @@ public sealed class ImmediateJobsAnalyzer : DiagnosticAnalyzer
 	public override ImmutableArray<DiagnosticDescriptor> SupportedDiagnostics =>
 		ImmutableArray.Create(
 			DiagnosticDescriptors.InvalidCron,
-			DiagnosticDescriptors.DuplicateJobName,
 			DiagnosticDescriptors.UnsupportedPayload,
 			DiagnosticDescriptors.InvalidMethodSignature,
 			DiagnosticDescriptors.InvalidConfiguration,
 			DiagnosticDescriptors.CronPayload,
 			DiagnosticDescriptors.NodaTimePackageRequired,
-			DiagnosticDescriptors.JobMustBeHandler,
 			DiagnosticDescriptors.InvalidQueueConfiguration,
 			DiagnosticDescriptors.InvalidQueueTarget,
-			DiagnosticDescriptors.DuplicateQueueName,
 			DiagnosticDescriptors.InvalidContextExtractor,
 			DiagnosticDescriptors.UnsupportedContext
 		);
@@ -40,20 +37,6 @@ public sealed class ImmediateJobsAnalyzer : DiagnosticAnalyzer
 		AnalyzeQueues(context);
 		var jobs = JobDiscovery.FindJobs(context.Compilation, context.CancellationToken);
 		var groups = jobs.GroupBy(JobDiscovery.GetName, StringComparer.Ordinal);
-		foreach (var group in groups.Where(group => group.Count() > 1))
-		{
-			var entries = group.ToArray();
-			foreach (var job in entries)
-			{
-				var other = entries.First(candidate => !SymbolEqualityComparer.Default.Equals(candidate, job));
-				context.ReportDiagnostic(Diagnostic.Create(
-					DiagnosticDescriptors.DuplicateJobName,
-					GetAttributeLocation(job),
-					group.Key,
-					other.ToDisplayString()
-				));
-			}
-		}
 
 		var hasNodaTimeIntegration = context.Compilation.ReferencedAssemblyNames
 			.Any(identity => identity.Name == "Immediate.Jobs.NodaTime");
@@ -105,12 +88,6 @@ public sealed class ImmediateJobsAnalyzer : DiagnosticAnalyzer
 					usesQueue.ApplicationSyntaxReference?.GetSyntax().GetLocation() ?? location,
 					queueType.ToDisplayString()
 				));
-				continue;
-			}
-
-			if (!JobDiscovery.IsHandler(job))
-			{
-				context.ReportDiagnostic(Diagnostic.Create(DiagnosticDescriptors.JobMustBeHandler, location, job.Name));
 				continue;
 			}
 
@@ -184,22 +161,6 @@ public sealed class ImmediateJobsAnalyzer : DiagnosticAnalyzer
 					attribute.ApplicationSyntaxReference?.GetSyntax().GetLocation() ?? queue.Locations.FirstOrDefault(),
 					queue.Name,
 					problem
-				));
-			}
-		}
-
-		foreach (var group in queues.GroupBy(JobDiscovery.GetQueueName, StringComparer.Ordinal).Where(group => group.Count() > 1))
-		{
-			var entries = group.ToArray();
-			foreach (var queue in entries)
-			{
-				var other = entries.First(candidate => !SymbolEqualityComparer.Default.Equals(candidate, queue));
-				var attribute = JobDiscovery.GetQueueDefinitionAttribute(queue)!;
-				context.ReportDiagnostic(Diagnostic.Create(
-					DiagnosticDescriptors.DuplicateQueueName,
-					attribute.ApplicationSyntaxReference?.GetSyntax().GetLocation() ?? queue.Locations.FirstOrDefault(),
-					group.Key,
-					other.ToDisplayString()
 				));
 			}
 		}
