@@ -145,7 +145,7 @@ partial class {{ class_name }}
 			{{~ if has_payload ~}}
 			var payload = serializer.Deserialize(execution.Record.Payload, static options => new PayloadJsonContext(options).Payload);
 			{{~ else ~}}
-			var payload = new global::Immediate.Jobs.Shared.NoPayload();
+			var payload = new global::Immediate.Jobs.Shared.EmptyJobRequest();
 			{{~ end ~}}
 			{{~ if has_job_details ~}}
 

@@ -131,7 +131,7 @@ internal static class JobDiscovery
 			return false;
 
 		payloadType = method.Parameters[0].Type;
-		hasPayload = !payloadType.IsNoPayload;
+		hasPayload = !payloadType.IsEmptyJobRequest;
 		return true;
 	}
 

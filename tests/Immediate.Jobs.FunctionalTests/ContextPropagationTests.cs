@@ -449,7 +449,7 @@ public sealed partial class ContextRoundTripJob(PropagationScopeState state, Con
 [Handler, Job(Name = "capture-failure"), UsesJobContext<ThrowingCaptureExtractor>]
 public sealed partial class CaptureFailureJob
 {
-	private ValueTask HandleAsync(NoPayload payload, CancellationToken cancellationToken)
+	private ValueTask HandleAsync(EmptyJobRequest payload, CancellationToken cancellationToken)
 	{
 		_ = payload;
 		_ = cancellationToken;
@@ -461,7 +461,7 @@ public sealed partial class CaptureFailureJob
 [UsesJobContext<ThrowingRestoreExtractor>]
 public sealed partial class RestoreFailureJob
 {
-	private ValueTask HandleAsync(NoPayload payload, CancellationToken cancellationToken)
+	private ValueTask HandleAsync(EmptyJobRequest payload, CancellationToken cancellationToken)
 	{
 		_ = payload;
 		_ = cancellationToken;
@@ -473,7 +473,7 @@ public sealed partial class RestoreFailureJob
 [UsesJobContext<FirstNullExtractor>, UsesJobContext<SecondNullExtractor>]
 public sealed partial class DuplicateContextKeyJob
 {
-	private ValueTask HandleAsync(NoPayload payload, CancellationToken cancellationToken)
+	private ValueTask HandleAsync(EmptyJobRequest payload, CancellationToken cancellationToken)
 	{
 		_ = payload;
 		_ = cancellationToken;
@@ -485,7 +485,7 @@ public sealed partial class DuplicateContextKeyJob
 [UsesJobContext<TenantContextExtractor>]
 public sealed partial class ContextCronJob(PropagationScopeState state, ContextProbe probe)
 {
-	private ValueTask HandleAsync(NoPayload payload, CancellationToken cancellationToken)
+	private ValueTask HandleAsync(EmptyJobRequest payload, CancellationToken cancellationToken)
 	{
 		_ = cancellationToken;
 		_ = payload.JobDetails ?? throw new InvalidOperationException("Job details were not populated.");

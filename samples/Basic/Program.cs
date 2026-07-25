@@ -35,7 +35,7 @@ public sealed partial class SendWelcomeEmail(IEmailSender sender)
 [Handler, Job(Cron = "0 */5 * * * *")]
 public sealed partial class CleanupSessionsJob(ILogger<CleanupSessionsJob> logger)
 {
-	private ValueTask HandleAsync(NoPayload request, CancellationToken cancellationToken)
+	private ValueTask HandleAsync(EmptyJobRequest request, CancellationToken cancellationToken)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
 		logger.LogInformation("Cleaning expired sessions for job {JobId}", request.JobDetails?.JobId);

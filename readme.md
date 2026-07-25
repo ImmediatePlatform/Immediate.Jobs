@@ -177,7 +177,7 @@ Code-defined schedules use five-field cron or six-field cron with seconds. See t
 [Handler, Job(Cron = "0 */5 * * * *", TimeZone = "Europe/Vienna")]
 public sealed partial class CleanupSessionsJob(AppDbContext db)
 {
-	private ValueTask HandleAsync(NoPayload request, CancellationToken cancellationToken) =>
+	private ValueTask HandleAsync(EmptyJobRequest request, CancellationToken cancellationToken) =>
 		new(db.DeleteExpiredSessions(cancellationToken));
 }
 ```
@@ -194,7 +194,7 @@ Schedulers for jobs with a compile-time `Cron` do not expose dynamic schedule mu
 [Handler, Job("tenant-cleanup")]
 public sealed partial class TenantCleanupJob(AppDbContext db)
 {
-	private ValueTask HandleAsync(NoPayload request, CancellationToken cancellationToken) =>
+	private ValueTask HandleAsync(EmptyJobRequest request, CancellationToken cancellationToken) =>
 		new(db.DeleteExpiredSessions(cancellationToken));
 }
 

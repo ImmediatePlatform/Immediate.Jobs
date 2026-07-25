@@ -25,7 +25,7 @@ public sealed partial class ImmediateJobsGenerator
 		var @namespace = symbol.ContainingNamespace.ToDisplayString().NullIf("<global namespace>");
 
 		var parameterType = handleMethod.Parameters[0].Type;
-		var hasPayload = !parameterType.IsNoPayload;
+		var hasPayload = !parameterType.IsEmptyJobRequest;
 
 		var attribute = context.Attributes[0];
 		var jobName = attribute.GetJobName(className: symbol.Name);

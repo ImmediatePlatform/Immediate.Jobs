@@ -16,7 +16,7 @@ public sealed class ImmediateJobsAnalyzerTests
 			[Handler, Job(Cron = "not cron")]
 			public sealed partial class BadCronJob
 			{
-				private ValueTask HandleAsync(NoPayload request, CancellationToken ct) => ValueTask.CompletedTask;
+				private ValueTask HandleAsync(EmptyJobRequest request, CancellationToken ct) => ValueTask.CompletedTask;
 			}
 			""",
 			"IJOB001"
@@ -126,7 +126,7 @@ public sealed class ImmediateJobsAnalyzerTests
 			[Handler, Job(MaxAttempts = 0)]
 			public sealed partial class InvalidConfigurationJob
 			{
-				private ValueTask HandleAsync(NoPayload request, CancellationToken ct) => ValueTask.CompletedTask;
+				private ValueTask HandleAsync(EmptyJobRequest request, CancellationToken ct) => ValueTask.CompletedTask;
 			}
 			""",
 			"IJOB008"
@@ -158,7 +158,7 @@ public sealed class ImmediateJobsAnalyzerTests
 			[Handler, Job, UsesQueue<MissingDefinition>]
 			public sealed partial class InvalidQueueJob
 			{
-				private ValueTask HandleAsync(NoPayload request, CancellationToken ct) => ValueTask.CompletedTask;
+				private ValueTask HandleAsync(EmptyJobRequest request, CancellationToken ct) => ValueTask.CompletedTask;
 			}
 			""",
 			"IJOB011"
@@ -201,7 +201,7 @@ public sealed class ImmediateJobsAnalyzerTests
 			[Handler, Job, UsesJobContext<BadExtractor>]
 			public sealed partial class ContextJob
 			{
-				private ValueTask HandleAsync(NoPayload payload, CancellationToken ct) => ValueTask.CompletedTask;
+				private ValueTask HandleAsync(EmptyJobRequest payload, CancellationToken ct) => ValueTask.CompletedTask;
 			}
 			""",
 			"IJOB013"
@@ -229,7 +229,7 @@ public sealed class ImmediateJobsAnalyzerTests
 			[Handler, Job, UsesJobContext<BadExtractor>]
 			public sealed partial class ContextJob
 			{
-				private ValueTask HandleAsync(NoPayload payload, CancellationToken ct) => ValueTask.CompletedTask;
+				private ValueTask HandleAsync(EmptyJobRequest payload, CancellationToken ct) => ValueTask.CompletedTask;
 			}
 			""",
 			"IJOB014"
@@ -261,7 +261,7 @@ public sealed class ImmediateJobsAnalyzerTests
 			[Handler, Job, UsesJobContext<BadExtractor>]
 			public sealed partial class ContextJob
 			{
-				private ValueTask HandleAsync(NoPayload payload, CancellationToken ct) => ValueTask.CompletedTask;
+				private ValueTask HandleAsync(EmptyJobRequest payload, CancellationToken ct) => ValueTask.CompletedTask;
 			}
 			""",
 			"IJOB007"
@@ -288,7 +288,7 @@ public sealed class ImmediateJobsAnalyzerTests
 			[Handler, Job, UsesJobContext<ValidExtractor>]
 			public sealed partial class ContextJob
 			{
-				private ValueTask HandleAsync(NoPayload payload, CancellationToken ct) => ValueTask.CompletedTask;
+				private ValueTask HandleAsync(EmptyJobRequest payload, CancellationToken ct) => ValueTask.CompletedTask;
 			}
 			""";
 

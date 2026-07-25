@@ -71,11 +71,11 @@ internal static class ITypeSymbolExtensions
 				ContainingNamespace.IsImmediateJobsShared: true,
 			};
 
-		public bool IsNoPayload =>
+		public bool IsEmptyJobRequest =>
 			typeSymbol is INamedTypeSymbol
 			{
 				Arity: 0,
-				Name: "NoPayload",
+				Name: "EmptyJobRequest",
 				ContainingNamespace.IsImmediateJobsShared: true,
 			};
 

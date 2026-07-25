@@ -9,7 +9,7 @@ public sealed partial class AspireHeartbeatJob(
 	TimeProvider timeProvider
 )
 {
-	private ValueTask HandleAsync(NoPayload payload, CancellationToken cancellationToken)
+	private ValueTask HandleAsync(EmptyJobRequest payload, CancellationToken cancellationToken)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
 		logger.LogInformation(
