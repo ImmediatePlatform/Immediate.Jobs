@@ -70,7 +70,7 @@ internal static class GeneratorTestHelper
 #endif
 
 	public static GeneratorDriverRunResult RunGenerator(
-		[StringSyntax("c#-test")] string source,
+		[StringSyntax("c#")] string source,
 		bool includeNodaTime = false,
 		params ReadOnlySpan<string> skippedSteps
 	)
