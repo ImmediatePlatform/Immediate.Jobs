@@ -14,17 +14,19 @@
     <File Path=".github/workflows/build.yml" />
     <File Path=".github/workflows/release.yml" />
   </Folder>
-  <Folder Name="/Source/">
+  <Folder Name="/Source.Core/">
+    <Project Path="src/Immediate.Jobs.Analyzers/Immediate.Jobs.Analyzers.csproj" />
+    <Project Path="src/Immediate.Jobs.Generators/Immediate.Jobs.Generators.csproj" />
+    <Project Path="src/Immediate.Jobs.Shared/Immediate.Jobs.Shared.csproj" />
+    <Project Path="src/Immediate.Jobs/Immediate.Jobs.csproj" />
+  </Folder>
+  <Folder Name="/Source.Support/">
     <Project Path="src/Immediate.Jobs.Dashboard/Immediate.Jobs.Dashboard.csproj" />
     <Project Path="src/Immediate.Jobs.EntityFrameworkCore/Immediate.Jobs.EntityFrameworkCore.csproj" />
     <Project Path="src/Immediate.Jobs.LinqToDB/Immediate.Jobs.LinqToDB.csproj" />
-    <Project Path="src/Immediate.Jobs.Redis/Immediate.Jobs.Redis.csproj" />
-    <Project Path="src/Immediate.Jobs.Analyzers/Immediate.Jobs.Analyzers.csproj" />
-    <Project Path="src/Immediate.Jobs.Generators/Immediate.Jobs.Generators.csproj" />
     <Project Path="src/Immediate.Jobs.NodaTime/Immediate.Jobs.NodaTime.csproj" />
-    <Project Path="src/Immediate.Jobs.Shared/Immediate.Jobs.Shared.csproj" />
+    <Project Path="src/Immediate.Jobs.Redis/Immediate.Jobs.Redis.csproj" />
     <Project Path="src/Immediate.Jobs.Testing/Immediate.Jobs.Testing.csproj" />
-    <Project Path="src/Immediate.Jobs/Immediate.Jobs.csproj" />
   </Folder>
   <Folder Name="/Tests/">
     <Project Path="tests/Immediate.Jobs.Tests/Immediate.Jobs.Tests.csproj" />
