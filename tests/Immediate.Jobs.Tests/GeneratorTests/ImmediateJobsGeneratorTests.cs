@@ -5,49 +5,6 @@ namespace Immediate.Jobs.Tests.GeneratorTests;
 
 public sealed class ImmediateJobsGeneratorTests
 {
-	[Theory]
-	[MemberData(nameof(Frameworks))]
-	public async Task ServiceCollectionExtensionsUsesQueuesAndTaggedRegistrations(string framework)
-	{
-		var source = """
-			using Immediate.Jobs.Shared;
-			using Immediate.Handlers.Shared;
-			using System.Threading;
-			using System.Threading.Tasks;
-
-			[QueueDefinition(Priority = 10, Concurrency = 1)]
-			public sealed class CriticalQueue;
-
-			public sealed class WorkContextExtractor : IJobContextExtractor<string>
-			{
-				public string Key => "work";
-				public string? Capture() => null;
-				public void Restore(string context) { }
-			}
-
-			[Handler(Tags = ["critical"]), Job, UsesQueue<CriticalQueue>, UsesJobContext<WorkContextExtractor>]
-			public sealed partial class WorkJob
-			{
-				private ValueTask HandleAsync(NoPayload payload, CancellationToken cancellationToken) => ValueTask.CompletedTask;
-			}
-			""";
-
-		var result = GeneratorTestHelper.RunGenerator(source);
-
-		Assert.Equal(
-			[
-				"Immediate.Handlers.Generators/Immediate.Handlers.Generators.ImmediateHandlersGenerator/IH..WorkJob.g.cs",
-				"Immediate.Handlers.Generators/Immediate.Handlers.Generators.ImmediateHandlersGenerator/IH.ServiceCollectionExtensions.g.cs",
-				"Immediate.Jobs.Generators/Immediate.Jobs.Generators.ImmediateJobsGenerator/IJ..WorkJob.g.cs",
-				"Immediate.Jobs.Generators/Immediate.Jobs.Generators.ImmediateJobsGenerator/IJ.ServiceCollectionExtensions.g.cs",
-			],
-			result.GeneratedTrees.Select(tree => tree.FilePath.Replace('\\', '/'))
-		);
-
-		_ = await GeneratorTestHelper.VerifyRegistrations(result).UseParameters(framework);
-	}
-
-	public static TheoryData<string> Frameworks => [GeneratorTestHelper.TargetFramework];
 
 	[Fact]
 	public async Task PayloadJobGeneratesTypedSchedulerDirectInvokerAndRegistrations()
@@ -287,7 +244,7 @@ public sealed class ImmediateJobsGeneratorTests
 			{ private ValueTask HandleAsync(NoPayload payload, CancellationToken ct) => ValueTask.CompletedTask; }
 			""";
 
-		var result = GeneratorTestHelper.RunGeneratorWithNodaTime(source);
+		var result = GeneratorTestHelper.RunGenerator(source, includeNodaTime: true);
 		GeneratorTestHelper.AssertGeneratedTrees(result, "IH..ClockJob.g.cs", "IJ..ClockJob.g.cs");
 		_ = await GeneratorTestHelper.VerifyJob(result);
 	}

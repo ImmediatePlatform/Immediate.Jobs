@@ -26,7 +26,7 @@ public static class AnalyzerTestHelpers
 		};
 
 		csTest.TestState.AdditionalReferences
-			.AddRange(Utility.GetMetadataReferences(includeNodaTime));
+			.AddRange(Utility.GetAdditionalReferences(includeNodaTime));
 
 		return csTest;
 	}

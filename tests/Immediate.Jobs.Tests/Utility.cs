@@ -33,7 +33,7 @@ internal static partial class Utility
 #error .net version not yet implemented
 #endif
 
-	public static IEnumerable<MetadataReference> GetMetadataReferences(
+	public static IEnumerable<MetadataReference> GetAdditionalReferences(
 		bool includeNodaTime
 	) =>
 	[

@@ -69,13 +69,11 @@ public sealed partial class ImmediateJobsGenerator
 			.Where(group => group.Count() > 1)
 			.Select(group => group.Key)
 			.ToImmutableHashSet(StringComparer.Ordinal);
+
 		var models = jobs
 			.Where(job => !duplicateNames.Contains(job.Name))
 			.OrderBy(job => job.TypeName, StringComparer.Ordinal)
 			.ToImmutableArray();
-
-		if (models.IsEmpty)
-			return;
 
 		var model = new
 		{

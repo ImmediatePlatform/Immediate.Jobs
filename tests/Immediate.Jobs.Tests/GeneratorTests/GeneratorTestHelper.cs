@@ -15,18 +15,6 @@ namespace Immediate.Jobs.Tests.GeneratorTests;
 
 internal static class GeneratorTestHelper
 {
-#if NET8_0
-	public const string TargetFramework = "net8.0";
-#elif NET9_0
-	public const string TargetFramework = "net9.0";
-#elif NET10_0
-	public const string TargetFramework = "net10.0";
-#elif NET11_0
-	public const string TargetFramework = "net11.0";
-#else
-#error Unsupported test target framework.
-#endif
-
 	internal static CSharpParseOptions ParseOptions { get; } = CSharpParseOptions.Default
 		.WithLanguageVersion(LanguageVersion.Latest);
 
@@ -81,24 +69,44 @@ internal static class GeneratorTestHelper
 #error Unsupported test target framework.
 #endif
 
-	private static readonly string[] TrackedSteps = ["AssemblyDefaults", "Jobs", "JobsCollected", "QueuesCollected"];
-
-	public static GeneratorDriverRunResult RunGenerator([StringSyntax("c#-test")] string source)
-		=> RunGeneratorCore(source, includeNodaTime: false);
-
-	public static GeneratorDriverRunResult RunGeneratorWithNodaTime([StringSyntax("c#-test")] string source)
-		=> RunGeneratorCore(source, includeNodaTime: true);
-
-	private static GeneratorDriverRunResult RunGeneratorCore(string source, bool includeNodaTime)
+	public static GeneratorDriverRunResult RunGenerator(
+		[StringSyntax("c#-test")] string source,
+		bool includeNodaTime = false,
+		params ReadOnlySpan<string> skippedSteps
+	)
 	{
-		var compilation = CreateCompilationCore([("Test0.cs", source)], includeNodaTime);
-		var driver = CreateDriver();
+		var syntaxTree = CSharpSyntaxTree.ParseText(
+			source,
+			cancellationToken: TestContext.Current.CancellationToken
+		);
 
-		driver = RunAndAssert(driver, compilation);
+		var compilation = CSharpCompilation.Create(
+			assemblyName: "Tests",
+			syntaxTrees: [syntaxTree],
+			references:
+			[
+				..Utility.NetCoreAssemblies,
+				..Utility.GetAdditionalReferences(includeNodaTime: includeNodaTime),
+			],
+			options: new(
+				outputKind: OutputKind.DynamicallyLinkedLibrary,
+				nullableContextOptions: NullableContextOptions.Enable,
+				specificDiagnosticOptions:
+				[
+					KeyValuePair.Create("CS1701", ReportDiagnostic.Suppress),
+				]
+			)
+		);
+
+		GeneratorDriver driver = CSharpGeneratorDriver.Create(
+			generators: [new ImmediateHandlersGenerator().AsSourceGenerator(), new ImmediateJobsGenerator().AsSourceGenerator()],
+			driverOptions: new GeneratorDriverOptions(default, trackIncrementalGeneratorSteps: true)
+		);
+
+		driver = RunGenerator(driver, compilation);
 		var result = driver.GetRunResult();
-		Assert.Empty(result.Diagnostics);
 
-		VerifyIncrementality(driver, compilation);
+		VerifyIncrementality(driver, compilation, skippedSteps);
 
 		return result;
 	}
@@ -131,47 +139,99 @@ internal static class GeneratorTestHelper
 		return driver;
 	}
 
-	// Re-runs the generator against a compilation that differs only by an unrelated syntax tree.
-	// Every tracked pipeline step and source-output step for the Jobs generator must report
-	// Cached/Unchanged, proving the pipeline is genuinely incremental and not re-scanning.
-	private static void VerifyIncrementality(GeneratorDriver driver, Compilation compilation)
+	private static GeneratorDriver RunGenerator(
+		GeneratorDriver driver,
+		Compilation compilation
+	)
+	{
+		driver = driver
+			.RunGeneratorsAndUpdateCompilation(
+				compilation,
+				out var outputCompilation,
+				out var diagnostics,
+				TestContext.Current.CancellationToken
+			);
+
+		Assert.Empty(
+			outputCompilation
+				.GetDiagnostics(TestContext.Current.CancellationToken)
+				.Where(d => d.Severity is DiagnosticSeverity.Error or DiagnosticSeverity.Warning)
+		);
+
+		Assert.Empty(diagnostics);
+		return driver;
+	}
+
+	private static void VerifyIncrementality(
+		GeneratorDriver driver,
+		Compilation compilation,
+		ReadOnlySpan<string> skippedSteps
+	)
 	{
 		var clone = compilation.Clone().AddSyntaxTrees(
 			CSharpSyntaxTree.ParseText(
 				"// dummy",
-				ParseOptions,
 				cancellationToken: TestContext.Current.CancellationToken
 			)
 		);
 
-		driver = driver.RunGeneratorsAndUpdateCompilation(
-			clone,
-			out _,
-			out _,
-			TestContext.Current.CancellationToken
-		);
+		driver = RunGenerator(driver, clone);
 
-		var jobsResult = driver.GetRunResult().Results
-			.Single(result => result.TrackedSteps.ContainsKey("Jobs"));
-
-		foreach (var (_, steps) in jobsResult.TrackedOutputSteps)
-			AssertCached(steps);
-
-		foreach (var name in TrackedSteps)
+		if (
+			driver.GetRunResult() is not
+			{
+				Results:
+				[
+				_,
+				{
+					TrackedOutputSteps: { } outputSteps,
+					TrackedSteps: { } trackedSteps,
+				},
+				],
+			}
+		)
 		{
-			Assert.True(
-				jobsResult.TrackedSteps.TryGetValue(name, out var steps),
-				$"Step `{name}` expected, but is missing."
-			);
-			AssertCached(steps);
+			Assert.Fail("Unable to verify incrementality.");
+			return;
+		}
+
+		foreach (var (_, step) in outputSteps)
+			AssertSteps(step);
+
+		foreach (var step in TrackedSteps)
+		{
+			if (skippedSteps.Contains(step))
+			{
+				if (trackedSteps.ContainsKey(step))
+					Assert.Fail($"Step `{step}` should have been skipped, but is present.");
+			}
+			else
+			{
+				if (!trackedSteps.TryGetValue(step, out var outputs))
+					Assert.Fail($"Step `{step}` expected, but is missing.");
+
+				AssertSteps(outputs);
+			}
 		}
 	}
 
-	private static void AssertCached(ImmutableArray<IncrementalGeneratorRunStep> steps) =>
-		Assert.All(
-			steps.SelectMany(step => step.Outputs),
-			output => Assert.True(output.Reason is IncrementalStepRunReason.Unchanged or IncrementalStepRunReason.Cached)
-		);
+	private static ReadOnlySpan<string> TrackedSteps =>
+		new string[]
+		{
+			"AssemblyDefaults",
+			"Jobs",
+			"JobsCollected",
+			"QueuesCollected",
+		};
+
+	private static void AssertSteps(
+		ImmutableArray<IncrementalGeneratorRunStep> steps
+	)
+	{
+		var outputs = steps.SelectMany(o => o.Outputs);
+
+		Assert.All(outputs, o => Assert.True(o.Reason is IncrementalStepRunReason.Unchanged or IncrementalStepRunReason.Cached));
+	}
 
 	public static SettingsTask VerifyJob(
 		GeneratorDriverRunResult result,
@@ -181,15 +241,6 @@ internal static class GeneratorTestHelper
 			Path.GetFileName(generated.HintName).StartsWith("IH.", StringComparison.Ordinal))
 		.IgnoreGeneratedResult(static generated =>
 			Path.GetFileName(generated.HintName) == "IJ.ServiceCollectionExtensions.g.cs");
-
-	public static SettingsTask VerifyRegistrations(
-		GeneratorDriverRunResult result,
-		[CallerFilePath] string sourceFile = ""
-	) => Verify(result, sourceFile: sourceFile)
-		.IgnoreGeneratedResult(static generated =>
-			Path.GetFileName(generated.HintName).StartsWith("IH.", StringComparison.Ordinal))
-		.IgnoreGeneratedResult(static generated =>
-			Path.GetFileName(generated.HintName) != "IJ.ServiceCollectionExtensions.g.cs");
 
 	public static void AssertGeneratedTrees(
 		GeneratorDriverRunResult result,
