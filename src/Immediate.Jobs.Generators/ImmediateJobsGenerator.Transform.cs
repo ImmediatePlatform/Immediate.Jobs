@@ -30,6 +30,9 @@ public sealed partial class ImmediateJobsGenerator
 		var attribute = context.Attributes[0];
 		var jobName = attribute.GetJobName(className: symbol.Name);
 
+		if (!jobName.HasNameContent())
+			return null;
+
 		var arguments = attribute.NamedArguments;
 
 		var cron = arguments.GetStringValue("Cron");

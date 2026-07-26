@@ -9,5 +9,6 @@ internal static class DiagnosticIds
 	public const string IJOB0005JobConfigurationInvalid = "IJOB0005";
 	public const string IJOB0006CronJobCannotHaveParameters = "IJOB0006";
 	public const string IJOB0007CronJobConfigurationInvalid = "IJOB0007";
+	public const string IJOB0008JobNameInvalid = "IJOB0008";
 	public const string IJOB0020DetachedJobCannotBeAddedToBatch = "IJOB0020";
 }

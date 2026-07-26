@@ -44,12 +44,25 @@ public sealed class JobClassAnalyzer : DiagnosticAnalyzer
 			customTags: [WellKnownDiagnosticTags.NotConfigurable]
 		);
 
+	public static readonly DiagnosticDescriptor JobNameInvalid =
+		new(
+			id: DiagnosticIds.IJOB0008JobNameInvalid,
+			title: "Job Name Invalid",
+			messageFormat: "Job `{0}` has an invalid name: {1}",
+			category: "ImmediateJobs",
+			defaultSeverity: DiagnosticSeverity.Error,
+			isEnabledByDefault: true,
+			description: "A job must have a name that can identify it in storage.",
+			customTags: [WellKnownDiagnosticTags.NotConfigurable]
+		);
+
 	public override ImmutableArray<DiagnosticDescriptor> SupportedDiagnostics { get; } =
 		ImmutableArray.Create(
 		[
 			JobConfigurationInvalid,
 			CronJobCannotHaveParameters,
 			CronJobConfigurationInvalid,
+			JobNameInvalid,
 		]);
 
 	public override void Initialize(AnalysisContext context)
@@ -77,8 +90,28 @@ public sealed class JobClassAnalyzer : DiagnosticAnalyzer
 
 		token.ThrowIfCancellationRequested();
 
+		AnalyzeJobName(context, jobAttribute);
 		AnalyzeJobConfiguration(context, jobAttribute);
 		AnalyzeCronConfiguration(context, jobAttribute);
+	}
+
+	private static void AnalyzeJobName(SymbolAnalysisContext context, AttributeData jobAttribute)
+	{
+		if (jobAttribute.GetJobName(className: context.Symbol.Name).HasNameContent())
+			return;
+
+		var explicitName = jobAttribute.NamedArguments.GetStringValue("Name");
+
+		context.ReportDiagnostic(
+			Diagnostic.Create(
+				JobNameInvalid,
+				context.Symbol.Locations.FirstOrDefault(),
+				context.Symbol.Name,
+				explicitName is null
+					? $"a name cannot be derived from the class name `{context.Symbol.Name}`; rename the class or set `Name`"
+					: "`Name` must contain at least one letter or digit"
+			)
+		);
 	}
 
 	private static void AnalyzeJobConfiguration(SymbolAnalysisContext context, AttributeData jobAttribute)

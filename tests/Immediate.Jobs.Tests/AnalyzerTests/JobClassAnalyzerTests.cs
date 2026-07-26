@@ -153,4 +153,79 @@ public sealed class JobClassAnalyzerTests
 			"""
 		).RunAsync(TestContext.Current.CancellationToken);
 
+	[Fact]
+	public async Task ClassNameLeavingNothingToDeriveShouldTrigger() =>
+		await AnalyzerTestHelpers.CreateAnalyzerTest<JobClassAnalyzer>(
+			"""
+			using System.Threading;
+			using System.Threading.Tasks;
+			using Immediate.Handlers.Shared;
+			using Immediate.Jobs.Shared;
+
+			namespace Dummy;
+
+			[Handler, Job]
+			public sealed partial class {|IJOB0008:Job|}
+			{
+				private async ValueTask Handle(EmptyJobRequest _, CancellationToken token) { }
+			}
+			"""
+		).RunAsync(TestContext.Current.CancellationToken);
+
+	[Fact]
+	public async Task ClassNameDerivingOnlyPunctuationShouldTrigger() =>
+		await AnalyzerTestHelpers.CreateAnalyzerTest<JobClassAnalyzer>(
+			"""
+			using System.Threading;
+			using System.Threading.Tasks;
+			using Immediate.Handlers.Shared;
+			using Immediate.Jobs.Shared;
+
+			namespace Dummy;
+
+			[Handler, Job]
+			public sealed partial class {|IJOB0008:__Job|}
+			{
+				private async ValueTask Handle(EmptyJobRequest _, CancellationToken token) { }
+			}
+			"""
+		).RunAsync(TestContext.Current.CancellationToken);
+
+	[Fact]
+	public async Task ExplicitNameWithoutContentShouldTrigger() =>
+		await AnalyzerTestHelpers.CreateAnalyzerTest<JobClassAnalyzer>(
+			"""
+			using System.Threading;
+			using System.Threading.Tasks;
+			using Immediate.Handlers.Shared;
+			using Immediate.Jobs.Shared;
+
+			namespace Dummy;
+
+			[Handler, Job(Name = "  ")]
+			public sealed partial class {|IJOB0008:GetUsersQuery|}
+			{
+				private async ValueTask Handle(EmptyJobRequest _, CancellationToken token) { }
+			}
+			"""
+		).RunAsync(TestContext.Current.CancellationToken);
+
+	[Fact]
+	public async Task ExplicitNameShouldRescueAnUnderivableClassName() =>
+		await AnalyzerTestHelpers.CreateAnalyzerTest<JobClassAnalyzer>(
+			"""
+			using System.Threading;
+			using System.Threading.Tasks;
+			using Immediate.Handlers.Shared;
+			using Immediate.Jobs.Shared;
+
+			namespace Dummy;
+
+			[Handler, Job(Name = "the-job")]
+			public sealed partial class Job
+			{
+				private async ValueTask Handle(EmptyJobRequest _, CancellationToken token) { }
+			}
+			"""
+		).RunAsync(TestContext.Current.CancellationToken);
 }
