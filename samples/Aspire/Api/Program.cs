@@ -1,3 +1,4 @@
+using Immediate.Handlers.Shared;
 using Immediate.Jobs.Aspire.Api;
 using Immediate.Jobs.Aspire.Api.Context;
 using Immediate.Jobs.Aspire.Api.Data;
@@ -8,6 +9,9 @@ using Immediate.Jobs.Dashboard;
 using Immediate.Jobs.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 using Scalar.AspNetCore;
+
+// Without this, the assembly name would generate `AddImmediateJobsAspireApiJobs`.
+[assembly: ImmediateAssemblyIdentifier("AspireApi")]
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -28,8 +32,8 @@ var aspireDashboardUrl = builder.Configuration["Telemetry:AspireDashboardUrl"] i
 builder.Services.AddDbContextFactory<JobsDbContext>(options =>
 	options.UseNpgsql(connectionString, npgsql => npgsql.EnableRetryOnFailure()));
 
-builder.Services.AddImmediateJobsAspireApiHandlers();
-builder.Services.AddImmediateJobsAspireApiJobs(options =>
+builder.Services.AddAspireApiHandlers();
+builder.Services.AddAspireApiJobs(options =>
 {
 	_ = options.UseEntityFrameworkCore<JobsDbContext>();
 	_ = options.UseSingleServer(); // Explicit; EF storage selects single-server mode implicitly when omitted.
