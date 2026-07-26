@@ -4,6 +4,7 @@ namespace Immediate.Jobs;
 
 internal static class CronValidator
 {
+	// TODO: Improve
 	public static bool TryValidate(string cron, out string error)
 	{
 		if (string.IsNullOrWhiteSpace(cron))

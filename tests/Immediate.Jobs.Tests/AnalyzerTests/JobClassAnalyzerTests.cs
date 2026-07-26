@@ -84,4 +84,73 @@ public sealed class JobClassAnalyzerTests
 			}
 			"""
 		).RunAsync(TestContext.Current.CancellationToken);
+
+	[Fact]
+	public async Task ValidCronShouldNotTrigger() =>
+		await AnalyzerTestHelpers.CreateAnalyzerTest<JobClassAnalyzer>(
+			"""
+			using System.Threading;
+			using System.Threading.Tasks;
+			using Immediate.Handlers.Shared;
+			using Immediate.Jobs.Shared;
+			
+			namespace Dummy;
+
+			[Handler, Job(
+				Cron = "1 2 3 4 5 6",
+				TimeZone = "UTC"
+			)]
+			public sealed partial class GetUsersQuery
+			{
+				private async ValueTask Handle(EmptyJobRequest _, CancellationToken token) { }
+			}
+			"""
+		).RunAsync(TestContext.Current.CancellationToken);
+
+	[Fact]
+	public async Task CronWithInvalidRequestTypeShouldTrigger() =>
+		await AnalyzerTestHelpers.CreateAnalyzerTest<JobClassAnalyzer>(
+			"""
+			using System.Threading;
+			using System.Threading.Tasks;
+			using Immediate.Handlers.Shared;
+			using Immediate.Jobs.Shared;
+			
+			namespace Dummy;
+
+			[Handler, Job(
+				Cron = "1 2 3 4 5 6",
+				TimeZone = "UTC"
+			)]
+			public sealed partial class {|IJOB0006:GetUsersQuery|}
+			{
+				public record Query;
+
+				private async ValueTask Handle(Query _, CancellationToken token) { }
+			}
+			"""
+		).RunAsync(TestContext.Current.CancellationToken);
+
+	[Fact]
+	public async Task InvalidCronConfigurationTriggers() =>
+		await AnalyzerTestHelpers.CreateAnalyzerTest<JobClassAnalyzer>(
+			"""
+			using System.Threading;
+			using System.Threading.Tasks;
+			using Immediate.Handlers.Shared;
+			using Immediate.Jobs.Shared;
+			
+			namespace Dummy;
+
+			[Handler, Job(
+				Cron = "3 4 5 6",
+				TimeZone = ""
+			)]
+			public sealed partial class {|IJOB0007:{|IJOB0007:GetUsersQuery|}|}
+			{
+				private async ValueTask Handle(EmptyJobRequest _, CancellationToken token) { }
+			}
+			"""
+		).RunAsync(TestContext.Current.CancellationToken);
+
 }

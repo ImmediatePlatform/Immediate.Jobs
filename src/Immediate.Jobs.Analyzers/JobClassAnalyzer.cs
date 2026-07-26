@@ -20,10 +20,36 @@ public sealed class JobClassAnalyzer : DiagnosticAnalyzer
 			customTags: [WellKnownDiagnosticTags.NotConfigurable]
 		);
 
+	public static readonly DiagnosticDescriptor CronJobCannotHaveParameters =
+		new(
+			id: DiagnosticIds.IJOB0006CronJobCannotHaveParameters,
+			title: "Cron Job Parameter must be EmptyJobRequest",
+			messageFormat: "Job `{0}` is marked as a Cron job, but has parameter type `{1}`; parameter type must be `EmptyJobRequest`",
+			category: "ImmediateJobs",
+			defaultSeverity: DiagnosticSeverity.Error,
+			isEnabledByDefault: true,
+			description: "Cron jobs cannot have parameters.",
+			customTags: [WellKnownDiagnosticTags.NotConfigurable]
+		);
+
+	public static readonly DiagnosticDescriptor CronJobConfigurationInvalid =
+		new(
+			id: DiagnosticIds.IJOB0007CronJobConfigurationInvalid,
+			title: "Cron Job Configuration Invalid",
+			messageFormat: "Cron Job `{0}` has an invalid configuration: {1}",
+			category: "ImmediateJobs",
+			defaultSeverity: DiagnosticSeverity.Error,
+			isEnabledByDefault: true,
+			description: "Invalid configurations of cron jobs will prevent proper usage.",
+			customTags: [WellKnownDiagnosticTags.NotConfigurable]
+		);
+
 	public override ImmutableArray<DiagnosticDescriptor> SupportedDiagnostics { get; } =
 		ImmutableArray.Create(
 		[
 			JobConfigurationInvalid,
+			CronJobCannotHaveParameters,
+			CronJobConfigurationInvalid,
 		]);
 
 	public override void Initialize(AnalysisContext context)
@@ -52,6 +78,7 @@ public sealed class JobClassAnalyzer : DiagnosticAnalyzer
 		token.ThrowIfCancellationRequested();
 
 		AnalyzeJobConfiguration(context, jobAttribute);
+		AnalyzeCronConfiguration(context, jobAttribute);
 	}
 
 	private static void AnalyzeJobConfiguration(SymbolAnalysisContext context, AttributeData jobAttribute)
@@ -155,6 +182,59 @@ public sealed class JobClassAnalyzer : DiagnosticAnalyzer
 					errorMessage
 				)
 			);
+		}
+	}
+
+	private static void AnalyzeCronConfiguration(SymbolAnalysisContext context, AttributeData jobAttribute)
+	{
+		if (((INamedTypeSymbol)context.Symbol).GetValidHandleMethod() is not { } handleMethod)
+			return;
+
+		var parameterType = handleMethod.Parameters[0].Type;
+		var hasPayload = !parameterType.IsEmptyJobRequest;
+
+		var arguments = jobAttribute.NamedArguments;
+
+		var cron = arguments.GetStringValue("Cron");
+		var timeZone = arguments.GetStringValue("TimeZone") ?? "UTC";
+
+		if (cron is not null)
+		{
+			if (hasPayload)
+			{
+				context.ReportDiagnostic(
+					Diagnostic.Create(
+						CronJobCannotHaveParameters,
+						context.Symbol.Locations.FirstOrDefault(),
+						context.Symbol.Name,
+						parameterType.ToDisplayString(SymbolDisplayFormat.CSharpErrorMessageFormat)
+					)
+				);
+			}
+
+			if (!CronValidator.TryValidate(cron, out _))
+			{
+				context.ReportDiagnostic(
+					Diagnostic.Create(
+						CronJobConfigurationInvalid,
+						context.Symbol.Locations.FirstOrDefault(),
+						context.Symbol.Name,
+						"Cron expression is invalid"
+					)
+				);
+			}
+
+			if (timeZone.IsWhiteSpace())
+			{
+				context.ReportDiagnostic(
+					Diagnostic.Create(
+						CronJobConfigurationInvalid,
+						context.Symbol.Locations.FirstOrDefault(),
+						context.Symbol.Name,
+						"Cron time zone is invalid"
+					)
+				);
+			}
 		}
 	}
 }
