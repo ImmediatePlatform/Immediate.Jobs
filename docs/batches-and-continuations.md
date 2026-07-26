@@ -277,7 +277,7 @@ regardless of whether J finishes before or after C — `X` cannot start until bo
 > *now* means it runs now.
 
 > **`AddToBatchAsync(JobDetails, Detached)` is a contradiction** ("add to the batch" + "detached from the
-> batch") and is rejected — by the analyzer (`IJOB020`) at compile time when the option is a constant,
+> batch") and is rejected — by the analyzer (`IJOB0020`) at compile time when the option is a constant,
 > and by a runtime guard otherwise. `Detached` is meaningful only on `ScheduleAfter(JobDetails, …)`.
 
 > **The batch-tracking paths require the current job to be in a batch.** Whether the executing job is
@@ -446,7 +446,7 @@ the current job `C`'s `JobDetails`:
 For `ContinuationOptions.BeforeContinuations`, the splice is **additive**: for each existing edge
 `C → X`, an edge `J → X` is inserted (and `X`'s `RemainingDependencies` incremented) while `C → X` is
 left intact — never a re-parent. `BesideContinuations` adds no `J → X` edges; `Detached` additionally
-skips batch membership (and is rejected for `AddToBatchAsync`, see `IJOB020`).
+skips batch membership (and is rejected for `AddToBatchAsync`, see `IJOB0020`).
 
 Both batch-tracking paths first check `C`'s `JobDetails` for batch membership: if `C` has no batch,
 `AddToBatchAsync(JobDetails, …)` and `ScheduleAfter(JobDetails, …)` with `BesideContinuations`/
@@ -512,19 +512,20 @@ still within its window.
 
 `AddToBatch`/`ScheduleAfterAsync` are generated per scheduler and strongly typed against the job's
 `IJobRequest` payload, so wrong-payload and unserializable-payload errors reuse the existing
-`IJOB003`/`IJOB015` analyzers. New diagnostics:
+`IJOB0009` analyzer. New diagnostic:
 
-| ID        | Meaning                                                                        |
-| --------- | ------------------------------------------------------------------------------ |
-| `IJOB016` | Batch committed empty (no `AddToBatch`) — likely a mistake                     |
-| `IJOB017` | `ScheduleAfterAsync` mixes handles from different, unrelated batches                |
-| `IJOB018` | Continuation would create a dependency cycle (detectable when handles are known at build of the batch) |
-| `IJOB019` | `JobHandle` used after its batch was committed or disposed                     |
-| `IJOB020` | `AddToBatchAsync(JobDetails, …, Detached)` — contradictory (§3.6); `Detached` is valid only on `ScheduleAfter(JobDetails, …)` |
+| ID         | Meaning                                                                       |
+| ---------- | ----------------------------------------------------------------------------- |
+| `IJOB0020` | `AddToBatchAsync(JobDetails, …, Detached)` — contradictory (§3.6); `Detached` is valid only on `ScheduleAfter(JobDetails, …)` |
 
-`IJOB018` cycle detection is best-effort at the buffer level (the buffer holds the intended edge set
-before commit); a runtime guard in `EnqueueBatchAsync` remains the backstop. `IJOB020` fires at
-compile time when `options` is a constant; a runtime guard rejects the combination otherwise.
+`IJOB0020` fires at compile time when `options` is a constant; a runtime guard rejects the
+combination otherwise.
+
+These conditions are rejected at runtime with an `ImmediateJobException`: committing a batch with no
+members, mixing handles from unrelated batches, a continuation that would create a dependency cycle,
+and using a `JobHandle` after its batch was committed or disposed. Cycle detection is best-effort at
+the buffer level (the buffer holds the intended edge set before commit); a runtime guard in
+`EnqueueBatchAsync` remains the backstop.
 
 ---
 
@@ -757,7 +758,7 @@ public enum ContinuationOptions
 | **B1**      | `IJobBatchScheduler` + `Begin`/`AddToBatch`/`CommitAsync`, atomic `EnqueueBatchAsync`, in-memory + EF Core |
 | **B2**      | `ScheduleAfterAsync` continuations (chains + fan-out), `AwaitingContinuation`, transactional release   |
 | **B3**      | Fan-in joins (`ScheduleAfterAsync([...])`), cascade-cancel, cycle detection, batch continuations (`Begin(after:)`) |
-| **B4**      | Mid-job scheduling (§3.6) — `ScheduleAfter`/`AddToBatchAsync(JobDetails, …)`, `ContinuationOptions`, execution buffer + flush, `IJOB020` |
+| **B4**      | Mid-job scheduling (§3.6) — `ScheduleAfter`/`AddToBatchAsync(JobDetails, …)`, `ContinuationOptions`, execution buffer + flush, `IJOB0020` |
 | **B5**      | Read API (§8) — `IJobBatchMonitor` + `IJobMonitor`, batch-row counters, backing storage reads    |
 | **B6**      | Batch-atom retention (§4.7), dashboard batches list + workflow viewer + retry/cancel/delete, testing helpers, docs |
 | **B7** *(v1.x)* | **Retry from here** subtree re-materialization (§7.3) and its `job/{id}/retry-subtree` endpoint |
@@ -796,7 +797,7 @@ public enum ContinuationOptions
   idempotent). `ContinuationOptions` (`Detached`/`BesideContinuations`/`BeforeContinuations`) picks
   how existing waiters relate to the new job, with `BeforeContinuations` performing an **additive**
   `{C, J}` splice (never a re-parent). `AddToBatchAsync(JobDetails, Detached)` is contradictory and
-  rejected (`IJOB020`, compile-time + runtime); and when the current job has no batch, the
+  rejected (`IJOB0020`, compile-time + runtime); and when the current job has no batch, the
   batch-tracking paths (`AddToBatchAsync(JobDetails, …)` and non-`Detached` `ScheduleAfter(JobDetails, …)`)
   throw at run time, leaving `ScheduleAfter(JobDetails, …, Detached)` as the only valid batch-less
   call. *(Rejected: re-parenting waiters onto `J` alone, which drops their dependency on `C`; and a

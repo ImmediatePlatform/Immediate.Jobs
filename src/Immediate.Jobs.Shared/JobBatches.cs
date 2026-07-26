@@ -96,7 +96,7 @@ internal sealed class JobBatch(
 		foreach (var parent in parents)
 		{
 			if (parent.Batch != this)
-				throw new ImmediateJobException("IJOB017: Continuation handles must belong to the same open batch.");
+				throw new ImmediateJobException("Continuation handles must belong to the same open batch.");
 			if (!parentIds.Add(parent.Id))
 				throw new ImmediateJobException($"Duplicate continuation parent '{parent.Id}'.");
 		}
@@ -124,7 +124,7 @@ internal sealed class JobBatch(
 	{
 		EnsureOpen();
 		if (_jobs.Count == 0)
-			throw new ImmediateJobException("IJOB016: An atomic batch cannot be committed without jobs.");
+			throw new ImmediateJobException("An atomic batch cannot be committed without jobs.");
 
 		if (after is { } parentBatch)
 		{
@@ -174,7 +174,7 @@ internal sealed class JobBatch(
 	internal void EnsureOpen()
 	{
 		if (_finished)
-			throw new ImmediateJobException("IJOB019: A batch or one of its handles was used after commit or disposal.");
+			throw new ImmediateJobException("A batch or one of its handles was used after commit or disposal.");
 	}
 }
 

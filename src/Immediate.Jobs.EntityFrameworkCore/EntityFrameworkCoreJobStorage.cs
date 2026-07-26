@@ -59,7 +59,7 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 		ArgumentNullException.ThrowIfNull(jobs);
 		ArgumentNullException.ThrowIfNull(edges);
 		if (jobs.Count == 0)
-			throw new ImmediateJobException("IJOB016: An atomic batch cannot be committed without jobs.");
+			throw new ImmediateJobException("An atomic batch cannot be committed without jobs.");
 		await ExecuteGraphInsertAsync(batch, jobs, edges, cancellationToken).ConfigureAwait(false);
 	}
 
@@ -691,7 +691,7 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 	{
 		ArgumentNullException.ThrowIfNull(job);
 		if (options == ContinuationOptions.Detached)
-			throw new ImmediateJobException("IJOB020: AddToBatchAsync cannot create a detached job.");
+			throw new ImmediateJobException("AddToBatchAsync cannot create a detached job.");
 		const int MaxConcurrencyAttempts = 5;
 		for (var attempt = 0; attempt < MaxConcurrencyAttempts; attempt++)
 		{
@@ -1941,7 +1941,7 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 		}
 
 		if (visited != jobIds.Count)
-			throw new ImmediateJobException("IJOB018: The continuation graph contains a dependency cycle.");
+			throw new ImmediateJobException("The continuation graph contains a dependency cycle.");
 	}
 
 	private static bool IsTerminal(JobState state) =>

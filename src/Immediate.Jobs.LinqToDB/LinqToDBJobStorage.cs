@@ -61,7 +61,7 @@ public sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorage,
 		ArgumentNullException.ThrowIfNull(jobs);
 		ArgumentNullException.ThrowIfNull(edges);
 		if (jobs.Count == 0)
-			throw new ImmediateJobException("IJOB016: An atomic batch cannot be committed without jobs.");
+			throw new ImmediateJobException("An atomic batch cannot be committed without jobs.");
 		return ExecuteGraphInsertAsync(batch, jobs, edges, cancellationToken);
 	}
 
@@ -730,7 +730,7 @@ public sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorage,
 	{
 		ArgumentNullException.ThrowIfNull(job);
 		if (options == ContinuationOptions.Detached)
-			throw new ImmediateJobException("IJOB020: AddToBatchAsync cannot create a detached job.");
+			throw new ImmediateJobException("AddToBatchAsync cannot create a detached job.");
 		return RetryConcurrencyAsync(
 			connection => AddBatchJobCoreAsync(connection, currentJobId, job, options, cancellationToken),
 			cancellationToken
@@ -1903,7 +1903,7 @@ public sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorage,
 		}
 
 		if (visited != jobIds.Count)
-			throw new ImmediateJobException("IJOB018: The continuation graph contains a dependency cycle.");
+			throw new ImmediateJobException("The continuation graph contains a dependency cycle.");
 	}
 
 	private async ValueTask RetryConcurrencyAsync(

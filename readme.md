@@ -431,37 +431,28 @@ HTTP(S) or dashboard-relative URLs.
 
 ## Diagnostics
 
-Compile-time diagnostics:
-
 | ID | Meaning |
 |---|---|
 | `IJOB0001` | `[Job]` class is not also an Immediate `[Handler]` |
-| `IJOB0002` | Duplicate persisted job name |
-| `IJOB0003` | Duplicate persisted queue name |
-| `IJOB0004` | `NodaTime` is referenced without `Immediate.Jobs.NodaTime` |
-| `IJOB0005`, `IJOB008` | Invalid retry/concurrency/timeout configuration |
-| `IJOB0006`, `IJOB006` | A cron job declares a payload |
-| `IJOB0007`, `IJOB001` | Invalid cron expression or time zone |
-| `IJOB0008` | No usable job name; rename the class or set `Name` |
+| `IJOB0002` | `[Job]` class is not declared `partial` |
+| `IJOB0003` | Invalid private `ValueTask HandleAsync(request, CancellationToken)` signature |
+| `IJOB0004` | No usable job name; rename the class or set `Name` |
+| `IJOB0005` | Duplicate persisted job name |
+| `IJOB0006` | Invalid retry/concurrency/timeout configuration |
+| `IJOB0007` | A cron job declares a payload |
+| `IJOB0008` | Invalid cron expression or time zone |
+| `IJOB0009` | Unsupported payload member/type |
+| `IJOB0010` | `UsesJobContext<T>` targets an invalid extractor type |
+| `IJOB0011` | Unsupported context member/type |
+| `IJOB0012` | NodaTime payload or context type used without `Immediate.Jobs.NodaTime` |
+| `IJOB0013` | `UsesQueue<T>` targets a type without `QueueDefinition` |
+| `IJOB0014` | Invalid queue name or concurrency configuration |
+| `IJOB0015` | Duplicate persisted queue name |
 | `IJOB0020` | `AddToBatchAsync(JobDetails, ..., Detached)` is contradictory |
-| `IJOB003` | Unsupported payload member/type |
-| `IJOB004` | Invalid private `ValueTask HandleAsync(request, CancellationToken)` signature |
-| `IJOB010` | Invalid queue name or concurrency configuration |
-| `IJOB011` | `UsesQueue<T>` targets a type without `QueueDefinition` |
-| `IJOB013` | `UsesJobContext<T>` targets an invalid extractor type |
-| `IJOB014` | Unsupported context member/type |
 
-Runtime `ImmediateJobException` codes:
-
-| ID | Meaning |
-|---|---|
-| `IJOB016` | An empty atomic batch was committed |
-| `IJOB017` | Continuation handles belong to unrelated batches |
-| `IJOB018` | A continuation dependency cycle was detected |
-| `IJOB019` | A batch handle was used after commit or disposal |
-
-Invalid Immediate.Jobs runtime operations and states throw `ImmediateJobException`. Invalid method
-arguments, cron expressions, serialized data, and missing records retain their standard exception types.
+`IJOB` identifies a compile-time diagnostic. Invalid Immediate.Jobs runtime operations and states
+throw `ImmediateJobException`, which carries a message rather than a code. Invalid method arguments,
+cron expressions, serialized data, and missing records retain their standard exception types.
 
 ## Observability
 

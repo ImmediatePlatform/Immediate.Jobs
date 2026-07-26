@@ -264,7 +264,7 @@ public abstract class JobScheduler<TPayload>(
 		ArgumentNullException.ThrowIfNull(current);
 		var graphStorage = JobStorageCapabilityGuards.RequireGraph(Storage);
 		if (options == ContinuationOptions.Detached)
-			throw new ImmediateJobException("IJOB020: AddToBatchAsync(JobDetails, ...) cannot create detached work.");
+			throw new ImmediateJobException("AddToBatchAsync(JobDetails, ...) cannot create detached work.");
 		if (current.Buffer is null)
 			throw new ImmediateJobException("JobDetails can add work only during its active execution attempt.");
 		if (current.BatchId is null)
@@ -296,7 +296,7 @@ public abstract class JobScheduler<TPayload>(
 		}
 
 		if (parents.Any(static parent => parent.Batch is not null))
-			throw new ImmediateJobException("IJOB017: Continuation handles from unrelated scopes cannot be mixed.");
+			throw new ImmediateJobException("Continuation handles from unrelated scopes cannot be mixed.");
 
 		var parentIds = parents.Select(static parent => parent.Id).ToHashSet(StringComparer.Ordinal);
 		if (parentIds.Count != parents.Length)
