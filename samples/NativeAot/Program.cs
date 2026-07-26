@@ -1,10 +1,12 @@
 using Immediate.Jobs.Shared;
 using Immediate.Handlers.Shared;
 using Microsoft.Extensions.DependencyInjection;
+using NativeAot;
 
 var services = new ServiceCollection();
 services.AddLogging();
 services.AddScoped<CurrentGreetingContext>();
+services.AddNativeAotHandlers();
 services.AddNativeAotJobs(options => options.UseInMemory());
 
 await using var provider = services.BuildServiceProvider();

@@ -476,7 +476,7 @@ every edge — is kept for a window keyed off the **batch's** terminal state, th
 | `BatchFailedRetention`     | 7d      | `Failed` or `Cancelled`                           |
 
 ```csharp
-builder.Services.AddImmediateJobs(o =>
+builder.Services.AddMyAppJobs(o =>
 {
     o.BatchSucceededRetention = TimeSpan.FromHours(24); // defaults mirror job retention
     o.BatchFailedRetention = TimeSpan.FromDays(7);

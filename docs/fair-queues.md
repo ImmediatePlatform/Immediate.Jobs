@@ -69,7 +69,7 @@ recurring enqueue operations do not currently accept a group id.
 Enable the default policy:
 
 ```csharp
-services.AddImmediateJobs(options =>
+services.AddMyAppJobs(options =>
 {
     options.UseFairQueues();
 });
@@ -78,7 +78,7 @@ services.AddImmediateJobs(options =>
 Or configure its thresholds:
 
 ```csharp
-services.AddImmediateJobs(options =>
+services.AddMyAppJobs(options =>
 {
     options.UseFairQueues(fair =>
     {

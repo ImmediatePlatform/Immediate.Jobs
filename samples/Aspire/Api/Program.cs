@@ -1,3 +1,4 @@
+using Immediate.Jobs.Aspire.Api;
 using Immediate.Jobs.Aspire.Api.Context;
 using Immediate.Jobs.Aspire.Api.Data;
 using Immediate.Jobs.Aspire.Api.Endpoints;
@@ -27,6 +28,7 @@ var aspireDashboardUrl = builder.Configuration["Telemetry:AspireDashboardUrl"] i
 builder.Services.AddDbContextFactory<JobsDbContext>(options =>
 	options.UseNpgsql(connectionString, npgsql => npgsql.EnableRetryOnFailure()));
 
+builder.Services.AddImmediateJobsAspireApiHandlers();
 builder.Services.AddImmediateJobsAspireApiJobs(options =>
 {
 	_ = options.UseEntityFrameworkCore<JobsDbContext>();

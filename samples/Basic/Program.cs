@@ -1,9 +1,11 @@
+using Basic;
 using Immediate.Jobs.Shared;
 using Immediate.Jobs.Dashboard;
 using Immediate.Handlers.Shared;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddSingleton<IEmailSender, ConsoleEmailSender>();
+builder.Services.AddBasicHandlers();
 builder.Services.AddBasicJobs(options =>
 {
 	_ = options.UseInMemory();
