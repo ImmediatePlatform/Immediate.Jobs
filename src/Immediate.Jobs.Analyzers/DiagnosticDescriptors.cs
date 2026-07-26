@@ -7,12 +7,6 @@ internal static class DiagnosticDescriptors
 {
 	private const string Category = "Immediate.Jobs";
 
-	public static readonly DiagnosticDescriptor InvalidCron = Create(
-		"IJOB001",
-		"Invalid recurring schedule",
-		"Schedule value '{0}' is invalid: {1}"
-	);
-
 	public static readonly DiagnosticDescriptor UnsupportedPayload = Create(
 		"IJOB003",
 		"Unsupported job payload",
@@ -23,18 +17,6 @@ internal static class DiagnosticDescriptors
 		"IJOB004",
 		"Invalid job method signature",
 		"Job '{0}' must declare exactly one private instance HandleAsync method returning ValueTask, with a request followed by CancellationToken"
-	);
-
-	public static readonly DiagnosticDescriptor InvalidConfiguration = Create(
-		"IJOB008",
-		"Invalid job configuration",
-		"Job '{0}' has invalid configuration: {1}"
-	);
-
-	public static readonly DiagnosticDescriptor CronPayload = Create(
-		"IJOB006",
-		"Cron job cannot have a payload",
-		"Cron job '{0}' cannot declare a payload parameter"
 	);
 
 	public static readonly DiagnosticDescriptor InvalidQueueConfiguration = Create(
