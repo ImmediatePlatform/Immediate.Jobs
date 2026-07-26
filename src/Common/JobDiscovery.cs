@@ -141,7 +141,7 @@ internal static class JobDiscovery
 		var explicitName = attribute.ConstructorArguments.Length == 1
 			? attribute.ConstructorArguments[0].Value as string
 			: null;
-		return string.IsNullOrWhiteSpace(explicitName) ? ToKebabCase(RemoveJobSuffix(type.Name)) : explicitName!;
+		return string.IsNullOrWhiteSpace(explicitName) ? type.Name.AsJobName() : explicitName!;
 	}
 
 	public static bool TryGetQueue(
@@ -161,7 +161,7 @@ internal static class JobDiscovery
 			return usesQueue is null;
 		}
 
-		name = GetNamedString(definition, "Name") ?? ToKebabCase(queueType.Name);
+		name = GetNamedString(definition, "Name") ?? queueType.Name.AsQueueName();
 		priority = GetNamedInt(definition, "Priority", 0);
 		concurrency = GetNamedInt(definition, "Concurrency", 0);
 		return !string.IsNullOrWhiteSpace(name) && name != "default" && concurrency >= 0;
@@ -170,7 +170,7 @@ internal static class JobDiscovery
 	public static string GetQueueName(INamedTypeSymbol queueType)
 	{
 		var definition = GetQueueDefinitionAttribute(queueType)!;
-		return GetNamedString(definition, "Name") ?? ToKebabCase(queueType.Name);
+		return GetNamedString(definition, "Name") ?? queueType.Name.AsQueueName();
 	}
 
 	public static string? GetNamedString(AttributeData attribute, string name) =>
@@ -204,24 +204,5 @@ internal static class JobDiscovery
 		return !TimeSpan.TryParse(backoffBase, CultureInfo.InvariantCulture, out var backoffValue) || backoffValue <= TimeSpan.Zero
 			? "BackoffBase must be a positive TimeSpan"
 			: null;
-	}
-
-	private static string RemoveJobSuffix(string name) =>
-		name.EndsWith("Job", StringComparison.Ordinal) && name.Length > 3 ? name.Substring(0, name.Length - 3) : name;
-
-	private static string ToKebabCase(string value)
-	{
-		var result = new List<char>(value.Length + 8);
-		for (var index = 0; index < value.Length; index++)
-		{
-			var current = value[index];
-			if (index > 0 &&
-				char.IsUpper(current) &&
-				(char.IsLower(value[index - 1]) || index + 1 < value.Length && char.IsLower(value[index + 1])))
-				result.Add('-');
-			result.Add(char.ToLower(current, CultureInfo.InvariantCulture));
-		}
-
-		return new([.. result]);
 	}
 }

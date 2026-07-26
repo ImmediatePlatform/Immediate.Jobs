@@ -14,18 +14,27 @@ internal static class Utility
 				? str.AsSpan()[..^3]
 				: str;
 
-		public string AsQueueName() => str.RemoveQueueSuffix().ToKebabCase();
+		public string AsQueueName() => str.AsSpan().ToKebabCase();
 
-		public ReadOnlySpan<char> RemoveQueueSuffix() =>
-			str.EndsWith("Queue", StringComparison.OrdinalIgnoreCase)
-				? str.AsSpan()[..^5]
-				: str;
+		public bool HasNameContent()
+		{
+			foreach (var character in str)
+			{
+				if (char.IsLetterOrDigit(character))
+					return true;
+			}
+
+			return false;
+		}
 	}
 
 	extension(ReadOnlySpan<char> str)
 	{
 		public string ToKebabCase()
 		{
+			if (str.IsEmpty)
+				return string.Empty;
+
 			var result = new StringBuilder(str.Length + 8);
 			_ = result.Append(char.ToLower(str[0], CultureInfo.InvariantCulture));
 

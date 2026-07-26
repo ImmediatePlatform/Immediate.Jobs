@@ -109,9 +109,9 @@ public sealed class DuplicateElementsAnalyzerTests
 			
 			namespace Dummy;
 			
-			[QueueDefinition(Name = "my-name")]
+			[QueueDefinition(Name = "my-name-queue")]
 			public sealed partial class {|IJOB0003:QueueOne|};
-			
+
 			[QueueDefinition]
 			public sealed partial class {|IJOB0003:MyNameQueue|};
 			"""
