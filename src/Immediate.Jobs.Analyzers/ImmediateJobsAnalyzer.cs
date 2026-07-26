@@ -35,7 +35,6 @@ public sealed class ImmediateJobsAnalyzer : DiagnosticAnalyzer
 	{
 		AnalyzeQueues(context);
 		var jobs = JobDiscovery.FindJobs(context.Compilation, context.CancellationToken);
-		var groups = jobs.GroupBy(JobDiscovery.GetName, StringComparer.Ordinal);
 
 		var hasNodaTimeIntegration = context.Compilation.ReferencedAssemblyNames
 			.Any(identity => identity.Name == "Immediate.Jobs.NodaTime");

@@ -5,11 +5,9 @@ using Microsoft.CodeAnalysis.Operations;
 
 namespace Immediate.Jobs.Analyzers;
 
-/// <summary>Validates declarations marked with <c>Immediate.Jobs.Shared.JobAttribute</c>.</summary>
 [DiagnosticAnalyzer(LanguageNames.CSharp)]
 public sealed class InvalidAddToBatchCallAnalyzer : DiagnosticAnalyzer
 {
-
 	public static readonly DiagnosticDescriptor DetachedJobCannotBeAddedToBatch =
 		new(
 			id: DiagnosticIds.IJOB0020DetachedJobCannotBeAddedToBatch,
@@ -22,7 +20,7 @@ public sealed class InvalidAddToBatchCallAnalyzer : DiagnosticAnalyzer
 		);
 
 	/// <inheritdoc />
-	public override ImmutableArray<DiagnosticDescriptor> SupportedDiagnostics =>
+	public override ImmutableArray<DiagnosticDescriptor> SupportedDiagnostics { get; } =
 		ImmutableArray.Create(
 		[
 			DetachedJobCannotBeAddedToBatch,
@@ -64,10 +62,10 @@ public sealed class InvalidAddToBatchCallAnalyzer : DiagnosticAnalyzer
 				IsImplicit: false,
 				Value: IFieldReferenceOperation
 				{
-					ConstantValue:
+					Field:
 					{
-						HasValue: true,
-						Value: 0,
+						Name: "Detached",
+						ContainingType.IsContinuationOptions: true,
 					},
 				},
 			}) is not { } argument)
