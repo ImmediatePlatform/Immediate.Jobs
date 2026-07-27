@@ -7,13 +7,13 @@ internal static class AttributeDataExtensions
 {
 	extension(ImmutableArray<AttributeData> attributes)
 	{
-		public AttributeData? GetJobAttribute() =>
+		public AttributeData? JobAttribute =>
 			attributes.FirstOrDefault(x => x.AttributeClass.IsJobAttribute);
 
-		public AttributeData? GetQueueAttribute() =>
+		public AttributeData? QueueAttribute =>
 			attributes.FirstOrDefault(x => x.AttributeClass.IsQueueDefinitionAttribute);
 
-		public AttributeData? GetHandlerAttribute() =>
+		public AttributeData? HandlerAttribute =>
 			attributes.FirstOrDefault(x => x.AttributeClass.IsHandlerAttribute);
 	}
 
@@ -24,5 +24,7 @@ internal static class AttributeDataExtensions
 
 		public string GetQueueName(string className) =>
 			attribute.NamedArguments.GetStringValue("Name") ?? className.AsQueueName();
+
+		public Location? Location => attribute.ApplicationSyntaxReference?.GetSyntax().GetLocation();
 	}
 }

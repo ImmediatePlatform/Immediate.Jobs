@@ -71,7 +71,7 @@ public sealed class DuplicateElementsAnalyzer : DiagnosticAnalyzer
 				{
 					var attributes = context.Symbol.GetAttributes();
 
-					if (attributes.GetJobAttribute() is { } jobAttribute)
+					if (attributes.JobAttribute is { } jobAttribute)
 					{
 						lock (@lock)
 						{
@@ -86,7 +86,7 @@ public sealed class DuplicateElementsAnalyzer : DiagnosticAnalyzer
 						}
 					}
 
-					if (attributes.GetQueueAttribute() is { } queueAttribute)
+					if (attributes.QueueAttribute is { } queueAttribute)
 					{
 						lock (@lock)
 						{

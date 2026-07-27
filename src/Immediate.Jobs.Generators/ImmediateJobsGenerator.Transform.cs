@@ -19,7 +19,7 @@ public sealed partial class ImmediateJobsGenerator
 		if (symbol.GetValidHandleMethod() is not { } handleMethod)
 			return null;
 
-		if (attributes.GetHandlerAttribute() is null)
+		if (attributes.HandlerAttribute is not { } handlerAttribute)
 			return null;
 
 		var @namespace = symbol.ContainingNamespace.ToDisplayString().NullIf("<global namespace>");
@@ -29,6 +29,9 @@ public sealed partial class ImmediateJobsGenerator
 
 		var attribute = context.Attributes[0];
 		var jobName = attribute.GetJobName(className: symbol.Name);
+
+		if (!jobName.HasNameContent())
+			return null;
 
 		var arguments = attribute.NamedArguments;
 
@@ -82,7 +85,6 @@ public sealed partial class ImmediateJobsGenerator
 		if (hasPayload && PayloadValidation.FindProblem(parameterType, context.SemanticModel.Compilation) is not null)
 			return null;
 
-		var handlerAttribute = attributes.FirstOrDefault(a => a is { AttributeClass.IsHandlerAttribute: true });
 		var tags = handlerAttribute?.NamedArguments.GetStringArray("Tags");
 
 		var contextUses = JobDiscovery.GetJobContextUses(symbol);

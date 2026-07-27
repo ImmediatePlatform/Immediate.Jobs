@@ -9,13 +9,10 @@ namespace Immediate.Jobs.Analyzers;
 public sealed class ImmediateJobsAnalyzer : DiagnosticAnalyzer
 {
 	/// <inheritdoc />
-	public override ImmutableArray<DiagnosticDescriptor> SupportedDiagnostics =>
+	public override ImmutableArray<DiagnosticDescriptor> SupportedDiagnostics { get; } =
 		ImmutableArray.Create(
-			DiagnosticDescriptors.InvalidCron,
 			DiagnosticDescriptors.UnsupportedPayload,
 			DiagnosticDescriptors.InvalidMethodSignature,
-			DiagnosticDescriptors.InvalidConfiguration,
-			DiagnosticDescriptors.CronPayload,
 			DiagnosticDescriptors.InvalidQueueConfiguration,
 			DiagnosticDescriptors.InvalidQueueTarget,
 			DiagnosticDescriptors.InvalidContextExtractor,
@@ -35,7 +32,6 @@ public sealed class ImmediateJobsAnalyzer : DiagnosticAnalyzer
 	{
 		AnalyzeQueues(context);
 		var jobs = JobDiscovery.FindJobs(context.Compilation, context.CancellationToken);
-		var groups = jobs.GroupBy(JobDiscovery.GetName, StringComparer.Ordinal);
 
 		var hasNodaTimeIntegration = context.Compilation.ReferencedAssemblyNames
 			.Any(identity => identity.Name == "Immediate.Jobs.NodaTime");
@@ -89,19 +85,7 @@ public sealed class ImmediateJobsAnalyzer : DiagnosticAnalyzer
 				continue;
 			}
 
-			var attribute = JobDiscovery.GetJobAttribute(job)!;
-			var cron = JobDiscovery.GetNamedString(attribute, "Cron");
-			if (cron is not null && !CronValidator.TryValidate(cron, out var cronError))
-				context.ReportDiagnostic(Diagnostic.Create(DiagnosticDescriptors.InvalidCron, location, cron, cronError));
-			if (cron is not null && hasPayload)
-				context.ReportDiagnostic(Diagnostic.Create(DiagnosticDescriptors.CronPayload, location, job.Name));
-
-			var timeZone = JobDiscovery.GetNamedString(attribute, "TimeZone");
-			if (timeZone is not null && !JobDiscovery.IsValidTimeZone(timeZone))
-				context.ReportDiagnostic(Diagnostic.Create(DiagnosticDescriptors.InvalidCron, location, timeZone, "time zone must not be empty"));
-			var configurationProblem = JobDiscovery.FindConfigurationProblem(attribute);
-			if (configurationProblem is not null)
-				context.ReportDiagnostic(Diagnostic.Create(DiagnosticDescriptors.InvalidConfiguration, location, job.Name, configurationProblem));
+			// cron, time zone, and the remaining `[Job]` values are validated by JobClassAnalyzer
 
 			if (!hasPayload)
 				continue;

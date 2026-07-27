@@ -15,7 +15,7 @@ public sealed class MissingHandlerAttributeAnalyzer : DiagnosticAnalyzer
 			category: "ImmediateJobs",
 			defaultSeverity: DiagnosticSeverity.Error,
 			isEnabledByDefault: true,
-			description: "An endpoint registration can only be generated for an Immediate.Handlers handler."
+			description: "A job can only be generated for an Immediate.Handlers handler."
 		);
 
 	public override ImmutableArray<DiagnosticDescriptor> SupportedDiagnostics { get; } =
@@ -44,13 +44,16 @@ public sealed class MissingHandlerAttributeAnalyzer : DiagnosticAnalyzer
 
 		var attributes = namedTypeSymbol.GetAttributes();
 
-		if (attributes.GetJobAttribute() is null)
+		if (attributes is not
+			{
+				JobAttribute: { },
+				HandlerAttribute: null,
+			})
+		{
 			return;
+		}
 
 		token.ThrowIfCancellationRequested();
-
-		if (attributes.GetHandlerAttribute() is { })
-			return;
 
 		context.ReportDiagnostic(
 			Diagnostic.Create(

@@ -5,24 +5,6 @@ namespace Immediate.Jobs.Tests.AnalyzerTests;
 public sealed class ImmediateJobsAnalyzerTests
 {
 	[Fact]
-	public async Task AnalyzerTriggersForInvalidCron() =>
-		await AssertDiagnostic(
-			"""
-			using Immediate.Jobs.Shared;
-			using Immediate.Handlers.Shared;
-			using System.Threading;
-			using System.Threading.Tasks;
-
-			[Handler, Job(Cron = "not cron")]
-			public sealed partial class BadCronJob
-			{
-				private ValueTask HandleAsync(EmptyJobRequest request, CancellationToken ct) => ValueTask.CompletedTask;
-			}
-			""",
-			"IJOB001"
-		);
-
-	[Fact]
 	public async Task AnalyzerTriggersForUnsupportedPayload() =>
 		await AssertDiagnostic(
 			"""
@@ -61,47 +43,6 @@ public sealed class ImmediateJobsAnalyzerTests
 			}
 			""",
 			"IJOB004"
-		);
-
-	[Fact]
-	public async Task AnalyzerTriggersForCronJobWithPayload() =>
-		await AssertDiagnostic(
-			"""
-			using Immediate.Jobs.Shared;
-			using Immediate.Handlers.Shared;
-			using System.Threading;
-			using System.Threading.Tasks;
-
-			public sealed record Payload(string Value) : IJobRequest
-			{
-				public JobDetails? JobDetails { get; set; }
-			}
-
-			[Handler, Job(Cron = "0 * * * *")]
-			public sealed partial class CronPayloadJob
-			{
-				private ValueTask HandleAsync(Payload payload, CancellationToken ct) => ValueTask.CompletedTask;
-			}
-			""",
-			"IJOB006"
-		);
-
-	[Fact]
-	public async Task AnalyzerTriggersForInvalidJobConfiguration() =>
-		await AssertDiagnostic(
-			"""
-			using Immediate.Jobs.Shared;
-			using Immediate.Handlers.Shared;
-			using System.Threading;
-			using System.Threading.Tasks;
-
-			[Handler, Job(MaxAttempts = 0)]
-			public sealed partial class InvalidConfigurationJob
-			{
-				private ValueTask HandleAsync(EmptyJobRequest request, CancellationToken ct) => ValueTask.CompletedTask;
-			}
-			""",
-			"IJOB008"
 		);
 
 	[Fact]

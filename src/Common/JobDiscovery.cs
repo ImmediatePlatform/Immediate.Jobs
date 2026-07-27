@@ -1,5 +1,4 @@
 using System.Collections.Immutable;
-using System.Globalization;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
@@ -135,15 +134,6 @@ internal static class JobDiscovery
 		return true;
 	}
 
-	public static string GetName(INamedTypeSymbol type)
-	{
-		var attribute = GetJobAttribute(type)!;
-		var explicitName = attribute.ConstructorArguments.Length == 1
-			? attribute.ConstructorArguments[0].Value as string
-			: null;
-		return string.IsNullOrWhiteSpace(explicitName) ? ToKebabCase(RemoveJobSuffix(type.Name)) : explicitName!;
-	}
-
 	public static bool TryGetQueue(
 		INamedTypeSymbol job,
 		out string name,
@@ -161,7 +151,7 @@ internal static class JobDiscovery
 			return usesQueue is null;
 		}
 
-		name = GetNamedString(definition, "Name") ?? ToKebabCase(queueType.Name);
+		name = GetNamedString(definition, "Name") ?? queueType.Name.AsQueueName();
 		priority = GetNamedInt(definition, "Priority", 0);
 		concurrency = GetNamedInt(definition, "Concurrency", 0);
 		return !string.IsNullOrWhiteSpace(name) && name != "default" && concurrency >= 0;
@@ -170,7 +160,7 @@ internal static class JobDiscovery
 	public static string GetQueueName(INamedTypeSymbol queueType)
 	{
 		var definition = GetQueueDefinitionAttribute(queueType)!;
-		return GetNamedString(definition, "Name") ?? ToKebabCase(queueType.Name);
+		return GetNamedString(definition, "Name") ?? queueType.Name.AsQueueName();
 	}
 
 	public static string? GetNamedString(AttributeData attribute, string name) =>
@@ -180,48 +170,5 @@ internal static class JobDiscovery
 	{
 		var pair = attribute.NamedArguments.FirstOrDefault(candidate => candidate.Key == name);
 		return pair.Key is null || pair.Value.Value is not int value ? fallback : value;
-	}
-
-	public static bool IsValidTimeZone(string timeZone) => !string.IsNullOrWhiteSpace(timeZone);
-
-	public static string? FindConfigurationProblem(AttributeData attribute)
-	{
-		if (GetNamedInt(attribute, "MaxAttempts", 3) < 1)
-			return "MaxAttempts must be at least one";
-		if (GetNamedInt(attribute, "MaxConcurrency", 0) < 0)
-			return "MaxConcurrency cannot be negative";
-		if (GetNamedInt(attribute, "OverlapPolicy", 0) is < 0 or > 2)
-			return "OverlapPolicy is not a defined value";
-		if (GetNamedInt(attribute, "Backoff", 2) is < 0 or > 2)
-			return "Backoff is not a defined value";
-
-		var timeout = GetNamedString(attribute, "Timeout");
-		if (timeout is not null &&
-			(!TimeSpan.TryParse(timeout, CultureInfo.InvariantCulture, out var timeoutValue) || timeoutValue <= TimeSpan.Zero))
-			return "Timeout must be a positive TimeSpan";
-
-		var backoffBase = GetNamedString(attribute, "BackoffBase") ?? "00:00:05";
-		return !TimeSpan.TryParse(backoffBase, CultureInfo.InvariantCulture, out var backoffValue) || backoffValue <= TimeSpan.Zero
-			? "BackoffBase must be a positive TimeSpan"
-			: null;
-	}
-
-	private static string RemoveJobSuffix(string name) =>
-		name.EndsWith("Job", StringComparison.Ordinal) && name.Length > 3 ? name.Substring(0, name.Length - 3) : name;
-
-	private static string ToKebabCase(string value)
-	{
-		var result = new List<char>(value.Length + 8);
-		for (var index = 0; index < value.Length; index++)
-		{
-			var current = value[index];
-			if (index > 0 &&
-				char.IsUpper(current) &&
-				(char.IsLower(value[index - 1]) || index + 1 < value.Length && char.IsLower(value[index + 1])))
-				result.Add('-');
-			result.Add(char.ToLower(current, CultureInfo.InvariantCulture));
-		}
-
-		return new([.. result]);
 	}
 }
