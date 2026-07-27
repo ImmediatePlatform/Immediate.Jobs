@@ -21,6 +21,7 @@ public sealed class CronSyntaxTests
 	[InlineData("0 0 L * *")]
 	[InlineData("0 0 LW * *")]
 	[InlineData("0 0 L-3 * *")]
+	[InlineData("0 0 L-5W * *")]
 	[InlineData("0 0 15W * *")]
 	[InlineData("0 0 * * 5L")]
 	[InlineData("0 0 * * FRI#3")]
@@ -44,6 +45,8 @@ public sealed class CronSyntaxTests
 	[InlineData("60 0 * * *")]
 	[InlineData("0 0 * * XYZ")]
 	[InlineData("0 0 32 * *")]
+	[InlineData("0 0 L-W * *")]
+	[InlineData("0 0 L-31W * *")]
 	[InlineData("*/0 * * * *")]
 	[InlineData("@nope")]
 	public async Task ExpressionsTheRuntimeRejectsShouldTrigger(string cron)

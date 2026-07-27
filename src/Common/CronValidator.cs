@@ -172,10 +172,14 @@ internal static class CronValidator
 			return true;
 		}
 
-		// `L-3`: three days before the last day of the month
+		// `L-3`: three days before the last day of the month; `L-3W`: adjusted to the nearest weekday
 		if (value.StartsWith("L-", StringComparison.OrdinalIgnoreCase))
 		{
-			if (IsNumber(value.Substring(2), minimum: 0, maximum: 30))
+			var offset = value.Substring(2);
+			if (offset.Length > 0 && offset[^1] is 'W' or 'w')
+				offset = offset.Substring(0, offset.Length - 1);
+
+			if (IsNumber(offset, minimum: 0, maximum: 30))
 				return true;
 
 			error = $"'{value}' must offset the last day of the month by 0 to 30 days";
