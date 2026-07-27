@@ -175,9 +175,9 @@ internal static class CronValidator
 		// `L-3`: three days before the last day of the month; `L-3W`: adjusted to the nearest weekday
 		if (value.StartsWith("L-", StringComparison.OrdinalIgnoreCase))
 		{
-			var offset = value.Substring(2);
+			var offset = value[2..];
 			if (offset.Length > 0 && offset[^1] is 'W' or 'w')
-				offset = offset.Substring(0, offset.Length - 1);
+				offset = offset[..^1];
 
 			if (IsNumber(offset, minimum: 0, maximum: 30))
 				return true;
@@ -189,7 +189,7 @@ internal static class CronValidator
 		// `15W`: the weekday nearest the fifteenth
 		if (value[^1] is 'W' or 'w')
 		{
-			if (IsNumber(value.Substring(0, value.Length - 1), 1, 31))
+			if (IsNumber(value[..^1], 1, 31))
 				return true;
 
 			error = $"'{value}' must apply `W` to a day from 1 to 31";
@@ -219,7 +219,7 @@ internal static class CronValidator
 		// `5L`: the last Friday of the month
 		if (value.Length > 1 && value[^1] is 'L' or 'l')
 		{
-			if (IsValue(value.Substring(0, value.Length - 1), FieldKind.DayOfWeek))
+			if (IsValue(value[..^1], FieldKind.DayOfWeek))
 				return true;
 
 			error = $"'{value}' must apply `L` to a day of the week";
