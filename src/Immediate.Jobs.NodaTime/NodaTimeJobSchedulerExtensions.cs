@@ -2,8 +2,6 @@ using NodaTime;
 
 namespace Immediate.Jobs.NodaTime;
 
-#pragma warning disable CA1068 // GroupId follows the existing token to keep positional default calls source-compatible.
-
 /// <summary>NodaTime overloads for generated Immediate.Jobs scheduler contracts.</summary>
 public static class NodaTimeJobSchedulerExtensions
 {
@@ -24,12 +22,12 @@ public static class NodaTimeJobSchedulerExtensions
 		this IJobScheduler<TPayload> scheduler,
 		TPayload payload,
 		Duration delay,
-		CancellationToken cancellationToken,
-		string? groupId
+		string? groupId,
+		CancellationToken cancellationToken
 	)
 	{
 		ArgumentNullException.ThrowIfNull(scheduler);
-		return scheduler.ScheduleAsync(payload, delay.ToTimeSpan(), cancellationToken, groupId);
+		return scheduler.ScheduleAsync(payload, delay.ToTimeSpan(), groupId, cancellationToken);
 	}
 
 	/// <summary>Schedules a payload at a NodaTime instant.</summary>
@@ -49,12 +47,12 @@ public static class NodaTimeJobSchedulerExtensions
 		this IJobScheduler<TPayload> scheduler,
 		TPayload payload,
 		Instant runAt,
-		CancellationToken cancellationToken,
-		string? groupId
+		string? groupId,
+		CancellationToken cancellationToken
 	)
 	{
 		ArgumentNullException.ThrowIfNull(scheduler);
-		return scheduler.ScheduleAtAsync(payload, runAt.ToDateTimeOffset(), cancellationToken, groupId);
+		return scheduler.ScheduleAtAsync(payload, runAt.ToDateTimeOffset(), groupId, cancellationToken);
 	}
 
 	/// <summary>Adds a payload to an atomic batch after a NodaTime duration.</summary>
@@ -137,5 +135,3 @@ public static class NodaTimeJobSchedulerExtensions
 		return scheduler.AddOrUpdateRecurringAsync(name, cron, timeZone.Id, cancellationToken);
 	}
 }
-
-#pragma warning restore CA1068

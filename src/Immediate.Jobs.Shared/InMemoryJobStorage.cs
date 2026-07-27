@@ -535,7 +535,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 			if (current.BatchId is null || !_batches.ContainsKey(current.BatchId))
 				throw new ImmediateJobException("The current job does not belong to a batch.");
 			if (options == ContinuationOptions.Detached)
-				throw new ImmediateJobException("IJOB020: AddToBatchAsync(JobDetails, ...) cannot create detached work.");
+				throw new ImmediateJobException("AddToBatchAsync(JobDetails, ...) cannot create detached work.");
 			if (options is not (ContinuationOptions.BesideContinuations or ContinuationOptions.BeforeContinuations))
 				throw new ArgumentOutOfRangeException(nameof(options));
 			ValidateNewJob(job);
@@ -1174,7 +1174,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 		}
 
 		if (visited != newJobIds.Count)
-			throw new ImmediateJobException("IJOB018: The continuation graph contains a dependency cycle.");
+			throw new ImmediateJobException("The continuation graph contains a dependency cycle.");
 	}
 
 	private static JobRecord NormalizeWaitingJob(JobRecord job, int dependencyCount) => job with

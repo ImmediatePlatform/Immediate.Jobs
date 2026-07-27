@@ -77,16 +77,16 @@ public static class SampleApiEndpoints
 		{
 			_ = await scheduler.EnqueueAsync(
 				new(runId, sequence, "backlog"),
-				cancellationToken,
-				groupId: backlogGroup
+				groupId: backlogGroup,
+				cancellationToken: cancellationToken
 			);
 		}
 
 		await Task.Delay(TimeSpan.FromSeconds(5), cancellationToken);
 		var quietJob = await scheduler.EnqueueAsync(
 			new(runId, 1, "quiet"),
-			cancellationToken,
-			groupId: quietGroup
+			groupId: quietGroup,
+			cancellationToken: cancellationToken
 		);
 
 		return Results.Accepted(

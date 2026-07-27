@@ -10,7 +10,7 @@ Immediate.Jobs is a reflection-free background job scheduler for .NET 8+ built o
 using Immediate.Handlers.Shared;
 using Immediate.Jobs.Shared;
 
-[Handler, Job("send-welcome-email", MaxAttempts = 5, Timeout = "00:02:00")]
+[Handler, Job(Name = "send-welcome-email", MaxAttempts = 5, Timeout = "00:02:00")]
 public sealed partial class SendWelcomeEmail(IEmailSender sender)
 {
 	public sealed record Payload(Guid UserId, string Template);
@@ -53,7 +53,7 @@ Applications that need Snowflake, ULID, or another identifier format can replace
 generator. The implementation is resolved from DI and must be thread-safe:
 
 ```csharp
-services.AddImmediateJobs(options => options.UseInMemory())
+services.AddMyAppJobs(options => options.UseInMemory())
 	.UseIdGenerator<SnowflakeIdGenerator>();
 
 sealed class SnowflakeIdGenerator(ISnowflakeService snowflakes) : IIdGenerator
@@ -125,7 +125,7 @@ await welcomeEmail.EnqueueAsync(
 	cancellationToken: cancellationToken
 );
 
-builder.Services.AddImmediateJobs(options =>
+builder.Services.AddMyAppJobs(options =>
 {
 	options.UseEntityFrameworkCore<AppDbContext>();
 	options.UseDistributed();
@@ -148,13 +148,27 @@ provider details.
 Register the generated application job module:
 
 ```csharp
-builder.Services.AddImmediateJobs(options =>
+builder.Services.AddMyAppHandlers();
+builder.Services.AddMyAppJobs(options =>
 {
 	options.UseEntityFrameworkCore<AppDbContext>(); // memory-primary single-server mode by default
 	options.MaxParallelJobs = 16;
 	options.PollingInterval = TimeSpan.FromSeconds(1);
 }).AddHealthCheck();
 ```
+
+Both registration methods are generated per assembly and named after it, with `.`, `-`, and spaces
+removed: an assembly named `MyApp` produces `AddMyAppJobs`, and `Contoso.Billing.Api` produces
+`AddContosoBillingApiJobs`. Apply Immediate.Handlers'
+`[assembly: ImmediateAssemblyIdentifier("Billing")]` to choose the infix yourself. The handlers
+method comes from Immediate.Handlers and is declared in the assembly's root namespace, so a `using`
+may be required; the jobs method is declared in `Microsoft.Extensions.DependencyInjection`.
+
+`AddMyAppJobs` registers each job's scheduler, invoker, context extractors, queue definitions, and
+job definition, but **not** the handlers themselves. The worker resolves `SendWelcomeEmail.Handler`
+from DI when it executes an invocation, so an application that does not also call
+`AddMyAppHandlers()` (and `AddMyAppBehaviors()`, if it declares behaviors) will enqueue jobs
+successfully and then fail every attempt at execution time.
 
 The EF Core package adds `UseEntityFrameworkCore<TContext>()`; the LinqToDB package adds
 `UseLinqToDB(dataOptions, schema)`. A durable provider implicitly selects single-server mode: memory
@@ -191,7 +205,7 @@ await scheduler.TriggerNowAsync(cancellationToken);
 Schedulers for jobs with a compile-time `Cron` do not expose dynamic schedule mutation. To manage named schedules at runtime, define a separate payloadless job without `Cron`:
 
 ```csharp
-[Handler, Job("tenant-cleanup")]
+[Handler, Job(Name = "tenant-cleanup")]
 public sealed partial class TenantCleanupJob(AppDbContext db)
 {
 	private ValueTask HandleAsync(EmptyJobRequest request, CancellationToken cancellationToken) =>
@@ -307,7 +321,7 @@ Pass either a StackExchange.Redis configuration string or an application-owned
 `IConnectionMultiplexer`. `UseRedis` selects distributed mode automatically:
 
 ```csharp
-builder.Services.AddImmediateJobs(options =>
+builder.Services.AddMyAppJobs(options =>
 	options.UseRedis("localhost:6379", redis =>
 	{
 		redis.Database = 1;
@@ -332,7 +346,7 @@ builder.Services.AddDbContextFactory<AppDbContext>(db =>
 // db.UseSqlite(connectionString);       // SQLite
 // db.UseSqlServer(connectionString);    // SQL Server
 
-builder.Services.AddImmediateJobs(options =>
+builder.Services.AddMyAppJobs(options =>
 	options.UseEntityFrameworkCore<AppDbContext>());
 
 protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -341,7 +355,7 @@ protected override void OnModelCreating(ModelBuilder modelBuilder)
 }
 ```
 
-The application owns EF migrations. Add a migration after calling `AddImmediateJobs`, or use
+The application owns EF migrations. Add a migration after calling `AddMyAppJobs`, or use
 `EnsureCreatedAsync` only for disposable development/test databases. The adapter does not reference
 Npgsql, SQLite, or SQL Server provider packages.
 
@@ -358,7 +372,7 @@ await dataOptions.CreateImmediateJobsSchemaAsync(
 	schema: "background", // must be null for SQLite
 	cancellationToken);
 
-builder.Services.AddImmediateJobs(options =>
+builder.Services.AddMyAppJobs(options =>
 	options.UseLinqToDB(dataOptions, schema: "background"));
 ```
 
@@ -419,28 +433,26 @@ HTTP(S) or dashboard-relative URLs.
 
 | ID | Meaning |
 |---|---|
-| `IJOB001` | Invalid cron expression or literal schedule configuration |
-| `IJOB002` | Duplicate persisted job name |
-| `IJOB003` | Unsupported payload member/type |
-| `IJOB004` | Invalid private `ValueTask HandleAsync(request, CancellationToken)` signature |
-| `IJOB005` | Job handler class is not `partial` |
-| `IJOB006` | A cron job declares a payload |
-| `IJOB007` | NodaTime payload or context type used without `Immediate.Jobs.NodaTime` |
-| `IJOB008` | Invalid retry/concurrency/timeout configuration |
-| `IJOB009` | `[Job]` class is not also an Immediate `[Handler]` |
-| `IJOB010` | Invalid queue name or concurrency configuration |
-| `IJOB011` | `UsesQueue<T>` targets a type without `QueueDefinition` |
-| `IJOB012` | Duplicate persisted queue name |
-| `IJOB013` | `UsesJobContext<T>` targets an invalid extractor type |
-| `IJOB014` | Unsupported context member/type |
-| `IJOB016` | An empty atomic batch was committed |
-| `IJOB017` | Continuation handles belong to unrelated batches |
-| `IJOB018` | A continuation dependency cycle was detected |
-| `IJOB019` | A batch handle was used after commit or disposal |
-| `IJOB020` | `AddToBatchAsync(JobDetails, ..., Detached)` is contradictory |
+| `IJOB0001` | `[Job]` class is not also an Immediate `[Handler]` |
+| `IJOB0002` | `[Job]` class is not declared `partial` |
+| `IJOB0003` | Invalid private `ValueTask HandleAsync(request, CancellationToken)` signature |
+| `IJOB0004` | No usable job name; rename the class or set `Name` |
+| `IJOB0005` | Duplicate persisted job name |
+| `IJOB0006` | Invalid retry/concurrency/timeout configuration |
+| `IJOB0007` | A cron job declares a payload |
+| `IJOB0008` | Invalid cron expression or time zone |
+| `IJOB0009` | Unsupported payload member/type |
+| `IJOB0010` | `UsesJobContext<T>` targets an invalid extractor type |
+| `IJOB0011` | Unsupported context member/type |
+| `IJOB0012` | NodaTime payload or context type used without `Immediate.Jobs.NodaTime` |
+| `IJOB0013` | `UsesQueue<T>` targets a type without `QueueDefinition` |
+| `IJOB0014` | Invalid queue name or concurrency configuration |
+| `IJOB0015` | Duplicate persisted queue name |
+| `IJOB0020` | `AddToBatchAsync(JobDetails, ..., Detached)` is contradictory |
 
-Invalid Immediate.Jobs runtime operations and states throw `ImmediateJobException`. Invalid method
-arguments, cron expressions, serialized data, and missing records retain their standard exception types.
+`IJOB` identifies a compile-time diagnostic. Invalid Immediate.Jobs runtime operations and states
+throw `ImmediateJobException`, which carries a message rather than a code. Invalid method arguments,
+cron expressions, serialized data, and missing records retain their standard exception types.
 
 ## Observability
 

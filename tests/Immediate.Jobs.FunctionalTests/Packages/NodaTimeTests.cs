@@ -21,14 +21,14 @@ public sealed class NodaTimeTests
 		_ = await scheduler.ScheduleAsync(
 			new("later"),
 			Duration.FromMinutes(5),
-			cancellationToken,
-			groupId: "tenant-a"
+			groupId: "tenant-a",
+			cancellationToken: cancellationToken
 		);
 		_ = await scheduler.ScheduleAtAsync(
 			new("absolute"),
 			start + Duration.FromHours(2),
-			cancellationToken,
-			groupId: "tenant-b"
+			groupId: "tenant-b",
+			cancellationToken: cancellationToken
 		);
 
 		Assert.Equal(start + Duration.FromMinutes(5), Instant.FromDateTimeOffset(scheduler.Captures[0].RunAt));

@@ -16,13 +16,13 @@ public class CaptureOnlyJobScheduler<TPayload>(TimeProvider? timeProvider = null
 
 	/// <inheritdoc />
 	public virtual ValueTask<JobHandle> EnqueueAsync(TPayload payload, CancellationToken cancellationToken = default) =>
-		CaptureAsync(payload, _timeProvider.GetUtcNow(), groupId: null, cancellationToken);
+		CaptureAsync(payload, _timeProvider.GetUtcNow(), groupId: null, cancellationToken: cancellationToken);
 
 	/// <inheritdoc />
 	public virtual ValueTask<JobHandle> EnqueueAsync(
 		TPayload payload,
-		CancellationToken cancellationToken,
-		string? groupId
+		string? groupId,
+		CancellationToken cancellationToken
 	) => CaptureAsync(payload, _timeProvider.GetUtcNow(), groupId, cancellationToken);
 
 	/// <inheritdoc />
@@ -41,8 +41,8 @@ public class CaptureOnlyJobScheduler<TPayload>(TimeProvider? timeProvider = null
 	public virtual ValueTask<JobHandle> ScheduleAsync(
 		TPayload payload,
 		TimeSpan delay,
-		CancellationToken cancellationToken,
-		string? groupId
+		string? groupId,
+		CancellationToken cancellationToken
 	)
 	{
 		if (delay < TimeSpan.Zero)
@@ -55,14 +55,14 @@ public class CaptureOnlyJobScheduler<TPayload>(TimeProvider? timeProvider = null
 		TPayload payload,
 		DateTimeOffset runAt,
 		CancellationToken cancellationToken = default
-	) => CaptureAsync(payload, runAt, groupId: null, cancellationToken);
+	) => CaptureAsync(payload, runAt, groupId: null, cancellationToken: cancellationToken);
 
 	/// <inheritdoc />
 	public virtual ValueTask<JobHandle> ScheduleAtAsync(
 		TPayload payload,
 		DateTimeOffset runAt,
-		CancellationToken cancellationToken,
-		string? groupId
+		string? groupId,
+		CancellationToken cancellationToken
 	) => CaptureAsync(payload, runAt, groupId, cancellationToken);
 
 	/// <summary>Clears every captured call.</summary>

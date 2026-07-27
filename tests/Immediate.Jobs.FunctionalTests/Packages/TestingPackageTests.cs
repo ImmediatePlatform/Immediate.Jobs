@@ -16,8 +16,8 @@ public sealed class TestingPackageTests
 
 		var id = await scheduler.EnqueueAsync(
 			payload,
-			TestContext.Current.CancellationToken,
-			groupId: "tenant-a"
+			groupId: "tenant-a",
+			cancellationToken: TestContext.Current.CancellationToken
 		);
 
 		var capture = Assert.Single(scheduler.Captures);
@@ -34,12 +34,12 @@ public sealed class TestingPackageTests
 #pragma warning disable xUnit1051 // The default literal is the source-compatibility case under test.
 		_ = await scheduler.EnqueueAsync(new("legacy"), default);
 #pragma warning restore xUnit1051
-		_ = await scheduler.EnqueueAsync(new("ungrouped"), CancellationToken.None, groupId: null);
+		_ = await scheduler.EnqueueAsync(new("ungrouped"), groupId: null, cancellationToken: CancellationToken.None);
 		_ = await Assert.ThrowsAsync<NotSupportedException>(
 			() => scheduler.EnqueueAsync(
 				new("grouped"),
-				CancellationToken.None,
-				groupId: "tenant-a"
+				groupId: "tenant-a",
+				cancellationToken: CancellationToken.None
 			).AsTask()
 		);
 	}
@@ -56,13 +56,25 @@ public sealed class TestingPackageTests
 			harness.Services.GetRequiredService<IIdGenerator>()
 		);
 
-		var grouped = await scheduler.EnqueueAsync(new("grouped"), cancellationToken, groupId: "tenant-a");
-		var ungrouped = await scheduler.EnqueueAsync(new("ungrouped"), cancellationToken, groupId: " \t ");
+		var grouped = await scheduler.EnqueueAsync(
+			new("grouped"),
+			groupId: "tenant-a",
+			cancellationToken: cancellationToken
+		);
+		var ungrouped = await scheduler.EnqueueAsync(
+			new("ungrouped"),
+			groupId: " \t ",
+			cancellationToken: cancellationToken
+		);
 
 		Assert.Equal("tenant-a", (await harness.GetJobAsync(grouped, cancellationToken)).GroupId);
 		Assert.Null((await harness.GetJobAsync(ungrouped, cancellationToken)).GroupId);
 		var exception = await Assert.ThrowsAsync<ArgumentException>(async () =>
-			await scheduler.EnqueueAsync(new("too-long"), cancellationToken, groupId: new string('x', 129))
+			await scheduler.EnqueueAsync(
+				new("too-long"),
+				groupId: new string('x', 129),
+				cancellationToken: cancellationToken
+			)
 		);
 		Assert.Equal("groupId", exception.ParamName);
 	}
@@ -104,9 +116,17 @@ public sealed class TestingPackageTests
 			harness.Services.GetRequiredService<IIdGenerator>()
 		);
 
-		_ = await scheduler.EnqueueAsync(new("first"), cancellationToken, groupId: "tenant-a");
+		_ = await scheduler.EnqueueAsync(
+			new("first"),
+			groupId: "tenant-a",
+			cancellationToken: cancellationToken
+		);
 		await harness.DrainAsync(cancellationToken);
-		_ = await scheduler.EnqueueAsync(new("second"), cancellationToken, groupId: "tenant-b");
+		_ = await scheduler.EnqueueAsync(
+			new("second"),
+			groupId: "tenant-b",
+			cancellationToken: cancellationToken
+		);
 		await harness.DrainAsync(cancellationToken);
 
 		Assert.Equal(2, counter.Count);

@@ -158,7 +158,7 @@ Both branches are decided once (singleton type), consistent with §3.2.
 When the active provider lacks `IJobGraphStorage`, batch/continuation usage must fail **clearly and
 early**, never silently. Layers, outermost first:
 
-1. **Startup validation.** During `AddImmediateJobs()`, if the registered storage is not
+1. **Startup validation.** During `AddMyAppJobs()`, if the registered storage is not
    `IJobGraphStorage`, log an informational line ("Batch & continuation features are disabled: the
    configured storage 'RedisJobStorage' implements the queue capability only. Configure a SQL provider
    to enable them.") and **do not register** `IJobBatchScheduler`.
@@ -211,14 +211,14 @@ From the user's side nothing new is required:
 
 ```csharp
 // Queue-only: Redis. Batches/continuations disabled (guarded per §4).
-services.AddImmediateJobs(o =>
+services.AddMyAppJobs(o =>
 {
     o.UseRedis("localhost:6379");
     o.MaxParallelJobs = 32;
 });
 
 // Full: SQL. Everything, exactly as today.
-services.AddImmediateJobs(o =>
+services.AddMyAppJobs(o =>
 {
     o.UseEntityFrameworkCore<AppDbContext>();
 });

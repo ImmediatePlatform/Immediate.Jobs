@@ -3,8 +3,6 @@ using System.Text.Json.Serialization.Metadata;
 
 namespace Immediate.Jobs.Shared;
 
-#pragma warning disable CA1068 // GroupId follows the existing token to keep positional default calls source-compatible.
-
 /// <summary>A typed enqueue and scheduling contract implemented by every generated scheduler.</summary>
 public interface IJobScheduler<TPayload>
 {
@@ -14,8 +12,8 @@ public interface IJobScheduler<TPayload>
 	/// <summary>Enqueues grouped work immediately and returns its opaque invocation identifier.</summary>
 	ValueTask<JobHandle> EnqueueAsync(
 		TPayload payload,
-		CancellationToken cancellationToken,
-		string? groupId
+		string? groupId,
+		CancellationToken cancellationToken
 	) =>
 		string.IsNullOrWhiteSpace(groupId)
 			? EnqueueAsync(payload, cancellationToken)
@@ -28,8 +26,8 @@ public interface IJobScheduler<TPayload>
 	ValueTask<JobHandle> ScheduleAsync(
 		TPayload payload,
 		TimeSpan delay,
-		CancellationToken cancellationToken,
-		string? groupId
+		string? groupId,
+		CancellationToken cancellationToken
 	) =>
 		string.IsNullOrWhiteSpace(groupId)
 			? ScheduleAsync(payload, delay, cancellationToken)
@@ -42,15 +40,13 @@ public interface IJobScheduler<TPayload>
 	ValueTask<JobHandle> ScheduleAtAsync(
 		TPayload payload,
 		DateTimeOffset runAt,
-		CancellationToken cancellationToken,
-		string? groupId
+		string? groupId,
+		CancellationToken cancellationToken
 	) =>
 		string.IsNullOrWhiteSpace(groupId)
 			? ScheduleAtAsync(payload, runAt, cancellationToken)
 			: throw new NotSupportedException("This scheduler does not support fair queue group ids.");
 }
-
-#pragma warning restore CA1068
 
 /// <summary>Triggers a payloadless job immediately.</summary>
 public interface IRecurringJobTrigger
@@ -105,9 +101,9 @@ public abstract class JobScheduler<TPayload>(
 	/// <inheritdoc />
 	public ValueTask<JobHandle> EnqueueAsync(
 		TPayload payload,
-		CancellationToken cancellationToken,
-		string? groupId
-	) => ScheduleAtAsync(payload, TimeProvider.GetUtcNow(), cancellationToken, groupId);
+		string? groupId,
+		CancellationToken cancellationToken
+	) => ScheduleAtAsync(payload, TimeProvider.GetUtcNow(), groupId, cancellationToken);
 
 	/// <inheritdoc />
 	public ValueTask<JobHandle> ScheduleAsync(TPayload payload, TimeSpan delay, CancellationToken cancellationToken = default)
@@ -122,14 +118,14 @@ public abstract class JobScheduler<TPayload>(
 	public ValueTask<JobHandle> ScheduleAsync(
 		TPayload payload,
 		TimeSpan delay,
-		CancellationToken cancellationToken,
-		string? groupId
+		string? groupId,
+		CancellationToken cancellationToken
 	)
 	{
 		if (delay < TimeSpan.Zero)
 			throw new ArgumentOutOfRangeException(nameof(delay), "A job delay cannot be negative.");
 
-		return ScheduleAtAsync(payload, TimeProvider.GetUtcNow() + delay, cancellationToken, groupId);
+		return ScheduleAtAsync(payload, TimeProvider.GetUtcNow() + delay, groupId, cancellationToken);
 	}
 
 	/// <inheritdoc />
@@ -138,14 +134,14 @@ public abstract class JobScheduler<TPayload>(
 		DateTimeOffset runAt,
 		CancellationToken cancellationToken = default
 	)
-		=> ScheduleAtAsync(payload, runAt, cancellationToken, groupId: null);
+		=> ScheduleAtAsync(payload, runAt, groupId: null, cancellationToken: cancellationToken);
 
 	/// <inheritdoc />
 	public async ValueTask<JobHandle> ScheduleAtAsync(
 		TPayload payload,
 		DateTimeOffset runAt,
-		CancellationToken cancellationToken,
-		string? groupId
+		string? groupId,
+		CancellationToken cancellationToken
 	)
 	{
 		var record = CreateRecord(payload, runAt, groupId);
@@ -264,7 +260,7 @@ public abstract class JobScheduler<TPayload>(
 		ArgumentNullException.ThrowIfNull(current);
 		var graphStorage = JobStorageCapabilityGuards.RequireGraph(Storage);
 		if (options == ContinuationOptions.Detached)
-			throw new ImmediateJobException("IJOB020: AddToBatchAsync(JobDetails, ...) cannot create detached work.");
+			throw new ImmediateJobException("AddToBatchAsync(JobDetails, ...) cannot create detached work.");
 		if (current.Buffer is null)
 			throw new ImmediateJobException("JobDetails can add work only during its active execution attempt.");
 		if (current.BatchId is null)
@@ -296,7 +292,7 @@ public abstract class JobScheduler<TPayload>(
 		}
 
 		if (parents.Any(static parent => parent.Batch is not null))
-			throw new ImmediateJobException("IJOB017: Continuation handles from unrelated scopes cannot be mixed.");
+			throw new ImmediateJobException("Continuation handles from unrelated scopes cannot be mixed.");
 
 		var parentIds = parents.Select(static parent => parent.Id).ToHashSet(StringComparer.Ordinal);
 		if (parentIds.Count != parents.Length)
