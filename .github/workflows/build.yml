@@ -63,7 +63,7 @@ jobs:
       run: dotnet test -c Release --no-build -- --coverage --coverage-output-format cobertura --coverage-settings ./coverage-settings.xml
 
     - name: Publish NativeAOT sample
-      run: dotnet publish samples/NativeAot/NativeAot.csproj -c Release -r linux-x64 --self-contained --no-restore
+      run: dotnet publish samples/NativeAot/NativeAot.csproj -c Release -r linux-x64 -f net8.0 --self-contained --no-restore
 
     - name: Package
       run: dotnet pack -c Release --no-build --property:PackageOutputPath=${{ github.workspace }}/nupkgs
