@@ -24,5 +24,7 @@ internal static class AttributeDataExtensions
 
 		public string GetQueueName(string className) =>
 			attribute.NamedArguments.GetStringValue("Name") ?? className.AsQueueName();
+
+		public Location? Location => attribute.ApplicationSyntaxReference?.GetSyntax().GetLocation();
 	}
 }
