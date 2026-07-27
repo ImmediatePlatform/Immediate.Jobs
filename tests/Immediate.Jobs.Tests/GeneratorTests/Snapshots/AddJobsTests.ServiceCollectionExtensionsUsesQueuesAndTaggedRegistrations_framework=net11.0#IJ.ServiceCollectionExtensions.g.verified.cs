@@ -22,6 +22,12 @@ public static class ImmediateJobsGeneratedServiceCollectionExtensions
 			Priority = 10,
 			Concurrency = 1,
 		});
+		services.AddSingleton(new global::Immediate.Jobs.Shared.JobQueueDefinition
+		{
+			Name = "critical-queue",
+			Priority = 0,
+			Concurrency = 0,
+		});
 		if (tags is [] || Intersects(tags, ["critical"]))
 		{
 		global::WorkJob.AddJob(services);

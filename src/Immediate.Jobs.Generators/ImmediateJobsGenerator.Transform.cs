@@ -82,6 +82,26 @@ public sealed partial class ImmediateJobsGenerator
 		if (!TimeSpan.TryParse(backoffBase, CultureInfo.InvariantCulture, out var backoffValue) || backoffValue <= TimeSpan.Zero)
 			return null;
 
+		if (
+			attributes.UsesQueueAttribute switch
+			{
+				{ AttributeClass.TypeArguments: [{ } queueSymbol] }
+					when queueSymbol.GetAttributes().QueueDefinitionAttribute is { } queueDefinitionAttribute =>
+					(
+						QueueName: queueDefinitionAttribute.GetQueueName(queueSymbol.Name),
+						QueuePriority: 0,
+						QueueConcurrency: 0
+					),
+
+				{ } => default((string QueueName, int QueuePriority, int QueueConcurrency)?),
+
+				_ => (QueueName: "default", QueuePriority: 0, QueueConcurrency: 0),
+			} is not (var queueName, var queuePriority, var queueConcurrency)
+		)
+		{
+			return null;
+		}
+
 		if (hasPayload && PayloadValidation.FindProblem(parameterType, context.SemanticModel.Compilation) is not null)
 			return null;
 
@@ -99,9 +119,6 @@ public sealed partial class ImmediateJobsGenerator
 				.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
 			JsonPropertyName = $"Context{index}",
 		}).ToEquatableReadOnlyList();
-
-		if (!JobDiscovery.TryGetQueue(symbol, out var queueName, out var queuePriority, out var queueConcurrency))
-			return null;
 
 		var contextTypes = contextUses.Select(static use => use.ContextType!).ToImmutableArray();
 
