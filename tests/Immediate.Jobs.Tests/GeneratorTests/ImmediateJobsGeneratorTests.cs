@@ -5,49 +5,6 @@ namespace Immediate.Jobs.Tests.GeneratorTests;
 
 public sealed class ImmediateJobsGeneratorTests
 {
-	[Theory]
-	[MemberData(nameof(Frameworks))]
-	public async Task ServiceCollectionExtensionsUsesQueuesAndTaggedRegistrations(string framework)
-	{
-		var source = """
-			using Immediate.Jobs.Shared;
-			using Immediate.Handlers.Shared;
-			using System.Threading;
-			using System.Threading.Tasks;
-
-			[QueueDefinition(Priority = 10, Concurrency = 1)]
-			public sealed class CriticalQueue;
-
-			public sealed class WorkContextExtractor : IJobContextExtractor<string>
-			{
-				public string Key => "work";
-				public string? Capture() => null;
-				public void Restore(string context) { }
-			}
-
-			[Handler(Tags = ["critical"]), Job, UsesQueue<CriticalQueue>, UsesJobContext<WorkContextExtractor>]
-			public sealed partial class WorkJob
-			{
-				private ValueTask HandleAsync(NoPayload payload, CancellationToken cancellationToken) => ValueTask.CompletedTask;
-			}
-			""";
-
-		var result = GeneratorTestHelper.RunGenerator(source);
-
-		Assert.Equal(
-			[
-				"Immediate.Handlers.Generators/Immediate.Handlers.Generators.ImmediateHandlersGenerator/IH..WorkJob.g.cs",
-				"Immediate.Handlers.Generators/Immediate.Handlers.Generators.ImmediateHandlersGenerator/IH.ServiceCollectionExtensions.g.cs",
-				"Immediate.Jobs.Generators/Immediate.Jobs.Generators.ImmediateJobsGenerator/IJOB.global..WorkJob.g.cs",
-				"Immediate.Jobs.Generators/Immediate.Jobs.Generators.ImmediateJobsGenerator/IJOB.ServiceCollectionExtensions.g.cs",
-			],
-			result.GeneratedTrees.Select(tree => tree.FilePath.Replace('\\', '/'))
-		);
-
-		_ = await GeneratorTestHelper.VerifyRegistrations(result).UseParameters(framework);
-	}
-
-	public static TheoryData<string> Frameworks => [GeneratorTestHelper.TargetFramework];
 
 	[Fact]
 	public async Task PayloadJobGeneratesTypedSchedulerDirectInvokerAndRegistrations()
@@ -73,7 +30,7 @@ public sealed class ImmediateJobsGeneratorTests
 		GeneratorTestHelper.AssertGeneratedTrees(
 			result,
 			"IH.Example.SendEmailJob.g.cs",
-			"IJOB.global..Example.SendEmailJob.g.cs"
+			"IJ.Example.SendEmailJob.g.cs"
 		);
 		_ = await GeneratorTestHelper.VerifyJob(result);
 	}
@@ -96,7 +53,7 @@ public sealed class ImmediateJobsGeneratorTests
 			""";
 
 		var result = GeneratorTestHelper.RunGenerator(source);
-		GeneratorTestHelper.AssertGeneratedTrees(result, "IH..PlainRequestJob.g.cs", "IJOB.global..PlainRequestJob.g.cs");
+		GeneratorTestHelper.AssertGeneratedTrees(result, "IH..PlainRequestJob.g.cs", "IJ..PlainRequestJob.g.cs");
 		_ = await GeneratorTestHelper.VerifyJob(result);
 	}
 
@@ -122,7 +79,7 @@ public sealed class ImmediateJobsGeneratorTests
 			""";
 
 		var result = GeneratorTestHelper.RunGenerator(source);
-		GeneratorTestHelper.AssertGeneratedTrees(result, "IH..StructJob.g.cs", "IJOB.global..StructJob.g.cs");
+		GeneratorTestHelper.AssertGeneratedTrees(result, "IH..StructJob.g.cs", "IJ..StructJob.g.cs");
 		_ = await GeneratorTestHelper.VerifyJob(result);
 	}
 
@@ -146,7 +103,7 @@ public sealed class ImmediateJobsGeneratorTests
 		GeneratorTestHelper.AssertGeneratedTrees(
 			result,
 			"IH..CleanupSessionsJob.g.cs",
-			"IJOB.global..CleanupSessionsJob.g.cs"
+			"IJ..CleanupSessionsJob.g.cs"
 		);
 		_ = await GeneratorTestHelper.VerifyJob(result);
 	}
@@ -168,7 +125,7 @@ public sealed class ImmediateJobsGeneratorTests
 			""";
 
 		var result = GeneratorTestHelper.RunGenerator(source);
-		GeneratorTestHelper.AssertGeneratedTrees(result, "IH..TenantCleanupJob.g.cs", "IJOB.global..TenantCleanupJob.g.cs");
+		GeneratorTestHelper.AssertGeneratedTrees(result, "IH..TenantCleanupJob.g.cs", "IJ..TenantCleanupJob.g.cs");
 		_ = await GeneratorTestHelper.VerifyJob(result);
 	}
 
@@ -190,7 +147,7 @@ public sealed class ImmediateJobsGeneratorTests
 			""";
 
 		var result = GeneratorTestHelper.RunGenerator(source);
-		GeneratorTestHelper.AssertGeneratedTrees(result, "IH..WorkJob.g.cs", "IJOB.global..WorkJob.g.cs");
+		GeneratorTestHelper.AssertGeneratedTrees(result, "IH..WorkJob.g.cs", "IJ..WorkJob.g.cs");
 		_ = await GeneratorTestHelper.VerifyJob(result);
 	}
 
@@ -240,7 +197,7 @@ public sealed class ImmediateJobsGeneratorTests
 			""";
 
 		var result = GeneratorTestHelper.RunGenerator(source);
-		GeneratorTestHelper.AssertGeneratedTrees(result, "IH..ContextualJob.g.cs", "IJOB.global..ContextualJob.g.cs");
+		GeneratorTestHelper.AssertGeneratedTrees(result, "IH..ContextualJob.g.cs", "IJ..ContextualJob.g.cs");
 		_ = await GeneratorTestHelper.VerifyJob(result);
 	}
 
@@ -261,7 +218,7 @@ public sealed class ImmediateJobsGeneratorTests
 			""";
 
 		var result = GeneratorTestHelper.RunGenerator(source);
-		GeneratorTestHelper.AssertGeneratedTrees(result, "IH..PlainJob.g.cs", "IJOB.global..PlainJob.g.cs");
+		GeneratorTestHelper.AssertGeneratedTrees(result, "IH..PlainJob.g.cs", "IJ..PlainJob.g.cs");
 		_ = await GeneratorTestHelper.VerifyJob(result);
 	}
 
@@ -287,8 +244,8 @@ public sealed class ImmediateJobsGeneratorTests
 			{ private ValueTask HandleAsync(NoPayload payload, CancellationToken ct) => ValueTask.CompletedTask; }
 			""";
 
-		var result = GeneratorTestHelper.RunGeneratorWithNodaTime(source);
-		GeneratorTestHelper.AssertGeneratedTrees(result, "IH..ClockJob.g.cs", "IJOB.global..ClockJob.g.cs");
+		var result = GeneratorTestHelper.RunGenerator(source, includeNodaTime: true);
+		GeneratorTestHelper.AssertGeneratedTrees(result, "IH..ClockJob.g.cs", "IJ..ClockJob.g.cs");
 		_ = await GeneratorTestHelper.VerifyJob(result);
 	}
 

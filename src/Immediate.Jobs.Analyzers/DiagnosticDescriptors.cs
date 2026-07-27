@@ -13,12 +13,6 @@ internal static class DiagnosticDescriptors
 		"Schedule value '{0}' is invalid: {1}"
 	);
 
-	public static readonly DiagnosticDescriptor DuplicateJobName = Create(
-		"IJOB002",
-		"Duplicate job name",
-		"Job name '{0}' is also used by '{1}'"
-	);
-
 	public static readonly DiagnosticDescriptor UnsupportedPayload = Create(
 		"IJOB003",
 		"Unsupported job payload",
@@ -37,12 +31,6 @@ internal static class DiagnosticDescriptors
 		"Job '{0}' has invalid configuration: {1}"
 	);
 
-	public static readonly DiagnosticDescriptor JobMustBePartial = Create(
-		"IJOB005",
-		"Job class must be partial",
-		"Job class '{0}' must be declared partial"
-	);
-
 	public static readonly DiagnosticDescriptor CronPayload = Create(
 		"IJOB006",
 		"Cron job cannot have a payload",
@@ -53,12 +41,6 @@ internal static class DiagnosticDescriptors
 		"IJOB007",
 		"NodaTime integration package is required",
 		"Type '{0}' contains NodaTime values; reference Immediate.Jobs.NodaTime to enable generated serialization"
-	);
-
-	public static readonly DiagnosticDescriptor JobMustBeHandler = Create(
-		"IJOB009",
-		"Job class must be an Immediate.Handler",
-		"Job class '{0}' must also be marked with Immediate.Handlers.Shared.HandlerAttribute"
 	);
 
 	public static readonly DiagnosticDescriptor InvalidQueueConfiguration = Create(
@@ -73,12 +55,6 @@ internal static class DiagnosticDescriptors
 		"Queue type '{0}' must be marked with QueueDefinitionAttribute"
 	);
 
-	public static readonly DiagnosticDescriptor DuplicateQueueName = Create(
-		"IJOB012",
-		"Duplicate queue name",
-		"Queue name '{0}' is also used by '{1}'"
-	);
-
 	public static readonly DiagnosticDescriptor InvalidContextExtractor = Create(
 		"IJOB013",
 		"Invalid job context extractor",
@@ -89,12 +65,6 @@ internal static class DiagnosticDescriptors
 		"IJOB014",
 		"Unsupported job context",
 		"Context type '{0}' cannot be source-generated for JSON serialization: {1}"
-	);
-
-	public static readonly DiagnosticDescriptor DetachedMidJobBatchAddition = Create(
-		"IJOB020",
-		"Detached work cannot be added to a batch",
-		"AddToBatchAsync(JobDetails, ...) cannot use ContinuationOptions.Detached; use ScheduleAfter for detached work"
 	);
 
 	private static DiagnosticDescriptor Create(string id, string title, string message) =>

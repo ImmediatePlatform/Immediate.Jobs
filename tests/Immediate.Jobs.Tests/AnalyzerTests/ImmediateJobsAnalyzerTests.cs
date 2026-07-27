@@ -23,30 +23,6 @@ public sealed class ImmediateJobsAnalyzerTests
 		);
 
 	[Fact]
-	public async Task AnalyzerTriggersForDuplicateJobName() =>
-		await AssertDiagnostic(
-			"""
-			using Immediate.Jobs.Shared;
-			using Immediate.Handlers.Shared;
-			using System.Threading;
-			using System.Threading.Tasks;
-
-			[Handler, Job("same")]
-			public sealed partial class OneJob
-			{
-				private ValueTask HandleAsync(NoPayload request, CancellationToken ct) => ValueTask.CompletedTask;
-			}
-
-			[Handler, Job("same")]
-			public sealed partial class TwoJob
-			{
-				private ValueTask HandleAsync(NoPayload request, CancellationToken ct) => ValueTask.CompletedTask;
-			}
-			""",
-			"IJOB002"
-		);
-
-	[Fact]
 	public async Task AnalyzerTriggersForUnsupportedPayload() =>
 		await AssertDiagnostic(
 			"""
@@ -85,24 +61,6 @@ public sealed class ImmediateJobsAnalyzerTests
 			}
 			""",
 			"IJOB004"
-		);
-
-	[Fact]
-	public async Task AnalyzerTriggersForNonPartialJob() =>
-		await AssertDiagnostic(
-			"""
-			using Immediate.Jobs.Shared;
-			using Immediate.Handlers.Shared;
-			using System.Threading;
-			using System.Threading.Tasks;
-
-			[Handler, Job]
-			public sealed class NonPartialJob
-			{
-				private ValueTask HandleAsync(NoPayload request, CancellationToken ct) => ValueTask.CompletedTask;
-			}
-			""",
-			"IJOB005"
 		);
 
 	[Fact]
@@ -175,23 +133,6 @@ public sealed class ImmediateJobsAnalyzerTests
 		);
 
 	[Fact]
-	public async Task AnalyzerTriggersForJobWithoutHandlerAttribute() =>
-		await AssertDiagnostic(
-			"""
-			using Immediate.Jobs.Shared;
-			using System.Threading;
-			using System.Threading.Tasks;
-
-			[Job]
-			public sealed partial class NotAHandlerJob
-			{
-				private ValueTask HandleAsync(NoPayload request, CancellationToken ct) => ValueTask.CompletedTask;
-			}
-			""",
-			"IJOB009"
-		);
-
-	[Fact]
 	public async Task AnalyzerTriggersForInvalidQueueConfiguration() =>
 		await AssertDiagnostic(
 			"""
@@ -221,21 +162,6 @@ public sealed class ImmediateJobsAnalyzerTests
 			}
 			""",
 			"IJOB011"
-		);
-
-	[Fact]
-	public async Task AnalyzerTriggersForDuplicateQueueName() =>
-		await AssertDiagnostic(
-			"""
-			using Immediate.Jobs.Shared;
-
-			[QueueDefinition(Name = "same")]
-			public sealed class FirstQueue;
-
-			[QueueDefinition(Name = "same")]
-			public sealed class SecondQueue;
-			""",
-			"IJOB012"
 		);
 
 	[Fact]
@@ -369,43 +295,6 @@ public sealed class ImmediateJobsAnalyzerTests
 		var diagnostics = await GeneratorTestHelper.RunAnalyzer(source);
 
 		Assert.Empty(diagnostics);
-	}
-
-	[Fact]
-	public async Task AnalyzerRejectsConstantDetachedMidJobBatchAddition() =>
-		await AssertDiagnostic(
-			"""
-			using Immediate.Jobs.Shared;
-
-			public sealed class Scheduler
-			{
-				public void AddToBatchAsync(JobDetails current, int payload, ContinuationOptions options) { }
-
-				public void Schedule(JobDetails current) =>
-					AddToBatchAsync(current, 42, ContinuationOptions.Detached);
-			}
-			""",
-			"IJOB020"
-		);
-
-	[Fact]
-	public async Task AnalyzerAllowsNonConstantMidJobBatchOption()
-	{
-		var diagnostics = await GeneratorTestHelper.RunAnalyzer(
-			"""
-			using Immediate.Jobs.Shared;
-
-			public sealed class Scheduler
-			{
-				public void AddToBatchAsync(JobDetails current, int payload, ContinuationOptions options) { }
-
-				public void Schedule(JobDetails current, ContinuationOptions options) =>
-					AddToBatchAsync(current, 42, options);
-			}
-			"""
-		);
-
-		Assert.DoesNotContain(diagnostics, diagnostic => diagnostic.Id == "IJOB020");
 	}
 
 	private static async Task AssertDiagnostic(string source, string expectedId)

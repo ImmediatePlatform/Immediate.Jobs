@@ -12,34 +12,41 @@ public sealed partial class ImmediateJobsGenerator : IIncrementalGenerator
 	public void Initialize(IncrementalGeneratorInitializationContext context)
 	{
 		var assemblyDefaults = context.CompilationProvider
-			.Select((compilation, _) => new AssemblyDefaults
+			.Select((cp, _) => new AssemblyDefaults
 			{
-				LanguageVersion = (compilation.SyntaxTrees.FirstOrDefault()?.Options as CSharpParseOptions)?.LanguageVersion
-					?? LanguageVersion.LatestMajor,
+				AssemblyName = cp.GetAssemblyIdentifier(),
+				LanguageVersion = (cp.SyntaxTrees.FirstOrDefault()?.Options as CSharpParseOptions)?.LanguageVersion ?? LanguageVersion.LatestMajor,
 			})
 			.WithTrackingName("AssemblyDefaults");
 
 		var jobs = context.SyntaxProvider
 			.ForAttributeWithMetadataName(
-				JobDiscovery.JobAttributeName,
+				"Immediate.Jobs.Shared.JobAttribute",
 				predicate: static (node, _) => node is ClassDeclarationSyntax,
-				transform: TransformJob)
+				transform: TransformJob
+			)
 			.WhereNotNull()
 			.WithTrackingName("Jobs");
 
+		var jobTemplate = GetTemplate("Job");
+		context.RegisterSourceOutput(
+			jobs,
+			(productionContext, model) => RenderJob(productionContext, model, jobTemplate)
+		);
+
 		var collectedJobs = jobs.Collect().WithTrackingName("JobsCollected");
+
 		var queues = context.SyntaxProvider
 			.ForAttributeWithMetadataName(
-				JobDiscovery.QueueDefinitionAttributeName,
+				"Immediate.Jobs.Shared.QueueDefinitionAttribute",
 				predicate: static (node, _) => node is ClassDeclarationSyntax,
-				transform: TransformQueue)
+				transform: TransformQueue
+			)
 			.WhereNotNull()
 			.Collect()
 			.WithTrackingName("QueuesCollected");
 
-		var jobTemplate = GetTemplate("Job");
 		var registrationsTemplate = GetTemplate("ServiceCollectionExtensions");
-		context.RegisterSourceOutput(jobs, (productionContext, model) => RenderJob(productionContext, model, jobTemplate));
 		context.RegisterSourceOutput(
 			collectedJobs.Combine(queues).Combine(assemblyDefaults),
 			(productionContext, input) => RenderRegistrations(
@@ -51,4 +58,28 @@ public sealed partial class ImmediateJobsGenerator : IIncrementalGenerator
 			)
 		);
 	}
+}
+
+file static class Extensions
+{
+	public static string GetAssemblyIdentifier(this Compilation compilation)
+	{
+		if (compilation.Assembly.GetAttributes()
+				.FirstOrDefault(a => a.AttributeClass.IsImmediateAssemblyIdentifierAttribute)
+				is { ConstructorArguments: [{ Value: string { Length: >= 1 } identifier }] }
+			&& identifier[0] != '@'
+			&& SyntaxFacts.IsValidIdentifier(identifier))
+		{
+			return identifier;
+		}
+
+		return compilation.AssemblyName!
+			.Replace(".", string.Empty, StringComparison.Ordinal)
+			.Replace(" ", string.Empty, StringComparison.Ordinal)
+			.Replace("-", string.Empty, StringComparison.Ordinal)
+			.Trim();
+	}
+
+	public static IncrementalValuesProvider<T> WhereNotNull<T>(this IncrementalValuesProvider<T?> values)
+		where T : class => values.Where(static value => value is not null)!;
 }

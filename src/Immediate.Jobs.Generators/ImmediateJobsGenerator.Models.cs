@@ -6,14 +6,13 @@ public sealed partial class ImmediateJobsGenerator
 {
 	private sealed record AssemblyDefaults
 	{
+		public required string AssemblyName { get; init; }
 		public required LanguageVersion LanguageVersion { get; init; }
 	}
 
 	private sealed record JobModel
 	{
-		public required string HintName { get; init; }
 		public required string? Namespace { get; init; }
-		public required string Accessibility { get; init; }
 		public required string ClassName { get; init; }
 		public required string TypeName { get; init; }
 		public required string PayloadTypeName { get; init; }
@@ -28,8 +27,8 @@ public sealed partial class ImmediateJobsGenerator
 		public required int MaxAttempts { get; init; }
 		public required string? Timeout { get; init; }
 		public required int MaxConcurrency { get; init; }
-		public required int OverlapPolicy { get; init; }
-		public required int Backoff { get; init; }
+		public required string OverlapPolicy { get; init; }
+		public required string Backoff { get; init; }
 		public required string BackoffBase { get; init; }
 		public required string? Tags { get; init; }
 		public required EquatableReadOnlyList<JobContextModel> Contexts { get; init; }

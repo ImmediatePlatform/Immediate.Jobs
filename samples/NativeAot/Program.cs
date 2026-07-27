@@ -5,7 +5,7 @@ using Microsoft.Extensions.DependencyInjection;
 var services = new ServiceCollection();
 services.AddLogging();
 services.AddScoped<CurrentGreetingContext>();
-services.AddImmediateJobs(options => options.UseInMemory());
+services.AddNativeAotJobs(options => options.UseInMemory());
 
 await using var provider = services.BuildServiceProvider();
 

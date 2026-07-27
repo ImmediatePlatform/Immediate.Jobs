@@ -1,24 +1,132 @@
 using System.Collections.Immutable;
+using System.Globalization;
 using Microsoft.CodeAnalysis;
-using Microsoft.CodeAnalysis.CSharp;
 
 namespace Immediate.Jobs.Generators;
 
 public sealed partial class ImmediateJobsGenerator
 {
-	private static readonly SymbolDisplayFormat TypeDisplayFormat = SymbolDisplayFormat.FullyQualifiedFormat
-		.WithMiscellaneousOptions(SymbolDisplayMiscellaneousOptions.IncludeNullableReferenceTypeModifier);
-
 	private static JobModel? TransformJob(
 		GeneratorAttributeSyntaxContext context,
 		CancellationToken cancellationToken
 	)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
-		return context.TargetSymbol is INamedTypeSymbol type
-			&& TryCreateJobModel(type, context.SemanticModel.Compilation, out var job)
-				? job
-				: null;
+
+		var symbol = (INamedTypeSymbol)context.TargetSymbol;
+		var attributes = symbol.GetAttributes();
+
+		if (symbol.GetValidHandleMethod() is not { } handleMethod)
+			return null;
+
+		if (attributes.GetHandlerAttribute() is null)
+			return null;
+
+		var @namespace = symbol.ContainingNamespace.ToDisplayString().NullIf("<global namespace>");
+
+		var parameterType = handleMethod.Parameters[0].Type;
+		var hasPayload = !parameterType.IsNoPayload;
+
+		var attribute = context.Attributes[0];
+		var jobName = attribute.GetJobName(className: symbol.Name);
+
+		var arguments = attribute.NamedArguments;
+
+		var cron = arguments.GetStringValue("Cron");
+		var timeZone = arguments.GetStringValue("TimeZone") ?? "UTC";
+
+		if (cron is not null)
+		{
+			if (hasPayload)
+				return null;
+
+			if (!CronValidator.TryValidate(cron, out _))
+				return null;
+
+			if (timeZone.IsWhiteSpace())
+				return null;
+		}
+
+		var maxAttempts = arguments.GetIntValue("MaxAttempts", 3);
+		if (maxAttempts < 1)
+			return null;
+
+		var maxConcurrency = arguments.GetIntValue("MaxConcurrency", 0);
+		if (maxConcurrency < 0)
+			return null;
+
+		var backoff = arguments.GetArgumentValue("Backoff") switch
+		{
+			{ } av => av.GetEnumValue()?.Name,
+			_ => "ExponentialJitter",
+		};
+		if (backoff is not { })
+			return null;
+
+		var overlapPolicy = arguments.GetArgumentValue("OverlapPolicy") switch
+		{
+			{ } av => av.GetEnumValue()?.Name,
+			_ => "Skip",
+		};
+		if (overlapPolicy is not { })
+			return null;
+
+		var timeout = arguments.GetStringValue("Timeout");
+		if (timeout is { } && (!TimeSpan.TryParse(timeout, CultureInfo.InvariantCulture, out var timeoutValue) || timeoutValue <= TimeSpan.Zero))
+			return null;
+
+		var backoffBase = arguments.GetStringValue("BackoffBase") ?? "00:00:05";
+		if (!TimeSpan.TryParse(backoffBase, CultureInfo.InvariantCulture, out var backoffValue) || backoffValue <= TimeSpan.Zero)
+			return null;
+
+		if (hasPayload && PayloadValidation.FindProblem(parameterType, context.SemanticModel.Compilation) is not null)
+			return null;
+
+		var handlerAttribute = attributes.FirstOrDefault(a => a is { AttributeClass.IsHandlerAttribute: true });
+		var tags = handlerAttribute?.NamedArguments.GetStringArray("Tags");
+
+		var contextUses = JobDiscovery.GetJobContextUses(symbol);
+		if (contextUses.Any(use =>
+			use.ContextType is null || PayloadValidation.FindProblem(use.ContextType, context.SemanticModel.Compilation) is not null))
+			return null;
+
+		var contexts = contextUses.Select((use, index) => new JobContextModel
+		{
+			ExtractorTypeName = use.ExtractorType.ToDisplayString(DisplayNameFormatters.FullyQualifiedWithNullableFormat),
+			ContextTypeName = use.ContextType!
+				.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
+			JsonPropertyName = $"Context{index}",
+		}).ToEquatableReadOnlyList();
+
+		if (!JobDiscovery.TryGetQueue(symbol, out var queueName, out var queuePriority, out var queueConcurrency))
+			return null;
+
+		var contextTypes = contextUses.Select(static use => use.ContextType!).ToImmutableArray();
+
+		return new()
+		{
+			Namespace = @namespace,
+			ClassName = symbol.Name,
+			TypeName = symbol.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
+			PayloadTypeName = parameterType.ToDisplayString(DisplayNameFormatters.FullyQualifiedWithNullableFormat),
+			HasPayload = hasPayload,
+			HasJobDetails = parameterType.ImplementsJobRequest,
+			Name = jobName,
+			QueueName = queueName,
+			QueuePriority = queuePriority,
+			QueueConcurrency = queueConcurrency,
+			Cron = cron,
+			TimeZone = timeZone,
+			MaxAttempts = maxAttempts,
+			Timeout = timeout,
+			MaxConcurrency = maxConcurrency,
+			OverlapPolicy = overlapPolicy,
+			Backoff = backoff,
+			BackoffBase = backoffBase,
+			Tags = tags,
+			Contexts = contexts,
+			Json = JsonMetadataEmitter.CreateModel(parameterType, contextTypes),
+		};
 	}
 
 	private static QueueModel? TransformQueue(
@@ -27,113 +135,9 @@ public sealed partial class ImmediateJobsGenerator
 	)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
-		return context.TargetSymbol is INamedTypeSymbol type ? CreateQueueModel(type) : null;
-	}
 
-	private static bool TryCreateJobModel(INamedTypeSymbol type, Compilation compilation, out JobModel? model)
-	{
-		model = null;
-		var attribute = JobDiscovery.GetJobAttribute(type);
-		if (attribute is null ||
-			!JobDiscovery.IsHandler(type) ||
-			!JobDiscovery.IsPartial(type) ||
-			type.TypeKind != TypeKind.Class ||
-			type.IsStatic ||
-			type.Arity != 0)
-			return false;
+		var queueType = (INamedTypeSymbol)context.TargetSymbol;
 
-		var methods = type.GetMembers("HandleAsync")
-			.OfType<IMethodSymbol>()
-			.Where(static method => !method.IsImplicitlyDeclared)
-			.ToImmutableArray();
-		if (methods.Length != 1 ||
-			!JobDiscovery.IsValidMethod(methods[0], out var payloadType, out var hasPayload))
-			return false;
-
-		var cron = JobDiscovery.GetNamedString(attribute, "Cron");
-		if (cron is not null && (hasPayload || !CronValidator.TryValidate(cron, out _)) ||
-			!JobDiscovery.IsValidTimeZone(JobDiscovery.GetNamedString(attribute, "TimeZone") ?? "UTC") ||
-			JobDiscovery.FindConfigurationProblem(attribute) is not null)
-			return false;
-
-		if (hasPayload && PayloadValidation.FindProblem(payloadType!, compilation) is not null)
-			return false;
-
-		var contextUses = JobDiscovery.GetJobContextUses(type);
-		if (contextUses.Any(use =>
-			use.ContextType is null || PayloadValidation.FindProblem(use.ContextType, compilation) is not null))
-			return false;
-
-		var resolvedPayload = payloadType!;
-		var qualified = type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-		var safe = new string([.. qualified.Select(static character => char.IsLetterOrDigit(character) ? character : '.')]);
-		var contexts = contextUses.Select((use, index) => new JobContextModel
-		{
-			ExtractorTypeName = use.ExtractorType.ToDisplayString(TypeDisplayFormat),
-			ContextTypeName = use.ContextType!
-				.WithNullableAnnotation(NullableAnnotation.None)
-				.ToDisplayString(TypeDisplayFormat),
-			JsonPropertyName = $"Context{index}",
-		}).ToEquatableReadOnlyList();
-
-		if (!JobDiscovery.TryGetQueue(type, out var queueName, out var queuePriority, out var queueConcurrency))
-			return false;
-
-#if NETSTANDARD2_0
-		var contextTypes = contextUses.Select(static use => use.ContextType!).ToImmutableArray();
-#else
-		ImmutableArray<ITypeSymbol> contextTypes = [.. contextUses.Select(static use => use.ContextType!)];
-#endif
-
-		model = new()
-		{
-			HintName = $"IJOB.{safe}.g.cs",
-			Namespace = type.ContainingNamespace.IsGlobalNamespace
-				? null
-				: type.ContainingNamespace.ToDisplayString(),
-			Accessibility = type.DeclaredAccessibility == Accessibility.Public ? "public" : "internal",
-			ClassName = type.Name,
-			TypeName = type.ToDisplayString(TypeDisplayFormat),
-			PayloadTypeName = resolvedPayload.ToDisplayString(TypeDisplayFormat),
-			HasPayload = hasPayload,
-			HasJobDetails = JobDiscovery.ImplementsJobRequest(resolvedPayload),
-			Name = JobDiscovery.GetName(type),
-			QueueName = queueName,
-			QueuePriority = queuePriority,
-			QueueConcurrency = queueConcurrency,
-			Cron = cron,
-			TimeZone = JobDiscovery.GetNamedString(attribute, "TimeZone") ?? "UTC",
-			MaxAttempts = JobDiscovery.GetNamedInt(attribute, "MaxAttempts", 3),
-			Timeout = JobDiscovery.GetNamedString(attribute, "Timeout"),
-			MaxConcurrency = JobDiscovery.GetNamedInt(attribute, "MaxConcurrency", 0),
-			OverlapPolicy = JobDiscovery.GetNamedInt(attribute, "OverlapPolicy", 0),
-			Backoff = JobDiscovery.GetNamedInt(attribute, "Backoff", 2),
-			BackoffBase = JobDiscovery.GetNamedString(attribute, "BackoffBase") ?? "00:00:05",
-			Tags = GetHandlerTags(type),
-			Contexts = contexts,
-			Json = JsonMetadataEmitter.CreateModel(resolvedPayload, contextTypes),
-		};
-		return true;
-	}
-
-	private static string? GetHandlerTags(INamedTypeSymbol type)
-	{
-		var attribute = type.GetAttributes().FirstOrDefault(static candidate =>
-			candidate.AttributeClass.IsHandlerAttribute);
-		var tags = attribute?.NamedArguments.FirstOrDefault(static pair => pair.Key == "Tags").Value;
-		if (tags is not { Kind: TypedConstantKind.Array })
-			return null;
-
-		return string.Join(
-			", ",
-			tags.Value.Values
-				.Select(static value => value.ToCSharpString())
-				.OrderBy(static value => value, StringComparer.Ordinal)
-		);
-	}
-
-	private static QueueModel? CreateQueueModel(INamedTypeSymbol queueType)
-	{
 		if (JobDiscovery.GetQueueDefinitionAttribute(queueType) is not { } definition)
 			return null;
 
@@ -149,4 +153,10 @@ public sealed partial class ImmediateJobsGenerator
 			Concurrency = concurrency,
 		};
 	}
+}
+
+file static class Extensions
+{
+	public static string? NullIf(this string value, string check) =>
+		value.Equals(check, StringComparison.Ordinal) ? null : value;
 }

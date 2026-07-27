@@ -4,7 +4,6 @@ using System.Globalization;
 using System.Reflection;
 using Microsoft.CodeAnalysis;
 using Scriban;
-using Scriban.Runtime;
 
 namespace Immediate.Jobs.Generators;
 
@@ -17,8 +16,7 @@ public sealed partial class ImmediateJobsGenerator
 		var model = new
 		{
 			job.Namespace,
-			job.Accessibility,
-			ClassName = Escape(job.ClassName),
+			job.ClassName,
 			job.TypeName,
 			job.PayloadTypeName,
 			job.HasPayload,
@@ -47,9 +45,10 @@ public sealed partial class ImmediateJobsGenerator
 			Version = ThisAssembly.InformationalVersion,
 		};
 
-		var source = Render(template, model);
+		var source = template.Render(model);
+
 		cancellationToken.ThrowIfCancellationRequested();
-		context.AddSource(job.HintName, source);
+		context.AddSource($"IJ.{job.Namespace}.{job.ClassName}.g.cs", source);
 	}
 
 	private static void RenderRegistrations(
@@ -70,17 +69,17 @@ public sealed partial class ImmediateJobsGenerator
 			.Where(group => group.Count() > 1)
 			.Select(group => group.Key)
 			.ToImmutableHashSet(StringComparer.Ordinal);
+
 		var models = jobs
 			.Where(job => !duplicateNames.Contains(job.Name))
 			.OrderBy(job => job.TypeName, StringComparer.Ordinal)
 			.ToImmutableArray();
 
-		if (models.IsEmpty)
-			return;
-
 		var model = new
 		{
+			assemblyDefaults.AssemblyName,
 			assemblyDefaults.LanguageVersion,
+
 			Queues = queues
 				.Concat(models.Select(job => new QueueModel
 				{
@@ -98,46 +97,30 @@ public sealed partial class ImmediateJobsGenerator
 					Concurrency = queue.Concurrency.ToString(CultureInfo.InvariantCulture),
 				})
 				.ToArray(),
+
 			JobsByTag = models.GroupBy(job => job.Tags, StringComparer.Ordinal),
 			Version = ThisAssembly.InformationalVersion,
 		};
 
-		var source = Render(template, model);
-		cancellationToken.ThrowIfCancellationRequested();
-		context.AddSource("IJOB.ServiceCollectionExtensions.g.cs", source);
-	}
+		var source = template.Render(model);
 
-	private static string Render(Template template, object model)
-	{
-		var globals = new ScriptObject(StringComparer.Ordinal);
-		globals.Import(model);
-		var context = new TemplateContext(StringComparer.Ordinal)
-		{
-			LoopLimit = 0,
-		};
-		context.PushGlobal(globals);
-		return string.Join("\n", template.Render(context)
-			.Split('\n')
-			.Select(static line => line.TrimEnd()));
+		cancellationToken.ThrowIfCancellationRequested();
+		context.AddSource("IJ.ServiceCollectionExtensions.g.cs", source);
 	}
 
 	private static Template GetTemplate(string name)
 	{
-		using var stream = Assembly.GetExecutingAssembly().GetManifestResourceStream(
-			$"Immediate.Jobs.Generators.Templates.{name}.sbntxt"
-		);
-		Debug.Assert(stream is not null);
-		using var reader = new StreamReader(stream);
-		var template = Template.Parse(reader.ReadToEnd());
-		if (template.HasErrors)
-			throw new InvalidOperationException(string.Join("\n", template.Messages));
-		return template;
-	}
+		using var stream = Assembly
+			.GetExecutingAssembly()
+			.GetManifestResourceStream(
+				$"Immediate.Jobs.Generators.Templates.{name}.sbntxt"
+			);
 
-	private static string Escape(string identifier) =>
-		Microsoft.CodeAnalysis.CSharp.SyntaxFacts.GetKeywordKind(identifier) != Microsoft.CodeAnalysis.CSharp.SyntaxKind.None
-			? "@" + identifier
-			: identifier;
+		Debug.Assert(stream is not null);
+
+		using var reader = new StreamReader(stream);
+		return Template.Parse(reader.ReadToEnd());
+	}
 
 	private static string Literal(string value) =>
 		Microsoft.CodeAnalysis.CSharp.SymbolDisplay.FormatLiteral(value, quote: true);

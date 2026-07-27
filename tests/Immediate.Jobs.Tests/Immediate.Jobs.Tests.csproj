@@ -1,8 +1,6 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>Exe</OutputType>
-    <_SkipUpgradeNetAnalyzersNuGetWarning>true</_SkipUpgradeNetAnalyzersNuGetWarning>
-	<NoWarn>$(NoWarn);CS1591</NoWarn>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(TargetFramework)' == 'net11.0'">
@@ -16,7 +14,9 @@
   <ItemGroup>
 	<PackageReference Include="Immediate.Handlers" GeneratePathProperty="true" />
 	<PackageReference Include="Microsoft.CodeAnalysis.CSharp" />
-    <PackageReference Include="Microsoft.Testing.Extensions.CodeCoverage" />
+	<PackageReference Include="Microsoft.CodeAnalysis.CSharp.Analyzer.Testing" />
+	<PackageReference Include="Microsoft.CodeAnalysis.CSharp.Workspaces" />
+	<PackageReference Include="Microsoft.Testing.Extensions.CodeCoverage" />
 	<PackageReference Include="NodaTime" />
 	<PackageReference Include="Scriban" />
 	<PackageReference Include="Verify.SourceGenerators" />

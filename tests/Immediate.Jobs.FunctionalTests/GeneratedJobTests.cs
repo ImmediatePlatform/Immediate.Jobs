@@ -39,8 +39,9 @@ public sealed class GeneratedJobTests
 			_ = services.AddSingleton(state);
 			_ = services.AddSingleton(new ContextProbe());
 			_ = services.AddScoped<PropagationScopeState>();
+			_ = services.AddImmediateJobsFunctionalTestsHandlers();
 			_ = services.AddImmediateJobsFunctionalTestsBehaviors();
-			_ = services.AddImmediateJobs();
+			_ = services.AddImmediateJobsFunctionalTestsJobs();
 		});
 		await using var enqueueScope = harness.Services.CreateAsyncScope();
 		var scheduler = enqueueScope.ServiceProvider.GetRequiredService<RecordMessageJob.Scheduler>();
@@ -80,8 +81,9 @@ public sealed class GeneratedJobTests
 			_ = services.AddSingleton(state);
 			_ = services.AddSingleton(new ContextProbe());
 			_ = services.AddScoped<PropagationScopeState>();
+			_ = services.AddImmediateJobsFunctionalTestsHandlers();
 			_ = services.AddImmediateJobsFunctionalTestsBehaviors();
-			_ = services.AddImmediateJobs();
+			_ = services.AddImmediateJobsFunctionalTestsJobs();
 		});
 		await using var enqueueScope = harness.Services.CreateAsyncScope();
 		var scheduler = enqueueScope.ServiceProvider.GetRequiredService<RetryOnceJob.Scheduler>();
@@ -140,8 +142,9 @@ public sealed class GeneratedJobTests
 			_ = services.AddSingleton(state);
 			_ = services.AddSingleton(new ContextProbe());
 			_ = services.AddScoped<PropagationScopeState>();
+			_ = services.AddImmediateJobsFunctionalTestsHandlers();
 			_ = services.AddImmediateJobsFunctionalTestsBehaviors();
-			_ = services.AddImmediateJobs();
+			_ = services.AddImmediateJobsFunctionalTestsJobs();
 		});
 		await using var scope = harness.Services.CreateAsyncScope();
 		var scheduler = scope.ServiceProvider.GetRequiredService<ValueTypeJob.Scheduler>();
@@ -163,8 +166,9 @@ public sealed class GeneratedJobTests
 			_ = services.AddSingleton(state);
 			_ = services.AddSingleton(new ContextProbe());
 			_ = services.AddScoped<PropagationScopeState>();
+			_ = services.AddImmediateJobsFunctionalTestsHandlers();
 			_ = services.AddImmediateJobsFunctionalTestsBehaviors();
-			_ = services.AddImmediateJobs();
+			_ = services.AddImmediateJobsFunctionalTestsJobs();
 		});
 		await using var scope = harness.Services.CreateAsyncScope();
 		var scheduler = scope.ServiceProvider.GetRequiredService<PlainRequestJob.Scheduler>();

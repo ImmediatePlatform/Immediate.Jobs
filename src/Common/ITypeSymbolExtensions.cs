@@ -15,6 +15,22 @@ internal static class ITypeSymbolExtensions
 				ContainingNamespace.IsImmediateJobsShared: true,
 			};
 
+		public bool IsJobDetails =>
+			typeSymbol is INamedTypeSymbol
+			{
+				Arity: 0,
+				Name: "JobDetails",
+				ContainingNamespace.IsImmediateJobsShared: true,
+			};
+
+		public bool IsContinuationOptions =>
+			typeSymbol is INamedTypeSymbol
+			{
+				Arity: 0,
+				Name: "ContinuationOptions",
+				ContainingNamespace.IsImmediateJobsShared: true,
+			};
+
 		public bool IsQueueDefinitionAttribute =>
 			typeSymbol is INamedTypeSymbol
 			{
@@ -71,6 +87,14 @@ internal static class ITypeSymbolExtensions
 				ContainingNamespace.IsImmediateHandlersShared: true,
 			};
 
+		public bool IsImmediateAssemblyIdentifierAttribute =>
+			typeSymbol is INamedTypeSymbol
+			{
+				Arity: 0,
+				Name: "ImmediateAssemblyIdentifierAttribute",
+				ContainingNamespace.IsImmediateHandlersShared: true,
+			};
+
 		public bool IsCancellationToken =>
 			typeSymbol is INamedTypeSymbol
 			{
@@ -86,6 +110,32 @@ internal static class ITypeSymbolExtensions
 				Name: "ValueTask",
 				ContainingNamespace.IsSystemThreadingTasks: true,
 			};
+
+		public bool ImplementsJobRequest => typeSymbol is INamedTypeSymbol { ImplementsJobRequest: true };
+	}
+
+	extension(INamedTypeSymbol namedTypeSymbol)
+	{
+		public IMethodSymbol? GetValidHandleMethod()
+		{
+			if (namedTypeSymbol
+					.GetMembers()
+					.OfType<IMethodSymbol>()
+					.Where(m => m.Name is "Handle" or "HandleAsync")
+					.Take(2)
+					.ToList() is not [var handleMethod])
+			{
+				return null;
+			}
+
+			// must have request type
+			if (handleMethod.Parameters.Length is 0)
+				return null;
+
+			return handleMethod;
+		}
+
+		public bool ImplementsJobRequest => namedTypeSymbol.AllInterfaces.Any(static i => i.IsIJobRequest);
 	}
 
 	extension(INamespaceSymbol namespaceSymbol)
