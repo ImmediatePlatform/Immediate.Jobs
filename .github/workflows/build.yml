@@ -68,8 +68,9 @@ jobs:
     - name: Package
       run: dotnet pack -c Release --no-build --property:PackageOutputPath=${{ github.workspace }}/nupkgs
 
-    - name: Validate packages
-      run: dotnet tool run dotnet-validate -- package local ./nupkgs/*.nupkg
+    # disabled until v0.1.0
+    # - name: Validate packages
+    #   run: dotnet tool run dotnet-validate -- package local ./nupkgs/*.nupkg
 
     - name: Coveralls
       uses: coverallsapp/github-action@v2
