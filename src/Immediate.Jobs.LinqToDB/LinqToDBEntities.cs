@@ -45,6 +45,8 @@ internal sealed class ImmediateJobEntity
 	public string QueueName { get; set; } = JobQueueDefinition.DefaultName;
 	[Column(Length = 256, CanBeNull = false)]
 	public string JobName { get; set; } = null!;
+	[Column(Length = 128, CanBeNull = true)]
+	public string? GroupId { get; set; }
 	[Column(DataType = DataType.Text, CanBeNull = false)]
 	public string Payload { get; set; } = null!;
 	[Column(DataType = DataType.Text, CanBeNull = true)]
@@ -83,6 +85,19 @@ internal sealed class ImmediateJobEntity
 	public int RemainingDependencies { get; set; }
 	[Column]
 	public int FailedDependencies { get; set; }
+	[Column(DataType = DataType.Guid)]
+	public Guid ConcurrencyStamp { get; set; }
+}
+
+[Table(Name = "immediate_fair_queue_groups")]
+internal sealed class ImmediateFairQueueGroupEntity
+{
+	[PrimaryKey(1), Column(Length = 256, CanBeNull = false)]
+	public string QueueName { get; set; } = null!;
+	[PrimaryKey(2), Column(Length = 128, CanBeNull = false)]
+	public string GroupId { get; set; } = null!;
+	[Column(DataType = DataType.Int64)]
+	public long LastServedSequence { get; set; }
 	[Column(DataType = DataType.Guid)]
 	public Guid ConcurrencyStamp { get; set; }
 }

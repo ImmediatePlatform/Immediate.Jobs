@@ -8,15 +8,15 @@ namespace Immediate.Jobs.FunctionalTests;
 public sealed class StorageCapabilityTests
 {
 	[Fact]
-	public void QueueOnlyStorageDoesNotResolveOptionalServices()
+	public async Task QueueOnlyStorageDoesNotResolveOptionalServices()
 	{
-		var queueStorage = new QueueOnlyStorage(TimeProvider.System);
+		await using var queueStorage = new QueueOnlyStorage(TimeProvider.System);
 		var services = new ServiceCollection();
 		_ = services.AddLogging();
 		_ = services.AddImmediateJobsCore(options =>
 			_ = options.UseStorage(_ => queueStorage).UseDistributed());
 
-		using var provider = services.BuildServiceProvider();
+		await using var provider = services.BuildServiceProvider();
 		using var scope = provider.CreateScope();
 
 		Assert.Equal(StorageCapabilities.Queue, provider.GetRequiredService<IJobStorage>().GetCapabilities());
@@ -49,7 +49,7 @@ public sealed class StorageCapabilityTests
 	[Fact]
 	public async Task GraphEntryPointsFailBeforeWriting()
 	{
-		var storage = new QueueOnlyStorage(TimeProvider.System);
+		await using var storage = new QueueOnlyStorage(TimeProvider.System);
 		var idGenerator = new CapabilityIdGenerator();
 		var scheduler = new QueueOnlyScheduler(
 			storage,
@@ -84,7 +84,7 @@ public sealed class StorageCapabilityTests
 	public async Task QueueOnlySchedulerUsesPlainCompletionAndSkipsRecurring()
 	{
 		var cancellationToken = TestContext.Current.CancellationToken;
-		var storage = new QueueOnlyStorage(TimeProvider.System);
+		await using var storage = new QueueOnlyStorage(TimeProvider.System);
 		var services = new ServiceCollection();
 		_ = services.AddLogging();
 		_ = services.AddImmediateJobsCore(options =>
@@ -170,6 +170,8 @@ public sealed class StorageCapabilityTests
 
 		public int CompleteCalls { get; private set; }
 		public int EnqueueCalls { get; private set; }
+
+		public ValueTask DisposeAsync() => _inner.DisposeAsync();
 
 		public ValueTask InitializeAsync(CancellationToken cancellationToken = default) =>
 			_inner.InitializeAsync(cancellationToken);

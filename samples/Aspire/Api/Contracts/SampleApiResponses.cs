@@ -2,6 +2,15 @@ namespace Immediate.Jobs.Aspire.Api.Contracts;
 
 public sealed record EnqueueJobResponse(string JobId, Uri DashboardUrl);
 
+public sealed record FairQueueDemoResponse(
+	Guid RunId,
+	int BacklogJobs,
+	string BacklogGroup,
+	string QuietGroup,
+	string QuietJobId,
+	Uri DashboardUrl
+);
+
 public sealed record CreateOrderBatchResponse(
 	Guid OrderId,
 	string BatchId,

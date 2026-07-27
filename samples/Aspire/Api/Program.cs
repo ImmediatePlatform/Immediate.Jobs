@@ -31,6 +31,7 @@ builder.Services.AddImmediateJobs(options =>
 {
 	_ = options.UseEntityFrameworkCore<JobsDbContext>();
 	_ = options.UseSingleServer(); // Explicit; EF storage selects single-server mode implicitly when omitted.
+	_ = options.UseFairQueues();
 	options.MaxParallelJobs = 4;
 	options.PollingInterval = TimeSpan.FromSeconds(5);
 }).AddHealthCheck();

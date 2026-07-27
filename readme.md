@@ -113,6 +113,38 @@ Larger priority values are acquired first. Queues at the same priority are consi
 
 When `Name` is omitted it is derived from the queue type (`TransactionalEmailQueue` becomes `transactional-email-queue`). Jobs without `UsesQueue<TQueue>` use the unbounded priority-zero `default` queue. Queue names are persisted with each invocation: keep an old definition until its nonterminal jobs drain, or migrate those rows before renaming/removing it.
 
+### Fair queues
+
+Fair queues prevent one tenant's backlog from starving quieter tenants in the same queue. Supply a
+runtime group id when directly enqueueing or scheduling work, then opt into fair acquisition:
+
+```csharp
+await welcomeEmail.EnqueueAsync(
+	new(userId, "v2"),
+	groupId: tenantId,
+	cancellationToken: cancellationToken
+);
+
+builder.Services.AddImmediateJobs(options =>
+{
+	options.UseEntityFrameworkCore<AppDbContext>();
+	options.UseDistributed();
+	options.UseFairQueues();
+});
+```
+
+Fair queues are not FIFO and do not serialize a group. They rotate eligible work across groups and
+deprioritize a group only when its non-expired in-flight share exceeds the configured threshold.
+Null, empty, or whitespace group ids are ungrouped and retain the existing due-time order. Group ids
+should identify reusable tenants, not individual jobs; use `null` for ordinary ungrouped work.
+
+In-memory, EF Core, LinqToDB, and single-server storage support fair acquisition. Redis persists the
+group id but rejects fair acquisition in this release. EF applications must migrate the nullable
+`GroupId` column, `(QueueName, State, GroupId)` index, and `immediate_fair_queue_groups` table.
+LinqToDB schema bootstrap creates them for new databases; existing databases need the equivalent
+additive upgrade. See [Fair queues](docs/fair-queues.md) for the algorithm, schema, tradeoffs, and
+provider details.
+
 Register the generated application job module:
 
 ```csharp
@@ -418,11 +450,11 @@ The [Aspire sample](samples/Aspire/readme.md) runs the EF Core provider against 
 
 ## Benchmarks
 
-The repository includes BenchmarkDotNet comparisons with Hangfire MemoryStorage and Quartz.NET for enqueue, direct dispatch, startup, and allocations. These are microbenchmarks of deliberately different framework APIs—not end-to-end durability or worker-latency measurements—so run them on the deployment target before drawing conclusions.
+The repository includes BenchmarkDotNet comparisons with TickerQ, Hangfire MemoryStorage, and Quartz.NET. In addition to enqueue, direct dispatch, and startup, the suite covers concurrent throughput, cron expressions, delegate invocation, job creation, serialization, and startup registration. These are microbenchmarks of deliberately different framework APIs—not end-to-end durability or worker-latency measurements—so run them on the deployment target before drawing conclusions.
 
 ### Results
 
-Latest `ShortRun` results from 21 July 2026: BenchmarkDotNet 0.15.8, .NET 8.0.22 Arm64 RyuJIT, Apple M3 Pro with 12 cores, macOS 26.5. Each result uses one launch, three warmup iterations, and three measurement iterations. Ratios use Immediate.Jobs as the baseline.
+The tables below are the historical `ShortRun` results from 21 July 2026: BenchmarkDotNet 0.15.8, .NET 8.0.22 Arm64 RyuJIT, Apple M3 Pro with 12 cores, macOS 26.5. Each result uses one launch, three warmup iterations, and three measurement iterations. Ratios use Immediate.Jobs as the baseline. The expanded TickerQ suite targets .NET 10 and does not yet have checked-in results.
 
 #### EnqueueAsync
 

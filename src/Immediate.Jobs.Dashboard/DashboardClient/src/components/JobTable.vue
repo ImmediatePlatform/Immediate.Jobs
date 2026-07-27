@@ -58,6 +58,7 @@ watch(() => props.selectedId, (jobId) => {
 					<tr>
 						<th>Job</th>
 						<th>Queue</th>
+						<th>Group</th>
 						<th>Batch</th>
 						<th>State</th>
 						<th>Attempt</th>
@@ -82,6 +83,10 @@ watch(() => props.selectedId, (jobId) => {
 								</button>
 							</td>
 							<td><code>{{ job.queueName }}</code></td>
+							<td>
+								<code v-if="job.groupId" class="block max-w-48 truncate" :title="job.groupId">{{ job.groupId }}</code>
+								<span v-else class="text-muted">—</span>
+							</td>
 							<td>
 								<button v-if="job.batchId" class="table-link" type="button" @click="emit('openBatch', job.batchId)">
 									<Layers3 :size="13" aria-hidden="true" />
@@ -129,11 +134,11 @@ watch(() => props.selectedId, (jobId) => {
 							</td>
 						</tr>
 						<tr v-if="selectedId === job.id" :id="`job-details-${job.id}`" class="job-detail-row">
-							<td colspan="8"><slot name="details" /></td>
+							<td colspan="9"><slot name="details" /></td>
 						</tr>
 					</template>
 					<tr v-if="selectedId && !selectedRowIsVisible" class="job-detail-row">
-						<td colspan="8"><slot name="details" /></td>
+						<td colspan="9"><slot name="details" /></td>
 					</tr>
 				</tbody>
 			</table>

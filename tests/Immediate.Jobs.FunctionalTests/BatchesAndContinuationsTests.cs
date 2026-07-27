@@ -297,17 +297,17 @@ public sealed class BatchesAndContinuationsTests
 	}
 
 	[Fact]
-	public void RuntimeRegistersScopedBatchAndMonitoringServices()
+	public async Task RuntimeRegistersScopedBatchAndMonitoringServices()
 	{
 		var services = new ServiceCollection();
 		_ = services.AddImmediateJobsCore();
-		using var provider = services.BuildServiceProvider(new ServiceProviderOptions { ValidateScopes = true });
+		await using var provider = services.BuildServiceProvider(new ServiceProviderOptions { ValidateScopes = true });
 
-		using var firstScope = provider.CreateScope();
+		await using var firstScope = provider.CreateAsyncScope();
 		var scheduler = firstScope.ServiceProvider.GetRequiredService<IJobBatchScheduler>();
 		var batchMonitor = firstScope.ServiceProvider.GetRequiredService<IJobBatchMonitor>();
 		var jobMonitor = firstScope.ServiceProvider.GetRequiredService<IJobMonitor>();
-		using var secondScope = provider.CreateScope();
+		await using var secondScope = provider.CreateAsyncScope();
 
 		_ = Assert.IsType<JobBatchScheduler>(scheduler);
 		Assert.Same(batchMonitor, jobMonitor);

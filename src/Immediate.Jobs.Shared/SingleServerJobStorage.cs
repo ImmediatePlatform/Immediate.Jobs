@@ -15,11 +15,16 @@ public sealed class SingleServerJobStorage :
 	private readonly SemaphoreSlim _initialization = new(1, 1);
 	private readonly IRecurringJobStorage _recurringDurableStorage;
 	private readonly IJobGraphStorage _graphDurableStorage;
+#pragma warning disable IDE0330 // System.Threading.Lock is unavailable on the lowest target framework.
+	private readonly object _disposeGate = new();
+#pragma warning restore IDE0330
 	private InMemoryJobStorage _primary;
 	private bool _initialized;
-	private bool _disposed;
+	private Task? _disposeTask;
+	private int _disposeStarted;
 
 	/// <summary>Creates a memory-primary store backed by the supplied durable replica.</summary>
+	/// <remarks>The wrapper takes ownership of <paramref name="durableStorage"/> and disposes it with the primary store.</remarks>
 	public SingleServerJobStorage(IJobStorage durableStorage, TimeProvider timeProvider)
 	{
 		ArgumentNullException.ThrowIfNull(durableStorage);
@@ -428,45 +433,47 @@ public sealed class SingleServerJobStorage :
 	}
 
 	/// <inheritdoc />
-	public void Dispose()
-	{
-		if (_disposed)
-			return;
-		_disposed = true;
-		if (DurableStorage is IDisposable disposable)
-			disposable.Dispose();
-		else if (DurableStorage is IAsyncDisposable asyncDisposable)
-			asyncDisposable.DisposeAsync().AsTask().GetAwaiter().GetResult();
-		_initialization.Dispose();
-	}
+	public void Dispose() => DisposeAsync().AsTask().GetAwaiter().GetResult();
 
 	/// <inheritdoc />
-	public async ValueTask DisposeAsync()
+	public ValueTask DisposeAsync()
 	{
-		if (_disposed)
-			return;
-		_disposed = true;
-		if (DurableStorage is IAsyncDisposable asyncDisposable)
-			await asyncDisposable.DisposeAsync().ConfigureAwait(false);
-		else if (DurableStorage is IDisposable disposable)
-			disposable.Dispose();
-		_initialization.Dispose();
+		lock (_disposeGate)
+			return new(_disposeTask ??= DisposeCoreAsync());
+	}
+
+	private async Task DisposeCoreAsync()
+	{
+		Volatile.Write(ref _disposeStarted, 1);
+		await _initialization.WaitAsync(CancellationToken.None).ConfigureAwait(false);
+		try
+		{
+			await _primary.DisposeAsync().ConfigureAwait(false);
+			await DurableStorage.DisposeAsync().ConfigureAwait(false);
+		}
+		finally
+		{
+			_ = _initialization.Release();
+			_initialization.Dispose();
+		}
 	}
 
 	private async ValueTask EnsureInitializedAsync(CancellationToken cancellationToken)
 	{
-		ObjectDisposedException.ThrowIf(_disposed, this);
+		ThrowIfDisposed();
 		if (Volatile.Read(ref _initialized))
 			return;
 
 		await _initialization.WaitAsync(cancellationToken).ConfigureAwait(false);
+		InMemoryJobStorage? recoveredPrimary = null;
 		try
 		{
+			ThrowIfDisposed();
 			if (Volatile.Read(ref _initialized))
 				return;
 
 			await DurableStorage.InitializeAsync(cancellationToken).ConfigureAwait(false);
-			var recoveredPrimary = new InMemoryJobStorage(_timeProvider);
+			recoveredPrimary = CreatePrimaryStorage();
 			await recoveredPrimary.InitializeAsync(cancellationToken).ConfigureAwait(false);
 
 			var recoveredJobs = new List<JobRecord>();
@@ -566,14 +573,22 @@ public sealed class SingleServerJobStorage :
 			foreach (var schedule in snapshot.Recurring)
 				await recoveredPrimary.UpsertRecurringAsync(schedule, cancellationToken).ConfigureAwait(false);
 
+			var previousPrimary = _primary;
 			_primary = recoveredPrimary;
+			recoveredPrimary = null;
+			await previousPrimary.DisposeAsync().ConfigureAwait(false);
 			Volatile.Write(ref _initialized, true);
 		}
 		finally
 		{
+			if (recoveredPrimary is not null)
+				await recoveredPrimary.DisposeAsync().ConfigureAwait(false);
 			_ = _initialization.Release();
 		}
 	}
+
+	private void ThrowIfDisposed() =>
+		ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposeStarted) != 0, this);
 
 	private static JobContinuationEdge ToContinuationEdge(BatchGraphEdge edge) => new()
 	{
@@ -582,6 +597,8 @@ public sealed class SingleServerJobStorage :
 		ParentBatchId = edge.ParentBatchId,
 		Trigger = edge.Trigger,
 	};
+
+	private InMemoryJobStorage CreatePrimaryStorage() => new(_timeProvider);
 
 	private sealed record RecoveredBatch(
 		JobBatchRecord Record,

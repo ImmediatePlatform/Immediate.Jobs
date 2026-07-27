@@ -32,7 +32,10 @@ public sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 	private readonly TimeProvider _timeProvider;
 	private readonly string _root;
 	private readonly bool _ownsConnection;
-	private bool _disposed;
+#pragma warning disable IDE0330 // System.Threading.Lock is unavailable on the lowest target framework.
+	private readonly object _disposeGate = new();
+#pragma warning restore IDE0330
+	private Task? _disposeTask;
 
 	/// <summary>Creates storage over an existing Redis connection.</summary>
 	public RedisJobStorage(
@@ -94,6 +97,12 @@ public sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 		ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(request.Lease, TimeSpan.Zero);
 		ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(request.BatchSize, 0);
 		ArgumentNullException.ThrowIfNull(request.Queues);
+		if (request.FairQueues is not null)
+		{
+			throw new NotSupportedException(
+				"Direct distributed fair-queue acquisition is not supported by the Redis provider."
+			);
+		}
 
 		var keys = new List<RedisKey>(4 + request.Queues.Count)
 		{
@@ -534,13 +543,28 @@ public sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 	}
 
 	/// <inheritdoc />
-	public void Dispose()
+	public void Dispose() => DisposeAsync().AsTask().GetAwaiter().GetResult();
+
+	/// <inheritdoc />
+	public ValueTask DisposeAsync()
 	{
-		if (_disposed)
-			return;
-		_disposed = true;
+		lock (_disposeGate)
+			return new(_disposeTask ??= DisposeCoreAsync());
+	}
+
+	private async Task DisposeCoreAsync()
+	{
 		if (_ownsConnection)
-			_connection.Dispose();
+		{
+			try
+			{
+				await _connection.CloseAsync().ConfigureAwait(false);
+			}
+			finally
+			{
+				_connection.Dispose();
+			}
+		}
 	}
 
 	private async ValueTask SetRecurringPausedAsync(

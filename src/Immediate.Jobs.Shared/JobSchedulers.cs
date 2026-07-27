@@ -3,6 +3,8 @@ using System.Text.Json.Serialization.Metadata;
 
 namespace Immediate.Jobs.Shared;
 
+#pragma warning disable CA1068 // GroupId follows the existing token to keep positional default calls source-compatible.
+
 /// <summary>A typed enqueue and scheduling contract implemented by every generated scheduler.</summary>
 public interface IJobScheduler<TPayload>
 {
@@ -10,7 +12,14 @@ public interface IJobScheduler<TPayload>
 	ValueTask<JobHandle> EnqueueAsync(TPayload payload, CancellationToken cancellationToken = default);
 
 	/// <summary>Enqueues grouped work immediately and returns its opaque invocation identifier.</summary>
-	ValueTask<JobHandle> EnqueueAsync(TPayload payload, string? groupId, CancellationToken cancellationToken = default);
+	ValueTask<JobHandle> EnqueueAsync(
+		TPayload payload,
+		CancellationToken cancellationToken,
+		string? groupId
+	) =>
+		string.IsNullOrWhiteSpace(groupId)
+			? EnqueueAsync(payload, cancellationToken)
+			: throw new NotSupportedException("This scheduler does not support fair queue group ids.");
 
 	/// <summary>Schedules work after a delay and returns its opaque invocation identifier.</summary>
 	ValueTask<JobHandle> ScheduleAsync(TPayload payload, TimeSpan delay, CancellationToken cancellationToken = default);
@@ -19,9 +28,12 @@ public interface IJobScheduler<TPayload>
 	ValueTask<JobHandle> ScheduleAsync(
 		TPayload payload,
 		TimeSpan delay,
-		string? groupId,
-		CancellationToken cancellationToken = default
-	);
+		CancellationToken cancellationToken,
+		string? groupId
+	) =>
+		string.IsNullOrWhiteSpace(groupId)
+			? ScheduleAsync(payload, delay, cancellationToken)
+			: throw new NotSupportedException("This scheduler does not support fair queue group ids.");
 
 	/// <summary>Schedules work at an absolute time and returns its opaque invocation identifier.</summary>
 	ValueTask<JobHandle> ScheduleAtAsync(TPayload payload, DateTimeOffset runAt, CancellationToken cancellationToken = default);
@@ -30,10 +42,15 @@ public interface IJobScheduler<TPayload>
 	ValueTask<JobHandle> ScheduleAtAsync(
 		TPayload payload,
 		DateTimeOffset runAt,
-		string? groupId,
-		CancellationToken cancellationToken = default
-	);
+		CancellationToken cancellationToken,
+		string? groupId
+	) =>
+		string.IsNullOrWhiteSpace(groupId)
+			? ScheduleAtAsync(payload, runAt, cancellationToken)
+			: throw new NotSupportedException("This scheduler does not support fair queue group ids.");
 }
+
+#pragma warning restore CA1068
 
 /// <summary>Triggers a payloadless job immediately.</summary>
 public interface IRecurringJobTrigger
@@ -88,9 +105,9 @@ public abstract class JobScheduler<TPayload>(
 	/// <inheritdoc />
 	public ValueTask<JobHandle> EnqueueAsync(
 		TPayload payload,
-		string? groupId,
-		CancellationToken cancellationToken = default
-	) => ScheduleAtAsync(payload, TimeProvider.GetUtcNow(), groupId, cancellationToken);
+		CancellationToken cancellationToken,
+		string? groupId
+	) => ScheduleAtAsync(payload, TimeProvider.GetUtcNow(), cancellationToken, groupId);
 
 	/// <inheritdoc />
 	public ValueTask<JobHandle> ScheduleAsync(TPayload payload, TimeSpan delay, CancellationToken cancellationToken = default)
@@ -105,14 +122,14 @@ public abstract class JobScheduler<TPayload>(
 	public ValueTask<JobHandle> ScheduleAsync(
 		TPayload payload,
 		TimeSpan delay,
-		string? groupId,
-		CancellationToken cancellationToken = default
+		CancellationToken cancellationToken,
+		string? groupId
 	)
 	{
 		if (delay < TimeSpan.Zero)
 			throw new ArgumentOutOfRangeException(nameof(delay), "A job delay cannot be negative.");
 
-		return ScheduleAtAsync(payload, TimeProvider.GetUtcNow() + delay, groupId, cancellationToken);
+		return ScheduleAtAsync(payload, TimeProvider.GetUtcNow() + delay, cancellationToken, groupId);
 	}
 
 	/// <inheritdoc />
@@ -121,14 +138,14 @@ public abstract class JobScheduler<TPayload>(
 		DateTimeOffset runAt,
 		CancellationToken cancellationToken = default
 	)
-		=> ScheduleAtAsync(payload, runAt, groupId: null, cancellationToken);
+		=> ScheduleAtAsync(payload, runAt, cancellationToken, groupId: null);
 
 	/// <inheritdoc />
 	public async ValueTask<JobHandle> ScheduleAtAsync(
 		TPayload payload,
 		DateTimeOffset runAt,
-		string? groupId,
-		CancellationToken cancellationToken = default
+		CancellationToken cancellationToken,
+		string? groupId
 	)
 	{
 		var record = CreateRecord(payload, runAt, groupId);

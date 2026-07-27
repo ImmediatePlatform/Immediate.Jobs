@@ -15,6 +15,7 @@ describe('dashboard components', () => {
 		expect(table.text()).toContain('SendGreeting');
 		expect(table.text()).toContain('Succeeded');
 		expect(table.text()).toContain('batch-42');
+		expect(table.text()).toContain('tenant-a');
 
 		const detail = mount(JobDetail, {
 			props: {
@@ -30,10 +31,22 @@ describe('dashboard components', () => {
 		expect(detail.text()).toContain('Duke');
 		expect(detail.text()).toContain('Context envelope');
 		expect(detail.text()).toContain('curl/8.7.1');
+		expect(detail.text()).toContain('Group');
+		expect(detail.text()).toContain('tenant-a');
 		expect(detail.text()).toContain('4bf92f3577b34da6a3ce929d0e0e4736');
 		expect(detail.get('a[href="https://telemetry.example/traces/4bf92f"]').attributes('target')).toBe('_blank');
 		expect(detail.get('a[aria-label="View all retry logs"]').text()).toContain('Logs');
 		expect(detail.text()).not.toContain('Observability');
+	});
+
+	it('omits the group detail for ungrouped jobs', () => {
+		const detail = mount(JobDetail, {
+			props: {
+				job: { ...completedJob, groupId: null },
+			},
+		});
+
+		expect(detail.findAll('dt').some((term) => term.text() === 'Group')).toBe(false);
 	});
 
 	it('expands selected job details immediately below its row and scrolls the row into view', async () => {

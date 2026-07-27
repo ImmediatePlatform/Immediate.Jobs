@@ -5,6 +5,7 @@ export const completedJob: JobRecord = {
 	batchId: 'batch-42',
 	jobName: 'SendGreeting',
 	queueName: 'default',
+	groupId: 'tenant-a',
 	payload: '{"name":"Duke"}',
 	context: '{"http-request":{"clientIpAddress":"127.0.0.1","userAgent":"curl/8.7.1"}}',
 	state: 'Succeeded',

@@ -42,6 +42,11 @@ public static class LinqToDBSchemaExtensions
 			tableOptions: CreateIfMissing,
 			token: cancellationToken
 		).ConfigureAwait(false);
+		_ = await connection.CreateTableAsync<ImmediateFairQueueGroupEntity>(
+			schemaName: schema,
+			tableOptions: CreateIfMissing,
+			token: cancellationToken
+		).ConfigureAwait(false);
 		_ = await connection.CreateTableAsync<ImmediateJobContinuationEntity>(
 			schemaName: schema,
 			tableOptions: CreateIfMissing,
@@ -73,7 +78,7 @@ public static class LinqToDBSchemaExtensions
 		CREATE TABLE IF NOT EXISTS "immediate_jobs" (
 			"Id" TEXT NOT NULL CONSTRAINT "PK_immediate_jobs" PRIMARY KEY,
 			"QueueName" TEXT NOT NULL DEFAULT 'default', "JobName" TEXT NOT NULL, "Payload" TEXT NOT NULL,
-			"Context" TEXT NULL, "State" INTEGER NOT NULL, "DueAt" INTEGER NOT NULL, "CreatedAt" INTEGER NOT NULL,
+			"Context" TEXT NULL, "GroupId" TEXT NULL, "State" INTEGER NOT NULL, "DueAt" INTEGER NOT NULL, "CreatedAt" INTEGER NOT NULL,
 			"Attempt" INTEGER NOT NULL, "WorkerId" TEXT NULL, "LeaseExpiresAt" INTEGER NULL, "LastError" TEXT NULL,
 			"CompletedAt" INTEGER NULL, "RecurringKey" TEXT NULL, "TraceParent" TEXT NULL, "TraceState" TEXT NULL,
 			"ExecutionTraceId" TEXT NULL, "ExecutionSpanId" TEXT NULL, "ExecutionStartedAt" INTEGER NULL,
@@ -81,6 +86,11 @@ public static class LinqToDBSchemaExtensions
 			"ConcurrencyStamp" TEXT NOT NULL,
 			CONSTRAINT "FK_immediate_jobs_immediate_job_batches_BatchId" FOREIGN KEY ("BatchId")
 				REFERENCES "immediate_job_batches" ("Id") ON DELETE CASCADE
+		);
+		CREATE TABLE IF NOT EXISTS "immediate_fair_queue_groups" (
+			"QueueName" TEXT NOT NULL, "GroupId" TEXT NOT NULL, "LastServedSequence" INTEGER NOT NULL,
+			"ConcurrencyStamp" TEXT NOT NULL,
+			CONSTRAINT "PK_immediate_fair_queue_groups" PRIMARY KEY ("QueueName", "GroupId")
 		);
 		CREATE TABLE IF NOT EXISTS "immediate_job_continuations" (
 			"ChildJobId" TEXT NOT NULL, "ParentKind" INTEGER NOT NULL, "ParentId" TEXT NOT NULL,
@@ -198,6 +208,7 @@ public static class LinqToDBSchemaExtensions
 			("IX_immediate_jobs_State_DueAt", "immediate_jobs", "State, DueAt", false),
 			("IX_immediate_jobs_State_CreatedAt", "immediate_jobs", "State, CreatedAt", false),
 			("IX_immediate_jobs_QueueName_State_DueAt_CreatedAt", "immediate_jobs", "QueueName, State, DueAt, CreatedAt", false),
+			("IX_immediate_jobs_QueueName_State_GroupId", "immediate_jobs", "QueueName, State, GroupId", false),
 			("IX_immediate_job_continuations_ParentKind_ParentId", "immediate_job_continuations", "ParentKind, ParentId", false),
 			("IX_immediate_recurring_jobs_IsPaused_NextRunAt", "immediate_recurring_jobs", "IsPaused, NextRunAt", false),
 			("IX_immediate_job_servers_LastHeartbeat", "immediate_job_servers", "LastHeartbeat", false),

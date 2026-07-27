@@ -56,9 +56,13 @@ public sealed class RedisStorageTests(RedisStorageFixture fixture)
 		var options = CreateOptions();
 		using var first = new RedisJobStorage(connection, options, timeProvider);
 		using var second = new RedisJobStorage(connection, options, timeProvider);
-		await first.EnqueueAsync(CreateJob("leased", timeProvider.GetUtcNow()), cancellationToken);
+		await first.EnqueueAsync(
+			CreateJob("leased", timeProvider.GetUtcNow()) with { GroupId = "tenant-a" },
+			cancellationToken
+		);
 
-		_ = Assert.Single(await first.AcquireDueJobsAsync(CreateRequest("node-a", 1), cancellationToken));
+		var firstClaim = Assert.Single(await first.AcquireDueJobsAsync(CreateRequest("node-a", 1), cancellationToken));
+		Assert.Equal("tenant-a", firstClaim.GroupId);
 		await first.SetExecutionTelemetryAsync(
 			"leased",
 			"node-a",
@@ -74,6 +78,7 @@ public sealed class RedisStorageTests(RedisStorageFixture fixture)
 		var recovered = Assert.Single(await second.AcquireDueJobsAsync(CreateRequest("node-b", 1), cancellationToken));
 		Assert.Equal(2, recovered.Attempt);
 		Assert.Equal("node-b", recovered.WorkerId);
+		Assert.Equal("tenant-a", recovered.GroupId);
 		Assert.Null(recovered.ExecutionTraceId);
 		Assert.Null(recovered.ExecutionSpanId);
 		Assert.Null(recovered.ExecutionStartedAt);
@@ -201,6 +206,35 @@ public sealed class RedisStorageTests(RedisStorageFixture fixture)
 		var options = new ImmediateJobsOptions();
 		_ = options.UseRedis(connection, redis => redis.KeyPrefix = $"test:{Guid.NewGuid():N}");
 		Assert.Equal(JobStorageMode.Distributed, options.StorageMode);
+	}
+
+	[Fact]
+	public async Task DisposingStorageDoesNotCloseAnApplicationOwnedConnection()
+	{
+		await using var connection = await ConnectionMultiplexer.ConnectAsync(fixture.Container.GetConnectionString());
+		await using var storage = new RedisJobStorage(connection, CreateOptions(), CreateTimeProvider());
+
+		await storage.DisposeAsync();
+
+		Assert.True(connection.IsConnected);
+		_ = await connection.GetDatabase().PingAsync();
+	}
+
+	[Fact]
+	public async Task FairQueueAcquisitionIsExplicitlyUnsupported()
+	{
+		var cancellationToken = TestContext.Current.CancellationToken;
+		await using var connection = await ConnectionMultiplexer.ConnectAsync(fixture.Container.GetConnectionString());
+		using var storage = new RedisJobStorage(connection, CreateOptions(), CreateTimeProvider());
+		var request = CreateRequest("worker", 1) with
+		{
+			FairQueues = new(0.10, 30, true),
+		};
+
+		var exception = await Assert.ThrowsAsync<NotSupportedException>(
+			() => storage.AcquireDueJobsAsync(request, cancellationToken).AsTask()
+		);
+		Assert.Contains("Redis", exception.Message, StringComparison.Ordinal);
 	}
 
 	private static FakeTimeProvider CreateTimeProvider() =>

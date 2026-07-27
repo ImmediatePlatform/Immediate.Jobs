@@ -18,7 +18,11 @@ public sealed class EntityFrameworkCoreJobStorageTests
 		var cancellationToken = TestContext.Current.CancellationToken;
 		await using var fixture = await StorageFixture.CreateAsync(cancellationToken);
 		var storage = fixture.CreateStorage();
-		var job = CreateJob(fixture.TimeProvider.GetUtcNow(), 1) with { Context = context };
+		var job = CreateJob(fixture.TimeProvider.GetUtcNow(), 1) with
+		{
+			Context = context,
+			GroupId = "context-group",
+		};
 
 		await storage.EnqueueAsync(job, cancellationToken);
 
@@ -26,6 +30,8 @@ public sealed class EntityFrameworkCoreJobStorageTests
 		var acquired = Assert.Single(await storage.AcquireDueJobsAsync(CreateRequest("context-worker", 1), cancellationToken));
 		Assert.Equal(context, queried.Context);
 		Assert.Equal(context, acquired.Context);
+		Assert.Equal(job.GroupId, queried.GroupId);
+		Assert.Equal(job.GroupId, acquired.GroupId);
 	}
 
 	[Fact]
@@ -46,6 +52,25 @@ public sealed class EntityFrameworkCoreJobStorageTests
 		var claimed = claims.SelectMany(static claim => claim).ToArray();
 		Assert.Equal(64, claimed.Length);
 		Assert.Equal(64, claimed.Select(job => job.Id).Distinct().Count());
+	}
+
+	[Fact]
+	public async Task CompetingFairQueueNodesClaimDistinctInvocations()
+	{
+		var cancellationToken = TestContext.Current.CancellationToken;
+		await using var fixture = await StorageFixture.CreateAsync(cancellationToken);
+		var first = fixture.CreateStorage();
+		var second = fixture.CreateStorage();
+		var now = fixture.TimeProvider.GetUtcNow();
+		await first.EnqueueAsync(CreateJob(now, 1) with { Id = "group-a-job", GroupId = "group-a" }, cancellationToken);
+		await first.EnqueueAsync(CreateJob(now, 2) with { Id = "group-b-job", GroupId = "group-b" }, cancellationToken);
+
+		var firstClaim = first.AcquireDueJobsAsync(CreateFairRequest("node-a", 1), cancellationToken).AsTask();
+		var secondClaim = second.AcquireDueJobsAsync(CreateFairRequest("node-b", 1), cancellationToken).AsTask();
+		var claimed = (await Task.WhenAll(firstClaim, secondClaim)).SelectMany(static jobs => jobs).ToArray();
+
+		Assert.Equal(2, claimed.Length);
+		Assert.Equal(2, claimed.Select(static job => job.Id).Distinct(StringComparer.Ordinal).Count());
 	}
 
 	[Fact]
@@ -70,6 +95,252 @@ public sealed class EntityFrameworkCoreJobStorageTests
 	}
 
 	[Fact]
+	public async Task FairQueuesRotateGroupsAcrossCapacityOneAcquisitions()
+	{
+		var cancellationToken = TestContext.Current.CancellationToken;
+		await using var fixture = await StorageFixture.CreateAsync(cancellationToken);
+		var storage = fixture.CreateStorage();
+		var now = fixture.TimeProvider.GetUtcNow();
+		var firstA = CreateJob(now, 1) with { Id = "a-first", GroupId = "group-a" };
+		var secondA = CreateJob(now, 2) with { Id = "a-second", GroupId = "group-a" };
+		var firstB = CreateJob(now, 3) with { Id = "b-first", GroupId = "group-b" };
+		await storage.EnqueueAsync(firstA, cancellationToken);
+		await storage.EnqueueAsync(secondA, cancellationToken);
+		await storage.EnqueueAsync(firstB, cancellationToken);
+
+		var request = CreateFairRequest("fair-worker", 1);
+		var first = Assert.Single(await storage.AcquireDueJobsAsync(request, cancellationToken));
+		Assert.Equal(firstA.Id, first.Id);
+		await storage.CompleteAsync(first.Id, "fair-worker", cancellationToken);
+
+		var second = Assert.Single(await storage.AcquireDueJobsAsync(request, cancellationToken));
+		Assert.Equal(firstB.Id, second.Id);
+	}
+
+	[Fact]
+	public async Task FairQueuesInterleaveGroupsWithinOneAcquisition()
+	{
+		var cancellationToken = TestContext.Current.CancellationToken;
+		await using var fixture = await StorageFixture.CreateAsync(cancellationToken);
+		var storage = fixture.CreateStorage();
+		var now = fixture.TimeProvider.GetUtcNow();
+		await storage.EnqueueAsync(
+			CreateJob(now, 1) with { Id = "a-first", GroupId = "group-a" },
+			cancellationToken
+		);
+		await storage.EnqueueAsync(
+			CreateJob(now, 2) with { Id = "a-second", GroupId = "group-a" },
+			cancellationToken
+		);
+		await storage.EnqueueAsync(
+			CreateJob(now, 3) with { Id = "b-first", GroupId = "group-b" },
+			cancellationToken
+		);
+		await storage.EnqueueAsync(
+			CreateJob(now, 4) with { Id = "b-second", GroupId = "group-b" },
+			cancellationToken
+		);
+
+		var acquired = await storage.AcquireDueJobsAsync(
+			CreateFairRequest("fair-worker", 4),
+			cancellationToken
+		);
+
+		Assert.Equal(
+			["a-first", "b-first", "a-second", "b-second"],
+			acquired.Select(static job => job.Id)
+		);
+	}
+
+	[Fact]
+	public async Task NewGroupAdvancesAheadOfPreviouslyServedBacklog()
+	{
+		var cancellationToken = TestContext.Current.CancellationToken;
+		await using var fixture = await StorageFixture.CreateAsync(cancellationToken);
+		var storage = fixture.CreateStorage();
+		var now = fixture.TimeProvider.GetUtcNow();
+		foreach (var index in Enumerable.Range(0, 128))
+		{
+			await storage.EnqueueAsync(
+				CreateJob(now, index) with
+				{
+					Id = $"a-{index:D3}",
+					GroupId = "group-a",
+				},
+				cancellationToken
+			);
+		}
+
+		var request = CreateFairRequest("fair-worker", 1);
+
+		var first = Assert.Single(await storage.AcquireDueJobsAsync(request, cancellationToken));
+		Assert.Equal("a-000", first.Id);
+		await storage.CompleteAsync(first.Id, "fair-worker", cancellationToken);
+		await storage.EnqueueAsync(CreateJob(now, 128) with { Id = "b-new", GroupId = "group-b" }, cancellationToken);
+
+		var second = Assert.Single(await storage.AcquireDueJobsAsync(request, cancellationToken));
+		Assert.Equal("b-new", second.Id);
+	}
+
+	[Fact]
+	public async Task GroupIdsDoNotChangeEntityFrameworkCoreOrderingWhenFairQueuesAreDisabled()
+	{
+		var cancellationToken = TestContext.Current.CancellationToken;
+		await using var fixture = await StorageFixture.CreateAsync(cancellationToken);
+		var storage = fixture.CreateStorage();
+		var now = fixture.TimeProvider.GetUtcNow();
+		await storage.EnqueueAsync(CreateJob(now, 1) with { Id = "a-first", GroupId = "group-a" }, cancellationToken);
+		await storage.EnqueueAsync(CreateJob(now, 2) with { Id = "a-second", GroupId = "group-a" }, cancellationToken);
+		await storage.EnqueueAsync(CreateJob(now, 3) with { Id = "b-first", GroupId = "group-b" }, cancellationToken);
+
+		var first = Assert.Single(await storage.AcquireDueJobsAsync(CreateRequest("legacy-worker", 1), cancellationToken));
+		Assert.Equal("a-first", first.Id);
+		await storage.CompleteAsync(first.Id, "legacy-worker", cancellationToken);
+
+		var second = Assert.Single(await storage.AcquireDueJobsAsync(CreateRequest("legacy-worker", 1), cancellationToken));
+		Assert.Equal("a-second", second.Id);
+	}
+
+	[Fact]
+	public async Task FairQueuesServeQuietGroupBeforeNoisyGroup()
+	{
+		var cancellationToken = TestContext.Current.CancellationToken;
+		await using var fixture = await StorageFixture.CreateAsync(cancellationToken);
+		var storage = fixture.CreateStorage();
+		var now = fixture.TimeProvider.GetUtcNow();
+		await storage.EnqueueAsync(CreateJob(now, 1) with { Id = "active-a-1", GroupId = "group-a" }, cancellationToken);
+		await storage.EnqueueAsync(CreateJob(now, 2) with { Id = "active-a-2", GroupId = "group-a" }, cancellationToken);
+		Assert.Equal(2, (await storage.AcquireDueJobsAsync(CreateRequest("active-worker", 2), cancellationToken)).Count);
+
+		await storage.EnqueueAsync(CreateJob(now, 3) with { Id = "waiting-a", GroupId = "group-a" }, cancellationToken);
+		await storage.EnqueueAsync(CreateJob(now, 4) with { Id = "waiting-b", GroupId = "group-b" }, cancellationToken);
+		var request = CreateFairRequest(
+			"fair-worker",
+			1,
+			new(ConcurrencyShareThreshold: 0.50, MinInflightForNoisy: 2, GroupRoundRobin: true)
+		);
+
+		var acquired = Assert.Single(await storage.AcquireDueJobsAsync(request, cancellationToken));
+		Assert.Equal("waiting-b", acquired.Id);
+	}
+
+	[Fact]
+	public async Task FairQueuesKeepUngroupedJobsInExistingOrder()
+	{
+		var cancellationToken = TestContext.Current.CancellationToken;
+		await using var fixture = await StorageFixture.CreateAsync(cancellationToken);
+		var storage = fixture.CreateStorage();
+		var now = fixture.TimeProvider.GetUtcNow();
+		await storage.EnqueueAsync(CreateJob(now, 3) with { Id = "ungrouped-third" }, cancellationToken);
+		await storage.EnqueueAsync(CreateJob(now, 1) with { Id = "ungrouped-first" }, cancellationToken);
+		await storage.EnqueueAsync(CreateJob(now, 2) with { Id = "ungrouped-second" }, cancellationToken);
+
+		var acquired = await storage.AcquireDueJobsAsync(CreateFairRequest("fair-worker", 3), cancellationToken);
+
+		Assert.Equal(["ungrouped-first", "ungrouped-second", "ungrouped-third"], acquired.Select(static job => job.Id));
+	}
+
+	[Fact]
+	public async Task DisablingGroupRoundRobinUsesExistingDueOrder()
+	{
+		var cancellationToken = TestContext.Current.CancellationToken;
+		await using var fixture = await StorageFixture.CreateAsync(cancellationToken);
+		var storage = fixture.CreateStorage();
+		var now = fixture.TimeProvider.GetUtcNow();
+		await storage.EnqueueAsync(CreateJob(now, 1) with { Id = "a-first", GroupId = "group-a" }, cancellationToken);
+		await storage.EnqueueAsync(CreateJob(now, 2) with { Id = "a-second", GroupId = "group-a" }, cancellationToken);
+		await storage.EnqueueAsync(CreateJob(now, 3) with { Id = "b-first", GroupId = "group-b" }, cancellationToken);
+
+		var first = Assert.Single(await storage.AcquireDueJobsAsync(CreateFairRequest("fair-worker", 1), cancellationToken));
+		Assert.Equal("a-first", first.Id);
+		await storage.CompleteAsync(first.Id, "fair-worker", cancellationToken);
+		var withoutRoundRobin = CreateFairRequest(
+			"fair-worker",
+			1,
+			new(ConcurrencyShareThreshold: 1, MinInflightForNoisy: 30, GroupRoundRobin: false)
+		);
+
+		var second = Assert.Single(await storage.AcquireDueJobsAsync(withoutRoundRobin, cancellationToken));
+		Assert.Equal("a-second", second.Id);
+	}
+
+	[Fact]
+	public async Task ExpiredLeasesDoNotMakeAGroupNoisy()
+	{
+		var cancellationToken = TestContext.Current.CancellationToken;
+		await using var fixture = await StorageFixture.CreateAsync(cancellationToken);
+		var storage = fixture.CreateStorage();
+		var now = fixture.TimeProvider.GetUtcNow();
+		await storage.EnqueueAsync(CreateJob(now, 1) with { Id = "expired-a-1", GroupId = "group-a" }, cancellationToken);
+		await storage.EnqueueAsync(CreateJob(now, 2) with { Id = "expired-a-2", GroupId = "group-a" }, cancellationToken);
+		Assert.Equal(2, (await storage.AcquireDueJobsAsync(CreateRequest("expired-worker", 2), cancellationToken)).Count);
+		fixture.TimeProvider.Advance(TimeSpan.FromMinutes(1));
+		await storage.EnqueueAsync(CreateJob(now, 3) with { Id = "waiting-b", GroupId = "group-b" }, cancellationToken);
+		var request = CreateFairRequest(
+			"fair-worker",
+			1,
+			new(ConcurrencyShareThreshold: 0.10, MinInflightForNoisy: 1, GroupRoundRobin: false)
+		);
+
+		var acquired = Assert.Single(await storage.AcquireDueJobsAsync(request, cancellationToken));
+
+		Assert.Equal("expired-a-1", acquired.Id);
+	}
+
+	[Fact]
+	public async Task ReturningGroupRejoinsFairQueueWithoutHistoricalCursorDebt()
+	{
+		var cancellationToken = TestContext.Current.CancellationToken;
+		await using var fixture = await StorageFixture.CreateAsync(cancellationToken);
+		var storage = fixture.CreateStorage();
+		var now = fixture.TimeProvider.GetUtcNow();
+		await storage.EnqueueAsync(CreateJob(now, 1) with { Id = "a-first", GroupId = "group-a" }, cancellationToken);
+		await storage.EnqueueAsync(CreateJob(now, 2) with { Id = "a-second", GroupId = "group-a" }, cancellationToken);
+		await storage.EnqueueAsync(CreateJob(now, 3) with { Id = "b-first", GroupId = "group-b" }, cancellationToken);
+		var request = CreateFairRequest("fair-worker", 1);
+
+		var first = Assert.Single(await storage.AcquireDueJobsAsync(request, cancellationToken));
+		Assert.Equal("a-first", first.Id);
+		await storage.CompleteAsync(first.Id, "fair-worker", cancellationToken);
+		var second = Assert.Single(await storage.AcquireDueJobsAsync(request, cancellationToken));
+		Assert.Equal("b-first", second.Id);
+		await storage.CompleteAsync(second.Id, "fair-worker", cancellationToken);
+
+		await storage.EnqueueAsync(CreateJob(now, 4) with { Id = "b-returned", GroupId = "group-b" }, cancellationToken);
+		var returned = Assert.Single(await storage.AcquireDueJobsAsync(request, cancellationToken));
+
+		Assert.Equal("b-returned", returned.Id);
+	}
+
+	[Fact]
+	public async Task FairQueuesHonorJobNameCapacity()
+	{
+		var cancellationToken = TestContext.Current.CancellationToken;
+		await using var fixture = await StorageFixture.CreateAsync(cancellationToken);
+		var storage = fixture.CreateStorage();
+		var now = fixture.TimeProvider.GetUtcNow();
+		await storage.EnqueueAsync(CreateJob(now, 1) with { GroupId = "group-a" }, cancellationToken);
+		await storage.EnqueueAsync(CreateJob(now, 2) with { GroupId = "group-b" }, cancellationToken);
+		await storage.EnqueueAsync(CreateJob(now, 3) with { GroupId = "group-c" }, cancellationToken);
+		var request = CreateFairRequest("fair-worker", 3) with
+		{
+			Queues =
+			[
+				new()
+				{
+					QueueName = JobQueueDefinition.DefaultName,
+					Capacity = 2,
+					JobCapacities = new Dictionary<string, int> { ["ef-test"] = 1 },
+				},
+			],
+		};
+
+		var acquired = await storage.AcquireDueJobsAsync(request, cancellationToken);
+
+		_ = Assert.Single(acquired);
+	}
+
+	[Fact]
 	public async Task SingleServerRestoresDurableEfJobsIntoMemory()
 	{
 		var cancellationToken = TestContext.Current.CancellationToken;
@@ -86,6 +357,55 @@ public sealed class EntityFrameworkCoreJobStorageTests
 			job.Id,
 			Assert.Single(await restartedProcess.AcquireDueJobsAsync(CreateRequest("restarted", 1), cancellationToken)).Id
 		);
+	}
+
+	[Fact]
+	public async Task SingleServerMirrorsFairSelectionAndGroupIds()
+	{
+		var cancellationToken = TestContext.Current.CancellationToken;
+		await using var fixture = await StorageFixture.CreateAsync(cancellationToken);
+		var now = fixture.TimeProvider.GetUtcNow();
+		await using (var firstProcess = new SingleServerJobStorage(
+			fixture.CreateStorage(),
+			fixture.TimeProvider
+		))
+		{
+			await firstProcess.EnqueueAsync(
+				CreateJob(now, 1) with { Id = "a-first", GroupId = "group-a" },
+				cancellationToken
+			);
+			await firstProcess.EnqueueAsync(
+				CreateJob(now, 2) with { Id = "a-second", GroupId = "group-a" },
+				cancellationToken
+			);
+			var request = CreateFairRequest("single-server", 1);
+			var first = Assert.Single(await firstProcess.AcquireDueJobsAsync(request, cancellationToken));
+			Assert.Equal("a-first", first.Id);
+			await firstProcess.CompleteAsync(first.Id, "single-server", cancellationToken);
+			await firstProcess.EnqueueAsync(
+				CreateJob(now, 3) with { Id = "b-first", GroupId = "group-b" },
+				cancellationToken
+			);
+
+			var second = Assert.Single(await firstProcess.AcquireDueJobsAsync(request, cancellationToken));
+			Assert.Equal("b-first", second.Id);
+			Assert.Equal("group-b", second.GroupId);
+			var durableSecond = Assert.Single(await firstProcess.DurableStorage.QueryJobsAsync(
+				new() { Id = second.Id },
+				cancellationToken
+			));
+			Assert.Equal(JobState.Active, durableSecond.State);
+			Assert.Equal("group-b", durableSecond.GroupId);
+		}
+
+		await using var restartedProcess = new SingleServerJobStorage(
+			fixture.CreateStorage(),
+			fixture.TimeProvider
+		);
+		await restartedProcess.InitializeAsync(cancellationToken);
+		var restored = await restartedProcess.QueryJobsAsync(new(), cancellationToken);
+		Assert.Contains(restored, static job => job.Id == "a-second" && job.GroupId == "group-a");
+		Assert.Contains(restored, static job => job.Id == "b-first" && job.GroupId == "group-b");
 	}
 
 	[Fact]
@@ -387,6 +707,19 @@ public sealed class EntityFrameworkCoreJobStorageTests
 		Lease = TimeSpan.FromMinutes(1),
 		BatchSize = batchSize,
 		Queues = [new() { QueueName = JobQueueDefinition.DefaultName, Capacity = batchSize, JobCapacities = new Dictionary<string, int> { ["ef-test"] = batchSize } }],
+	};
+
+	private static JobAcquisitionRequest CreateFairRequest(
+		string workerId,
+		int batchSize,
+		FairQueuePolicy? policy = null
+	) => CreateRequest(workerId, batchSize) with
+	{
+		FairQueues = policy ?? new(
+			ConcurrencyShareThreshold: 0.10,
+			MinInflightForNoisy: 30,
+			GroupRoundRobin: true
+		),
 	};
 
 	private static JobRecord CreateJob(DateTimeOffset now, int index) => new()

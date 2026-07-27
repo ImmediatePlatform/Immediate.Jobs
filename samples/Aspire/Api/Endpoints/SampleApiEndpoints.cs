@@ -17,6 +17,16 @@ public static class SampleApiEndpoints
 			)
 			.Produces<EnqueueJobResponse>(StatusCodes.Status202Accepted);
 
+		_ = endpoints.MapPost("/api/fair-queue-demo", EnqueueFairQueueDemoAsync)
+			.WithName("EnqueueFairQueueDemo")
+			.WithSummary("Creates a noisy backlog followed by a quiet fair-queue group")
+			.WithDescription(
+				"Enqueues 100 deliberately slow jobs in one group, waits five seconds, then "
+				+ "enqueues one job in a second group. The second group's job should advance "
+				+ "ahead of the remaining backlog."
+			)
+			.Produces<FairQueueDemoResponse>(StatusCodes.Status202Accepted);
+
 		_ = endpoints.MapPost("/api/order-fulfillment-batches", CreateOrderBatchAsync)
 			.WithName("CreateOrderFulfillmentBatch")
 			.WithSummary("Creates a complex order-fulfillment batch")
@@ -51,6 +61,44 @@ public static class SampleApiEndpoints
 		return Results.Accepted(
 			"/jobs",
 			new EnqueueJobResponse(job.Id, new Uri("/jobs", UriKind.Relative))
+		);
+	}
+
+	private static async ValueTask<IResult> EnqueueFairQueueDemoAsync(
+		FairQueueDemoJob.Scheduler scheduler,
+		CancellationToken cancellationToken
+	)
+	{
+		const int BacklogJobs = 100;
+		var runId = Guid.NewGuid();
+		var backlogGroup = $"fair-demo:{runId:N}:backlog";
+		var quietGroup = $"fair-demo:{runId:N}:quiet";
+		for (var sequence = 1; sequence <= BacklogJobs; sequence++)
+		{
+			_ = await scheduler.EnqueueAsync(
+				new(runId, sequence, "backlog"),
+				cancellationToken,
+				groupId: backlogGroup
+			);
+		}
+
+		await Task.Delay(TimeSpan.FromSeconds(5), cancellationToken);
+		var quietJob = await scheduler.EnqueueAsync(
+			new(runId, 1, "quiet"),
+			cancellationToken,
+			groupId: quietGroup
+		);
+
+		return Results.Accepted(
+			"/jobs",
+			new FairQueueDemoResponse(
+				runId,
+				BacklogJobs,
+				backlogGroup,
+				quietGroup,
+				quietJob.Id,
+				new Uri("/jobs", UriKind.Relative)
+			)
 		);
 	}
 

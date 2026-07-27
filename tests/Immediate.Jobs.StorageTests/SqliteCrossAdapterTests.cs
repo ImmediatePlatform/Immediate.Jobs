@@ -1,6 +1,7 @@
 using Immediate.Jobs.EntityFrameworkCore;
 using Immediate.Jobs.LinqToDB;
 using LinqToDB;
+using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Time.Testing;
 
@@ -63,9 +64,28 @@ public sealed class SqliteCrossAdapterTests
 		DataOptions options
 	) : IAsyncDisposable
 	{
+		private readonly List<IJobStorage> _storages = [];
+
 		public FakeTimeProvider TimeProvider { get; } = new(new DateTimeOffset(2026, 7, 22, 9, 0, 0, TimeSpan.Zero));
-		public EntityFrameworkCoreJobStorage<TestDbContext> EntityFrameworkCore => new(contextFactory, TimeProvider);
-		public LinqToDBJobStorage LinqToDB => new(options, timeProvider: TimeProvider);
+		public EntityFrameworkCoreJobStorage<TestDbContext> EntityFrameworkCore
+		{
+			get
+			{
+				var storage = new EntityFrameworkCoreJobStorage<TestDbContext>(contextFactory, TimeProvider);
+				_storages.Add(storage);
+				return storage;
+			}
+		}
+
+		public LinqToDBJobStorage LinqToDB
+		{
+			get
+			{
+				var storage = new LinqToDBJobStorage(options, timeProvider: TimeProvider);
+				_storages.Add(storage);
+				return storage;
+			}
+		}
 
 		public static async Task<CrossAdapterFixture> CreateAsync(
 			bool createWithEntityFrameworkCore,
@@ -77,24 +97,36 @@ public sealed class SqliteCrossAdapterTests
 			var contextOptions = new DbContextOptionsBuilder<TestDbContext>().UseSqlite(connectionString).Options;
 			var contextFactory = new TestDbContextFactory(contextOptions);
 			var dataOptions = new DataOptions().UseSQLite(connectionString);
-			if (createWithEntityFrameworkCore)
+			var fixture = new CrossAdapterFixture(databasePath, contextFactory, dataOptions);
+			try
 			{
-				await using var context = contextFactory.CreateDbContext();
-				_ = await context.Database.EnsureCreatedAsync(cancellationToken);
-			}
-			else
-			{
-				await dataOptions.CreateImmediateJobsSchemaAsync(cancellationToken: cancellationToken);
-			}
+				if (createWithEntityFrameworkCore)
+				{
+					await using var context = contextFactory.CreateDbContext();
+					_ = await context.Database.EnsureCreatedAsync(cancellationToken);
+				}
+				else
+				{
+					await dataOptions.CreateImmediateJobsSchemaAsync(cancellationToken: cancellationToken);
+				}
 
-			return new(databasePath, contextFactory, dataOptions);
+				return fixture;
+			}
+			catch
+			{
+				await fixture.DisposeAsync();
+				throw;
+			}
 		}
 
-		public ValueTask DisposeAsync()
+		public async ValueTask DisposeAsync()
 		{
+			foreach (var storage in _storages.AsEnumerable().Reverse())
+				await storage.DisposeAsync();
+			SqliteConnection.ClearAllPools();
 			File.Delete(databasePath);
-			return ValueTask.CompletedTask;
 		}
+
 	}
 
 	private sealed class TestDbContext(DbContextOptions<TestDbContext> options) : DbContext(options)

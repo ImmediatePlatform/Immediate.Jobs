@@ -10,7 +10,7 @@ public sealed class InMemoryJobStorageBatchTests
 	{
 		var cancellationToken = TestContext.Current.CancellationToken;
 		var clock = new FakeTimeProvider(DateTimeOffset.UnixEpoch);
-		var storage = new InMemoryJobStorage(clock);
+		await using var storage = new InMemoryJobStorage(clock);
 		var parent = CreateJob("parent", batchId: "batch");
 		var child = CreateJob("child", batchId: "batch") with
 		{
@@ -55,7 +55,7 @@ public sealed class InMemoryJobStorageBatchTests
 	{
 		var cancellationToken = TestContext.Current.CancellationToken;
 		var clock = new FakeTimeProvider(DateTimeOffset.UnixEpoch);
-		var storage = new InMemoryJobStorage(clock);
+		await using var storage = new InMemoryJobStorage(clock);
 		var parent = CreateJob("parent");
 		await storage.EnqueueAsync(parent, cancellationToken);
 		_ = Assert.Single(await storage.AcquireDueJobsAsync(CreateRequest("worker"), cancellationToken));
@@ -114,7 +114,7 @@ public sealed class InMemoryJobStorageBatchTests
 	public async Task FailureContinuationIsCancelledWhenEveryParentSucceeds()
 	{
 		var cancellationToken = TestContext.Current.CancellationToken;
-		var storage = new InMemoryJobStorage(new FakeTimeProvider(DateTimeOffset.UnixEpoch));
+		await using var storage = new InMemoryJobStorage(new FakeTimeProvider(DateTimeOffset.UnixEpoch));
 		var parent = CreateJob("parent");
 		var child = CreateJob("child") with
 		{
@@ -143,7 +143,7 @@ public sealed class InMemoryJobStorageBatchTests
 	public async Task FailureFanInWaitsForAllParentsAndRunsWhenAnyParentFails()
 	{
 		var cancellationToken = TestContext.Current.CancellationToken;
-		var storage = new InMemoryJobStorage(new FakeTimeProvider(DateTimeOffset.UnixEpoch));
+		await using var storage = new InMemoryJobStorage(new FakeTimeProvider(DateTimeOffset.UnixEpoch));
 		var successfulParent = CreateJob("parent") with { Id = "successful-parent" };
 		var failedParent = CreateJob("parent") with { Id = "failed-parent" };
 		var child = CreateJob("child") with
@@ -193,7 +193,7 @@ public sealed class InMemoryJobStorageBatchTests
 	public async Task InvalidBatchDoesNotPartiallyInsertAnything()
 	{
 		var cancellationToken = TestContext.Current.CancellationToken;
-		var storage = new InMemoryJobStorage(new FakeTimeProvider(DateTimeOffset.UnixEpoch));
+		await using var storage = new InMemoryJobStorage(new FakeTimeProvider(DateTimeOffset.UnixEpoch));
 		var member = CreateJob("member", batchId: "batch") with
 		{
 			State = JobState.AwaitingContinuation,
@@ -215,7 +215,7 @@ public sealed class InMemoryJobStorageBatchTests
 	public async Task SuccessfulDynamicContinuationSplicesExistingWaiters()
 	{
 		var cancellationToken = TestContext.Current.CancellationToken;
-		var storage = new InMemoryJobStorage(new FakeTimeProvider(DateTimeOffset.UnixEpoch));
+		await using var storage = new InMemoryJobStorage(new FakeTimeProvider(DateTimeOffset.UnixEpoch));
 		var current = CreateJob("parent", batchId: "batch");
 		var waiter = CreateJob("child", batchId: "batch") with
 		{
@@ -253,7 +253,7 @@ public sealed class InMemoryJobStorageBatchTests
 	public async Task BatchCanBeListedCancelledAndDeletedAsOneUnit()
 	{
 		var cancellationToken = TestContext.Current.CancellationToken;
-		var storage = new InMemoryJobStorage(new FakeTimeProvider(DateTimeOffset.UnixEpoch));
+		await using var storage = new InMemoryJobStorage(new FakeTimeProvider(DateTimeOffset.UnixEpoch));
 		var parent = CreateJob("cancel-parent", batchId: "cancel-batch");
 		var child = CreateJob("cancel-child", batchId: "cancel-batch") with
 		{

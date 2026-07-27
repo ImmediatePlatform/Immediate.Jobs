@@ -21,6 +21,7 @@ export interface JobRecord {
 	queueName: string;
 	id: string;
 	jobName: string;
+	groupId: string | null;
 	payload: string;
 	context: string | null;
 	state: JobState;
