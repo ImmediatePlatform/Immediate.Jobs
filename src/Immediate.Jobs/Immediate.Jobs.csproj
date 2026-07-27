@@ -1,20 +1,12 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
-  <PropertyGroup>
+  <PropertyGroup Label="Nuget">
 	<IsPackable>true</IsPackable>
 	<IncludeBuildOutput>false</IncludeBuildOutput>
-  </PropertyGroup>
 
-  <PropertyGroup Label="Nuget">
 	<Title>Immediate.Jobs</Title>
 	<Description>A reflection-free background job scheduler for .NET using source generation.</Description>
-	<Authors>Immediate.Jobs Developers</Authors>
-	<Copyright>© 2026 Immediate.Jobs Developers</Copyright>
-	<PackageLicenseExpression>MIT</PackageLicenseExpression>
-	<PackageReadmeFile>readme.md</PackageReadmeFile>
 	<PackageTags>background-jobs;scheduler;source-generator;aot</PackageTags>
-	<RepositoryUrl>https://github.com/ImmediatePlatform/Immediate.Jobs</RepositoryUrl>
-	<PublishRepositoryUrl>true</PublishRepositoryUrl>
   </PropertyGroup>
 
   <!--

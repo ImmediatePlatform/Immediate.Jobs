@@ -18,7 +18,7 @@ public sealed class ImmediateJobsGeneratorTests
 
 			namespace Example;
 
-			[Handler, Job("send-email", MaxAttempts = 5, Timeout = "00:02:00")]
+			[Handler, Job(Name = "send-email", MaxAttempts = 5, Timeout = "00:02:00")]
 			public sealed partial class SendEmailJob
 			{
 				public sealed record Payload(Guid UserId, string Template) : IJobRequest { public JobDetails? JobDetails { get; set; } }
@@ -95,7 +95,7 @@ public sealed class ImmediateJobsGeneratorTests
 			[Handler, Job(Cron = "0 */5 * * * *")]
 			public sealed partial class CleanupSessionsJob
 			{
-				private ValueTask HandleAsync(NoPayload payload, CancellationToken cancellationToken) => ValueTask.CompletedTask;
+				private ValueTask HandleAsync(EmptyJobRequest payload, CancellationToken cancellationToken) => ValueTask.CompletedTask;
 			}
 			""";
 
@@ -120,7 +120,7 @@ public sealed class ImmediateJobsGeneratorTests
 			[Handler, Job]
 			public sealed partial class TenantCleanupJob
 			{
-				private ValueTask HandleAsync(NoPayload payload, CancellationToken cancellationToken) => ValueTask.CompletedTask;
+				private ValueTask HandleAsync(EmptyJobRequest payload, CancellationToken cancellationToken) => ValueTask.CompletedTask;
 			}
 			""";
 
@@ -213,7 +213,7 @@ public sealed class ImmediateJobsGeneratorTests
 			[Handler, Job]
 			public sealed partial class PlainJob
 			{
-				private ValueTask HandleAsync(NoPayload payload, CancellationToken cancellationToken) => ValueTask.CompletedTask;
+				private ValueTask HandleAsync(EmptyJobRequest payload, CancellationToken cancellationToken) => ValueTask.CompletedTask;
 			}
 			""";
 
@@ -241,7 +241,7 @@ public sealed class ImmediateJobsGeneratorTests
 			}
 			[Handler, Job, UsesJobContext<ClockExtractor>]
 			public sealed partial class ClockJob
-			{ private ValueTask HandleAsync(NoPayload payload, CancellationToken ct) => ValueTask.CompletedTask; }
+			{ private ValueTask HandleAsync(EmptyJobRequest payload, CancellationToken ct) => ValueTask.CompletedTask; }
 			""";
 
 		var result = GeneratorTestHelper.RunGenerator(source, includeNodaTime: true);
@@ -281,12 +281,12 @@ public sealed class ImmediateJobsGeneratorTests
 		var owner = """
 			using Immediate.Jobs.Shared; using Immediate.Handlers.Shared; using System.Threading; using System.Threading.Tasks;
 			[Handler, Job, UsesJobContext<AmbientExtractor>] public sealed partial class ContextOwnerJob
-			{ private ValueTask HandleAsync(NoPayload payload, CancellationToken ct) => ValueTask.CompletedTask; }
+			{ private ValueTask HandleAsync(EmptyJobRequest payload, CancellationToken ct) => ValueTask.CompletedTask; }
 			""";
 		var unrelated = """
 			using Immediate.Jobs.Shared; using Immediate.Handlers.Shared; using System.Threading; using System.Threading.Tasks;
 			[Handler, Job] public sealed partial class UnrelatedJob
-			{ private ValueTask HandleAsync(NoPayload payload, CancellationToken ct) => ValueTask.CompletedTask; }
+			{ private ValueTask HandleAsync(EmptyJobRequest payload, CancellationToken ct) => ValueTask.CompletedTask; }
 			""";
 
 		var compilation = GeneratorTestHelper.CreateCompilation(
@@ -344,12 +344,12 @@ public sealed class ImmediateJobsGeneratorTests
 		var owner = """
 			using Immediate.Jobs.Shared; using Immediate.Handlers.Shared; using System.Threading; using System.Threading.Tasks;
 			[Handler, Job, UsesJobContext<ChangingExtractor>] public sealed partial class ExtractorOwnerJob
-			{ private ValueTask HandleAsync(NoPayload payload, CancellationToken ct) => ValueTask.CompletedTask; }
+			{ private ValueTask HandleAsync(EmptyJobRequest payload, CancellationToken ct) => ValueTask.CompletedTask; }
 			""";
 		var unrelated = """
 			using Immediate.Jobs.Shared; using Immediate.Handlers.Shared; using System.Threading; using System.Threading.Tasks;
 			[Handler, Job] public sealed partial class OtherJob
-			{ private ValueTask HandleAsync(NoPayload payload, CancellationToken ct) => ValueTask.CompletedTask; }
+			{ private ValueTask HandleAsync(EmptyJobRequest payload, CancellationToken ct) => ValueTask.CompletedTask; }
 			""";
 
 		var compilation = GeneratorTestHelper.CreateCompilation(

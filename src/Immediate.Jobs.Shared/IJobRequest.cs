@@ -27,7 +27,7 @@ public sealed record JobDetails(
 }
 
 /// <summary>Marker request for jobs whose handler does not otherwise require input.</summary>
-public record struct NoPayload : IJobRequest
+public record struct EmptyJobRequest : IJobRequest
 {
 	/// <inheritdoc />
 	public JobDetails? JobDetails { get; set; }

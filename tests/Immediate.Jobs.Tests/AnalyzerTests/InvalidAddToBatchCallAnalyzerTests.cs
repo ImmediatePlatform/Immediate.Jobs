@@ -16,7 +16,7 @@ public sealed class InvalidAddToBatchCallAnalyzerTests
 			[Handler, Job]
 			public sealed partial class RegularJob
 			{
-				private ValueTask HandleAsync(NoPayload request, CancellationToken ct) => ValueTask.CompletedTask;
+				private ValueTask HandleAsync(EmptyJobRequest request, CancellationToken ct) => ValueTask.CompletedTask;
 			}
 
 			[Handler, Job]
@@ -24,7 +24,7 @@ public sealed class InvalidAddToBatchCallAnalyzerTests
 				RegularJob.Scheduler regularJobScheduler
 			)
 			{
-				private async ValueTask HandleAsync(NoPayload request, CancellationToken ct)
+				private async ValueTask HandleAsync(EmptyJobRequest request, CancellationToken ct)
 				{
 					await regularJobScheduler.AddToBatchAsync(
 						request.JobDetails!,
@@ -48,7 +48,7 @@ public sealed class InvalidAddToBatchCallAnalyzerTests
 			[Handler, Job]
 			public sealed partial class RegularJob
 			{
-				private ValueTask HandleAsync(NoPayload request, CancellationToken ct) => ValueTask.CompletedTask;
+				private ValueTask HandleAsync(EmptyJobRequest request, CancellationToken ct) => ValueTask.CompletedTask;
 			}
 
 			[Handler, Job]
@@ -56,7 +56,7 @@ public sealed class InvalidAddToBatchCallAnalyzerTests
 				RegularJob.Scheduler regularJobScheduler
 			)
 			{
-				private async ValueTask HandleAsync(NoPayload request, CancellationToken ct)
+				private async ValueTask HandleAsync(EmptyJobRequest request, CancellationToken ct)
 				{
 					await regularJobScheduler.AddToBatchAsync(
 						{|IJOB0020:options: ContinuationOptions.Detached|},
@@ -80,7 +80,7 @@ public sealed class InvalidAddToBatchCallAnalyzerTests
 			[Handler, Job]
 			public sealed partial class RegularJob
 			{
-				private ValueTask HandleAsync(NoPayload request, CancellationToken ct) => ValueTask.CompletedTask;
+				private ValueTask HandleAsync(EmptyJobRequest request, CancellationToken ct) => ValueTask.CompletedTask;
 			}
 
 			[Handler, Job]
@@ -88,7 +88,7 @@ public sealed class InvalidAddToBatchCallAnalyzerTests
 				RegularJob.Scheduler regularJobScheduler
 			)
 			{
-				private async ValueTask HandleAsync(NoPayload request, CancellationToken ct)
+				private async ValueTask HandleAsync(EmptyJobRequest request, CancellationToken ct)
 				{
 					await regularJobScheduler.AddToBatchAsync(
 						request.JobDetails!,
@@ -111,7 +111,7 @@ public sealed class InvalidAddToBatchCallAnalyzerTests
 			[Handler, Job]
 			public sealed partial class RegularJob
 			{
-				private ValueTask HandleAsync(NoPayload request, CancellationToken ct) => ValueTask.CompletedTask;
+				private ValueTask HandleAsync(EmptyJobRequest request, CancellationToken ct) => ValueTask.CompletedTask;
 			}
 
 			[Handler, Job]
@@ -119,7 +119,7 @@ public sealed class InvalidAddToBatchCallAnalyzerTests
 				RegularJob.Scheduler regularJobScheduler
 			)
 			{
-				private async ValueTask HandleAsync(NoPayload request, CancellationToken ct)
+				private async ValueTask HandleAsync(EmptyJobRequest request, CancellationToken ct)
 				{
 					await regularJobScheduler.AddToBatchAsync(
 						request.JobDetails!,

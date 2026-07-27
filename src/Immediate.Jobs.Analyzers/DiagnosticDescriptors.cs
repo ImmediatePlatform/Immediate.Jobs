@@ -37,12 +37,6 @@ internal static class DiagnosticDescriptors
 		"Cron job '{0}' cannot declare a payload parameter"
 	);
 
-	public static readonly DiagnosticDescriptor NodaTimePackageRequired = Create(
-		"IJOB007",
-		"NodaTime integration package is required",
-		"Type '{0}' contains NodaTime values; reference Immediate.Jobs.NodaTime to enable generated serialization"
-	);
-
 	public static readonly DiagnosticDescriptor InvalidQueueConfiguration = Create(
 		"IJOB010",
 		"Invalid queue configuration",

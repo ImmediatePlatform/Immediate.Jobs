@@ -16,7 +16,6 @@ public sealed class ImmediateJobsAnalyzer : DiagnosticAnalyzer
 			DiagnosticDescriptors.InvalidMethodSignature,
 			DiagnosticDescriptors.InvalidConfiguration,
 			DiagnosticDescriptors.CronPayload,
-			DiagnosticDescriptors.NodaTimePackageRequired,
 			DiagnosticDescriptors.InvalidQueueConfiguration,
 			DiagnosticDescriptors.InvalidQueueTarget,
 			DiagnosticDescriptors.InvalidContextExtractor,
@@ -54,16 +53,6 @@ public sealed class ImmediateJobsAnalyzer : DiagnosticAnalyzer
 						DiagnosticDescriptors.InvalidContextExtractor,
 						contextLocation,
 						contextUse.ExtractorType.ToDisplayString()
-					));
-					continue;
-				}
-
-				if (PayloadValidation.ContainsNodaTime(contextUse.ContextType) && !hasNodaTimeIntegration)
-				{
-					context.ReportDiagnostic(Diagnostic.Create(
-						DiagnosticDescriptors.NodaTimePackageRequired,
-						contextLocation,
-						contextUse.ContextType.ToDisplayString()
 					));
 					continue;
 				}
@@ -116,15 +105,6 @@ public sealed class ImmediateJobsAnalyzer : DiagnosticAnalyzer
 
 			if (!hasPayload)
 				continue;
-			if (PayloadValidation.ContainsNodaTime(payloadType!) && !hasNodaTimeIntegration)
-			{
-				context.ReportDiagnostic(Diagnostic.Create(
-					DiagnosticDescriptors.NodaTimePackageRequired,
-					methods[0].Parameters[0].Locations.FirstOrDefault() ?? location,
-					payloadType!.ToDisplayString()
-				));
-				continue;
-			}
 
 			var problem = PayloadValidation.FindProblem(payloadType!, context.Compilation);
 			if (problem is not null)

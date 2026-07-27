@@ -7,78 +7,79 @@
 
 partial class WorkJob
 {
-	
-		public sealed class Scheduler(
-			global::Immediate.Jobs.Shared.IJobStorage storage,
-			global::Immediate.Jobs.Shared.IJobSerializer serializer,
-			global::System.TimeProvider timeProvider,
-			global::Immediate.Jobs.Shared.IIdGenerator idGenerator
-		) : global::Immediate.Jobs.Shared.JobScheduler<global::WorkJob.Payload>(storage, serializer, timeProvider, idGenerator, "work", "default", static options => new PayloadJsonContext(options).Payload)
-		{
-			
-	
-			public new global::Immediate.Jobs.Shared.JobHandle AddToBatch(
-				global::Immediate.Jobs.Shared.IJobBatch batch,
-				global::WorkJob.Payload payload,
-				global::System.TimeSpan? delay = null) =>
-				base.AddToBatch(batch, payload, delay);
-	
-			public new global::Immediate.Jobs.Shared.JobHandle AddToBatchAt(
-				global::Immediate.Jobs.Shared.IJobBatch batch,
-				global::WorkJob.Payload payload,
-				global::System.DateTimeOffset runAt) =>
-				base.AddToBatchAt(batch, payload, runAt);
-	
-			public new global::System.Threading.Tasks.ValueTask<global::Immediate.Jobs.Shared.JobHandle> ScheduleAfterAsync(
-				global::Immediate.Jobs.Shared.JobHandle parent,
-				global::WorkJob.Payload payload,
-				global::Immediate.Jobs.Shared.ContinuationTrigger on = global::Immediate.Jobs.Shared.ContinuationTrigger.Success,
-				global::System.TimeSpan? delay = null,
-				global::System.Threading.CancellationToken cancellationToken = default) =>
-				base.ScheduleAfterAsync(parent, payload, on, delay, cancellationToken);
-	
-			public new global::System.Threading.Tasks.ValueTask<global::Immediate.Jobs.Shared.JobHandle> ScheduleAfterAsync(
-				global::System.ReadOnlySpan<global::Immediate.Jobs.Shared.JobHandle> parents,
-				global::WorkJob.Payload payload,
-				global::Immediate.Jobs.Shared.ContinuationTrigger on = global::Immediate.Jobs.Shared.ContinuationTrigger.Success,
-				global::System.TimeSpan? delay = null,
-				global::System.Threading.CancellationToken cancellationToken = default) =>
-				base.ScheduleAfterAsync(parents, payload, on, delay, cancellationToken);
-	
-			public new global::System.Threading.Tasks.ValueTask<global::Immediate.Jobs.Shared.JobHandle> ScheduleAfterAsync(
-				global::Immediate.Jobs.Shared.BatchHandle parent,
-				global::WorkJob.Payload payload,
-				global::Immediate.Jobs.Shared.ContinuationTrigger on = global::Immediate.Jobs.Shared.ContinuationTrigger.Success,
-				global::System.TimeSpan? delay = null,
-				global::System.Threading.CancellationToken cancellationToken = default) =>
-				base.ScheduleAfterAsync(parent, payload, on, delay, cancellationToken);
-	
-			public new global::Immediate.Jobs.Shared.JobHandle ScheduleAfter(
-				global::Immediate.Jobs.Shared.JobDetails current,
-				global::WorkJob.Payload payload,
-				global::Immediate.Jobs.Shared.ContinuationOptions options = global::Immediate.Jobs.Shared.ContinuationOptions.BeforeContinuations) =>
-				base.ScheduleAfter(current, payload, options);
-	
-			public new global::System.Threading.Tasks.ValueTask<global::Immediate.Jobs.Shared.JobHandle> AddToBatchAsync(
-				global::Immediate.Jobs.Shared.JobDetails current,
-				global::WorkJob.Payload payload,
-				global::Immediate.Jobs.Shared.ContinuationOptions options = global::Immediate.Jobs.Shared.ContinuationOptions.BeforeContinuations,
-				global::System.Threading.CancellationToken cancellationToken = default) =>
-				base.AddToBatchAsync(current, payload, options, cancellationToken);
-		}
-		
+	public sealed class Scheduler(
+		global::Immediate.Jobs.Shared.IJobStorage storage,
+		global::Immediate.Jobs.Shared.IJobSerializer serializer,
+		global::System.TimeProvider timeProvider,
+		global::Immediate.Jobs.Shared.IIdGenerator idGenerator
+	) : global::Immediate.Jobs.Shared.JobScheduler<global::WorkJob.Payload>(
+		storage,
+		serializer,
+		timeProvider,
+		idGenerator,
+		"work",
+		"default",
+		static options => new PayloadJsonContext(options).Payload
+	)
+	{
+		public new global::Immediate.Jobs.Shared.JobHandle AddToBatch(
+			global::Immediate.Jobs.Shared.IJobBatch batch,
+			global::WorkJob.Payload payload,
+			global::System.TimeSpan? delay = null) =>
+			base.AddToBatch(batch, payload, delay);
+
+		public new global::Immediate.Jobs.Shared.JobHandle AddToBatchAt(
+			global::Immediate.Jobs.Shared.IJobBatch batch,
+			global::WorkJob.Payload payload,
+			global::System.DateTimeOffset runAt) =>
+			base.AddToBatchAt(batch, payload, runAt);
+
+		public new global::System.Threading.Tasks.ValueTask<global::Immediate.Jobs.Shared.JobHandle> ScheduleAfterAsync(
+			global::Immediate.Jobs.Shared.JobHandle parent,
+			global::WorkJob.Payload payload,
+			global::Immediate.Jobs.Shared.ContinuationTrigger on = global::Immediate.Jobs.Shared.ContinuationTrigger.Success,
+			global::System.TimeSpan? delay = null,
+			global::System.Threading.CancellationToken cancellationToken = default) =>
+			base.ScheduleAfterAsync(parent, payload, on, delay, cancellationToken);
+
+		public new global::System.Threading.Tasks.ValueTask<global::Immediate.Jobs.Shared.JobHandle> ScheduleAfterAsync(
+			global::System.ReadOnlySpan<global::Immediate.Jobs.Shared.JobHandle> parents,
+			global::WorkJob.Payload payload,
+			global::Immediate.Jobs.Shared.ContinuationTrigger on = global::Immediate.Jobs.Shared.ContinuationTrigger.Success,
+			global::System.TimeSpan? delay = null,
+			global::System.Threading.CancellationToken cancellationToken = default) =>
+			base.ScheduleAfterAsync(parents, payload, on, delay, cancellationToken);
+
+		public new global::System.Threading.Tasks.ValueTask<global::Immediate.Jobs.Shared.JobHandle> ScheduleAfterAsync(
+			global::Immediate.Jobs.Shared.BatchHandle parent,
+			global::WorkJob.Payload payload,
+			global::Immediate.Jobs.Shared.ContinuationTrigger on = global::Immediate.Jobs.Shared.ContinuationTrigger.Success,
+			global::System.TimeSpan? delay = null,
+			global::System.Threading.CancellationToken cancellationToken = default) =>
+			base.ScheduleAfterAsync(parent, payload, on, delay, cancellationToken);
+
+		public new global::Immediate.Jobs.Shared.JobHandle ScheduleAfter(
+			global::Immediate.Jobs.Shared.JobDetails current,
+			global::WorkJob.Payload payload,
+			global::Immediate.Jobs.Shared.ContinuationOptions options = global::Immediate.Jobs.Shared.ContinuationOptions.BeforeContinuations) =>
+			base.ScheduleAfter(current, payload, options);
+
+		public new global::System.Threading.Tasks.ValueTask<global::Immediate.Jobs.Shared.JobHandle> AddToBatchAsync(
+			global::Immediate.Jobs.Shared.JobDetails current,
+			global::WorkJob.Payload payload,
+			global::Immediate.Jobs.Shared.ContinuationOptions options = global::Immediate.Jobs.Shared.ContinuationOptions.BeforeContinuations,
+			global::System.Threading.CancellationToken cancellationToken = default) =>
+			base.AddToBatchAsync(current, payload, options, cancellationToken);
+	}
 
 	[global::System.ComponentModel.EditorBrowsable(global::System.ComponentModel.EditorBrowsableState.Never)]
-	
-		internal sealed class Invoker(global::Immediate.Jobs.Shared.IJobSerializer serializer) : global::Immediate.Jobs.Shared.IJobInvoker
-		
+	internal sealed class Invoker(global::Immediate.Jobs.Shared.IJobSerializer serializer) : global::Immediate.Jobs.Shared.IJobInvoker
 	{
 		public async global::System.Threading.Tasks.ValueTask InvokeAsync(global::System.IServiceProvider scopedServices, global::Immediate.Jobs.Shared.JobExecution execution)
 		{
-			
-			
-						var payload = serializer.Deserialize(execution.Record.Payload, static options => new PayloadJsonContext(options).Payload);
-						
+
+			var payload = serializer.Deserialize(execution.Record.Payload, static options => new PayloadJsonContext(options).Payload);
+
 			SetJobDetails(
 				ref payload,
 				new global::Immediate.Jobs.Shared.JobDetails(
@@ -115,10 +116,8 @@ partial class WorkJob
 		},
 		Invoker = global::Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetRequiredService<Invoker>(services),
 		JobType = typeof(global::WorkJob),
-		
 		TimeZone = "UTC",
 		MaxAttempts = 3,
-		
 		MaxConcurrency = 0,
 		OverlapPolicy = global::Immediate.Jobs.Shared.OverlapPolicy.Skip,
 		Backoff = global::Immediate.Jobs.Shared.BackoffStrategy.ExponentialJitter,
@@ -136,66 +135,54 @@ partial class WorkJob
 
 		global::System.Text.Json.Serialization.Metadata.JsonTypeInfo? global::System.Text.Json.Serialization.Metadata.IJsonTypeInfoResolver.GetTypeInfo(global::System.Type type, global::System.Text.Json.JsonSerializerOptions options)
 		{
-			
-						if (type == typeof(global::WorkJob.Payload)) return CreateTypeInfo0(options);
-						
-						if (type == typeof(string)) return CreateTypeInfo1(options);
-						
+			if (type == typeof(global::WorkJob.Payload))
+				return CreateTypeInfo0(options);
+
+			if (type == typeof(string))
+				return CreateTypeInfo1(options);
+
 			return null;
 		}
 
-		public global::System.Text.Json.Serialization.Metadata.JsonTypeInfo<global::WorkJob.Payload> Payload => (global::System.Text.Json.Serialization.Metadata.JsonTypeInfo<global::WorkJob.Payload>)GetTypeInfo(typeof(global::WorkJob.Payload))!;
-		
-		
-		
-				private global::System.Text.Json.Serialization.Metadata.JsonTypeInfo<global::WorkJob.Payload> CreateTypeInfo0(global::System.Text.Json.JsonSerializerOptions options)
+		public global::System.Text.Json.Serialization.Metadata.JsonTypeInfo<global::WorkJob.Payload> Payload =>
+			(global::System.Text.Json.Serialization.Metadata.JsonTypeInfo<global::WorkJob.Payload>)GetTypeInfo(
+				typeof(global::WorkJob.Payload)
+			)!;
+
+		private global::System.Text.Json.Serialization.Metadata.JsonTypeInfo<global::WorkJob.Payload> CreateTypeInfo0(global::System.Text.Json.JsonSerializerOptions options)
+		{
+			var objectInfo = new global::System.Text.Json.Serialization.Metadata.JsonObjectInfoValues<global::WorkJob.Payload>
+			{
+				ObjectWithParameterizedConstructorCreator = static args => new global::WorkJob.Payload((string)args[0]),
+				ConstructorParameterMetadataInitializer = static () => new global::System.Text.Json.Serialization.Metadata.JsonParameterInfoValues[]
 				{
-					
-						var objectInfo = new global::System.Text.Json.Serialization.Metadata.JsonObjectInfoValues<global::WorkJob.Payload>
-						{
-							
-								ObjectWithParameterizedConstructorCreator = static args => new global::WorkJob.Payload((string)args[0]),
-								ConstructorParameterMetadataInitializer = static () => new global::System.Text.Json.Serialization.Metadata.JsonParameterInfoValues[]
-								{
-									
-										new() { Name = "Value", ParameterType = typeof(string), Position = 0, HasDefaultValue = false, DefaultValue = default(string) },
-										
-								},
-								
-							PropertyMetadataInitializer = _ => new global::System.Text.Json.Serialization.Metadata.JsonPropertyInfo[]
-							{
-								
-										global::System.Text.Json.Serialization.Metadata.JsonMetadataServices.CreatePropertyInfo<string>(options, new()
-										{
-											IsProperty = true,
-											IsPublic = true,
-											DeclaringType = typeof(global::WorkJob.Payload),
-											PropertyTypeInfo = (global::System.Text.Json.Serialization.Metadata.JsonTypeInfo<string>)options.GetTypeInfo(typeof(string)),
-											Getter = static obj => ((global::WorkJob.Payload)obj).Value,
-											
-												Setter = static (obj, value) => throw new global::System.InvalidOperationException("Setting constructor-bound properties is not supported."),
-												
-											PropertyName = "Value",
-										}),
-										
-							},
-						};
-						var info = global::System.Text.Json.Serialization.Metadata.JsonMetadataServices.CreateObjectInfo<global::WorkJob.Payload>(options, objectInfo);
-						
-					info.OriginatingResolver = this;
-					return info;
-				}
-				
-		
-				private global::System.Text.Json.Serialization.Metadata.JsonTypeInfo<string> CreateTypeInfo1(global::System.Text.Json.JsonSerializerOptions options)
+					new() { Name = "Value", ParameterType = typeof(string), Position = 0, HasDefaultValue = false, DefaultValue = default(string) },
+				},
+				PropertyMetadataInitializer = _ => new global::System.Text.Json.Serialization.Metadata.JsonPropertyInfo[]
 				{
-					
-						var info = global::System.Text.Json.Serialization.Metadata.JsonMetadataServices.CreateValueInfo<string>(options, global::System.Text.Json.Serialization.Metadata.JsonMetadataServices.StringConverter);
-						
-					info.OriginatingResolver = this;
-					return info;
-				}
-				
+					global::System.Text.Json.Serialization.Metadata.JsonMetadataServices.CreatePropertyInfo<string>(options, new()
+					{
+						IsProperty = true,
+						IsPublic = true,
+						DeclaringType = typeof(global::WorkJob.Payload),
+						PropertyTypeInfo = (global::System.Text.Json.Serialization.Metadata.JsonTypeInfo<string>)options.GetTypeInfo(typeof(string)),
+						Getter = static obj => ((global::WorkJob.Payload)obj).Value,
+						Setter = static (obj, value) => throw new global::System.InvalidOperationException("Setting constructor-bound properties is not supported."),
+						PropertyName = "Value",
+					}),
+				},
+			};
+			var info = global::System.Text.Json.Serialization.Metadata.JsonMetadataServices.CreateObjectInfo<global::WorkJob.Payload>(options, objectInfo);
+			info.OriginatingResolver = this;
+			return info;
+		}
+
+		private global::System.Text.Json.Serialization.Metadata.JsonTypeInfo<string> CreateTypeInfo1(global::System.Text.Json.JsonSerializerOptions options)
+		{
+			var info = global::System.Text.Json.Serialization.Metadata.JsonMetadataServices.CreateValueInfo<string>(options, global::System.Text.Json.Serialization.Metadata.JsonMetadataServices.StringConverter);
+			info.OriginatingResolver = this;
+			return info;
+		}
 	}
 
 

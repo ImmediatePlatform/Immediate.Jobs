@@ -320,7 +320,7 @@ dotnet_diagnostic.MA0053.severity = warning
 
 dotnet_diagnostic.RS1041.severity = none                # RS1041: Compiler extensions should be implemented in assemblies targeting netstandard2.0
 
-[src/Immediate.Jobs.Shared/**.cs]
+[src/Immediate.Jobs.{Shared,Dashboard,EntityFrameworkCore,LinqToDB,NodaTime,Redis,Testing}/**.cs]
 
 # XML Documentation
 dotnet_diagnostic.CS0105.severity = error               # CS0105: Using directive is unnecessary.

@@ -3,7 +3,7 @@ using Immediate.Jobs.Shared;
 
 namespace Immediate.Jobs.Aspire.Api.Jobs;
 
-[Handler, Job("fair-queue-demo")]
+[Handler, Job(Name = "fair-queue-demo")]
 public sealed partial class FairQueueDemoJob(ILogger<FairQueueDemoJob> logger)
 {
 	public sealed record Payload(Guid RunId, int Sequence, string Kind);

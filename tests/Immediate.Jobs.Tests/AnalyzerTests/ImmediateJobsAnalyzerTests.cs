@@ -16,7 +16,7 @@ public sealed class ImmediateJobsAnalyzerTests
 			[Handler, Job(Cron = "not cron")]
 			public sealed partial class BadCronJob
 			{
-				private ValueTask HandleAsync(NoPayload request, CancellationToken ct) => ValueTask.CompletedTask;
+				private ValueTask HandleAsync(EmptyJobRequest request, CancellationToken ct) => ValueTask.CompletedTask;
 			}
 			""",
 			"IJOB001"
@@ -87,34 +87,6 @@ public sealed class ImmediateJobsAnalyzerTests
 		);
 
 	[Fact]
-	public async Task AnalyzerTriggersForNodaTimePayloadWithoutIntegrationPackage() =>
-		await AssertDiagnostic(
-			"""
-			using Immediate.Jobs.Shared;
-			using Immediate.Handlers.Shared;
-			using System.Threading;
-			using System.Threading.Tasks;
-
-			namespace NodaTime
-			{
-				public readonly struct Instant;
-			}
-
-			public sealed record Payload(NodaTime.Instant Value) : IJobRequest
-			{
-				public JobDetails? JobDetails { get; set; }
-			}
-
-			[Handler, Job]
-			public sealed partial class NodaJob
-			{
-				private ValueTask HandleAsync(Payload payload, CancellationToken ct) => ValueTask.CompletedTask;
-			}
-			""",
-			"IJOB007"
-		);
-
-	[Fact]
 	public async Task AnalyzerTriggersForInvalidJobConfiguration() =>
 		await AssertDiagnostic(
 			"""
@@ -126,7 +98,7 @@ public sealed class ImmediateJobsAnalyzerTests
 			[Handler, Job(MaxAttempts = 0)]
 			public sealed partial class InvalidConfigurationJob
 			{
-				private ValueTask HandleAsync(NoPayload request, CancellationToken ct) => ValueTask.CompletedTask;
+				private ValueTask HandleAsync(EmptyJobRequest request, CancellationToken ct) => ValueTask.CompletedTask;
 			}
 			""",
 			"IJOB008"
@@ -158,7 +130,7 @@ public sealed class ImmediateJobsAnalyzerTests
 			[Handler, Job, UsesQueue<MissingDefinition>]
 			public sealed partial class InvalidQueueJob
 			{
-				private ValueTask HandleAsync(NoPayload request, CancellationToken ct) => ValueTask.CompletedTask;
+				private ValueTask HandleAsync(EmptyJobRequest request, CancellationToken ct) => ValueTask.CompletedTask;
 			}
 			""",
 			"IJOB011"
@@ -201,7 +173,7 @@ public sealed class ImmediateJobsAnalyzerTests
 			[Handler, Job, UsesJobContext<BadExtractor>]
 			public sealed partial class ContextJob
 			{
-				private ValueTask HandleAsync(NoPayload payload, CancellationToken ct) => ValueTask.CompletedTask;
+				private ValueTask HandleAsync(EmptyJobRequest payload, CancellationToken ct) => ValueTask.CompletedTask;
 			}
 			""",
 			"IJOB013"
@@ -229,42 +201,10 @@ public sealed class ImmediateJobsAnalyzerTests
 			[Handler, Job, UsesJobContext<BadExtractor>]
 			public sealed partial class ContextJob
 			{
-				private ValueTask HandleAsync(NoPayload payload, CancellationToken ct) => ValueTask.CompletedTask;
+				private ValueTask HandleAsync(EmptyJobRequest payload, CancellationToken ct) => ValueTask.CompletedTask;
 			}
 			""",
 			"IJOB014"
-		);
-
-	[Fact]
-	public async Task AnalyzerTriggersForNodaTimeContextWithoutIntegrationPackage() =>
-		await AssertDiagnostic(
-			"""
-			using Immediate.Jobs.Shared;
-			using Immediate.Handlers.Shared;
-			using System.Threading;
-			using System.Threading.Tasks;
-
-			namespace NodaTime
-			{
-				public readonly struct Instant;
-			}
-
-			public sealed record BadContext(NodaTime.Instant Value);
-
-			public sealed class BadExtractor : IJobContextExtractor<BadContext>
-			{
-				public string Key => "bad";
-				public BadContext? Capture() => null;
-				public void Restore(BadContext context) { }
-			}
-
-			[Handler, Job, UsesJobContext<BadExtractor>]
-			public sealed partial class ContextJob
-			{
-				private ValueTask HandleAsync(NoPayload payload, CancellationToken ct) => ValueTask.CompletedTask;
-			}
-			""",
-			"IJOB007"
 		);
 
 	[Fact]
@@ -288,7 +228,7 @@ public sealed class ImmediateJobsAnalyzerTests
 			[Handler, Job, UsesJobContext<ValidExtractor>]
 			public sealed partial class ContextJob
 			{
-				private ValueTask HandleAsync(NoPayload payload, CancellationToken ct) => ValueTask.CompletedTask;
+				private ValueTask HandleAsync(EmptyJobRequest payload, CancellationToken ct) => ValueTask.CompletedTask;
 			}
 			""";
 

@@ -216,7 +216,7 @@ public sealed class JobCountingBehavior<TRequest, TResponse>(ExecutionState stat
 [QueueDefinition(Name = "messages", Priority = 10, Concurrency = 1)]
 public sealed class MessagesLane;
 
-[Handler, Job("record-message"), UsesQueue<MessagesLane>]
+[Handler, Job(Name = "record-message"), UsesQueue<MessagesLane>]
 public sealed partial class RecordMessageJob(ExecutionState state)
 {
 	public sealed record Payload(string Message) : IJobRequest
@@ -232,7 +232,7 @@ public sealed partial class RecordMessageJob(ExecutionState state)
 	}
 }
 
-[Handler, Job("retry-once", MaxAttempts = 2, Backoff = BackoffStrategy.Fixed, BackoffBase = "00:00:01")]
+[Handler, Job(Name = "retry-once", MaxAttempts = 2, Backoff = BackoffStrategy.Fixed, BackoffBase = "00:00:01")]
 public sealed partial class RetryOnceJob(ExecutionState state)
 {
 	public sealed record Payload(int Value) : IJobRequest
@@ -250,7 +250,7 @@ public sealed partial class RetryOnceJob(ExecutionState state)
 	}
 }
 
-[Handler, Job("value-type")]
+[Handler, Job(Name = "value-type")]
 public sealed partial class ValueTypeJob(ExecutionState state)
 {
 	public record struct Request(int Value) : IJobRequest
@@ -267,7 +267,7 @@ public sealed partial class ValueTypeJob(ExecutionState state)
 	}
 }
 
-[Handler, Job("plain-request")]
+[Handler, Job(Name = "plain-request")]
 public sealed partial class PlainRequestJob(ExecutionState state)
 {
 	public sealed record Payload(string Message);

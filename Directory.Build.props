@@ -36,6 +36,15 @@
 	<MeziantouPolyfill_IncludedPolyfills>$(Polyfill)</MeziantouPolyfill_IncludedPolyfills>
   </PropertyGroup>
 
+  <PropertyGroup Label="Nuget">
+	<Authors>Immediate.Jobs Developers</Authors>
+	<Copyright>© 2026 Immediate.Jobs Developers</Copyright>
+	<PackageLicenseExpression>MIT</PackageLicenseExpression>
+	<PackageReadmeFile>readme.md</PackageReadmeFile>
+	<RepositoryUrl>https://github.com/ImmediatePlatform/Immediate.Jobs</RepositoryUrl>
+	<PublishRepositoryUrl>true</PublishRepositoryUrl>
+  </PropertyGroup>
+
   <PropertyGroup Label="MinVer">
 	<MinVerAutoIncrement>minor</MinVerAutoIncrement>
 	<MinVerDefaultPreReleaseIdentifiers>preview</MinVerDefaultPreReleaseIdentifiers>

@@ -51,7 +51,7 @@ public sealed class AddJobsTests
 			[Handler(Tags = ["critical"]), Job, UsesQueue<CriticalQueue>, UsesJobContext<WorkContextExtractor>]
 			public sealed partial class WorkJob
 			{
-				private ValueTask HandleAsync(NoPayload payload, CancellationToken cancellationToken) => ValueTask.CompletedTask;
+				private ValueTask HandleAsync(EmptyJobRequest payload, CancellationToken cancellationToken) => ValueTask.CompletedTask;
 			}
 			"""
 		);

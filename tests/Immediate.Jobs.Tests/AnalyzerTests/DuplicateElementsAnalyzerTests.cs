@@ -15,16 +15,16 @@ public sealed class DuplicateElementsAnalyzerTests
 			
 			namespace Dummy;
 			
-			[Handler, Job(name: "my-name")]
+			[Handler, Job(Name = "my-name")]
 			public sealed partial class {|IJOB0002:JobOne|}
 			{
-				private async ValueTask Handle(NoPayload _, CancellationToken token) { }
+				private async ValueTask Handle(EmptyJobRequest _, CancellationToken token) { }
 			}
 			
-			[Handler, Job(name: "my-name")]
+			[Handler, Job(Name = "my-name")]
 			public sealed partial class {|IJOB0002:JobTwo|}
 			{
-				private async ValueTask Handle(NoPayload _, CancellationToken token) { }
+				private async ValueTask Handle(EmptyJobRequest _, CancellationToken token) { }
 			}
 			"""
 		).RunAsync(TestContext.Current.CancellationToken);
@@ -40,16 +40,16 @@ public sealed class DuplicateElementsAnalyzerTests
 			
 			namespace Dummy;
 			
-			[Handler, Job(name: "my-name")]
+			[Handler, Job(Name = "my-name")]
 			public sealed partial class {|IJOB0002:JobOne|}
 			{
-				private async ValueTask Handle(NoPayload _, CancellationToken token) { }
+				private async ValueTask Handle(EmptyJobRequest _, CancellationToken token) { }
 			}
 			
 			[Handler, Job]
 			public sealed partial class {|IJOB0002:MyNameJob|}
 			{
-				private async ValueTask Handle(NoPayload _, CancellationToken token) { }
+				private async ValueTask Handle(EmptyJobRequest _, CancellationToken token) { }
 			}
 			"""
 		).RunAsync(TestContext.Current.CancellationToken);
@@ -68,13 +68,13 @@ public sealed class DuplicateElementsAnalyzerTests
 			[Handler, Job]
 			public sealed partial class JobOne
 			{
-				private async ValueTask Handle(NoPayload _, CancellationToken token) { }
+				private async ValueTask Handle(EmptyJobRequest _, CancellationToken token) { }
 			}
 			
 			[Handler, Job]
 			public sealed partial class JobTwo
 			{
-				private async ValueTask Handle(NoPayload _, CancellationToken token) { }
+				private async ValueTask Handle(EmptyJobRequest _, CancellationToken token) { }
 			}
 			"""
 		).RunAsync(TestContext.Current.CancellationToken);

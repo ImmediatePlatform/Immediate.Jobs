@@ -9,24 +9,37 @@ namespace {{ namespace }};
 {{ end }}
 partial class {{ class_name }}
 {
-	{{ if has_payload }}
 	[global::System.CodeDom.Compiler.GeneratedCodeAttribute("Immediate.Jobs", "{{ version }}")]
 	public sealed class Scheduler(
 		global::Immediate.Jobs.Shared.IJobStorage storage,
 		global::Immediate.Jobs.Shared.IJobSerializer serializer,
 		global::System.TimeProvider timeProvider,
-		global::Immediate.Jobs.Shared.IIdGenerator idGenerator{{ for context in contexts }},
-		{{ context.extractor_type_name }} contextExtractor{{ context.index }}{{ end }}
-	) : global::Immediate.Jobs.Shared.JobScheduler<{{ payload_type_name }}>(storage, serializer, timeProvider, idGenerator, {{ job_name_literal }}, {{ queue_name_literal }}, static options => new PayloadJsonContext(options).Payload)
+		global::Immediate.Jobs.Shared.IIdGenerator idGenerator
+		{{~ for context in contexts ~}}
+		, {{ context.extractor_type_name }} contextExtractor{{ context.index }}
+		{{~ end ~}}
+	) : global::Immediate.Jobs.Shared.JobScheduler<{{ payload_type_name }}>(
+		storage,
+		serializer,
+		timeProvider,
+		idGenerator,
+		{{ job_name_literal }},
+		{{ queue_name_literal }},
+		static options => new PayloadJsonContext(options).Payload
+	)
+		{{~ if !has_payload ~}}
+		, global::Immediate.Jobs.Shared.{{ recurring_scheduler_interface }}
+		{{~ end ~}}
 	{
-		{{ if contexts.size > 0 }}
+		{{~ if contexts.size > 0 ~}}
 		protected override string? CaptureContext()
 		{
 			var keys = new global::System.Collections.Generic.HashSet<string>(global::System.StringComparer.Ordinal);
 			var slices = new global::System.Collections.Generic.Dictionary<string, string>(global::System.StringComparer.Ordinal);
-			{{ for context in contexts }}
+			{{~ for context in contexts ~}}
 			if (!keys.Add(contextExtractor{{ context.index }}.Key))
 				throw new global::Immediate.Jobs.Shared.ImmediateJobException($"Multiple job context extractors use the key '{contextExtractor{{ context.index }}.Key}'.");
+
 			var context{{ context.index }} = contextExtractor{{ context.index }}.Capture();
 			if (context{{ context.index }} is not null)
 			{
@@ -36,11 +49,11 @@ partial class {{ class_name }}
 					Serializer.Serialize(context{{ context.index }}, static options => new PayloadJsonContext(options).{{ context.json_property_name }})
 				);
 			}
-			{{ end }}
+			{{~ end ~}}
 			return global::Immediate.Jobs.Shared.JobContextEnvelope.Create(slices);
 		}
-		{{ end }}
 
+		{{~ end ~}}
 		public new global::Immediate.Jobs.Shared.JobHandle AddToBatch(
 			global::Immediate.Jobs.Shared.IJobBatch batch,
 			{{ payload_type_name }} payload,
@@ -89,113 +102,32 @@ partial class {{ class_name }}
 			global::Immediate.Jobs.Shared.ContinuationOptions options = global::Immediate.Jobs.Shared.ContinuationOptions.BeforeContinuations,
 			global::System.Threading.CancellationToken cancellationToken = default) =>
 			base.AddToBatchAsync(current, payload, options, cancellationToken);
-	}
-	{{ else }}
-	[global::System.CodeDom.Compiler.GeneratedCodeAttribute("Immediate.Jobs", "{{ version }}")]
-	public sealed class Scheduler(
-		global::Immediate.Jobs.Shared.IJobStorage storage,
-		global::Immediate.Jobs.Shared.IJobSerializer serializer,
-		global::System.TimeProvider timeProvider,
-		global::Immediate.Jobs.Shared.IIdGenerator idGenerator{{ for context in contexts }},
-		{{ context.extractor_type_name }} contextExtractor{{ context.index }}{{ end }}
-	) : global::Immediate.Jobs.Shared.JobScheduler<global::Immediate.Jobs.Shared.NoPayload>(
-		storage, serializer, timeProvider, idGenerator, {{ job_name_literal }}, {{ queue_name_literal }}, static options => new PayloadJsonContext(options).Payload),
-		global::Immediate.Jobs.Shared.{{ recurring_scheduler_interface }}
-	{
-		{{ if contexts.size > 0 }}
-		protected override string? CaptureContext()
-		{
-			var keys = new global::System.Collections.Generic.HashSet<string>(global::System.StringComparer.Ordinal);
-			var slices = new global::System.Collections.Generic.Dictionary<string, string>(global::System.StringComparer.Ordinal);
-			{{ for context in contexts }}
-			if (!keys.Add(contextExtractor{{ context.index }}.Key))
-				throw new global::Immediate.Jobs.Shared.ImmediateJobException($"Multiple job context extractors use the key '{contextExtractor{{ context.index }}.Key}'.");
-			var context{{ context.index }} = contextExtractor{{ context.index }}.Capture();
-			if (context{{ context.index }} is not null)
-			{
-				global::Immediate.Jobs.Shared.JobContextEnvelope.AddSlice(
-					slices,
-					contextExtractor{{ context.index }}.Key,
-					Serializer.Serialize(context{{ context.index }}, static options => new PayloadJsonContext(options).{{ context.json_property_name }})
-				);
-			}
-			{{ end }}
-			return global::Immediate.Jobs.Shared.JobContextEnvelope.Create(slices);
-		}
-
-		{{ end }}
-		public new global::Immediate.Jobs.Shared.JobHandle AddToBatch(
-			global::Immediate.Jobs.Shared.IJobBatch batch,
-			global::Immediate.Jobs.Shared.NoPayload payload,
-			global::System.TimeSpan? delay = null) =>
-			base.AddToBatch(batch, payload, delay);
-
-		public new global::Immediate.Jobs.Shared.JobHandle AddToBatchAt(
-			global::Immediate.Jobs.Shared.IJobBatch batch,
-			global::Immediate.Jobs.Shared.NoPayload payload,
-			global::System.DateTimeOffset runAt) =>
-			base.AddToBatchAt(batch, payload, runAt);
-
-		public new global::System.Threading.Tasks.ValueTask<global::Immediate.Jobs.Shared.JobHandle> ScheduleAfterAsync(
-			global::Immediate.Jobs.Shared.JobHandle parent,
-			global::Immediate.Jobs.Shared.NoPayload payload,
-			global::Immediate.Jobs.Shared.ContinuationTrigger on = global::Immediate.Jobs.Shared.ContinuationTrigger.Success,
-			global::System.TimeSpan? delay = null,
-			global::System.Threading.CancellationToken cancellationToken = default) =>
-			base.ScheduleAfterAsync(parent, payload, on, delay, cancellationToken);
-
-		public new global::System.Threading.Tasks.ValueTask<global::Immediate.Jobs.Shared.JobHandle> ScheduleAfterAsync(
-			global::System.ReadOnlySpan<global::Immediate.Jobs.Shared.JobHandle> parents,
-			global::Immediate.Jobs.Shared.NoPayload payload,
-			global::Immediate.Jobs.Shared.ContinuationTrigger on = global::Immediate.Jobs.Shared.ContinuationTrigger.Success,
-			global::System.TimeSpan? delay = null,
-			global::System.Threading.CancellationToken cancellationToken = default) =>
-			base.ScheduleAfterAsync(parents, payload, on, delay, cancellationToken);
-
-		public new global::System.Threading.Tasks.ValueTask<global::Immediate.Jobs.Shared.JobHandle> ScheduleAfterAsync(
-			global::Immediate.Jobs.Shared.BatchHandle parent,
-			global::Immediate.Jobs.Shared.NoPayload payload,
-			global::Immediate.Jobs.Shared.ContinuationTrigger on = global::Immediate.Jobs.Shared.ContinuationTrigger.Success,
-			global::System.TimeSpan? delay = null,
-			global::System.Threading.CancellationToken cancellationToken = default) =>
-			base.ScheduleAfterAsync(parent, payload, on, delay, cancellationToken);
-
-		public new global::Immediate.Jobs.Shared.JobHandle ScheduleAfter(
-			global::Immediate.Jobs.Shared.JobDetails current,
-			global::Immediate.Jobs.Shared.NoPayload payload,
-			global::Immediate.Jobs.Shared.ContinuationOptions options = global::Immediate.Jobs.Shared.ContinuationOptions.BeforeContinuations) =>
-			base.ScheduleAfter(current, payload, options);
-
-		public new global::System.Threading.Tasks.ValueTask<global::Immediate.Jobs.Shared.JobHandle> AddToBatchAsync(
-			global::Immediate.Jobs.Shared.JobDetails current,
-			global::Immediate.Jobs.Shared.NoPayload payload,
-			global::Immediate.Jobs.Shared.ContinuationOptions options = global::Immediate.Jobs.Shared.ContinuationOptions.BeforeContinuations,
-			global::System.Threading.CancellationToken cancellationToken = default) =>
-			base.AddToBatchAsync(current, payload, options, cancellationToken);
+		{{~ if !has_payload ~}}
 
 		public global::System.Threading.Tasks.ValueTask<global::Immediate.Jobs.Shared.JobHandle> TriggerNowAsync(global::System.Threading.CancellationToken cancellationToken = default) =>
 			EnqueueAsync(default, cancellationToken);
-	{{ if cron_literal == null }}
+		{{~ if cron_literal == null ~}}
+
 		public global::System.Threading.Tasks.ValueTask AddOrUpdateRecurringAsync(string name, string cron, string timeZone = "UTC", global::System.Threading.CancellationToken cancellationToken = default) =>
 			AddOrUpdateRecurringCoreAsync(name, cron, timeZone, cancellationToken);
 
 		public global::System.Threading.Tasks.ValueTask RemoveRecurringAsync(string name, global::System.Threading.CancellationToken cancellationToken = default) =>
 			RemoveRecurringCoreAsync(name, cancellationToken);
-	{{ end -}}
+		{{~ end ~}}
+		{{~ end ~}}
 	}
-	{{ end }}
 
 	[global::System.CodeDom.Compiler.GeneratedCodeAttribute("Immediate.Jobs", "{{ version }}")]
 	[global::System.ComponentModel.EditorBrowsable(global::System.ComponentModel.EditorBrowsableState.Never)]
-	{{ if has_payload || contexts.size > 0 }}
+	{{~ if has_payload || contexts.size > 0 ~}}
 	internal sealed class Invoker(global::Immediate.Jobs.Shared.IJobSerializer serializer) : global::Immediate.Jobs.Shared.IJobInvoker{{ if contexts.size > 0 }}, global::Immediate.Jobs.Shared.IJobContextAwareInvoker{{ end }}
-	{{ else }}
+	{{~ else ~}}
 	internal sealed class Invoker : global::Immediate.Jobs.Shared.IJobInvoker{{ if contexts.size > 0 }}, global::Immediate.Jobs.Shared.IJobContextAwareInvoker{{ end }}
-	{{ end }}
+	{{~ end ~}}
 	{
 		public async global::System.Threading.Tasks.ValueTask InvokeAsync(global::System.IServiceProvider scopedServices, global::Immediate.Jobs.Shared.JobExecution execution)
 		{
-			{{ if contexts.size > 0 }}
+			{{~ if contexts.size > 0 ~}}
 			if (execution.Record.Context is { } envelope)
 			{
 				var contextSlices = global::Immediate.Jobs.Shared.JobContextEnvelope.Read(envelope);
@@ -209,14 +141,15 @@ partial class {{ class_name }}
 				{{ end }}
 				global::Immediate.Jobs.Shared.JobContextEnvelope.LogOrphanedSlices(scopedServices, execution.Record, contextSlices.Keys);
 			}
-			{{ end }}
-			{{ if has_payload }}
-			var payload = serializer.Deserialize(execution.Record.Payload, static options => new PayloadJsonContext(options).Payload);
-			{{ else }}
-			var payload = new global::Immediate.Jobs.Shared.NoPayload();
-			{{ end }}
+			{{~ end ~}}
 
-			{{- if has_job_details }}
+			{{~ if has_payload ~}}
+			var payload = serializer.Deserialize(execution.Record.Payload, static options => new PayloadJsonContext(options).Payload);
+			{{~ else ~}}
+			var payload = new global::Immediate.Jobs.Shared.EmptyJobRequest();
+			{{~ end ~}}
+			{{~ if has_job_details ~}}
+
 			SetJobDetails(
 				ref payload,
 				new global::Immediate.Jobs.Shared.JobDetails(
@@ -229,20 +162,19 @@ partial class {{ class_name }}
 					execution.Record.BatchId
 				) { Buffer = execution.Buffer }
 			);
-			{{- end }}
+			{{~ end ~}}
 
 			var handler = global::Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetRequiredService<{{ type_name }}.Handler>(scopedServices);
 			_ = await handler.HandleAsync(payload, execution.CancellationToken).ConfigureAwait(false);
 		}
-
-		{{- if has_job_details }}
+		{{~ if has_job_details ~}}
 
 		private static void SetJobDetails<TRequest>(
 			ref TRequest request,
 			global::Immediate.Jobs.Shared.JobDetails details
 		)
 			where TRequest : global::Immediate.Jobs.Shared.IJobRequest => request.JobDetails = details;
-		{{- end }}
+		{{~ end ~}}
 	}
 
 	[global::System.ComponentModel.EditorBrowsable(global::System.ComponentModel.EditorBrowsableState.Never)]
@@ -257,14 +189,14 @@ partial class {{ class_name }}
 		},
 		Invoker = global::Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetRequiredService<Invoker>(services),
 		JobType = typeof({{ type_name }}),
-		{{ if cron_literal != null }}
+		{{~ if cron_literal != null ~}}
 		Cron = {{ cron_literal }},
-		{{ end }}
+		{{~ end ~}}
 		TimeZone = {{ time_zone_literal }},
 		MaxAttempts = {{ max_attempts }},
-		{{ if timeout_literal != null }}
+		{{~ if timeout_literal != null ~}}
 		Timeout = global::System.TimeSpan.Parse({{ timeout_literal }}, global::System.Globalization.CultureInfo.InvariantCulture),
-		{{ end }}
+		{{~ end ~}}
 		MaxConcurrency = {{ max_concurrency }},
 		OverlapPolicy = global::Immediate.Jobs.Shared.OverlapPolicy.{{ overlap_policy }},
 		Backoff = global::Immediate.Jobs.Shared.BackoffStrategy.{{ backoff }},
@@ -283,45 +215,54 @@ partial class {{ class_name }}
 
 		global::System.Text.Json.Serialization.Metadata.JsonTypeInfo? global::System.Text.Json.Serialization.Metadata.IJsonTypeInfoResolver.GetTypeInfo(global::System.Type type, global::System.Text.Json.JsonSerializerOptions options)
 		{
-			{{ for type in json.types }}
-			if (type == typeof({{ type.type_name }})) return CreateTypeInfo{{ type.index }}(options);
-			{{ end }}
+			{{~ for type in json.types ~}}
+			if (type == typeof({{ type.type_name }}))
+				return CreateTypeInfo{{ type.index }}(options);
+
+			{{~ end ~}}
 			return null;
 		}
 
-		public global::System.Text.Json.Serialization.Metadata.JsonTypeInfo<{{ json.payload_type_name }}> Payload => (global::System.Text.Json.Serialization.Metadata.JsonTypeInfo<{{ json.payload_type_name }}>)GetTypeInfo(typeof({{ json.payload_type_name }}))!;
-		{{ for context in contexts }}
-		public global::System.Text.Json.Serialization.Metadata.JsonTypeInfo<{{ context.context_type_name }}> {{ context.json_property_name }} => (global::System.Text.Json.Serialization.Metadata.JsonTypeInfo<{{ context.context_type_name }}>)GetTypeInfo(typeof({{ context.context_type_name }}))!;
-		{{ end }}
-		{{ for type in json.types }}
+		public global::System.Text.Json.Serialization.Metadata.JsonTypeInfo<{{ json.payload_type_name }}> Payload =>
+			(global::System.Text.Json.Serialization.Metadata.JsonTypeInfo<{{ json.payload_type_name }}>)GetTypeInfo(
+				typeof({{ json.payload_type_name }})
+			)!;
+		{{~ for context in contexts ~}}
+
+		public global::System.Text.Json.Serialization.Metadata.JsonTypeInfo<{{ context.context_type_name }}> {{ context.json_property_name }} =>
+			(global::System.Text.Json.Serialization.Metadata.JsonTypeInfo<{{ context.context_type_name }}>)GetTypeInfo(
+				typeof({{ context.context_type_name }})
+			)!;
+		{{~ end ~}}
+		{{~ for type in json.types ~}}
 
 		private global::System.Text.Json.Serialization.Metadata.JsonTypeInfo<{{ type.type_name }}> CreateTypeInfo{{ type.index }}(global::System.Text.Json.JsonSerializerOptions options)
 		{
-			{{ if type.converter_name != null }}
+			{{~ if type.converter_name != null ~}}
 			var info = global::System.Text.Json.Serialization.Metadata.JsonMetadataServices.CreateValueInfo<{{ type.type_name }}>(options, global::System.Text.Json.Serialization.Metadata.JsonMetadataServices.{{ type.converter_name }});
-			{{ else if type.is_enum }}
+			{{~ else if type.is_enum ~}}
 			var info = global::System.Text.Json.Serialization.Metadata.JsonMetadataServices.CreateValueInfo<{{ type.type_name }}>(options, global::System.Text.Json.Serialization.Metadata.JsonMetadataServices.GetEnumConverter<{{ type.type_name }}>(options));
-			{{ else if type.uses_configured_converter }}
+			{{~ else if type.uses_configured_converter ~}}
 			var info = global::System.Text.Json.Serialization.Metadata.JsonMetadataServices.CreateValueInfo<{{ type.type_name }}>(options, (global::System.Text.Json.Serialization.JsonConverter<{{ type.type_name }}>)options.GetConverter(typeof({{ type.type_name }})));
-			{{ else if type.element_type_name != null }}
+			{{~ else if type.element_type_name != null ~}}
 			var info = global::System.Text.Json.Serialization.Metadata.JsonMetadataServices.CreateArrayInfo<{{ type.type_name }}, {{ type.element_type_name }}>(options, new() { ElementInfo = (global::System.Text.Json.Serialization.Metadata.JsonTypeInfo<{{ type.element_type_name }}>)options.GetTypeInfo(typeof({{ type.element_type_name }})) });
-			{{ else }}
+			{{~ else ~}}
 			var objectInfo = new global::System.Text.Json.Serialization.Metadata.JsonObjectInfoValues<{{ type.type_name }}>
 			{
-				{{ if type.object_info.has_parameterless_creator }}
+				{{~ if type.object_info.has_parameterless_creator ~}}
 				ObjectCreator = static () => new {{ type.type_name }}(),
-				{{ else }}
+				{{~ else ~}}
 				ObjectWithParameterizedConstructorCreator = static args => new {{ type.type_name }}({{ for parameter in type.object_info.constructor_parameters }}({{ parameter.type_name }})args[{{ parameter.index }}]{{ if !for.last }}, {{ end }}{{ end }}),
 				ConstructorParameterMetadataInitializer = static () => new global::System.Text.Json.Serialization.Metadata.JsonParameterInfoValues[]
 				{
-					{{ for parameter in type.object_info.constructor_parameters }}
+					{{~ for parameter in type.object_info.constructor_parameters ~}}
 					new() { Name = {{ parameter.name_literal }}, ParameterType = typeof({{ parameter.type_name }}), Position = {{ parameter.index }}, HasDefaultValue = {{ parameter.has_default_value_literal }}, DefaultValue = default({{ parameter.type_name }}) },
-					{{ end }}
+					{{~ end ~}}
 				},
-				{{ end }}
+				{{~ end ~}}
 				PropertyMetadataInitializer = _ => new global::System.Text.Json.Serialization.Metadata.JsonPropertyInfo[]
 				{
-					{{ for member in type.object_info.members }}
+					{{~ for member in type.object_info.members ~}}
 					global::System.Text.Json.Serialization.Metadata.JsonMetadataServices.CreatePropertyInfo<{{ member.type_name }}>(options, new()
 					{
 						IsProperty = {{ member.is_property_literal }},
@@ -329,26 +270,26 @@ partial class {{ class_name }}
 						DeclaringType = typeof({{ type.type_name }}),
 						PropertyTypeInfo = (global::System.Text.Json.Serialization.Metadata.JsonTypeInfo<{{ member.type_name }}>)options.GetTypeInfo(typeof({{ member.type_name }})),
 						Getter = static obj => (({{ type.type_name }})obj).{{ member.name }},
-						{{ if member.can_set }}
-						{{ if type.is_value_type }}
+						{{~ if member.can_set ~}}
+						{{~ if type.is_value_type ~}}
 						Setter = static (obj, value) => global::System.Runtime.CompilerServices.Unsafe.Unbox<{{ type.type_name }}>(obj).{{ member.name }} = value!,
-						{{ else }}
+						{{~ else ~}}
 						Setter = static (obj, value) => (({{ type.type_name }})obj).{{ member.name }} = value!,
-						{{ end }}
-						{{ else if member.is_constructor_bound }}
+						{{~ end ~}}
+						{{~ else if member.is_constructor_bound ~}}
 						Setter = static (obj, value) => throw new global::System.InvalidOperationException("Setting constructor-bound properties is not supported."),
-						{{ end }}
+						{{~ end ~}}
 						PropertyName = {{ member.name_literal }},
 					}),
-					{{ end }}
+					{{~ end ~}}
 				},
 			};
 			var info = global::System.Text.Json.Serialization.Metadata.JsonMetadataServices.CreateObjectInfo<{{ type.type_name }}>(options, objectInfo);
-			{{ end }}
+			{{~ end ~}}
 			info.OriginatingResolver = this;
 			return info;
 		}
-		{{ end }}
+		{{~ end ~}}
 	}
 
 

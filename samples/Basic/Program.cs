@@ -23,7 +23,7 @@ app.MapPost("/welcome/{userId:guid}", async (
 app.MapImmediateJobsDashboard("/jobs");
 await app.RunAsync();
 
-[Handler, Job("send-welcome-email", MaxAttempts = 5, Timeout = "00:02:00")]
+[Handler, Job(Name = "send-welcome-email", MaxAttempts = 5, Timeout = "00:02:00")]
 public sealed partial class SendWelcomeEmail(IEmailSender sender)
 {
 	public sealed record Payload(Guid UserId, string Template);
@@ -35,7 +35,7 @@ public sealed partial class SendWelcomeEmail(IEmailSender sender)
 [Handler, Job(Cron = "0 */5 * * * *")]
 public sealed partial class CleanupSessionsJob(ILogger<CleanupSessionsJob> logger)
 {
-	private ValueTask HandleAsync(NoPayload request, CancellationToken cancellationToken)
+	private ValueTask HandleAsync(EmptyJobRequest request, CancellationToken cancellationToken)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
 		logger.LogInformation("Cleaning expired sessions for job {JobId}", request.JobDetails?.JobId);

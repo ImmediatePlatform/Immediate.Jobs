@@ -10,78 +10,79 @@ namespace Example;
 
 partial class SendEmailJob
 {
-	
-		public sealed class Scheduler(
-			global::Immediate.Jobs.Shared.IJobStorage storage,
-			global::Immediate.Jobs.Shared.IJobSerializer serializer,
-			global::System.TimeProvider timeProvider,
-			global::Immediate.Jobs.Shared.IIdGenerator idGenerator
-		) : global::Immediate.Jobs.Shared.JobScheduler<global::Example.SendEmailJob.Payload>(storage, serializer, timeProvider, idGenerator, "send-email", "default", static options => new PayloadJsonContext(options).Payload)
-		{
-			
-	
-			public new global::Immediate.Jobs.Shared.JobHandle AddToBatch(
-				global::Immediate.Jobs.Shared.IJobBatch batch,
-				global::Example.SendEmailJob.Payload payload,
-				global::System.TimeSpan? delay = null) =>
-				base.AddToBatch(batch, payload, delay);
-	
-			public new global::Immediate.Jobs.Shared.JobHandle AddToBatchAt(
-				global::Immediate.Jobs.Shared.IJobBatch batch,
-				global::Example.SendEmailJob.Payload payload,
-				global::System.DateTimeOffset runAt) =>
-				base.AddToBatchAt(batch, payload, runAt);
-	
-			public new global::System.Threading.Tasks.ValueTask<global::Immediate.Jobs.Shared.JobHandle> ScheduleAfterAsync(
-				global::Immediate.Jobs.Shared.JobHandle parent,
-				global::Example.SendEmailJob.Payload payload,
-				global::Immediate.Jobs.Shared.ContinuationTrigger on = global::Immediate.Jobs.Shared.ContinuationTrigger.Success,
-				global::System.TimeSpan? delay = null,
-				global::System.Threading.CancellationToken cancellationToken = default) =>
-				base.ScheduleAfterAsync(parent, payload, on, delay, cancellationToken);
-	
-			public new global::System.Threading.Tasks.ValueTask<global::Immediate.Jobs.Shared.JobHandle> ScheduleAfterAsync(
-				global::System.ReadOnlySpan<global::Immediate.Jobs.Shared.JobHandle> parents,
-				global::Example.SendEmailJob.Payload payload,
-				global::Immediate.Jobs.Shared.ContinuationTrigger on = global::Immediate.Jobs.Shared.ContinuationTrigger.Success,
-				global::System.TimeSpan? delay = null,
-				global::System.Threading.CancellationToken cancellationToken = default) =>
-				base.ScheduleAfterAsync(parents, payload, on, delay, cancellationToken);
-	
-			public new global::System.Threading.Tasks.ValueTask<global::Immediate.Jobs.Shared.JobHandle> ScheduleAfterAsync(
-				global::Immediate.Jobs.Shared.BatchHandle parent,
-				global::Example.SendEmailJob.Payload payload,
-				global::Immediate.Jobs.Shared.ContinuationTrigger on = global::Immediate.Jobs.Shared.ContinuationTrigger.Success,
-				global::System.TimeSpan? delay = null,
-				global::System.Threading.CancellationToken cancellationToken = default) =>
-				base.ScheduleAfterAsync(parent, payload, on, delay, cancellationToken);
-	
-			public new global::Immediate.Jobs.Shared.JobHandle ScheduleAfter(
-				global::Immediate.Jobs.Shared.JobDetails current,
-				global::Example.SendEmailJob.Payload payload,
-				global::Immediate.Jobs.Shared.ContinuationOptions options = global::Immediate.Jobs.Shared.ContinuationOptions.BeforeContinuations) =>
-				base.ScheduleAfter(current, payload, options);
-	
-			public new global::System.Threading.Tasks.ValueTask<global::Immediate.Jobs.Shared.JobHandle> AddToBatchAsync(
-				global::Immediate.Jobs.Shared.JobDetails current,
-				global::Example.SendEmailJob.Payload payload,
-				global::Immediate.Jobs.Shared.ContinuationOptions options = global::Immediate.Jobs.Shared.ContinuationOptions.BeforeContinuations,
-				global::System.Threading.CancellationToken cancellationToken = default) =>
-				base.AddToBatchAsync(current, payload, options, cancellationToken);
-		}
-		
+	public sealed class Scheduler(
+		global::Immediate.Jobs.Shared.IJobStorage storage,
+		global::Immediate.Jobs.Shared.IJobSerializer serializer,
+		global::System.TimeProvider timeProvider,
+		global::Immediate.Jobs.Shared.IIdGenerator idGenerator
+	) : global::Immediate.Jobs.Shared.JobScheduler<global::Example.SendEmailJob.Payload>(
+		storage,
+		serializer,
+		timeProvider,
+		idGenerator,
+		"send-email",
+		"default",
+		static options => new PayloadJsonContext(options).Payload
+	)
+	{
+		public new global::Immediate.Jobs.Shared.JobHandle AddToBatch(
+			global::Immediate.Jobs.Shared.IJobBatch batch,
+			global::Example.SendEmailJob.Payload payload,
+			global::System.TimeSpan? delay = null) =>
+			base.AddToBatch(batch, payload, delay);
+
+		public new global::Immediate.Jobs.Shared.JobHandle AddToBatchAt(
+			global::Immediate.Jobs.Shared.IJobBatch batch,
+			global::Example.SendEmailJob.Payload payload,
+			global::System.DateTimeOffset runAt) =>
+			base.AddToBatchAt(batch, payload, runAt);
+
+		public new global::System.Threading.Tasks.ValueTask<global::Immediate.Jobs.Shared.JobHandle> ScheduleAfterAsync(
+			global::Immediate.Jobs.Shared.JobHandle parent,
+			global::Example.SendEmailJob.Payload payload,
+			global::Immediate.Jobs.Shared.ContinuationTrigger on = global::Immediate.Jobs.Shared.ContinuationTrigger.Success,
+			global::System.TimeSpan? delay = null,
+			global::System.Threading.CancellationToken cancellationToken = default) =>
+			base.ScheduleAfterAsync(parent, payload, on, delay, cancellationToken);
+
+		public new global::System.Threading.Tasks.ValueTask<global::Immediate.Jobs.Shared.JobHandle> ScheduleAfterAsync(
+			global::System.ReadOnlySpan<global::Immediate.Jobs.Shared.JobHandle> parents,
+			global::Example.SendEmailJob.Payload payload,
+			global::Immediate.Jobs.Shared.ContinuationTrigger on = global::Immediate.Jobs.Shared.ContinuationTrigger.Success,
+			global::System.TimeSpan? delay = null,
+			global::System.Threading.CancellationToken cancellationToken = default) =>
+			base.ScheduleAfterAsync(parents, payload, on, delay, cancellationToken);
+
+		public new global::System.Threading.Tasks.ValueTask<global::Immediate.Jobs.Shared.JobHandle> ScheduleAfterAsync(
+			global::Immediate.Jobs.Shared.BatchHandle parent,
+			global::Example.SendEmailJob.Payload payload,
+			global::Immediate.Jobs.Shared.ContinuationTrigger on = global::Immediate.Jobs.Shared.ContinuationTrigger.Success,
+			global::System.TimeSpan? delay = null,
+			global::System.Threading.CancellationToken cancellationToken = default) =>
+			base.ScheduleAfterAsync(parent, payload, on, delay, cancellationToken);
+
+		public new global::Immediate.Jobs.Shared.JobHandle ScheduleAfter(
+			global::Immediate.Jobs.Shared.JobDetails current,
+			global::Example.SendEmailJob.Payload payload,
+			global::Immediate.Jobs.Shared.ContinuationOptions options = global::Immediate.Jobs.Shared.ContinuationOptions.BeforeContinuations) =>
+			base.ScheduleAfter(current, payload, options);
+
+		public new global::System.Threading.Tasks.ValueTask<global::Immediate.Jobs.Shared.JobHandle> AddToBatchAsync(
+			global::Immediate.Jobs.Shared.JobDetails current,
+			global::Example.SendEmailJob.Payload payload,
+			global::Immediate.Jobs.Shared.ContinuationOptions options = global::Immediate.Jobs.Shared.ContinuationOptions.BeforeContinuations,
+			global::System.Threading.CancellationToken cancellationToken = default) =>
+			base.AddToBatchAsync(current, payload, options, cancellationToken);
+	}
 
 	[global::System.ComponentModel.EditorBrowsable(global::System.ComponentModel.EditorBrowsableState.Never)]
-	
-		internal sealed class Invoker(global::Immediate.Jobs.Shared.IJobSerializer serializer) : global::Immediate.Jobs.Shared.IJobInvoker
-		
+	internal sealed class Invoker(global::Immediate.Jobs.Shared.IJobSerializer serializer) : global::Immediate.Jobs.Shared.IJobInvoker
 	{
 		public async global::System.Threading.Tasks.ValueTask InvokeAsync(global::System.IServiceProvider scopedServices, global::Immediate.Jobs.Shared.JobExecution execution)
 		{
-			
-			
-						var payload = serializer.Deserialize(execution.Record.Payload, static options => new PayloadJsonContext(options).Payload);
-						
+
+			var payload = serializer.Deserialize(execution.Record.Payload, static options => new PayloadJsonContext(options).Payload);
+
 			SetJobDetails(
 				ref payload,
 				new global::Immediate.Jobs.Shared.JobDetails(
@@ -118,12 +119,9 @@ partial class SendEmailJob
 		},
 		Invoker = global::Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetRequiredService<Invoker>(services),
 		JobType = typeof(global::Example.SendEmailJob),
-		
 		TimeZone = "UTC",
 		MaxAttempts = 5,
-		
-				Timeout = global::System.TimeSpan.Parse("00:02:00", global::System.Globalization.CultureInfo.InvariantCulture),
-				
+		Timeout = global::System.TimeSpan.Parse("00:02:00", global::System.Globalization.CultureInfo.InvariantCulture),
 		MaxConcurrency = 0,
 		OverlapPolicy = global::Immediate.Jobs.Shared.OverlapPolicy.Skip,
 		Backoff = global::Immediate.Jobs.Shared.BackoffStrategy.ExponentialJitter,
@@ -141,93 +139,75 @@ partial class SendEmailJob
 
 		global::System.Text.Json.Serialization.Metadata.JsonTypeInfo? global::System.Text.Json.Serialization.Metadata.IJsonTypeInfoResolver.GetTypeInfo(global::System.Type type, global::System.Text.Json.JsonSerializerOptions options)
 		{
-			
-						if (type == typeof(global::Example.SendEmailJob.Payload)) return CreateTypeInfo0(options);
-						
-						if (type == typeof(global::System.Guid)) return CreateTypeInfo1(options);
-						
-						if (type == typeof(string)) return CreateTypeInfo2(options);
-						
+			if (type == typeof(global::Example.SendEmailJob.Payload))
+				return CreateTypeInfo0(options);
+
+			if (type == typeof(global::System.Guid))
+				return CreateTypeInfo1(options);
+
+			if (type == typeof(string))
+				return CreateTypeInfo2(options);
+
 			return null;
 		}
 
-		public global::System.Text.Json.Serialization.Metadata.JsonTypeInfo<global::Example.SendEmailJob.Payload> Payload => (global::System.Text.Json.Serialization.Metadata.JsonTypeInfo<global::Example.SendEmailJob.Payload>)GetTypeInfo(typeof(global::Example.SendEmailJob.Payload))!;
-		
-		
-		
-				private global::System.Text.Json.Serialization.Metadata.JsonTypeInfo<global::Example.SendEmailJob.Payload> CreateTypeInfo0(global::System.Text.Json.JsonSerializerOptions options)
+		public global::System.Text.Json.Serialization.Metadata.JsonTypeInfo<global::Example.SendEmailJob.Payload> Payload =>
+			(global::System.Text.Json.Serialization.Metadata.JsonTypeInfo<global::Example.SendEmailJob.Payload>)GetTypeInfo(
+				typeof(global::Example.SendEmailJob.Payload)
+			)!;
+
+		private global::System.Text.Json.Serialization.Metadata.JsonTypeInfo<global::Example.SendEmailJob.Payload> CreateTypeInfo0(global::System.Text.Json.JsonSerializerOptions options)
+		{
+			var objectInfo = new global::System.Text.Json.Serialization.Metadata.JsonObjectInfoValues<global::Example.SendEmailJob.Payload>
+			{
+				ObjectWithParameterizedConstructorCreator = static args => new global::Example.SendEmailJob.Payload((global::System.Guid)args[0], (string)args[1]),
+				ConstructorParameterMetadataInitializer = static () => new global::System.Text.Json.Serialization.Metadata.JsonParameterInfoValues[]
 				{
-					
-						var objectInfo = new global::System.Text.Json.Serialization.Metadata.JsonObjectInfoValues<global::Example.SendEmailJob.Payload>
-						{
-							
-								ObjectWithParameterizedConstructorCreator = static args => new global::Example.SendEmailJob.Payload((global::System.Guid)args[0], (string)args[1]),
-								ConstructorParameterMetadataInitializer = static () => new global::System.Text.Json.Serialization.Metadata.JsonParameterInfoValues[]
-								{
-									
-										new() { Name = "UserId", ParameterType = typeof(global::System.Guid), Position = 0, HasDefaultValue = false, DefaultValue = default(global::System.Guid) },
-										
-										new() { Name = "Template", ParameterType = typeof(string), Position = 1, HasDefaultValue = false, DefaultValue = default(string) },
-										
-								},
-								
-							PropertyMetadataInitializer = _ => new global::System.Text.Json.Serialization.Metadata.JsonPropertyInfo[]
-							{
-								
-										global::System.Text.Json.Serialization.Metadata.JsonMetadataServices.CreatePropertyInfo<global::System.Guid>(options, new()
-										{
-											IsProperty = true,
-											IsPublic = true,
-											DeclaringType = typeof(global::Example.SendEmailJob.Payload),
-											PropertyTypeInfo = (global::System.Text.Json.Serialization.Metadata.JsonTypeInfo<global::System.Guid>)options.GetTypeInfo(typeof(global::System.Guid)),
-											Getter = static obj => ((global::Example.SendEmailJob.Payload)obj).UserId,
-											
-												Setter = static (obj, value) => throw new global::System.InvalidOperationException("Setting constructor-bound properties is not supported."),
-												
-											PropertyName = "UserId",
-										}),
-										
-										global::System.Text.Json.Serialization.Metadata.JsonMetadataServices.CreatePropertyInfo<string>(options, new()
-										{
-											IsProperty = true,
-											IsPublic = true,
-											DeclaringType = typeof(global::Example.SendEmailJob.Payload),
-											PropertyTypeInfo = (global::System.Text.Json.Serialization.Metadata.JsonTypeInfo<string>)options.GetTypeInfo(typeof(string)),
-											Getter = static obj => ((global::Example.SendEmailJob.Payload)obj).Template,
-											
-												Setter = static (obj, value) => throw new global::System.InvalidOperationException("Setting constructor-bound properties is not supported."),
-												
-											PropertyName = "Template",
-										}),
-										
-							},
-						};
-						var info = global::System.Text.Json.Serialization.Metadata.JsonMetadataServices.CreateObjectInfo<global::Example.SendEmailJob.Payload>(options, objectInfo);
-						
-					info.OriginatingResolver = this;
-					return info;
-				}
-				
-		
-				private global::System.Text.Json.Serialization.Metadata.JsonTypeInfo<global::System.Guid> CreateTypeInfo1(global::System.Text.Json.JsonSerializerOptions options)
+					new() { Name = "UserId", ParameterType = typeof(global::System.Guid), Position = 0, HasDefaultValue = false, DefaultValue = default(global::System.Guid) },
+					new() { Name = "Template", ParameterType = typeof(string), Position = 1, HasDefaultValue = false, DefaultValue = default(string) },
+				},
+				PropertyMetadataInitializer = _ => new global::System.Text.Json.Serialization.Metadata.JsonPropertyInfo[]
 				{
-					
-						var info = global::System.Text.Json.Serialization.Metadata.JsonMetadataServices.CreateValueInfo<global::System.Guid>(options, global::System.Text.Json.Serialization.Metadata.JsonMetadataServices.GuidConverter);
-						
-					info.OriginatingResolver = this;
-					return info;
-				}
-				
-		
-				private global::System.Text.Json.Serialization.Metadata.JsonTypeInfo<string> CreateTypeInfo2(global::System.Text.Json.JsonSerializerOptions options)
-				{
-					
-						var info = global::System.Text.Json.Serialization.Metadata.JsonMetadataServices.CreateValueInfo<string>(options, global::System.Text.Json.Serialization.Metadata.JsonMetadataServices.StringConverter);
-						
-					info.OriginatingResolver = this;
-					return info;
-				}
-				
+					global::System.Text.Json.Serialization.Metadata.JsonMetadataServices.CreatePropertyInfo<global::System.Guid>(options, new()
+					{
+						IsProperty = true,
+						IsPublic = true,
+						DeclaringType = typeof(global::Example.SendEmailJob.Payload),
+						PropertyTypeInfo = (global::System.Text.Json.Serialization.Metadata.JsonTypeInfo<global::System.Guid>)options.GetTypeInfo(typeof(global::System.Guid)),
+						Getter = static obj => ((global::Example.SendEmailJob.Payload)obj).UserId,
+						Setter = static (obj, value) => throw new global::System.InvalidOperationException("Setting constructor-bound properties is not supported."),
+						PropertyName = "UserId",
+					}),
+					global::System.Text.Json.Serialization.Metadata.JsonMetadataServices.CreatePropertyInfo<string>(options, new()
+					{
+						IsProperty = true,
+						IsPublic = true,
+						DeclaringType = typeof(global::Example.SendEmailJob.Payload),
+						PropertyTypeInfo = (global::System.Text.Json.Serialization.Metadata.JsonTypeInfo<string>)options.GetTypeInfo(typeof(string)),
+						Getter = static obj => ((global::Example.SendEmailJob.Payload)obj).Template,
+						Setter = static (obj, value) => throw new global::System.InvalidOperationException("Setting constructor-bound properties is not supported."),
+						PropertyName = "Template",
+					}),
+				},
+			};
+			var info = global::System.Text.Json.Serialization.Metadata.JsonMetadataServices.CreateObjectInfo<global::Example.SendEmailJob.Payload>(options, objectInfo);
+			info.OriginatingResolver = this;
+			return info;
+		}
+
+		private global::System.Text.Json.Serialization.Metadata.JsonTypeInfo<global::System.Guid> CreateTypeInfo1(global::System.Text.Json.JsonSerializerOptions options)
+		{
+			var info = global::System.Text.Json.Serialization.Metadata.JsonMetadataServices.CreateValueInfo<global::System.Guid>(options, global::System.Text.Json.Serialization.Metadata.JsonMetadataServices.GuidConverter);
+			info.OriginatingResolver = this;
+			return info;
+		}
+
+		private global::System.Text.Json.Serialization.Metadata.JsonTypeInfo<string> CreateTypeInfo2(global::System.Text.Json.JsonSerializerOptions options)
+		{
+			var info = global::System.Text.Json.Serialization.Metadata.JsonMetadataServices.CreateValueInfo<string>(options, global::System.Text.Json.Serialization.Metadata.JsonMetadataServices.StringConverter);
+			info.OriginatingResolver = this;
+			return info;
+		}
 	}
 
 

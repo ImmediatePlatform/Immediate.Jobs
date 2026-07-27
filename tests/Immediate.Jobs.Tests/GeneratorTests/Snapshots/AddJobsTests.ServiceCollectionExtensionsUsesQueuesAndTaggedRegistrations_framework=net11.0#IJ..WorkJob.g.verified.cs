@@ -7,111 +7,110 @@
 
 partial class WorkJob
 {
-	
-		public sealed class Scheduler(
-			global::Immediate.Jobs.Shared.IJobStorage storage,
-			global::Immediate.Jobs.Shared.IJobSerializer serializer,
-			global::System.TimeProvider timeProvider,
-			global::Immediate.Jobs.Shared.IIdGenerator idGenerator,
-		global::WorkContextExtractor contextExtractor0
-		) : global::Immediate.Jobs.Shared.JobScheduler<global::Immediate.Jobs.Shared.NoPayload>(
-			storage, serializer, timeProvider, idGenerator, "work", "critical-queue", static options => new PayloadJsonContext(options).Payload),
-			global::Immediate.Jobs.Shared.IRecurringJobScheduler
+	public sealed class Scheduler(
+		global::Immediate.Jobs.Shared.IJobStorage storage,
+		global::Immediate.Jobs.Shared.IJobSerializer serializer,
+		global::System.TimeProvider timeProvider,
+		global::Immediate.Jobs.Shared.IIdGenerator idGenerator
+		, global::WorkContextExtractor contextExtractor0
+	) : global::Immediate.Jobs.Shared.JobScheduler<global::Immediate.Jobs.Shared.EmptyJobRequest>(
+		storage,
+		serializer,
+		timeProvider,
+		idGenerator,
+		"work",
+		"critical-queue",
+		static options => new PayloadJsonContext(options).Payload
+	)
+		, global::Immediate.Jobs.Shared.IRecurringJobScheduler
+	{
+		protected override string? CaptureContext()
 		{
-			
-				protected override string? CaptureContext()
-				{
-					var keys = new global::System.Collections.Generic.HashSet<string>(global::System.StringComparer.Ordinal);
-					var slices = new global::System.Collections.Generic.Dictionary<string, string>(global::System.StringComparer.Ordinal);
-					
-						if (!keys.Add(contextExtractor0.Key))
-							throw new global::Immediate.Jobs.Shared.ImmediateJobException($"Multiple job context extractors use the key '{contextExtractor0.Key}'.");
-						var context0 = contextExtractor0.Capture();
-						if (context0 is not null)
-						{
-							global::Immediate.Jobs.Shared.JobContextEnvelope.AddSlice(
-								slices,
-								contextExtractor0.Key,
-								Serializer.Serialize(context0, static options => new PayloadJsonContext(options).Context0)
-							);
-						}
-						
-					return global::Immediate.Jobs.Shared.JobContextEnvelope.Create(slices);
-				}
-		
-				
-			public new global::Immediate.Jobs.Shared.JobHandle AddToBatch(
-				global::Immediate.Jobs.Shared.IJobBatch batch,
-				global::Immediate.Jobs.Shared.NoPayload payload,
-				global::System.TimeSpan? delay = null) =>
-				base.AddToBatch(batch, payload, delay);
-	
-			public new global::Immediate.Jobs.Shared.JobHandle AddToBatchAt(
-				global::Immediate.Jobs.Shared.IJobBatch batch,
-				global::Immediate.Jobs.Shared.NoPayload payload,
-				global::System.DateTimeOffset runAt) =>
-				base.AddToBatchAt(batch, payload, runAt);
-	
-			public new global::System.Threading.Tasks.ValueTask<global::Immediate.Jobs.Shared.JobHandle> ScheduleAfterAsync(
-				global::Immediate.Jobs.Shared.JobHandle parent,
-				global::Immediate.Jobs.Shared.NoPayload payload,
-				global::Immediate.Jobs.Shared.ContinuationTrigger on = global::Immediate.Jobs.Shared.ContinuationTrigger.Success,
-				global::System.TimeSpan? delay = null,
-				global::System.Threading.CancellationToken cancellationToken = default) =>
-				base.ScheduleAfterAsync(parent, payload, on, delay, cancellationToken);
-	
-			public new global::System.Threading.Tasks.ValueTask<global::Immediate.Jobs.Shared.JobHandle> ScheduleAfterAsync(
-				global::System.ReadOnlySpan<global::Immediate.Jobs.Shared.JobHandle> parents,
-				global::Immediate.Jobs.Shared.NoPayload payload,
-				global::Immediate.Jobs.Shared.ContinuationTrigger on = global::Immediate.Jobs.Shared.ContinuationTrigger.Success,
-				global::System.TimeSpan? delay = null,
-				global::System.Threading.CancellationToken cancellationToken = default) =>
-				base.ScheduleAfterAsync(parents, payload, on, delay, cancellationToken);
-	
-			public new global::System.Threading.Tasks.ValueTask<global::Immediate.Jobs.Shared.JobHandle> ScheduleAfterAsync(
-				global::Immediate.Jobs.Shared.BatchHandle parent,
-				global::Immediate.Jobs.Shared.NoPayload payload,
-				global::Immediate.Jobs.Shared.ContinuationTrigger on = global::Immediate.Jobs.Shared.ContinuationTrigger.Success,
-				global::System.TimeSpan? delay = null,
-				global::System.Threading.CancellationToken cancellationToken = default) =>
-				base.ScheduleAfterAsync(parent, payload, on, delay, cancellationToken);
-	
-			public new global::Immediate.Jobs.Shared.JobHandle ScheduleAfter(
-				global::Immediate.Jobs.Shared.JobDetails current,
-				global::Immediate.Jobs.Shared.NoPayload payload,
-				global::Immediate.Jobs.Shared.ContinuationOptions options = global::Immediate.Jobs.Shared.ContinuationOptions.BeforeContinuations) =>
-				base.ScheduleAfter(current, payload, options);
-	
-			public new global::System.Threading.Tasks.ValueTask<global::Immediate.Jobs.Shared.JobHandle> AddToBatchAsync(
-				global::Immediate.Jobs.Shared.JobDetails current,
-				global::Immediate.Jobs.Shared.NoPayload payload,
-				global::Immediate.Jobs.Shared.ContinuationOptions options = global::Immediate.Jobs.Shared.ContinuationOptions.BeforeContinuations,
-				global::System.Threading.CancellationToken cancellationToken = default) =>
-				base.AddToBatchAsync(current, payload, options, cancellationToken);
-	
-			public global::System.Threading.Tasks.ValueTask<global::Immediate.Jobs.Shared.JobHandle> TriggerNowAsync(global::System.Threading.CancellationToken cancellationToken = default) =>
-				EnqueueAsync(default, cancellationToken);
-		
-			public global::System.Threading.Tasks.ValueTask AddOrUpdateRecurringAsync(string name, string cron, string timeZone = "UTC", global::System.Threading.CancellationToken cancellationToken = default) =>
-				AddOrUpdateRecurringCoreAsync(name, cron, timeZone, cancellationToken);
-	
-			public global::System.Threading.Tasks.ValueTask RemoveRecurringAsync(string name, global::System.Threading.CancellationToken cancellationToken = default) =>
-				RemoveRecurringCoreAsync(name, cancellationToken);
+			var keys = new global::System.Collections.Generic.HashSet<string>(global::System.StringComparer.Ordinal);
+			var slices = new global::System.Collections.Generic.Dictionary<string, string>(global::System.StringComparer.Ordinal);
+			if (!keys.Add(contextExtractor0.Key))
+				throw new global::Immediate.Jobs.Shared.ImmediateJobException($"Multiple job context extractors use the key '{contextExtractor0.Key}'.");
+
+			var context0 = contextExtractor0.Capture();
+			if (context0 is not null)
+			{
+				global::Immediate.Jobs.Shared.JobContextEnvelope.AddSlice(
+					slices,
+					contextExtractor0.Key,
+					Serializer.Serialize(context0, static options => new PayloadJsonContext(options).Context0)
+				);
+			}
+			return global::Immediate.Jobs.Shared.JobContextEnvelope.Create(slices);
 		}
-		
+
+		public new global::Immediate.Jobs.Shared.JobHandle AddToBatch(
+			global::Immediate.Jobs.Shared.IJobBatch batch,
+			global::Immediate.Jobs.Shared.EmptyJobRequest payload,
+			global::System.TimeSpan? delay = null) =>
+			base.AddToBatch(batch, payload, delay);
+
+		public new global::Immediate.Jobs.Shared.JobHandle AddToBatchAt(
+			global::Immediate.Jobs.Shared.IJobBatch batch,
+			global::Immediate.Jobs.Shared.EmptyJobRequest payload,
+			global::System.DateTimeOffset runAt) =>
+			base.AddToBatchAt(batch, payload, runAt);
+
+		public new global::System.Threading.Tasks.ValueTask<global::Immediate.Jobs.Shared.JobHandle> ScheduleAfterAsync(
+			global::Immediate.Jobs.Shared.JobHandle parent,
+			global::Immediate.Jobs.Shared.EmptyJobRequest payload,
+			global::Immediate.Jobs.Shared.ContinuationTrigger on = global::Immediate.Jobs.Shared.ContinuationTrigger.Success,
+			global::System.TimeSpan? delay = null,
+			global::System.Threading.CancellationToken cancellationToken = default) =>
+			base.ScheduleAfterAsync(parent, payload, on, delay, cancellationToken);
+
+		public new global::System.Threading.Tasks.ValueTask<global::Immediate.Jobs.Shared.JobHandle> ScheduleAfterAsync(
+			global::System.ReadOnlySpan<global::Immediate.Jobs.Shared.JobHandle> parents,
+			global::Immediate.Jobs.Shared.EmptyJobRequest payload,
+			global::Immediate.Jobs.Shared.ContinuationTrigger on = global::Immediate.Jobs.Shared.ContinuationTrigger.Success,
+			global::System.TimeSpan? delay = null,
+			global::System.Threading.CancellationToken cancellationToken = default) =>
+			base.ScheduleAfterAsync(parents, payload, on, delay, cancellationToken);
+
+		public new global::System.Threading.Tasks.ValueTask<global::Immediate.Jobs.Shared.JobHandle> ScheduleAfterAsync(
+			global::Immediate.Jobs.Shared.BatchHandle parent,
+			global::Immediate.Jobs.Shared.EmptyJobRequest payload,
+			global::Immediate.Jobs.Shared.ContinuationTrigger on = global::Immediate.Jobs.Shared.ContinuationTrigger.Success,
+			global::System.TimeSpan? delay = null,
+			global::System.Threading.CancellationToken cancellationToken = default) =>
+			base.ScheduleAfterAsync(parent, payload, on, delay, cancellationToken);
+
+		public new global::Immediate.Jobs.Shared.JobHandle ScheduleAfter(
+			global::Immediate.Jobs.Shared.JobDetails current,
+			global::Immediate.Jobs.Shared.EmptyJobRequest payload,
+			global::Immediate.Jobs.Shared.ContinuationOptions options = global::Immediate.Jobs.Shared.ContinuationOptions.BeforeContinuations) =>
+			base.ScheduleAfter(current, payload, options);
+
+		public new global::System.Threading.Tasks.ValueTask<global::Immediate.Jobs.Shared.JobHandle> AddToBatchAsync(
+			global::Immediate.Jobs.Shared.JobDetails current,
+			global::Immediate.Jobs.Shared.EmptyJobRequest payload,
+			global::Immediate.Jobs.Shared.ContinuationOptions options = global::Immediate.Jobs.Shared.ContinuationOptions.BeforeContinuations,
+			global::System.Threading.CancellationToken cancellationToken = default) =>
+			base.AddToBatchAsync(current, payload, options, cancellationToken);
+
+		public global::System.Threading.Tasks.ValueTask<global::Immediate.Jobs.Shared.JobHandle> TriggerNowAsync(global::System.Threading.CancellationToken cancellationToken = default) =>
+			EnqueueAsync(default, cancellationToken);
+
+		public global::System.Threading.Tasks.ValueTask AddOrUpdateRecurringAsync(string name, string cron, string timeZone = "UTC", global::System.Threading.CancellationToken cancellationToken = default) =>
+			AddOrUpdateRecurringCoreAsync(name, cron, timeZone, cancellationToken);
+
+		public global::System.Threading.Tasks.ValueTask RemoveRecurringAsync(string name, global::System.Threading.CancellationToken cancellationToken = default) =>
+			RemoveRecurringCoreAsync(name, cancellationToken);
+	}
 
 	[global::System.ComponentModel.EditorBrowsable(global::System.ComponentModel.EditorBrowsableState.Never)]
-	
-		internal sealed class Invoker(global::Immediate.Jobs.Shared.IJobSerializer serializer) : global::Immediate.Jobs.Shared.IJobInvoker, global::Immediate.Jobs.Shared.IJobContextAwareInvoker
-		
+	internal sealed class Invoker(global::Immediate.Jobs.Shared.IJobSerializer serializer) : global::Immediate.Jobs.Shared.IJobInvoker, global::Immediate.Jobs.Shared.IJobContextAwareInvoker
 	{
 		public async global::System.Threading.Tasks.ValueTask InvokeAsync(global::System.IServiceProvider scopedServices, global::Immediate.Jobs.Shared.JobExecution execution)
 		{
-			
-						if (execution.Record.Context is { } envelope)
-						{
-							var contextSlices = global::Immediate.Jobs.Shared.JobContextEnvelope.Read(envelope);
-							
+			if (execution.Record.Context is { } envelope)
+			{
+				var contextSlices = global::Immediate.Jobs.Shared.JobContextEnvelope.Read(envelope);
+				
 								var contextExtractor0 = global::Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetRequiredService<global::WorkContextExtractor>(scopedServices);
 								if (contextSlices.Remove(contextExtractor0.Key, out var serializedContext0))
 								{
@@ -119,12 +118,11 @@ partial class WorkJob
 									contextExtractor0.Restore(context0);
 								}
 								
-							global::Immediate.Jobs.Shared.JobContextEnvelope.LogOrphanedSlices(scopedServices, execution.Record, contextSlices.Keys);
-						}
-						
-			
-						var payload = new global::Immediate.Jobs.Shared.NoPayload();
-						
+				global::Immediate.Jobs.Shared.JobContextEnvelope.LogOrphanedSlices(scopedServices, execution.Record, contextSlices.Keys);
+			}
+
+			var payload = new global::Immediate.Jobs.Shared.EmptyJobRequest();
+
 			SetJobDetails(
 				ref payload,
 				new global::Immediate.Jobs.Shared.JobDetails(
@@ -161,10 +159,8 @@ partial class WorkJob
 		},
 		Invoker = global::Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetRequiredService<Invoker>(services),
 		JobType = typeof(global::WorkJob),
-		
 		TimeZone = "UTC",
 		MaxAttempts = 3,
-		
 		MaxConcurrency = 0,
 		OverlapPolicy = global::Immediate.Jobs.Shared.OverlapPolicy.Skip,
 		Backoff = global::Immediate.Jobs.Shared.BackoffStrategy.ExponentialJitter,
@@ -182,49 +178,45 @@ partial class WorkJob
 
 		global::System.Text.Json.Serialization.Metadata.JsonTypeInfo? global::System.Text.Json.Serialization.Metadata.IJsonTypeInfoResolver.GetTypeInfo(global::System.Type type, global::System.Text.Json.JsonSerializerOptions options)
 		{
-			
-						if (type == typeof(global::Immediate.Jobs.Shared.NoPayload)) return CreateTypeInfo0(options);
-						
-						if (type == typeof(string)) return CreateTypeInfo1(options);
-						
+			if (type == typeof(global::Immediate.Jobs.Shared.EmptyJobRequest))
+				return CreateTypeInfo0(options);
+
+			if (type == typeof(string))
+				return CreateTypeInfo1(options);
+
 			return null;
 		}
 
-		public global::System.Text.Json.Serialization.Metadata.JsonTypeInfo<global::Immediate.Jobs.Shared.NoPayload> Payload => (global::System.Text.Json.Serialization.Metadata.JsonTypeInfo<global::Immediate.Jobs.Shared.NoPayload>)GetTypeInfo(typeof(global::Immediate.Jobs.Shared.NoPayload))!;
-		
-				public global::System.Text.Json.Serialization.Metadata.JsonTypeInfo<string> Context0 => (global::System.Text.Json.Serialization.Metadata.JsonTypeInfo<string>)GetTypeInfo(typeof(string))!;
-				
-		
-		
-				private global::System.Text.Json.Serialization.Metadata.JsonTypeInfo<global::Immediate.Jobs.Shared.NoPayload> CreateTypeInfo0(global::System.Text.Json.JsonSerializerOptions options)
+		public global::System.Text.Json.Serialization.Metadata.JsonTypeInfo<global::Immediate.Jobs.Shared.EmptyJobRequest> Payload =>
+			(global::System.Text.Json.Serialization.Metadata.JsonTypeInfo<global::Immediate.Jobs.Shared.EmptyJobRequest>)GetTypeInfo(
+				typeof(global::Immediate.Jobs.Shared.EmptyJobRequest)
+			)!;
+
+		public global::System.Text.Json.Serialization.Metadata.JsonTypeInfo<string> Context0 =>
+			(global::System.Text.Json.Serialization.Metadata.JsonTypeInfo<string>)GetTypeInfo(
+				typeof(string)
+			)!;
+
+		private global::System.Text.Json.Serialization.Metadata.JsonTypeInfo<global::Immediate.Jobs.Shared.EmptyJobRequest> CreateTypeInfo0(global::System.Text.Json.JsonSerializerOptions options)
+		{
+			var objectInfo = new global::System.Text.Json.Serialization.Metadata.JsonObjectInfoValues<global::Immediate.Jobs.Shared.EmptyJobRequest>
+			{
+				ObjectCreator = static () => new global::Immediate.Jobs.Shared.EmptyJobRequest(),
+				PropertyMetadataInitializer = _ => new global::System.Text.Json.Serialization.Metadata.JsonPropertyInfo[]
 				{
-					
-						var objectInfo = new global::System.Text.Json.Serialization.Metadata.JsonObjectInfoValues<global::Immediate.Jobs.Shared.NoPayload>
-						{
-							
-								ObjectCreator = static () => new global::Immediate.Jobs.Shared.NoPayload(),
-								
-							PropertyMetadataInitializer = _ => new global::System.Text.Json.Serialization.Metadata.JsonPropertyInfo[]
-							{
-								
-							},
-						};
-						var info = global::System.Text.Json.Serialization.Metadata.JsonMetadataServices.CreateObjectInfo<global::Immediate.Jobs.Shared.NoPayload>(options, objectInfo);
-						
-					info.OriginatingResolver = this;
-					return info;
-				}
-				
-		
-				private global::System.Text.Json.Serialization.Metadata.JsonTypeInfo<string> CreateTypeInfo1(global::System.Text.Json.JsonSerializerOptions options)
-				{
-					
-						var info = global::System.Text.Json.Serialization.Metadata.JsonMetadataServices.CreateValueInfo<string>(options, global::System.Text.Json.Serialization.Metadata.JsonMetadataServices.StringConverter);
-						
-					info.OriginatingResolver = this;
-					return info;
-				}
-				
+				},
+			};
+			var info = global::System.Text.Json.Serialization.Metadata.JsonMetadataServices.CreateObjectInfo<global::Immediate.Jobs.Shared.EmptyJobRequest>(options, objectInfo);
+			info.OriginatingResolver = this;
+			return info;
+		}
+
+		private global::System.Text.Json.Serialization.Metadata.JsonTypeInfo<string> CreateTypeInfo1(global::System.Text.Json.JsonSerializerOptions options)
+		{
+			var info = global::System.Text.Json.Serialization.Metadata.JsonMetadataServices.CreateValueInfo<string>(options, global::System.Text.Json.Serialization.Metadata.JsonMetadataServices.StringConverter);
+			info.OriginatingResolver = this;
+			return info;
+		}
 	}
 
 
