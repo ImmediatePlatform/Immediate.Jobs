@@ -35,7 +35,7 @@ public class EnqueueBenchmarks
 	public async Task Cleanup() => await _quartz.Shutdown(waitForJobsToComplete: true);
 
 	[Benchmark(Baseline = true)]
-	public ValueTask<string> ImmediateJobs() => _immediate.Enqueue(new(42));
+	public ValueTask<JobHandle> ImmediateJobs() => _immediate.Enqueue(new(42));
 
 	[Benchmark]
 	public string Hangfire() => _hangfire.Enqueue(() => BenchmarkOperations.Execute(42));

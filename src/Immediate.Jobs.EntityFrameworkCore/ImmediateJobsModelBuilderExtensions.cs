@@ -10,10 +10,34 @@ public static class ImmediateJobsModelBuilderExtensions
 	public static ModelBuilder AddImmediateJobs(this ModelBuilder modelBuilder, string? schema = null)
 	{
 		ArgumentNullException.ThrowIfNull(modelBuilder);
+		ConfigureBatches(modelBuilder.Entity<ImmediateJobBatchEntity>(), schema);
 		ConfigureJobs(modelBuilder.Entity<ImmediateJobEntity>(), schema);
+		ConfigureContinuations(modelBuilder.Entity<ImmediateJobContinuationEntity>(), schema);
 		ConfigureRecurring(modelBuilder.Entity<ImmediateRecurringJobEntity>(), schema);
 		ConfigureServers(modelBuilder.Entity<ImmediateJobServerEntity>(), schema);
 		return modelBuilder;
+	}
+
+	private static void ConfigureBatches(EntityTypeBuilder<ImmediateJobBatchEntity> entity, string? schema)
+	{
+		_ = entity.ToTable("immediate_job_batches", schema);
+		_ = entity.HasKey(batch => batch.Id);
+		_ = entity.Property(batch => batch.Id).HasMaxLength(256);
+		_ = entity.Property(batch => batch.State).HasConversion<short>();
+		_ = entity.Property(batch => batch.CreatedAt).HasConversion(
+			value => value.UtcTicks,
+			value => new DateTimeOffset(value, TimeSpan.Zero)
+		);
+		_ = entity.Property(batch => batch.StartedAt).HasConversion(
+			value => value.HasValue ? value.Value.UtcTicks : (long?)null,
+			value => value.HasValue ? new DateTimeOffset(value.Value, TimeSpan.Zero) : null
+		);
+		_ = entity.Property(batch => batch.CompletedAt).HasConversion(
+			value => value.HasValue ? value.Value.UtcTicks : (long?)null,
+			value => value.HasValue ? new DateTimeOffset(value.Value, TimeSpan.Zero) : null
+		);
+		_ = entity.Property(batch => batch.ConcurrencyStamp).IsConcurrencyToken();
+		_ = entity.HasIndex(batch => new { batch.State, batch.CompletedAt });
 	}
 
 	private static void ConfigureJobs(EntityTypeBuilder<ImmediateJobEntity> entity, string? schema)
@@ -45,11 +69,35 @@ public static class ImmediateJobsModelBuilderExtensions
 		_ = entity.Property(job => job.WorkerId).HasMaxLength(256);
 		_ = entity.Property(job => job.RecurringKey).HasMaxLength(512);
 		_ = entity.Property(job => job.TraceParent).HasMaxLength(256);
+		_ = entity.Property(job => job.BatchId).HasMaxLength(256);
 		_ = entity.Property(job => job.ConcurrencyStamp).IsConcurrencyToken();
+		_ = entity.HasOne<ImmediateJobBatchEntity>()
+			.WithMany()
+			.HasForeignKey(job => job.BatchId)
+			.OnDelete(DeleteBehavior.Cascade);
 		_ = entity.HasIndex(job => job.RecurringKey).IsUnique();
+		_ = entity.HasIndex(job => job.BatchId);
 		_ = entity.HasIndex(job => new { job.State, job.DueAt });
 		_ = entity.HasIndex(job => new { job.State, job.CreatedAt });
 		_ = entity.HasIndex(job => new { job.QueueName, job.State, job.DueAt, job.CreatedAt });
+	}
+
+	private static void ConfigureContinuations(
+		EntityTypeBuilder<ImmediateJobContinuationEntity> entity,
+		string? schema
+	)
+	{
+		_ = entity.ToTable("immediate_job_continuations", schema);
+		_ = entity.HasKey(edge => new { edge.ChildJobId, edge.ParentKind, edge.ParentId });
+		_ = entity.Property(edge => edge.ChildJobId).HasMaxLength(256);
+		_ = entity.Property(edge => edge.ParentKind).HasConversion<short>();
+		_ = entity.Property(edge => edge.ParentId).HasMaxLength(256);
+		_ = entity.Property(edge => edge.Trigger).HasConversion<short>();
+		_ = entity.HasOne<ImmediateJobEntity>()
+			.WithMany()
+			.HasForeignKey(edge => edge.ChildJobId)
+			.OnDelete(DeleteBehavior.Cascade);
+		_ = entity.HasIndex(edge => new { edge.ParentKind, edge.ParentId });
 	}
 
 	private static void ConfigureRecurring(EntityTypeBuilder<ImmediateRecurringJobEntity> entity, string? schema)
@@ -85,6 +133,27 @@ public static class ImmediateJobsModelBuilderExtensions
 	}
 }
 
+internal enum ContinuationParentKind : short
+{
+	Job,
+	Batch,
+}
+
+internal sealed class ImmediateJobBatchEntity
+{
+	public string Id { get; set; } = null!;
+	public DateTimeOffset CreatedAt { get; set; }
+	public int TotalJobs { get; set; }
+	public int PendingCount { get; set; }
+	public int SucceededCount { get; set; }
+	public int FailedCount { get; set; }
+	public int CancelledCount { get; set; }
+	public DateTimeOffset? StartedAt { get; set; }
+	public DateTimeOffset? CompletedAt { get; set; }
+	public BatchState State { get; set; }
+	public Guid ConcurrencyStamp { get; set; }
+}
+
 internal sealed class ImmediateJobEntity
 {
 	public string Id { get; set; } = null!;
@@ -103,7 +172,17 @@ internal sealed class ImmediateJobEntity
 	public string? RecurringKey { get; set; }
 	public string? TraceParent { get; set; }
 	public string? TraceState { get; set; }
+	public string? BatchId { get; set; }
+	public int RemainingDependencies { get; set; }
 	public Guid ConcurrencyStamp { get; set; }
+}
+
+internal sealed class ImmediateJobContinuationEntity
+{
+	public string ChildJobId { get; set; } = null!;
+	public ContinuationParentKind ParentKind { get; set; }
+	public string ParentId { get; set; } = null!;
+	public ContinuationTrigger Trigger { get; set; }
 }
 
 internal sealed class ImmediateRecurringJobEntity

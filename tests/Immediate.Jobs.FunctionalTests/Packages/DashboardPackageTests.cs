@@ -65,7 +65,10 @@ public sealed class DashboardPackageTests
 		_ = app.MapImmediateJobsDashboard();
 		await app.StartAsync(TestContext.Current.CancellationToken);
 
-		using var response = await app.GetTestClient().GetAsync(new Uri("/jobs", UriKind.Relative), TestContext.Current.CancellationToken);
+		using var response = await app.GetTestClient().GetAsync(
+			new Uri("/jobs", UriKind.Relative),
+			TestContext.Current.CancellationToken
+		);
 
 		Assert.Equal(HttpStatusCode.Redirect, response.StatusCode);
 		Assert.Equal("/jobs/", response.Headers.Location?.OriginalString);

@@ -18,6 +18,58 @@ public partial class SendEmailJob
 		) : global::Immediate.Jobs.Shared.JobScheduler<global::Example.SendEmailJob.Payload>(storage, serializer, timeProvider, "send-email", "default", static options => new PayloadJsonContext(options).Payload)
 		{
 
+
+			public new global::System.Threading.Tasks.ValueTask<global::Immediate.Jobs.Shared.JobHandle> AddToBatch(
+				global::Immediate.Jobs.Shared.IJobBatch batch,
+				global::Example.SendEmailJob.Payload payload,
+				global::System.TimeSpan? delay = null,
+				global::System.Threading.CancellationToken cancellationToken = default) =>
+				base.AddToBatch(batch, payload, delay, cancellationToken);
+
+			public new global::System.Threading.Tasks.ValueTask<global::Immediate.Jobs.Shared.JobHandle> AddToBatchAt(
+				global::Immediate.Jobs.Shared.IJobBatch batch,
+				global::Example.SendEmailJob.Payload payload,
+				global::System.DateTimeOffset runAt,
+				global::System.Threading.CancellationToken cancellationToken = default) =>
+				base.AddToBatchAt(batch, payload, runAt, cancellationToken);
+
+			public new global::System.Threading.Tasks.ValueTask<global::Immediate.Jobs.Shared.JobHandle> ScheduleAfter(
+				global::Immediate.Jobs.Shared.JobHandle parent,
+				global::Example.SendEmailJob.Payload payload,
+				global::Immediate.Jobs.Shared.ContinuationTrigger on = global::Immediate.Jobs.Shared.ContinuationTrigger.AllSucceeded,
+				global::System.TimeSpan? delay = null,
+				global::System.Threading.CancellationToken cancellationToken = default) =>
+				base.ScheduleAfter(parent, payload, on, delay, cancellationToken);
+
+			public new global::System.Threading.Tasks.ValueTask<global::Immediate.Jobs.Shared.JobHandle> ScheduleAfter(
+				global::System.ReadOnlySpan<global::Immediate.Jobs.Shared.JobHandle> parents,
+				global::Example.SendEmailJob.Payload payload,
+				global::Immediate.Jobs.Shared.ContinuationTrigger on = global::Immediate.Jobs.Shared.ContinuationTrigger.AllSucceeded,
+				global::System.TimeSpan? delay = null,
+				global::System.Threading.CancellationToken cancellationToken = default) =>
+				base.ScheduleAfter(parents, payload, on, delay, cancellationToken);
+
+			public new global::System.Threading.Tasks.ValueTask<global::Immediate.Jobs.Shared.JobHandle> ScheduleAfter(
+				global::Immediate.Jobs.Shared.BatchHandle parent,
+				global::Example.SendEmailJob.Payload payload,
+				global::Immediate.Jobs.Shared.ContinuationTrigger on = global::Immediate.Jobs.Shared.ContinuationTrigger.AllSucceeded,
+				global::System.TimeSpan? delay = null,
+				global::System.Threading.CancellationToken cancellationToken = default) =>
+				base.ScheduleAfter(parent, payload, on, delay, cancellationToken);
+
+			public new global::System.Threading.Tasks.ValueTask<global::Immediate.Jobs.Shared.JobHandle> ScheduleAfter(
+				global::Immediate.Jobs.Shared.JobDetails current,
+				global::Example.SendEmailJob.Payload payload,
+				global::Immediate.Jobs.Shared.ContinuationOptions options = global::Immediate.Jobs.Shared.ContinuationOptions.BeforeContinuations,
+				global::System.Threading.CancellationToken cancellationToken = default) =>
+				base.ScheduleAfter(current, payload, options, cancellationToken);
+
+			public new global::System.Threading.Tasks.ValueTask<global::Immediate.Jobs.Shared.JobHandle> AddToBatch(
+				global::Immediate.Jobs.Shared.JobDetails current,
+				global::Example.SendEmailJob.Payload payload,
+				global::Immediate.Jobs.Shared.ContinuationOptions options = global::Immediate.Jobs.Shared.ContinuationOptions.BeforeContinuations,
+				global::System.Threading.CancellationToken cancellationToken = default) =>
+				base.AddToBatch(current, payload, options, cancellationToken);
 		}
 
 
@@ -40,8 +92,9 @@ public partial class SendEmailJob
 					execution.Record.QueueName,
 					execution.Record.Attempt,
 					execution.Record.CreatedAt,
-					execution.Record.DueAt
-				)
+					execution.Record.DueAt,
+					execution.Record.BatchId
+				) { Buffer = execution.Buffer }
 			);
 
 			var handler = global::Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetRequiredService<global::Example.SendEmailJob.Handler>(scopedServices);

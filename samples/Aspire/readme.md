@@ -4,7 +4,11 @@ This sample composes an ASP.NET Core API and PostgreSQL with .NET Aspire. Immedi
 
 The AppHost gives PostgreSQL a named data volume and persists its generated password through its user-secrets identity, so database contents and credentials remain aligned across AppHost restarts.
 
-The Aspire dashboard shows resource health, structured logs, traces, and the `Immediate.Jobs` metrics. The API's `/jobs` dashboard complements it with job history, recurring schedules, retry, and deletion operations. A code-defined `aspire-heartbeat` job runs at second zero of every minute so the dashboards have recurring activity to display without manual requests.
+The Aspire dashboard shows resource health, structured logs, traces, and the `Immediate.Jobs`
+metrics. The API's `/jobs` dashboard complements it with job history, recurring schedules, batch
+progress, workflow graphs, retry, cancellation, and deletion operations. A code-defined
+`aspire-heartbeat` job runs at second zero of every minute so the dashboards have recurring activity
+to display without manual requests.
 
 ## Run it
 
@@ -14,15 +18,29 @@ Prerequisites are the .NET 10 SDK and a Docker-compatible container runtime.
 dotnet run --project samples/Aspire/AppHost/Immediate.Jobs.Aspire.AppHost.csproj
 ```
 
-Open the Aspire dashboard URL printed in the console, then select the `jobs-api` endpoint. It opens Scalar at `/scalar`, where you can expand `POST /api/greetings/{name}`, enter a name, and select **Send API Request**. The generated scheduler captures the request IP address and User-Agent through `RequestContextExtractor`; the worker restores them into its execution scope before the greeting handler runs.
+Open the Aspire dashboard URL printed in the console, then select the `jobs-api` endpoint. It opens
+Scalar at `/scalar`. `POST /api/greetings/{name}` demonstrates captured request context.
+`POST /api/order-fulfillment-batches` creates an atomic ten-job workflow with chains, parallel
+inventory/fraud/payment work, two fan-in joins, and an `AllComplete` audit continuation. While the
+fraud-check member runs, it uses its `JobDetails` to schedule a retry-safe eleventh member before the
+fulfillment join. The response contains the batch ID, initial and expected job counts, and dashboard
+URL.
 
 The raw OpenAPI document is available at `/openapi/v1.json`. You can also enqueue work from a terminal using the endpoint displayed by Aspire:
 
 ```console
 curl -X POST http://localhost:<port>/api/greetings/Ada
+curl -X POST http://localhost:<port>/api/order-fulfillment-batches
 ```
 
-Open `http://localhost:<port>/jobs` for the Immediate.Jobs dashboard, find the greeting job, and expand **Details** to inspect its persisted `http-request` context envelope. The **Recurring** tab lists `aspire-heartbeat`, configured by `[Job(Cron = "0 * * * * *")]`. In the Aspire dashboard, inspect the `jobs-api` resource's logs to see both the restored IP address and User-Agent and the once-per-minute heartbeat, along with traces, metrics, and health checks. The enqueue HTTP trace is linked to the background job execution activity.
+Open `http://localhost:<port>/jobs` for the Immediate.Jobs dashboard. The **Batches** tab shows the
+order workflow progressing through its real dependency graph; select any node for payload, timing,
+attempt, and error details. Watch for `order-record-fraud-assessment` appearing dynamically after
+the fraud check succeeds. The **Jobs** tab pages on the server in groups of 50 and links each batch
+member back to its workflow. The **Recurring** tab lists `aspire-heartbeat`, configured by
+`[Job(Cron = "0 * * * * *")]`. In the Aspire dashboard, inspect the `jobs-api` resource's logs to see
+the order steps, restored request context, once-per-minute heartbeat, traces, metrics, and health
+checks.
 
 The sample calls `UseSingleServer()` explicitly. Removing that line produces the same topology because selecting a durable EF Core provider defaults to single-server mode. Change it to `UseDistributed()` only when running multiple scheduler processes and using PostgreSQL as the coordination authority.
 

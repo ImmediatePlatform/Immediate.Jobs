@@ -80,19 +80,87 @@ public static class ImmediateJobsDashboardEndpointRouteBuilderExtensions
 			CancellationToken cancellationToken
 		) =>
 		{
+			var pageSize = Math.Clamp(take ?? 50, 1, 200);
+			var pageStart = Math.Max(0, skip ?? 0);
 			var query = new JobQuery
 			{
 				State = state,
 				QueueName = queue,
 				Search = search,
-				Skip = Math.Max(0, skip ?? 0),
-				Take = Math.Clamp(take ?? 100, 1, 500),
+				Skip = pageStart,
+				Take = pageSize + 1,
 			};
 			var jobs = await storage.QueryJobsAsync(query, cancellationToken).ConfigureAwait(false);
-			return Results.Json([.. jobs], DashboardJsonSerializerContext.Default.JobRecordArray);
+			var page = new DashboardJobPage(
+				[.. jobs.Take(pageSize)],
+				pageStart,
+				pageSize,
+				jobs.Count > pageSize
+			);
+			return Results.Json(page, DashboardJsonSerializerContext.Default.DashboardJobPage);
 		});
 
 		_ = api.MapGet("/jobs/{jobId}", GetJobAsync);
+		_ = api.MapGet("/batches", async (
+			IJobStorage storage,
+			BatchState? state,
+			int? skip,
+			int? take,
+			CancellationToken cancellationToken
+		) => Results.Json(
+			[.. await storage.QueryBatchesAsync(new()
+			{
+				State = state,
+				Skip = Math.Max(0, skip ?? 0),
+				Take = Math.Clamp(take ?? 100, 1, 500),
+			}, cancellationToken).ConfigureAwait(false)],
+			DashboardJsonSerializerContext.Default.BatchStatusArray
+		));
+		_ = api.MapGet("/batches/{batchId}", async (
+			string batchId,
+			IJobStorage storage,
+			CancellationToken cancellationToken
+		) => await storage.GetBatchStatusAsync(batchId, cancellationToken).ConfigureAwait(false) is { } status
+			? Results.Json(status, DashboardJsonSerializerContext.Default.BatchStatus)
+			: Results.NotFound());
+		_ = api.MapGet("/batches/{batchId}/members", async (
+			string batchId,
+			IJobStorage storage,
+			JobState? state,
+			int? skip,
+			int? take,
+			CancellationToken cancellationToken
+		) => Results.Json(
+			[.. await storage.QueryBatchMembersAsync(batchId, new()
+			{
+				State = state,
+				Skip = Math.Max(0, skip ?? 0),
+				Take = Math.Clamp(take ?? 100, 1, 500),
+			}, cancellationToken).ConfigureAwait(false)],
+			DashboardJsonSerializerContext.Default.BatchMemberStatusArray
+		));
+		_ = api.MapGet("/batches/{batchId}/graph", async (
+			string batchId,
+			IJobStorage storage,
+			CancellationToken cancellationToken
+		) => await storage.GetBatchGraphAsync(batchId, cancellationToken).ConfigureAwait(false) is { } graph
+			? Results.Json(graph, DashboardJsonSerializerContext.Default.BatchGraph)
+			: Results.NotFound());
+		_ = api.MapGet("/batches/{batchId}/stream", (
+			string batchId,
+			HttpContext context,
+			IJobStorage storage
+		) => StreamBatchEventsAsync(context, batchId, storage, options.UpdateInterval));
+		_ = api.MapPost("/batches/{batchId}/cancel", async (
+			string batchId,
+			IJobStorage storage,
+			CancellationToken cancellationToken
+		) => await MutateBatchAsync(storage.CancelBatchAsync(batchId, cancellationToken)).ConfigureAwait(false));
+		_ = api.MapDelete("/batches/{batchId}", async (
+			string batchId,
+			IJobStorage storage,
+			CancellationToken cancellationToken
+		) => await MutateBatchAsync(storage.DeleteBatchAsync(batchId, cancellationToken)).ConfigureAwait(false));
 		_ = api.MapGet("/recurring", async (IJobStorage storage, CancellationToken cancellationToken) =>
 		{
 			var snapshot = await storage.GetMonitoringSnapshotAsync(cancellationToken).ConfigureAwait(false);
@@ -223,6 +291,23 @@ public static class ImmediateJobsDashboardEndpointRouteBuilderExtensions
 		}
 	}
 
+	private static async Task<IResult> MutateBatchAsync(ValueTask operation)
+	{
+		try
+		{
+			await operation.ConfigureAwait(false);
+			return Results.NoContent();
+		}
+		catch (KeyNotFoundException)
+		{
+			return Results.NotFound();
+		}
+		catch (InvalidOperationException exception)
+		{
+			return Results.Problem(detail: exception.Message, statusCode: StatusCodes.Status409Conflict);
+		}
+	}
+
 	private static async Task StreamEventsAsync(
 		HttpContext context,
 		IJobStorage storage,
@@ -244,7 +329,9 @@ public static class ImmediateJobsDashboardEndpointRouteBuilderExtensions
 			{
 				var snapshot = await storage.GetMonitoringSnapshotAsync(cancellationToken).ConfigureAwait(false);
 				var jobs = await storage.QueryJobsAsync(new() { Take = 100 }, cancellationToken).ConfigureAwait(false);
-				var state = new DashboardState(snapshot, [.. jobs]);
+				var batches = await storage.QueryBatchesAsync(new() { Take = 100 }, cancellationToken)
+					.ConfigureAwait(false);
+				var state = new DashboardState(snapshot, [.. jobs], [.. batches]);
 				var json = JsonSerializer.Serialize(state, DashboardJsonSerializerContext.Default.DashboardState);
 				await context.Response.WriteAsync(
 					"id: " + snapshot.CapturedAt.ToUnixTimeMilliseconds().ToString(CultureInfo.InvariantCulture) + "\n",
@@ -253,6 +340,64 @@ public static class ImmediateJobsDashboardEndpointRouteBuilderExtensions
 				await context.Response.WriteAsync("event: state\ndata: " + json + "\n\n", cancellationToken)
 					.ConfigureAwait(false);
 				await context.Response.Body.FlushAsync(cancellationToken).ConfigureAwait(false);
+				await Task.Delay(interval, cancellationToken).ConfigureAwait(false);
+			}
+		}
+		catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+		{
+		}
+	}
+
+	private static async Task StreamBatchEventsAsync(
+		HttpContext context,
+		string batchId,
+		IJobStorage storage,
+		TimeSpan interval
+	)
+	{
+		var cancellationToken = context.RequestAborted;
+		var status = await storage.GetBatchStatusAsync(batchId, cancellationToken).ConfigureAwait(false);
+		if (status is null)
+		{
+			context.Response.StatusCode = StatusCodes.Status404NotFound;
+			return;
+		}
+
+		context.Response.StatusCode = StatusCodes.Status200OK;
+		context.Response.ContentType = "text/event-stream";
+		context.Response.Headers.CacheControl = "no-cache, no-store";
+		context.Response.Headers.Append("X-Accel-Buffering", "no");
+		string? previousState = null;
+
+		try
+		{
+			await context.Response.WriteAsync("retry: 3000\n\n", cancellationToken).ConfigureAwait(false);
+			await context.Response.Body.FlushAsync(cancellationToken).ConfigureAwait(false);
+
+			while (!cancellationToken.IsCancellationRequested)
+			{
+				status = await storage.GetBatchStatusAsync(batchId, cancellationToken).ConfigureAwait(false);
+				var graph = await storage.GetBatchGraphAsync(batchId, cancellationToken).ConfigureAwait(false);
+				if (status is null || graph is null)
+					break;
+
+				var statusJson = JsonSerializer.Serialize(status, DashboardJsonSerializerContext.Default.BatchStatus);
+				var graphJson = JsonSerializer.Serialize(graph, DashboardJsonSerializerContext.Default.BatchGraph);
+				var currentState = statusJson + graphJson;
+				if (!string.Equals(previousState, currentState, StringComparison.Ordinal))
+				{
+					var eventId = TimeProvider.System.GetUtcNow().ToUnixTimeMilliseconds()
+						.ToString(CultureInfo.InvariantCulture);
+					await context.Response.WriteAsync("id: " + eventId + "\n", cancellationToken)
+						.ConfigureAwait(false);
+					await context.Response.WriteAsync("event: status\ndata: " + statusJson + "\n\n", cancellationToken)
+						.ConfigureAwait(false);
+					await context.Response.WriteAsync("event: graph\ndata: " + graphJson + "\n\n", cancellationToken)
+						.ConfigureAwait(false);
+					await context.Response.Body.FlushAsync(cancellationToken).ConfigureAwait(false);
+					previousState = currentState;
+				}
+
 				await Task.Delay(interval, cancellationToken).ConfigureAwait(false);
 			}
 		}

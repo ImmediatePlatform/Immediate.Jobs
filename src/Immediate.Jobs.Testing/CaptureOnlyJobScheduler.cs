@@ -15,11 +15,11 @@ public class CaptureOnlyJobScheduler<TPayload>(TimeProvider? timeProvider = null
 	public ScheduledJobCapture<TPayload>? Last => _captures.Count == 0 ? null : _captures[^1];
 
 	/// <inheritdoc />
-	public virtual ValueTask<string> Enqueue(TPayload payload, CancellationToken cancellationToken = default) =>
+	public virtual ValueTask<JobHandle> Enqueue(TPayload payload, CancellationToken cancellationToken = default) =>
 		Capture(payload, _timeProvider.GetUtcNow(), cancellationToken);
 
 	/// <inheritdoc />
-	public virtual ValueTask<string> Schedule(
+	public virtual ValueTask<JobHandle> Schedule(
 		TPayload payload,
 		TimeSpan delay,
 		CancellationToken cancellationToken = default
@@ -31,7 +31,7 @@ public class CaptureOnlyJobScheduler<TPayload>(TimeProvider? timeProvider = null
 	}
 
 	/// <inheritdoc />
-	public virtual ValueTask<string> ScheduleAt(
+	public virtual ValueTask<JobHandle> ScheduleAt(
 		TPayload payload,
 		DateTimeOffset runAt,
 		CancellationToken cancellationToken = default
@@ -43,12 +43,12 @@ public class CaptureOnlyJobScheduler<TPayload>(TimeProvider? timeProvider = null
 	/// <summary>Creates invocation identifiers. Override when a test requires predictable identifiers.</summary>
 	protected virtual string CreateId() => Guid.NewGuid().ToString("N");
 
-	private ValueTask<string> Capture(TPayload payload, DateTimeOffset runAt, CancellationToken cancellationToken)
+	private ValueTask<JobHandle> Capture(TPayload payload, DateTimeOffset runAt, CancellationToken cancellationToken)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
 		var id = CreateId();
 		_captures.Add(new(id, payload, runAt));
-		return ValueTask.FromResult(id);
+		return ValueTask.FromResult(new JobHandle(id));
 	}
 }
 

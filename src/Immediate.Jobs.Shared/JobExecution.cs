@@ -15,7 +15,8 @@ public interface IJobInvoker
 public sealed record JobExecution(
 	JobRecord Record,
 	JobDefinition Definition,
-	CancellationToken CancellationToken
+	CancellationToken CancellationToken,
+	JobExecutionBuffer? Buffer = null
 );
 
 /// <summary>Pluggable payload serialization. The default implementation uses System.Text.Json.</summary>

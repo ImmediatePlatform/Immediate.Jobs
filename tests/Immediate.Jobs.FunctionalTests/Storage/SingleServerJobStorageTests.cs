@@ -84,6 +84,73 @@ public sealed class SingleServerJobStorageTests
 	}
 
 	[Fact]
+	public async Task ChainedBatchesRestoreParentBeforeFollowUpBatch()
+	{
+		var cancellationToken = TestContext.Current.CancellationToken;
+		var timeProvider = new FakeTimeProvider(DateTimeOffset.UnixEpoch);
+		var durable = new InMemoryJobStorage(timeProvider);
+		var parentJob = CreateJob(timeProvider.GetUtcNow()) with
+		{
+			Id = "parent-job",
+			BatchId = "parent-batch",
+			State = JobState.Succeeded,
+			CompletedAt = timeProvider.GetUtcNow(),
+		};
+		await durable.EnqueueBatchAsync(
+			new()
+			{
+				Id = "parent-batch",
+				CreatedAt = timeProvider.GetUtcNow(),
+				TotalJobs = 1,
+				PendingCount = 0,
+				SucceededCount = 1,
+				CompletedAt = timeProvider.GetUtcNow(),
+				State = BatchState.Succeeded,
+			},
+			[parentJob],
+			[],
+			cancellationToken
+		);
+
+		var childJob = CreateJob(timeProvider.GetUtcNow()) with
+		{
+			Id = "child-job",
+			BatchId = "child-batch",
+			State = JobState.AwaitingContinuation,
+			RemainingDependencies = 1,
+		};
+		await durable.EnqueueBatchAsync(
+			new()
+			{
+				Id = "child-batch",
+				CreatedAt = timeProvider.GetUtcNow().AddTicks(1),
+				TotalJobs = 1,
+				PendingCount = 1,
+				State = BatchState.Executing,
+			},
+			[childJob],
+			[new()
+			{
+				ChildJobId = childJob.Id,
+				ParentBatchId = "parent-batch",
+			}],
+			cancellationToken
+		);
+
+		using var restartedProcess = new SingleServerJobStorage(durable, timeProvider);
+		await restartedProcess.InitializeAsync(cancellationToken);
+
+		var graph = Assert.IsType<BatchGraph>(
+			await restartedProcess.GetBatchGraphAsync("child-batch", cancellationToken)
+		);
+		Assert.Equal("parent-batch", Assert.Single(graph.Edges).ParentBatchId);
+		Assert.Equal(
+			childJob.Id,
+			Assert.Single(await restartedProcess.AcquireDueJobsAsync(CreateRequest("restarted"), cancellationToken)).Id
+		);
+	}
+
+	[Fact]
 	public async Task CodeDefinedScheduleCannotBeReplacedByDynamicScheduleInMemory()
 	{
 		var cancellationToken = TestContext.Current.CancellationToken;

@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.Diagnostics;
+using Microsoft.CodeAnalysis.Operations;
 
 namespace Immediate.Jobs.Analyzers;
 
@@ -24,7 +25,8 @@ public sealed class ImmediateJobsAnalyzer : DiagnosticAnalyzer
 			DiagnosticDescriptors.InvalidQueueTarget,
 			DiagnosticDescriptors.DuplicateQueueName,
 			DiagnosticDescriptors.InvalidContextExtractor,
-			DiagnosticDescriptors.UnsupportedContext
+			DiagnosticDescriptors.UnsupportedContext,
+			DiagnosticDescriptors.DetachedMidJobBatchAddition
 		);
 
 	/// <inheritdoc />
@@ -34,6 +36,27 @@ public sealed class ImmediateJobsAnalyzer : DiagnosticAnalyzer
 		context.ConfigureGeneratedCodeAnalysis(GeneratedCodeAnalysisFlags.None);
 		context.EnableConcurrentExecution();
 		context.RegisterCompilationAction(AnalyzeCompilation);
+		context.RegisterOperationAction(AnalyzeInvocation, OperationKind.Invocation);
+	}
+
+	private static void AnalyzeInvocation(OperationAnalysisContext context)
+	{
+		var invocation = (IInvocationOperation)context.Operation;
+		if (invocation.TargetMethod.Name != "AddToBatch" || invocation.Arguments.Length == 0)
+			return;
+		if (invocation.Arguments[0].Parameter?.Type.ToDisplayString() != "Immediate.Jobs.Shared.JobDetails")
+			return;
+
+		var options = invocation.Arguments.FirstOrDefault(argument =>
+			argument.Parameter?.Type.ToDisplayString() == "Immediate.Jobs.Shared.ContinuationOptions");
+		if (options is null || options.IsImplicit ||
+			options.Value.ConstantValue is not { HasValue: true, Value: 0 })
+			return;
+
+		context.ReportDiagnostic(Diagnostic.Create(
+			DiagnosticDescriptors.DetachedMidJobBatchAddition,
+			options.Syntax.GetLocation()
+		));
 	}
 
 	private static void AnalyzeCompilation(CompilationAnalysisContext context)

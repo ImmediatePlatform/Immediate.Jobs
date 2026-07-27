@@ -48,6 +48,7 @@ public sealed class JobTestHarness : IAsyncDisposable, IDisposable
 
 		Services = _serviceProvider;
 		Storage = _serviceProvider.GetRequiredService<IJobStorage>();
+		Batches = new JobBatchScheduler(Storage, TimeProvider);
 		Scheduler = _serviceProvider.GetRequiredService<JobSchedulerService>();
 	}
 
@@ -59,6 +60,9 @@ public sealed class JobTestHarness : IAsyncDisposable, IDisposable
 
 	/// <summary>The in-memory durable-state abstraction.</summary>
 	public IJobStorage Storage { get; }
+
+	/// <summary>Builds atomic batches against the harness storage and fake clock.</summary>
+	public IJobBatchScheduler Batches { get; }
 
 	/// <summary>The production scheduler runner hosted by the harness.</summary>
 	public JobSchedulerService Scheduler { get; }
@@ -106,6 +110,10 @@ public sealed class JobTestHarness : IAsyncDisposable, IDisposable
 			?? throw new JobTestAssertionException($"Expected job '{jobId}' to have been enqueued, but it was not found.");
 	}
 
+	/// <summary>Finds an invocation returned by a typed scheduler call.</summary>
+	public ValueTask<JobRecord> GetJobAsync(JobHandle job, CancellationToken cancellationToken = default) =>
+		GetJobAsync(job.Id, cancellationToken);
+
 	/// <summary>Asserts and deserializes the invocation returned by a typed scheduler call.</summary>
 	public async ValueTask<EnqueuedJob<TPayload>> AssertEnqueuedAsync<TPayload>(
 		string jobId,
@@ -134,6 +142,71 @@ public sealed class JobTestHarness : IAsyncDisposable, IDisposable
 		}
 
 		return new(job, payload);
+	}
+
+	/// <summary>Asserts and deserializes the invocation returned by a typed scheduler call.</summary>
+	public ValueTask<EnqueuedJob<TPayload>> AssertEnqueuedAsync<TPayload>(
+		JobHandle job,
+		JobState? expectedState = null,
+		CancellationToken cancellationToken = default
+	) => AssertEnqueuedAsync<TPayload>(job.Id, expectedState, cancellationToken);
+
+	/// <summary>Asserts that a committed batch and exactly the expected number of members are visible together.</summary>
+	public async ValueTask AssertBatchCommittedAtomically(
+		BatchHandle batch,
+		int expectedMembers,
+		CancellationToken cancellationToken = default
+	)
+	{
+		ArgumentNullException.ThrowIfNull(batch);
+		var status = await Storage.GetBatchStatusAsync(batch.Id, cancellationToken).ConfigureAwait(false)
+			?? throw new JobTestAssertionException($"Expected batch '{batch.Id}' to be committed, but it was not found.");
+		var members = await Storage.QueryBatchMembersAsync(
+			batch.Id,
+			new() { Take = Math.Max(1, expectedMembers + 1) },
+			cancellationToken
+		).ConfigureAwait(false);
+		if (status.Total != expectedMembers || members.Count != expectedMembers)
+		{
+			throw new JobTestAssertionException(
+				$"Expected batch '{batch.Id}' to contain {expectedMembers} jobs, but its header reports {status.Total} and {members.Count} members were found."
+			);
+		}
+	}
+
+	/// <summary>Asserts that the child has a persisted dependency on the supplied parent.</summary>
+	public async ValueTask AssertContinuationReleasedAfter(
+		JobHandle parent,
+		JobHandle child,
+		CancellationToken cancellationToken = default
+	)
+	{
+		var childStatus = await Storage.GetJobStatusAsync(child.Id, cancellationToken).ConfigureAwait(false)
+			?? throw new JobTestAssertionException($"Expected continuation '{child.Id}', but it was not found.");
+		if (!childStatus.DependsOn.Any(edge => edge.ParentJobId == parent.Id))
+		{
+			throw new JobTestAssertionException(
+				$"Expected job '{child.Id}' to depend on '{parent.Id}', but no such edge was persisted."
+			);
+		}
+
+		if (childStatus.State == JobState.AwaitingContinuation)
+			throw new JobTestAssertionException($"Expected continuation '{child.Id}' to be released, but it is still waiting.");
+	}
+
+	/// <summary>Asserts that every supplied invocation was cancelled by a dependency cascade.</summary>
+	public async ValueTask AssertCascadeCancelled(
+		IReadOnlyCollection<JobHandle> subtree,
+		CancellationToken cancellationToken = default
+	)
+	{
+		ArgumentNullException.ThrowIfNull(subtree);
+		foreach (var handle in subtree)
+		{
+			var job = await GetJobAsync(handle, cancellationToken).ConfigureAwait(false);
+			if (job.State != JobState.Cancelled)
+				throw new JobTestAssertionException($"Expected job '{handle.Id}' to be cascade-cancelled, but it was {job.State}.");
+		}
 	}
 
 	/// <summary>Runs one generated invoker, including its compile-time behavior pipeline, outside durable state.</summary>

@@ -17,7 +17,59 @@ public partial class CleanupSessionsJob
 			global::Immediate.Jobs.Shared.IRecurringJobTrigger
 		{
 
-			public global::System.Threading.Tasks.ValueTask<string> TriggerNow(global::System.Threading.CancellationToken cancellationToken = default) =>
+			public new global::System.Threading.Tasks.ValueTask<global::Immediate.Jobs.Shared.JobHandle> AddToBatch(
+				global::Immediate.Jobs.Shared.IJobBatch batch,
+				global::Immediate.Jobs.Shared.NoPayload payload,
+				global::System.TimeSpan? delay = null,
+				global::System.Threading.CancellationToken cancellationToken = default) =>
+				base.AddToBatch(batch, payload, delay, cancellationToken);
+
+			public new global::System.Threading.Tasks.ValueTask<global::Immediate.Jobs.Shared.JobHandle> AddToBatchAt(
+				global::Immediate.Jobs.Shared.IJobBatch batch,
+				global::Immediate.Jobs.Shared.NoPayload payload,
+				global::System.DateTimeOffset runAt,
+				global::System.Threading.CancellationToken cancellationToken = default) =>
+				base.AddToBatchAt(batch, payload, runAt, cancellationToken);
+
+			public new global::System.Threading.Tasks.ValueTask<global::Immediate.Jobs.Shared.JobHandle> ScheduleAfter(
+				global::Immediate.Jobs.Shared.JobHandle parent,
+				global::Immediate.Jobs.Shared.NoPayload payload,
+				global::Immediate.Jobs.Shared.ContinuationTrigger on = global::Immediate.Jobs.Shared.ContinuationTrigger.AllSucceeded,
+				global::System.TimeSpan? delay = null,
+				global::System.Threading.CancellationToken cancellationToken = default) =>
+				base.ScheduleAfter(parent, payload, on, delay, cancellationToken);
+
+			public new global::System.Threading.Tasks.ValueTask<global::Immediate.Jobs.Shared.JobHandle> ScheduleAfter(
+				global::System.ReadOnlySpan<global::Immediate.Jobs.Shared.JobHandle> parents,
+				global::Immediate.Jobs.Shared.NoPayload payload,
+				global::Immediate.Jobs.Shared.ContinuationTrigger on = global::Immediate.Jobs.Shared.ContinuationTrigger.AllSucceeded,
+				global::System.TimeSpan? delay = null,
+				global::System.Threading.CancellationToken cancellationToken = default) =>
+				base.ScheduleAfter(parents, payload, on, delay, cancellationToken);
+
+			public new global::System.Threading.Tasks.ValueTask<global::Immediate.Jobs.Shared.JobHandle> ScheduleAfter(
+				global::Immediate.Jobs.Shared.BatchHandle parent,
+				global::Immediate.Jobs.Shared.NoPayload payload,
+				global::Immediate.Jobs.Shared.ContinuationTrigger on = global::Immediate.Jobs.Shared.ContinuationTrigger.AllSucceeded,
+				global::System.TimeSpan? delay = null,
+				global::System.Threading.CancellationToken cancellationToken = default) =>
+				base.ScheduleAfter(parent, payload, on, delay, cancellationToken);
+
+			public new global::System.Threading.Tasks.ValueTask<global::Immediate.Jobs.Shared.JobHandle> ScheduleAfter(
+				global::Immediate.Jobs.Shared.JobDetails current,
+				global::Immediate.Jobs.Shared.NoPayload payload,
+				global::Immediate.Jobs.Shared.ContinuationOptions options = global::Immediate.Jobs.Shared.ContinuationOptions.BeforeContinuations,
+				global::System.Threading.CancellationToken cancellationToken = default) =>
+				base.ScheduleAfter(current, payload, options, cancellationToken);
+
+			public new global::System.Threading.Tasks.ValueTask<global::Immediate.Jobs.Shared.JobHandle> AddToBatch(
+				global::Immediate.Jobs.Shared.JobDetails current,
+				global::Immediate.Jobs.Shared.NoPayload payload,
+				global::Immediate.Jobs.Shared.ContinuationOptions options = global::Immediate.Jobs.Shared.ContinuationOptions.BeforeContinuations,
+				global::System.Threading.CancellationToken cancellationToken = default) =>
+				base.AddToBatch(current, payload, options, cancellationToken);
+
+			public global::System.Threading.Tasks.ValueTask<global::Immediate.Jobs.Shared.JobHandle> TriggerNow(global::System.Threading.CancellationToken cancellationToken = default) =>
 				Enqueue(default, cancellationToken);
 		}
 
@@ -41,8 +93,9 @@ public partial class CleanupSessionsJob
 					execution.Record.QueueName,
 					execution.Record.Attempt,
 					execution.Record.CreatedAt,
-					execution.Record.DueAt
-				)
+					execution.Record.DueAt,
+					execution.Record.BatchId
+				) { Buffer = execution.Buffer }
 			);
 
 			var handler = global::Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetRequiredService<global::CleanupSessionsJob.Handler>(scopedServices);

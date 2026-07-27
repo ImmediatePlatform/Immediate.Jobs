@@ -5,6 +5,10 @@ namespace Immediate.Jobs.Shared;
 /// <summary>The durable lifecycle state of a job.</summary>
 public enum JobState
 {
+	/// <summary>The job is parked until all continuation dependencies are satisfied.</summary>
+	AwaitingContinuation,
+	/// <summary>Reserved for jobs parked until required inputs are supplied.</summary>
+	AwaitingParameters,
 	/// <summary>The job is delayed until its due time.</summary>
 	Scheduled,
 	/// <summary>The job is ready for acquisition.</summary>
@@ -69,6 +73,12 @@ public sealed record JobRecord
 
 	/// <summary>W3C trace state captured while enqueueing.</summary>
 	public string? TraceState { get; init; }
+
+	/// <summary>The atomic batch containing this invocation, if any.</summary>
+	public string? BatchId { get; init; }
+
+	/// <summary>Number of incoming continuation dependencies not yet satisfied.</summary>
+	public int RemainingDependencies { get; init; }
 }
 
 /// <summary>A persisted recurring schedule.</summary>

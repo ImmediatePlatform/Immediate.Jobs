@@ -54,7 +54,7 @@ public sealed class GeneratedJobTests
 
 		Assert.Equal(["before:hello", "job:hello", "after:hello"], state.Events);
 		var details = Assert.Single(state.Details);
-		Assert.Equal(id, details.JobId);
+		Assert.Equal(id.Id, details.JobId);
 		Assert.Equal("record-message", details.JobName);
 		Assert.Equal("messages", details.QueueName);
 		Assert.Equal(1, details.Attempt);
@@ -88,7 +88,7 @@ public sealed class GeneratedJobTests
 		Assert.Equal(JobState.Succeeded, completed.State);
 		Assert.Equal(2, completed.Attempt);
 		Assert.Equal([1, 2], state.Details
-			.Where(details => details.JobId == id)
+			.Where(details => details.JobId == id.Id)
 			.Select(details => details.Attempt));
 	}
 
@@ -111,7 +111,7 @@ public sealed class GeneratedJobTests
 		await harness.DrainAsync(TestContext.Current.CancellationToken);
 
 		Assert.Equal(["before:7", "job:7", "after:7"], state.Events);
-		Assert.Equal(id, Assert.Single(state.Details).JobId);
+		Assert.Equal(id.Id, Assert.Single(state.Details).JobId);
 	}
 
 	[Fact]

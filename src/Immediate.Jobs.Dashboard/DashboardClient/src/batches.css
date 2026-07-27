@@ -1,0 +1,172 @@
+.batch-progress-cell {
+  min-width: 220px;
+}
+
+.batch-progress {
+  display: flex;
+  width: 100%;
+  height: 9px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #253147;
+}
+
+.batch-progress span {
+  height: 100%;
+  transition: width 0.25s ease;
+}
+
+.batch-progress .succeeded {
+  background: var(--accent);
+}
+
+.batch-progress .failed {
+  background: var(--danger);
+}
+
+.batch-progress .cancelled {
+  background: #778399;
+}
+
+.batch-progress .remaining {
+  background: var(--warn);
+  opacity: 0.5;
+}
+
+.workflow-title {
+  margin-top: 28px;
+}
+
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.pagination span,
+.muted {
+  color: var(--muted);
+}
+
+.pagination button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.workflow-scroll {
+  min-height: 260px;
+  max-height: min(60vh, 620px);
+  overflow: auto;
+  scrollbar-gutter: stable;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #0b121e;
+}
+
+.workflow {
+  display: block;
+}
+
+.workflow-edge {
+  fill: none;
+  stroke: #71819a;
+  stroke-width: 1.5;
+}
+
+.workflow-edge.dashed {
+  stroke-dasharray: 6 5;
+}
+
+.workflow marker path {
+  fill: #71819a;
+}
+
+.workflow-node {
+  cursor: pointer;
+}
+
+.workflow-node rect {
+  fill: #182235;
+  stroke: #3b4d68;
+  stroke-width: 1.5;
+}
+
+.workflow-node text {
+  fill: #e5e7eb;
+  font-size: 12px;
+  font-weight: 600;
+  pointer-events: none;
+}
+
+.workflow-node .node-state {
+  fill: var(--muted);
+  font-size: 10px;
+  font-weight: 400;
+}
+
+.workflow-node.succeeded rect {
+  stroke: var(--accent);
+}
+
+.workflow-node.failed rect {
+  stroke: var(--danger);
+}
+
+.workflow-node.cancelled {
+  opacity: 0.48;
+}
+
+.workflow-node.active rect {
+  stroke: #77b7ff;
+  animation: workflow-pulse 1.5s infinite;
+}
+
+.workflow-node:focus {
+  outline: none;
+}
+
+.workflow-node:focus rect,
+.workflow-node:hover rect {
+  stroke-width: 3;
+}
+
+.workflow-detail {
+  margin-top: 12px;
+}
+
+.workflow-detail > strong {
+  margin-right: 12px;
+}
+
+.workflow-detail dl {
+  display: grid;
+  grid-template-columns: 2fr 1fr 1fr;
+  gap: 10px;
+}
+
+.workflow-detail dt {
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+}
+
+.workflow-detail dd {
+  margin: 4px 0;
+}
+
+.workflow-detail pre {
+  max-height: 220px;
+  overflow: auto;
+  padding: 12px;
+  border-radius: 8px;
+  color: #ffacbb;
+  background: #09101b;
+}
+
+@keyframes workflow-pulse {
+  50% {
+    filter: drop-shadow(0 0 5px #77b7ff);
+  }
+}

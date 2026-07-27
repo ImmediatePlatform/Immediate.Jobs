@@ -17,8 +17,14 @@ public sealed record JobDetails(
 	string QueueName,
 	int Attempt,
 	DateTimeOffset CreatedAt,
-	DateTimeOffset ScheduledAt
-);
+	DateTimeOffset ScheduledAt,
+	string? BatchId = null
+)
+{
+	/// <summary>Runtime continuation buffer for the current attempt.</summary>
+	[System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
+	public JobExecutionBuffer? Buffer { get; init; }
+}
 
 /// <summary>Marker request for jobs whose handler does not otherwise require input.</summary>
 public record struct NoPayload : IJobRequest

@@ -16,7 +16,7 @@ public sealed class ContextPropagationTests
 		var probe = new ContextProbe();
 		await using var harness = CreateHarness(probe);
 
-		string id;
+		JobHandle id;
 		await using (var scope = harness.Services.CreateAsyncScope())
 		{
 			var ambient = scope.ServiceProvider.GetRequiredService<PropagationScopeState>();
@@ -67,7 +67,7 @@ public sealed class ContextPropagationTests
 	{
 		var cancellationToken = TestContext.Current.CancellationToken;
 		await using var harness = CreateHarness(new());
-		string id;
+		JobHandle id;
 		await using (var scope = harness.Services.CreateAsyncScope())
 		{
 			var scheduler = scope.ServiceProvider.GetRequiredService<RestoreFailureJob.Scheduler>();
@@ -445,7 +445,7 @@ public sealed class ScopedSchedulerConsumer(IServiceScopeFactory scopeFactory)
 		state.TenantId = "singleton-tenant";
 		state.CorrelationId = "singleton-correlation";
 		var scheduler = scope.ServiceProvider.GetRequiredService<ContextRoundTripJob.Scheduler>();
-		return await scheduler.Enqueue(new("singleton"), cancellationToken);
+		return (await scheduler.Enqueue(new("singleton"), cancellationToken)).Id;
 	}
 }
 

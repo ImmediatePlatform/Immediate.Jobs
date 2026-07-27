@@ -9,6 +9,21 @@ public interface IJobStorage
 	/// <summary>Inserts a pending or scheduled invocation.</summary>
 	ValueTask EnqueueAsync(JobRecord job, CancellationToken cancellationToken = default);
 
+	/// <summary>Atomically inserts a child invocation and its continuation dependencies.</summary>
+	ValueTask EnqueueContinuationAsync(
+		JobRecord job,
+		IReadOnlyList<JobContinuationEdge> edges,
+		CancellationToken cancellationToken = default
+	);
+
+	/// <summary>Atomically inserts a batch header, all members, and all dependency edges.</summary>
+	ValueTask EnqueueBatchAsync(
+		JobBatchRecord batch,
+		IReadOnlyList<JobRecord> jobs,
+		IReadOnlyList<JobContinuationEdge> edges,
+		CancellationToken cancellationToken = default
+	);
+
 	/// <summary>Atomically claims due work in the requested queue and job-capacity order.</summary>
 	ValueTask<IReadOnlyList<JobRecord>> AcquireDueJobsAsync(
 		JobAcquisitionRequest request,
@@ -20,6 +35,22 @@ public interface IJobStorage
 
 	/// <summary>Marks an active job successful.</summary>
 	ValueTask CompleteAsync(string jobId, string workerId, CancellationToken cancellationToken = default);
+
+	/// <summary>Marks an active job successful and atomically flushes its gated dynamic continuations.</summary>
+	ValueTask CompleteWithContinuationsAsync(
+		string jobId,
+		string workerId,
+		IReadOnlyList<JobContinuationAddition> additions,
+		CancellationToken cancellationToken = default
+	);
+
+	/// <summary>Immediately adds a concurrent member to the batch of a running job.</summary>
+	ValueTask AddBatchJobAsync(
+		string currentJobId,
+		JobRecord job,
+		ContinuationOptions options,
+		CancellationToken cancellationToken = default
+	);
 
 	/// <summary>Reschedules or dead-letters a failed attempt.</summary>
 	ValueTask FailAsync(
@@ -69,6 +100,34 @@ public interface IJobStorage
 	/// <summary>Returns jobs matching a dashboard query.</summary>
 	ValueTask<IReadOnlyList<JobRecord>> QueryJobsAsync(JobQuery query, CancellationToken cancellationToken = default);
 
+	/// <summary>Gets aggregate progress for one batch.</summary>
+	ValueTask<BatchStatus?> GetBatchStatusAsync(string batchId, CancellationToken cancellationToken = default);
+
+	/// <summary>Queries batch headers for dashboard presentation.</summary>
+	ValueTask<IReadOnlyList<BatchStatus>> QueryBatchesAsync(
+		JobBatchQuery query,
+		CancellationToken cancellationToken = default
+	);
+
+	/// <summary>Queries members of one batch.</summary>
+	ValueTask<IReadOnlyList<BatchMemberStatus>> QueryBatchMembersAsync(
+		string batchId,
+		BatchMemberQuery query,
+		CancellationToken cancellationToken = default
+	);
+
+	/// <summary>Gets the durable dependency graph for one batch.</summary>
+	ValueTask<BatchGraph?> GetBatchGraphAsync(string batchId, CancellationToken cancellationToken = default);
+
+	/// <summary>Gets one job and its incoming dependencies.</summary>
+	ValueTask<JobStatus?> GetJobStatusAsync(string jobId, CancellationToken cancellationToken = default);
+
+	/// <summary>Cancels every non-terminal member of an executing batch.</summary>
+	ValueTask CancelBatchAsync(string batchId, CancellationToken cancellationToken = default);
+
+	/// <summary>Deletes a terminal batch, all of its members, and all related edges.</summary>
+	ValueTask DeleteBatchAsync(string batchId, CancellationToken cancellationToken = default);
+
 	/// <summary>Moves a failed invocation back to pending.</summary>
 	ValueTask RetryAsync(string jobId, CancellationToken cancellationToken = default);
 
@@ -76,7 +135,13 @@ public interface IJobStorage
 	ValueTask DeleteAsync(string jobId, CancellationToken cancellationToken = default);
 
 	/// <summary>Deletes terminal history older than the supplied retention periods.</summary>
-	ValueTask PurgeAsync(TimeSpan succeededRetention, TimeSpan failedRetention, CancellationToken cancellationToken = default);
+	ValueTask PurgeAsync(
+		TimeSpan succeededRetention,
+		TimeSpan failedRetention,
+		TimeSpan batchSucceededRetention,
+		TimeSpan batchFailedRetention,
+		CancellationToken cancellationToken = default
+	);
 
 	/// <summary>Records scheduler liveness for monitoring.</summary>
 	ValueTask HeartbeatAsync(JobServerSnapshot server, CancellationToken cancellationToken = default);

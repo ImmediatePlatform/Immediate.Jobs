@@ -13,6 +13,7 @@ test('renders completed jobs returned by the dashboard API', async () => {
   const { default: JobTable } = await import(moduleUrl);
   const job = {
     id: '86bf8c31-d8e6-415b-8e92-45587a09fc52',
+    batchId: 'batch-42',
     jobName: 'SendGreeting',
     payload: '{"name":"Duke"}',
     context: '{"http-request":{"clientIpAddress":"127.0.0.1","userAgent":"curl/8.7.1"}}',
@@ -32,10 +33,12 @@ test('renders completed jobs returned by the dashboard API', async () => {
 
   assert.match(collapsed, /SendGreeting/);
   assert.match(collapsed, /Succeeded/);
+  assert.match(collapsed, /batch-42/);
   assert.doesNotMatch(collapsed, /Nothing to show yet/);
   assert.doesNotMatch(collapsed, /Payload/);
   assert.doesNotMatch(collapsed, /Context envelope/);
   assert.match(expanded, /Details for SendGreeting/);
+  assert.match(expanded, /Batch/);
   assert.match(expanded, /Payload/);
   assert.match(expanded, /Duke/);
   assert.match(expanded, /Context envelope/);
