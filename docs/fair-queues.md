@@ -43,18 +43,18 @@ Direct enqueue and scheduling operations provide group-aware overloads:
 ```csharp
 ValueTask<JobHandle> EnqueueAsync(
     TPayload payload,
-    CancellationToken cancellationToken,
-    string? groupId);
+    string? groupId,
+    CancellationToken cancellationToken);
 ```
 
 `ScheduleAsync` and `ScheduleAtAsync` use the same argument order. Existing cancellation-token
-overloads remain unchanged, so grouped calls normally name the final argument:
+overloads remain unchanged:
 
 ```csharp
 await scheduler.EnqueueAsync(
     payload,
-    cancellationToken,
-    groupId: tenantId);
+    groupId: tenantId,
+    cancellationToken: cancellationToken);
 ```
 
 The group id is persisted even when fair queues are disabled, but it does not affect acquisition in
