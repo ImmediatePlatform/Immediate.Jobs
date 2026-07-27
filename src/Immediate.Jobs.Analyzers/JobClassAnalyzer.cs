@@ -254,14 +254,14 @@ public sealed class JobClassAnalyzer : DiagnosticAnalyzer
 				);
 			}
 
-			if (!CronValidator.TryValidate(cron, out _))
+			if (!CronValidator.TryValidate(cron, out var cronError))
 			{
 				context.ReportDiagnostic(
 					Diagnostic.Create(
 						CronJobConfigurationInvalid,
 						jobAttribute.Location,
 						context.Symbol.Name,
-						"Cron expression is invalid"
+						$"Cron expression is invalid: {cronError}"
 					)
 				);
 			}
