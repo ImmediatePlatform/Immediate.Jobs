@@ -879,16 +879,14 @@ tbody tr[data-selected="true"] td:first-child {
 
 .detail-list {
 	display: grid;
-	grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
-	gap: 1px;
-	overflow: hidden;
-	border: 1px solid var(--border);
-	border-radius: 8px;
-	background: var(--border);
+	grid-template-columns: repeat(auto-fit, minmax(185px, 1fr));
+	gap: 8px;
 }
 
 .detail-list > div {
 	min-width: 0;
+	border: 1px solid var(--border);
+	border-radius: 7px;
 	background: var(--panel-muted);
 	padding: 9px 10px;
 }
@@ -906,6 +904,21 @@ tbody tr[data-selected="true"] td:first-child {
 	margin: 3px 0 0;
 	overflow-wrap: anywhere;
 	font-size: 11px;
+}
+
+.telemetry-links {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 5px;
+	margin-top: 7px;
+}
+
+.telemetry-links a {
+	min-height: 25px;
+	gap: 4px;
+	padding: 3px 7px;
+	font-size: 9px;
+	text-decoration: none;
 }
 
 .code-section h3 {
@@ -1034,17 +1047,27 @@ tbody tr[data-selected="true"] td:first-child {
 }
 
 .workflow-edge,
+.workflow-fork path,
 .workflow-join path {
 	fill: none;
 	stroke: var(--text-subtle);
 	stroke-width: 1.4;
+	stroke-linecap: round;
+	stroke-linejoin: round;
 	opacity: 0.75;
+	shape-rendering: geometricPrecision;
 }
 
 .workflow-edge.dashed {
 	stroke-dasharray: 6 5;
 }
 
+.workflow-edge.failure {
+	stroke: var(--danger);
+	stroke-dasharray: 2 4;
+}
+
+.workflow-fork circle,
 .workflow-join circle {
 	fill: var(--panel);
 	stroke: var(--text-subtle);

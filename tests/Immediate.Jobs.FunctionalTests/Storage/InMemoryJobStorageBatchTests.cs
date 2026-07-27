@@ -84,11 +84,109 @@ public sealed class InMemoryJobStorageBatchTests
 			{
 				ChildJobId = always.Id,
 				ParentJobId = parent.Id,
-				Trigger = ContinuationTrigger.AllComplete,
+				Trigger = ContinuationTrigger.Complete,
 			}],
 			cancellationToken
 		);
 		Assert.Equal(JobState.Pending, (await GetJobAsync(storage, always.Id, cancellationToken)).State);
+
+		var failureOnly = CreateJob("failure-only") with
+		{
+			State = JobState.AwaitingContinuation,
+			RemainingDependencies = 1,
+		};
+		await storage.EnqueueContinuationAsync(
+			failureOnly,
+			[new()
+			{
+				ChildJobId = failureOnly.Id,
+				ParentJobId = parent.Id,
+				Trigger = ContinuationTrigger.Failure,
+			}],
+			cancellationToken
+		);
+		var released = await GetJobAsync(storage, failureOnly.Id, cancellationToken);
+		Assert.Equal(JobState.Pending, released.State);
+		Assert.Equal(1, released.FailedDependencies);
+	}
+
+	[Fact]
+	public async Task FailureContinuationIsCancelledWhenEveryParentSucceeds()
+	{
+		var cancellationToken = TestContext.Current.CancellationToken;
+		var storage = new InMemoryJobStorage(new FakeTimeProvider(DateTimeOffset.UnixEpoch));
+		var parent = CreateJob("parent");
+		var child = CreateJob("child") with
+		{
+			State = JobState.AwaitingContinuation,
+			RemainingDependencies = 1,
+		};
+		await storage.EnqueueAsync(parent, cancellationToken);
+		await storage.EnqueueContinuationAsync(
+			child,
+			[new()
+			{
+				ChildJobId = child.Id,
+				ParentJobId = parent.Id,
+				Trigger = ContinuationTrigger.Failure,
+			}],
+			cancellationToken
+		);
+		_ = Assert.Single(await storage.AcquireDueJobsAsync(CreateRequest("worker"), cancellationToken));
+
+		await storage.CompleteAsync(parent.Id, "worker", cancellationToken);
+
+		Assert.Equal(JobState.Cancelled, (await GetJobAsync(storage, child.Id, cancellationToken)).State);
+	}
+
+	[Fact]
+	public async Task FailureFanInWaitsForAllParentsAndRunsWhenAnyParentFails()
+	{
+		var cancellationToken = TestContext.Current.CancellationToken;
+		var storage = new InMemoryJobStorage(new FakeTimeProvider(DateTimeOffset.UnixEpoch));
+		var successfulParent = CreateJob("parent") with { Id = "successful-parent" };
+		var failedParent = CreateJob("parent") with { Id = "failed-parent" };
+		var child = CreateJob("child") with
+		{
+			State = JobState.AwaitingContinuation,
+			RemainingDependencies = 2,
+		};
+		await storage.EnqueueAsync(successfulParent, cancellationToken);
+		await storage.EnqueueAsync(failedParent, cancellationToken);
+		await storage.EnqueueContinuationAsync(
+			child,
+			[
+				new()
+				{
+					ChildJobId = child.Id,
+					ParentJobId = successfulParent.Id,
+					Trigger = ContinuationTrigger.Failure,
+				},
+				new()
+				{
+					ChildJobId = child.Id,
+					ParentJobId = failedParent.Id,
+					Trigger = ContinuationTrigger.Failure,
+				},
+			],
+			cancellationToken
+		);
+		var parents = await storage.AcquireDueJobsAsync(CreateRequest("worker"), cancellationToken);
+		Assert.Equal(2, parents.Count);
+
+		await storage.CompleteAsync(successfulParent.Id, "worker", cancellationToken);
+
+		var waiting = await GetJobAsync(storage, child.Id, cancellationToken);
+		Assert.Equal(JobState.AwaitingContinuation, waiting.State);
+		Assert.Equal(1, waiting.RemainingDependencies);
+		Assert.Equal(0, waiting.FailedDependencies);
+
+		await storage.FailAsync(failedParent.Id, "worker", "broken", nextRetryAt: null, cancellationToken);
+
+		var released = await GetJobAsync(storage, child.Id, cancellationToken);
+		Assert.Equal(JobState.Pending, released.State);
+		Assert.Equal(0, released.RemainingDependencies);
+		Assert.Equal(1, released.FailedDependencies);
 	}
 
 	[Fact]

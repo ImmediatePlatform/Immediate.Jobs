@@ -15,11 +15,18 @@ public class CaptureOnlyJobScheduler<TPayload>(TimeProvider? timeProvider = null
 	public ScheduledJobCapture<TPayload>? Last => _captures.Count == 0 ? null : _captures[^1];
 
 	/// <inheritdoc />
-	public virtual ValueTask<JobHandle> Enqueue(TPayload payload, CancellationToken cancellationToken = default) =>
-		Capture(payload, _timeProvider.GetUtcNow(), cancellationToken);
+	public virtual ValueTask<JobHandle> EnqueueAsync(TPayload payload, CancellationToken cancellationToken = default) =>
+		CaptureAsync(payload, _timeProvider.GetUtcNow(), groupId: null, cancellationToken);
 
 	/// <inheritdoc />
-	public virtual ValueTask<JobHandle> Schedule(
+	public virtual ValueTask<JobHandle> EnqueueAsync(
+		TPayload payload,
+		string? groupId,
+		CancellationToken cancellationToken = default
+	) => CaptureAsync(payload, _timeProvider.GetUtcNow(), groupId, cancellationToken);
+
+	/// <inheritdoc />
+	public virtual ValueTask<JobHandle> ScheduleAsync(
 		TPayload payload,
 		TimeSpan delay,
 		CancellationToken cancellationToken = default
@@ -27,15 +34,36 @@ public class CaptureOnlyJobScheduler<TPayload>(TimeProvider? timeProvider = null
 	{
 		if (delay < TimeSpan.Zero)
 			throw new ArgumentOutOfRangeException(nameof(delay), "A job delay cannot be negative.");
-		return Capture(payload, _timeProvider.GetUtcNow() + delay, cancellationToken);
+		return CaptureAsync(payload, _timeProvider.GetUtcNow() + delay, groupId: null, cancellationToken);
 	}
 
 	/// <inheritdoc />
-	public virtual ValueTask<JobHandle> ScheduleAt(
+	public virtual ValueTask<JobHandle> ScheduleAsync(
+		TPayload payload,
+		TimeSpan delay,
+		string? groupId,
+		CancellationToken cancellationToken = default
+	)
+	{
+		if (delay < TimeSpan.Zero)
+			throw new ArgumentOutOfRangeException(nameof(delay), "A job delay cannot be negative.");
+		return CaptureAsync(payload, _timeProvider.GetUtcNow() + delay, groupId, cancellationToken);
+	}
+
+	/// <inheritdoc />
+	public virtual ValueTask<JobHandle> ScheduleAtAsync(
 		TPayload payload,
 		DateTimeOffset runAt,
 		CancellationToken cancellationToken = default
-	) => Capture(payload, runAt, cancellationToken);
+	) => CaptureAsync(payload, runAt, groupId: null, cancellationToken);
+
+	/// <inheritdoc />
+	public virtual ValueTask<JobHandle> ScheduleAtAsync(
+		TPayload payload,
+		DateTimeOffset runAt,
+		string? groupId,
+		CancellationToken cancellationToken = default
+	) => CaptureAsync(payload, runAt, groupId, cancellationToken);
 
 	/// <summary>Clears every captured call.</summary>
 	public void Clear() => _captures.Clear();
@@ -43,14 +71,33 @@ public class CaptureOnlyJobScheduler<TPayload>(TimeProvider? timeProvider = null
 	/// <summary>Creates invocation identifiers. Override when a test requires predictable identifiers.</summary>
 	protected virtual string CreateId() => Guid.NewGuid().ToString("N");
 
-	private ValueTask<JobHandle> Capture(TPayload payload, DateTimeOffset runAt, CancellationToken cancellationToken)
+	private ValueTask<JobHandle> CaptureAsync(
+		TPayload payload,
+		DateTimeOffset runAt,
+		string? groupId,
+		CancellationToken cancellationToken
+	)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		groupId = NormalizeGroupId(groupId);
 		var id = CreateId();
-		_captures.Add(new(id, payload, runAt));
+		_captures.Add(new(id, payload, runAt) { GroupId = groupId });
 		return ValueTask.FromResult(new JobHandle(id));
+	}
+
+	private static string? NormalizeGroupId(string? groupId)
+	{
+		if (string.IsNullOrWhiteSpace(groupId))
+			return null;
+		if (groupId.Length > 128)
+			throw new ArgumentException("A fair queue group id cannot exceed 128 characters.", nameof(groupId));
+		return groupId;
 	}
 }
 
 /// <summary>A captured typed scheduler call.</summary>
-public sealed record ScheduledJobCapture<TPayload>(string Id, TPayload Payload, DateTimeOffset RunAt);
+public sealed record ScheduledJobCapture<TPayload>(string Id, TPayload Payload, DateTimeOffset RunAt)
+{
+	/// <summary>The normalized fair queue group id supplied to the scheduler.</summary>
+	public string? GroupId { get; init; }
+}

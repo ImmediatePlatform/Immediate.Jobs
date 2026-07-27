@@ -16,9 +16,10 @@ public sealed class BatchesAndContinuationsTests
 		await using var scope = harness.Services.CreateAsyncScope();
 		var scheduler = scope.ServiceProvider.GetRequiredService<BatchWorkflowJob.Scheduler>();
 
-		JobHandle handle = await scheduler.Enqueue(new("one"), cancellationToken);
+		JobHandle handle = await scheduler.EnqueueAsync(new("one"), cancellationToken);
 
 		Assert.False(string.IsNullOrWhiteSpace(handle.Id));
+		Assert.True(Guid.TryParseExact(handle.Id, "N", out _));
 		Assert.Equal(handle.Id, (await harness.GetJobAsync(handle.Id, cancellationToken)).Id);
 		Assert.Equal(handle, new JobHandle(handle.Id));
 	}
@@ -35,10 +36,9 @@ public sealed class BatchesAndContinuationsTests
 		JobHandle rolledBack;
 		await using (var batch = batches.Begin())
 		{
-			rolledBack = await scheduler.AddToBatch(
+			rolledBack = scheduler.AddToBatch(
 				batch,
-				new("rolled-back"),
-				cancellationToken: cancellationToken
+				new("rolled-back")
 			);
 			Assert.Empty(await harness.QueryJobsAsync(cancellationToken: cancellationToken));
 		}
@@ -46,16 +46,16 @@ public sealed class BatchesAndContinuationsTests
 		Assert.Empty(await harness.QueryJobsAsync(cancellationToken: cancellationToken));
 
 		await using var committedBatch = batches.Begin();
-		var committed = await scheduler.AddToBatch(
+		var committed = scheduler.AddToBatch(
 			committedBatch,
-			new("committed"),
-			cancellationToken: cancellationToken
+			new("committed")
 		);
 		Assert.Empty(await harness.QueryJobsAsync(cancellationToken: cancellationToken));
 
 		var batchHandle = await committedBatch.CommitAsync(cancellationToken);
 
 		Assert.False(string.IsNullOrWhiteSpace(batchHandle.Id));
+		Assert.True(Guid.TryParseExact(batchHandle.Id, "N", out _));
 		Assert.NotEqual(rolledBack.Id, committed.Id);
 		var job = Assert.Single(await harness.QueryJobsAsync(cancellationToken: cancellationToken));
 		Assert.Equal(committed.Id, job.Id);
@@ -74,11 +74,11 @@ public sealed class BatchesAndContinuationsTests
 		var scheduler = scope.ServiceProvider.GetRequiredService<BatchWorkflowJob.Scheduler>();
 		await using var batch = batches.Begin();
 
-		var root = await scheduler.AddToBatch(batch, new("root"), cancellationToken: cancellationToken);
-		var chain = await scheduler.ScheduleAfter(root, new("chain"), cancellationToken: cancellationToken);
-		var fanA = await scheduler.ScheduleAfter(root, new("fan-a"), cancellationToken: cancellationToken);
-		var fanB = await scheduler.ScheduleAfter(root, new("fan-b"), cancellationToken: cancellationToken);
-		var join = await scheduler.ScheduleAfter(
+		var root = scheduler.AddToBatch(batch, new("root"));
+		var chain = await scheduler.ScheduleAfterAsync(root, new("chain"), cancellationToken: cancellationToken);
+		var fanA = await scheduler.ScheduleAfterAsync(root, new("fan-a"), cancellationToken: cancellationToken);
+		var fanB = await scheduler.ScheduleAfterAsync(root, new("fan-b"), cancellationToken: cancellationToken);
+		var join = await scheduler.ScheduleAfterAsync(
 			[fanA, fanB],
 			new("join"),
 			cancellationToken: cancellationToken
@@ -103,7 +103,7 @@ public sealed class BatchesAndContinuationsTests
 	}
 
 	[Fact]
-	public async Task FailedParentCancelsAllSucceededChildButReleasesAllCompleteChild()
+	public async Task FailedParentCancelsSuccessChildButReleasesFailureAndCompleteChildren()
 	{
 		var cancellationToken = TestContext.Current.CancellationToken;
 		var state = new BatchWorkflowState();
@@ -113,16 +113,21 @@ public sealed class BatchesAndContinuationsTests
 		var scheduler = scope.ServiceProvider.GetRequiredService<BatchWorkflowJob.Scheduler>();
 		await using var batch = batches.Begin();
 
-		var parent = await scheduler.AddToBatch(
+		var parent = scheduler.AddToBatch(
 			batch,
-			new("parent", Fail: true),
+			new("parent", Fail: true)
+		);
+		var successOnly = await scheduler.ScheduleAfterAsync(parent, new("success-only"), cancellationToken: cancellationToken);
+		var failureOnly = await scheduler.ScheduleAfterAsync(
+			parent,
+			new("failure-only"),
+			ContinuationTrigger.Failure,
 			cancellationToken: cancellationToken
 		);
-		var successOnly = await scheduler.ScheduleAfter(parent, new("success-only"), cancellationToken: cancellationToken);
-		var always = await scheduler.ScheduleAfter(
+		var always = await scheduler.ScheduleAfterAsync(
 			parent,
 			new("always"),
-			ContinuationTrigger.AllComplete,
+			ContinuationTrigger.Complete,
 			cancellationToken: cancellationToken
 		);
 		_ = await batch.CommitAsync(cancellationToken);
@@ -131,8 +136,57 @@ public sealed class BatchesAndContinuationsTests
 
 		Assert.Equal(JobState.Failed, (await harness.GetJobAsync(parent.Id, cancellationToken)).State);
 		Assert.Equal(JobState.Cancelled, (await harness.GetJobAsync(successOnly.Id, cancellationToken)).State);
+		Assert.Equal(JobState.Succeeded, (await harness.GetJobAsync(failureOnly.Id, cancellationToken)).State);
 		Assert.Equal(JobState.Succeeded, (await harness.GetJobAsync(always.Id, cancellationToken)).State);
-		Assert.Equal(["parent", "always"], state.Events);
+		Assert.Equal(["always", "failure-only", "parent"], state.Events.Order(StringComparer.Ordinal));
+	}
+
+	[Fact]
+	public async Task FailedBatchReleasesFailureAndCompleteContinuations()
+	{
+		var cancellationToken = TestContext.Current.CancellationToken;
+		var state = new BatchWorkflowState();
+		await using var harness = CreateHarness(state);
+		await using var scope = harness.Services.CreateAsyncScope();
+		var batches = scope.ServiceProvider.GetRequiredService<IJobBatchScheduler>();
+		var scheduler = scope.ServiceProvider.GetRequiredService<BatchWorkflowJob.Scheduler>();
+		await using var batch = batches.Begin();
+		_ = scheduler.AddToBatch(
+			batch,
+			new("batch-parent", Fail: true)
+		);
+		var batchHandle = await batch.CommitAsync(cancellationToken);
+
+		var successOnly = await scheduler.ScheduleAfterAsync(
+			batchHandle,
+			new("batch-success"),
+			ContinuationTrigger.Success,
+			cancellationToken: cancellationToken
+		);
+		var failureOnly = await scheduler.ScheduleAfterAsync(
+			batchHandle,
+			new("batch-failure"),
+			ContinuationTrigger.Failure,
+			cancellationToken: cancellationToken
+		);
+		var always = await scheduler.ScheduleAfterAsync(
+			batchHandle,
+			new("batch-complete"),
+			ContinuationTrigger.Complete,
+			cancellationToken: cancellationToken
+		);
+
+		await harness.DrainAsync(cancellationToken);
+
+		var graphStorage = Assert.IsAssignableFrom<IJobGraphStorage>(harness.Storage);
+		Assert.Equal(
+			BatchState.Failed,
+			(await graphStorage.GetBatchStatusAsync(batchHandle.Id, cancellationToken))!.State
+		);
+		Assert.Equal(JobState.Cancelled, (await harness.GetJobAsync(successOnly, cancellationToken)).State);
+		Assert.Equal(JobState.Succeeded, (await harness.GetJobAsync(failureOnly, cancellationToken)).State);
+		Assert.Equal(JobState.Succeeded, (await harness.GetJobAsync(always, cancellationToken)).State);
+		Assert.Equal(["batch-complete", "batch-failure", "batch-parent"], state.Events.Order(StringComparer.Ordinal));
 	}
 
 	[Fact]
@@ -143,10 +197,10 @@ public sealed class BatchesAndContinuationsTests
 		await using var harness = CreateHarness(state);
 		await using var scope = harness.Services.CreateAsyncScope();
 		var scheduler = scope.ServiceProvider.GetRequiredService<BatchWorkflowJob.Scheduler>();
-		var parent = await scheduler.Enqueue(new("parent"), cancellationToken);
+		var parent = await scheduler.EnqueueAsync(new("parent"), cancellationToken);
 		await harness.DrainAsync(cancellationToken);
 
-		var child = await scheduler.ScheduleAfter(parent, new("child"), cancellationToken: cancellationToken);
+		var child = await scheduler.ScheduleAfterAsync(parent, new("child"), cancellationToken: cancellationToken);
 
 		Assert.Equal(JobState.Pending, (await harness.GetJobAsync(child.Id, cancellationToken)).State);
 		await harness.DrainAsync(cancellationToken);
@@ -164,8 +218,8 @@ public sealed class BatchesAndContinuationsTests
 		var jobMonitor = scope.ServiceProvider.GetRequiredService<IJobMonitor>();
 		var scheduler = scope.ServiceProvider.GetRequiredService<BatchWorkflowJob.Scheduler>();
 		await using var batch = batches.Begin();
-		var parent = await scheduler.AddToBatch(batch, new("parent"), cancellationToken: cancellationToken);
-		var child = await scheduler.ScheduleAfter(parent, new("child"), cancellationToken: cancellationToken);
+		var parent = scheduler.AddToBatch(batch, new("parent"));
+		var child = await scheduler.ScheduleAfterAsync(parent, new("child"), cancellationToken: cancellationToken);
 		var batchHandle = await batch.CommitAsync(cancellationToken);
 
 		var initial = Assert.IsType<BatchStatus>(await monitor.GetStatusAsync(batchHandle.Id, cancellationToken));
@@ -214,8 +268,8 @@ public sealed class BatchesAndContinuationsTests
 		var expanding = scope.ServiceProvider.GetRequiredService<DynamicExpansionJob.Scheduler>();
 		var workflowScheduler = scope.ServiceProvider.GetRequiredService<BatchWorkflowJob.Scheduler>();
 		await using var batch = batches.Begin();
-		var current = await expanding.AddToBatch(batch, new(), cancellationToken: cancellationToken);
-		var waiter = await workflowScheduler.ScheduleAfter(
+		var current = expanding.AddToBatch(batch, new());
+		var waiter = await workflowScheduler.ScheduleAfterAsync(
 			current,
 			new("original-waiter"),
 			cancellationToken: cancellationToken
@@ -321,22 +375,24 @@ public sealed partial class DynamicExpansionJob(
 		public JobDetails? JobDetails { get; set; }
 	}
 
-	private async ValueTask HandleAsync(Payload payload, CancellationToken cancellationToken)
+	private ValueTask HandleAsync(Payload payload, CancellationToken cancellationToken)
 	{
-		_ = await scheduler.ScheduleAfter(
+		_ = cancellationToken;
+		_ = scheduler.ScheduleAfter(
 			payload.JobDetails ?? throw new InvalidOperationException("Job details were not populated."),
 			new("inserted"),
-			ContinuationOptions.BeforeContinuations,
-			cancellationToken
+			ContinuationOptions.BeforeContinuations
 		);
 		if (state is null)
-			return;
+			return ValueTask.CompletedTask;
 		state.Attempts++;
 		if (state.FailuresRemaining > 0)
 		{
 			state.FailuresRemaining--;
 			throw new InvalidOperationException("Expected first-attempt failure.");
 		}
+
+		return ValueTask.CompletedTask;
 	}
 }
 #pragma warning restore CS1591

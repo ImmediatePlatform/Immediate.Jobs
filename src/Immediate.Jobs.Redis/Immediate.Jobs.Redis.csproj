@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <IsPackable>true</IsPackable>
+    <Title>Immediate.Jobs.Redis</Title>
+    <Description>Redis queue and recurring storage provider for Immediate.Jobs.</Description>
+    <Authors>Immediate.Jobs Developers</Authors>
+    <Copyright>© 2026 Immediate.Jobs Developers</Copyright>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageReadmeFile>readme.md</PackageReadmeFile>
+    <PackageTags>background-jobs;scheduler;redis;distributed</PackageTags>
+    <RepositoryUrl>https://github.com/ImmediatePlatform/Immediate.Jobs</RepositoryUrl>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+  </PropertyGroup>
+  <ItemGroup>
+    <Using Include="Immediate.Jobs.Shared" />
+    <None Include="../../readme.md" Pack="true" PackagePath="/" />
+    <PackageReference Include="StackExchange.Redis" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Immediate.Jobs.Shared/Immediate.Jobs.Shared.csproj" PrivateAssets="all" />
+    <ProjectReference Include="../Immediate.Jobs/Immediate.Jobs.csproj" ReferenceOutputAssembly="false" />
+  </ItemGroup>
+</Project>

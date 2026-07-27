@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Hosting;
@@ -22,7 +23,7 @@ public static class ImmediateJobsRuntimeServiceCollectionExtensions
 		if (options.StorageFactory is null)
 		{
 			if (options.StorageModeExplicitlySelected)
-				throw new InvalidOperationException("Select a durable storage provider before choosing single-server or distributed mode.");
+				throw new Immediate.Jobs.Shared.ImmediateJobException("Select a durable storage provider before choosing single-server or distributed mode.");
 
 			_ = options.UseInMemory();
 		}
@@ -31,12 +32,25 @@ public static class ImmediateJobsRuntimeServiceCollectionExtensions
 
 		services.TryAddSingleton(options);
 		services.TryAddSingleton(TimeProvider.System);
+		services.TryAddSingleton<Immediate.Jobs.Shared.IIdGenerator>(Immediate.Jobs.Shared.GuidIdGenerator.Instance);
 		services.TryAddSingleton<Immediate.Jobs.Shared.IJobSerializer, Immediate.Jobs.Shared.SystemTextJsonJobSerializer>();
 		services.TryAddSingleton<Immediate.Jobs.Shared.IJobStorage>(sp => options.CreateStorage(sp));
-		services.TryAddScoped<Immediate.Jobs.Shared.IJobBatchScheduler, Immediate.Jobs.Shared.JobBatchScheduler>();
+		services.TryAddSingleton<Immediate.Jobs.Shared.IRecurringJobStorage>(static sp =>
+			sp.GetRequiredService<Immediate.Jobs.Shared.IJobStorage>() as Immediate.Jobs.Shared.IRecurringJobStorage
+				?? null!);
+		services.TryAddSingleton<Immediate.Jobs.Shared.IJobGraphStorage>(static sp =>
+			sp.GetRequiredService<Immediate.Jobs.Shared.IJobStorage>() as Immediate.Jobs.Shared.IJobGraphStorage
+				?? null!);
+		services.TryAddScoped<Immediate.Jobs.Shared.JobBatchScheduler>();
+		services.TryAddScoped<Immediate.Jobs.Shared.IJobBatchScheduler>(static sp =>
+			sp.GetService<Immediate.Jobs.Shared.IJobGraphStorage>() is null
+				? null!
+				: sp.GetRequiredService<Immediate.Jobs.Shared.JobBatchScheduler>());
 		services.TryAddScoped<Immediate.Jobs.Shared.JobMonitor>();
 		services.TryAddScoped<Immediate.Jobs.Shared.IJobBatchMonitor>(static sp =>
-			sp.GetRequiredService<Immediate.Jobs.Shared.JobMonitor>());
+			sp.GetService<Immediate.Jobs.Shared.IJobGraphStorage>() is null
+				? null!
+				: sp.GetRequiredService<Immediate.Jobs.Shared.JobMonitor>());
 		services.TryAddScoped<Immediate.Jobs.Shared.IJobMonitor>(static sp =>
 			sp.GetRequiredService<Immediate.Jobs.Shared.JobMonitor>());
 		_ = services.AddSingleton(Immediate.Jobs.Shared.JobQueueDefinition.Default);
@@ -46,6 +60,19 @@ public static class ImmediateJobsRuntimeServiceCollectionExtensions
 			static sp => sp.GetRequiredService<Immediate.Jobs.Shared.JobSchedulerService>()
 		);
 		return new(services);
+	}
+
+	/// <summary>Replaces the default GUID job and batch identifier generator.</summary>
+	public static Immediate.Jobs.Shared.ImmediateJobsBuilder UseIdGenerator<
+		[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TGenerator
+	>(
+		this Immediate.Jobs.Shared.ImmediateJobsBuilder builder
+	)
+		where TGenerator : class, Immediate.Jobs.Shared.IIdGenerator
+	{
+		ArgumentNullException.ThrowIfNull(builder);
+		_ = builder.Services.Replace(ServiceDescriptor.Singleton<Immediate.Jobs.Shared.IIdGenerator, TGenerator>());
+		return builder;
 	}
 
 	/// <summary>Adds scheduler liveness and storage connectivity to the health-check system.</summary>

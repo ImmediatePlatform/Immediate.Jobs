@@ -12,19 +12,20 @@ public partial class ContextualJob
 			global::Immediate.Jobs.Shared.IJobStorage storage,
 			global::Immediate.Jobs.Shared.IJobSerializer serializer,
 			global::System.TimeProvider timeProvider,
+			global::Immediate.Jobs.Shared.IIdGenerator idGenerator,
 		global::CorrelationExtractor contextExtractor0,
 		global::UsageContextExtractor contextExtractor1
-		) : global::Immediate.Jobs.Shared.JobScheduler<global::ContextualJob.Payload>(storage, serializer, timeProvider, "contextual", "default", static options => new PayloadJsonContext(options).Payload)
+		) : global::Immediate.Jobs.Shared.JobScheduler<global::ContextualJob.Payload>(storage, serializer, timeProvider, idGenerator, "contextual", "default", static options => new PayloadJsonContext(options).Payload)
 		{
 
-				protected override async global::System.Threading.Tasks.ValueTask<string?> CaptureContextAsync(global::System.Threading.CancellationToken cancellationToken)
+				protected override string? CaptureContext()
 				{
 					var keys = new global::System.Collections.Generic.HashSet<string>(global::System.StringComparer.Ordinal);
 					var slices = new global::System.Collections.Generic.Dictionary<string, string>(global::System.StringComparer.Ordinal);
 
 						if (!keys.Add(contextExtractor0.Key))
-							throw new global::System.InvalidOperationException($"Multiple job context extractors use the key '{contextExtractor0.Key}'.");
-						var context0 = await contextExtractor0.CaptureAsync(cancellationToken).ConfigureAwait(false);
+							throw new global::Immediate.Jobs.Shared.ImmediateJobException($"Multiple job context extractors use the key '{contextExtractor0.Key}'.");
+						var context0 = contextExtractor0.Capture();
 						if (context0 is not null)
 						{
 							global::Immediate.Jobs.Shared.JobContextEnvelope.AddSlice(
@@ -35,8 +36,8 @@ public partial class ContextualJob
 						}
 
 						if (!keys.Add(contextExtractor1.Key))
-							throw new global::System.InvalidOperationException($"Multiple job context extractors use the key '{contextExtractor1.Key}'.");
-						var context1 = await contextExtractor1.CaptureAsync(cancellationToken).ConfigureAwait(false);
+							throw new global::Immediate.Jobs.Shared.ImmediateJobException($"Multiple job context extractors use the key '{contextExtractor1.Key}'.");
+						var context1 = contextExtractor1.Capture();
 						if (context1 is not null)
 						{
 							global::Immediate.Jobs.Shared.JobContextEnvelope.AddSlice(
@@ -50,57 +51,54 @@ public partial class ContextualJob
 				}
 
 
-			public new global::System.Threading.Tasks.ValueTask<global::Immediate.Jobs.Shared.JobHandle> AddToBatch(
+			public new global::Immediate.Jobs.Shared.JobHandle AddToBatch(
 				global::Immediate.Jobs.Shared.IJobBatch batch,
 				global::ContextualJob.Payload payload,
-				global::System.TimeSpan? delay = null,
-				global::System.Threading.CancellationToken cancellationToken = default) =>
-				base.AddToBatch(batch, payload, delay, cancellationToken);
+				global::System.TimeSpan? delay = null) =>
+				base.AddToBatch(batch, payload, delay);
 
-			public new global::System.Threading.Tasks.ValueTask<global::Immediate.Jobs.Shared.JobHandle> AddToBatchAt(
+			public new global::Immediate.Jobs.Shared.JobHandle AddToBatchAt(
 				global::Immediate.Jobs.Shared.IJobBatch batch,
 				global::ContextualJob.Payload payload,
-				global::System.DateTimeOffset runAt,
-				global::System.Threading.CancellationToken cancellationToken = default) =>
-				base.AddToBatchAt(batch, payload, runAt, cancellationToken);
+				global::System.DateTimeOffset runAt) =>
+				base.AddToBatchAt(batch, payload, runAt);
 
-			public new global::System.Threading.Tasks.ValueTask<global::Immediate.Jobs.Shared.JobHandle> ScheduleAfter(
+			public new global::System.Threading.Tasks.ValueTask<global::Immediate.Jobs.Shared.JobHandle> ScheduleAfterAsync(
 				global::Immediate.Jobs.Shared.JobHandle parent,
 				global::ContextualJob.Payload payload,
-				global::Immediate.Jobs.Shared.ContinuationTrigger on = global::Immediate.Jobs.Shared.ContinuationTrigger.AllSucceeded,
+				global::Immediate.Jobs.Shared.ContinuationTrigger on = global::Immediate.Jobs.Shared.ContinuationTrigger.Success,
 				global::System.TimeSpan? delay = null,
 				global::System.Threading.CancellationToken cancellationToken = default) =>
-				base.ScheduleAfter(parent, payload, on, delay, cancellationToken);
+				base.ScheduleAfterAsync(parent, payload, on, delay, cancellationToken);
 
-			public new global::System.Threading.Tasks.ValueTask<global::Immediate.Jobs.Shared.JobHandle> ScheduleAfter(
+			public new global::System.Threading.Tasks.ValueTask<global::Immediate.Jobs.Shared.JobHandle> ScheduleAfterAsync(
 				global::System.ReadOnlySpan<global::Immediate.Jobs.Shared.JobHandle> parents,
 				global::ContextualJob.Payload payload,
-				global::Immediate.Jobs.Shared.ContinuationTrigger on = global::Immediate.Jobs.Shared.ContinuationTrigger.AllSucceeded,
+				global::Immediate.Jobs.Shared.ContinuationTrigger on = global::Immediate.Jobs.Shared.ContinuationTrigger.Success,
 				global::System.TimeSpan? delay = null,
 				global::System.Threading.CancellationToken cancellationToken = default) =>
-				base.ScheduleAfter(parents, payload, on, delay, cancellationToken);
+				base.ScheduleAfterAsync(parents, payload, on, delay, cancellationToken);
 
-			public new global::System.Threading.Tasks.ValueTask<global::Immediate.Jobs.Shared.JobHandle> ScheduleAfter(
+			public new global::System.Threading.Tasks.ValueTask<global::Immediate.Jobs.Shared.JobHandle> ScheduleAfterAsync(
 				global::Immediate.Jobs.Shared.BatchHandle parent,
 				global::ContextualJob.Payload payload,
-				global::Immediate.Jobs.Shared.ContinuationTrigger on = global::Immediate.Jobs.Shared.ContinuationTrigger.AllSucceeded,
+				global::Immediate.Jobs.Shared.ContinuationTrigger on = global::Immediate.Jobs.Shared.ContinuationTrigger.Success,
 				global::System.TimeSpan? delay = null,
 				global::System.Threading.CancellationToken cancellationToken = default) =>
-				base.ScheduleAfter(parent, payload, on, delay, cancellationToken);
+				base.ScheduleAfterAsync(parent, payload, on, delay, cancellationToken);
 
-			public new global::System.Threading.Tasks.ValueTask<global::Immediate.Jobs.Shared.JobHandle> ScheduleAfter(
+			public new global::Immediate.Jobs.Shared.JobHandle ScheduleAfter(
+				global::Immediate.Jobs.Shared.JobDetails current,
+				global::ContextualJob.Payload payload,
+				global::Immediate.Jobs.Shared.ContinuationOptions options = global::Immediate.Jobs.Shared.ContinuationOptions.BeforeContinuations) =>
+				base.ScheduleAfter(current, payload, options);
+
+			public new global::System.Threading.Tasks.ValueTask<global::Immediate.Jobs.Shared.JobHandle> AddToBatchAsync(
 				global::Immediate.Jobs.Shared.JobDetails current,
 				global::ContextualJob.Payload payload,
 				global::Immediate.Jobs.Shared.ContinuationOptions options = global::Immediate.Jobs.Shared.ContinuationOptions.BeforeContinuations,
 				global::System.Threading.CancellationToken cancellationToken = default) =>
-				base.ScheduleAfter(current, payload, options, cancellationToken);
-
-			public new global::System.Threading.Tasks.ValueTask<global::Immediate.Jobs.Shared.JobHandle> AddToBatch(
-				global::Immediate.Jobs.Shared.JobDetails current,
-				global::ContextualJob.Payload payload,
-				global::Immediate.Jobs.Shared.ContinuationOptions options = global::Immediate.Jobs.Shared.ContinuationOptions.BeforeContinuations,
-				global::System.Threading.CancellationToken cancellationToken = default) =>
-				base.AddToBatch(current, payload, options, cancellationToken);
+				base.AddToBatchAsync(current, payload, options, cancellationToken);
 		}
 
 
@@ -120,14 +118,14 @@ public partial class ContextualJob
 								if (contextSlices.Remove(contextExtractor0.Key, out var serializedContext0))
 								{
 									var context0 = serializer.Deserialize(serializedContext0, static options => new PayloadJsonContext(options).Context0);
-									await contextExtractor0.RestoreAsync(context0, execution.CancellationToken).ConfigureAwait(false);
+									contextExtractor0.Restore(context0);
 								}
 
 								var contextExtractor1 = global::Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetRequiredService<global::UsageContextExtractor>(scopedServices);
 								if (contextSlices.Remove(contextExtractor1.Key, out var serializedContext1))
 								{
 									var context1 = serializer.Deserialize(serializedContext1, static options => new PayloadJsonContext(options).Context1);
-									await contextExtractor1.RestoreAsync(context1, execution.CancellationToken).ConfigureAwait(false);
+									contextExtractor1.Restore(context1);
 								}
 
 							global::Immediate.Jobs.Shared.JobContextEnvelope.LogOrphanedSlices(scopedServices, execution.Record, contextSlices.Keys);

@@ -10,3 +10,12 @@ public sealed record CreateOrderBatchResponse(
 	Uri DashboardUrl,
 	Uri StatusUrl
 );
+
+public sealed record CreateGameReleaseBatchResponse(
+	Guid ReleaseId,
+	string Title,
+	string BatchId,
+	int JobCount,
+	Uri DashboardUrl,
+	Uri StatusUrl
+);

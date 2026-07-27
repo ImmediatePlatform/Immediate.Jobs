@@ -6,6 +6,7 @@ import HistoryChart from '@/components/HistoryChart.vue';
 import JobDetail from '@/components/JobDetail.vue';
 import JobTable from '@/components/JobTable.vue';
 import WorkflowGraph from '@/components/WorkflowGraph.vue';
+import type { BatchGraph } from '@/contracts';
 import { completedJob, executingBatch, workflowGraph } from './fixtures';
 
 describe('dashboard components', () => {
@@ -15,12 +16,24 @@ describe('dashboard components', () => {
 		expect(table.text()).toContain('Succeeded');
 		expect(table.text()).toContain('batch-42');
 
-		const detail = mount(JobDetail, { props: { job: completedJob } });
+		const detail = mount(JobDetail, {
+			props: {
+				job: completedJob,
+				telemetryLinks: [
+					{ label: 'View trace', kind: 'Trace', url: 'https://telemetry.example/traces/4bf92f' },
+					{ label: 'View all retry logs', kind: 'Logs', url: 'https://telemetry.example/logs?job=86bf8c31' },
+				],
+			},
+		});
 		expect(detail.attributes('aria-label')).toBe('Details for SendGreeting');
 		expect(detail.text()).toContain('Payload');
 		expect(detail.text()).toContain('Duke');
 		expect(detail.text()).toContain('Context envelope');
 		expect(detail.text()).toContain('curl/8.7.1');
+		expect(detail.text()).toContain('4bf92f3577b34da6a3ce929d0e0e4736');
+		expect(detail.get('a[href="https://telemetry.example/traces/4bf92f"]').attributes('target')).toBe('_blank');
+		expect(detail.get('a[aria-label="View all retry logs"]').text()).toContain('Logs');
+		expect(detail.text()).not.toContain('Observability');
 	});
 
 	it('expands selected job details immediately below its row and scrolls the row into view', async () => {
@@ -81,12 +94,77 @@ describe('dashboard components', () => {
 		expect(wrapper.find('svg').attributes('aria-label')).toBe('Batch dependency graph');
 		expect(wrapper.text()).toContain('order-record-fraud-assessment');
 		expect(wrapper.findAll('.workflow-edge.dashed')).toHaveLength(2);
+		expect(wrapper.findAll('.workflow-fork')).toHaveLength(1);
 		expect(wrapper.findAll('.workflow-join')).toHaveLength(1);
 		const longNodeWidth = Number(wrapper.find('[data-job-id="smoke"] rect').attributes('width'));
 		expect(longNodeWidth).toBeGreaterThan(170);
 		const paths = wrapper.findAll('.workflow-edge').map((edge) => edge.attributes('d'));
 		expect(paths[2]).not.toBe(paths[3]);
 		expect(scrollTo).toHaveBeenCalled();
+	});
+
+	it('orders connected workstreams together and vertically centers shorter ranks', () => {
+		const graph: BatchGraph = {
+			batchId: 'release',
+			nodes: [
+				{ jobId: 'approved', jobName: 'Approved', state: 'Succeeded' },
+				{ jobId: 'client', jobName: 'Build client', state: 'Succeeded' },
+				{ jobId: 'services', jobName: 'Provision services', state: 'Succeeded' },
+				{ jobId: 'compatibility', jobName: 'Test compatibility', state: 'Succeeded' },
+				{ jobId: 'signing', jobName: 'Sign binaries', state: 'Succeeded' },
+				{ jobId: 'migration', jobName: 'Migrate data', state: 'Succeeded' },
+				{ jobId: 'load-test', jobName: 'Load-test services', state: 'Succeeded' },
+				{ jobId: 'client-ready', jobName: 'Certify client', state: 'Succeeded' },
+				{ jobId: 'services-ready', jobName: 'Certify services', state: 'Succeeded' },
+				{ jobId: 'candidate', jobName: 'Assemble candidate', state: 'Succeeded' },
+			],
+			edges: [
+				{ childJobId: 'client', parentJobId: 'approved', parentBatchId: null, trigger: 'Success' },
+				{ childJobId: 'services', parentJobId: 'approved', parentBatchId: null, trigger: 'Success' },
+				{ childJobId: 'compatibility', parentJobId: 'client', parentBatchId: null, trigger: 'Success' },
+				{ childJobId: 'signing', parentJobId: 'client', parentBatchId: null, trigger: 'Success' },
+				{ childJobId: 'migration', parentJobId: 'services', parentBatchId: null, trigger: 'Success' },
+				{ childJobId: 'load-test', parentJobId: 'services', parentBatchId: null, trigger: 'Success' },
+				{ childJobId: 'client-ready', parentJobId: 'compatibility', parentBatchId: null, trigger: 'Success' },
+				{ childJobId: 'client-ready', parentJobId: 'signing', parentBatchId: null, trigger: 'Success' },
+				{ childJobId: 'services-ready', parentJobId: 'migration', parentBatchId: null, trigger: 'Success' },
+				{ childJobId: 'services-ready', parentJobId: 'load-test', parentBatchId: null, trigger: 'Success' },
+				{ childJobId: 'candidate', parentJobId: 'client-ready', parentBatchId: null, trigger: 'Success' },
+				{ childJobId: 'candidate', parentJobId: 'services-ready', parentBatchId: null, trigger: 'Success' },
+			],
+		};
+		const wrapper = mount(WorkflowGraph, { props: { graph } });
+		const nodeY = (jobId: string): number => {
+			const transform = wrapper.get(`[data-job-id="${jobId}"]`).attributes('transform');
+			return Number(/translate\([^ ]+ ([^)]+)\)/.exec(transform)?.[1]);
+		};
+
+		const approvedY = nodeY('approved');
+		expect(approvedY).toBeGreaterThan(nodeY('client'));
+		expect(approvedY).toBeLessThan(nodeY('services'));
+		expect(Math.max(nodeY('compatibility'), nodeY('signing')))
+			.toBeLessThan(Math.min(nodeY('migration'), nodeY('load-test')));
+		expect(nodeY('candidate')).toBe(approvedY);
+
+		const clientWidth = wrapper.get('[data-job-id="client"] rect').attributes('width');
+		const servicesWidth = wrapper.get('[data-job-id="services"] rect').attributes('width');
+		expect(clientWidth).toBe(servicesWidth);
+		const edgePaths = wrapper.findAll('.workflow-edge').map((edge) => edge.attributes('d'));
+		expect(edgePaths.some((path) => /\bQ\b.*\bV\b.*\bQ\b/.test(path))).toBe(true);
+		for (const path of edgePaths) {
+			expect(path).not.toContain('C');
+		}
+
+		expect(wrapper.findAll('.workflow-fork')).toHaveLength(3);
+		const approvedBranches = wrapper.findAll(
+			'.workflow-edge[data-parent-job-id="approved"]',
+		).map((edge) => edge.attributes('d').match(/^M [^ ]+ [^ ]+/)?.[0]);
+		expect(new Set(approvedBranches).size).toBe(1);
+
+		const candidateInputs = wrapper.findAll(
+			'.workflow-edge[data-child-job-id="candidate"]',
+		).map((edge) => edge.attributes('d').match(/\bQ ([^ ]+)/)?.[1]);
+		expect(new Set(candidateInputs).size).toBe(1);
 	});
 
 	it('simplifies additive splice constraints and can reveal the persisted edges', async () => {
@@ -98,9 +176,9 @@ describe('dashboard components', () => {
 				{ jobId: 'fulfillment', jobName: 'order-prepare-fulfillment', state: 'Succeeded' as const },
 			],
 			edges: [
-				{ childJobId: 'assessment', parentJobId: 'fraud-check', parentBatchId: null, trigger: 'AllSucceeded' as const },
-				{ childJobId: 'fulfillment', parentJobId: 'fraud-check', parentBatchId: null, trigger: 'AllSucceeded' as const },
-				{ childJobId: 'fulfillment', parentJobId: 'assessment', parentBatchId: null, trigger: 'AllSucceeded' as const },
+				{ childJobId: 'assessment', parentJobId: 'fraud-check', parentBatchId: null, trigger: 'Success' as const },
+				{ childJobId: 'fulfillment', parentJobId: 'fraud-check', parentBatchId: null, trigger: 'Success' as const },
+				{ childJobId: 'fulfillment', parentJobId: 'assessment', parentBatchId: null, trigger: 'Success' as const },
 			],
 		};
 		const wrapper = mount(WorkflowGraph, { props: { graph } });
@@ -124,9 +202,9 @@ describe('dashboard components', () => {
 				{ jobId: 'waiter', jobName: 'Waiter', state: 'Cancelled' as const },
 			],
 			edges: [
-				{ childJobId: 'inserted', parentJobId: 'current', parentBatchId: null, trigger: 'AllComplete' as const },
-				{ childJobId: 'waiter', parentJobId: 'current', parentBatchId: null, trigger: 'AllSucceeded' as const },
-				{ childJobId: 'waiter', parentJobId: 'inserted', parentBatchId: null, trigger: 'AllSucceeded' as const },
+				{ childJobId: 'inserted', parentJobId: 'current', parentBatchId: null, trigger: 'Complete' as const },
+				{ childJobId: 'waiter', parentJobId: 'current', parentBatchId: null, trigger: 'Success' as const },
+				{ childJobId: 'waiter', parentJobId: 'inserted', parentBatchId: null, trigger: 'Success' as const },
 			],
 		};
 		const wrapper = mount(WorkflowGraph, { props: { graph } });

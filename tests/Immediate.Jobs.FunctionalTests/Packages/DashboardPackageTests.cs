@@ -27,6 +27,108 @@ public sealed class DashboardPackageTests
 		var options = new ImmediateJobsDashboardOptions();
 
 		_ = Assert.Throws<ArgumentException>(() => options.RequireAuthorization(" "));
+		_ = Assert.Throws<ArgumentException>(() => options.AddTelemetryLink(
+			" ",
+			JobTelemetryLinkKind.Trace,
+			static _ => null
+		));
+	}
+
+	[Fact]
+	public async Task JobTelemetryApiBuildsConfiguredExternalLinks()
+	{
+		const string JobId = "job:with retries";
+		const string TraceId = "4bf92f3577b34da6a3ce929d0e0e4736";
+		var now = new DateTimeOffset(2026, 7, 21, 12, 0, 0, TimeSpan.Zero);
+		var storage = new InMemoryJobStorage(TimeProvider.System);
+		await storage.EnqueueAsync(new()
+		{
+			Id = JobId,
+			JobName = "SendGreeting",
+			Payload = "{}",
+			State = JobState.Succeeded,
+			DueAt = now,
+			CreatedAt = now,
+			Attempt = 3,
+			ExecutionTraceId = TraceId,
+			ExecutionStartedAt = now.AddMinutes(2),
+			CompletedAt = now.AddMinutes(3),
+		}, TestContext.Current.CancellationToken);
+
+		var builder = WebApplication.CreateBuilder(new WebApplicationOptions
+		{
+			EnvironmentName = Environments.Development,
+		});
+		_ = builder.WebHost.UseTestServer();
+		_ = builder.Services.AddSingleton<IJobStorage>(storage);
+
+		await using var app = builder.Build();
+		_ = app.MapImmediateJobsDashboard(configure: options =>
+		{
+			_ = options.AddTelemetryLink(
+				"View latest trace",
+				JobTelemetryLinkKind.Trace,
+				context => context.Job.ExecutionTraceId is { } traceId
+					? new($"https://traces.example/trace/{traceId}")
+					: null
+			);
+			_ = options.AddTelemetryLink(
+				"View all retry logs",
+				JobTelemetryLinkKind.Logs,
+				context => new($"https://logs.example/search?jobId={Uri.EscapeDataString(context.Job.Id)}")
+			);
+		});
+		await app.StartAsync(TestContext.Current.CancellationToken);
+
+		using var response = await app.GetTestClient().GetAsync(
+			new Uri($"/jobs/api/jobs/{Uri.EscapeDataString(JobId)}/telemetry-links", UriKind.Relative),
+			TestContext.Current.CancellationToken
+		);
+
+		_ = response.EnsureSuccessStatusCode();
+		using var document = JsonDocument.Parse(
+			await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken)
+		);
+		var links = document.RootElement.EnumerateArray().ToArray();
+		Assert.Equal(2, links.Length);
+		Assert.Equal("View latest trace", links[0].GetProperty("label").GetString());
+		Assert.Equal("Trace", links[0].GetProperty("kind").GetString());
+		Assert.Equal($"https://traces.example/trace/{TraceId}", links[0].GetProperty("url").GetString());
+		Assert.Equal("View all retry logs", links[1].GetProperty("label").GetString());
+		Assert.Contains("job%3Awith%20retries", links[1].GetProperty("url").GetString(), StringComparison.Ordinal);
+	}
+
+	[Fact]
+	public async Task QueueOnlyStorageReportsCapabilitiesAndDisablesBatchApi()
+	{
+		var builder = WebApplication.CreateBuilder(new WebApplicationOptions
+		{
+			EnvironmentName = Environments.Development,
+		});
+		_ = builder.WebHost.UseTestServer();
+		_ = builder.Services.AddSingleton<IJobStorage>(
+			new StorageCapabilityTests.QueueOnlyStorage(TimeProvider.System)
+		);
+
+		await using var app = builder.Build();
+		_ = app.MapImmediateJobsDashboard();
+		await app.StartAsync(TestContext.Current.CancellationToken);
+
+		using var overviewResponse = await app.GetTestClient().GetAsync(
+			new Uri("/jobs/api/overview", UriKind.Relative),
+			TestContext.Current.CancellationToken
+		);
+		_ = overviewResponse.EnsureSuccessStatusCode();
+		using var overview = JsonDocument.Parse(
+			await overviewResponse.Content.ReadAsStringAsync(TestContext.Current.CancellationToken)
+		);
+		Assert.Equal("Queue", overview.RootElement.GetProperty("capabilities").GetString());
+
+		using var batchesResponse = await app.GetTestClient().GetAsync(
+			new Uri("/jobs/api/batches", UriKind.Relative),
+			TestContext.Current.CancellationToken
+		);
+		Assert.Equal(HttpStatusCode.NotFound, batchesResponse.StatusCode);
 	}
 
 	[Theory]

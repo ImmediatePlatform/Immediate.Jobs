@@ -23,7 +23,8 @@ public class EnqueueBenchmarks
 		_immediate = new(
 			new InMemoryJobStorage(_timeProvider),
 			new SystemTextJsonJobSerializer(),
-			_timeProvider
+			_timeProvider,
+			BenchmarkIdGenerator.Instance
 		);
 		_ = GlobalConfiguration.Configuration.UseMemoryStorage();
 		_hangfire = new BackgroundJobClient();
@@ -35,7 +36,7 @@ public class EnqueueBenchmarks
 	public async Task Cleanup() => await _quartz.Shutdown(waitForJobsToComplete: true);
 
 	[Benchmark(Baseline = true)]
-	public ValueTask<JobHandle> ImmediateJobs() => _immediate.Enqueue(new(42));
+	public ValueTask<JobHandle> ImmediateJobs() => _immediate.EnqueueAsync(new(42));
 
 	[Benchmark]
 	public string Hangfire() => _hangfire.Enqueue(() => BenchmarkOperations.Execute(42));
@@ -55,11 +56,17 @@ public class EnqueueBenchmarks
 		return await _quartz.ScheduleJob(job, trigger);
 	}
 
-	private sealed class BenchmarkScheduler(IJobStorage storage, IJobSerializer serializer, TimeProvider timeProvider)
+	private sealed class BenchmarkScheduler(
+		IJobStorage storage,
+		IJobSerializer serializer,
+		TimeProvider timeProvider,
+		IIdGenerator idGenerator
+	)
 		: JobScheduler<BenchmarkPayload>(
 			storage,
 			serializer,
 			timeProvider,
+			idGenerator,
 			"benchmark-job",
 			JobQueueDefinition.DefaultName,
 			static options => new BenchmarkJsonContext(options).BenchmarkPayload
@@ -73,7 +80,12 @@ public class StartupBenchmarks
 	public object ImmediateJobs()
 	{
 		var storage = new InMemoryJobStorage(TimeProvider.System);
-		return new StartupScheduler(storage, new SystemTextJsonJobSerializer(), TimeProvider.System);
+		return new StartupScheduler(
+			storage,
+			new SystemTextJsonJobSerializer(),
+			TimeProvider.System,
+			BenchmarkIdGenerator.Instance
+		);
 	}
 
 	[Benchmark]
@@ -86,15 +98,28 @@ public class StartupBenchmarks
 	[Benchmark]
 	public object Quartz() => new StdSchedulerFactory();
 
-	private sealed class StartupScheduler(IJobStorage storage, IJobSerializer serializer, TimeProvider timeProvider)
+	private sealed class StartupScheduler(
+		IJobStorage storage,
+		IJobSerializer serializer,
+		TimeProvider timeProvider,
+		IIdGenerator idGenerator
+	)
 		: JobScheduler<BenchmarkPayload>(
 			storage,
 			serializer,
 			timeProvider,
+			idGenerator,
 			"benchmark-job",
 			JobQueueDefinition.DefaultName,
 			static options => new BenchmarkJsonContext(options).BenchmarkPayload
 		);
+}
+
+internal sealed class BenchmarkIdGenerator : IIdGenerator
+{
+	public static readonly BenchmarkIdGenerator Instance = new();
+
+	public string CreateId(IdKind kind) => Guid.NewGuid().ToString("N");
 }
 
 [MemoryDiagnoser]

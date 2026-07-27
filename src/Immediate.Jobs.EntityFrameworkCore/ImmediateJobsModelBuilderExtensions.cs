@@ -66,9 +66,15 @@ public static class ImmediateJobsModelBuilderExtensions
 			value => value.HasValue ? value.Value.UtcTicks : (long?)null,
 			value => value.HasValue ? new DateTimeOffset(value.Value, TimeSpan.Zero) : null
 		);
+		_ = entity.Property(job => job.ExecutionStartedAt).HasConversion(
+			value => value.HasValue ? value.Value.UtcTicks : (long?)null,
+			value => value.HasValue ? new DateTimeOffset(value.Value, TimeSpan.Zero) : null
+		);
 		_ = entity.Property(job => job.WorkerId).HasMaxLength(256);
 		_ = entity.Property(job => job.RecurringKey).HasMaxLength(512);
 		_ = entity.Property(job => job.TraceParent).HasMaxLength(256);
+		_ = entity.Property(job => job.ExecutionTraceId).HasMaxLength(32);
+		_ = entity.Property(job => job.ExecutionSpanId).HasMaxLength(16);
 		_ = entity.Property(job => job.BatchId).HasMaxLength(256);
 		_ = entity.Property(job => job.ConcurrencyStamp).IsConcurrencyToken();
 		_ = entity.HasOne<ImmediateJobBatchEntity>()
@@ -172,8 +178,12 @@ internal sealed class ImmediateJobEntity
 	public string? RecurringKey { get; set; }
 	public string? TraceParent { get; set; }
 	public string? TraceState { get; set; }
+	public string? ExecutionTraceId { get; set; }
+	public string? ExecutionSpanId { get; set; }
+	public DateTimeOffset? ExecutionStartedAt { get; set; }
 	public string? BatchId { get; set; }
 	public int RemainingDependencies { get; set; }
+	public int FailedDependencies { get; set; }
 	public Guid ConcurrencyStamp { get; set; }
 }
 

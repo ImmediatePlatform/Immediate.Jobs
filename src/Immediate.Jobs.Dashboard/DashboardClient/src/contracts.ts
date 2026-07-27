@@ -14,7 +14,7 @@ export type JobState = (typeof jobStates)[number];
 export const batchStates = ['Executing', 'Succeeded', 'Failed', 'Cancelled'] as const;
 
 export type BatchState = (typeof batchStates)[number];
-export type ContinuationTrigger = 'AllSucceeded' | 'AllComplete';
+export type ContinuationTrigger = 'Success' | 'Failure' | 'Complete';
 export type IsoDateTime = string;
 
 export interface JobRecord {
@@ -34,8 +34,12 @@ export interface JobRecord {
 	recurringKey: string | null;
 	traceParent: string | null;
 	traceState: string | null;
+	executionTraceId: string | null;
+	executionSpanId: string | null;
+	executionStartedAt: IsoDateTime | null;
 	batchId: string | null;
 	remainingDependencies: number;
+	failedDependencies: number;
 }
 
 export interface RecurringJobSchedule {
@@ -61,6 +65,7 @@ export interface JobMonitoringSnapshot {
 	counts: Partial<Record<JobState, number>>;
 	recurring: RecurringJobSchedule[];
 	servers: JobServerSnapshot[];
+	capabilities?: string;
 }
 
 export interface DashboardJobPage {
@@ -101,6 +106,14 @@ export interface BatchGraph {
 	batchId: string;
 	nodes: BatchGraphNode[];
 	edges: BatchGraphEdge[];
+}
+
+export type JobTelemetryLinkKind = 'Trace' | 'Logs';
+
+export interface JobTelemetryLink {
+	label: string;
+	kind: JobTelemetryLinkKind;
+	url: string;
 }
 
 export interface DashboardState {

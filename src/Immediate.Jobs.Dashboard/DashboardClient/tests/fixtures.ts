@@ -18,7 +18,11 @@ export const completedJob: JobRecord = {
 	recurringKey: null,
 	traceParent: null,
 	traceState: null,
+	executionTraceId: '4bf92f3577b34da6a3ce929d0e0e4736',
+	executionSpanId: '00f067aa0ba902b7',
+	executionStartedAt: '2026-07-21T12:00:00Z',
 	remainingDependencies: 0,
+	failedDependencies: 0,
 };
 
 export const executingBatch: BatchStatus = {
@@ -44,9 +48,9 @@ export const workflowGraph: BatchGraph = {
 		{ jobId: 'smoke', jobName: 'order-record-fraud-assessment', state: 'AwaitingContinuation' },
 	],
 	edges: [
-		{ childJobId: 'region-a', parentJobId: 'build', parentBatchId: null, trigger: 'AllSucceeded' },
-		{ childJobId: 'region-b', parentJobId: 'build', parentBatchId: null, trigger: 'AllSucceeded' },
-		{ childJobId: 'smoke', parentJobId: 'region-a', parentBatchId: null, trigger: 'AllComplete' },
-		{ childJobId: 'smoke', parentJobId: 'region-b', parentBatchId: null, trigger: 'AllComplete' },
+		{ childJobId: 'region-a', parentJobId: 'build', parentBatchId: null, trigger: 'Success' },
+		{ childJobId: 'region-b', parentJobId: 'build', parentBatchId: null, trigger: 'Success' },
+		{ childJobId: 'smoke', parentJobId: 'region-a', parentBatchId: null, trigger: 'Complete' },
+		{ childJobId: 'smoke', parentJobId: 'region-b', parentBatchId: null, trigger: 'Complete' },
 	],
 };

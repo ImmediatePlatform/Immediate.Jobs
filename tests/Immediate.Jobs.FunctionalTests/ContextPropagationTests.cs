@@ -23,7 +23,7 @@ public sealed class ContextPropagationTests
 			ambient.TenantId = "tenant-42";
 			ambient.CorrelationId = "correlation-7";
 			var scheduler = scope.ServiceProvider.GetRequiredService<ContextRoundTripJob.Scheduler>();
-			id = await scheduler.Enqueue(new("hello"), cancellationToken);
+			id = await scheduler.EnqueueAsync(new("hello"), cancellationToken);
 		}
 
 		var enqueued = await harness.GetJobAsync(id, cancellationToken);
@@ -55,7 +55,7 @@ public sealed class ContextPropagationTests
 		var scheduler = scope.ServiceProvider.GetRequiredService<CaptureFailureJob.Scheduler>();
 
 		var exception = await Assert.ThrowsAsync<InvalidOperationException>(
-			() => scheduler.Enqueue(default, cancellationToken).AsTask()
+			() => scheduler.EnqueueAsync(default, cancellationToken).AsTask()
 		);
 
 		Assert.Equal("Capture failed", exception.Message);
@@ -71,7 +71,7 @@ public sealed class ContextPropagationTests
 		await using (var scope = harness.Services.CreateAsyncScope())
 		{
 			var scheduler = scope.ServiceProvider.GetRequiredService<RestoreFailureJob.Scheduler>();
-			id = await scheduler.Enqueue(default, cancellationToken);
+			id = await scheduler.EnqueueAsync(default, cancellationToken);
 		}
 
 		await harness.DrainAsync(cancellationToken);
@@ -92,8 +92,8 @@ public sealed class ContextPropagationTests
 		await using var scope = harness.Services.CreateAsyncScope();
 		var scheduler = scope.ServiceProvider.GetRequiredService<DuplicateContextKeyJob.Scheduler>();
 
-		var exception = await Assert.ThrowsAsync<InvalidOperationException>(
-			() => scheduler.Enqueue(default, cancellationToken).AsTask()
+		var exception = await Assert.ThrowsAsync<ImmediateJobException>(
+			() => scheduler.EnqueueAsync(default, cancellationToken).AsTask()
 		);
 
 		Assert.Contains("duplicate", exception.Message, StringComparison.OrdinalIgnoreCase);
@@ -182,20 +182,58 @@ public sealed class ContextPropagationTests
 	}
 
 	[Fact]
+	public async Task CustomIdGeneratorCreatesJobBatchAndRecurringIds()
+	{
+		var cancellationToken = TestContext.Current.CancellationToken;
+		var probe = new ContextProbe();
+		await using var harness = new JobTestHarness(services =>
+		{
+			_ = services.AddSingleton(probe);
+			_ = services.AddSingleton(new ExecutionState());
+			_ = services.AddScoped<PropagationScopeState>();
+			_ = services.AddSingleton<IIdGenerator, ReplacedIdGenerator>();
+			_ = services.AddImmediateJobsFunctionalTestsBehaviors();
+			_ = services.AddImmediateJobs().UseIdGenerator<TestIdGenerator>();
+		});
+
+		_ = Assert.IsType<TestIdGenerator>(harness.Services.GetRequiredService<IIdGenerator>());
+		await using var scope = harness.Services.CreateAsyncScope();
+		var scheduler = scope.ServiceProvider.GetRequiredService<ContextRoundTripJob.Scheduler>();
+		var batches = scope.ServiceProvider.GetRequiredService<IJobBatchScheduler>();
+		var job = await scheduler.EnqueueAsync(new("custom-id"), cancellationToken);
+		await using var batch = batches.Begin();
+		var batchJob = scheduler.AddToBatch(batch, new("batch-id"));
+		var batchHandle = await batch.CommitAsync(cancellationToken);
+
+		await harness.DrainAsync(cancellationToken);
+		await harness.AdvanceTimeAndDrainAsync(TimeSpan.FromSeconds(1), cancellationToken);
+		var recurring = Assert.Single(
+			await harness.QueryJobsAsync(cancellationToken: cancellationToken),
+			candidate => candidate.JobName == "context-cron"
+		);
+
+		Assert.StartsWith("job_", job.Id, StringComparison.Ordinal);
+		Assert.StartsWith("job_", batchJob.Id, StringComparison.Ordinal);
+		Assert.StartsWith("batch_", batchHandle.Id, StringComparison.Ordinal);
+		Assert.StartsWith("job_", recurring.Id, StringComparison.Ordinal);
+	}
+
+	[Fact]
 	public async Task CodeScheduleInitializationRemovesObsoleteDefinitionsAndPreservesDynamicSchedules()
 	{
 		var cancellationToken = TestContext.Current.CancellationToken;
 		await using var harness = CreateHarness(new());
+		var recurringStorage = Assert.IsAssignableFrom<IRecurringJobStorage>(harness.Storage);
 		var nextRunAt = harness.TimeProvider.GetUtcNow() + TimeSpan.FromHours(1);
-		await harness.Storage.UpsertRecurringAsync(
+		await recurringStorage.UpsertRecurringAsync(
 			CreateRecurringSchedule("removed-job", "removed-job", isCodeDefined: true, nextRunAt),
 			cancellationToken
 		);
-		await harness.Storage.UpsertRecurringAsync(
+		await recurringStorage.UpsertRecurringAsync(
 			CreateRecurringSchedule("context-round-trip", "context-round-trip", isCodeDefined: true, nextRunAt),
 			cancellationToken
 		);
-		await harness.Storage.UpsertRecurringAsync(
+		await recurringStorage.UpsertRecurringAsync(
 			CreateRecurringSchedule("dynamic-context", "context-round-trip", isCodeDefined: false, nextRunAt),
 			cancellationToken
 		);
@@ -288,18 +326,17 @@ public sealed class TenantContextExtractor(PropagationScopeState state, ContextP
 {
 	public string Key => "tenant";
 
-	public ValueTask<TenantContext?> CaptureAsync(CancellationToken cancellationToken)
+	public TenantContext? Capture()
 	{
 		probe.Events.Add("capture:tenant");
-		return ValueTask.FromResult(state.TenantId is null ? null : new TenantContext(state.TenantId));
+		return state.TenantId is null ? null : new TenantContext(state.TenantId);
 	}
 
-	public ValueTask RestoreAsync(TenantContext context, CancellationToken cancellationToken)
+	public void Restore(TenantContext context)
 	{
 		ArgumentNullException.ThrowIfNull(context);
 		probe.Events.Add("restore:tenant");
 		state.TenantId = context.TenantId;
-		return ValueTask.CompletedTask;
 	}
 }
 
@@ -308,50 +345,69 @@ public sealed class CorrelationContextExtractor(PropagationScopeState state, Con
 {
 	public string Key => "correlation";
 
-	public ValueTask<CorrelationContext?> CaptureAsync(CancellationToken cancellationToken)
+	public CorrelationContext? Capture()
 	{
 		probe.Events.Add("capture:correlation");
-		return ValueTask.FromResult(state.CorrelationId is null ? null : new CorrelationContext(state.CorrelationId));
+		return state.CorrelationId is null ? null : new CorrelationContext(state.CorrelationId);
 	}
 
-	public ValueTask RestoreAsync(CorrelationContext context, CancellationToken cancellationToken)
+	public void Restore(CorrelationContext context)
 	{
 		ArgumentNullException.ThrowIfNull(context);
 		probe.Events.Add("restore:correlation");
 		state.CorrelationId = context.CorrelationId;
-		return ValueTask.CompletedTask;
 	}
 }
 
 public sealed class ThrowingCaptureExtractor : IJobContextExtractor<FailureContext>
 {
 	public string Key => "capture-failure";
-	public ValueTask<FailureContext?> CaptureAsync(CancellationToken cancellationToken) =>
+	public FailureContext? Capture() =>
 		throw new InvalidOperationException("Capture failed");
-	public ValueTask RestoreAsync(FailureContext context, CancellationToken cancellationToken) => ValueTask.CompletedTask;
+	public void Restore(FailureContext context) { }
 }
 
 public sealed class ThrowingRestoreExtractor : IJobContextExtractor<FailureContext>
 {
 	public string Key => "restore-failure";
-	public ValueTask<FailureContext?> CaptureAsync(CancellationToken cancellationToken) =>
-		ValueTask.FromResult<FailureContext?>(new("captured"));
-	public ValueTask RestoreAsync(FailureContext context, CancellationToken cancellationToken) =>
+	public FailureContext? Capture() => new("captured");
+	public void Restore(FailureContext context) =>
 		throw new InvalidOperationException("Restore failed");
 }
 
 public sealed class FirstNullExtractor : IJobContextExtractor<EmptyContext>
 {
 	public string Key => "duplicate";
-	public ValueTask<EmptyContext?> CaptureAsync(CancellationToken cancellationToken) => ValueTask.FromResult<EmptyContext?>(null);
-	public ValueTask RestoreAsync(EmptyContext context, CancellationToken cancellationToken) => ValueTask.CompletedTask;
+	public EmptyContext? Capture() => null;
+	public void Restore(EmptyContext context) { }
 }
 
 public sealed class SecondNullExtractor : IJobContextExtractor<EmptyContext>
 {
 	public string Key => "duplicate";
-	public ValueTask<EmptyContext?> CaptureAsync(CancellationToken cancellationToken) => ValueTask.FromResult<EmptyContext?>(null);
-	public ValueTask RestoreAsync(EmptyContext context, CancellationToken cancellationToken) => ValueTask.CompletedTask;
+	public EmptyContext? Capture() => null;
+	public void Restore(EmptyContext context) { }
+}
+
+public sealed class ReplacedIdGenerator : IIdGenerator
+{
+	public string CreateId(IdKind kind) => "replaced";
+}
+
+public sealed class TestIdGenerator(TimeProvider timeProvider) : IIdGenerator
+{
+	private int _sequence;
+
+	public string CreateId(IdKind kind)
+	{
+		var prefix = kind switch
+		{
+			IdKind.Job => "job",
+			IdKind.Batch => "batch",
+			_ => throw new ArgumentOutOfRangeException(nameof(kind)),
+		};
+		return $"{prefix}_{timeProvider.GetUtcNow().UtcTicks}_{Interlocked.Increment(ref _sequence)}";
+	}
 }
 
 public sealed class ContextHandlerBehavior<TRequest, TResponse>(PropagationScopeState state, ContextProbe probe)
@@ -445,7 +501,7 @@ public sealed class ScopedSchedulerConsumer(IServiceScopeFactory scopeFactory)
 		state.TenantId = "singleton-tenant";
 		state.CorrelationId = "singleton-correlation";
 		var scheduler = scope.ServiceProvider.GetRequiredService<ContextRoundTripJob.Scheduler>();
-		return (await scheduler.Enqueue(new("singleton"), cancellationToken)).Id;
+		return (await scheduler.EnqueueAsync(new("singleton"), cancellationToken)).Id;
 	}
 }
 

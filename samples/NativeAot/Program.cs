@@ -16,7 +16,7 @@ await using (var scope = provider.CreateAsyncScope())
 	currentContext.Value = ExpectedContext;
 
 	var scheduler = scope.ServiceProvider.GetRequiredService<AotGreetingJob.Scheduler>();
-	_ = await scheduler.Enqueue(new("Native AOT", ExpectedContext));
+	_ = await scheduler.EnqueueAsync(new("Native AOT", ExpectedContext));
 }
 
 await provider.GetRequiredService<JobSchedulerService>().DrainAsync();
@@ -33,17 +33,13 @@ public sealed class GreetingContextExtractor(CurrentGreetingContext currentConte
 {
 	public string Key => "greeting";
 
-	public ValueTask<GreetingContext?> CaptureAsync(CancellationToken cancellationToken) =>
-		ValueTask.FromResult(
-			currentContext.Value is { } value ? new GreetingContext(value) : null
-		);
+	public GreetingContext? Capture() =>
+		currentContext.Value is { } value ? new GreetingContext(value) : null;
 
-	public ValueTask RestoreAsync(GreetingContext context, CancellationToken cancellationToken)
+	public void Restore(GreetingContext context)
 	{
 		ArgumentNullException.ThrowIfNull(context);
-		cancellationToken.ThrowIfCancellationRequested();
 		currentContext.Value = context.Value;
-		return ValueTask.CompletedTask;
 	}
 }
 

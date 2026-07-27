@@ -296,8 +296,8 @@ public sealed class ImmediateJobsAnalyzerTests
 			public sealed class BadExtractor : IJobContextExtractor<BadContext>
 			{
 				public string Key => "bad";
-				public ValueTask<BadContext?> CaptureAsync(CancellationToken ct) => ValueTask.FromResult<BadContext?>(null);
-				public ValueTask RestoreAsync(BadContext context, CancellationToken ct) => ValueTask.CompletedTask;
+				public BadContext? Capture() => null;
+				public void Restore(BadContext context) { }
 			}
 
 			[Handler, Job, UsesJobContext<BadExtractor>]
@@ -328,8 +328,8 @@ public sealed class ImmediateJobsAnalyzerTests
 			public sealed class BadExtractor : IJobContextExtractor<BadContext>
 			{
 				public string Key => "bad";
-				public ValueTask<BadContext?> CaptureAsync(CancellationToken ct) => ValueTask.FromResult<BadContext?>(null);
-				public ValueTask RestoreAsync(BadContext context, CancellationToken ct) => ValueTask.CompletedTask;
+				public BadContext? Capture() => null;
+				public void Restore(BadContext context) { }
 			}
 
 			[Handler, Job, UsesJobContext<BadExtractor>]
@@ -355,8 +355,8 @@ public sealed class ImmediateJobsAnalyzerTests
 			public sealed class ValidExtractor : IJobContextExtractor<ValidContext>
 			{
 				public string Key => "tenant";
-				public ValueTask<ValidContext?> CaptureAsync(CancellationToken ct) => ValueTask.FromResult<ValidContext?>(new("one"));
-				public ValueTask RestoreAsync(ValidContext context, CancellationToken ct) => ValueTask.CompletedTask;
+				public ValidContext? Capture() => new("one");
+				public void Restore(ValidContext context) { }
 			}
 
 			[Handler, Job, UsesJobContext<ValidExtractor>]
@@ -379,10 +379,10 @@ public sealed class ImmediateJobsAnalyzerTests
 
 			public sealed class Scheduler
 			{
-				public void AddToBatch(JobDetails current, int payload, ContinuationOptions options) { }
+				public void AddToBatchAsync(JobDetails current, int payload, ContinuationOptions options) { }
 
 				public void Schedule(JobDetails current) =>
-					AddToBatch(current, 42, ContinuationOptions.Detached);
+					AddToBatchAsync(current, 42, ContinuationOptions.Detached);
 			}
 			""",
 			"IJOB020"
@@ -397,10 +397,10 @@ public sealed class ImmediateJobsAnalyzerTests
 
 			public sealed class Scheduler
 			{
-				public void AddToBatch(JobDetails current, int payload, ContinuationOptions options) { }
+				public void AddToBatchAsync(JobDetails current, int payload, ContinuationOptions options) { }
 
 				public void Schedule(JobDetails current, ContinuationOptions options) =>
-					AddToBatch(current, 42, options);
+					AddToBatchAsync(current, 42, options);
 			}
 			"""
 		);

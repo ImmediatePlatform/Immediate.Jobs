@@ -21,8 +21,8 @@ public sealed partial class SendWelcomeEmail(IEmailSender sender)
 
 public sealed class SignupService(SendWelcomeEmail.Scheduler welcomeEmail)
 {
-	public ValueTask<JobHandle> Enqueue(Guid userId, CancellationToken cancellationToken) =>
-		welcomeEmail.Enqueue(new(userId, "v2"), cancellationToken);
+	public ValueTask<JobHandle> EnqueueAsync(Guid userId, CancellationToken cancellationToken) =>
+		welcomeEmail.EnqueueAsync(new(userId, "v2"), cancellationToken);
 }
 ```
 
@@ -36,18 +36,32 @@ scheduler directly:
 ```csharp
 public sealed class ImportWorker(IServiceScopeFactory scopeFactory)
 {
-	public async ValueTask Enqueue(Guid importId, CancellationToken cancellationToken)
+	public async ValueTask EnqueueAsync(Guid importId, CancellationToken cancellationToken)
 	{
 		await using var scope = scopeFactory.CreateAsyncScope();
 		var scheduler = scope.ServiceProvider.GetRequiredService<ImportJob.Scheduler>();
-		await scheduler.Enqueue(new(importId), cancellationToken);
+		await scheduler.EnqueueAsync(new(importId), cancellationToken);
 	}
 }
 ```
 
-`Enqueue`, `Schedule`, `ScheduleAt`, and `TriggerNow` return a `JobHandle`. Its `Id` is an opaque
+`EnqueueAsync`, `ScheduleAsync`, `ScheduleAtAsync`, and `TriggerNowAsync` return a `JobHandle`. Its `Id` is an opaque
 string invocation ID. Consumers must not parse it or depend on its format; storage integrations may
 use another string ID scheme.
+
+Applications that need Snowflake, ULID, or another identifier format can replace the singleton ID
+generator. The implementation is resolved from DI and must be thread-safe:
+
+```csharp
+services.AddImmediateJobs(options => options.UseInMemory())
+	.UseIdGenerator<SnowflakeIdGenerator>();
+
+sealed class SnowflakeIdGenerator(ISnowflakeService snowflakes) : IIdGenerator
+{
+	public string CreateId(IdKind kind) =>
+		$"{(kind is IdKind.Job ? "job" : "batch")}_{snowflakes.GenerateSnowflakeId()}";
+}
+```
 
 ## Batches and continuations
 
@@ -59,13 +73,13 @@ writes nothing.
 ```csharp
 await using var batch = batches.Begin();
 
-var imported = await import.AddToBatch(batch, new(importId), cancellationToken: cancellationToken);
-var indexed = await index.ScheduleAfter(imported, new(importId), cancellationToken: cancellationToken);
+var imported = import.AddToBatch(batch, new(importId));
+var indexed = await index.ScheduleAfterAsync(imported, new(importId), cancellationToken: cancellationToken);
 
-var notifyOwner = await notify.ScheduleAfter(indexed, new(importId), cancellationToken: cancellationToken);
-var updateMetrics = await metrics.ScheduleAfter(indexed, new(importId), cancellationToken: cancellationToken);
+var notifyOwner = await notify.ScheduleAfterAsync(indexed, new(importId), cancellationToken: cancellationToken);
+var updateMetrics = await metrics.ScheduleAfterAsync(indexed, new(importId), cancellationToken: cancellationToken);
 
-await finalize.ScheduleAfter(
+await finalize.ScheduleAfterAsync(
 	[notifyOwner, updateMetrics],
 	new(importId),
 	cancellationToken: cancellationToken
@@ -74,8 +88,8 @@ await finalize.ScheduleAfter(
 BatchHandle committed = await batch.CommitAsync(cancellationToken);
 ```
 
-`ContinuationTrigger.AllSucceeded` is the default; `AllComplete` runs after every parent settles,
-regardless of outcome. A running batch member can also expand its workflow through its injected
+`ContinuationTrigger.Success` is the default; `Failure` runs after every parent settles when at
+least one failed, and `Complete` runs regardless of outcome. A running batch member can also expand its workflow through its injected
 `JobDetails`, with additions buffered until the attempt succeeds so retries do not duplicate work.
 Use `IJobBatchMonitor` and `IJobMonitor` for status, member, graph, and job reads. See
 [Batches & Continuations](docs/batches-and-continuations.md) for the complete API and semantics.
@@ -110,9 +124,18 @@ builder.Services.AddImmediateJobs(options =>
 }).AddHealthCheck();
 ```
 
-The EF Core package adds `UseEntityFrameworkCore<TContext>()` in the same options callback. A durable provider implicitly selects single-server mode: memory is the live authority and every transition is written through to the database for restart recovery. Use `options.UseSingleServer()` to state that topology explicitly, `options.UseDistributed()` to make the database authoritative for multi-node coordination, or `options.UseInMemory()` for a non-durable development store.
+The EF Core package adds `UseEntityFrameworkCore<TContext>()`; the LinqToDB package adds
+`UseLinqToDB(dataOptions, schema)`. A durable provider implicitly selects single-server mode: memory
+is the live authority and every transition is written through to the database for restart recovery.
+Use `options.UseSingleServer()` to state that topology explicitly, `options.UseDistributed()` to
+make the database authoritative for multi-node coordination, or `options.UseInMemory()` for a
+non-durable development store.
 
-Adding queue support introduces the required `QueueName` column on `immediate_jobs`, and invocation IDs are stored as strings with a maximum length of 256. Applications using EF Core storage must add a migration (or recreate a development database created from an earlier draft). The model supplies `"default"` as the queue database default so existing rows are backfilled safely.
+Adding queue support introduces the required `QueueName` column on `immediate_jobs`, and invocation
+IDs are stored as strings with a maximum length of 256. Execution correlation adds nullable
+`ExecutionTraceId`, `ExecutionSpanId`, and `ExecutionStartedAt` columns. Applications using EF Core
+storage must add a migration (or recreate a development database created from an earlier draft).
+The model supplies `"default"` as the queue database default so existing rows are backfilled safely.
 
 ## Recurring work
 
@@ -130,7 +153,7 @@ public sealed partial class CleanupSessionsJob(AppDbContext db)
 Inject `CleanupSessionsJob.Scheduler` to trigger the code-defined job immediately:
 
 ```csharp
-await scheduler.TriggerNow(cancellationToken);
+await scheduler.TriggerNowAsync(cancellationToken);
 ```
 
 Schedulers for jobs with a compile-time `Cron` do not expose dynamic schedule mutation. To manage named schedules at runtime, define a separate payloadless job without `Cron`:
@@ -143,8 +166,8 @@ public sealed partial class TenantCleanupJob(AppDbContext db)
 		new(db.DeleteExpiredSessions(cancellationToken));
 }
 
-await tenantCleanupScheduler.AddOrUpdateRecurring("tenant-42-cleanup", "0 0 3 * * *", "UTC", cancellationToken);
-await tenantCleanupScheduler.RemoveRecurring("tenant-42-cleanup", cancellationToken);
+await tenantCleanupScheduler.AddOrUpdateRecurringAsync("tenant-42-cleanup", "0 0 3 * * *", "UTC", cancellationToken);
+await tenantCleanupScheduler.RemoveRecurringAsync("tenant-42-cleanup", cancellationToken);
 ```
 
 Code schedules are reconciled at startup: current definitions are re-asserted and persisted code-defined schedules that no longer exist are removed. Dynamic schedules are left unchanged and cannot replace a code-defined schedule with the same name. Storage uses a unique `(schedule name, scheduled UTC occurrence)` materialization key, so competing nodes produce one durable invocation for each occurrence.
@@ -186,29 +209,37 @@ the job's execution scope before the handler and its behaviors are resolved. The
 serialized with generated metadata, so it remains trimming- and Native AOT-safe.
 
 ```csharp
-public sealed record UsageContext(Guid UserId, string TenantId);
+// This is the durable, serializable value stored with the job.
+public sealed record UsageContextSnapshot(Guid UserId, string TenantId);
 
-public sealed class UsageContextExtractor(CurrentUsage current)
-	: IJobContextExtractor<UsageContext>
+// This is the scoped application service populated by the request and injected through DI.
+public sealed class UsageContext
+{
+	public UsageContextSnapshot? Value { get; set; }
+}
+
+public sealed class UsageContextExtractor(UsageContext usage)
+	: IJobContextExtractor<UsageContextSnapshot>
 {
 	public string Key => "usage"; // stable across extractor type renames
 
-	public ValueTask<UsageContext?> CaptureAsync(CancellationToken cancellationToken) =>
-		ValueTask.FromResult(current.Value);
+	public UsageContextSnapshot? Capture() => usage.Value;
 
-	public ValueTask RestoreAsync(UsageContext context, CancellationToken cancellationToken)
-	{
-		current.Value = context;
-		return ValueTask.CompletedTask;
-	}
+	public void Restore(UsageContextSnapshot context) => usage.Value = context;
 }
 
 [Handler, Job, UsesJobContext<UsageContextExtractor>]
-public sealed partial class AuditUsageJob(CurrentUsage current)
+public sealed partial class AuditUsageJob(UsageContext usage)
 {
-	// The generated scheduler captures UsageContext and the worker restores it before this runs.
+	// usage.Value contains the enqueueing scope's snapshot when this job runs.
 }
 ```
+
+Register the application-owned holder as scoped: `builder.Services.AddScoped<UsageContext>()`.
+The generated job registrations add `UsageContextExtractor` as scoped automatically. At enqueue,
+the extractor reads the caller's `UsageContext`; at execution, it writes the deserialized snapshot
+into the new job scope's `UsageContext` before the job and its behaviors are resolved. The snapshot
+itself is persisted data passed to `Restore`, not a service resolved from DI.
 
 For a family of jobs, put one or more extractor markers on a reusable attribute:
 
@@ -225,15 +256,86 @@ public sealed partial class SendInvoiceJob
 ```
 
 Extractor keys identify persisted envelope slices and must be unique for a job. Return `null` from
-`CaptureAsync` when there is no context to persist, as is typical when recurring work is
+`Capture` when there is no context to persist, as is typical when recurring work is
 materialized outside a request.
 
 ## Storage providers
 
 - `Immediate.Jobs` includes the development-only in-memory provider, the memory-primary durable single-server topology, and the channel-backed worker pool.
-- `Immediate.Jobs.EntityFrameworkCore` provides relational EF Core persistence and optimistic concurrency.
+- `Immediate.Jobs.EntityFrameworkCore` is the provider-neutral EF Core adapter, validated with PostgreSQL, SQLite, and SQL Server.
+- `Immediate.Jobs.LinqToDB` is the provider-neutral LinqToDB adapter, validated with PostgreSQL, SQLite, and SQL Server.
+- `Immediate.Jobs.Redis` is the distributed queue + recurring adapter. It does not implement batches
+  or continuations; those features require one of the graph-capable SQL providers.
 
-All providers implement `IJobStorage`. Single-server mode restores unfinished jobs and recurring schedules into memory when the process starts. Distributed mode uses provider leases; if a process dies, its lease expires and another node can acquire the invocation.
+All providers implement `IJobStorage`. Single-server mode restores unfinished jobs and recurring schedules into memory when the process starts. Distributed mode uses provider leases; if a process dies, its lease expires and another node can acquire the invocation. Redis always selects distributed mode because the single-server durable-replica topology requires all storage capabilities.
+
+### Redis configuration
+
+Pass either a StackExchange.Redis configuration string or an application-owned
+`IConnectionMultiplexer`. `UseRedis` selects distributed mode automatically:
+
+```csharp
+builder.Services.AddImmediateJobs(options =>
+	options.UseRedis("localhost:6379", redis =>
+	{
+		redis.Database = 1;
+		redis.KeyPrefix = "billing-jobs";
+	}));
+```
+
+The prefix isolates applications and is also used as the Redis Cluster hash tag, keeping every
+atomic Lua transition in one slot. The provider owns connections it creates from a configuration
+string; it does not dispose an `IConnectionMultiplexer` supplied by the application. Terminal job
+history is tracked in completion-time sorted indexes and removed by the normal
+`SucceededRetention` / `FailedRetention` purge loop.
+
+### EF Core configuration
+
+Register an `IDbContextFactory<TContext>`, select the database through its normal EF provider, and
+include the jobs model in the application context:
+
+```csharp
+builder.Services.AddDbContextFactory<AppDbContext>(db =>
+	db.UseNpgsql(connectionString));       // PostgreSQL
+// db.UseSqlite(connectionString);       // SQLite
+// db.UseSqlServer(connectionString);    // SQL Server
+
+builder.Services.AddImmediateJobs(options =>
+	options.UseEntityFrameworkCore<AppDbContext>());
+
+protected override void OnModelCreating(ModelBuilder modelBuilder)
+{
+	modelBuilder.AddImmediateJobs(schema: "background"); // omit the schema for SQLite
+}
+```
+
+The application owns EF migrations. Add a migration after calling `AddImmediateJobs`, or use
+`EnsureCreatedAsync` only for disposable development/test databases. The adapter does not reference
+Npgsql, SQLite, or SQL Server provider packages.
+
+### LinqToDB configuration
+
+Configure and reuse an immutable `DataOptions`, then pass it to both bootstrap and registration:
+
+```csharp
+var dataOptions = new DataOptions().UsePostgreSQL(connectionString);
+// new DataOptions().UseSQLite(connectionString);
+// new DataOptions().UseSqlServer(connectionString);
+
+await dataOptions.CreateImmediateJobsSchemaAsync(
+	schema: "background", // must be null for SQLite
+	cancellationToken);
+
+builder.Services.AddImmediateJobs(options =>
+	options.UseLinqToDB(dataOptions, schema: "background"));
+```
+
+`CreateImmediateJobsSchemaAsync` is an explicit, idempotent bootstrap helper for a fresh database.
+It is never called by `InitializeAsync` and is not a production migration system. Applications own
+the matching ADO.NET driver (`Npgsql`, `Microsoft.Data.Sqlite`, or `Microsoft.Data.SqlClient`); the
+adapter package deliberately carries none of them. Named schemas are supported on PostgreSQL and
+SQL Server. SQLite has no server schemas and is normally embedded/file-backed, including in the
+storage conformance tests.
 
 Queue-aware dispatch changes the provider acquisition seam to `AcquireDueJobsAsync(JobAcquisitionRequest, ...)`. Custom providers must honor the request's queue order, queue capacities, and per-job capacities when upgrading.
 
@@ -242,8 +344,24 @@ Queue-aware dispatch changes the provider acquisition seam to `AcquireDueJobsAsy
 Reference `Immediate.Jobs.Dashboard`, then map it after building the app:
 
 ```csharp
+var traceExplorer = new Uri("https://traces.example/");
+var logExplorer = new Uri("https://logs.example/");
+
 app.MapImmediateJobsDashboard("/jobs", options =>
-	options.RequireAuthorization("operations"));
+{
+	_ = options.RequireAuthorization("operations");
+	_ = options.AddTelemetryLink(
+		"View latest trace",
+		JobTelemetryLinkKind.Trace,
+		context => context.Job.ExecutionTraceId is { } traceId
+			? new(traceExplorer, $"trace/{traceId}")
+			: null);
+	_ = options.AddTelemetryLink(
+		"View all retry logs",
+		JobTelemetryLinkKind.Logs,
+		context => new(logExplorer,
+			$"search?jobId={Uri.EscapeDataString(context.Job.Id)}"));
+});
 ```
 
 The package serves an embedded SPA, JSON monitoring endpoints, and Server-Sent Events streams.
@@ -251,6 +369,15 @@ Without an authorization policy, dashboard access is allowed only in the `Develo
 The dashboard includes batch progress and a live dependency-graph viewer alongside filtered jobs,
 recurring schedule actions, retry, cancellation, and atomic batch deletion. Job search and filters
 are paged on the server in groups of 50; batch members show a link to their workflow.
+
+Telemetry destinations are application-defined because Aspire, Jaeger, Grafana, Seq, Azure Monitor,
+and other systems use different query URLs. Each execution attempt creates a distinct `Activity`
+linked to the enqueue context; the persisted trace and span identify the latest attempt. A job-ID log
+query covers every retry because the structured logging scope includes
+`{JobName, JobId, Attempt}` on every attempt. Immediate.Jobs currently stores the attempt count and
+latest failure rather than a separate row per attempt, so it cannot offer individual links for older
+attempt spans. `AddTelemetryLink` may return `null` when a destination does not apply, and accepts
+HTTP(S) or dashboard-relative URLs.
 
 ## Testing
 
@@ -278,7 +405,10 @@ are paged on the server in groups of 50; batch members show a link to their work
 | `IJOB017` | Continuation handles belong to unrelated batches |
 | `IJOB018` | A continuation dependency cycle was detected |
 | `IJOB019` | A batch handle was used after commit or disposal |
-| `IJOB020` | `AddToBatch(JobDetails, ..., Detached)` is contradictory |
+| `IJOB020` | `AddToBatchAsync(JobDetails, ..., Detached)` is contradictory |
+
+Invalid Immediate.Jobs runtime operations and states throw `ImmediateJobException`. Invalid method
+arguments, cron expressions, serialized data, and missing records retain their standard exception types.
 
 ## Observability
 
@@ -294,7 +424,7 @@ The repository includes BenchmarkDotNet comparisons with Hangfire MemoryStorage 
 
 Latest `ShortRun` results from 21 July 2026: BenchmarkDotNet 0.15.8, .NET 8.0.22 Arm64 RyuJIT, Apple M3 Pro with 12 cores, macOS 26.5. Each result uses one launch, three warmup iterations, and three measurement iterations. Ratios use Immediate.Jobs as the baseline.
 
-#### Enqueue
+#### EnqueueAsync
 
 | Framework | Mean | Ratio | Allocated | Allocation ratio |
 |---|---:|---:|---:|---:|

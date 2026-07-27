@@ -12,8 +12,12 @@ public sealed partial class JobSchedulerService : BackgroundService
 {
 	private readonly IServiceScopeFactory _scopeFactory;
 	private readonly IJobStorage _storage;
+	private readonly IRecurringJobStorage? _recurringStorage;
+	private readonly IJobGraphStorage? _graphStorage;
 	private readonly ImmediateJobsOptions _options;
+	private readonly FairQueuePolicy? _fairQueuePolicy;
 	private readonly TimeProvider _timeProvider;
+	private readonly IIdGenerator _idGenerator;
 	private readonly ILogger<JobSchedulerService> _logger;
 	private readonly JobSchedulerState _state;
 	private readonly IReadOnlyDictionary<string, JobDefinition> _definitions;
@@ -25,6 +29,7 @@ public sealed partial class JobSchedulerService : BackgroundService
 	private readonly string _workerId = $"{Environment.MachineName}:{Environment.ProcessId}:{Guid.NewGuid():N}";
 	private readonly Channel<JobRecord> _channel;
 	private int _reservations;
+	private int _fairQueuesDisabledWarningLogged;
 	private long _nextPurgeTimestamp;
 
 	/// <summary>Creates the hosted scheduler from generated definitions.</summary>
@@ -36,6 +41,7 @@ public sealed partial class JobSchedulerService : BackgroundService
 		IEnumerable<JobQueueDefinition> queueDefinitions,
 		ImmediateJobsOptions options,
 		TimeProvider timeProvider,
+		IIdGenerator idGenerator,
 		ILogger<JobSchedulerService> logger,
 		JobSchedulerState state
 	)
@@ -47,15 +53,22 @@ public sealed partial class JobSchedulerService : BackgroundService
 		ArgumentNullException.ThrowIfNull(queueDefinitions);
 		ArgumentNullException.ThrowIfNull(options);
 		ArgumentNullException.ThrowIfNull(timeProvider);
+		ArgumentNullException.ThrowIfNull(idGenerator);
 		ArgumentNullException.ThrowIfNull(logger);
 		ArgumentNullException.ThrowIfNull(state);
 
 		_scopeFactory = scopeFactory;
 		_storage = storage;
+		_recurringStorage = storage as IRecurringJobStorage;
+		_graphStorage = storage as IJobGraphStorage;
 		_options = options;
+		_fairQueuePolicy = options.FairQueues?.ToPolicy();
 		_timeProvider = timeProvider;
+		_idGenerator = idGenerator;
 		_logger = logger;
 		_state = state;
+		if (_graphStorage is null)
+			GraphFeaturesDisabled(_logger, storage.GetType().Name);
 		_definitions = definitions.ToDictionary(x => x.Name, StringComparer.Ordinal);
 		_queues = queueDefinitions
 			.Concat(_definitions.Values.Select(static definition => definition.Queue))
@@ -146,6 +159,7 @@ public sealed partial class JobSchedulerService : BackgroundService
 			var jobs = await _storage.AcquireDueJobsAsync(request, cancellationToken).ConfigureAwait(false);
 			if (jobs.Count == 0)
 				return;
+			WarnIfGroupedJobsAreInert(jobs);
 
 			foreach (var job in jobs)
 			{
@@ -162,6 +176,7 @@ public sealed partial class JobSchedulerService : BackgroundService
 		var acquired = request is null
 			? []
 			: await _storage.AcquireDueJobsAsync(request, cancellationToken).ConfigureAwait(false);
+		WarnIfGroupedJobsAreInert(acquired);
 
 		foreach (var job in acquired)
 		{
@@ -187,13 +202,20 @@ public sealed partial class JobSchedulerService : BackgroundService
 
 		if (_timeProvider.GetTimestamp() >= Interlocked.Read(ref _nextPurgeTimestamp))
 		{
-			await _storage.PurgeAsync(
+			await _storage.PurgeJobsAsync(
 				_options.SucceededRetention,
 				_options.FailedRetention,
-				_options.BatchSucceededRetention,
-				_options.BatchFailedRetention,
 				cancellationToken
 			).ConfigureAwait(false);
+			if (_graphStorage is not null)
+			{
+				await _graphStorage.PurgeBatchesAsync(
+					_options.BatchSucceededRetention,
+					_options.BatchFailedRetention,
+					cancellationToken
+				).ConfigureAwait(false);
+			}
+
 			_ = Interlocked.Exchange(ref _nextPurgeTimestamp, _timeProvider.GetTimestamp() + ToTimestampTicks(_options.PurgeInterval));
 		}
 	}
@@ -244,6 +266,7 @@ public sealed partial class JobSchedulerService : BackgroundService
 		_state.IncrementActive();
 		JobTelemetry.ExecutionStarted();
 		var started = _timeProvider.GetTimestamp();
+		var startedAt = _timeProvider.GetUtcNow();
 		using var timeout = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
 		ITimer? timeoutTimer = definition.Timeout is { } timeoutValue
 			? _timeProvider.CreateTimer(static state => ((CancellationTokenSource)state!).Cancel(), timeout, timeoutValue, Timeout.InfiniteTimeSpan)
@@ -278,6 +301,14 @@ public sealed partial class JobSchedulerService : BackgroundService
 
 		try
 		{
+			await _storage.SetExecutionTelemetryAsync(
+				record.Id,
+				_workerId,
+				activity?.TraceId.ToString(),
+				activity?.SpanId.ToString(),
+				startedAt,
+				stoppingToken
+			).ConfigureAwait(false);
 			await using var scope = _scopeFactory.CreateAsyncScope();
 			if (record.Context is { } orphanedEnvelope && definition.Invoker is not IJobContextAwareInvoker)
 			{
@@ -290,12 +321,20 @@ public sealed partial class JobSchedulerService : BackgroundService
 				scope.ServiceProvider,
 				new(record, definition, timeout.Token, executionBuffer)
 			).ConfigureAwait(false);
-			await _storage.CompleteWithContinuationsAsync(
-				record.Id,
-				_workerId,
-				executionBuffer.Snapshot(),
-				stoppingToken
-			).ConfigureAwait(false);
+			if (_graphStorage is not null)
+			{
+				await _graphStorage.CompleteWithContinuationsAsync(
+					record.Id,
+					_workerId,
+					executionBuffer.Snapshot(),
+					stoppingToken
+				).ConfigureAwait(false);
+			}
+			else
+			{
+				await _storage.CompleteAsync(record.Id, _workerId, stoppingToken).ConfigureAwait(false);
+			}
+
 			var duration = _timeProvider.GetElapsedTime(started);
 			JobTelemetry.Succeeded(record.JobName, record.QueueName, duration);
 			_ = activity?.SetStatus(ActivityStatusCode.Ok);
@@ -396,7 +435,21 @@ public sealed partial class JobSchedulerService : BackgroundService
 				Lease = _options.LeaseDuration,
 				BatchSize = capacity,
 				Queues = queues,
+				FairQueues = _fairQueuePolicy,
 			};
+	}
+
+	private void WarnIfGroupedJobsAreInert(IReadOnlyList<JobRecord> acquired)
+	{
+		if (_fairQueuePolicy is not null
+			|| Volatile.Read(ref _fairQueuesDisabledWarningLogged) != 0
+			|| !acquired.Any(static job => job.GroupId is not null)
+			|| Interlocked.Exchange(ref _fairQueuesDisabledWarningLogged, 1) != 0)
+		{
+			return;
+		}
+
+		GroupedJobsAcquiredWithoutFairQueues(_logger);
 	}
 
 	private void Reserve(JobRecord record)
@@ -425,14 +478,18 @@ public sealed partial class JobSchedulerService : BackgroundService
 
 	private async Task AssertCodeSchedulesAsync(CancellationToken cancellationToken)
 	{
+		var recurringStorage = _recurringStorage;
+		if (recurringStorage is null)
+			return;
+
 		var now = _timeProvider.GetUtcNow();
 		var codeDefinitions = _definitions.Values.Where(static definition => definition.Cron is not null).ToArray();
 		foreach (var definition in codeDefinitions)
 		{
 			var zone = JobCron.GetTimeZone(definition.TimeZone);
 			var next = JobCron.Parse(definition.Cron!).GetNextOccurrence(now, zone)
-				?? throw new InvalidOperationException($"Cron for '{definition.Name}' has no future occurrence.");
-			await _storage.UpsertRecurringAsync(
+				?? throw new ImmediateJobException($"Cron for '{definition.Name}' has no future occurrence.");
+			await recurringStorage.UpsertRecurringAsync(
 				new()
 				{
 					Name = definition.Name,
@@ -447,7 +504,7 @@ public sealed partial class JobSchedulerService : BackgroundService
 		}
 
 		var activeScheduleNames = codeDefinitions.Select(static definition => definition.Name).ToArray();
-		await _storage.RemoveObsoleteCodeDefinedRecurringAsync(
+		await recurringStorage.RemoveObsoleteCodeDefinedRecurringAsync(
 			activeScheduleNames,
 			cancellationToken
 		).ConfigureAwait(false);
@@ -457,6 +514,11 @@ public sealed partial class JobSchedulerService : BackgroundService
 	{
 		if (_state.CodeSchedulesAsserted)
 			return;
+		if (_recurringStorage is null)
+		{
+			_state.MarkCodeSchedulesAsserted();
+			return;
+		}
 
 		await _scheduleInitialization.WaitAsync(cancellationToken).ConfigureAwait(false);
 		try
@@ -474,8 +536,12 @@ public sealed partial class JobSchedulerService : BackgroundService
 
 	private async Task MaterializeRecurringAsync(CancellationToken cancellationToken)
 	{
+		var recurringStorage = _recurringStorage;
+		if (recurringStorage is null)
+			return;
+
 		var now = _timeProvider.GetUtcNow();
-		var schedules = await _storage.GetDueRecurringAsync(now, _options.AcquisitionBatchSize, cancellationToken).ConfigureAwait(false);
+		var schedules = await recurringStorage.GetDueRecurringAsync(now, _options.AcquisitionBatchSize, cancellationToken).ConfigureAwait(false);
 		foreach (var schedule in schedules)
 		{
 			if (!_definitions.TryGetValue(schedule.JobName, out var definition))
@@ -483,11 +549,11 @@ public sealed partial class JobSchedulerService : BackgroundService
 
 			var expression = JobCron.Parse(schedule.Cron);
 			var next = expression.GetNextOccurrence(schedule.NextRunAt, JobCron.GetTimeZone(schedule.TimeZone))
-				?? throw new InvalidOperationException($"Recurring schedule '{schedule.Name}' has no future occurrence.");
+				?? throw new ImmediateJobException($"Recurring schedule '{schedule.Name}' has no future occurrence.");
 			var (traceParent, traceState) = TraceContextCapture.Current();
 			var record = new JobRecord
 			{
-				Id = Guid.NewGuid().ToString("N"),
+				Id = _idGenerator.CreateId(IdKind.Job),
 				JobName = schedule.JobName,
 				QueueName = definition.Queue.Name,
 				Payload = "{}",
@@ -509,7 +575,7 @@ public sealed partial class JobSchedulerService : BackgroundService
 				}
 			}
 
-			if (await _storage.MaterializeRecurringAsync(schedule, record, next, cancellationToken).ConfigureAwait(false)
+			if (await recurringStorage.MaterializeRecurringAsync(schedule, record, next, cancellationToken).ConfigureAwait(false)
 				&& record.State == JobState.Pending)
 			{
 				JobTelemetry.Enqueued(record.JobName, record.QueueName);
@@ -555,6 +621,20 @@ public sealed partial class JobSchedulerService : BackgroundService
 
 	[LoggerMessage(EventId = 6, Level = LogLevel.Error, Message = "Job exhausted all {maxAttempts} attempts")]
 	private static partial void JobExhaustedAttempts(ILogger logger, Exception exception, int maxAttempts);
+
+	[LoggerMessage(
+		EventId = 7,
+		Level = LogLevel.Information,
+		Message = "Batch & continuation features are disabled: the configured storage '{storageType}' implements the queue capability only. Configure a SQL provider to enable them."
+	)]
+	private static partial void GraphFeaturesDisabled(ILogger logger, string storageType);
+
+	[LoggerMessage(
+		EventId = 8,
+		Level = LogLevel.Warning,
+		Message = "Grouped jobs were acquired while fair queues are disabled. Their group ids are persisted but do not affect dispatch order; call UseFairQueues() to enable fair acquisition."
+	)]
+	private static partial void GroupedJobsAcquiredWithoutFairQueues(ILogger logger);
 }
 
 /// <summary>Scheduler liveness state shared with health checks and monitoring.</summary>

@@ -15,10 +15,12 @@ import {
 } from '@lucide/vue';
 
 import { dismissNotification, notifications } from '@/notifications';
+import { useOverviewQuery } from '@/query';
 import { connectionStatus } from '@/stream-state';
 import { useDashboardStream } from '@/use-dashboard-stream';
 
 useDashboardStream();
+const overviewQuery = useOverviewQuery();
 
 const route = useRoute();
 const colorMode = useColorMode({
@@ -27,13 +29,24 @@ const colorMode = useColorMode({
 	storageKey: 'immediate-jobs-theme',
 });
 
-const navigation = [
+const allNavigation = [
 	{ name: 'overview', label: 'Overview', icon: LayoutDashboard },
 	{ name: 'jobs', label: 'Jobs', icon: ListChecks },
 	{ name: 'batches', label: 'Batches', icon: Layers3 },
 	{ name: 'recurring', label: 'Recurring', icon: CalendarClock },
 	{ name: 'servers', label: 'Servers', icon: Server },
 ] as const;
+
+const navigation = computed(() => allNavigation.filter((item) => {
+	const capabilities = overviewQuery.data.value?.capabilities;
+	if (item.name === 'batches') {
+		return capabilities?.includes('Graph') ?? true;
+	}
+	if (item.name === 'recurring') {
+		return capabilities?.includes('Recurring') ?? true;
+	}
+	return true;
+}));
 
 const connectionLabel = computed(() => {
 	if (connectionStatus.value === 'live') {

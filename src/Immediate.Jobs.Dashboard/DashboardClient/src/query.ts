@@ -11,6 +11,7 @@ import {
 	getBatchGraph,
 	getBatches,
 	getJob,
+	getJobTelemetryLinks,
 	getJobs,
 	getOverview,
 	getRecentJobs,
@@ -26,6 +27,7 @@ import type {
 	JobMonitoringSnapshot,
 	JobRecord,
 	JobServerSnapshot,
+	JobTelemetryLink,
 	RecurringJobSchedule,
 } from '@/contracts';
 import { connectionStatus, recordSnapshot } from '@/stream-state';
@@ -36,6 +38,7 @@ export const queryKeys = {
 	jobPages: ['jobs', 'page'] as const,
 	jobs: (filters: JobFilters) => ['jobs', 'page', filters] as const,
 	job: (jobId: string) => ['jobs', 'detail', jobId] as const,
+	jobTelemetryLinks: (jobId: string) => ['jobs', 'telemetry-links', jobId] as const,
 	batches: ['batches', 'list'] as const,
 	batch: (batchId: string) => ['batches', 'detail', batchId] as const,
 	batchGraph: (batchId: string) => ['batches', 'graph', batchId] as const,
@@ -83,6 +86,18 @@ export function useJobQuery(jobId: MaybeRefOrGetter<string | undefined>): UseQue
 		queryFn: ({ signal }) => getJob(toValue(jobId) ?? '', signal),
 		enabled: computed(() => Boolean(toValue(jobId))),
 		retry: shouldRetry,
+	});
+}
+
+export function useJobTelemetryLinksQuery(
+	jobId: MaybeRefOrGetter<string | undefined>,
+): UseQueryReturnType<JobTelemetryLink[], Error> {
+	return useQuery({
+		queryKey: computed(() => queryKeys.jobTelemetryLinks(toValue(jobId) ?? '')),
+		queryFn: ({ signal }) => getJobTelemetryLinks(toValue(jobId) ?? '', signal),
+		enabled: computed(() => Boolean(toValue(jobId))),
+		retry: shouldRetry,
+		refetchInterval: 5_000,
 	});
 }
 

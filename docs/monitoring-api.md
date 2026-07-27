@@ -7,6 +7,7 @@
 | `GET` | `/api/overview` | State totals, schedules, and live nodes |
 | `GET` | `/api/jobs?state=&queue=&search=&skip=&take=` | Filtered invocation history; `queue` is an exact persisted queue name |
 | `GET` | `/api/jobs/{id}` | One invocation, including payload and latest error; `404` when absent |
+| `GET` | `/api/jobs/{id}/telemetry-links` | Configured trace and log destinations for one invocation; `404` when absent |
 | `GET` | `/api/batches?state=&skip=&take=` | Recent batches with aggregate progress |
 | `GET` | `/api/batches/{id}` | One batch status; `404` when absent |
 | `GET` | `/api/batches/{id}/members?state=&skip=&take=` | Filtered members of one batch |
@@ -24,6 +25,13 @@
 | `POST` | `/api/recurring/{name}/resume` | Resume future scheduled occurrences |
 
 Read endpoints return the public job, schedule, server, batch-status, member, and graph JSON shapes from `Immediate.Jobs.Shared`. Successful mutations return `202 Accepted` or `204 No Content`; missing resources return `404`, and an invalid state transition returns Problem Details with `409 Conflict`.
+
+Job records expose `executionTraceId`, `executionSpanId`, and `executionStartedAt` for the latest
+attempt. The telemetry-links endpoint evaluates the application callbacks registered with
+`ImmediateJobsDashboardOptions.AddTelemetryLink`; it returns an empty array when no links are
+configured or applicable. Logs can be queried by the stable job ID to include all retries, whose
+structured scopes also carry their individual attempt number. Historical attempts are not stored as
+separate records, so only the latest attempt has directly persisted trace and span identifiers.
 
 The global event stream emits `state` events whose `data` contains a `snapshot`, the latest jobs, and the latest batches; the event id is the snapshot's Unix timestamp in milliseconds. Batch streams emit `status` and `graph` events whenever either representation changes. Clients should reconnect or fall back to the corresponding JSON endpoints when SSE is unavailable.
 

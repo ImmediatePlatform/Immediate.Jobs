@@ -13,11 +13,12 @@ public sealed class TestingPackageTests
 		var scheduler = new CaptureOnlyJobScheduler<TestPayload>();
 		var payload = new TestPayload("hello");
 
-		var id = await scheduler.Enqueue(payload, TestContext.Current.CancellationToken);
+		var id = await scheduler.EnqueueAsync(payload, "tenant-a", TestContext.Current.CancellationToken);
 
 		var capture = Assert.Single(scheduler.Captures);
 		Assert.Equal(id.Id, capture.Id);
 		Assert.Equal(payload, capture.Payload);
+		Assert.Equal("tenant-a", capture.GroupId);
 	}
 
 	[Fact]
@@ -39,10 +40,11 @@ public sealed class TestingPackageTests
 		var scheduler = new TestScheduler(
 			harness.Storage,
 			harness.Services.GetRequiredService<IJobSerializer>(),
-			harness.TimeProvider
+			harness.TimeProvider,
+			harness.Services.GetRequiredService<IIdGenerator>()
 		);
 
-		var id = await scheduler.Schedule(new("payload"), TimeSpan.FromMinutes(5), cancellationToken);
+		var id = await scheduler.ScheduleAsync(new("payload"), TimeSpan.FromMinutes(5), cancellationToken);
 		var queued = await harness.AssertEnqueuedAsync<TestPayload>(id, JobState.Scheduled, cancellationToken);
 		Assert.Equal("payload", queued.Payload.Value);
 
@@ -59,11 +61,17 @@ public sealed class TestingPackageTests
 		public int Count { get; set; }
 	}
 
-	private sealed class TestScheduler(IJobStorage storage, IJobSerializer serializer, TimeProvider timeProvider)
+	private sealed class TestScheduler(
+		IJobStorage storage,
+		IJobSerializer serializer,
+		TimeProvider timeProvider,
+		IIdGenerator idGenerator
+	)
 		: JobScheduler<TestPayload>(
 			storage,
 			serializer,
 			timeProvider,
+			idGenerator,
 			"test-job",
 			JobQueueDefinition.DefaultName,
 			static options => new TestingJsonContext(options).TestPayload

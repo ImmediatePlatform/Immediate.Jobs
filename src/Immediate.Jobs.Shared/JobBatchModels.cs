@@ -55,10 +55,13 @@ public sealed record BatchHandle
 public enum ContinuationTrigger
 {
 	/// <summary>Run only when every parent succeeds; otherwise cancel the continuation.</summary>
-	AllSucceeded,
+	Success,
+
+	/// <summary>Run only when every parent is terminal and at least one parent failed.</summary>
+	Failure,
 
 	/// <summary>Run after every parent reaches any terminal state.</summary>
-	AllComplete,
+	Complete,
 }
 
 /// <summary>Determines how work scheduled by a running job joins its workflow.</summary>
@@ -122,7 +125,7 @@ public sealed record JobContinuationEdge
 	/// <summary>The parent batch for a batch-to-job dependency.</summary>
 	public string? ParentBatchId { get; init; }
 	/// <summary>The condition under which the edge is satisfied.</summary>
-	public ContinuationTrigger Trigger { get; init; } = ContinuationTrigger.AllSucceeded;
+	public ContinuationTrigger Trigger { get; init; } = ContinuationTrigger.Success;
 }
 
 /// <summary>A continuation buffered during a running job attempt and committed only on success.</summary>
@@ -133,7 +136,7 @@ public sealed record JobContinuationAddition
 	/// <summary>How the new invocation joins and modifies the current workflow.</summary>
 	public required ContinuationOptions Options { get; init; }
 	/// <summary>The dependency trigger from the running job to the new invocation.</summary>
-	public ContinuationTrigger Trigger { get; init; } = ContinuationTrigger.AllSucceeded;
+	public ContinuationTrigger Trigger { get; init; } = ContinuationTrigger.Success;
 }
 
 /// <summary>Per-attempt buffer used by generated schedulers during job execution.</summary>

@@ -7,6 +7,7 @@ import type {
 	JobMonitoringSnapshot,
 	JobRecord,
 	JobServerSnapshot,
+	JobTelemetryLink,
 	RecurringJobSchedule,
 } from '@/contracts';
 
@@ -84,6 +85,10 @@ export async function getRecentJobs(signal?: AbortSignal): Promise<JobRecord[]> 
 
 export function getJob(jobId: string, signal?: AbortSignal): Promise<JobRecord> {
 	return request(`jobs/${encodeURIComponent(jobId)}`, { signal });
+}
+
+export function getJobTelemetryLinks(jobId: string, signal?: AbortSignal): Promise<JobTelemetryLink[]> {
+	return request(`jobs/${encodeURIComponent(jobId)}/telemetry-links`, { signal });
 }
 
 export function getBatches(signal?: AbortSignal): Promise<BatchStatus[]> {

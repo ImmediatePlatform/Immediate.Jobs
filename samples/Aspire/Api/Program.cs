@@ -1,6 +1,7 @@
 using Immediate.Jobs.Aspire.Api.Context;
 using Immediate.Jobs.Aspire.Api.Data;
 using Immediate.Jobs.Aspire.Api.Endpoints;
+using Immediate.Jobs.Aspire.Api.Telemetry;
 using Immediate.Jobs.Aspire.Api.Workflows;
 using Immediate.Jobs.Dashboard;
 using Immediate.Jobs.EntityFrameworkCore;
@@ -14,10 +15,14 @@ builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<CurrentRequestContext>();
+builder.Services.AddScoped<GameReleaseWorkflow>();
 builder.Services.AddScoped<OrderFulfillmentWorkflow>();
 
 var connectionString = builder.Configuration.GetConnectionString("jobs")
 	?? throw new InvalidOperationException("The Aspire 'jobs' connection string is required.");
+var aspireDashboardUrl = builder.Configuration["Telemetry:AspireDashboardUrl"] is { } configuredDashboardUrl
+	? new Uri(configuredDashboardUrl, UriKind.Absolute)
+	: null;
 
 builder.Services.AddDbContextFactory<JobsDbContext>(options =>
 	options.UseNpgsql(connectionString, npgsql => npgsql.EnableRetryOnFailure()));
@@ -40,7 +45,11 @@ await using (var scope = app.Services.CreateAsyncScope())
 }
 
 _ = app.MapDefaultEndpoints();
-_ = app.MapImmediateJobsDashboard("/jobs");
+_ = app.MapImmediateJobsDashboard("/jobs", options =>
+{
+	if (aspireDashboardUrl is not null)
+		_ = options.AddAspireTelemetryLinks(aspireDashboardUrl);
+});
 
 if (app.Environment.IsDevelopment())
 {

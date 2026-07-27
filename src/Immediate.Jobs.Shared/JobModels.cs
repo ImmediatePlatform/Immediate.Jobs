@@ -41,6 +41,9 @@ public sealed record JobRecord
 	/// <summary>Serialized ambient-context envelope captured while enqueueing.</summary>
 	public string? Context { get; init; }
 
+	/// <summary>Optional fairness group key scoped within the queue. Null means an independent tenant.</summary>
+	public string? GroupId { get; init; }
+
 	/// <summary>The current lifecycle state.</summary>
 	public required JobState State { get; init; }
 
@@ -74,11 +77,23 @@ public sealed record JobRecord
 	/// <summary>W3C trace state captured while enqueueing.</summary>
 	public string? TraceState { get; init; }
 
+	/// <summary>Trace identifier created for the latest execution attempt.</summary>
+	public string? ExecutionTraceId { get; init; }
+
+	/// <summary>Span identifier created for the latest execution attempt.</summary>
+	public string? ExecutionSpanId { get; init; }
+
+	/// <summary>UTC start time of the latest execution attempt.</summary>
+	public DateTimeOffset? ExecutionStartedAt { get; init; }
+
 	/// <summary>The atomic batch containing this invocation, if any.</summary>
 	public string? BatchId { get; init; }
 
 	/// <summary>Number of incoming continuation dependencies not yet satisfied.</summary>
 	public int RemainingDependencies { get; init; }
+
+	/// <summary>Number of settled incoming continuation dependencies whose parent failed.</summary>
+	public int FailedDependencies { get; init; }
 }
 
 /// <summary>A persisted recurring schedule.</summary>
@@ -203,6 +218,13 @@ public sealed record JobQueueAcquisition
 	public required IReadOnlyDictionary<string, int> JobCapacities { get; init; }
 }
 
+/// <summary>Immutable fair queue settings applied by storage during one acquisition request.</summary>
+public sealed record FairQueuePolicy(
+	double ConcurrencyShareThreshold,
+	int MinInflightForNoisy,
+	bool GroupRoundRobin
+);
+
 /// <summary>A priority-ordered, node-local storage acquisition request.</summary>
 public sealed record JobAcquisitionRequest
 {
@@ -217,6 +239,9 @@ public sealed record JobAcquisitionRequest
 
 	/// <summary>Queues in dispatch order, with their remaining capacities.</summary>
 	public required IReadOnlyList<JobQueueAcquisition> Queues { get; init; }
+
+	/// <summary>Fair queue policy for this acquisition, or <see langword="null"/> when fairness is disabled.</summary>
+	public FairQueuePolicy? FairQueues { get; init; }
 }
 
 /// <summary>Queue totals for monitoring and health endpoints.</summary>
@@ -225,7 +250,11 @@ public sealed record JobMonitoringSnapshot(
 	IReadOnlyDictionary<JobState, long> Counts,
 	IReadOnlyList<RecurringJobSchedule> Recurring,
 	IReadOnlyList<JobServerSnapshot> Servers
-);
+)
+{
+	/// <summary>Capabilities implemented by the active storage provider.</summary>
+	public StorageCapabilities Capabilities { get; init; } = StorageCapabilities.Queue;
+}
 
 /// <summary>A live scheduler-node heartbeat.</summary>
 public sealed record JobServerSnapshot(

@@ -39,12 +39,12 @@ public sealed class SingleServerJobStorageTests
 	public void ExplicitDurableModeRequiresAProvider()
 	{
 		var singleServerServices = new ServiceCollection();
-		_ = Assert.Throws<InvalidOperationException>(() =>
+		_ = Assert.Throws<ImmediateJobException>(() =>
 			singleServerServices.AddImmediateJobsCore(options => options.UseSingleServer())
 		);
 
 		var distributedServices = new ServiceCollection();
-		_ = Assert.Throws<InvalidOperationException>(() =>
+		_ = Assert.Throws<ImmediateJobException>(() =>
 			distributedServices.AddImmediateJobsCore(options => options.UseDistributed())
 		);
 	}
@@ -81,6 +81,34 @@ public sealed class SingleServerJobStorageTests
 		var recoveredSchedule = Assert.Single((await restartedProcess.GetMonitoringSnapshotAsync(cancellationToken)).Recurring);
 		Assert.Equal(job, recoveredJob);
 		Assert.Equal(schedule, recoveredSchedule);
+	}
+
+	[Fact]
+	public async Task ExecutionTelemetryIsWrittenThroughToDurableStorage()
+	{
+		var cancellationToken = TestContext.Current.CancellationToken;
+		var timeProvider = new FakeTimeProvider(DateTimeOffset.UnixEpoch);
+		var durable = new InMemoryJobStorage(timeProvider);
+		using var storage = new SingleServerJobStorage(durable, timeProvider);
+		var job = CreateJob(timeProvider.GetUtcNow());
+		await storage.EnqueueAsync(job, cancellationToken);
+		_ = Assert.Single(await storage.AcquireDueJobsAsync(CreateRequest("worker"), cancellationToken));
+
+		var startedAt = timeProvider.GetUtcNow();
+		await storage.SetExecutionTelemetryAsync(
+			job.Id,
+			"worker",
+			"4bf92f3577b34da6a3ce929d0e0e4736",
+			"00f067aa0ba902b7",
+			startedAt,
+			cancellationToken
+		);
+
+		var primaryJob = Assert.Single(await storage.QueryJobsAsync(new() { Id = job.Id }, cancellationToken));
+		var durableJob = Assert.Single(await durable.QueryJobsAsync(new() { Id = job.Id }, cancellationToken));
+		Assert.Equal(primaryJob.ExecutionTraceId, durableJob.ExecutionTraceId);
+		Assert.Equal(primaryJob.ExecutionSpanId, durableJob.ExecutionSpanId);
+		Assert.Equal(primaryJob.ExecutionStartedAt, durableJob.ExecutionStartedAt);
 	}
 
 	[Fact]
@@ -168,7 +196,7 @@ public sealed class SingleServerJobStorageTests
 		};
 		await storage.UpsertRecurringAsync(codeDefined, cancellationToken);
 
-		var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+		var exception = await Assert.ThrowsAsync<ImmediateJobException>(() =>
 			storage.UpsertRecurringAsync(
 				codeDefined with { Cron = "0 0 * * *", IsCodeDefined = false },
 				cancellationToken

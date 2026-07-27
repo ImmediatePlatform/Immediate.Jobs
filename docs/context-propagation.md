@@ -18,7 +18,7 @@ job runs**.
 
 This exact pattern already exists for W3C distributed tracing:
 
-- **Capture** — `JobScheduler<TPayload>.ScheduleAt` (`src/Immediate.Jobs.Shared/JobSchedulers.cs`) calls
+- **Capture** — `JobScheduler<TPayload>.ScheduleAtAsync` (`src/Immediate.Jobs.Shared/JobSchedulers.cs`) calls
   `TraceContextCapture.Current()` and persists `JobRecord.TraceParent` / `TraceState`.
 - **Restore** — `JobSchedulerService` (`src/Immediate.Jobs.Shared/JobSchedulerService.cs`) parses those
   back into an `ActivityContext` and starts the execution activity with that parent.
@@ -56,10 +56,10 @@ public interface IJobContextExtractor<TContext>
 
     // Runs at enqueue, in the caller's scope. Reads ambient/scoped services.
     // Return null to signal "nothing to capture" (e.g. no active request).
-    ValueTask<TContext?> CaptureAsync(CancellationToken cancellationToken);
+	TContext? Capture();
 
     // Runs at execution, in the job's scope. Repopulates services from the captured value.
-    ValueTask RestoreAsync(TContext context, CancellationToken cancellationToken);
+	void Restore(TContext context);
 }
 ```
 
@@ -70,25 +70,35 @@ guarded at runtime (§8) rather than at compile time, since the value isn't a co
 ### 4.2 A reusable extractor (user code)
 
 ```csharp
-public sealed record UsageContext(Guid UserId, string TenantId);
+// Durable data serialized into the job's context envelope.
+public sealed record UsageContextSnapshot(Guid UserId, string TenantId);
 
-public sealed class UsageContextExtractor(IHttpContextAccessor http, ICurrentUserSetter setter)
-    : IJobContextExtractor<UsageContext>
+// Application-owned scoped state used by request and job code.
+public sealed class UsageContext
 {
-    public string Key => "usage";   // stable; renaming this class won't break in-flight records
-
-    public ValueTask<UsageContext?> CaptureAsync(CancellationToken ct) =>
-        new(http.HttpContext is { } c ? new(c.User.GetUserId(), c.GetTenant()) : null);
-
-    public ValueTask RestoreAsync(UsageContext ctx, CancellationToken ct)
-    {
-        setter.Set(ctx.UserId, ctx.TenantId);   // your existing scoped service, repopulated
-        return default;
-    }
+	public UsageContextSnapshot? Value { get; set; }
 }
+
+public sealed class UsageContextExtractor(UsageContext usage)
+	: IJobContextExtractor<UsageContextSnapshot>
+{
+	public string Key => "usage";   // stable; renaming this class won't break in-flight records
+
+	public UsageContextSnapshot? Capture() => usage.Value;
+
+	public void Restore(UsageContextSnapshot snapshot) => usage.Value = snapshot;
+}
+
+builder.Services.AddScoped<UsageContext>();
 ```
 
-The context type is defined **with the extractor**, not the job — that is what makes it reusable.
+`UsageContext` is the service injected from DI. The request pipeline populates it in the enqueueing
+scope, and jobs or behaviors inject it to consume the restored state. `UsageContextSnapshot` is not
+a DI service: it is the durable value returned by `Capture`, serialized with the job, and supplied
+to `Restore` in the execution scope. The generator registers each referenced extractor as scoped;
+the application registers its own scoped holder and any dependencies used to populate it.
+
+The snapshot type is defined **with the extractor**, not the job — that is what makes it reusable.
 
 ### 4.3 Opt-in marker (core package + generator)
 
@@ -116,9 +126,9 @@ public sealed partial class SendInvoiceJob { /* ... */ }
   `AllowMultiple = true`); a job may stack several, directly and/or via marker attributes.
 - **Assembly-wide `[assembly: UsesJobContext<T>]` is out of scope** — the reusable marker covers
   "apply to a family of jobs" without silently capturing context on jobs that don't need it.
-- Registration of the extractor itself is a normal DI registration
-  (`services.AddScoped<UsageContextExtractor>()`), or the generator can emit
-  `TryAddScoped` for every referenced extractor (mirrors how behaviors are registered).
+- The generator emits `TryAddScoped` for every referenced extractor (mirrors how behaviors are
+  registered). Application-owned dependencies such as `UsageContext` still require their normal
+  DI registrations.
 
 ## 5. Runtime & generator changes
 
@@ -138,19 +148,19 @@ matches the existing trace-column shape.
 
 ### 5.2 Capture — generated scheduler (enqueue)
 
-`JobScheduler<TPayload>.ScheduleAt` gains a hook the generated subclass overrides:
+`JobScheduler<TPayload>.ScheduleAtAsync` gains a hook the generated subclass overrides:
 
 ```csharp
 // base
-protected virtual ValueTask<string?> CaptureContextAsync(CancellationToken ct) => new((string?)null);
+protected virtual string? CaptureContext() => null;
 
-// ScheduleAt, before building the record:
-var context = await CaptureContextAsync(cancellationToken).ConfigureAwait(false);
+// CreateRecord, before building the record:
+var context = CaptureContext();
 var record = new JobRecord { /* … */ Context = context };
 ```
 
 The generator emits the override per job: it injects the job's extractors (constructor
-parameters on the generated `Scheduler`), calls each `CaptureAsync`, serializes each non-null
+parameters on the generated `Scheduler`), calls each `Capture`, serializes each non-null
 `TContext` with generated AOT-safe `JsonTypeInfo`, and returns the assembled envelope (or `null`
 when nothing was captured).
 
@@ -168,8 +178,8 @@ restore **before** the handler/behavior pipeline:
 if (execution.Record.Context is { } envelope)
 {
     var extractor = ServiceProviderServiceExtensions.GetRequiredService<UsageContextExtractor>(scopedServices);
-    if (TryReadSlice<UsageContext>(envelope, extractor.Key) is { } ctx)
-        await extractor.RestoreAsync(ctx, execution.CancellationToken).ConfigureAwait(false);
+    if (TryReadSlice<UsageContextSnapshot>(envelope, extractor.Key) is { } ctx)
+		extractor.Restore(ctx);
 }
 // … then existing handler + behavior invocation …
 ```
@@ -210,18 +220,18 @@ scoped-service guidance (same as `DbContext`) and should be documented in the re
 ## 7. Recurring / cron jobs
 
 Recurring materialization happens inside the worker with no request scope, so request-oriented
-extractors have nothing to capture — `CaptureAsync` returns `null` and no envelope slice is written
+extractors have nothing to capture — `Capture` returns `null` and no envelope slice is written
 (same limitation the trace capture has for cron). Extractors must tolerate "no context available";
-the nullable `CaptureAsync` return models this explicitly.
+the nullable `Capture` return models this explicitly.
 
 ## 8. Failure & robustness policy (decided)
 
 | Point | Behavior | Rationale |
 | --- | --- | --- |
-| `CaptureAsync` throws (enqueue) | **Propagate to the caller** (enqueue throws) | Caller is in-request and can decide; silently dropping context is worse than a visible failure. |
+| `Capture` throws (enqueue) | **Propagate to the caller** (enqueue throws) | Caller is in-request and can decide; silently dropping context is worse than a visible failure. |
 | Envelope slice references a `Key` with no matching registered extractor | Skip that slice, log | A durable record can outlive the extractor that produced it (extractor removed in a later deploy); the job must still run. |
 | Two registered extractors share a `Key` | Throw at capture (collision) | Deterministic envelope; surfaces the misconfiguration immediately via the capture-failure path. |
-| `RestoreAsync` throws (execution) | **Count as a failed attempt (retry)** | Consistent with "pipelines run inside the retry boundary"; stale captured data (e.g. deleted user) flows through normal retry → dead-letter. |
+| `Restore` throws (execution) | **Count as a failed attempt (retry)** | Consistent with "pipelines run inside the retry boundary"; stale captured data (e.g. deleted user) flows through normal retry → dead-letter. |
 | Multiple extractors | Run in declared order (direct attributes, then marker-attribute order), capture and restore symmetric | Deterministic, matches behavior ordering. |
 
 ## 9. Storage impact
@@ -239,10 +249,10 @@ the nullable `CaptureAsync` return models this explicitly.
    attribute-of-attribute). Resolve each extractor's `IJobContextExtractor<TContext>` to obtain
    `TContext`. Dedupe by extractor type so a job that reaches the same extractor twice captures once.
 2. Emit `JsonTypeInfo` for each distinct `TContext` (reuse `JsonMetadataEmitter`).
-3. Emit the `CaptureContextAsync` override on the generated `Scheduler` (inject extractors, key each
+3. Emit the `CaptureContext` override on the generated `Scheduler` (inject extractors, key each
    slice by `extractor.Key` at runtime, build envelope, throw on key collision).
 4. Emit the restore block at the top of the generated `Invoker` (resolve extractor, read
-   `extractor.Key`, deserialize its slice, `RestoreAsync`).
+   `extractor.Key`, deserialize its slice, `Restore`).
 5. Emit `TryAddScoped` for referenced extractors; flip scheduler registrations to scoped.
 6. Keep the pipeline incremental: extractors are node-local to the job, so
    no new cross-cutting provider is required; the model stays symbol-free and equatable.
@@ -257,24 +267,30 @@ the nullable `CaptureAsync` return models this explicitly.
 
 ```csharp
 // once, reusable
-public sealed record UsageContext(Guid UserId, string TenantId);
-public sealed class UsageContextExtractor(IHttpContextAccessor http, ICurrentUserSetter setter)
-    : IJobContextExtractor<UsageContext> { /* Capture/Restore as in §4.2 */ }
+public sealed record UsageContextSnapshot(Guid UserId, string TenantId);
+public sealed class UsageContext
+{
+	public UsageContextSnapshot? Value { get; set; }
+}
+public sealed class UsageContextExtractor(UsageContext usage)
+	: IJobContextExtractor<UsageContextSnapshot> { /* Capture/Restore as in §4.2 */ }
+
+builder.Services.AddScoped<UsageContext>();
 
 // applied to any number of jobs
 public sealed record InvoicePayload(Guid OrderId);
 
 [Handler, Job, UsesJobContext<UsageContextExtractor>]
-public sealed partial class SendInvoiceJob
+public sealed partial class SendInvoiceJob(UsageContext usage)
 {
     private ValueTask HandleAsync(InvoicePayload payload, CancellationToken ct)
     {
-        // ICurrentUser here is populated from the enqueue-time request, in the background.
+        // usage.Value was restored from the enqueue-time request.
     }
 }
 
 // enqueue from a controller/endpoint (request scope) — captures automatically
-await scheduler.Enqueue(new InvoicePayload(orderId));
+await scheduler.EnqueueAsync(new InvoicePayload(orderId));
 ```
 
 ## 13. Decisions
@@ -298,7 +314,7 @@ the Entity Framework Core storage tests in `Immediate.Jobs.FunctionalTests`, and
 
 ### 14.1 Generator — snapshot tests (Verify)
 
-- **Single extractor** — the generated `Scheduler` contains the `CaptureContextAsync` override that
+- **Single extractor** — the generated `Scheduler` contains the `CaptureContext` override that
   injects the extractor and builds the envelope; the generated `Invoker` contains the restore block
   ahead of the handler/behavior invocation; `JsonTypeInfo` is emitted for the context type; the
   extractor and scheduler are registered `Scoped`.
@@ -339,12 +355,12 @@ the Entity Framework Core storage tests in `Immediate.Jobs.FunctionalTests`, and
   worker, and assert the value is visible to the handler and its behaviors during background
   execution.
 - **Multiple extractors** — all contexts restore, in order.
-- **Recurring/cron** — `CaptureAsync` returns `null` (no ambient scope), no envelope is written, and
+- **Recurring/cron** — `Capture` returns `null` (no ambient scope), no envelope is written, and
   the job still executes.
-- **Restore failure policy** — a throwing/stale `RestoreAsync` behaves per the §8 decision (fail the
+- **Restore failure policy** — a throwing/stale `Restore` behaves per the §8 decision (fail the
   attempt and eventually dead-letter, or run-without-context), asserted end-to-end including retry
   count.
-- **Capture failure policy** — a throwing `CaptureAsync` behaves per the §8 decision (enqueue throws,
+- **Capture failure policy** — a throwing `Capture` behaves per the §8 decision (enqueue throws,
   or succeeds without context).
 - **Orphaned slice** — a durable record whose envelope `Key` has no matching registered extractor
   still runs; the slice is skipped and logged.

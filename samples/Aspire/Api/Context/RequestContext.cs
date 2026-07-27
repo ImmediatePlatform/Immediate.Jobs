@@ -16,24 +16,17 @@ public sealed class RequestContextExtractor(
 {
 	public string Key => "http-request";
 
-	public ValueTask<OriginatingRequestContext?> CaptureAsync(CancellationToken cancellationToken)
+	public OriginatingRequestContext? Capture()
 	{
 		if (httpContextAccessor.HttpContext is not { } httpContext)
-			return ValueTask.FromResult<OriginatingRequestContext?>(null);
+			return null;
 
 		var context = new OriginatingRequestContext(
 			httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
 			httpContext.Request.Headers.UserAgent.ToString()
 		);
-		return ValueTask.FromResult<OriginatingRequestContext?>(context);
+		return context;
 	}
 
-	public ValueTask RestoreAsync(
-		OriginatingRequestContext context,
-		CancellationToken cancellationToken
-	)
-	{
-		currentRequestContext.Value = context;
-		return ValueTask.CompletedTask;
-	}
+	public void Restore(OriginatingRequestContext context) => currentRequestContext.Value = context;
 }

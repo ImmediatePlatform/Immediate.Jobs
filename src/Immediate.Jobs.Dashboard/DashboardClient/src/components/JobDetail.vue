@@ -1,15 +1,17 @@
 <script setup lang="ts">
-import { RotateCcw, X } from '@lucide/vue';
+import { Activity, ExternalLink, RotateCcw, ScrollText, X } from '@lucide/vue';
 
 import StateBadge from '@/components/StateBadge.vue';
-import type { JobRecord } from '@/contracts';
+import type { JobRecord, JobTelemetryLink } from '@/contracts';
 import { formatDate, formatJson } from '@/format';
 
 withDefaults(defineProps<{
 	job: JobRecord;
+	telemetryLinks?: JobTelemetryLink[];
 	pending?: boolean;
 	showClose?: boolean;
 }>(), {
+	telemetryLinks: () => [],
 	pending: false,
 	showClose: true,
 });
@@ -75,6 +77,35 @@ const emit = defineEmits<{
 				<div>
 					<dt>Completed</dt>
 					<dd>{{ formatDate(job.completedAt) }}</dd>
+				</div>
+				<div v-if="job.executionStartedAt">
+					<dt>Attempt started</dt>
+					<dd>{{ formatDate(job.executionStartedAt) }}</dd>
+				</div>
+				<div v-if="job.executionTraceId || telemetryLinks.length > 0">
+					<dt>Execution trace</dt>
+					<dd v-if="job.executionTraceId"><code>{{ job.executionTraceId }}</code></dd>
+					<div v-if="telemetryLinks.length > 0" class="telemetry-links">
+						<a
+							v-for="link in telemetryLinks"
+							:key="`${link.kind}-${link.label}`"
+							class="button button-secondary"
+							:href="link.url"
+							target="_blank"
+							rel="noopener noreferrer"
+							:aria-label="link.label"
+							:title="link.label"
+						>
+							<Activity v-if="link.kind === 'Trace'" :size="12" aria-hidden="true" />
+							<ScrollText v-else :size="12" aria-hidden="true" />
+							{{ link.kind }}
+							<ExternalLink :size="11" aria-hidden="true" />
+						</a>
+					</div>
+				</div>
+				<div v-if="job.executionSpanId">
+					<dt>Execution span</dt>
+					<dd><code>{{ job.executionSpanId }}</code></dd>
 				</div>
 			</dl>
 

@@ -14,7 +14,7 @@ public class CaptureOnlyRecurringJobScheduler : IRecurringJobScheduler
 	public RecurringJobCapture? Last => _captures.Count == 0 ? null : _captures[^1];
 
 	/// <inheritdoc />
-	public virtual ValueTask AddOrUpdateRecurring(
+	public virtual ValueTask AddOrUpdateRecurringAsync(
 		string name,
 		string cron,
 		string timeZone = "UTC",
@@ -27,7 +27,7 @@ public class CaptureOnlyRecurringJobScheduler : IRecurringJobScheduler
 	}
 
 	/// <inheritdoc />
-	public virtual ValueTask RemoveRecurring(string name, CancellationToken cancellationToken = default)
+	public virtual ValueTask RemoveRecurringAsync(string name, CancellationToken cancellationToken = default)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
 		_captures.Add(new(RecurringJobOperation.Remove, name));
@@ -35,7 +35,7 @@ public class CaptureOnlyRecurringJobScheduler : IRecurringJobScheduler
 	}
 
 	/// <inheritdoc />
-	public virtual ValueTask<JobHandle> TriggerNow(CancellationToken cancellationToken = default)
+	public virtual ValueTask<JobHandle> TriggerNowAsync(CancellationToken cancellationToken = default)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
 		var id = CreateId();

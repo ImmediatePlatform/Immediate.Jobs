@@ -11,6 +11,7 @@ namespace Immediate.Jobs.Testing;
 public sealed class JobTestHarness : IAsyncDisposable, IDisposable
 {
 	private readonly ServiceProvider _serviceProvider;
+	private readonly IJobGraphStorage _graphStorage;
 	private bool _disposed;
 
 	/// <summary>Creates a harness at the Unix epoch.</summary>
@@ -48,7 +49,16 @@ public sealed class JobTestHarness : IAsyncDisposable, IDisposable
 
 		Services = _serviceProvider;
 		Storage = _serviceProvider.GetRequiredService<IJobStorage>();
-		Batches = new JobBatchScheduler(Storage, TimeProvider);
+		_graphStorage = Storage as IJobGraphStorage
+			?? throw new NotSupportedException(
+				"Batches & continuations require a graph-capable storage provider (a SQL database). " +
+				"The configured provider implements the queue capability only."
+			);
+		Batches = new JobBatchScheduler(
+			Storage,
+			TimeProvider,
+			_serviceProvider.GetRequiredService<IIdGenerator>()
+		);
 		Scheduler = _serviceProvider.GetRequiredService<JobSchedulerService>();
 	}
 
@@ -152,16 +162,16 @@ public sealed class JobTestHarness : IAsyncDisposable, IDisposable
 	) => AssertEnqueuedAsync<TPayload>(job.Id, expectedState, cancellationToken);
 
 	/// <summary>Asserts that a committed batch and exactly the expected number of members are visible together.</summary>
-	public async ValueTask AssertBatchCommittedAtomically(
+	public async ValueTask AssertBatchCommittedAtomicallyAsync(
 		BatchHandle batch,
 		int expectedMembers,
 		CancellationToken cancellationToken = default
 	)
 	{
 		ArgumentNullException.ThrowIfNull(batch);
-		var status = await Storage.GetBatchStatusAsync(batch.Id, cancellationToken).ConfigureAwait(false)
+		var status = await _graphStorage.GetBatchStatusAsync(batch.Id, cancellationToken).ConfigureAwait(false)
 			?? throw new JobTestAssertionException($"Expected batch '{batch.Id}' to be committed, but it was not found.");
-		var members = await Storage.QueryBatchMembersAsync(
+		var members = await _graphStorage.QueryBatchMembersAsync(
 			batch.Id,
 			new() { Take = Math.Max(1, expectedMembers + 1) },
 			cancellationToken
@@ -175,7 +185,7 @@ public sealed class JobTestHarness : IAsyncDisposable, IDisposable
 	}
 
 	/// <summary>Asserts that the child has a persisted dependency on the supplied parent.</summary>
-	public async ValueTask AssertContinuationReleasedAfter(
+	public async ValueTask AssertContinuationReleasedAfterAsync(
 		JobHandle parent,
 		JobHandle child,
 		CancellationToken cancellationToken = default
@@ -195,7 +205,7 @@ public sealed class JobTestHarness : IAsyncDisposable, IDisposable
 	}
 
 	/// <summary>Asserts that every supplied invocation was cancelled by a dependency cascade.</summary>
-	public async ValueTask AssertCascadeCancelled(
+	public async ValueTask AssertCascadeCancelledAsync(
 		IReadOnlyCollection<JobHandle> subtree,
 		CancellationToken cancellationToken = default
 	)
@@ -220,7 +230,7 @@ public sealed class JobTestHarness : IAsyncDisposable, IDisposable
 		var now = TimeProvider.GetUtcNow();
 		var record = new JobRecord
 		{
-			Id = Guid.NewGuid().ToString("N"),
+			Id = _serviceProvider.GetRequiredService<IIdGenerator>().CreateId(IdKind.Job),
 			JobName = definition.Name,
 			QueueName = definition.Queue.Name,
 			Payload = _serviceProvider.GetRequiredService<IJobSerializer>().Serialize(payload),
