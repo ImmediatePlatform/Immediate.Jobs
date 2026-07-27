@@ -18,7 +18,7 @@ jobs:
     - uses: actions/checkout@v7
 
     - name: Setup .NET
-      uses: actions/setup-dotnet@v5
+      uses: actions/setup-dotnet@v6
       with:
         dotnet-version: |
           8.0.x
@@ -26,13 +26,13 @@ jobs:
           10.0.x
 
     - name: Setup preview .NET
-      uses: actions/setup-dotnet@v5
+      uses: actions/setup-dotnet@v6
       with:
         dotnet-quality: 'preview'
         dotnet-version: 11.0.x
 
     - name: Setup Node.js
-      uses: actions/setup-node@v4
+      uses: actions/setup-node@v7
       with:
         node-version: 22
         cache: npm
