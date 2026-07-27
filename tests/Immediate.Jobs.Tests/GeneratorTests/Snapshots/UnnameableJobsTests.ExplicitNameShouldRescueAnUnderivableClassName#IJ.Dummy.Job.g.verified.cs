@@ -14,7 +14,8 @@ partial class Job
 		global::Immediate.Jobs.Shared.IJobStorage storage,
 		global::Immediate.Jobs.Shared.IJobSerializer serializer,
 		global::System.TimeProvider timeProvider,
-		global::Immediate.Jobs.Shared.IIdGenerator idGenerator	) : global::Immediate.Jobs.Shared.JobScheduler<global::Immediate.Jobs.Shared.EmptyJobRequest>(
+		global::Immediate.Jobs.Shared.IIdGenerator idGenerator
+	) : global::Immediate.Jobs.Shared.JobScheduler<global::Immediate.Jobs.Shared.EmptyJobRequest>(
 		storage,
 		serializer,
 		timeProvider,
