@@ -11,7 +11,8 @@ partial class StructJob
 		global::Immediate.Jobs.Shared.IJobStorage storage,
 		global::Immediate.Jobs.Shared.IJobSerializer serializer,
 		global::System.TimeProvider timeProvider,
-		global::Immediate.Jobs.Shared.IIdGenerator idGenerator	) : global::Immediate.Jobs.Shared.JobScheduler<global::StructPayload>(
+		global::Immediate.Jobs.Shared.IIdGenerator idGenerator
+	) : global::Immediate.Jobs.Shared.JobScheduler<global::StructPayload>(
 		storage,
 		serializer,
 		timeProvider,

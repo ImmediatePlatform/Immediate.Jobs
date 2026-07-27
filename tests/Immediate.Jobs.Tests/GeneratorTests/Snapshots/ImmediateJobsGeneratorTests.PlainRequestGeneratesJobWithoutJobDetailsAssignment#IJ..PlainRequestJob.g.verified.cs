@@ -11,7 +11,8 @@ partial class PlainRequestJob
 		global::Immediate.Jobs.Shared.IJobStorage storage,
 		global::Immediate.Jobs.Shared.IJobSerializer serializer,
 		global::System.TimeProvider timeProvider,
-		global::Immediate.Jobs.Shared.IIdGenerator idGenerator	) : global::Immediate.Jobs.Shared.JobScheduler<global::PlainRequestJob.Payload>(
+		global::Immediate.Jobs.Shared.IIdGenerator idGenerator
+	) : global::Immediate.Jobs.Shared.JobScheduler<global::PlainRequestJob.Payload>(
 		storage,
 		serializer,
 		timeProvider,

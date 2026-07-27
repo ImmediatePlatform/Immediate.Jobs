@@ -14,7 +14,8 @@ partial class SendEmailJob
 		global::Immediate.Jobs.Shared.IJobStorage storage,
 		global::Immediate.Jobs.Shared.IJobSerializer serializer,
 		global::System.TimeProvider timeProvider,
-		global::Immediate.Jobs.Shared.IIdGenerator idGenerator	) : global::Immediate.Jobs.Shared.JobScheduler<global::Example.SendEmailJob.Payload>(
+		global::Immediate.Jobs.Shared.IIdGenerator idGenerator
+	) : global::Immediate.Jobs.Shared.JobScheduler<global::Example.SendEmailJob.Payload>(
 		storage,
 		serializer,
 		timeProvider,

@@ -13,7 +13,7 @@ public sealed class NodaTimePackageRequiredAnalyzerTests
 		).RunAsync(TestContext.Current.CancellationToken);
 
 	[Fact]
-	public async Task NodaTimePresentWithoutIJNodaTimeDoesNotTrigger() =>
+	public async Task NodaTimePresentWithoutIJNodaTimeTriggers() =>
 		await AnalyzerTestHelpers.CreateAnalyzerTest<NodaTimePackageRequiredAnalyzer>(
 			string.Empty,
 			additionalReferences:

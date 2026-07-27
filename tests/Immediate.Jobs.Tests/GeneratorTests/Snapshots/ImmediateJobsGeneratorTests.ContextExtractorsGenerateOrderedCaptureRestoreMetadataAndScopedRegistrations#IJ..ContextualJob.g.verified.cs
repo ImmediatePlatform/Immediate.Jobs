@@ -11,10 +11,9 @@ partial class ContextualJob
 		global::Immediate.Jobs.Shared.IJobStorage storage,
 		global::Immediate.Jobs.Shared.IJobSerializer serializer,
 		global::System.TimeProvider timeProvider,
-		global::Immediate.Jobs.Shared.IIdGenerator idGenerator,
-		global::CorrelationExtractor contextExtractor0
-,
-		global::UsageContextExtractor contextExtractor1
+		global::Immediate.Jobs.Shared.IIdGenerator idGenerator
+		, global::CorrelationExtractor contextExtractor0
+		, global::UsageContextExtractor contextExtractor1
 	) : global::Immediate.Jobs.Shared.JobScheduler<global::ContextualJob.Payload>(
 		storage,
 		serializer,

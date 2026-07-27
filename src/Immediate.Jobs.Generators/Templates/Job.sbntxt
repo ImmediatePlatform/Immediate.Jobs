@@ -14,8 +14,9 @@ partial class {{ class_name }}
 		global::Immediate.Jobs.Shared.IJobStorage storage,
 		global::Immediate.Jobs.Shared.IJobSerializer serializer,
 		global::System.TimeProvider timeProvider,
-		global::Immediate.Jobs.Shared.IIdGenerator idGenerator{{~ for context in contexts ~}},
-		{{ context.extractor_type_name }} contextExtractor{{ context.index }}
+		global::Immediate.Jobs.Shared.IIdGenerator idGenerator
+		{{~ for context in contexts ~}}
+		, {{ context.extractor_type_name }} contextExtractor{{ context.index }}
 		{{~ end ~}}
 	) : global::Immediate.Jobs.Shared.JobScheduler<{{ payload_type_name }}>(
 		storage,
