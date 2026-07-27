@@ -44,13 +44,16 @@ public sealed class MissingHandlerAttributeAnalyzer : DiagnosticAnalyzer
 
 		var attributes = namedTypeSymbol.GetAttributes();
 
-		if (attributes.GetJobAttribute() is null)
+		if (attributes is not
+			{
+				JobAttribute: { },
+				HandlerAttribute: null,
+			})
+		{
 			return;
+		}
 
 		token.ThrowIfCancellationRequested();
-
-		if (attributes.GetHandlerAttribute() is { })
-			return;
 
 		context.ReportDiagnostic(
 			Diagnostic.Create(

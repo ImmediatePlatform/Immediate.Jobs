@@ -83,16 +83,21 @@ public sealed class JobClassAnalyzer : DiagnosticAnalyzer
 		if (context.Symbol is not INamedTypeSymbol namedTypeSymbol)
 			return;
 
+		if (namedTypeSymbol.GetValidHandleMethod() is not { } handleMethod)
+			return;
+
+		var parameterType = handleMethod.Parameters[0].Type;
+
 		var attributes = namedTypeSymbol.GetAttributes();
 
-		if (attributes.GetJobAttribute() is not { } jobAttribute)
+		if (attributes.JobAttribute is not { } jobAttribute)
 			return;
 
 		token.ThrowIfCancellationRequested();
 
 		AnalyzeJobName(context, jobAttribute);
 		AnalyzeJobConfiguration(context, jobAttribute);
-		AnalyzeCronConfiguration(context, jobAttribute);
+		AnalyzeCronConfiguration(context, jobAttribute, parameterType);
 	}
 
 	private static void AnalyzeJobName(SymbolAnalysisContext context, AttributeData jobAttribute)
@@ -218,14 +223,9 @@ public sealed class JobClassAnalyzer : DiagnosticAnalyzer
 		}
 	}
 
-	private static void AnalyzeCronConfiguration(SymbolAnalysisContext context, AttributeData jobAttribute)
+	private static void AnalyzeCronConfiguration(SymbolAnalysisContext context, AttributeData jobAttribute, ITypeSymbol parameterType)
 	{
-		if (((INamedTypeSymbol)context.Symbol).GetValidHandleMethod() is not { } handleMethod)
-			return;
-
-		var parameterType = handleMethod.Parameters[0].Type;
 		var hasPayload = !parameterType.IsEmptyJobRequest;
-
 		var arguments = jobAttribute.NamedArguments;
 
 		var cron = arguments.GetStringValue("Cron");
