@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+	<PropertyGroup>
+		<OutputType>Exe</OutputType>
+		<TargetFrameworks>net8.0</TargetFrameworks>
+		<NoWarn>$(NoWarn);CA1050;CA1812;CA1822;CA2007</NoWarn>
+	</PropertyGroup>
+	<ItemGroup>
+		<Using Include="Immediate.Jobs.Shared" />
+		<PackageReference Include="BenchmarkDotNet" />
+		<PackageReference Include="Hangfire.Core" />
+		<PackageReference Include="Hangfire.MemoryStorage" />
+		<PackageReference Include="Quartz" />
+	</ItemGroup>
+	<ItemGroup>
+		<ProjectReference Include="../../src/Immediate.Jobs.Shared/Immediate.Jobs.Shared.csproj" />
+	</ItemGroup>
+</Project>

@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <IsPackable>true</IsPackable>
+    <Title>Immediate.Jobs.Testing</Title>
+    <Description>Deterministic harness, assertions, and scheduler test doubles for Immediate.Jobs.</Description>
+    <Authors>Immediate.Jobs Developers</Authors>
+    <Copyright>© 2026 Immediate.Jobs Developers</Copyright>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageReadmeFile>readme.md</PackageReadmeFile>
+    <PackageTags>background-jobs;scheduler;testing;fake-time</PackageTags>
+    <RepositoryUrl>https://github.com/ImmediatePlatform/Immediate.Jobs</RepositoryUrl>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+  </PropertyGroup>
+  <ItemGroup>
+    <Using Include="Immediate.Jobs.Shared" />
+    <ProjectReference Include="../Immediate.Jobs.Shared/Immediate.Jobs.Shared.csproj" PrivateAssets="all" />
+    <ProjectReference Include="../Immediate.Jobs/Immediate.Jobs.csproj" ReferenceOutputAssembly="false" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
+    <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="../../readme.md" Pack="true" PackagePath="/" />
+  </ItemGroup>
+</Project>

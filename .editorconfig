@@ -52,8 +52,7 @@ dotnet_naming_rule.static_fields_should_be_pascal_case.style = static_field_styl
 dotnet_naming_symbols.static_fields.applicable_kinds = field
 dotnet_naming_symbols.static_fields.required_modifiers = static
 
-dotnet_naming_style.static_field_style.capitalization = camel_case
-dotnet_naming_style.static_field_style.required_prefix = s_
+dotnet_naming_style.static_field_style.capitalization = pascal_case
 
 # Instance fields are camelCase and start with _
 dotnet_naming_rule.instance_fields_should_be_camel_case.severity = suggestion
@@ -297,8 +296,11 @@ dotnet_diagnostic.CS1998.severity = error               # CS1998: Async method l
 dotnet_diagnostic.CS4014.severity = error               # CS4014: Because this call is not awaited, execution of the current method continues before the call is completed
 dotnet_diagnostic.CA2007.severity = none                # CA2007: Consider calling ConfigureAwait on the awaited task
 
-# Immediate.Handlers relies on nested types
+# Immediate.Jobs relies on nested generated scheduler types
 dotnet_diagnostic.CA1034.severity = none                # CA1034: Nested types should not be visible
+
+# No need for cryptographically secure anything in this project
+dotnet_diagnostic.CA5394.severity = none                # CA5394: Random is an insecure random number generator
 
 # Dispose things need disposing
 dotnet_diagnostic.CA2000.severity = error               # CA2000: Dispose objects before losing scope
@@ -306,13 +308,29 @@ dotnet_diagnostic.CA2000.severity = error               # CA2000: Dispose object
 dotnet_diagnostic.CA1515.severity = none                # CA1515: Consider making public types internal
 dotnet_diagnostic.CA1708.severity = none                # CA1708: Identifiers should differ by more than case
 dotnet_diagnostic.CA1716.severity = none                # CA1716: Identifiers should not match keywords
+dotnet_diagnostic.IDE0390.severity = none               # IDE0390: Make method synchronous
 
 MA0053.public_class_should_be_sealed = true
 MA0053.exceptions_should_be_sealed = true
 
 dotnet_diagnostic.MA0004.severity = none
-dotnet_diagnostic.MA0023.severity = none
 dotnet_diagnostic.MA0048.severity = none
 dotnet_diagnostic.MA0051.severity = none
 dotnet_diagnostic.MA0053.severity = warning
-dotnet_diagnostic.MA0071.severity = none
+
+dotnet_diagnostic.RS1041.severity = none                # RS1041: Compiler extensions should be implemented in assemblies targeting netstandard2.0
+
+[src/Immediate.Jobs.Shared/**.cs]
+
+# XML Documentation
+dotnet_diagnostic.CS0105.severity = error               # CS0105: Using directive is unnecessary.
+dotnet_diagnostic.CS1573.severity = error               # CS1573: Missing XML comment for parameter
+dotnet_diagnostic.CS1591.severity = error               # CS1591: Missing XML comment for publicly visible type or member
+dotnet_diagnostic.CS1712.severity = error               # CS1712: Type parameter has no matching typeparam tag in the XML comment (but other type parameters do)
+
+[tests/**.cs]
+
+dotnet_diagnostic.CA1707.severity = none                # CA1707: Identifiers should not contain underscores
+dotnet_diagnostic.CA1724.severity = none                # CA1724: Type names should not match namespaces
+dotnet_diagnostic.CA1822.severity = none                # CA1822: Mark members as static
+dotnet_diagnostic.CA1873.severity = none                # CA1873: Evaluation of this argument may be expensive and unnecessary if logging is disabled

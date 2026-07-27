@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+	<TargetFrameworks>net8.0;net9.0;net10.0;net11.0</TargetFrameworks>
+	<NoWarn>$(NoWarn);CA1716</NoWarn>
+	<IsAotCompatible>true</IsAotCompatible>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(TargetFramework)' == 'net11.0'">
+	<Features>runtime-async=on</Features>
+  </PropertyGroup>
+
+  <ItemGroup>
+	<PackageReference Include="Cronos" />
+	<PackageReference Include="Immediate.Handlers" />
+	<PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
+	<PackageReference Include="Microsoft.Extensions.Diagnostics.HealthChecks" />
+	<PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" />
+	<PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+  </ItemGroup>
+
+</Project>

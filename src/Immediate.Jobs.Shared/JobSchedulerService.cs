@@ -1,0 +1,566 @@
+using System.Collections.Concurrent;
+using System.Diagnostics;
+using System.Threading.Channels;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
+
+namespace Immediate.Jobs.Shared;
+
+/// <summary>Coordinates recurring schedules, durable leases, and the bounded worker pool.</summary>
+public sealed partial class JobSchedulerService : BackgroundService
+{
+	private readonly IServiceScopeFactory _scopeFactory;
+	private readonly IJobStorage _storage;
+	private readonly ImmediateJobsOptions _options;
+	private readonly TimeProvider _timeProvider;
+	private readonly ILogger<JobSchedulerService> _logger;
+	private readonly JobSchedulerState _state;
+	private readonly IReadOnlyDictionary<string, JobDefinition> _definitions;
+	private readonly IReadOnlyDictionary<string, JobQueueDefinition> _queues;
+	private readonly ConcurrentDictionary<string, int> _queueReservations = new(StringComparer.Ordinal);
+	private readonly ConcurrentDictionary<string, int> _jobReservations = new(StringComparer.Ordinal);
+	private readonly Dictionary<int, int> _priorityOffsets = [];
+	private readonly SemaphoreSlim _scheduleInitialization = new(1, 1);
+	private readonly string _workerId = $"{Environment.MachineName}:{Environment.ProcessId}:{Guid.NewGuid():N}";
+	private readonly Channel<JobRecord> _channel;
+	private int _reservations;
+	private long _nextPurgeTimestamp;
+
+	/// <summary>Creates the hosted scheduler from generated definitions.</summary>
+	public JobSchedulerService(
+		IServiceScopeFactory scopeFactory,
+		IJobStorage storage,
+		IJobSerializer serializer,
+		IEnumerable<JobDefinition> definitions,
+		IEnumerable<JobQueueDefinition> queueDefinitions,
+		ImmediateJobsOptions options,
+		TimeProvider timeProvider,
+		ILogger<JobSchedulerService> logger,
+		JobSchedulerState state
+	)
+	{
+		ArgumentNullException.ThrowIfNull(scopeFactory);
+		ArgumentNullException.ThrowIfNull(storage);
+		ArgumentNullException.ThrowIfNull(serializer);
+		ArgumentNullException.ThrowIfNull(definitions);
+		ArgumentNullException.ThrowIfNull(queueDefinitions);
+		ArgumentNullException.ThrowIfNull(options);
+		ArgumentNullException.ThrowIfNull(timeProvider);
+		ArgumentNullException.ThrowIfNull(logger);
+		ArgumentNullException.ThrowIfNull(state);
+
+		_scopeFactory = scopeFactory;
+		_storage = storage;
+		_options = options;
+		_timeProvider = timeProvider;
+		_logger = logger;
+		_state = state;
+		_definitions = definitions.ToDictionary(x => x.Name, StringComparer.Ordinal);
+		_queues = queueDefinitions
+			.Concat(_definitions.Values.Select(static definition => definition.Queue))
+			.Append(JobQueueDefinition.Default)
+			.GroupBy(static queue => queue.Name, StringComparer.Ordinal)
+			.ToDictionary(
+				static group => group.Key,
+				static group => group.Distinct().Single(),
+				StringComparer.Ordinal
+			);
+		_channel = Channel.CreateBounded<JobRecord>(new BoundedChannelOptions(options.MaxParallelJobs * 2)
+		{
+			FullMode = BoundedChannelFullMode.Wait,
+			SingleWriter = true,
+			SingleReader = options.MaxParallelJobs == 1,
+		});
+	}
+
+	/// <inheritdoc />
+	protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+	{
+		await _storage.InitializeAsync(stoppingToken).ConfigureAwait(false);
+		await EnsureCodeSchedulesAsync(stoppingToken).ConfigureAwait(false);
+		_state.MarkStarted(_timeProvider.GetUtcNow());
+
+		var workers = Enumerable.Range(0, _options.MaxParallelJobs)
+			.Select(_ => RunWorkerAsync(stoppingToken))
+			.ToArray();
+
+		try
+		{
+			while (!stoppingToken.IsCancellationRequested)
+			{
+				try
+				{
+					await RunSchedulerIterationAsync(stoppingToken).ConfigureAwait(false);
+				}
+				catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+				{
+					break;
+				}
+#pragma warning disable CA1031 // A scheduler iteration failure must not terminate the hosted service.
+				catch (Exception exception)
+#pragma warning restore CA1031
+				{
+					SchedulerIterationFailed(_logger, exception);
+				}
+
+				await Task.Delay(_options.PollingInterval, _timeProvider, stoppingToken).ConfigureAwait(false);
+			}
+		}
+		finally
+		{
+			_ = _channel.Writer.TryComplete();
+			using var drain = new CancellationTokenSource(_options.ShutdownTimeout, _timeProvider);
+			try
+			{
+				await Task.WhenAll(workers).WaitAsync(drain.Token).ConfigureAwait(false);
+			}
+			catch (OperationCanceledException)
+			{
+				ShutdownDrainExceeded(_logger, _options.ShutdownTimeout);
+			}
+		}
+	}
+
+	/// <summary>Executes one already-acquired record. Intended for deterministic test harnesses.</summary>
+	public ValueTask ExecuteSingleAsync(JobRecord record, CancellationToken cancellationToken = default)
+	{
+		ArgumentNullException.ThrowIfNull(record);
+		return ExecuteJobAsync(record, cancellationToken);
+	}
+
+	/// <summary>
+	/// Materializes and executes all work currently due, returning when the due queue is empty.
+	/// Delayed work is left in storage. This method is intended for deterministic test harnesses.
+	/// </summary>
+	public async ValueTask DrainAsync(CancellationToken cancellationToken = default)
+	{
+		await _storage.InitializeAsync(cancellationToken).ConfigureAwait(false);
+		await EnsureCodeSchedulesAsync(cancellationToken).ConfigureAwait(false);
+		while (true)
+		{
+			await MaterializeRecurringAsync(cancellationToken).ConfigureAwait(false);
+			var request = BuildAcquisitionRequest();
+			if (request is null)
+				return;
+			var jobs = await _storage.AcquireDueJobsAsync(request, cancellationToken).ConfigureAwait(false);
+			if (jobs.Count == 0)
+				return;
+
+			foreach (var job in jobs)
+			{
+				Reserve(job);
+				await ExecuteJobAsync(job, cancellationToken, releaseReservation: true).ConfigureAwait(false);
+			}
+		}
+	}
+
+	private async Task RunSchedulerIterationAsync(CancellationToken cancellationToken)
+	{
+		await MaterializeRecurringAsync(cancellationToken).ConfigureAwait(false);
+		var request = BuildAcquisitionRequest();
+		var acquired = request is null
+			? []
+			: await _storage.AcquireDueJobsAsync(request, cancellationToken).ConfigureAwait(false);
+
+		foreach (var job in acquired)
+		{
+			Reserve(job);
+			try
+			{
+				JobTelemetry.Acquired();
+				await _channel.Writer.WriteAsync(job, cancellationToken).ConfigureAwait(false);
+			}
+			catch
+			{
+				Release(job);
+				throw;
+			}
+		}
+
+		var now = _timeProvider.GetUtcNow();
+		await _storage.HeartbeatAsync(
+			new(_workerId, now, _state.ActiveWorkers, _options.MaxParallelJobs),
+			cancellationToken
+		).ConfigureAwait(false);
+		_state.MarkHeartbeat(now);
+
+		if (_timeProvider.GetTimestamp() >= Interlocked.Read(ref _nextPurgeTimestamp))
+		{
+			await _storage.PurgeAsync(_options.SucceededRetention, _options.FailedRetention, cancellationToken).ConfigureAwait(false);
+			_ = Interlocked.Exchange(ref _nextPurgeTimestamp, _timeProvider.GetTimestamp() + ToTimestampTicks(_options.PurgeInterval));
+		}
+	}
+
+	private async Task RunWorkerAsync(CancellationToken cancellationToken)
+	{
+		await foreach (var record in _channel.Reader.ReadAllAsync(cancellationToken).ConfigureAwait(false))
+		{
+			try
+			{
+				await ExecuteJobAsync(record, cancellationToken, releaseReservation: true).ConfigureAwait(false);
+			}
+			catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+			{
+				break;
+			}
+#pragma warning disable CA1031 // A failed job must not terminate its worker loop.
+			catch (Exception exception)
+#pragma warning restore CA1031
+			{
+				UnhandledWorkerError(_logger, exception, record.Id);
+			}
+		}
+	}
+
+	private async ValueTask ExecuteJobAsync(
+		JobRecord record,
+		CancellationToken stoppingToken,
+		bool releaseReservation = false
+	)
+	{
+		if (!_definitions.TryGetValue(record.JobName, out var definition))
+		{
+			try
+			{
+				await _storage.FailAsync(record.Id, _workerId, $"No generated job definition exists for '{record.JobName}'.", null, stoppingToken)
+					.ConfigureAwait(false);
+			}
+			finally
+			{
+				if (releaseReservation)
+					Release(record);
+			}
+
+			return;
+		}
+
+		_state.IncrementActive();
+		JobTelemetry.ExecutionStarted();
+		var started = _timeProvider.GetTimestamp();
+		using var timeout = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
+		ITimer? timeoutTimer = definition.Timeout is { } timeoutValue
+			? _timeProvider.CreateTimer(static state => ((CancellationTokenSource)state!).Cancel(), timeout, timeoutValue, Timeout.InfiniteTimeSpan)
+			: null;
+		using var leaseCancellation = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
+		var leaseTask = RenewLeaseLoopAsync(record.Id, leaseCancellation.Token);
+
+		var parent = default(ActivityContext);
+		if (record.TraceParent is not null)
+			_ = ActivityContext.TryParse(record.TraceParent, record.TraceState, true, out parent);
+		IEnumerable<ActivityLink>? links = parent != default ? [new(parent)] : null;
+		using var activity = JobTelemetry.ActivitySource.StartActivity(
+			$"job {record.JobName}",
+			ActivityKind.Consumer,
+			default(ActivityContext),
+			tags:
+			[
+				new("job.name", record.JobName),
+				new("job.queue", record.QueueName),
+				new("job.id", record.Id),
+				new("job.attempt", record.Attempt),
+			],
+			links: links
+		);
+		using var logScope = _logger.BeginScope(new Dictionary<string, object>
+		{
+			["JobName"] = record.JobName,
+			["QueueName"] = record.QueueName,
+			["JobId"] = record.Id,
+			["Attempt"] = record.Attempt,
+		});
+
+		try
+		{
+			await using var scope = _scopeFactory.CreateAsyncScope();
+			if (record.Context is { } orphanedEnvelope && definition.Invoker is not IJobContextAwareInvoker)
+			{
+				var orphanedSlices = JobContextEnvelope.Read(orphanedEnvelope);
+				JobContextEnvelope.LogOrphanedSlices(scope.ServiceProvider, record, orphanedSlices.Keys);
+			}
+
+			await definition.Invoker.InvokeAsync(scope.ServiceProvider, new(record, definition, timeout.Token)).ConfigureAwait(false);
+			await _storage.CompleteAsync(record.Id, _workerId, stoppingToken).ConfigureAwait(false);
+			var duration = _timeProvider.GetElapsedTime(started);
+			JobTelemetry.Succeeded(record.JobName, record.QueueName, duration);
+			_ = activity?.SetStatus(ActivityStatusCode.Ok);
+			JobCompleted(_logger, duration.TotalMilliseconds);
+		}
+		catch (Exception exception) when (exception is not OperationCanceledException || !stoppingToken.IsCancellationRequested)
+		{
+			var retry = record.Attempt < definition.MaxAttempts;
+			DateTimeOffset? nextRetryAt = retry ? _timeProvider.GetUtcNow() + GetRetryDelay(definition, record.Attempt) : null;
+			await _storage.FailAsync(record.Id, _workerId, exception.ToString(), nextRetryAt, stoppingToken).ConfigureAwait(false);
+			var duration = _timeProvider.GetElapsedTime(started);
+			JobTelemetry.Failed(record.JobName, record.QueueName, duration);
+			_ = activity?.SetStatus(ActivityStatusCode.Error, exception.Message);
+
+			if (retry)
+			{
+				JobTelemetry.Retried(record.JobName, record.QueueName);
+				JobWillRetry(_logger, exception, nextRetryAt);
+			}
+			else
+			{
+				JobExhaustedAttempts(_logger, exception, definition.MaxAttempts);
+			}
+		}
+		finally
+		{
+			timeoutTimer?.Dispose();
+			await leaseCancellation.CancelAsync().ConfigureAwait(false);
+			try
+			{
+				await leaseTask.ConfigureAwait(false);
+			}
+			catch (OperationCanceledException)
+			{
+			}
+
+			_state.DecrementActive();
+			JobTelemetry.ExecutionFinished();
+			if (releaseReservation)
+				Release(record);
+		}
+	}
+
+	private JobAcquisitionRequest? BuildAcquisitionRequest()
+	{
+		var capacity = Math.Min(
+			_options.AcquisitionBatchSize,
+			_options.MaxParallelJobs - Volatile.Read(ref _reservations)
+		);
+		if (capacity <= 0)
+			return null;
+
+		var queues = new List<JobQueueAcquisition>();
+		foreach (var priorityGroup in _queues.Values
+			.GroupBy(static queue => queue.Priority)
+			.OrderByDescending(static group => group.Key))
+		{
+			var priorityQueues = priorityGroup.OrderBy(static queue => queue.Name, StringComparer.Ordinal).ToArray();
+			var offset = _priorityOffsets.GetValueOrDefault(priorityGroup.Key) % priorityQueues.Length;
+			for (var index = 0; index < priorityQueues.Length; index++)
+			{
+				var queue = priorityQueues[(index + offset) % priorityQueues.Length];
+				var queueCapacity = queue.Concurrency == 0
+					? capacity
+					: queue.Concurrency - _queueReservations.GetValueOrDefault(queue.Name);
+				if (queueCapacity <= 0)
+					continue;
+
+				var jobCapacities = _definitions.Values
+					.Select(definition => new
+					{
+						definition.Name,
+						Capacity = definition.MaxConcurrency == 0
+							? capacity
+							: definition.MaxConcurrency - _jobReservations.GetValueOrDefault(definition.Name),
+					})
+					.Where(static item => item.Capacity > 0)
+					.ToDictionary(static item => item.Name, static item => item.Capacity, StringComparer.Ordinal);
+				if (jobCapacities.Count == 0)
+					continue;
+
+				queues.Add(new()
+				{
+					QueueName = queue.Name,
+					Capacity = (int)Math.Min(queueCapacity, jobCapacities.Values.Sum(static value => (long)value)),
+					JobCapacities = jobCapacities,
+				});
+			}
+
+			_priorityOffsets[priorityGroup.Key] = offset + 1;
+		}
+
+		return queues.Count == 0
+			? null
+			: new()
+			{
+				WorkerId = _workerId,
+				Lease = _options.LeaseDuration,
+				BatchSize = capacity,
+				Queues = queues,
+			};
+	}
+
+	private void Reserve(JobRecord record)
+	{
+		_ = Interlocked.Increment(ref _reservations);
+		_ = _queueReservations.AddOrUpdate(record.QueueName, 1, static (_, count) => count + 1);
+		_ = _jobReservations.AddOrUpdate(record.JobName, 1, static (_, count) => count + 1);
+	}
+
+	private void Release(JobRecord record)
+	{
+		_ = Interlocked.Decrement(ref _reservations);
+		_ = _queueReservations.AddOrUpdate(record.QueueName, 0, static (_, count) => Math.Max(0, count - 1));
+		_ = _jobReservations.AddOrUpdate(record.JobName, 0, static (_, count) => Math.Max(0, count - 1));
+	}
+
+	private async Task RenewLeaseLoopAsync(string jobId, CancellationToken cancellationToken)
+	{
+		var interval = TimeSpan.FromTicks(Math.Max(1, _options.LeaseDuration.Ticks / 3));
+		while (true)
+		{
+			await Task.Delay(interval, _timeProvider, cancellationToken).ConfigureAwait(false);
+			await _storage.RenewLeaseAsync(jobId, _workerId, _options.LeaseDuration, cancellationToken).ConfigureAwait(false);
+		}
+	}
+
+	private async Task AssertCodeSchedulesAsync(CancellationToken cancellationToken)
+	{
+		var now = _timeProvider.GetUtcNow();
+		var codeDefinitions = _definitions.Values.Where(static definition => definition.Cron is not null).ToArray();
+		foreach (var definition in codeDefinitions)
+		{
+			var zone = JobCron.GetTimeZone(definition.TimeZone);
+			var next = JobCron.Parse(definition.Cron!).GetNextOccurrence(now, zone)
+				?? throw new InvalidOperationException($"Cron for '{definition.Name}' has no future occurrence.");
+			await _storage.UpsertRecurringAsync(
+				new()
+				{
+					Name = definition.Name,
+					JobName = definition.Name,
+					Cron = definition.Cron!,
+					TimeZone = definition.TimeZone,
+					IsCodeDefined = true,
+					NextRunAt = next,
+				},
+				cancellationToken
+			).ConfigureAwait(false);
+		}
+
+		var activeScheduleNames = codeDefinitions.Select(static definition => definition.Name).ToArray();
+		await _storage.RemoveObsoleteCodeDefinedRecurringAsync(
+			activeScheduleNames,
+			cancellationToken
+		).ConfigureAwait(false);
+	}
+
+	private async Task EnsureCodeSchedulesAsync(CancellationToken cancellationToken)
+	{
+		if (_state.CodeSchedulesAsserted)
+			return;
+
+		await _scheduleInitialization.WaitAsync(cancellationToken).ConfigureAwait(false);
+		try
+		{
+			if (_state.CodeSchedulesAsserted)
+				return;
+			await AssertCodeSchedulesAsync(cancellationToken).ConfigureAwait(false);
+			_state.MarkCodeSchedulesAsserted();
+		}
+		finally
+		{
+			_ = _scheduleInitialization.Release();
+		}
+	}
+
+	private async Task MaterializeRecurringAsync(CancellationToken cancellationToken)
+	{
+		var now = _timeProvider.GetUtcNow();
+		var schedules = await _storage.GetDueRecurringAsync(now, _options.AcquisitionBatchSize, cancellationToken).ConfigureAwait(false);
+		foreach (var schedule in schedules)
+		{
+			if (!_definitions.TryGetValue(schedule.JobName, out var definition))
+				continue;
+
+			var expression = JobCron.Parse(schedule.Cron);
+			var next = expression.GetNextOccurrence(schedule.NextRunAt, JobCron.GetTimeZone(schedule.TimeZone))
+				?? throw new InvalidOperationException($"Recurring schedule '{schedule.Name}' has no future occurrence.");
+			var (traceParent, traceState) = TraceContextCapture.Current();
+			var record = new JobRecord
+			{
+				Id = Guid.NewGuid().ToString("N"),
+				JobName = schedule.JobName,
+				QueueName = definition.Queue.Name,
+				Payload = "{}",
+				State = JobState.Pending,
+				DueAt = schedule.NextRunAt,
+				CreatedAt = now,
+				RecurringKey = $"{schedule.Name}:{schedule.NextRunAt.UtcTicks}",
+				TraceParent = traceParent,
+				TraceState = traceState,
+			};
+
+			if (definition.OverlapPolicy == OverlapPolicy.Skip)
+			{
+				var active = await _storage.QueryJobsAsync(new() { State = JobState.Active, Search = definition.Name, Take = 1 }, cancellationToken)
+					.ConfigureAwait(false);
+				if (active.Any(x => string.Equals(x.JobName, definition.Name, StringComparison.Ordinal)))
+				{
+					record = record with { State = JobState.Cancelled, CompletedAt = now };
+				}
+			}
+
+			if (await _storage.MaterializeRecurringAsync(schedule, record, next, cancellationToken).ConfigureAwait(false)
+				&& record.State == JobState.Pending)
+			{
+				JobTelemetry.Enqueued(record.JobName, record.QueueName);
+			}
+		}
+	}
+
+	private static TimeSpan GetRetryDelay(JobDefinition definition, int attempt)
+	{
+		if (definition.Backoff == BackoffStrategy.Fixed)
+			return definition.BackoffBase;
+
+		var exponent = Math.Min(30, Math.Max(0, attempt - 1));
+		var ticks = Math.Min(TimeSpan.MaxValue.Ticks, definition.BackoffBase.Ticks * Math.Pow(2, exponent));
+		if (definition.Backoff == BackoffStrategy.ExponentialJitter)
+			ticks *= 0.5 + Random.Shared.NextDouble();
+		return TimeSpan.FromTicks((long)ticks);
+	}
+
+	private long ToTimestampTicks(TimeSpan duration) => (long)(duration.TotalSeconds * _timeProvider.TimestampFrequency);
+
+	/// <inheritdoc />
+	public override void Dispose()
+	{
+		_scheduleInitialization.Dispose();
+		base.Dispose();
+	}
+
+	[LoggerMessage(EventId = 1, Level = LogLevel.Error, Message = "Immediate.Jobs scheduler iteration failed; polling will continue")]
+	private static partial void SchedulerIterationFailed(ILogger logger, Exception exception);
+
+	[LoggerMessage(EventId = 2, Level = LogLevel.Warning, Message = "Immediate.Jobs shutdown drain exceeded {shutdownTimeout}")]
+	private static partial void ShutdownDrainExceeded(ILogger logger, TimeSpan shutdownTimeout);
+
+	[LoggerMessage(EventId = 3, Level = LogLevel.Error, Message = "Unhandled worker error for job {jobId}; its lease will expire")]
+	private static partial void UnhandledWorkerError(ILogger logger, Exception exception, string jobId);
+
+	[LoggerMessage(EventId = 4, Level = LogLevel.Information, Message = "Job completed in {durationMs} ms")]
+	private static partial void JobCompleted(ILogger logger, double durationMs);
+
+	[LoggerMessage(EventId = 5, Level = LogLevel.Warning, Message = "Job failed and will retry at {nextRetryAt}")]
+	private static partial void JobWillRetry(ILogger logger, Exception exception, DateTimeOffset? nextRetryAt);
+
+	[LoggerMessage(EventId = 6, Level = LogLevel.Error, Message = "Job exhausted all {maxAttempts} attempts")]
+	private static partial void JobExhaustedAttempts(ILogger logger, Exception exception, int maxAttempts);
+}
+
+/// <summary>Scheduler liveness state shared with health checks and monitoring.</summary>
+public sealed class JobSchedulerState
+{
+	private long _activeWorkers;
+
+	/// <summary>UTC time at which the scheduler initialized.</summary>
+	public DateTimeOffset? StartedAt { get; private set; }
+
+	/// <summary>UTC time of the latest successful scheduler iteration.</summary>
+	public DateTimeOffset? LastHeartbeat { get; private set; }
+
+	/// <summary>Number of invocations currently executing.</summary>
+	public int ActiveWorkers => checked((int)Interlocked.Read(ref _activeWorkers));
+
+	internal bool CodeSchedulesAsserted { get; private set; }
+
+	internal void MarkStarted(DateTimeOffset timestamp) => StartedAt = timestamp;
+	internal void MarkHeartbeat(DateTimeOffset timestamp) => LastHeartbeat = timestamp;
+	internal void MarkCodeSchedulesAsserted() => CodeSchedulesAsserted = true;
+	internal void IncrementActive() => Interlocked.Increment(ref _activeWorkers);
+	internal void DecrementActive() => Interlocked.Decrement(ref _activeWorkers);
+}

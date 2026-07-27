@@ -1,10 +1,10 @@
 name: Build
 
-on: 
+on:
   workflow_dispatch:
   push:
-    branches: 
-      - 'master'
+    branches:
+      - 'main'
     paths-ignore:
       - '**/readme.md'
   pull_request:
@@ -12,27 +12,67 @@ on:
 
 jobs:
   build:
-
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v7
 
     - name: Setup .NET
-      uses: actions/setup-dotnet@v4
+      uses: actions/setup-dotnet@v5
       with:
         dotnet-version: |
           8.0.x
           9.0.x
+          10.0.x
+
+    - name: Setup preview .NET
+      uses: actions/setup-dotnet@v5
+      with:
+        dotnet-quality: 'preview'
+        dotnet-version: 11.0.x
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: 22
+        cache: npm
+        cache-dependency-path: src/Immediate.Jobs.Dashboard/DashboardClient/package-lock.json
+
+    - name: Restore dashboard dependencies
+      run: npm ci
+      working-directory: src/Immediate.Jobs.Dashboard/DashboardClient
+
+    - name: Test dashboard
+      run: npm test
+      working-directory: src/Immediate.Jobs.Dashboard/DashboardClient
+
+    - name: Build dashboard
+      run: npm run build
+      working-directory: src/Immediate.Jobs.Dashboard/DashboardClient
+
+    - name: Restore tools
+      run: dotnet tool restore
 
     - name: Restore dependencies
       run: dotnet restore
+
     - name: Build
       run: dotnet build -c Release --no-restore
-    - name: Test
-      run: dotnet test -c Release --no-build --logger GitHubActions
 
-    - name: Upload coverage reports to Codecov with GitHub Action
-      uses: codecov/codecov-action@v5
+    - name: Test
+      run: dotnet test -c Release --no-build -- --coverage --coverage-output-format cobertura --coverage-settings ./coverage-settings.xml
+
+    - name: Publish NativeAOT sample
+      run: dotnet publish samples/NativeAot/NativeAot.csproj -c Release -r linux-x64 -f net8.0 --self-contained --no-restore
+
+    - name: Package
+      run: dotnet pack -c Release --no-build --property:PackageOutputPath=${{ github.workspace }}/nupkgs
+
+    # disabled until v0.1.0
+    # - name: Validate packages
+    #   run: dotnet tool run dotnet-validate -- package local ./nupkgs/*.nupkg
+
+    - name: Coveralls
+      uses: coverallsapp/github-action@v2
       with:
-        token: ${{ secrets.CODECOV_TOKEN }}
+        files: 'TestResults/*.cobertura.xml'

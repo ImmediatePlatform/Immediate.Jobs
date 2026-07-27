@@ -1,0 +1,48 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+	<TargetFrameworks>netstandard2.0;net10.0</TargetFrameworks>
+	<EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
+	<IsRoslynComponent>true</IsRoslynComponent>
+	<NoWarn>$(NoWarn);CS1591;RS1036;RS1041;RS2008</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+	<Compile Include="../Common/*.cs" Link="Common/%(Filename).cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+	<None Remove="Templates/*.sbntxt" />
+	<EmbeddedResource Include="Templates/*.sbntxt" />
+  </ItemGroup>
+
+  <ItemGroup>
+	<PackageReference Include="AssemblyMetadata.Generators" PrivateAssets="all" />
+	<PackageReference Include="Microsoft.CodeAnalysis.Analyzers" PrivateAssets="all" />
+	<PackageReference Include="Microsoft.CodeAnalysis.CSharp" PrivateAssets="all" />
+  </ItemGroup>
+
+  <ItemGroup Condition="!$([MSBuild]::IsTargetFrameworkCompatible('$(TargetFramework)', 'net10.0'))">
+	<PackageReference Include="Scriban" PrivateAssets="all" IncludeAssets="Build" />
+  </ItemGroup>
+
+  <PropertyGroup Condition="!$([MSBuild]::IsTargetFrameworkCompatible('$(TargetFramework)', 'net10.0'))">
+	<PackageScribanIncludeSource>true</PackageScribanIncludeSource>
+	<DefineConstants>$(DefineConstants);SCRIBAN_NO_ASYNC</DefineConstants>
+  </PropertyGroup>
+
+  <ItemGroup Condition="$([MSBuild]::IsTargetFrameworkCompatible('$(TargetFramework)', 'net10.0'))">
+	<PackageReference Include="Scriban" PrivateAssets="all" GeneratePathProperty="true" />
+  </ItemGroup>
+
+  <PropertyGroup Condition="$([MSBuild]::IsTargetFrameworkCompatible('$(TargetFramework)', 'net10.0'))">
+	<GetTargetPathDependsOn>$(GetTargetPathDependsOn);GetDependencyTargetPaths</GetTargetPathDependsOn>
+  </PropertyGroup>
+
+  <Target Name="GetDependencyTargetPaths" Condition="$([MSBuild]::IsTargetFrameworkCompatible('$(TargetFramework)', 'net10.0'))">
+	<ItemGroup>
+	  <TargetPathWithTargetPlatformMoniker Include="$(PkgScriban)/lib/netstandard2.0/Scriban.dll" IncludeRuntimeDependency="false" />
+	</ItemGroup>
+  </Target>
+
+</Project>
