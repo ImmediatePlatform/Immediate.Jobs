@@ -228,7 +228,7 @@ Dynamic schedules are persisted in storage (they survive restarts and are visibl
 | `Immediate.Jobs.Analyzers`           | Non-packable Roslyn analyzer project embedded into the `Immediate.Jobs` package                                                                                                         |
 | `Immediate.Jobs.Generators`          | Non-packable Roslyn source-generator project embedded into the `Immediate.Jobs` package                                                                                                 |
 | `Immediate.Jobs.EntityFrameworkCore` | EF Core adapter — works with any relational EF provider; convenience over raw speed                                                                                                     |
-| `Immediate.Jobs.Dashboard`           | Embedded dashboard middleware + compiled Svelte SPA assets                                                                                                                              |
+| `Immediate.Jobs.Dashboard`           | Embedded dashboard middleware + compiled Vue SPA assets                                                                                                                                 |
 | `Immediate.Jobs.NodaTime`            | Optional: `Instant`/`Duration`/`DateTimeZone` overloads on generated schedulers; NodaTime STJ converters wired into generated serializer contexts                                       |
 | `Immediate.Jobs.Testing`             | `JobTestHarness` (in-memory provider + `FakeTimeProvider`, advance-time-and-drain), typed enqueue assertions, capture-only scheduler call recorders, run-single-job-through-pipeline helper |
 
@@ -277,7 +277,7 @@ Payloads are stored as JSON, serialized via the generated `JsonSerializerContext
 
 ## 4. Dashboard (`Immediate.Jobs.Dashboard`)
 
-- **Stack:** Svelte 5 SPA, compiled to static assets embedded in the NuGet package (no Node required by consumers). Small bundle target: < 200 KB gzipped.
+- **Stack:** Vue 3 + TypeScript SPA with Vue Router, TanStack Query, VueUse, and Tailwind CSS, compiled to static assets embedded in the NuGet package (no Node required by consumers). Small bundle target: < 200 KB gzipped.
 - **Hosting:** `app.MapImmediateJobsDashboard("/jobs")` maps the SPA plus a JSON API under the same prefix.
 - **Real-time:** Server-Sent Events for live updates (no SignalR dependency — keeps core lean and works everywhere); SPA falls back to polling.
 - **Views:** overview (throughput, queue depth, success/failure sparklines), recurring jobs (next/last run, pause state), job list per state with filtering/search, job detail (payload, attempts, errors, timings), servers/nodes (heartbeat, active workers).
@@ -312,7 +312,7 @@ Payloads are stored as JSON, serialized via the generated `JsonSerializerContext
 | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | **M1 — Core**                  | Generator + attribute model, diagnostics, in-memory provider, worker pool, cron/delayed/immediate jobs, Immediate.Handlers integration, dynamic recurring jobs, retries/timeouts/dead-letter, graceful shutdown |
 | **M2 — Durable & distributed** | Storage abstraction finalized, EF Core adapter with optimistic leases, single-server recovery, and multi-node tests                                                                                  |
-| **M3 — Dashboard**             | Monitoring API (JSON + SSE), Svelte SPA, actions (trigger/retry/delete/pause), auth integration                                                                                                        |
+| **M3 — Dashboard**             | Monitoring API (JSON + SSE), Vue SPA, actions (trigger/retry/delete/pause), auth integration                                                                                                           |
 | **M4 — Polish & ship**         | `Immediate.Jobs.Testing`, OTel + metrics + health checks, AOT CI, benchmarks, docs site, v1.0 to NuGet                                                                                                 |
 
 ---

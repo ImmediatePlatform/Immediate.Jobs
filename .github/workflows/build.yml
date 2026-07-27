@@ -43,11 +43,13 @@ jobs:
       working-directory: src/Immediate.Jobs.Dashboard/DashboardClient
 
     - name: Test dashboard
-      run: npm test
+      run: npm run check
       working-directory: src/Immediate.Jobs.Dashboard/DashboardClient
 
     - name: Build dashboard
-      run: npm run build
+      run: |
+        npm run build
+        npm run size
       working-directory: src/Immediate.Jobs.Dashboard/DashboardClient
 
     - name: Restore tools

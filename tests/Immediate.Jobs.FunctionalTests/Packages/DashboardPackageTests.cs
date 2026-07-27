@@ -31,7 +31,8 @@ public sealed class DashboardPackageTests
 
 	[Theory]
 	[InlineData("/jobs/")]
-	[InlineData("/jobs/succeeded")]
+	[InlineData("/jobs/invocations")]
+	[InlineData("/jobs/batches/batch-42/jobs/job-7")]
 	public async Task SpaRoutesAreUnambiguous(string path)
 	{
 		var builder = WebApplication.CreateBuilder(new WebApplicationOptions
@@ -49,6 +50,66 @@ public sealed class DashboardPackageTests
 
 		_ = response.EnsureSuccessStatusCode();
 		Assert.Equal("text/html", response.Content.Headers.ContentType?.MediaType);
+		Assert.Contains(
+			"<base data-dashboard-base href=\"/jobs/\">",
+			await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken),
+			StringComparison.Ordinal
+		);
+	}
+
+	[Fact]
+	public async Task CustomDashboardPrefixIsInjectedIntoSpaBase()
+	{
+		var builder = WebApplication.CreateBuilder(new WebApplicationOptions
+		{
+			EnvironmentName = Environments.Development,
+		});
+		_ = builder.WebHost.UseTestServer();
+		_ = builder.Services.AddSingleton<IJobStorage>(new InMemoryJobStorage(TimeProvider.System));
+
+		await using var app = builder.Build();
+		_ = app.MapImmediateJobsDashboard("/operations/background-work");
+		await app.StartAsync(TestContext.Current.CancellationToken);
+
+		using var response = await app.GetTestClient().GetAsync(
+			new Uri("/operations/background-work/batches/batch-42", UriKind.Relative),
+			TestContext.Current.CancellationToken
+		);
+
+		_ = response.EnsureSuccessStatusCode();
+		Assert.Contains(
+			"<base data-dashboard-base href=\"/operations/background-work/\">",
+			await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken),
+			StringComparison.Ordinal
+		);
+	}
+
+	[Fact]
+	public async Task RequestPathBaseIsIncludedInSpaBase()
+	{
+		var builder = WebApplication.CreateBuilder(new WebApplicationOptions
+		{
+			EnvironmentName = Environments.Development,
+		});
+		_ = builder.WebHost.UseTestServer();
+		_ = builder.Services.AddSingleton<IJobStorage>(new InMemoryJobStorage(TimeProvider.System));
+
+		await using var app = builder.Build();
+		_ = app.UsePathBase("/tenant");
+		_ = app.MapImmediateJobsDashboard();
+		await app.StartAsync(TestContext.Current.CancellationToken);
+
+		using var response = await app.GetTestClient().GetAsync(
+			new Uri("/tenant/jobs/invocations/job-7", UriKind.Relative),
+			TestContext.Current.CancellationToken
+		);
+
+		_ = response.EnsureSuccessStatusCode();
+		Assert.Contains(
+			"<base data-dashboard-base href=\"/tenant/jobs/\">",
+			await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken),
+			StringComparison.Ordinal
+		);
 	}
 
 	[Fact]
