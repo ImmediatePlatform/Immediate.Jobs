@@ -64,9 +64,8 @@ public sealed class CronSyntaxTests
 
 	private static string JobWithCron(string cron, bool expectDiagnostic = false)
 	{
-		var argument = $"""Cron = "{cron}" """.TrimEnd();
-
-		return $$"""
+		return
+			$$"""
 			using System.Threading;
 			using System.Threading.Tasks;
 			using Immediate.Handlers.Shared;
@@ -74,7 +73,11 @@ public sealed class CronSyntaxTests
 
 			namespace Dummy;
 
-			[Handler, Job({{(expectDiagnostic ? $"{{|IJOB0007:{argument}|}}" : argument)}})]
+			[Handler, {{(
+				expectDiagnostic
+				? $"{{|IJOB0007:Job(Cron = \"{cron}\")|}}"
+				: $"Job(Cron = \"{cron}\")"
+			)}}]
 			public sealed partial class ReminderJob
 			{
 				private async ValueTask Handle(EmptyJobRequest _, CancellationToken token) { }

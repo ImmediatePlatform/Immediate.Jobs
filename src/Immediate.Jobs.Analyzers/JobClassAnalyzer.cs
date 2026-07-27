@@ -128,6 +128,7 @@ public sealed class JobClassAnalyzer : DiagnosticAnalyzer
 		{
 			ReportInvalidConfigurationDiagnostic(
 				context,
+				jobAttribute,
 				"`MaxAttempts` must be at least one"
 			);
 		}
@@ -137,6 +138,7 @@ public sealed class JobClassAnalyzer : DiagnosticAnalyzer
 		{
 			ReportInvalidConfigurationDiagnostic(
 				context,
+				jobAttribute,
 				"`MaxConcurrency` must not be negative"
 			);
 		}
@@ -150,6 +152,7 @@ public sealed class JobClassAnalyzer : DiagnosticAnalyzer
 		{
 			ReportInvalidConfigurationDiagnostic(
 				context,
+				jobAttribute,
 				"`Backoff` must be a defined enum value"
 			);
 		}
@@ -163,6 +166,7 @@ public sealed class JobClassAnalyzer : DiagnosticAnalyzer
 		{
 			ReportInvalidConfigurationDiagnostic(
 				context,
+				jobAttribute,
 				"`OverlapPolicy` must be a defined enum value"
 			);
 		}
@@ -174,6 +178,7 @@ public sealed class JobClassAnalyzer : DiagnosticAnalyzer
 			{
 				ReportInvalidConfigurationDiagnostic(
 					context,
+					jobAttribute,
 					"`Timeout` is not a parseable `TimeSpan` value"
 				);
 			}
@@ -182,6 +187,7 @@ public sealed class JobClassAnalyzer : DiagnosticAnalyzer
 			{
 				ReportInvalidConfigurationDiagnostic(
 					context,
+					jobAttribute,
 					"`Timeout` must not be negative"
 				);
 			}
@@ -194,6 +200,7 @@ public sealed class JobClassAnalyzer : DiagnosticAnalyzer
 			{
 				ReportInvalidConfigurationDiagnostic(
 					context,
+					jobAttribute,
 					"`BackoffBase` is not a parseable `TimeSpan` value"
 				);
 			}
@@ -202,6 +209,7 @@ public sealed class JobClassAnalyzer : DiagnosticAnalyzer
 			{
 				ReportInvalidConfigurationDiagnostic(
 					context,
+					jobAttribute,
 					"`BackoffBase` must not be negative"
 				);
 			}
@@ -209,13 +217,14 @@ public sealed class JobClassAnalyzer : DiagnosticAnalyzer
 
 		static void ReportInvalidConfigurationDiagnostic(
 			SymbolAnalysisContext context,
+			AttributeData attribute,
 			string errorMessage
 		)
 		{
 			context.ReportDiagnostic(
 				Diagnostic.Create(
 					JobConfigurationInvalid,
-					context.Symbol.Locations.FirstOrDefault(),
+					attribute.Location,
 					context.Symbol.Name,
 					errorMessage
 				)
@@ -250,7 +259,7 @@ public sealed class JobClassAnalyzer : DiagnosticAnalyzer
 				context.ReportDiagnostic(
 					Diagnostic.Create(
 						CronJobConfigurationInvalid,
-						context.Symbol.Locations.FirstOrDefault(),
+						jobAttribute.Location,
 						context.Symbol.Name,
 						"Cron expression is invalid"
 					)
@@ -262,7 +271,7 @@ public sealed class JobClassAnalyzer : DiagnosticAnalyzer
 				context.ReportDiagnostic(
 					Diagnostic.Create(
 						CronJobConfigurationInvalid,
-						context.Symbol.Locations.FirstOrDefault(),
+						jobAttribute.Location,
 						context.Symbol.Name,
 						"Cron time zone is invalid"
 					)

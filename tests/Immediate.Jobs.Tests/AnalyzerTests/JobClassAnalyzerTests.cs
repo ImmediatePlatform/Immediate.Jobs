@@ -44,15 +44,15 @@ public sealed class JobClassAnalyzerTests
 			
 			namespace Dummy;
 
-			[Handler, Job(
+			[Handler, {|IJOB0005:{|IJOB0005:{|IJOB0005:{|IJOB0005:{|IJOB0005:{|IJOB0005:Job(
 				MaxAttempts = -1,
 				MaxConcurrency = -1,
 				Backoff = (BackoffStrategy)5,
 				BackoffBase = "-00:00:05",
 				OverlapPolicy = (OverlapPolicy)5,
 				Timeout = "-00:01:00"
-			)]
-			public sealed partial class {|IJOB0005:{|IJOB0005:{|IJOB0005:{|IJOB0005:{|IJOB0005:{|IJOB0005:GetUsersQuery|}|}|}|}|}|}
+			)|}|}|}|}|}|}]
+			public sealed partial class GetUsersQuery
 			{
 				public record Query;
 
@@ -72,11 +72,11 @@ public sealed class JobClassAnalyzerTests
 			
 			namespace Dummy;
 
-			[Handler, Job(
+			[Handler, {|IJOB0005:{|IJOB0005:Job(
 				BackoffBase = "asdf",
 				Timeout = "asdf"
-			)]
-			public sealed partial class {|IJOB0005:{|IJOB0005:GetUsersQuery|}|}
+			)|}|}]
+			public sealed partial class GetUsersQuery
 			{
 				public record Query;
 
@@ -142,11 +142,11 @@ public sealed class JobClassAnalyzerTests
 			
 			namespace Dummy;
 
-			[Handler, Job(
+			[Handler, {|IJOB0007:{|IJOB0007:Job(
 				Cron = "3 4 5 6",
 				TimeZone = ""
-			)]
-			public sealed partial class {|IJOB0007:{|IJOB0007:GetUsersQuery|}|}
+			)|}|}]
+			public sealed partial class GetUsersQuery
 			{
 				private async ValueTask Handle(EmptyJobRequest _, CancellationToken token) { }
 			}
