@@ -77,10 +77,10 @@ makes intra-batch continuations resolvable before commit.
 ### 3.2 Atomic batch — the primary API
 
 `IJobBatchScheduler` is an injected, scoped service (resolve it from a request/DI scope exactly like
-a generated `Scheduler`). `Begin()` opens an in-memory buffer; you add work by calling each job's
-generated **`AddToBatch`** — the job is the receiver, exactly as with `EnqueueAsync`; `CommitAsync` flushes
-the buffer in one atomic unit. Disposing without committing rolls the buffer back — giving Hangfire's
-"exception before commit ⇒ nothing enqueued" guarantee mechanically.
+a generated `Scheduler`). `Begin()` opens an in-memory buffer; you add work by calling each job
+scheduler's inherited **`AddToBatch`** — the job is the receiver, exactly as with `EnqueueAsync`;
+`CommitAsync` flushes the buffer in one atomic unit. Disposing without committing rolls the buffer
+back — giving Hangfire's "exception before commit ⇒ nothing enqueued" guarantee mechanically.
 
 ```csharp
 public sealed class CampaignService(
@@ -99,10 +99,10 @@ public sealed class CampaignService(
 }
 ```
 
-`AddToBatch` is generated per scheduler (like `EnqueueAsync`), so it is typed, F12-navigable, and needs no
-generic `Add<T>(scheduler, payload)` seam. If storage is unavailable mid-loop, **nothing** was
-written (the buffer only touches storage at commit), so retrying the whole method cannot double-send —
-the "1000 emails" scenario, solved without duplicate-tracking bookkeeping.
+`AddToBatch` is inherited from the scheduler's closed `JobScheduler<TPayload>` base, so it is strongly
+typed and needs no generic `Add<T>(scheduler, payload)` seam. If storage is unavailable mid-loop,
+**nothing** was written (the buffer only touches storage at commit), so retrying the whole method
+cannot double-send — the "1000 emails" scenario, solved without duplicate-tracking bookkeeping.
 
 `AddToBatch` mirrors the scheduler timing surface — immediate, delayed, and absolute-time:
 
@@ -510,8 +510,8 @@ still within its window.
 
 ## 6. Compile-time & runtime diagnostics
 
-`AddToBatch`/`ScheduleAfterAsync` are generated per scheduler and strongly typed against the job's
-`IJobRequest` payload, so wrong-payload and unserializable-payload errors reuse the existing
+`AddToBatch`/`ScheduleAfterAsync` are inherited by each generated scheduler and strongly typed against
+the job's `IJobRequest` payload, so wrong-payload and unserializable-payload errors reuse the existing
 `IJOB0009` analyzer. New diagnostic:
 
 | ID         | Meaning                                                                       |
@@ -621,7 +621,7 @@ public sealed record BatchStatus(
     int Total, int Succeeded, int Failed, int Cancelled,
     int Remaining,                          // non-terminal (running + waiting); == PendingCount
     DateTimeOffset CreatedAt, DateTimeOffset? StartedAt, DateTimeOffset? CompletedAt,
-    double FractionSettled);                // (Total - Remaining) / Total
+    double FractionSettled);                // empty = 1; otherwise (Total - Remaining) / Total
 
 public sealed record BatchMemberQuery { public JobState? State; public int Skip; public int Take = 100; }
 
@@ -637,7 +637,7 @@ public sealed record BatchGraphEdge(
 
 public sealed record JobStatus(
     string JobId, string JobName, string QueueName, JobState State,
-    int Attempt, int MaxAttempts,
+    int Attempt, int? MaxAttempts,           // null when the provider cannot determine the configured limit
     DateTimeOffset CreatedAt, DateTimeOffset DueAt, DateTimeOffset? CompletedAt,
     string? LastError, string? BatchId,
     IReadOnlyList<BatchGraphEdge> DependsOn); // its incoming continuation edges
@@ -674,8 +674,8 @@ Each maps to a storage call over the batch/member/edge tables already defined �
 
 ## 10. Public surface summary
 
-Methods generated on every job's `Scheduler` (shown for a job with a `Payload` request; each is a
-concrete generated member, not a shared interface):
+Methods available on every job's `Scheduler` through its closed `JobScheduler<TPayload>` base (shown
+for a job with a `Payload` request):
 
 ```csharp
 // e.g. SendEmail.Scheduler
@@ -686,8 +686,10 @@ concrete generated member, not a shared interface):
     ValueTask<JobHandle> ScheduleAtAsync(Payload payload, DateTimeOffset runAt, CancellationToken ct = default);
 
     // batch membership (root member, no dependency)
-	JobHandle AddToBatch(IJobBatch batch, Payload payload, TimeSpan? delay = null);
-	JobHandle AddToBatchAt(IJobBatch batch, Payload payload, DateTimeOffset runAt);
+    JobHandle AddToBatch(JobBatch batch, Payload payload, TimeSpan? delay = null);
+    JobHandle AddToBatchInGroup(JobBatch batch, Payload payload, string? groupId, TimeSpan? delay = null);
+    JobHandle AddToBatchAt(JobBatch batch, Payload payload, DateTimeOffset runAt);
+    JobHandle AddToBatchAt(JobBatch batch, Payload payload, DateTimeOffset runAt, string? groupId);
 
     // continuations — this job runs after the parent(s); works in a batch or standalone
     ValueTask<JobHandle> ScheduleAfterAsync(JobHandle parent, Payload payload,
@@ -713,14 +715,15 @@ Batch and handle types:
 ```csharp
 public interface IJobBatchScheduler
 {
-    IJobBatch Begin();
-    IJobBatch Begin(BatchHandle after, ContinuationTrigger on = ContinuationTrigger.Success);
-    ValueTask<BatchHandle> RunAsync(Func<IJobBatch, ValueTask> build, CancellationToken ct = default);
+    JobBatch Begin();
+    JobBatch Begin(BatchHandle after, ContinuationTrigger on = ContinuationTrigger.Success);
+    ValueTask<BatchHandle> RunAsync(Func<JobBatch, ValueTask> build, CancellationToken ct = default);
 }
 
-public interface IJobBatch : IAsyncDisposable
+public sealed class JobBatch : IAsyncDisposable
 {
-    ValueTask<BatchHandle> CommitAsync(CancellationToken ct = default);
+    public string Id { get; }
+    public ValueTask<BatchHandle> CommitAsync(CancellationToken ct = default);
 }
 
 public readonly struct JobHandle          // carries the job Id (+ owning batch, if any)
@@ -744,9 +747,8 @@ public enum ContinuationOptions
 }
 ```
 
-> `AddToBatch`/`ScheduleAfterAsync` are generated on each job's scheduler exactly like `EnqueueAsync`, so the
-> job you are scheduling is always the receiver — F12 navigates straight to the job class, and there
-> is no generic `Add<T>(scheduler, payload)` seam.
+> `AddToBatch`/`ScheduleAfterAsync` are inherited by each generated scheduler, so the job you are
+> scheduling is always the receiver and there is no generic `Add<T>(scheduler, payload)` seam.
 
 ---
 
@@ -777,9 +779,9 @@ public enum ContinuationOptions
   un-cancelling terminal rows, which would poison every "terminal is final" assumption in purge,
   cascade, and metrics.)*
 
-- **Scheduler is the subject (§3):** batch membership and continuations are generated per-scheduler
-  methods — `sendEmail.AddToBatch(batch, …)`, `two.ScheduleAfterAsync(parent, …)` — so the job being
-  scheduled is always the receiver, matching `EnqueueAsync`. This requires `EnqueueAsync`/`ScheduleAsync`/
+- **Scheduler is the subject (§3):** batch membership and continuations are inherited strongly typed
+  scheduler methods — `sendEmail.AddToBatch(batch, …)`, `two.ScheduleAfterAsync(parent, …)` — so the
+  job being scheduled is always the receiver, matching `EnqueueAsync`. This requires `EnqueueAsync`/`ScheduleAsync`/
   `ScheduleAtAsync` to return a `JobHandle` (carrying `.Id`) rather than a bare `string` (**B0**).
   *(Rejected: `batch.Add(scheduler, payload)` / `parent.ContinueWith(childScheduler, payload)`, which
   made the batch/handle the subject and buried the scheduled job as an argument.)*

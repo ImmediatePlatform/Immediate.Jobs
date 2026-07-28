@@ -24,8 +24,10 @@ public sealed class StorageContainers : IAsyncLifetime
 
 	public async ValueTask DisposeAsync()
 	{
-		await PostgreSql.DisposeAsync();
-		await SqlServer.DisposeAsync();
+		await Task.WhenAll(
+			PostgreSql.DisposeAsync().AsTask(),
+			SqlServer.DisposeAsync().AsTask()
+		);
 	}
 }
 #pragma warning restore CS1591

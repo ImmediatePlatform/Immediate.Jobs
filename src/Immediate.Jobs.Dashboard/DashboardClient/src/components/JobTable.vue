@@ -84,7 +84,7 @@ watch(() => props.selectedId, (jobId) => {
 							</td>
 							<td><code>{{ job.queueName }}</code></td>
 							<td>
-								<code v-if="job.groupId" class="block max-w-48 truncate" :title="job.groupId">{{ job.groupId }}</code>
+								<code v-if="job.groupId !== null" class="block max-w-48 truncate" :title="job.groupId">{{ job.groupId }}</code>
 								<span v-else class="text-muted">—</span>
 							</td>
 							<td>

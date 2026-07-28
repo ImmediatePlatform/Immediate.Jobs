@@ -115,6 +115,176 @@ public sealed class RedisStorageTests(RedisStorageFixture fixture)
 	}
 
 	[Fact]
+	public async Task UnfilteredQueryReadsOnlyTheRequestedRankWindow()
+	{
+		var cancellationToken = TestContext.Current.CancellationToken;
+		await using var connection = await ConnectionMultiplexer.ConnectAsync(fixture.Container.GetConnectionString());
+		var timeProvider = CreateTimeProvider();
+		var options = CreateOptions();
+		using var storage = new RedisJobStorage(connection, options, timeProvider);
+		await Task.WhenAll(Enumerable.Range(0, 3).Select(index => storage.EnqueueAsync(
+			CreateJob($"window-{index}", timeProvider.GetUtcNow().AddMilliseconds(index)),
+			cancellationToken
+		).AsTask()));
+		_ = await connection.GetDatabase(options.Database).HashSetAsync(
+			JobKey(options, "window-0"),
+			"record",
+			"invalid json"
+		);
+
+		var jobs = await storage.QueryJobsAsync(new() { Skip = 1, Take = 1 }, cancellationToken);
+
+		Assert.Equal("window-1", Assert.Single(jobs).Id);
+	}
+
+	[Fact]
+	public async Task ExactIdQueryDoesNotReadUnrelatedJobs()
+	{
+		var cancellationToken = TestContext.Current.CancellationToken;
+		await using var connection = await ConnectionMultiplexer.ConnectAsync(fixture.Container.GetConnectionString());
+		var timeProvider = CreateTimeProvider();
+		var options = CreateOptions();
+		using var storage = new RedisJobStorage(connection, options, timeProvider);
+		await storage.EnqueueAsync(CreateJob("target", timeProvider.GetUtcNow()), cancellationToken);
+		await storage.EnqueueAsync(CreateJob("poison", timeProvider.GetUtcNow().AddMilliseconds(1)), cancellationToken);
+		_ = await connection.GetDatabase(options.Database).HashSetAsync(
+			JobKey(options, "poison"),
+			"record",
+			"invalid json"
+		);
+
+		var jobs = await storage.QueryJobsAsync(new() { Id = "target", Take = 1 }, cancellationToken);
+
+		Assert.Equal("target", Assert.Single(jobs).Id);
+	}
+
+	[Fact]
+	public async Task FilteredPaginationScansMultipleWindowsAndStopsAfterTheRequestedMatches()
+	{
+		var cancellationToken = TestContext.Current.CancellationToken;
+		await using var connection = await ConnectionMultiplexer.ConnectAsync(fixture.Container.GetConnectionString());
+		var timeProvider = CreateTimeProvider();
+		var options = CreateOptions();
+		using var storage = new RedisJobStorage(connection, options, timeProvider);
+		await Task.WhenAll(Enumerable.Range(0, 520).Select(index =>
+		{
+			var job = CreateJob($"filtered-{index:D3}", timeProvider.GetUtcNow().AddMilliseconds(index));
+			if (index is 250 or 510)
+			{
+				job = job with
+				{
+					State = JobState.Scheduled,
+					QueueName = "priority",
+					JobName = "Contains-Needle",
+				};
+			}
+
+			return storage.EnqueueAsync(job, cancellationToken).AsTask();
+		}));
+		_ = await connection.GetDatabase(options.Database).HashSetAsync(
+			JobKey(options, "filtered-000"),
+			"record",
+			"invalid json"
+		);
+
+		var jobs = await storage.QueryJobsAsync(new()
+		{
+			State = JobState.Scheduled,
+			QueueName = "priority",
+			Search = "needle",
+			Skip = 1,
+			Take = 1,
+		}, cancellationToken);
+
+		Assert.Equal("filtered-250", Assert.Single(jobs).Id);
+	}
+
+	[Fact]
+	public async Task MissingDashboardActionsThrowKeyNotFoundException()
+	{
+		var cancellationToken = TestContext.Current.CancellationToken;
+		await using var connection = await ConnectionMultiplexer.ConnectAsync(fixture.Container.GetConnectionString());
+		using var storage = new RedisJobStorage(connection, CreateOptions(), CreateTimeProvider());
+
+		_ = await Assert.ThrowsAsync<KeyNotFoundException>(
+			() => storage.RetryAsync("missing", cancellationToken).AsTask()
+		);
+		_ = await Assert.ThrowsAsync<KeyNotFoundException>(
+			() => storage.DeleteAsync("missing", cancellationToken).AsTask()
+		);
+		_ = await Assert.ThrowsAsync<KeyNotFoundException>(
+			() => storage.RemoveRecurringAsync("missing", cancellationToken).AsTask()
+		);
+	}
+
+	[Fact]
+	public async Task LowLevelStatusReportsUnknownMaxAttempts()
+	{
+		var cancellationToken = TestContext.Current.CancellationToken;
+		await using var connection = await ConnectionMultiplexer.ConnectAsync(fixture.Container.GetConnectionString());
+		var timeProvider = CreateTimeProvider();
+		using var storage = new RedisJobStorage(connection, CreateOptions(), timeProvider);
+		await storage.EnqueueAsync(CreateJob("status", timeProvider.GetUtcNow()), cancellationToken);
+
+		var status = await storage.GetJobStatusAsync("status", cancellationToken);
+
+		Assert.NotNull(status);
+		Assert.Null(status.MaxAttempts);
+	}
+
+	[Fact]
+	public async Task ExistingResourcesWithInvalidActionsThrowImmediateJobException()
+	{
+		var cancellationToken = TestContext.Current.CancellationToken;
+		await using var connection = await ConnectionMultiplexer.ConnectAsync(fixture.Container.GetConnectionString());
+		var timeProvider = CreateTimeProvider();
+		using var storage = new RedisJobStorage(connection, CreateOptions(), timeProvider);
+		await storage.EnqueueAsync(CreateJob("pending", timeProvider.GetUtcNow()), cancellationToken);
+		await storage.UpsertRecurringAsync(new()
+		{
+			Name = "code-defined",
+			JobName = "test-job",
+			Cron = "0 * * * *",
+			TimeZone = "UTC",
+			IsCodeDefined = true,
+			NextRunAt = timeProvider.GetUtcNow(),
+		}, cancellationToken);
+
+		_ = await Assert.ThrowsAsync<ImmediateJobException>(
+			() => storage.RetryAsync("pending", cancellationToken).AsTask()
+		);
+		_ = await Assert.ThrowsAsync<ImmediateJobException>(
+			() => storage.DeleteAsync("pending", cancellationToken).AsTask()
+		);
+		_ = await Assert.ThrowsAsync<ImmediateJobException>(
+			() => storage.RemoveRecurringAsync("code-defined", cancellationToken).AsTask()
+		);
+	}
+
+	[Fact]
+	public async Task PurgeRemovesStaleCompletedMembersWithoutLooping()
+	{
+		var cancellationToken = TestContext.Current.CancellationToken;
+		await using var connection = await ConnectionMultiplexer.ConnectAsync(fixture.Container.GetConnectionString());
+		var timeProvider = CreateTimeProvider();
+		var options = CreateOptions();
+		using var storage = new RedisJobStorage(connection, options, timeProvider);
+		await storage.EnqueueAsync(CreateJob("wrong-state", timeProvider.GetUtcNow()), cancellationToken);
+		var database = connection.GetDatabase(options.Database);
+		var completedKey = CompletedKey(options, JobState.Succeeded);
+		var staleScore = timeProvider.GetUtcNow().AddMinutes(-1).ToUnixTimeMilliseconds();
+		_ = await database.SortedSetAddAsync(completedKey, "missing", staleScore);
+		_ = await database.SortedSetAddAsync(completedKey, "wrong-state", staleScore);
+
+		await storage.PurgeJobsAsync(TimeSpan.Zero, TimeSpan.Zero, cancellationToken)
+			.AsTask()
+			.WaitAsync(TimeSpan.FromSeconds(5), cancellationToken);
+
+		Assert.Equal(0, await database.SortedSetLengthAsync(completedKey));
+		Assert.NotNull(await storage.GetJobStatusAsync("wrong-state", cancellationToken));
+	}
+
+	[Fact]
 	public async Task ConcurrentRecurringMaterializationCreatesOneOccurrence()
 	{
 		var cancellationToken = TestContext.Current.CancellationToken;
@@ -242,6 +412,12 @@ public sealed class RedisStorageTests(RedisStorageFixture fixture)
 
 	private static RedisJobStorageOptions CreateOptions() =>
 		new() { KeyPrefix = $"immediate-jobs-test-{Guid.NewGuid():N}" };
+
+	private static RedisKey JobKey(RedisJobStorageOptions options, string id) =>
+		$"{{{options.KeyPrefix}}}:job:{id}";
+
+	private static RedisKey CompletedKey(RedisJobStorageOptions options, JobState state) =>
+		$"{{{options.KeyPrefix}}}:completed:{(int)state}";
 
 	private static JobRecord CreateJob(string id, DateTimeOffset now) => new()
 	{

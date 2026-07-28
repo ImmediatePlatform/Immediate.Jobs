@@ -16,6 +16,22 @@
 	<Features>runtime-async=on</Features>
   </PropertyGroup>
 
+  <PropertyGroup>
+	<DashboardClientDirectory>$(MSBuildProjectDirectory)/DashboardClient</DashboardClientDirectory>
+	<DashboardAssetsDirectory>$(MSBuildProjectDirectory)/Assets</DashboardAssetsDirectory>
+	<DashboardBuildStamp>$(BaseIntermediateOutputPath)dashboard-client-build.stamp</DashboardBuildStamp>
+  </PropertyGroup>
+
+  <ItemGroup>
+	<DashboardClientSource Include="$(MSBuildProjectFullPath)" />
+	<DashboardClientSource Include="$(DashboardClientDirectory)/index.html" />
+	<DashboardClientSource Include="$(DashboardClientDirectory)/package.json" />
+	<DashboardClientSource Include="$(DashboardClientDirectory)/package-lock.json" />
+	<DashboardClientSource Include="$(DashboardClientDirectory)/src/**" />
+	<DashboardClientSource Include="$(DashboardClientDirectory)/tsconfig*.json" />
+	<DashboardClientSource Include="$(DashboardClientDirectory)/vite.config.ts" />
+  </ItemGroup>
+
   <ItemGroup>
     <Using Include="Immediate.Jobs.Shared" />
   </ItemGroup>
@@ -29,8 +45,36 @@
     <ProjectReference Include="../Immediate.Jobs/Immediate.Jobs.csproj" ReferenceOutputAssembly="false" />
   </ItemGroup>
 
-  <ItemGroup>
-    <EmbeddedResource Include="Assets/**" />
-  </ItemGroup>
+  <Target Name="RestoreDashboardClient"
+	Inputs="$(DashboardClientDirectory)/package.json;$(DashboardClientDirectory)/package-lock.json"
+	Outputs="$(DashboardClientDirectory)/node_modules/.package-lock.json">
+	<Exec Command="npm ci" WorkingDirectory="$(DashboardClientDirectory)" />
+  </Target>
+
+  <Target Name="BuildDashboardClient"
+	BeforeTargets="DispatchToInnerBuilds;PrepareForBuild"
+	DependsOnTargets="RestoreDashboardClient"
+	Inputs="@(DashboardClientSource)"
+	Outputs="$(DashboardBuildStamp);$(DashboardAssetsDirectory)/app.js;$(DashboardAssetsDirectory)/app.css;$(DashboardAssetsDirectory)/index.html"
+	Condition="'$(DesignTimeBuild)' != 'true'">
+	<Exec Command="npm run build" WorkingDirectory="$(DashboardClientDirectory)" />
+	<Exec Command="npm run size" WorkingDirectory="$(DashboardClientDirectory)" />
+	<MakeDir Directories="$(BaseIntermediateOutputPath)" />
+	<Touch Files="$(DashboardBuildStamp)" AlwaysCreate="true" />
+  </Target>
+
+  <Target Name="IncludeDashboardAssets"
+	BeforeTargets="AssignTargetPaths"
+	DependsOnTargets="BuildDashboardClient"
+	Condition="'$(IsCrossTargetingBuild)' != 'true'">
+	<ItemGroup>
+	  <EmbeddedResource Include="$(DashboardAssetsDirectory)/app.js"
+		LogicalName="$(RootNamespace).Assets.app.js" />
+	  <EmbeddedResource Include="$(DashboardAssetsDirectory)/app.css"
+		LogicalName="$(RootNamespace).Assets.app.css" />
+	  <EmbeddedResource Include="$(DashboardAssetsDirectory)/index.html"
+		LogicalName="$(RootNamespace).Assets.index.html" />
+	</ItemGroup>
+  </Target>
   
 </Project>

@@ -8,9 +8,11 @@ public class CaptureOnlyRecurringJobScheduler : IRecurringJobScheduler
 	private readonly List<RecurringJobCapture> _captures = [];
 
 	/// <summary>All calls captured in call order.</summary>
+	/// <value>The captured recurring scheduler calls.</value>
 	public IReadOnlyList<RecurringJobCapture> Captures => _captures;
 
 	/// <summary>The latest captured call, or <see langword="null"/> when none exists.</summary>
+	/// <value>The latest captured call, or <see langword="null"/>.</value>
 	public RecurringJobCapture? Last => _captures.Count == 0 ? null : _captures[^1];
 
 	/// <inheritdoc />
@@ -47,6 +49,7 @@ public class CaptureOnlyRecurringJobScheduler : IRecurringJobScheduler
 	public void Clear() => _captures.Clear();
 
 	/// <summary>Creates trigger identifiers. Override when a test requires predictable identifiers.</summary>
+	/// <returns>A new trigger identifier.</returns>
 	protected virtual string CreateId() => Guid.NewGuid().ToString("N");
 }
 
@@ -62,6 +65,11 @@ public enum RecurringJobOperation
 }
 
 /// <summary>A captured recurring scheduler call.</summary>
+/// <param name="Operation">The recurring scheduler operation.</param>
+/// <param name="Name">The optional schedule name.</param>
+/// <param name="Cron">The optional cron expression.</param>
+/// <param name="TimeZone">The optional schedule time zone.</param>
+/// <param name="JobId">The optional triggered invocation identifier.</param>
 public sealed record RecurringJobCapture(
 	RecurringJobOperation Operation,
 	string? Name = null,

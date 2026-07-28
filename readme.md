@@ -65,10 +65,10 @@ sealed class SnowflakeIdGenerator(ISnowflakeService snowflakes) : IIdGenerator
 
 ## Batches and continuations
 
-Inject `IJobBatchScheduler` to create an atomic group. Generated schedulers add their own typed
-payloads to the batch and return handles that can be connected into chains, fan-out branches, and
-fan-in joins. Storage receives the entire batch in one transaction; disposing without committing
-writes nothing.
+Inject `IJobBatchScheduler` to create an atomic group. Generated schedulers inherit strongly typed
+batch methods and return handles that can be connected into chains, fan-out branches, and fan-in
+joins. Storage receives the entire batch in one transaction; disposing without committing writes
+nothing.
 
 ```csharp
 await using var batch = batches.Begin();

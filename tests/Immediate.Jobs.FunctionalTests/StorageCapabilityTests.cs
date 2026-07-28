@@ -66,10 +66,6 @@ public sealed class StorageCapabilityTests
 		var beginException = Assert.Throws<NotSupportedException>(() => batchScheduler.Begin());
 		Assert.Contains("SQL database", beginException.Message, StringComparison.Ordinal);
 
-		var addException = Assert.Throws<NotSupportedException>(() =>
-			scheduler.AddToBatch(new UnsupportedBatch(), "payload"));
-		Assert.Contains("SQL database", addException.Message, StringComparison.Ordinal);
-
 		var continuationException = await Assert.ThrowsAsync<NotSupportedException>(() =>
 			scheduler.ScheduleAfterAsync(
 				new JobHandle("parent"),
@@ -142,14 +138,6 @@ public sealed class StorageCapabilityTests
 #else
 		return (JsonTypeInfo<string>)options.GetTypeInfo(typeof(string));
 #endif
-	}
-
-	private sealed class UnsupportedBatch : IJobBatch
-	{
-		public string Id => "unsupported";
-		public ValueTask<BatchHandle> CommitAsync(CancellationToken cancellationToken = default) =>
-			throw new NotSupportedException();
-		public ValueTask DisposeAsync() => ValueTask.CompletedTask;
 	}
 
 	private sealed class NoopInvoker : IJobInvoker

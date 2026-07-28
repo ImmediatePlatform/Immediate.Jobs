@@ -257,6 +257,338 @@ public sealed class RelationalStorageMatrixTests(StorageContainers containers)
 	}
 
 	[Theory]
+	[MemberData(nameof(Matrix))]
+	public async Task BulkIncomingEdgesPreserveFieldsAndNormalizeInput(
+		DatabaseKind database,
+		AdapterKind adapter
+	)
+	{
+		var cancellationToken = TestContext.Current.CancellationToken;
+		await using var fixture = await CreateFixtureAsync(database, adapter, cancellationToken);
+		var storage = fixture.GraphStorage;
+		var now = fixture.TimeProvider.GetUtcNow();
+		var batchParent = CreateJob("batch-parent-member", now) with
+		{
+			BatchId = "parent-batch",
+			State = JobState.Succeeded,
+			CompletedAt = now,
+		};
+		await storage.EnqueueBatchAsync(new()
+		{
+			Id = "parent-batch",
+			CreatedAt = now,
+			TotalJobs = 1,
+			PendingCount = 0,
+			SucceededCount = 1,
+			State = BatchState.Succeeded,
+		}, [batchParent], [], cancellationToken);
+		var jobParent = CreateJob("job-parent", now.AddTicks(1));
+		await storage.EnqueueAsync(jobParent, cancellationToken);
+		var firstChild = CreateJob("first-child", now.AddTicks(2));
+		await storage.EnqueueContinuationAsync(firstChild,
+		[
+			new()
+			{
+				ChildJobId = firstChild.Id,
+				ParentJobId = jobParent.Id,
+				Trigger = ContinuationTrigger.Success,
+			},
+			new()
+			{
+				ChildJobId = firstChild.Id,
+				ParentBatchId = "parent-batch",
+				Trigger = ContinuationTrigger.Complete,
+			},
+		], cancellationToken);
+		var secondChild = CreateJob("second-child", now.AddTicks(3));
+		await storage.EnqueueContinuationAsync(secondChild, [new()
+		{
+			ChildJobId = secondChild.Id,
+			ParentJobId = jobParent.Id,
+			Trigger = ContinuationTrigger.Failure,
+		}], cancellationToken);
+
+		var edges = await storage.GetIncomingEdgesAsync(
+			[secondChild.Id, firstChild.Id, firstChild.Id, "missing"],
+			cancellationToken
+		);
+
+		Assert.Collection(
+			edges.OrderBy(static edge => edge.ChildJobId)
+				.ThenBy(static edge => edge.ParentBatchId is null ? 0 : 1)
+				.ThenBy(static edge => edge.ParentJobId ?? edge.ParentBatchId),
+			edge =>
+			{
+				Assert.Equal(firstChild.Id, edge.ChildJobId);
+				Assert.Equal(jobParent.Id, edge.ParentJobId);
+				Assert.Null(edge.ParentBatchId);
+				Assert.Equal(ContinuationTrigger.Success, edge.Trigger);
+			},
+			edge =>
+			{
+				Assert.Equal(firstChild.Id, edge.ChildJobId);
+				Assert.Null(edge.ParentJobId);
+				Assert.Equal("parent-batch", edge.ParentBatchId);
+				Assert.Equal(ContinuationTrigger.Complete, edge.Trigger);
+			},
+			edge =>
+			{
+				Assert.Equal(secondChild.Id, edge.ChildJobId);
+				Assert.Equal(jobParent.Id, edge.ParentJobId);
+				Assert.Null(edge.ParentBatchId);
+				Assert.Equal(ContinuationTrigger.Failure, edge.Trigger);
+			}
+		);
+		Assert.Empty(await storage.GetIncomingEdgesAsync([], cancellationToken));
+		_ = await Assert.ThrowsAsync<ArgumentException>(() =>
+			storage.GetIncomingEdgesAsync([" "], cancellationToken).AsTask()
+		);
+		_ = await Assert.ThrowsAsync<ArgumentNullException>(() =>
+			storage.GetIncomingEdgesAsync(null!, cancellationToken).AsTask()
+		);
+	}
+
+	[Theory]
+	[MemberData(nameof(Matrix))]
+	public async Task MixedTriggersUseEveryIncomingEdgeRegardlessOfCompletionOrder(
+		DatabaseKind database,
+		AdapterKind adapter
+	)
+	{
+		var cancellationToken = TestContext.Current.CancellationToken;
+		await using var fixture = await CreateFixtureAsync(database, adapter, cancellationToken);
+		var storage = fixture.GraphStorage;
+		var replica = Assert.IsAssignableFrom<IJobStorageReplica>(storage);
+		var now = fixture.TimeProvider.GetUtcNow();
+		var scenarios = new[]
+		{
+			(FailureParentSettlesFirst: true, FailureParentFails: false, ExpectedState: JobState.Cancelled),
+			(FailureParentSettlesFirst: false, FailureParentFails: false, ExpectedState: JobState.Cancelled),
+			(FailureParentSettlesFirst: true, FailureParentFails: true, ExpectedState: JobState.Pending),
+			(FailureParentSettlesFirst: false, FailureParentFails: true, ExpectedState: JobState.Pending),
+		};
+		for (var index = 0; index < scenarios.Length; index++)
+		{
+			var (failureParentSettlesFirst, failureParentFails, expectedState) = scenarios[index];
+			var successParent = CreateJob($"success-parent-{index}", now.AddTicks(index * 3)) with { DueAt = now };
+			var failureParent = CreateJob($"failure-parent-{index}", now.AddTicks(index * 3 + 1)) with { DueAt = now };
+			var child = CreateJob($"mixed-child-{index}", now.AddTicks(index * 3 + 2)) with { DueAt = now };
+			await storage.EnqueueAsync(successParent, cancellationToken);
+			await storage.EnqueueAsync(failureParent, cancellationToken);
+			await storage.EnqueueContinuationAsync(child,
+			[
+				new()
+				{
+					ChildJobId = child.Id,
+					ParentJobId = successParent.Id,
+					Trigger = ContinuationTrigger.Success,
+				},
+				new()
+				{
+					ChildJobId = child.Id,
+					ParentJobId = failureParent.Id,
+					Trigger = ContinuationTrigger.Failure,
+				},
+			], cancellationToken);
+			_ = Assert.Single(await replica.AcquireJobsAsync(
+				[successParent.Id],
+				"worker",
+				TimeSpan.FromMinutes(1),
+				cancellationToken
+			));
+			_ = Assert.Single(await replica.AcquireJobsAsync(
+				[failureParent.Id],
+				"worker",
+				TimeSpan.FromMinutes(1),
+				cancellationToken
+			));
+
+			async Task SettleSuccessParentAsync() =>
+				await storage.CompleteAsync(successParent.Id, "worker", cancellationToken);
+			async Task SettleFailureParentAsync()
+			{
+				if (failureParentFails)
+				{
+					await storage.FailAsync(
+						failureParent.Id,
+						"worker",
+						"expected",
+						nextRetryAt: null,
+						cancellationToken
+					);
+				}
+				else
+				{
+					await storage.CompleteAsync(failureParent.Id, "worker", cancellationToken);
+				}
+			}
+
+			if (failureParentSettlesFirst)
+			{
+				await SettleFailureParentAsync();
+				Assert.Equal(
+					JobState.AwaitingContinuation,
+					(await storage.GetJobStatusAsync(child.Id, cancellationToken))!.State
+				);
+				await SettleSuccessParentAsync();
+			}
+			else
+			{
+				await SettleSuccessParentAsync();
+				Assert.Equal(
+					JobState.AwaitingContinuation,
+					(await storage.GetJobStatusAsync(child.Id, cancellationToken))!.State
+				);
+				await SettleFailureParentAsync();
+			}
+
+			Assert.Equal(
+				expectedState,
+				(await storage.GetJobStatusAsync(child.Id, cancellationToken))!.State
+			);
+		}
+	}
+
+	[Theory]
+	[MemberData(nameof(Matrix))]
+	public async Task DynamicAdditionsRejectInvalidBatchIdsBeforeMutation(
+		DatabaseKind database,
+		AdapterKind adapter
+	)
+	{
+		var cancellationToken = TestContext.Current.CancellationToken;
+		await using var fixture = await CreateFixtureAsync(database, adapter, cancellationToken);
+		var storage = fixture.GraphStorage;
+		var replica = Assert.IsAssignableFrom<IJobStorageReplica>(storage);
+		var now = fixture.TimeProvider.GetUtcNow();
+		var current = CreateJob("dynamic-current", now) with { BatchId = "dynamic-batch" };
+		await storage.EnqueueBatchAsync(new()
+		{
+			Id = "dynamic-batch",
+			CreatedAt = now,
+			TotalJobs = 1,
+			PendingCount = 1,
+			State = BatchState.Executing,
+		}, [current], [], cancellationToken);
+		_ = Assert.Single(await replica.AcquireJobsAsync(
+			[current.Id],
+			"worker",
+			TimeSpan.FromMinutes(1),
+			cancellationToken
+		));
+
+		_ = await Assert.ThrowsAsync<ImmediateJobException>(() => storage.CompleteWithContinuationsAsync(
+			current.Id,
+			"worker",
+			[new()
+			{
+				Job = CreateJob("detached-with-batch", now.AddTicks(1)) with { BatchId = "dynamic-batch" },
+				Options = ContinuationOptions.Detached,
+			}],
+			cancellationToken
+		).AsTask());
+		_ = await Assert.ThrowsAsync<ImmediateJobException>(() => storage.CompleteWithContinuationsAsync(
+			current.Id,
+			"worker",
+			[new()
+			{
+				Job = CreateJob("tracked-with-wrong-batch", now.AddTicks(2)) with { BatchId = "other-batch" },
+				Options = ContinuationOptions.BesideContinuations,
+			}],
+			cancellationToken
+		).AsTask());
+		_ = await Assert.ThrowsAsync<ImmediateJobException>(() => storage.AddBatchJobAsync(
+			current.Id,
+			CreateJob("added-with-wrong-batch", now.AddTicks(3)) with { BatchId = "other-batch" },
+			ContinuationOptions.BesideContinuations,
+			cancellationToken
+		).AsTask());
+
+		var batch = Assert.IsType<BatchStatus>(await storage.GetBatchStatusAsync("dynamic-batch", cancellationToken));
+		Assert.Equal(1, batch.Total);
+		Assert.Equal(1, batch.Remaining);
+		Assert.Equal(JobState.Active, (await storage.GetJobStatusAsync(current.Id, cancellationToken))!.State);
+		foreach (var id in new[] { "detached-with-batch", "tracked-with-wrong-batch", "added-with-wrong-batch" })
+			Assert.Empty(await storage.QueryJobsAsync(new() { Id = id }, cancellationToken));
+	}
+
+	[Theory]
+	[MemberData(nameof(Matrix))]
+	public async Task DeletingStandaloneContinuationRemovesIncomingEdges(
+		DatabaseKind database,
+		AdapterKind adapter
+	)
+	{
+		var cancellationToken = TestContext.Current.CancellationToken;
+		await using var fixture = await CreateFixtureAsync(database, adapter, cancellationToken);
+		var storage = fixture.GraphStorage;
+		var now = fixture.TimeProvider.GetUtcNow();
+		var parent = CreateJob("delete-parent", now) with { State = JobState.Succeeded, CompletedAt = now };
+		var child = CreateJob("delete-child", now) with { State = JobState.Succeeded, CompletedAt = now };
+		await storage.EnqueueAsync(parent, cancellationToken);
+		await storage.EnqueueContinuationAsync(child, [new()
+		{
+			ChildJobId = child.Id,
+			ParentJobId = parent.Id,
+			Trigger = ContinuationTrigger.Success,
+		}], cancellationToken);
+
+		_ = Assert.Single(await storage.GetIncomingEdgesAsync([child.Id], cancellationToken));
+		await storage.DeleteAsync(child.Id, cancellationToken);
+
+		Assert.Null(await storage.GetJobStatusAsync(child.Id, cancellationToken));
+		Assert.Empty(await storage.GetIncomingEdgesAsync([child.Id], cancellationToken));
+	}
+
+	[Theory]
+	[MemberData(nameof(Matrix))]
+	public async Task EmptyBatchProgressIsFullySettled(DatabaseKind database, AdapterKind adapter)
+	{
+		var cancellationToken = TestContext.Current.CancellationToken;
+		await using var fixture = await CreateFixtureAsync(database, adapter, cancellationToken);
+		await fixture.CreateEmptyBatchAsync("empty-batch", cancellationToken);
+
+		var status = Assert.IsType<BatchStatus>(await fixture.GraphStorage.GetBatchStatusAsync(
+			"empty-batch",
+			cancellationToken
+		));
+
+		Assert.Equal(0, status.Total);
+		Assert.Equal(0, status.Remaining);
+		Assert.Equal(1d, status.FractionSettled);
+	}
+
+	[Theory]
+	[MemberData(nameof(Matrix))]
+	public async Task MissingDashboardActionsThrowKeyNotFoundException(
+		DatabaseKind database,
+		AdapterKind adapter
+	)
+	{
+		var cancellationToken = TestContext.Current.CancellationToken;
+		await using var fixture = await CreateFixtureAsync(database, adapter, cancellationToken);
+		var storage = fixture.Storage;
+		var graphStorage = Assert.IsAssignableFrom<IJobGraphStorage>(storage);
+		var recurringStorage = Assert.IsAssignableFrom<IRecurringJobStorage>(storage);
+
+		_ = await Assert.ThrowsAsync<KeyNotFoundException>(
+			() => storage.RetryAsync("missing", cancellationToken).AsTask()
+		);
+		_ = await Assert.ThrowsAsync<KeyNotFoundException>(
+			() => storage.DeleteAsync("missing", cancellationToken).AsTask()
+		);
+		_ = await Assert.ThrowsAsync<KeyNotFoundException>(
+			() => recurringStorage.RemoveRecurringAsync("missing", cancellationToken).AsTask()
+		);
+		_ = await Assert.ThrowsAsync<KeyNotFoundException>(
+			() => graphStorage.CancelBatchAsync("missing", cancellationToken).AsTask()
+		);
+		_ = await Assert.ThrowsAsync<KeyNotFoundException>(
+			() => graphStorage.DeleteBatchAsync("missing", cancellationToken).AsTask()
+		);
+	}
+
+	[Theory]
 	[InlineData(DatabaseKind.Sqlite)]
 	[InlineData(DatabaseKind.PostgreSql)]
 	[InlineData(DatabaseKind.SqlServer)]
@@ -429,6 +761,61 @@ public sealed class RelationalStorageMatrixTests(StorageContainers containers)
 		public IJobGraphStorage GraphStorage => (IJobGraphStorage)Storage;
 
 		public IJobStorage CreateStorage() => Storage;
+
+		public async ValueTask CreateEmptyBatchAsync(string batchId, CancellationToken cancellationToken)
+		{
+			var storage = GraphStorage;
+			var now = TimeProvider.GetUtcNow();
+			var member = CreateJob($"{batchId}-member", now) with
+			{
+				BatchId = batchId,
+				State = JobState.Succeeded,
+				CompletedAt = now,
+			};
+			await storage.EnqueueBatchAsync(new()
+			{
+				Id = batchId,
+				CreatedAt = now,
+				TotalJobs = 1,
+				PendingCount = 0,
+				SucceededCount = 1,
+				State = BatchState.Succeeded,
+			}, [member], [], cancellationToken);
+
+			var tablePrefix = database switch
+			{
+				DatabaseKind.Sqlite => string.Empty,
+				DatabaseKind.PostgreSql => $"\"{schema}\".",
+				DatabaseKind.SqlServer => $"[{schema}].",
+				_ => throw new InvalidOperationException($"Unknown matrix database '{database}'."),
+			};
+			var batchTable = tablePrefix + (database == DatabaseKind.SqlServer
+				? "[immediate_job_batches]"
+				: "\"immediate_job_batches\"");
+			var jobTable = tablePrefix + (database == DatabaseKind.SqlServer
+				? "[immediate_jobs]"
+				: "\"immediate_jobs\"");
+			string Quote(string identifier) => database == DatabaseKind.SqlServer
+				? $"[{identifier}]"
+				: $"\"{identifier}\"";
+			await using var connection = new global::LinqToDB.Data.DataConnection(dataOptions);
+			_ = await connection.ExecuteAsync(
+				$"DELETE FROM {jobTable} WHERE {Quote("BatchId")} = '{batchId}'",
+				cancellationToken
+			);
+			_ = await connection.ExecuteAsync(
+				$"""
+				UPDATE {batchTable}
+				SET {Quote("TotalJobs")} = 0,
+					{Quote("PendingCount")} = 0,
+					{Quote("SucceededCount")} = 0,
+					{Quote("FailedCount")} = 0,
+					{Quote("CancelledCount")} = 0
+				WHERE {Quote("Id")} = '{batchId}'
+				""",
+				cancellationToken
+			);
+		}
 
 		public EntityFrameworkCoreJobStorage<MatrixDbContext> CreateEntityFrameworkCoreStorage()
 		{

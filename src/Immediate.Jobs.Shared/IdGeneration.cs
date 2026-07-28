@@ -14,6 +14,8 @@ public enum IdKind
 public interface IIdGenerator
 {
 	/// <summary>Creates a new identifier of the requested kind.</summary>
+	/// <param name="kind">The kind of durable identifier to create.</param>
+	/// <returns>A new durable identifier.</returns>
 	string CreateId(IdKind kind);
 }
 

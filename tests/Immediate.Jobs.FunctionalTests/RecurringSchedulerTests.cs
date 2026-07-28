@@ -1,0 +1,145 @@
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Time.Testing;
+
+namespace Immediate.Jobs.FunctionalTests;
+
+#pragma warning disable CS1591
+public sealed class RecurringSchedulerTests
+{
+	private static readonly DateTimeOffset Start = new(2026, 1, 1, 10, 0, 0, TimeSpan.Zero);
+
+	[Fact]
+	public async Task OverlapSkipDetectsAnActiveRunHiddenBehindALongerJobName()
+	{
+		var cancellationToken = TestContext.Current.CancellationToken;
+		var clock = new FakeTimeProvider(Start);
+		await using var storage = new InMemoryJobStorage(clock);
+		await storage.InitializeAsync(cancellationToken);
+
+		// "cleanup-archive" is a substring match for "cleanup" and is newer, so it sorts first in the
+		// dashboard query. A single-row substring search would return only this record and conclude that
+		// "cleanup" is idle.
+		await AddActiveJob(storage, "cleanup", Start, clock, cancellationToken);
+		await AddActiveJob(storage, "cleanup-archive", Start.AddMinutes(1), clock, cancellationToken);
+
+		var scheduler = BuildScheduler(storage, clock, "cleanup", "0 * * * *");
+		await scheduler.DrainAsync(cancellationToken);
+		clock.SetUtcNow(Start.AddHours(1));
+		await scheduler.DrainAsync(cancellationToken);
+
+		var materialized = await storage.QueryJobsAsync(
+			new() { JobName = "cleanup", Take = 100 },
+			cancellationToken
+		);
+		var occurrence = Assert.Single(materialized, job => job.RecurringKey is not null);
+		Assert.Equal(JobState.Cancelled, occurrence.State);
+	}
+
+	[Fact]
+	public async Task RestartKeepsAnOccurrenceThatFellDuringDowntime()
+	{
+		var cancellationToken = TestContext.Current.CancellationToken;
+		var clock = new FakeTimeProvider(Start);
+		await using var storage = new InMemoryJobStorage(clock);
+		await storage.InitializeAsync(cancellationToken);
+
+		var first = BuildScheduler(storage, clock, "hourly", "0 * * * *");
+		await first.DrainAsync(cancellationToken);
+		var scheduled = await GetSchedule(storage, "hourly", cancellationToken);
+		Assert.Equal(Start.AddHours(1), scheduled.NextRunAt);
+
+		// The process is down across the 11:00 occurrence and restarts at 11:05 with fresh scheduler
+		// state. Recomputing from "now" here would advance the schedule to 12:00 and lose 11:00.
+		clock.SetUtcNow(Start.AddHours(1).AddMinutes(5));
+		var restarted = BuildScheduler(storage, clock, "hourly", "0 * * * *");
+		await restarted.DrainAsync(cancellationToken);
+
+		var materialized = await storage.QueryJobsAsync(new() { JobName = "hourly", Take = 100 }, cancellationToken);
+		var occurrence = Assert.Single(materialized);
+		Assert.Equal(Start.AddHours(1), occurrence.DueAt);
+	}
+
+	[Fact]
+	public async Task ChangedCronRecomputesTheNextOccurrence()
+	{
+		var cancellationToken = TestContext.Current.CancellationToken;
+		var clock = new FakeTimeProvider(Start);
+		await using var storage = new InMemoryJobStorage(clock);
+		await storage.InitializeAsync(cancellationToken);
+
+		var hourly = BuildScheduler(storage, clock, "shifting", "0 * * * *");
+		await hourly.DrainAsync(cancellationToken);
+		Assert.Equal(Start.AddHours(1), (await GetSchedule(storage, "shifting", cancellationToken)).NextRunAt);
+
+		var daily = BuildScheduler(storage, clock, "shifting", "0 0 * * *");
+		await daily.DrainAsync(cancellationToken);
+		Assert.Equal(
+			new DateTimeOffset(2026, 1, 2, 0, 0, 0, TimeSpan.Zero),
+			(await GetSchedule(storage, "shifting", cancellationToken)).NextRunAt
+		);
+	}
+
+	private static async ValueTask<RecurringJobSchedule> GetSchedule(
+		InMemoryJobStorage storage,
+		string name,
+		CancellationToken cancellationToken
+	)
+	{
+		var snapshot = await storage.GetMonitoringSnapshotAsync(cancellationToken);
+		return snapshot.Recurring.Single(schedule => string.Equals(schedule.Name, name, StringComparison.Ordinal));
+	}
+
+	private static ValueTask AddActiveJob(
+		InMemoryJobStorage storage,
+		string jobName,
+		DateTimeOffset createdAt,
+		TimeProvider clock,
+		CancellationToken cancellationToken
+	) => storage.EnqueueAsync(new()
+	{
+		Id = Guid.NewGuid().ToString("N"),
+		JobName = jobName,
+		Payload = "{}",
+		State = JobState.Active,
+		DueAt = createdAt,
+		CreatedAt = createdAt,
+		WorkerId = "worker",
+		LeaseExpiresAt = clock.GetUtcNow().AddMinutes(30),
+	}, cancellationToken);
+
+	private static JobSchedulerService BuildScheduler(
+		InMemoryJobStorage storage,
+		TimeProvider clock,
+		string jobName,
+		string cron
+	)
+	{
+		var services = new ServiceCollection();
+		_ = services.AddLogging();
+		_ = services.AddSingleton(clock);
+		_ = services.AddImmediateJobsCore(options =>
+		{
+			_ = options.UseStorage(_ => storage).UseDistributed();
+			options.MaxParallelJobs = 1;
+		});
+		_ = services.AddSingleton(new JobDefinition
+		{
+			Name = jobName,
+			Cron = cron,
+			Invoker = NoOpInvoker.Instance,
+			JobType = typeof(NoOpInvoker),
+		});
+
+		var provider = services.BuildServiceProvider();
+		return provider.GetRequiredService<JobSchedulerService>();
+	}
+
+	private sealed class NoOpInvoker : IJobInvoker
+	{
+		public static NoOpInvoker Instance { get; } = new();
+
+		public ValueTask InvokeAsync(IServiceProvider scopedServices, JobExecution execution) =>
+			ValueTask.CompletedTask;
+	}
+}
+#pragma warning restore CS1591

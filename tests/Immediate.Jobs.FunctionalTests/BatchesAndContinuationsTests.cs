@@ -1,6 +1,7 @@
 using Immediate.Handlers.Shared;
 using Immediate.Jobs.Testing;
 using Microsoft.Extensions.DependencyInjection;
+using System.Collections.Concurrent;
 using System.Collections.ObjectModel;
 
 namespace Immediate.Jobs.FunctionalTests;
@@ -8,6 +9,10 @@ namespace Immediate.Jobs.FunctionalTests;
 #pragma warning disable CS1591
 public sealed class BatchesAndContinuationsTests
 {
+	[Fact]
+	public void EmptyBatchProgressIsFullySettled() =>
+		Assert.Equal(1d, BatchStatus.CalculateFractionSettled(total: 0, remaining: 0));
+
 	[Fact]
 	public async Task TypedSchedulerReturnsJobHandle()
 	{
@@ -61,6 +66,91 @@ public sealed class BatchesAndContinuationsTests
 		Assert.Equal(committed.Id, job.Id);
 		Assert.Equal(batchHandle.Id, job.BatchId);
 		Assert.Equal(JobState.Pending, job.State);
+	}
+
+	[Fact]
+	public async Task ConcurrentBatchAdditionsAreSnapshottedExactlyOnce()
+	{
+		var cancellationToken = TestContext.Current.CancellationToken;
+		await using var harness = CreateHarness();
+		await using var scope = harness.Services.CreateAsyncScope();
+		var batches = scope.ServiceProvider.GetRequiredService<IJobBatchScheduler>();
+		var scheduler = scope.ServiceProvider.GetRequiredService<BatchWorkflowJob.Scheduler>();
+		await using var batch = batches.Begin();
+		var handles = new ConcurrentBag<JobHandle>();
+
+		_ = Parallel.For(0, 128, index => handles.Add(scheduler.AddToBatch(batch, new($"job-{index}"))));
+		var batchHandle = await batch.CommitAsync(cancellationToken);
+
+		var jobs = (await harness.QueryJobsAsync(cancellationToken: cancellationToken))
+			.Where(job => job.BatchId == batchHandle.Id)
+			.ToArray();
+		Assert.Equal(128, handles.Count);
+		Assert.Equal(128, jobs.Length);
+		Assert.Equal(128, jobs.Select(static job => job.Id).Distinct(StringComparer.Ordinal).Count());
+	}
+
+	[Fact]
+	public async Task CommitSealsImmutableSnapshotsBeforeAwaitingStorage()
+	{
+		var cancellationToken = TestContext.Current.CancellationToken;
+		await using var inner = new InMemoryJobStorage(TimeProvider.System);
+		await using var proxy = Storage.SingleServerJobStorageTests.CreateProxy(inner);
+		var proxyState = (Storage.SingleServerJobStorageTests.DurableStorageProxy)(object)proxy;
+		proxyState.BlockBatchEnqueue = true;
+		var services = new ServiceCollection();
+		_ = services.AddLogging();
+		_ = services.AddSingleton<IJobStorage>(proxy);
+		_ = services.AddSingleton(new BatchWorkflowState());
+		_ = services.AddSingleton(new DynamicExpansionState());
+		_ = services.AddSingleton(new ExecutionBufferProbeState());
+		_ = services.AddImmediateJobsCore();
+		_ = services.AddImmediateJobsFunctionalTestsHandlers();
+		_ = services.AddImmediateJobsFunctionalTestsBehaviors();
+		_ = services.AddImmediateJobsFunctionalTestsJobs();
+		await using var provider = services.BuildServiceProvider();
+		var batches = provider.GetRequiredService<IJobBatchScheduler>();
+		var scheduler = provider.GetRequiredService<BatchWorkflowJob.Scheduler>();
+		await using var batch = batches.Begin();
+		_ = scheduler.AddToBatch(batch, new("seed"));
+
+		var commit = batch.CommitAsync(cancellationToken).AsTask();
+		await proxyState.BatchEnqueueEntered.Task.WaitAsync(cancellationToken);
+		_ = Assert.Throws<ImmediateJobException>(() => scheduler.AddToBatch(batch, new("too-late")));
+		_ = await Assert.ThrowsAsync<ImmediateJobException>(() => batch.CommitAsync(cancellationToken).AsTask());
+		await batch.DisposeAsync();
+
+		var capturedJobs = Assert.IsAssignableFrom<IReadOnlyList<JobRecord>>(proxyState.CapturedBatchJobs);
+		var capturedEdges = Assert.IsAssignableFrom<IReadOnlyList<JobContinuationEdge>>(proxyState.CapturedBatchEdges);
+		_ = Assert.Single(capturedJobs);
+		Assert.Empty(capturedEdges);
+		_ = Assert.Throws<NotSupportedException>(() =>
+			((IList<JobRecord>)capturedJobs).Add(capturedJobs[0]));
+		_ = proxyState.BatchEnqueueRelease.TrySetResult();
+		_ = await commit.WaitAsync(cancellationToken);
+		_ = Assert.Single(capturedJobs);
+	}
+
+	[Fact]
+	public async Task GroupedBatchAdditionsUseTheSameNormalizationAsDirectScheduling()
+	{
+		var cancellationToken = TestContext.Current.CancellationToken;
+		await using var harness = CreateHarness();
+		await using var scope = harness.Services.CreateAsyncScope();
+		var batches = scope.ServiceProvider.GetRequiredService<IJobBatchScheduler>();
+		var scheduler = scope.ServiceProvider.GetRequiredService<BatchWorkflowJob.Scheduler>();
+		await using var batch = batches.Begin();
+
+		_ = scheduler.AddToBatchInGroup(batch, new("grouped"), groupId: "tenant-a");
+		_ = scheduler.AddToBatchInGroup(batch, new("blank"), groupId: "  ");
+		_ = scheduler.AddToBatchAt(batch, new("absolute"), harness.TimeProvider.GetUtcNow(), groupId: "tenant-b");
+		_ = await batch.CommitAsync(cancellationToken);
+
+		var jobs = (await harness.QueryJobsAsync(cancellationToken: cancellationToken))
+			.ToDictionary(static job => job.Payload, StringComparer.Ordinal);
+		Assert.Contains(jobs.Values, static job => job.GroupId == "tenant-a");
+		Assert.Contains(jobs.Values, static job => job.GroupId == "tenant-b");
+		Assert.Contains(jobs.Values, static job => job.GroupId is null);
 	}
 
 	[Fact]
@@ -208,6 +298,35 @@ public sealed class BatchesAndContinuationsTests
 	}
 
 	[Fact]
+	public async Task StandaloneContinuationsRejectInvalidParentsBeforePersistence()
+	{
+		var cancellationToken = TestContext.Current.CancellationToken;
+		await using var harness = CreateHarness();
+		await using var scope = harness.Services.CreateAsyncScope();
+		var batches = scope.ServiceProvider.GetRequiredService<IJobBatchScheduler>();
+		var scheduler = scope.ServiceProvider.GetRequiredService<BatchWorkflowJob.Scheduler>();
+		var standalone = await scheduler.EnqueueAsync(new("standalone"), cancellationToken);
+		await using var batch = batches.Begin();
+		var batched = scheduler.AddToBatch(batch, new("batched"));
+		_ = await batch.CommitAsync(cancellationToken);
+		var expectedCount = (await harness.QueryJobsAsync(cancellationToken: cancellationToken)).Count;
+
+		async Task AssertRejected(params JobHandle[] parents)
+		{
+			_ = await Assert.ThrowsAsync<ImmediateJobException>(async () =>
+				await scheduler.ScheduleAfterAsync(parents, new("invalid"), cancellationToken: cancellationToken));
+			Assert.Equal(expectedCount, (await harness.QueryJobsAsync(cancellationToken: cancellationToken)).Count);
+		}
+
+		await AssertRejected(new JobHandle());
+		await AssertRejected(new JobHandle(), standalone);
+		await AssertRejected(standalone, new JobHandle());
+		await AssertRejected(standalone, standalone);
+		await AssertRejected(standalone, batched);
+		await AssertRejected(batched, standalone);
+	}
+
+	[Fact]
 	public async Task BatchMonitoringReportsProgressMembersGraphAndIncomingEdges()
 	{
 		var cancellationToken = TestContext.Current.CancellationToken;
@@ -243,6 +362,7 @@ public sealed class BatchesAndContinuationsTests
 		Assert.Equal(child.Id, edge.ChildJobId);
 		var childStatus = Assert.IsType<JobStatus>(await jobMonitor.GetJobAsync(child.Id, cancellationToken));
 		Assert.Equal(batchHandle.Id, childStatus.BatchId);
+		Assert.Equal(1, childStatus.MaxAttempts);
 		_ = Assert.Single(childStatus.DependsOn);
 
 		await harness.DrainAsync(cancellationToken);
@@ -254,6 +374,31 @@ public sealed class BatchesAndContinuationsTests
 		Assert.Equal(1, completed.FractionSettled);
 		_ = Assert.NotNull(completed.StartedAt);
 		_ = Assert.NotNull(completed.CompletedAt);
+	}
+
+	[Fact]
+	public async Task MonitoringLeavesMaxAttemptsUnknownForAnUnregisteredPersistedJob()
+	{
+		var cancellationToken = TestContext.Current.CancellationToken;
+		await using var harness = CreateHarness();
+		await using var scope = harness.Services.CreateAsyncScope();
+		var monitor = scope.ServiceProvider.GetRequiredService<IJobMonitor>();
+		var now = harness.TimeProvider.GetUtcNow();
+		await harness.Storage.EnqueueAsync(
+			new()
+			{
+				Id = "unknown-definition",
+				JobName = "unknown-definition",
+				Payload = "{}",
+				State = JobState.Pending,
+				CreatedAt = now,
+				DueAt = now,
+			},
+			cancellationToken
+		);
+
+		var status = Assert.IsType<JobStatus>(await monitor.GetJobAsync("unknown-definition", cancellationToken));
+		Assert.Null(status.MaxAttempts);
 	}
 
 	[Fact]
@@ -297,6 +442,30 @@ public sealed class BatchesAndContinuationsTests
 	}
 
 	[Fact]
+	public async Task ExecutionBufferAcceptsConcurrentAdditionsAndRejectsAdditionsAfterSealing()
+	{
+		var cancellationToken = TestContext.Current.CancellationToken;
+		var probe = new ExecutionBufferProbeState();
+		await using var harness = CreateHarness(executionBufferProbe: probe);
+		await using var scope = harness.Services.CreateAsyncScope();
+		var scheduler = scope.ServiceProvider.GetRequiredService<ExecutionBufferProbeJob.Scheduler>();
+		var workflowScheduler = scope.ServiceProvider.GetRequiredService<BatchWorkflowJob.Scheduler>();
+
+		_ = await scheduler.EnqueueAsync(new(64), cancellationToken);
+		await harness.DrainAsync(cancellationToken);
+
+		var jobs = await harness.QueryJobsAsync(cancellationToken: cancellationToken);
+		var root = Assert.Single(jobs, static job => job.JobName == "execution-buffer-probe");
+		Assert.True(root.State == JobState.Succeeded, root.LastError);
+		Assert.Equal(65, jobs.Count);
+		Assert.Equal(64, jobs.Count(static job => job.JobName == "batch-workflow-test"));
+		var details = Assert.IsType<JobDetails>(probe.Details);
+		var exception = Assert.Throws<ImmediateJobException>(() =>
+			workflowScheduler.ScheduleAfter(details, new("late"), ContinuationOptions.Detached));
+		Assert.Contains("sealed", exception.Message, StringComparison.OrdinalIgnoreCase);
+	}
+
+	[Fact]
 	public async Task RuntimeRegistersScopedBatchAndMonitoringServices()
 	{
 		var services = new ServiceCollection();
@@ -316,11 +485,13 @@ public sealed class BatchesAndContinuationsTests
 
 	private static JobTestHarness CreateHarness(
 		BatchWorkflowState? state = null,
-		DynamicExpansionState? expansion = null
+		DynamicExpansionState? expansion = null,
+		ExecutionBufferProbeState? executionBufferProbe = null
 	) => new(services =>
 	{
 		_ = services.AddSingleton(state ?? new());
 		_ = services.AddSingleton(expansion ?? new());
+		_ = services.AddSingleton(executionBufferProbe ?? new());
 		_ = services.AddSingleton(new ExecutionState());
 		_ = services.AddSingleton(new ContextProbe());
 		_ = services.AddScoped<PropagationScopeState>();
@@ -332,8 +503,12 @@ public sealed class BatchesAndContinuationsTests
 	private static void AssertBefore(IReadOnlyList<string> events, string first, string second)
 	{
 		var observed = events.ToArray();
+		var firstIndex = Array.IndexOf(observed, first);
+		var secondIndex = Array.IndexOf(observed, second);
+		Assert.True(firstIndex >= 0, $"Expected to observe '{first}', but observed: {string.Join(", ", events)}");
+		Assert.True(secondIndex >= 0, $"Expected to observe '{second}', but observed: {string.Join(", ", events)}");
 		Assert.True(
-			Array.IndexOf(observed, first) < Array.IndexOf(observed, second),
+			firstIndex < secondIndex,
 			$"Expected '{first}' before '{second}', but observed: {string.Join(", ", events)}"
 		);
 	}
@@ -348,6 +523,11 @@ public sealed class DynamicExpansionState
 {
 	public int FailuresRemaining { get; set; }
 	public int Attempts { get; set; }
+}
+
+public sealed class ExecutionBufferProbeState
+{
+	public JobDetails? Details { get; set; }
 }
 
 [Handler, Job(Name = "batch-workflow-test", MaxAttempts = 1)]
@@ -393,6 +573,33 @@ public sealed partial class DynamicExpansionJob(
 			throw new InvalidOperationException("Expected first-attempt failure.");
 		}
 
+		return ValueTask.CompletedTask;
+	}
+}
+
+[Handler, Job(Name = "execution-buffer-probe", MaxAttempts = 1)]
+public sealed partial class ExecutionBufferProbeJob(
+	BatchWorkflowJob.Scheduler scheduler,
+	ExecutionBufferProbeState? state = null
+)
+{
+	public sealed record Payload(int Count) : IJobRequest
+	{
+		public JobDetails? JobDetails { get; set; }
+	}
+
+	private ValueTask HandleAsync(Payload payload, CancellationToken cancellationToken)
+	{
+		_ = cancellationToken;
+		var details = payload.JobDetails
+			?? throw new InvalidOperationException("Job details were not populated.");
+		var probe = state ?? throw new InvalidOperationException("Execution-buffer probe state was not registered.");
+		probe.Details = details;
+		_ = Parallel.For(
+			0,
+			payload.Count,
+			index => scheduler.ScheduleAfter(details, new($"buffer-{index}"), ContinuationOptions.Detached)
+		);
 		return ValueTask.CompletedTask;
 	}
 }

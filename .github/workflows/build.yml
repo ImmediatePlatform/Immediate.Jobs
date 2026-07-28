@@ -46,12 +46,6 @@ jobs:
       run: npm run check
       working-directory: src/Immediate.Jobs.Dashboard/DashboardClient
 
-    - name: Build dashboard
-      run: |
-        npm run build
-        npm run size
-      working-directory: src/Immediate.Jobs.Dashboard/DashboardClient
-
     - name: Restore tools
       run: dotnet tool restore
 

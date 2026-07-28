@@ -5,6 +5,7 @@ namespace Immediate.Jobs.Shared;
 /// <summary>
 /// A best-effort, non-durable, single-node provider intended for development and tests.
 /// </summary>
+/// <param name="timeProvider">The clock used for scheduling, leases, and timestamps.</param>
 public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 	IRecurringJobStorage,
 	IJobGraphStorage,
@@ -42,6 +43,30 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 		}
 
 		return ValueTask.CompletedTask;
+	}
+
+	/// <inheritdoc />
+	public async ValueTask<IReadOnlyList<JobContinuationEdge>> GetIncomingEdgesAsync(
+		IReadOnlyCollection<string> childJobIds,
+		CancellationToken cancellationToken = default
+	)
+	{
+		ArgumentNullException.ThrowIfNull(childJobIds);
+		cancellationToken.ThrowIfCancellationRequested();
+		lock (_gate)
+		{
+			if (childJobIds.Count == 0)
+				return [];
+
+			var distinctIds = new HashSet<string>(StringComparer.Ordinal);
+			foreach (var childJobId in childJobIds)
+			{
+				ArgumentException.ThrowIfNullOrWhiteSpace(childJobId);
+				_ = distinctIds.Add(childJobId);
+			}
+
+			return [.. _edges.Where(edge => distinctIds.Contains(edge.ChildJobId))];
+		}
 	}
 
 	/// <inheritdoc />
@@ -729,6 +754,8 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 				jobs = jobs.Where(x => x.State == state);
 			if (!string.IsNullOrWhiteSpace(query.QueueName))
 				jobs = jobs.Where(x => x.QueueName == query.QueueName);
+			if (!string.IsNullOrWhiteSpace(query.JobName))
+				jobs = jobs.Where(x => x.JobName == query.JobName);
 
 			if (!string.IsNullOrWhiteSpace(query.Search))
 				jobs = jobs.Where(x => x.JobName.Contains(query.Search, StringComparison.OrdinalIgnoreCase));
@@ -871,7 +898,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 				job.QueueName,
 				job.State,
 				job.Attempt,
-				MaxAttempts: 0,
+				MaxAttempts: null,
 				job.CreatedAt,
 				job.DueAt,
 				job.CompletedAt,
@@ -1337,11 +1364,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 			.ToArray())
 		{
 			_ = _settledEdges.Add(edge);
-			SettleEdge(
-				edge,
-				parentSucceeded: parent.State == JobState.Succeeded,
-				parentFailed: parent.State == JobState.Failed
-			);
+			SettleEdge(edge, parentFailed: parent.State == JobState.Failed);
 		}
 	}
 
@@ -1355,42 +1378,73 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 			.ToArray())
 		{
 			_ = _settledEdges.Add(edge);
-			SettleEdge(
-				edge,
-				parentSucceeded: parent.State == BatchState.Succeeded,
-				parentFailed: parent.State == BatchState.Failed
-			);
+			SettleEdge(edge, parentFailed: parent.State == BatchState.Failed);
 		}
 	}
 
-	private void SettleEdge(JobContinuationEdge edge, bool parentSucceeded, bool parentFailed)
+	private void SettleEdge(JobContinuationEdge edge, bool parentFailed)
 	{
 		if (!_jobs.TryGetValue(edge.ChildJobId, out var child) || IsTerminal(child.State))
 			return;
-		if (edge.Trigger == ContinuationTrigger.Success && !parentSucceeded)
-		{
-			_jobs[child.Id] = child with { RemainingDependencies = 0 };
-			TransitionToTerminal(child.Id, JobState.Cancelled, error: null, timeProvider.GetUtcNow());
-			return;
-		}
 
 		var remaining = Math.Max(0, child.RemainingDependencies - 1);
-		var failed = child.FailedDependencies + (parentFailed ? 1 : 0);
-		if (remaining == 0 && edge.Trigger == ContinuationTrigger.Failure && failed == 0)
+		if (remaining != 0)
 		{
-			_jobs[child.Id] = child with { RemainingDependencies = 0, FailedDependencies = failed };
-			TransitionToTerminal(child.Id, JobState.Cancelled, error: null, timeProvider.GetUtcNow());
+			_jobs[child.Id] = child with
+			{
+				RemainingDependencies = remaining,
+				FailedDependencies = child.FailedDependencies + (parentFailed ? 1 : 0),
+			};
 			return;
 		}
 
+		var (triggersSatisfied, failedDependencies) = EvaluateIncomingTriggers(child.Id);
 		_jobs[child.Id] = child with
 		{
-			State = remaining == 0 && child.State == JobState.AwaitingContinuation
+			State = triggersSatisfied && child.State == JobState.AwaitingContinuation
 				? GetReadyState(child)
 				: child.State,
-			RemainingDependencies = remaining,
-			FailedDependencies = failed,
+			RemainingDependencies = 0,
+			FailedDependencies = failedDependencies,
 		};
+		if (!triggersSatisfied)
+			TransitionToTerminal(child.Id, JobState.Cancelled, error: null, timeProvider.GetUtcNow());
+	}
+
+	private (bool Satisfied, int FailedDependencies) EvaluateIncomingTriggers(string childJobId)
+	{
+		var allTerminal = true;
+		var requiresFailure = false;
+		var successViolated = false;
+		var failedDependencies = 0;
+		foreach (var edge in _edges.Where(edge => edge.ChildJobId == childJobId))
+		{
+			var parentTerminal = false;
+			var parentSucceeded = false;
+			var parentFailed = false;
+			if (edge.ParentJobId is { } parentJobId && _jobs.TryGetValue(parentJobId, out var parentJob))
+			{
+				parentTerminal = IsTerminal(parentJob.State);
+				parentSucceeded = parentJob.State == JobState.Succeeded;
+				parentFailed = parentJob.State == JobState.Failed;
+			}
+			else if (edge.ParentBatchId is { } parentBatchId && _batches.TryGetValue(parentBatchId, out var parentBatch))
+			{
+				parentTerminal = IsTerminal(parentBatch.State);
+				parentSucceeded = parentBatch.State == BatchState.Succeeded;
+				parentFailed = parentBatch.State == BatchState.Failed;
+			}
+
+			allTerminal &= parentTerminal;
+			failedDependencies += parentFailed ? 1 : 0;
+			requiresFailure |= edge.Trigger == ContinuationTrigger.Failure;
+			successViolated |= edge.Trigger == ContinuationTrigger.Success && !parentSucceeded;
+		}
+
+		return (
+			allTerminal && !successViolated && (!requiresFailure || failedDependencies != 0),
+			failedDependencies
+		);
 	}
 
 	private JobState GetReadyState(JobRecord job) =>
@@ -1480,7 +1534,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 		batch.CreatedAt,
 		batch.StartedAt,
 		batch.CompletedAt,
-		batch.TotalJobs == 0 ? 0 : (double)(batch.TotalJobs - batch.PendingCount) / batch.TotalJobs
+		BatchStatus.CalculateFractionSettled(batch.TotalJobs, batch.PendingCount)
 	);
 
 	private static BatchGraphEdge ToGraphEdge(JobContinuationEdge edge) => new(

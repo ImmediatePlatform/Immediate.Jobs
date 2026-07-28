@@ -39,14 +39,32 @@ describe('dashboard components', () => {
 		expect(detail.text()).not.toContain('Observability');
 	});
 
-	it('omits the group detail for ungrouped jobs', () => {
+	it.each([
+		{ groupId: null, rendersGroup: false },
+		{ groupId: '', rendersGroup: true },
+	])('renders job group details according to the nullable contract for $groupId', ({ groupId, rendersGroup }) => {
 		const detail = mount(JobDetail, {
 			props: {
-				job: { ...completedJob, groupId: null },
+				job: { ...completedJob, groupId },
 			},
 		});
 
-		expect(detail.findAll('dt').some((term) => term.text() === 'Group')).toBe(false);
+		expect(detail.findAll('dt').some((term) => term.text() === 'Group')).toBe(rendersGroup);
+	});
+
+	it.each([
+		{ groupId: null, rendersGroup: false },
+		{ groupId: '', rendersGroup: true },
+	])('renders job table groups according to the nullable contract for $groupId', ({ groupId, rendersGroup }) => {
+		const table = mount(JobTable, {
+			props: {
+				rows: [{ ...completedJob, groupId }],
+			},
+		});
+		const groupCell = table.get('tbody tr[data-job-id] td:nth-child(3)');
+
+		expect(groupCell.find('code').exists()).toBe(rendersGroup);
+		expect(groupCell.find('.text-muted').exists()).toBe(!rendersGroup);
 	});
 
 	it('expands selected job details immediately below its row and scrolls the row into view', async () => {

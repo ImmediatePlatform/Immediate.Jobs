@@ -11,6 +11,10 @@ public static class LinqToDBServiceCollectionExtensions
 	/// The application owns the configured <see cref="DataOptions"/> and its ADO.NET driver. Call
 	/// <see cref="LinqToDBSchemaExtensions.CreateImmediateJobsSchemaAsync"/> explicitly when bootstrapping a new database.
 	/// </remarks>
+	/// <param name="options">The Immediate.Jobs options to configure.</param>
+	/// <param name="dataOptions">The immutable LinqToDB connection options.</param>
+	/// <param name="schema">The database schema containing the Immediate.Jobs tables, or <see langword="null"/> for the provider default.</param>
+	/// <returns>The configured Immediate.Jobs options.</returns>
 	public static ImmediateJobsOptions UseLinqToDB(
 		this ImmediateJobsOptions options,
 		DataOptions dataOptions,

@@ -7,6 +7,9 @@ namespace Immediate.Jobs.EntityFrameworkCore;
 public static class ImmediateJobsModelBuilderExtensions
 {
 	/// <summary>Configures the entities required by <see cref="EntityFrameworkCoreJobStorage{TContext}"/>.</summary>
+	/// <param name="modelBuilder">The model builder to configure.</param>
+	/// <param name="schema">The database schema for the Immediate.Jobs tables, or <see langword="null"/> for the provider default.</param>
+	/// <returns>The configured model builder.</returns>
 	public static ModelBuilder AddImmediateJobs(this ModelBuilder modelBuilder, string? schema = null)
 	{
 		ArgumentNullException.ThrowIfNull(modelBuilder);

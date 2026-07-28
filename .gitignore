@@ -2,6 +2,7 @@
 **/obj/
 **/TestResults/
 **/node_modules/
+src/Immediate.Jobs.Dashboard/Assets/
 .idea/
 .vs/
 *.DotSettings.user

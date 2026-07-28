@@ -6,6 +6,7 @@ public sealed class ImmediateJobsDashboardOptions
 	private readonly List<JobTelemetryLinkRegistration> _telemetryLinks = [];
 
 	/// <summary>The interval between server-sent monitoring snapshots.</summary>
+	/// <value>The interval between consecutive dashboard updates.</value>
 	public TimeSpan UpdateInterval { get; set; } = TimeSpan.FromSeconds(2);
 
 	internal string? AuthorizationPolicy { get; private set; }

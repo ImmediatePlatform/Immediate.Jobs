@@ -1,6 +1,9 @@
+using System.Data.Common;
+using System.Runtime.CompilerServices;
 using Immediate.Jobs.EntityFrameworkCore;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Time.Testing;
@@ -313,6 +316,83 @@ public sealed class EntityFrameworkCoreJobStorageTests
 	}
 
 	[Fact]
+	public async Task GroupedEnqueueResetsCursorTransactionallyOnlyForReturningGroups()
+	{
+		var cancellationToken = TestContext.Current.CancellationToken;
+		await using var fixture = await StorageFixture.CreateAsync(cancellationToken);
+		var storage = fixture.CreateStorage();
+		var now = fixture.TimeProvider.GetUtcNow();
+		var original = CreateJob(now, 1) with { Id = "returning-original", GroupId = "returning-group" };
+		await storage.EnqueueAsync(original, cancellationToken);
+		_ = Assert.Single(await storage.AcquireDueJobsAsync(CreateFairRequest("cursor-worker", 1), cancellationToken));
+		await storage.CompleteAsync(original.Id, "cursor-worker", cancellationToken);
+		await fixture.InsertCursorAsync("returning-group", 42, cancellationToken);
+
+		_ = await Assert.ThrowsAsync<DbUpdateException>(() =>
+			storage.EnqueueAsync(original, cancellationToken).AsTask()
+		);
+
+		Assert.Equal(42, await fixture.GetCursorAsync("returning-group", cancellationToken));
+		await storage.EnqueueAsync(
+			CreateJob(now, 2) with { Id = "returning-new", GroupId = "returning-group" },
+			cancellationToken
+		);
+		Assert.Null(await fixture.GetCursorAsync("returning-group", cancellationToken));
+
+		await fixture.InsertCursorAsync("live-group", 73, cancellationToken);
+		await storage.EnqueueAsync(
+			CreateJob(now, 3) with { Id = "live-first", GroupId = "live-group" },
+			cancellationToken
+		);
+		await fixture.InsertCursorAsync("live-group", 73, cancellationToken, replace: true);
+		await storage.EnqueueAsync(
+			CreateJob(now, 4) with { Id = "live-second", GroupId = "live-group" },
+			cancellationToken
+		);
+		Assert.Equal(73, await fixture.GetCursorAsync("live-group", cancellationToken));
+	}
+
+	[Fact]
+	public async Task VanishedFairQueueCandidateStateDoesNotThrow()
+	{
+		var cancellationToken = TestContext.Current.CancellationToken;
+		var interceptor = new FairQueueRaceInterceptor("vanished", deleteCandidateDuringStateRead: true);
+		await using var fixture = await StorageFixture.CreateAsync(cancellationToken, interceptor: interceptor);
+		var storage = fixture.CreateStorage();
+		await storage.EnqueueAsync(
+			CreateJob(fixture.TimeProvider.GetUtcNow(), 1) with { Id = "vanished", GroupId = "race-group" },
+			cancellationToken
+		);
+
+		var acquired = await storage.AcquireDueJobsAsync(CreateFairRequest("race-worker", 1), cancellationToken);
+
+		Assert.Empty(acquired);
+		Assert.True(interceptor.CandidateDeleted);
+	}
+
+	[Fact]
+	public async Task FairQueueStopsAfterBoundedConsecutiveClaimLosses()
+	{
+		var cancellationToken = TestContext.Current.CancellationToken;
+		var interceptor = new FairQueueRaceInterceptor("pending", sabotageCursorClaims: true);
+		await using var fixture = await StorageFixture.CreateAsync(cancellationToken, interceptor: interceptor);
+		var storage = fixture.CreateStorage();
+		var now = fixture.TimeProvider.GetUtcNow();
+		await storage.EnqueueAsync(CreateJob(now, 1) with { Id = "active", GroupId = "loss-group" }, cancellationToken);
+		await storage.EnqueueAsync(CreateJob(now, 2) with { Id = "pending", GroupId = "loss-group" }, cancellationToken);
+		interceptor.Enabled = false;
+		_ = Assert.Single(await storage.AcquireDueJobsAsync(CreateFairRequest("seed-worker", 1), cancellationToken));
+		interceptor.Enabled = true;
+
+		var acquisition = storage.AcquireDueJobsAsync(CreateFairRequest("loss-worker", 1), cancellationToken).AsTask();
+		var acquired = await acquisition.WaitAsync(TimeSpan.FromSeconds(5), cancellationToken);
+
+		Assert.Empty(acquired);
+		Assert.InRange(interceptor.SabotagedClaims, 1, 10);
+		Assert.Equal(JobState.Pending, (await storage.GetJobStatusAsync("pending", cancellationToken))!.State);
+	}
+
+	[Fact]
 	public async Task FairQueuesHonorJobNameCapacity()
 	{
 		var cancellationToken = TestContext.Current.CancellationToken;
@@ -509,6 +589,30 @@ public sealed class EntityFrameworkCoreJobStorageTests
 	}
 
 	[Fact]
+	public async Task DashboardMutationsDistinguishMissingAndInvalidEntityFrameworkCoreTargets()
+	{
+		var cancellationToken = TestContext.Current.CancellationToken;
+		await using var fixture = await StorageFixture.CreateAsync(cancellationToken);
+		var storage = fixture.CreateStorage();
+		var pending = CreateJob(fixture.TimeProvider.GetUtcNow(), 1) with { Id = "dashboard-pending" };
+		await storage.EnqueueAsync(pending, cancellationToken);
+		var codeDefined = CreateSchedule("dashboard-code", isCodeDefined: true, fixture.TimeProvider);
+		var dynamic = CreateSchedule("dashboard-dynamic", isCodeDefined: false, fixture.TimeProvider);
+		await storage.UpsertRecurringAsync(codeDefined, cancellationToken);
+		await storage.UpsertRecurringAsync(dynamic, cancellationToken);
+
+		_ = await Assert.ThrowsAsync<KeyNotFoundException>(() => storage.RetryAsync("missing-job", cancellationToken).AsTask());
+		_ = await Assert.ThrowsAsync<KeyNotFoundException>(() => storage.DeleteAsync("missing-job", cancellationToken).AsTask());
+		_ = await Assert.ThrowsAsync<KeyNotFoundException>(() => storage.RemoveRecurringAsync("missing-schedule", cancellationToken).AsTask());
+		_ = await Assert.ThrowsAsync<ImmediateJobException>(() => storage.RetryAsync(pending.Id, cancellationToken).AsTask());
+		_ = await Assert.ThrowsAsync<ImmediateJobException>(() => storage.DeleteAsync(pending.Id, cancellationToken).AsTask());
+		_ = await Assert.ThrowsAsync<ImmediateJobException>(() => storage.RemoveRecurringAsync(codeDefined.Name, cancellationToken).AsTask());
+
+		await storage.RemoveRecurringAsync(dynamic.Name, cancellationToken);
+		_ = await Assert.ThrowsAsync<KeyNotFoundException>(() => storage.RemoveRecurringAsync(dynamic.Name, cancellationToken).AsTask());
+	}
+
+	[Fact]
 	public async Task BatchCommitAndContinuationReleaseAreAtomicInEntityFrameworkCore()
 	{
 		var cancellationToken = TestContext.Current.CancellationToken;
@@ -593,6 +697,210 @@ public sealed class EntityFrameworkCoreJobStorageTests
 			await storage.CompleteAsync(parent.Id, "failure-worker", cancellationToken);
 
 		Assert.Equal(expectedState, (await storage.GetJobStatusAsync(child.Id, cancellationToken))!.State);
+	}
+
+	[Fact]
+	public async Task IncomingEdgeLookupPreservesFieldsAndCollectionSemantics()
+	{
+		var cancellationToken = TestContext.Current.CancellationToken;
+		await using var fixture = await StorageFixture.CreateAsync(cancellationToken);
+		var storage = fixture.CreateStorage();
+		var now = fixture.TimeProvider.GetUtcNow();
+		var jobParent = CreateJob(now, 1) with { Id = "incoming-parent" };
+		var batchParent = CreateJob(now, 2) with { Id = "incoming-batch-parent", BatchId = "incoming-batch" };
+		var child = CreateJob(now, 3) with { Id = "incoming-child" };
+		await storage.EnqueueAsync(jobParent, cancellationToken);
+		await storage.EnqueueBatchAsync(
+			new()
+			{
+				Id = "incoming-batch",
+				CreatedAt = now,
+				TotalJobs = 1,
+				PendingCount = 1,
+				State = BatchState.Executing,
+			},
+			[batchParent],
+			[],
+			cancellationToken
+		);
+		await storage.EnqueueContinuationAsync(
+			child,
+			[
+				new() { ChildJobId = child.Id, ParentJobId = jobParent.Id, Trigger = ContinuationTrigger.Failure },
+				new() { ChildJobId = child.Id, ParentBatchId = "incoming-batch", Trigger = ContinuationTrigger.Complete },
+			],
+			cancellationToken
+		);
+
+		var edges = await storage.GetIncomingEdgesAsync(
+			[child.Id, child.Id, "missing-child"],
+			cancellationToken
+		);
+
+		Assert.Collection(
+			edges,
+			edge =>
+			{
+				Assert.Equal(child.Id, edge.ChildJobId);
+				Assert.Equal(jobParent.Id, edge.ParentJobId);
+				Assert.Null(edge.ParentBatchId);
+				Assert.Equal(ContinuationTrigger.Failure, edge.Trigger);
+			},
+			edge =>
+			{
+				Assert.Equal(child.Id, edge.ChildJobId);
+				Assert.Null(edge.ParentJobId);
+				Assert.Equal("incoming-batch", edge.ParentBatchId);
+				Assert.Equal(ContinuationTrigger.Complete, edge.Trigger);
+			}
+		);
+		Assert.Empty(await storage.GetIncomingEdgesAsync([], cancellationToken));
+		_ = await Assert.ThrowsAsync<ArgumentException>(() =>
+			storage.GetIncomingEdgesAsync([" "], cancellationToken).AsTask()
+		);
+	}
+
+	[Theory]
+	[InlineData(false)]
+	[InlineData(true)]
+	public async Task MixedSuccessAndFailureTriggersCancelInEitherCompletionOrder(bool failureEdgeSettlesLast)
+	{
+		var cancellationToken = TestContext.Current.CancellationToken;
+		await using var fixture = await StorageFixture.CreateAsync(cancellationToken);
+		var storage = fixture.CreateStorage();
+		var now = fixture.TimeProvider.GetUtcNow();
+		var successParent = CreateJob(now, 1) with { Id = "mixed-success-parent" };
+		var failureParent = CreateJob(now, 2) with { Id = "mixed-failure-parent" };
+		var child = CreateJob(now, 3) with { Id = "mixed-child" };
+		await storage.EnqueueAsync(successParent, cancellationToken);
+		await storage.EnqueueAsync(failureParent, cancellationToken);
+		await storage.EnqueueContinuationAsync(
+			child,
+			[
+				new() { ChildJobId = child.Id, ParentJobId = successParent.Id, Trigger = ContinuationTrigger.Success },
+				new() { ChildJobId = child.Id, ParentJobId = failureParent.Id, Trigger = ContinuationTrigger.Failure },
+			],
+			cancellationToken
+		);
+		Assert.Equal(2, (await storage.AcquireDueJobsAsync(CreateRequest("mixed-worker", 2), cancellationToken)).Count);
+
+		var first = failureEdgeSettlesLast ? successParent.Id : failureParent.Id;
+		var second = failureEdgeSettlesLast ? failureParent.Id : successParent.Id;
+		await storage.CompleteAsync(first, "mixed-worker", cancellationToken);
+		Assert.Equal(JobState.AwaitingContinuation, (await storage.GetJobStatusAsync(child.Id, cancellationToken))!.State);
+		await storage.CompleteAsync(second, "mixed-worker", cancellationToken);
+
+		Assert.Equal(JobState.Cancelled, (await storage.GetJobStatusAsync(child.Id, cancellationToken))!.State);
+	}
+
+	[Theory]
+	[InlineData(ContinuationOptions.Detached, "unexpected-batch")]
+	[InlineData(ContinuationOptions.BesideContinuations, "wrong-batch")]
+	public async Task CompletionRejectsInvalidContinuationBatchIdsBeforeMutation(
+		ContinuationOptions options,
+		string invalidBatchId
+	)
+	{
+		var cancellationToken = TestContext.Current.CancellationToken;
+		await using var fixture = await StorageFixture.CreateAsync(cancellationToken);
+		var storage = fixture.CreateStorage();
+		var now = fixture.TimeProvider.GetUtcNow();
+		var current = CreateJob(now, 1) with { Id = "validation-current", BatchId = "validation-batch" };
+		await storage.EnqueueBatchAsync(
+			new()
+			{
+				Id = "validation-batch",
+				CreatedAt = now,
+				TotalJobs = 1,
+				PendingCount = 1,
+				State = BatchState.Executing,
+			},
+			[current],
+			[],
+			cancellationToken
+		);
+		_ = Assert.Single(await storage.AcquireDueJobsAsync(CreateRequest("validation-worker", 1), cancellationToken));
+
+		_ = await Assert.ThrowsAsync<ImmediateJobException>(() => storage.CompleteWithContinuationsAsync(
+			current.Id,
+			"validation-worker",
+			[new()
+			{
+				Job = CreateJob(now, 2) with { Id = "validation-child", BatchId = invalidBatchId },
+				Options = options,
+			}],
+			cancellationToken
+		).AsTask());
+
+		Assert.Equal(JobState.Active, (await storage.GetJobStatusAsync(current.Id, cancellationToken))!.State);
+		Assert.Null(await storage.GetJobStatusAsync("validation-child", cancellationToken));
+		var batch = Assert.IsType<BatchStatus>(await storage.GetBatchStatusAsync("validation-batch", cancellationToken));
+		Assert.Equal(1, batch.Total);
+		Assert.Equal(1, batch.Remaining);
+		_ = await Assert.ThrowsAsync<ImmediateJobException>(() => storage.AddBatchJobAsync(
+			current.Id,
+			CreateJob(now, 3) with { Id = "validation-added", BatchId = "wrong-batch" },
+			ContinuationOptions.BesideContinuations,
+			cancellationToken
+		).AsTask());
+		Assert.Null(await storage.GetJobStatusAsync("validation-added", cancellationToken));
+		batch = Assert.IsType<BatchStatus>(await storage.GetBatchStatusAsync("validation-batch", cancellationToken));
+		Assert.Equal(1, batch.Total);
+		Assert.Equal(1, batch.Remaining);
+	}
+
+	[Fact]
+	public async Task CompletionRejectsUnknownContinuationOptionsAndTriggersBeforeMutation()
+	{
+		var cancellationToken = TestContext.Current.CancellationToken;
+		await using var fixture = await StorageFixture.CreateAsync(cancellationToken);
+		var storage = fixture.CreateStorage();
+		var now = fixture.TimeProvider.GetUtcNow();
+		var current = CreateJob(now, 1) with { Id = "enum-current" };
+		await storage.EnqueueAsync(current, cancellationToken);
+		_ = Assert.Single(await storage.AcquireDueJobsAsync(CreateRequest("enum-worker", 1), cancellationToken));
+
+		_ = await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => storage.CompleteWithContinuationsAsync(
+			current.Id,
+			"enum-worker",
+			[new()
+			{
+				Job = CreateJob(now, 2) with { Id = "unknown-trigger" },
+				Options = ContinuationOptions.Detached,
+				Trigger = (ContinuationTrigger)int.MaxValue,
+			}],
+			cancellationToken
+		).AsTask());
+		_ = await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => storage.CompleteWithContinuationsAsync(
+			current.Id,
+			"enum-worker",
+			[new()
+			{
+				Job = CreateJob(now, 3) with { Id = "unknown-option" },
+				Options = (ContinuationOptions)int.MaxValue,
+			}],
+			cancellationToken
+		).AsTask());
+
+		Assert.Equal(JobState.Active, (await storage.GetJobStatusAsync(current.Id, cancellationToken))!.State);
+		Assert.Null(await storage.GetJobStatusAsync("unknown-trigger", cancellationToken));
+		Assert.Null(await storage.GetJobStatusAsync("unknown-option", cancellationToken));
+	}
+
+	[Fact]
+	public async Task EmptyBatchProjectionIsFullySettledAndStoredRetryLimitIsUnknown()
+	{
+		var cancellationToken = TestContext.Current.CancellationToken;
+		await using var fixture = await StorageFixture.CreateAsync(cancellationToken);
+		var storage = fixture.CreateStorage();
+		var now = fixture.TimeProvider.GetUtcNow();
+		await fixture.InsertEmptyBatchAsync("empty-batch", now, cancellationToken);
+		var job = CreateJob(now, 1) with { Id = "unknown-retry-limit" };
+		await storage.EnqueueAsync(job, cancellationToken);
+
+		var batch = Assert.IsType<BatchStatus>(await storage.GetBatchStatusAsync("empty-batch", cancellationToken));
+		Assert.Equal(1d, batch.FractionSettled);
+		Assert.Null((await storage.GetJobStatusAsync(job.Id, cancellationToken))!.MaxAttempts);
 	}
 
 	[Fact]
@@ -759,16 +1067,73 @@ public sealed class EntityFrameworkCoreJobStorageTests
 
 		public EntityFrameworkCoreJobStorage<TestDbContext> CreateStorage() => new(contextFactory, TimeProvider);
 
+		public async Task InsertCursorAsync(
+			string groupId,
+			long sequence,
+			CancellationToken cancellationToken,
+			bool replace = false
+		)
+		{
+			await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+			var format = replace
+				? "INSERT OR REPLACE INTO immediate_fair_queue_groups (QueueName, GroupId, LastServedSequence, ConcurrencyStamp) VALUES ({0}, {1}, {2}, {3})"
+				: "INSERT INTO immediate_fair_queue_groups (QueueName, GroupId, LastServedSequence, ConcurrencyStamp) VALUES ({0}, {1}, {2}, {3})";
+			var command = FormattableStringFactory.Create(
+				format,
+				JobQueueDefinition.DefaultName,
+				groupId,
+				sequence,
+				Guid.NewGuid()
+			);
+			_ = await context.Database.ExecuteSqlAsync(command, cancellationToken);
+		}
+
+		public async Task<long?> GetCursorAsync(string groupId, CancellationToken cancellationToken)
+		{
+			await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+			await context.Database.OpenConnectionAsync(cancellationToken);
+			await using var command = context.Database.GetDbConnection().CreateCommand();
+			command.CommandText = "SELECT LastServedSequence FROM immediate_fair_queue_groups WHERE QueueName = $queue AND GroupId = $group";
+			var queueParameter = command.CreateParameter();
+			queueParameter.ParameterName = "$queue";
+			queueParameter.Value = JobQueueDefinition.DefaultName;
+			_ = command.Parameters.Add(queueParameter);
+			var groupParameter = command.CreateParameter();
+			groupParameter.ParameterName = "$group";
+			groupParameter.Value = groupId;
+			_ = command.Parameters.Add(groupParameter);
+			var value = await command.ExecuteScalarAsync(cancellationToken);
+			return value is null or DBNull ? null : Convert.ToInt64(value, System.Globalization.CultureInfo.InvariantCulture);
+		}
+
+		public async Task InsertEmptyBatchAsync(
+			string batchId,
+			DateTimeOffset createdAt,
+			CancellationToken cancellationToken
+		)
+		{
+			await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+			_ = await context.Database.ExecuteSqlAsync(
+				$"""INSERT INTO immediate_job_batches (Id, CreatedAt, TotalJobs, PendingCount, SucceededCount, FailedCount, CancelledCount, StartedAt, CompletedAt, State, ConcurrencyStamp) VALUES ({batchId}, {createdAt.UtcTicks}, 0, 0, 0, 0, 0, NULL, {createdAt.UtcTicks}, {(short)BatchState.Succeeded}, {Guid.NewGuid()})""",
+				cancellationToken
+			);
+		}
+
 		public static async Task<StorageFixture> CreateAsync(
 			CancellationToken cancellationToken,
-			bool useRetryingExecutionStrategy = false
+			bool useRetryingExecutionStrategy = false,
+			DbCommandInterceptor? interceptor = null
 		)
 		{
 			var connectionString = $"Data Source=jobs-{Guid.NewGuid():N};Mode=Memory;Cache=Shared";
+			if (interceptor is FairQueueRaceInterceptor raceInterceptor)
+				raceInterceptor.ConnectionString = connectionString;
 			var services = new ServiceCollection();
 			_ = services.AddDbContextFactory<TestDbContext>(options =>
 			{
 				_ = options.UseSqlite(connectionString);
+				if (interceptor is not null)
+					_ = options.AddInterceptors(interceptor);
 				if (useRetryingExecutionStrategy)
 					_ = options.ReplaceService<IExecutionStrategyFactory, RetryingExecutionStrategyFactory>();
 			});
@@ -800,6 +1165,98 @@ public sealed class EntityFrameworkCoreJobStorageTests
 			await _anchor.DisposeAsync();
 		}
 	}
+
+#pragma warning disable IDE0290 // An explicit constructor keeps captured test configuration unambiguous.
+	private sealed class FairQueueRaceInterceptor : DbCommandInterceptor
+	{
+		private readonly string _candidateId;
+		private readonly bool _deleteCandidateDuringStateRead;
+		private readonly bool _sabotageCursorClaims;
+		private int _candidateDeleted;
+		private int _sabotagedClaims;
+
+		public FairQueueRaceInterceptor(
+			string candidateId,
+			bool deleteCandidateDuringStateRead = false,
+			bool sabotageCursorClaims = false
+		)
+		{
+			_candidateId = candidateId;
+			_deleteCandidateDuringStateRead = deleteCandidateDuringStateRead;
+			_sabotageCursorClaims = sabotageCursorClaims;
+			Enabled = deleteCandidateDuringStateRead;
+		}
+
+		public string ConnectionString { get; set; } = null!;
+		public bool Enabled { get; set; }
+		public bool CandidateDeleted => Volatile.Read(ref _candidateDeleted) != 0;
+		public int SabotagedClaims => Volatile.Read(ref _sabotagedClaims);
+
+		public override async ValueTask<InterceptionResult<DbDataReader>> ReaderExecutingAsync(
+			DbCommand command,
+			CommandEventData eventData,
+			InterceptionResult<DbDataReader> result,
+			CancellationToken cancellationToken = default
+		)
+		{
+			if (!Enabled)
+				return result;
+
+			var sql = command.CommandText;
+			if (_deleteCandidateDuringStateRead
+				&& Volatile.Read(ref _candidateDeleted) == 0
+				&& sql.Contains("immediate_jobs", StringComparison.Ordinal)
+				&& sql.Contains("immediate_fair_queue_groups", StringComparison.Ordinal))
+			{
+				await ExecuteMutationAsync(
+					"DELETE FROM immediate_jobs WHERE Id = $id",
+					("$id", _candidateId),
+					cancellationToken
+				);
+				_ = Interlocked.Exchange(ref _candidateDeleted, 1);
+			}
+			else if (_sabotageCursorClaims
+				&& sql.Contains("immediate_fair_queue_groups", StringComparison.Ordinal)
+				&& !sql.Contains("immediate_jobs", StringComparison.Ordinal)
+				&& !sql.Contains("MAX(", StringComparison.OrdinalIgnoreCase))
+			{
+#pragma warning disable CA2100 // Rewrites EF-generated SQL with a fixed arithmetic expression.
+				command.CommandText = command.CommandText.Replace(
+					"\"LastServedSequence\"",
+					"\"LastServedSequence\" + 100",
+					StringComparison.Ordinal
+				);
+#pragma warning restore CA2100
+				_ = Interlocked.Increment(ref _sabotagedClaims);
+			}
+
+			return result;
+		}
+
+		private async Task ExecuteMutationAsync(
+			string commandText,
+			(string Name, object Value) parameter,
+			CancellationToken cancellationToken
+		) => await ExecuteMutationAsync(commandText, [parameter], cancellationToken);
+
+		private async Task ExecuteMutationAsync(
+			string commandText,
+			IReadOnlyList<(string Name, object Value)> parameters,
+			CancellationToken cancellationToken
+		)
+		{
+			await using var connection = new SqliteConnection(ConnectionString);
+			await connection.OpenAsync(cancellationToken);
+			await using var command = connection.CreateCommand();
+#pragma warning disable CA2100 // Test-only helper receives one of the fixed statements above.
+			command.CommandText = commandText;
+#pragma warning restore CA2100
+			foreach (var (name, value) in parameters)
+				_ = command.Parameters.AddWithValue(name, value);
+			_ = await command.ExecuteNonQueryAsync(cancellationToken);
+		}
+	}
+#pragma warning restore IDE0290
 
 	private sealed class TestDbContext(DbContextOptions<TestDbContext> options) : DbContext(options)
 	{

@@ -38,13 +38,11 @@ jobs:
         cache: npm
         cache-dependency-path: src/Immediate.Jobs.Dashboard/DashboardClient/package-lock.json
 
-    - name: Build dashboard
+    - name: Test dashboard
       working-directory: src/Immediate.Jobs.Dashboard/DashboardClient
       run: |
         npm ci
         npm run check
-        npm run build
-        npm run size
 
     - name: Restore dependencies
       run: dotnet restore

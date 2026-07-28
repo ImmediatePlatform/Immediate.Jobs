@@ -7,7 +7,7 @@ Status: Draft v0.2 · Date: 2026-07-22 · License: MIT · Target: .NET 8+
 > **Since v0.1:** job continuations/chains and atomic batches — originally listed as v1 non-goals —
 > are now implemented and part of the core package. See §2.8 and §3.2 here, and the full design in
 > [`docs/batches-and-continuations.md`](docs/batches-and-continuations.md). SQS-style *fair queues*
-> are designed but not yet built; see [`docs/fair-queues.md`](docs/fair-queues.md).
+> are also implemented; see [`docs/fair-queues.md`](docs/fair-queues.md).
 
 ---
 
@@ -29,8 +29,7 @@ DAG workflow surface (fan-out, fan-in, diamonds, batch continuations, mid-job dy
 
 **Remaining non-goals** (candidates for later): workflow/saga compensation & rollback, result-passing
 between parent and child jobs, human-in-the-loop suspension, calendar exclusions (holidays), and
-multi-tenancy/schema isolation in storage providers. *Fair queues* (SQS-style per-group fairness) are
-designed and slated but not yet shipped.
+multi-tenancy/schema isolation in storage providers.
 
 ---
 
@@ -236,14 +235,15 @@ expression trees, no `MethodInfo` — so no reflective dispatch is introduced. F
 [`docs/batches-and-continuations.md`](docs/batches-and-continuations.md).
 
 **Atomic batches.** `IJobBatchScheduler` is a scoped service. `Begin()` opens an in-memory buffer;
-each job's generated `AddToBatch`/`AddToBatchAt` buffers a fully-serialized `JobRecord`; `CommitAsync`
+each generated scheduler inherits typed `AddToBatch`/`AddToBatchAt` methods that buffer a
+fully-serialized `JobRecord`; `CommitAsync`
 flushes the whole buffer in **one atomic unit** (all rows or none). Disposing without committing rolls
 back. Because storage is touched only at commit, retrying the whole method after a mid-loop failure
 cannot double-enqueue. `RunAsync(body)` is sugar over `Begin → body → CommitAsync`.
 
-**Continuations.** Every scheduler has generated `ScheduleAfterAsync(parent, payload)` — it schedules *its
-own* job to run after `parent`, returning a new `JobHandle` so chains compose. Passing several parents
-as a collection (`[a, b, c]`) expresses **fan-in**; calling `ScheduleAfterAsync` on the same parent twice
+**Continuations.** Every generated scheduler inherits `ScheduleAfterAsync(parent, payload)` — it
+schedules *its own* job to run after `parent`, returning a new `JobHandle` so chains compose. Passing
+several parents as a collection (`[a, b, c]`) expresses **fan-in**; calling `ScheduleAfterAsync` on the same parent twice
 expresses **fan-out**; diamonds and continuations-of-continuations follow naturally. Parents may be a
 `JobHandle`, a collection of handles, or a committed batch's `BatchHandle` (a job that runs once the
 whole batch completes). Continuations work inside or outside a batch; a standalone continuation whose
@@ -399,14 +399,13 @@ implementation as default.
 | **M3 — Dashboard**             | Monitoring API (JSON + SSE), Vue SPA, actions (trigger/retry/delete/pause), auth integration                                                                                                           |
 | **M4 — Polish & ship**         | `Immediate.Jobs.Testing`, OTel + metrics + health checks, AOT CI, benchmarks, docs site, v1.0 to NuGet                                                                                                 |
 | **M5 — Batches & continuations** | Atomic batches, job→job and batch continuations, fan-out/fan-in/diamonds, mid-job dynamic expansion, `AwaitingContinuation` state + edge/counter storage across providers, batch dashboard views & graph, new diagnostics |
+| **M6 — Fair queues**           | Per-group backlog rotation and noisy-neighbor prioritization for in-memory, EF Core, LinqToDB, and single-server acquisition; persisted group visibility in the dashboard |
 
-**Designed, not yet scheduled:** SQS-style *fair queues* (per-group fairness at acquisition) —
+The shipped fair-queue behavior and provider support matrix are documented in
 [`docs/fair-queues.md`](docs/fair-queues.md).
 
 ---
 
 ## 8. Open Questions
 
-None open for shipped features. The fair-queues design ([`docs/fair-queues.md`](docs/fair-queues.md))
-carries a few small implementation-time decisions (group-id max length, threshold scope, cardinality
-guard) that are recorded and resolved there.
+None open for shipped features.
