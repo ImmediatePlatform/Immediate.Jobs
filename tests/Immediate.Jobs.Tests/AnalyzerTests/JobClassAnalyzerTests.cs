@@ -228,4 +228,23 @@ public sealed class JobClassAnalyzerTests
 			}
 			"""
 		).RunAsync(TestContext.Current.CancellationToken);
+
+	[Fact]
+	public async Task InvalidReturnTypeShouldTrigger() =>
+		await AnalyzerTestHelpers.CreateAnalyzerTest<JobClassAnalyzer>(
+			"""
+			using System.Threading;
+			using System.Threading.Tasks;
+			using Immediate.Handlers.Shared;
+			using Immediate.Jobs.Shared;
+
+			namespace Dummy;
+
+			[Handler, Job(Name = "my-name")]
+			public sealed partial class Job
+			{
+				private async ValueTask<int> {|IJOB0012:Handle|}(EmptyJobRequest _, CancellationToken token) => 1;
+			}
+			"""
+		).RunAsync(TestContext.Current.CancellationToken);
 }
