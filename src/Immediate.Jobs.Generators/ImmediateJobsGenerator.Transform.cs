@@ -88,7 +88,7 @@ public sealed partial class ImmediateJobsGenerator
 				{ AttributeClass.TypeArguments: [{ } queueSymbol] }
 					when queueSymbol.GetAttributes().QueueDefinitionAttribute is { } queueDefinitionAttribute =>
 					(
-						QueueName: queueDefinitionAttribute.GetQueueName(queueSymbol.Name).NullIf("default"),
+						QueueName: queueDefinitionAttribute.GetQueueName(queueSymbol.Name).NullIf("default").NullIfWhitespace(),
 						QueuePriority: queueDefinitionAttribute.NamedArguments.GetIntValue("Priority", 0),
 						QueueConcurrency: queueDefinitionAttribute.NamedArguments.GetIntValue("Concurrency", 0)
 					),
@@ -156,19 +156,21 @@ public sealed partial class ImmediateJobsGenerator
 		cancellationToken.ThrowIfCancellationRequested();
 
 		var queueType = (INamedTypeSymbol)context.TargetSymbol;
+		var attribute = context.Attributes[0];
 
-		if (JobDiscovery.GetQueueDefinitionAttribute(queueType) is not { } definition)
+		if (attribute.GetQueueName(queueType.Name).NullIf("default").NullIfWhitespace() is not { } name)
 			return null;
 
-		var name = JobDiscovery.GetQueueName(queueType);
-		var concurrency = JobDiscovery.GetNamedInt(definition, "Concurrency", 0);
-		if (string.IsNullOrWhiteSpace(name) || name == "default" || concurrency < 0)
+		var concurrency = attribute.NamedArguments.GetIntValue("Concurrency", 0);
+		if (concurrency < 0)
 			return null;
+
+		var priority = attribute.NamedArguments.GetIntValue("Priority", 0);
 
 		return new()
 		{
 			Name = name,
-			Priority = JobDiscovery.GetNamedInt(definition, "Priority", 0),
+			Priority = priority,
 			Concurrency = concurrency,
 		};
 	}
@@ -178,4 +180,7 @@ file static class Extensions
 {
 	public static string? NullIf(this string value, string check) =>
 		value.Equals(check, StringComparison.Ordinal) ? null : value;
+
+	public static string? NullIfWhitespace(this string? value) =>
+		string.IsNullOrWhiteSpace(value) ? null : value;
 }
