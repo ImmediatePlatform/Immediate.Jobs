@@ -31,7 +31,7 @@ public sealed class RecurringSchedulerTests
 			new() { JobName = "cleanup", Take = 100 },
 			cancellationToken
 		);
-		var occurrence = Assert.Single(materialized.Where(job => job.RecurringKey is not null));
+		var occurrence = Assert.Single(materialized, job => job.RecurringKey is not null);
 		Assert.Equal(JobState.Cancelled, occurrence.State);
 	}
 
