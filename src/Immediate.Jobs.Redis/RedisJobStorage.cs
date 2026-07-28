@@ -41,6 +41,9 @@ public sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 	private Task? _disposeTask;
 
 	/// <summary>Creates storage over an existing Redis connection.</summary>
+	/// <param name="connection">The application-owned Redis connection.</param>
+	/// <param name="options">The Redis storage options, or <see langword="null"/> to use defaults.</param>
+	/// <param name="timeProvider">The clock used for storage timestamps, or <see langword="null"/> to use the system clock.</param>
 	public RedisJobStorage(
 		IConnectionMultiplexer connection,
 		RedisJobStorageOptions? options = null,

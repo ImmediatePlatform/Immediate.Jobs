@@ -21,6 +21,8 @@ public enum StorageCapabilities
 public static class JobStorageCapabilities
 {
 	/// <summary>Returns the capabilities implemented by <paramref name="storage"/>.</summary>
+	/// <param name="storage">The storage provider to inspect.</param>
+	/// <returns>The capabilities implemented by the storage provider.</returns>
 	public static StorageCapabilities GetCapabilities(this IJobStorage storage)
 	{
 		ArgumentNullException.ThrowIfNull(storage);

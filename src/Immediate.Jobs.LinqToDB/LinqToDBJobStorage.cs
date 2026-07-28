@@ -15,6 +15,9 @@ public sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorage,
 	private readonly TimeProvider _timeProvider;
 
 	/// <summary>Creates storage using immutable LinqToDB connection options.</summary>
+	/// <param name="dataOptions">The immutable LinqToDB connection options.</param>
+	/// <param name="schema">The database schema containing the Immediate.Jobs tables, or <see langword="null"/> for the provider default.</param>
+	/// <param name="timeProvider">The clock used for storage timestamps, or <see langword="null"/> to use the system clock.</param>
 	public LinqToDBJobStorage(DataOptions dataOptions, string? schema = null, TimeProvider? timeProvider = null)
 	{
 		ArgumentNullException.ThrowIfNull(dataOptions);

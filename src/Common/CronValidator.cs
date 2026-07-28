@@ -163,6 +163,8 @@ internal static class CronValidator
 		return true;
 	}
 
+	/// <param name="value">The day-of-month field value to validate.</param>
+	/// <param name="error">Receives an error message when the special form is invalid.</param>
 	/// <returns><see langword="null" /> when <paramref name="value" /> is not a special form.</returns>
 	private static bool? TryValidateDayOfMonthSpecial(string value, ref string error)
 	{
@@ -199,6 +201,8 @@ internal static class CronValidator
 		return null;
 	}
 
+	/// <param name="value">The day-of-week field value to validate.</param>
+	/// <param name="error">Receives an error message when the special form is invalid.</param>
 	/// <returns><see langword="null" /> when <paramref name="value" /> is not a special form.</returns>
 	private static bool? TryValidateDayOfWeekSpecial(string value, ref string error)
 	{

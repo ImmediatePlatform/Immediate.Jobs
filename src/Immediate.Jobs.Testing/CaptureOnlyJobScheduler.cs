@@ -3,15 +3,19 @@ namespace Immediate.Jobs.Testing;
 /// <summary>
 /// A storage-free implementation of <see cref="IJobScheduler{TPayload}"/> that records scheduled calls.
 /// </summary>
+/// <typeparam name="TPayload">The job payload type.</typeparam>
+/// <param name="timeProvider">The optional clock used to determine immediate and delayed due times.</param>
 public class CaptureOnlyJobScheduler<TPayload>(TimeProvider? timeProvider = null) : IJobScheduler<TPayload>
 {
 	private readonly List<ScheduledJobCapture<TPayload>> _captures = [];
 	private readonly TimeProvider _timeProvider = timeProvider ?? TimeProvider.System;
 
 	/// <summary>All calls captured in call order.</summary>
+	/// <value>The captured scheduler calls.</value>
 	public IReadOnlyList<ScheduledJobCapture<TPayload>> Captures => _captures;
 
 	/// <summary>The latest captured call, or <see langword="null"/> when none exists.</summary>
+	/// <value>The latest captured call, or <see langword="null"/>.</value>
 	public ScheduledJobCapture<TPayload>? Last => _captures.Count == 0 ? null : _captures[^1];
 
 	/// <inheritdoc />
@@ -69,6 +73,7 @@ public class CaptureOnlyJobScheduler<TPayload>(TimeProvider? timeProvider = null
 	public void Clear() => _captures.Clear();
 
 	/// <summary>Creates invocation identifiers. Override when a test requires predictable identifiers.</summary>
+	/// <returns>A new invocation identifier.</returns>
 	protected virtual string CreateId() => Guid.NewGuid().ToString("N");
 
 	private ValueTask<JobHandle> CaptureAsync(
@@ -96,8 +101,13 @@ public class CaptureOnlyJobScheduler<TPayload>(TimeProvider? timeProvider = null
 }
 
 /// <summary>A captured typed scheduler call.</summary>
+/// <typeparam name="TPayload">The captured payload type.</typeparam>
+/// <param name="Id">The captured invocation identifier.</param>
+/// <param name="Payload">The captured payload.</param>
+/// <param name="RunAt">The captured absolute due time.</param>
 public sealed record ScheduledJobCapture<TPayload>(string Id, TPayload Payload, DateTimeOffset RunAt)
 {
 	/// <summary>The normalized fair queue group id supplied to the scheduler.</summary>
+	/// <value>The normalized group identifier, or <see langword="null"/>.</value>
 	public string? GroupId { get; init; }
 }

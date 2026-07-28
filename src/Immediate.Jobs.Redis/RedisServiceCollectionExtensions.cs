@@ -12,6 +12,10 @@ public static class RedisServiceCollectionExtensions
 	/// This method always selects distributed mode; single-server mode requires a full-capability
 	/// durable replica and is not supported by the Redis provider.
 	/// </remarks>
+	/// <param name="jobs">The Immediate.Jobs options to configure.</param>
+	/// <param name="configuration">The Redis configuration string.</param>
+	/// <param name="configure">An optional callback that configures Redis key placement.</param>
+	/// <returns>The configured Immediate.Jobs options.</returns>
 	public static ImmediateJobsOptions UseRedis(
 		this ImmediateJobsOptions jobs,
 		string configuration,
@@ -36,6 +40,10 @@ public static class RedisServiceCollectionExtensions
 	/// Redis does not implement graph storage, so batches and continuations require a SQL provider.
 	/// The supplied connection is not disposed by the job provider.
 	/// </remarks>
+	/// <param name="jobs">The Immediate.Jobs options to configure.</param>
+	/// <param name="connection">The application-owned Redis connection.</param>
+	/// <param name="configure">An optional callback that configures Redis key placement.</param>
+	/// <returns>The configured Immediate.Jobs options.</returns>
 	public static ImmediateJobsOptions UseRedis(
 		this ImmediateJobsOptions jobs,
 		IConnectionMultiplexer connection,

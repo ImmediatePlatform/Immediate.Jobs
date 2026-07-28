@@ -11,6 +11,9 @@ namespace Microsoft.Extensions.DependencyInjection;
 public static class ImmediateJobsRuntimeServiceCollectionExtensions
 {
 	/// <summary>Adds the scheduler runtime. Application code normally calls generated AddImmediateJobs instead.</summary>
+	/// <param name="services">The service collection to which the runtime is added.</param>
+	/// <param name="configure">An optional callback that configures the runtime.</param>
+	/// <returns>A builder for selecting storage and adding runtime integrations.</returns>
 	public static Immediate.Jobs.Shared.ImmediateJobsBuilder AddImmediateJobsCore(
 		this IServiceCollection services,
 		Action<Immediate.Jobs.Shared.ImmediateJobsOptions>? configure = null
@@ -63,6 +66,9 @@ public static class ImmediateJobsRuntimeServiceCollectionExtensions
 	}
 
 	/// <summary>Replaces the default GUID job and batch identifier generator.</summary>
+	/// <typeparam name="TGenerator">The identifier generator implementation.</typeparam>
+	/// <param name="builder">The Immediate.Jobs builder.</param>
+	/// <returns>The supplied builder.</returns>
 	public static Immediate.Jobs.Shared.ImmediateJobsBuilder UseIdGenerator<
 		[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TGenerator
 	>(
@@ -76,6 +82,11 @@ public static class ImmediateJobsRuntimeServiceCollectionExtensions
 	}
 
 	/// <summary>Adds scheduler liveness and storage connectivity to the health-check system.</summary>
+	/// <param name="builder">The Immediate.Jobs builder.</param>
+	/// <param name="name">The registered health-check name.</param>
+	/// <param name="failureStatus">The status reported when the check fails.</param>
+	/// <param name="tags">The tags associated with the health check.</param>
+	/// <returns>The supplied builder.</returns>
 	public static Immediate.Jobs.Shared.ImmediateJobsBuilder AddHealthCheck(
 		this Immediate.Jobs.Shared.ImmediateJobsBuilder builder,
 		string name = "immediate-jobs",

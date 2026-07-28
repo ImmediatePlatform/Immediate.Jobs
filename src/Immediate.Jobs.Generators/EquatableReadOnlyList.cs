@@ -13,6 +13,8 @@ internal static class EquatableReadOnlyList
 /// <summary>
 ///     A wrapper for IReadOnlyList that provides value equality support for the wrapped list.
 /// </summary>
+/// <typeparam name="T">The type of element in the list.</typeparam>
+/// <param name="collection">The read-only list to wrap, or <see langword="null"/> for an empty list.</param>
 [ExcludeFromCodeCoverage]
 internal readonly struct EquatableReadOnlyList<T>(
 	IReadOnlyList<T>? collection

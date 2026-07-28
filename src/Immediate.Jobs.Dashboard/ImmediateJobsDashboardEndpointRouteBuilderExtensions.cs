@@ -12,12 +12,19 @@ namespace Immediate.Jobs.Dashboard;
 public static class ImmediateJobsDashboardEndpointRouteBuilderExtensions
 {
 	/// <summary>Maps the dashboard at <c>/jobs</c>.</summary>
+	/// <param name="endpoints">The endpoint route builder to add the dashboard to.</param>
+	/// <param name="configure">An optional callback that configures the dashboard.</param>
+	/// <returns>The route group containing the dashboard endpoints.</returns>
 	public static RouteGroupBuilder MapImmediateJobsDashboard(
 		this IEndpointRouteBuilder endpoints,
 		Action<ImmediateJobsDashboardOptions>? configure = null
 	) => endpoints.MapImmediateJobsDashboard("/jobs", configure);
 
 	/// <summary>Maps the dashboard and its API under <paramref name="prefix"/>.</summary>
+	/// <param name="endpoints">The endpoint route builder to add the dashboard to.</param>
+	/// <param name="prefix">The URL path prefix under which to map the dashboard.</param>
+	/// <param name="configure">An optional callback that configures the dashboard.</param>
+	/// <returns>The route group containing the dashboard endpoints.</returns>
 	public static RouteGroupBuilder MapImmediateJobsDashboard(
 		this IEndpointRouteBuilder endpoints,
 		string prefix,

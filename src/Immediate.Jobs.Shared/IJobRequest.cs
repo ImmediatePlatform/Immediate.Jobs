@@ -7,10 +7,18 @@ namespace Immediate.Jobs.Shared;
 public interface IJobRequest
 {
 	/// <summary>The current invocation details, or <see langword="null"/> before execution begins.</summary>
+	/// <value>The metadata for the current invocation attempt, when available.</value>
 	JobDetails? JobDetails { get; set; }
 }
 
 /// <summary>Immutable metadata describing one background-job execution attempt.</summary>
+/// <param name="JobId">The unique invocation identifier.</param>
+/// <param name="JobName">The stable job name.</param>
+/// <param name="QueueName">The persisted queue name.</param>
+/// <param name="Attempt">The current execution-attempt number.</param>
+/// <param name="CreatedAt">The UTC time at which the invocation was created.</param>
+/// <param name="ScheduledAt">The UTC time at which the invocation was scheduled to run.</param>
+/// <param name="BatchId">The containing batch identifier, if any.</param>
 public sealed record JobDetails(
 	string JobId,
 	string JobName,
@@ -22,6 +30,7 @@ public sealed record JobDetails(
 )
 {
 	/// <summary>Runtime continuation buffer for the current attempt.</summary>
+	/// <value>The continuation buffer for the current attempt, when continuation buffering is enabled.</value>
 	[System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
 	public JobExecutionBuffer? Buffer { get; init; }
 }

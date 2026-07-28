@@ -26,6 +26,8 @@ public sealed class SingleServerJobStorage :
 	private int _disposeStarted;
 
 	/// <summary>Creates a memory-primary store backed by the supplied durable replica.</summary>
+	/// <param name="durableStorage">The durable write-through replica.</param>
+	/// <param name="timeProvider">The clock used by the in-process primary store.</param>
 	/// <remarks>The wrapper takes ownership of <paramref name="durableStorage"/> and disposes it with the primary store.</remarks>
 	public SingleServerJobStorage(IJobStorage durableStorage, TimeProvider timeProvider)
 	{
@@ -48,9 +50,11 @@ public sealed class SingleServerJobStorage :
 	}
 
 	/// <summary>The in-process authoritative store.</summary>
+	/// <value>The in-process primary storage provider.</value>
 	public IJobStorage PrimaryStorage => _primary;
 
 	/// <summary>The durable write-through replica.</summary>
+	/// <value>The durable storage provider replicated by this wrapper.</value>
 	public IJobStorage DurableStorage { get; }
 
 	/// <inheritdoc />

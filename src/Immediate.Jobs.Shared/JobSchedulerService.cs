@@ -33,6 +33,16 @@ public sealed partial class JobSchedulerService : BackgroundService
 	private long _nextPurgeTimestamp;
 
 	/// <summary>Creates the hosted scheduler from generated definitions.</summary>
+	/// <param name="scopeFactory">The factory used to create a dependency injection scope for each execution.</param>
+	/// <param name="storage">The durable job storage provider.</param>
+	/// <param name="serializer">The serializer used for job payload and context data.</param>
+	/// <param name="definitions">The generated job definitions available to the scheduler.</param>
+	/// <param name="queueDefinitions">The configured queue definitions.</param>
+	/// <param name="options">The scheduler runtime options.</param>
+	/// <param name="timeProvider">The clock used for scheduling, leases, and timestamps.</param>
+	/// <param name="idGenerator">The generator used to create job identifiers.</param>
+	/// <param name="logger">The scheduler logger.</param>
+	/// <param name="state">The service that tracks scheduler runtime state.</param>
 	public JobSchedulerService(
 		IServiceScopeFactory scopeFactory,
 		IJobStorage storage,
@@ -136,6 +146,9 @@ public sealed partial class JobSchedulerService : BackgroundService
 	}
 
 	/// <summary>Executes one already-acquired record. Intended for deterministic test harnesses.</summary>
+	/// <param name="record">The acquired job record to execute.</param>
+	/// <param name="cancellationToken">A token that can cancel execution.</param>
+	/// <returns>A task that completes when the job attempt finishes.</returns>
 	public ValueTask ExecuteSingleAsync(JobRecord record, CancellationToken cancellationToken = default)
 	{
 		ArgumentNullException.ThrowIfNull(record);
@@ -146,6 +159,8 @@ public sealed partial class JobSchedulerService : BackgroundService
 	/// Materializes and executes all work currently due, returning when the due queue is empty.
 	/// Delayed work is left in storage. This method is intended for deterministic test harnesses.
 	/// </summary>
+	/// <param name="cancellationToken">A token that can cancel draining.</param>
+	/// <returns>A task that completes when no currently due work remains.</returns>
 	public async ValueTask DrainAsync(CancellationToken cancellationToken = default)
 	{
 		await _storage.InitializeAsync(cancellationToken).ConfigureAwait(false);
@@ -664,12 +679,15 @@ public sealed class JobSchedulerState
 	private long _activeWorkers;
 
 	/// <summary>UTC time at which the scheduler initialized.</summary>
+	/// <value>The initialization timestamp, or <see langword="null"/> before the scheduler starts.</value>
 	public DateTimeOffset? StartedAt { get; private set; }
 
 	/// <summary>UTC time of the latest successful scheduler iteration.</summary>
+	/// <value>The latest heartbeat timestamp, or <see langword="null"/> before the first heartbeat.</value>
 	public DateTimeOffset? LastHeartbeat { get; private set; }
 
 	/// <summary>Number of invocations currently executing.</summary>
+	/// <value>The current number of active workers.</value>
 	public int ActiveWorkers => checked((int)Interlocked.Read(ref _activeWorkers));
 
 	internal bool CodeSchedulesAsserted { get; private set; }

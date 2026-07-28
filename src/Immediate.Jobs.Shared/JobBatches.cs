@@ -4,9 +4,12 @@ namespace Immediate.Jobs.Shared;
 public interface IJobBatch : IAsyncDisposable
 {
 	/// <summary>The client-generated batch identifier.</summary>
+	/// <value>The identifier assigned to the batch.</value>
 	string Id { get; }
 
 	/// <summary>Atomically persists the buffered jobs and dependencies.</summary>
+	/// <param name="cancellationToken">A token that can cancel the commit operation.</param>
+	/// <returns>A handle for the committed batch.</returns>
 	ValueTask<BatchHandle> CommitAsync(CancellationToken cancellationToken = default);
 }
 
@@ -14,12 +17,19 @@ public interface IJobBatch : IAsyncDisposable
 public interface IJobBatchScheduler
 {
 	/// <summary>Begins an in-memory batch buffer.</summary>
+	/// <returns>The new batch buffer.</returns>
 	IJobBatch Begin();
 
 	/// <summary>Begins a follow-up batch whose root members wait for a prior batch.</summary>
+	/// <param name="after">The batch that must reach a terminal state before the follow-up roots are released.</param>
+	/// <param name="on">The parent-batch outcome that releases the follow-up roots.</param>
+	/// <returns>The new follow-up batch buffer.</returns>
 	IJobBatch Begin(BatchHandle after, ContinuationTrigger on = ContinuationTrigger.Success);
 
 	/// <summary>Runs a batch body and commits it when the body succeeds.</summary>
+	/// <param name="body">The callback that adds jobs and dependencies to the batch.</param>
+	/// <param name="cancellationToken">A token that can cancel the commit operation.</param>
+	/// <returns>A handle for the committed batch.</returns>
 	ValueTask<BatchHandle> RunAsync(
 		Func<IJobBatch, ValueTask> body,
 		CancellationToken cancellationToken = default
@@ -27,6 +37,9 @@ public interface IJobBatchScheduler
 }
 
 /// <summary>Default scoped atomic-batch scheduler.</summary>
+/// <param name="storage">The storage provider used to persist batch graphs.</param>
+/// <param name="timeProvider">The clock used to timestamp batches and jobs.</param>
+/// <param name="idGenerator">The generator used to create batch and job identifiers.</param>
 public sealed class JobBatchScheduler(
 	IJobStorage storage,
 	TimeProvider timeProvider,
@@ -225,6 +238,8 @@ internal sealed class JobBatch(
 }
 
 /// <summary>Storage-backed implementation of the public monitoring services.</summary>
+/// <param name="storage">The storage provider queried for job and batch status.</param>
+/// <param name="definitions">The generated job definitions used to enrich monitoring results.</param>
 public sealed class JobMonitor(IJobStorage storage, IEnumerable<JobDefinition> definitions) : IJobBatchMonitor, IJobMonitor
 {
 	/// <inheritdoc />

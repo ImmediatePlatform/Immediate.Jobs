@@ -5,6 +5,7 @@ namespace Immediate.Jobs.Shared;
 /// <summary>
 /// A best-effort, non-durable, single-node provider intended for development and tests.
 /// </summary>
+/// <param name="timeProvider">The clock used for scheduling, leases, and timestamps.</param>
 public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 	IRecurringJobStorage,
 	IJobGraphStorage,

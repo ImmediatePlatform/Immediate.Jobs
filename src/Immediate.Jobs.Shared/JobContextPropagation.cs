@@ -11,12 +11,15 @@ namespace Immediate.Jobs.Shared;
 public interface IJobContextExtractor<TContext>
 {
 	/// <summary>The stable key used for this context slice in persisted job envelopes.</summary>
+	/// <value>The stable persisted context-slice key.</value>
 	string Key { get; }
 
 	/// <summary>Captures context from the enqueueing scope, or returns no value when none is available.</summary>
+	/// <returns>The captured context, or no value when none is available.</returns>
 	TContext? Capture();
 
 	/// <summary>Restores captured context into services in the job execution scope.</summary>
+	/// <param name="context">The captured context to restore.</param>
 	void Restore(TContext context);
 }
 
@@ -43,6 +46,9 @@ public static class JobContextEnvelope
 		);
 
 	/// <summary>Adds one serialized slice and rejects duplicate runtime keys.</summary>
+	/// <param name="slices">The envelope slices to update.</param>
+	/// <param name="key">The stable key for the context slice.</param>
+	/// <param name="value">The serialized context-slice value.</param>
 	public static void AddSlice(IDictionary<string, string> slices, string key, string value)
 	{
 		ArgumentNullException.ThrowIfNull(slices);
@@ -53,6 +59,8 @@ public static class JobContextEnvelope
 	}
 
 	/// <summary>Creates a JSON envelope, or returns no envelope when every extractor captured nothing.</summary>
+	/// <param name="slices">The serialized context slices to include.</param>
+	/// <returns>The JSON envelope, or <see langword="null"/> when <paramref name="slices"/> is empty.</returns>
 	public static string? Create(IReadOnlyDictionary<string, string> slices)
 	{
 		ArgumentNullException.ThrowIfNull(slices);
@@ -76,6 +84,8 @@ public static class JobContextEnvelope
 	}
 
 	/// <summary>Reads an envelope into raw JSON slices keyed with ordinal comparison.</summary>
+	/// <param name="envelope">The JSON envelope to read.</param>
+	/// <returns>The raw JSON slices keyed by their stable context keys.</returns>
 	public static Dictionary<string, string> Read(string envelope)
 	{
 		ArgumentNullException.ThrowIfNull(envelope);
@@ -94,6 +104,9 @@ public static class JobContextEnvelope
 	}
 
 	/// <summary>Logs context slices left unmatched by the generated invoker.</summary>
+	/// <param name="scopedServices">The services for the current job execution scope.</param>
+	/// <param name="record">The durable record for the current invocation.</param>
+	/// <param name="keys">The unmatched context-slice keys.</param>
 	public static void LogOrphanedSlices(
 		IServiceProvider scopedServices,
 		JobRecord record,

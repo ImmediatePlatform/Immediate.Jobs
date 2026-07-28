@@ -5,6 +5,8 @@ namespace Immediate.Jobs.EntityFrameworkCore;
 
 /// <summary>An optimistic-concurrency EF Core implementation of <see cref="IJobStorage"/>.</summary>
 /// <typeparam name="TContext">The application context containing the Immediate.Jobs model.</typeparam>
+/// <param name="contextFactory">The factory used to create application database contexts.</param>
+/// <param name="timeProvider">The clock used for storage timestamps, or <see langword="null"/> to use the system clock.</param>
 public sealed class EntityFrameworkCoreJobStorage<TContext>(
 	IDbContextFactory<TContext> contextFactory,
 	TimeProvider? timeProvider = null

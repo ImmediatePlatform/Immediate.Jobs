@@ -22,12 +22,15 @@ public sealed class FairQueueOptions
 	/// In-flight share above which a group may be considered noisy. The value must be greater
 	/// than zero and less than or equal to one.
 	/// </summary>
+	/// <value>The in-flight share threshold used to identify noisy groups.</value>
 	public double ConcurrencyShareThreshold { get; set; } = 0.10;
 
 	/// <summary>Minimum number of a group's in-flight jobs before it may be considered noisy.</summary>
+	/// <value>The minimum in-flight job count required for noisy-group detection.</value>
 	public int MinInflightForNoisy { get; set; } = 30;
 
 	/// <summary>Whether due work is interleaved across groups independently of noisy-neighbor detection.</summary>
+	/// <value><see langword="true"/> to interleave due work across groups; otherwise, <see langword="false"/>.</value>
 	public bool GroupRoundRobin { get; set; } = true;
 
 	internal void Validate()
@@ -54,47 +57,62 @@ public sealed class FairQueueOptions
 public sealed class ImmediateJobsOptions
 {
 	/// <summary>Maximum concurrently executing jobs on this node.</summary>
+	/// <value>The maximum number of jobs that may execute concurrently on this node.</value>
 	public int MaxParallelJobs { get; set; } = Environment.ProcessorCount;
 
 	/// <summary>Maximum number claimed in one storage round-trip.</summary>
+	/// <value>The maximum number of jobs claimed in one acquisition.</value>
 	public int AcquisitionBatchSize { get; set; } = 32;
 
 	/// <summary>Fallback interval between storage polls.</summary>
+	/// <value>The interval between storage polls.</value>
 	public TimeSpan PollingInterval { get; set; } = TimeSpan.FromSeconds(1);
 
 	/// <summary>Duration of an acquired job lease.</summary>
+	/// <value>The duration assigned to an acquired job lease.</value>
 	public TimeSpan LeaseDuration { get; set; } = TimeSpan.FromSeconds(30);
 
 	/// <summary>Maximum time allowed for workers to drain during shutdown.</summary>
+	/// <value>The maximum worker-drain duration during shutdown.</value>
 	public TimeSpan ShutdownTimeout { get; set; } = TimeSpan.FromSeconds(30);
 
 	/// <summary>Retention for successful history.</summary>
+	/// <value>The duration for which successful job history is retained.</value>
 	public TimeSpan SucceededRetention { get; set; } = TimeSpan.FromHours(24);
 
 	/// <summary>Retention for failed history.</summary>
+	/// <value>The duration for which failed job history is retained.</value>
 	public TimeSpan FailedRetention { get; set; } = TimeSpan.FromDays(7);
 
 	/// <summary>Retention for successful batches and all of their members and edges.</summary>
+	/// <value>The duration for which successful batch history is retained.</value>
 	public TimeSpan BatchSucceededRetention { get; set; } = TimeSpan.FromHours(24);
 
 	/// <summary>Retention for failed or cancelled batches and all of their members and edges.</summary>
+	/// <value>The duration for which failed or cancelled batch history is retained.</value>
 	public TimeSpan BatchFailedRetention { get; set; } = TimeSpan.FromDays(7);
 
 	/// <summary>How frequently terminal history is purged.</summary>
+	/// <value>The interval between terminal-history purge operations.</value>
 	public TimeSpan PurgeInterval { get; set; } = TimeSpan.FromHours(1);
 
 	/// <summary>The provider factory selected by a Use* extension.</summary>
+	/// <value>The configured storage-provider factory, or <see langword="null"/> when none has been selected.</value>
 	public Func<IServiceProvider, IJobStorage>? StorageFactory { get; private set; }
 
 	/// <summary>The topology used by the scheduler.</summary>
+	/// <value>The configured storage topology.</value>
 	public JobStorageMode StorageMode { get; private set; } = JobStorageMode.SingleServer;
 
 	/// <summary>Fair queue settings, or <see langword="null"/> when fair acquisition is disabled.</summary>
+	/// <value>The fair queue settings, or <see langword="null"/> when fair acquisition is disabled.</value>
 	public FairQueueOptions? FairQueues { get; private set; }
 
 	internal bool StorageModeExplicitlySelected { get; private set; }
 
 	/// <summary>Enables fair acquisition for jobs carrying a runtime group id.</summary>
+	/// <param name="configure">An optional delegate that configures fair queue behavior.</param>
+	/// <returns>This options instance.</returns>
 	public ImmediateJobsOptions UseFairQueues(Action<FairQueueOptions>? configure = null)
 	{
 		var options = new FairQueueOptions();
@@ -104,6 +122,7 @@ public sealed class ImmediateJobsOptions
 	}
 
 	/// <summary>Selects the non-durable, single-node in-memory provider.</summary>
+	/// <returns>This options instance.</returns>
 	public ImmediateJobsOptions UseInMemory()
 	{
 		StorageFactory = static services => new InMemoryJobStorage(services.GetRequiredService<TimeProvider>());
@@ -116,6 +135,8 @@ public sealed class ImmediateJobsOptions
 	/// Selects a durable storage provider. By default, it is used as a write-through replica of the
 	/// authoritative in-process store for a single scheduler server.
 	/// </summary>
+	/// <param name="factory">The factory that creates the durable storage provider.</param>
+	/// <returns>This options instance.</returns>
 	public ImmediateJobsOptions UseStorage(Func<IServiceProvider, IJobStorage> factory)
 	{
 		ArgumentNullException.ThrowIfNull(factory);
@@ -126,6 +147,7 @@ public sealed class ImmediateJobsOptions
 	}
 
 	/// <summary>Selects memory-primary, durable-replica operation for one scheduler server.</summary>
+	/// <returns>This options instance.</returns>
 	public ImmediateJobsOptions UseSingleServer()
 	{
 		StorageMode = JobStorageMode.SingleServer;
@@ -134,6 +156,8 @@ public sealed class ImmediateJobsOptions
 	}
 
 	/// <summary>Selects memory-primary operation with the supplied durable replica.</summary>
+	/// <param name="durableStorageFactory">The factory that creates the durable storage replica.</param>
+	/// <returns>This options instance.</returns>
 	public ImmediateJobsOptions UseSingleServer(Func<IServiceProvider, IJobStorage> durableStorageFactory)
 	{
 		_ = UseStorage(durableStorageFactory);
@@ -141,6 +165,7 @@ public sealed class ImmediateJobsOptions
 	}
 
 	/// <summary>Selects durable-storage-primary operation for multiple scheduler servers.</summary>
+	/// <returns>This options instance.</returns>
 	public ImmediateJobsOptions UseDistributed()
 	{
 		StorageMode = JobStorageMode.Distributed;
@@ -210,5 +235,6 @@ public sealed class ImmediateJobsBuilder
 	}
 
 	/// <summary>The application service collection.</summary>
+	/// <value>The service collection being configured.</value>
 	public IServiceCollection Services { get; }
 }

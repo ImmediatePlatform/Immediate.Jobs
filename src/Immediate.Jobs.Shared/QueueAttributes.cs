@@ -5,12 +5,15 @@ namespace Immediate.Jobs.Shared;
 public sealed class QueueDefinitionAttribute : Attribute
 {
 	/// <summary>The stable persisted queue name, or <see langword="null"/> to derive it from the type name.</summary>
+	/// <value>The stable queue name, or <see langword="null"/> to derive it from the type name.</value>
 	public string? Name { get; init; }
 
 	/// <summary>The dispatch priority. Larger values are dispatched first.</summary>
+	/// <value>The queue dispatch priority.</value>
 	public int Priority { get; init; }
 
 	/// <summary>Maximum in-flight jobs on one scheduler node. Zero means unbounded.</summary>
+	/// <value>The maximum in-flight jobs per node, or zero for no limit.</value>
 	public int Concurrency { get; init; }
 }
 
