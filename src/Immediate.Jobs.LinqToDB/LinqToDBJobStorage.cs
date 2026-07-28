@@ -9,6 +9,7 @@ namespace Immediate.Jobs.LinqToDB;
 public sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorage, IJobStorageReplica
 {
 	private const int MaxConcurrencyAttempts = 5;
+	private const int MaxConsecutiveFailedFairClaims = 5;
 	private readonly DataOptions _dataOptions;
 	private readonly string? _schema;
 	private readonly TimeProvider _timeProvider;
@@ -34,7 +35,42 @@ public sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorage,
 	{
 		ArgumentNullException.ThrowIfNull(job);
 		await using var connection = CreateConnection();
-		_ = await InsertAsync(connection, ToEntity(job), cancellationToken).ConfigureAwait(false);
+		_ = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+		try
+		{
+			await ResetReturningGroupCursorsAsync(connection, [job], cancellationToken).ConfigureAwait(false);
+			_ = await InsertAsync(connection, ToEntity(job), cancellationToken).ConfigureAwait(false);
+			await connection.CommitTransactionAsync(cancellationToken).ConfigureAwait(false);
+		}
+		catch
+		{
+			await connection.RollbackTransactionAsync(cancellationToken).ConfigureAwait(false);
+			throw;
+		}
+	}
+
+	/// <inheritdoc />
+	public async ValueTask<IReadOnlyList<JobContinuationEdge>> GetIncomingEdgesAsync(
+		IReadOnlyCollection<string> childJobIds,
+		CancellationToken cancellationToken = default
+	)
+	{
+		ArgumentNullException.ThrowIfNull(childJobIds);
+		if (childJobIds.Any(string.IsNullOrWhiteSpace))
+			throw new ArgumentException("Child job identifiers cannot be null or blank.", nameof(childJobIds));
+		if (childJobIds.Count == 0)
+			return [];
+
+		var ids = childJobIds.Distinct(StringComparer.Ordinal).ToArray();
+		await using var connection = CreateConnection();
+		var edges = await Continuations(connection)
+			.Where(edge => ids.Contains(edge.ChildJobId))
+			.OrderBy(edge => edge.ChildJobId)
+			.ThenBy(edge => edge.ParentKind)
+			.ThenBy(edge => edge.ParentId)
+			.ToListAsync(cancellationToken)
+			.ConfigureAwait(false);
+		return [.. edges.Select(ToContinuationEdge)];
 	}
 
 	/// <inheritdoc />
@@ -90,6 +126,7 @@ public sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorage,
 		try
 		{
 			var jobEntities = jobs.Select(ToEntity).ToDictionary(static job => job.Id, StringComparer.Ordinal);
+			await ResetReturningGroupCursorsAsync(connection, jobs, cancellationToken).ConfigureAwait(false);
 			await EvaluateInitialDependenciesAsync(
 				connection,
 				jobEntities,
@@ -202,6 +239,7 @@ public sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorage,
 		var acquired = new List<JobRecord>(request.BatchSize);
 		foreach (var queue in request.Queues)
 		{
+			var consecutiveFailedClaims = 0;
 			var queueCapacity = Math.Min(queue.Capacity, request.BatchSize - acquired.Count);
 			if (queueCapacity <= 0)
 				continue;
@@ -259,7 +297,20 @@ public sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorage,
 					.FirstOrDefaultAsync(cancellationToken)
 					.ConfigureAwait(false);
 				if (groupedHeads.Count == 0)
-					continue;
+				{
+					var fastPath = await AcquireFairFastPathAsync(
+						queue.QueueName,
+						jobCapacities,
+						queueCapacity,
+						request.WorkerId,
+						request.Lease,
+						now,
+						cancellationToken
+					).ConfigureAwait(false);
+					queueCapacity -= fastPath.Count;
+					acquired.AddRange(fastPath);
+					break;
+				}
 
 				var activeQuery = Jobs(readConnection)
 					.Where(job => job.QueueName == queue.QueueName
@@ -304,7 +355,9 @@ public sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorage,
 				var candidates = ungroupedHead is null ? groupedHeads : [.. groupedHeads, ungroupedHead];
 				var ranked = candidates.Select(job =>
 				{
-					var state = job.GroupId is null ? null : groupStates[job.Id];
+					FairQueueCandidateState? state = null;
+					if (job.GroupId is not null)
+						_ = groupStates.TryGetValue(job.Id, out state);
 					var noisy = IsNoisy(job.GroupId, state?.Inflight ?? 0, totalInflight, request.FairQueues);
 					return new
 					{
@@ -342,8 +395,13 @@ public sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorage,
 							cancellationToken
 						).ConfigureAwait(false));
 				if (claimedJob is null)
+				{
+					if (++consecutiveFailedClaims >= MaxConsecutiveFailedFairClaims)
+						break;
 					continue;
+				}
 
+				consecutiveFailedClaims = 0;
 				jobCapacities[claimedJob.JobName]--;
 				queueCapacity--;
 				acquired.Add(claimedJob);
@@ -569,6 +627,47 @@ public sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorage,
 			&& (double)inflight / totalInflight > policy.ConcurrencyShareThreshold;
 	}
 
+	private async Task ResetReturningGroupCursorsAsync(
+		DataConnection connection,
+		IReadOnlyCollection<JobRecord> jobs,
+		CancellationToken cancellationToken
+	)
+	{
+		var groups = jobs
+			.Where(static job => job.GroupId is not null)
+			.Select(static job => (job.QueueName, GroupId: job.GroupId))
+			.Distinct()
+			.ToArray();
+		foreach (var (queueName, groupId) in groups)
+		{
+			var hasLiveJobs = await Jobs(connection)
+				.AnyAsync(
+					job => job.QueueName == queueName
+						&& job.GroupId == groupId
+						&& (job.State == JobState.Pending
+							|| job.State == JobState.Scheduled
+							|| job.State == JobState.Active),
+					cancellationToken
+				)
+				.ConfigureAwait(false);
+			if (hasLiveJobs)
+				continue;
+
+			_ = await FairQueueGroups(connection)
+				.Where(group => group.QueueName == queueName && group.GroupId == groupId)
+				.DeleteAsync(cancellationToken)
+				.ConfigureAwait(false);
+		}
+	}
+
+	private static void ValidateDynamicJob(JobRecord job, string description)
+	{
+		ArgumentException.ThrowIfNullOrWhiteSpace(job.Id);
+		ArgumentException.ThrowIfNullOrWhiteSpace(job.JobName);
+		if (job.State is not (JobState.Pending or JobState.Scheduled))
+			throw new ImmediateJobException($"{description} '{job.Id}' has invalid state '{job.State}'.");
+	}
+
 	private sealed record FairQueueCandidateState(
 		string JobId,
 		int Inflight,
@@ -731,6 +830,8 @@ public sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorage,
 		ArgumentNullException.ThrowIfNull(job);
 		if (options == ContinuationOptions.Detached)
 			throw new ImmediateJobException("AddToBatchAsync cannot create a detached job.");
+		if (options is not (ContinuationOptions.BesideContinuations or ContinuationOptions.BeforeContinuations))
+			throw new ArgumentOutOfRangeException(nameof(options));
 		return RetryConcurrencyAsync(
 			connection => AddBatchJobCoreAsync(connection, currentJobId, job, options, cancellationToken),
 			cancellationToken
@@ -803,10 +904,15 @@ public sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorage,
 	{
 		ArgumentException.ThrowIfNullOrWhiteSpace(name);
 		await using var connection = CreateConnection();
-		_ = await Recurring(connection)
+		var removed = await Recurring(connection)
 			.Where(schedule => schedule.Name == name && !schedule.IsCodeDefined)
 			.DeleteAsync(cancellationToken)
 			.ConfigureAwait(false);
+		if (removed != 0)
+			return;
+		if (await Recurring(connection).AnyAsync(schedule => schedule.Name == name, cancellationToken).ConfigureAwait(false))
+			throw new ImmediateJobException("Code-defined recurring schedules cannot be deleted.");
+		throw new KeyNotFoundException($"Recurring schedule '{name}' was not found.");
 	}
 
 	/// <inheritdoc />
@@ -1080,7 +1186,7 @@ public sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorage,
 			job.QueueName,
 			job.State,
 			job.Attempt,
-			MaxAttempts: 0,
+			MaxAttempts: null,
 			FromTicks(job.CreatedAt),
 			FromTicks(job.DueAt),
 			FromTicks(job.CompletedAt),
@@ -1177,10 +1283,14 @@ public sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorage,
 	}
 
 	/// <inheritdoc />
-	public ValueTask RetryAsync(string jobId, CancellationToken cancellationToken = default) => RetryConcurrencyAsync(
-		connection => RetryCoreAsync(connection, jobId, cancellationToken),
-		cancellationToken
-	);
+	public ValueTask RetryAsync(string jobId, CancellationToken cancellationToken = default)
+	{
+		ArgumentException.ThrowIfNullOrWhiteSpace(jobId);
+		return RetryConcurrencyAsync(
+			connection => RetryCoreAsync(connection, jobId, cancellationToken),
+			cancellationToken
+		);
+	}
 
 	private async Task RetryCoreAsync(DataConnection connection, string jobId, CancellationToken cancellationToken)
 	{
@@ -1188,7 +1298,12 @@ public sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorage,
 			.SingleOrDefaultAsync(item => item.Id == jobId && item.State == JobState.Failed, cancellationToken)
 			.ConfigureAwait(false);
 		if (job is null)
-			return;
+		{
+			if (await Jobs(connection).AnyAsync(item => item.Id == jobId, cancellationToken).ConfigureAwait(false))
+				throw new ImmediateJobException("Only failed jobs can be retried.");
+			throw new KeyNotFoundException($"Job '{jobId}' was not found.");
+		}
+
 		if (job.BatchId is { } batchId)
 		{
 			var batch = await Batches(connection).SingleAsync(item => item.Id == batchId, cancellationToken).ConfigureAwait(false);
@@ -1217,6 +1332,7 @@ public sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorage,
 	/// <inheritdoc />
 	public async ValueTask DeleteAsync(string jobId, CancellationToken cancellationToken = default)
 	{
+		ArgumentException.ThrowIfNullOrWhiteSpace(jobId);
 		await using var connection = CreateConnection();
 		_ = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
 		try
@@ -1224,16 +1340,22 @@ public sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorage,
 			var job = await Jobs(connection).SingleOrDefaultAsync(item => item.Id == jobId &&
 				(item.State == JobState.Succeeded || item.State == JobState.Failed || item.State == JobState.Cancelled), cancellationToken)
 				.ConfigureAwait(false);
-			if (job is not null)
+			if (job is null)
 			{
-				if (job.BatchId is not null)
-					throw new ImmediateJobException("Batch members are deleted with their batch so the workflow remains coherent.");
-				_ = await Continuations(connection)
-					.Where(edge => edge.ParentKind == ContinuationParentKind.Job && edge.ParentId == jobId)
-					.DeleteAsync(cancellationToken)
-					.ConfigureAwait(false);
-				_ = await Jobs(connection).Where(item => item.Id == jobId).DeleteAsync(cancellationToken).ConfigureAwait(false);
+				if (await Jobs(connection).AnyAsync(item => item.Id == jobId, cancellationToken).ConfigureAwait(false))
+					throw new ImmediateJobException("Only terminal jobs can be deleted.");
+				throw new KeyNotFoundException($"Job '{jobId}' was not found.");
 			}
+
+			if (job.BatchId is not null)
+				throw new ImmediateJobException("Batch members are deleted with their batch so the workflow remains coherent.");
+			_ = await Continuations(connection)
+				.Where(edge => edge.ParentKind == ContinuationParentKind.Job && edge.ParentId == jobId)
+				.DeleteAsync(cancellationToken)
+				.ConfigureAwait(false);
+			var removed = await Jobs(connection).Where(item => item.Id == jobId).DeleteAsync(cancellationToken).ConfigureAwait(false);
+			if (removed == 0)
+				throw new KeyNotFoundException($"Job '{jobId}' was not found.");
 
 			await connection.CommitTransactionAsync(cancellationToken).ConfigureAwait(false);
 		}
@@ -1508,10 +1630,14 @@ public sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorage,
 			?? throw new ImmediateJobException($"The current active job '{currentJobId}' was not found.");
 		if (current.BatchId is not { } batchId)
 			throw new ImmediateJobException("The current job does not belong to a batch.");
+		ValidateDynamicJob(record, "Concurrent batch member");
+		if (record.BatchId != batchId)
+			throw new ImmediateJobException("The new job must belong to the current job's batch.");
 		var batch = await Batches(connection)
 			.SingleAsync(item => item.Id == batchId && item.State == BatchState.Executing, cancellationToken)
 			.ConfigureAwait(false);
-		var job = ToEntity(record with { BatchId = batchId });
+		await ResetReturningGroupCursorsAsync(connection, [record], cancellationToken).ConfigureAwait(false);
+		var job = ToEntity(record);
 		_ = await InsertAsync(connection, job, cancellationToken).ConfigureAwait(false);
 		var batchStamp = batch.ConcurrencyStamp;
 		batch.TotalJobs++;
@@ -1547,13 +1673,38 @@ public sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorage,
 		CancellationToken cancellationToken
 	)
 	{
-		var ids = additions.Select(static addition => addition.Job.Id).ToHashSet(StringComparer.Ordinal);
-		if (ids.Count != additions.Count)
-			throw new ImmediateJobException("Buffered continuations contain duplicate job identifiers.");
+		var ids = new HashSet<string>(StringComparer.Ordinal);
+		var trackedAdditions = 0;
+		foreach (var addition in additions)
+		{
+			ArgumentNullException.ThrowIfNull(addition);
+			ArgumentNullException.ThrowIfNull(addition.Job);
+			ValidateDynamicJob(addition.Job, "Dynamic continuation");
+			if (!ids.Add(addition.Job.Id))
+				throw new ImmediateJobException($"Job '{addition.Job.Id}' occurs more than once in the completion buffer.");
+			if (!Enum.IsDefined(addition.Trigger))
+				throw new ArgumentOutOfRangeException(nameof(additions), "Unknown continuation trigger.");
+
+			if (addition.Options == ContinuationOptions.Detached)
+			{
+				if (addition.Job.BatchId is not null)
+					throw new ImmediateJobException("A detached continuation cannot belong to a batch.");
+			}
+			else if (addition.Options is ContinuationOptions.BesideContinuations or ContinuationOptions.BeforeContinuations)
+			{
+				if (current.BatchId is null || addition.Job.BatchId != current.BatchId)
+					throw new ImmediateJobException("A batch-tracked continuation must belong to the current job's batch.");
+				trackedAdditions++;
+			}
+			else
+			{
+				throw new ArgumentOutOfRangeException(nameof(additions), "Unknown continuation option.");
+			}
+		}
+
 		var waiters = additions.Any(static addition => addition.Options == ContinuationOptions.BeforeContinuations)
 			? await GetActiveWaitersAsync(connection, current.Id, cancellationToken).ConfigureAwait(false)
 			: [];
-		var trackedAdditions = additions.Count(static addition => addition.Options != ContinuationOptions.Detached);
 		if (trackedAdditions != 0)
 		{
 			if (current.BatchId is not { } batchId)
@@ -1569,12 +1720,16 @@ public sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorage,
 				throw new LostRaceException();
 		}
 
+		await ResetReturningGroupCursorsAsync(
+			connection,
+			[.. additions.Select(static addition => addition.Job)],
+			cancellationToken
+		).ConfigureAwait(false);
+
 		foreach (var addition in additions)
 		{
-			var inBatch = addition.Options != ContinuationOptions.Detached;
 			var job = ToEntity(addition.Job with
 			{
-				BatchId = inBatch ? current.BatchId : null,
 				State = JobState.AwaitingContinuation,
 				RemainingDependencies = 1,
 			});
@@ -1662,23 +1817,6 @@ public sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorage,
 				if (child is null || IsTerminal(child.State))
 					continue;
 				var childStamp = child.ConcurrencyStamp;
-				if (edge.Trigger == ContinuationTrigger.Success && !parent.Succeeded)
-				{
-					child.State = JobState.Cancelled;
-					child.RemainingDependencies = 0;
-					child.CompletedAt = now;
-					child.WorkerId = null;
-					child.LeaseExpiresAt = null;
-					child.ConcurrencyStamp = Guid.NewGuid();
-					if (!await UpdateJobAsync(connection, child, childStamp, cancellationToken).ConfigureAwait(false))
-						throw new LostRaceException();
-					AddFairQueueGroup(terminalGroups, child);
-					parents.Enqueue((ContinuationParentKind.Job, child.Id, Succeeded: false, Failed: false));
-					await UpdateBatchForTerminalJobAsync(connection, child, now, parents, cancellationToken)
-						.ConfigureAwait(false);
-					continue;
-				}
-
 				if (child.State != JobState.AwaitingContinuation || child.RemainingDependencies <= 0)
 					continue;
 				child.RemainingDependencies--;
@@ -1686,10 +1824,12 @@ public sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorage,
 					child.FailedDependencies++;
 				if (child.RemainingDependencies == 0)
 				{
-					if (edge.Trigger == ContinuationTrigger.Failure && child.FailedDependencies == 0)
+					if (await ShouldCancelSettledContinuationAsync(connection, child.Id, cancellationToken).ConfigureAwait(false))
 					{
 						child.State = JobState.Cancelled;
 						child.CompletedAt = now;
+						child.WorkerId = null;
+						child.LeaseExpiresAt = null;
 						AddFairQueueGroup(terminalGroups, child);
 						parents.Enqueue((ContinuationParentKind.Job, child.Id, Succeeded: false, Failed: false));
 						await UpdateBatchForTerminalJobAsync(connection, child, now, parents, cancellationToken)
@@ -1706,6 +1846,57 @@ public sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorage,
 					throw new LostRaceException();
 			}
 		}
+	}
+
+	private async Task<bool> ShouldCancelSettledContinuationAsync(
+		DataConnection connection,
+		string childJobId,
+		CancellationToken cancellationToken
+	)
+	{
+		var edges = await Continuations(connection)
+			.Where(edge => edge.ChildJobId == childJobId)
+			.ToListAsync(cancellationToken)
+			.ConfigureAwait(false);
+		var jobParentIds = edges
+			.Where(static edge => edge.ParentKind == ContinuationParentKind.Job)
+			.Select(static edge => edge.ParentId)
+			.Distinct()
+			.ToArray();
+		var batchParentIds = edges
+			.Where(static edge => edge.ParentKind == ContinuationParentKind.Batch)
+			.Select(static edge => edge.ParentId)
+			.Distinct()
+			.ToArray();
+		var jobStates = jobParentIds.Length == 0
+			? []
+			: await Jobs(connection)
+				.Where(job => jobParentIds.Contains(job.Id))
+				.Select(static job => new { job.Id, job.State })
+				.ToDictionaryAsync(static job => job.Id, static job => job.State, cancellationToken)
+				.ConfigureAwait(false);
+		var batchStates = batchParentIds.Length == 0
+			? []
+			: await Batches(connection)
+				.Where(batch => batchParentIds.Contains(batch.Id))
+				.Select(static batch => new { batch.Id, batch.State })
+				.ToDictionaryAsync(static batch => batch.Id, static batch => batch.State, cancellationToken)
+				.ConfigureAwait(false);
+
+		var requiresFailure = false;
+		var anyParentFailed = false;
+		foreach (var edge in edges)
+		{
+			var (succeeded, failed) = edge.ParentKind == ContinuationParentKind.Job
+				? (jobStates[edge.ParentId] == JobState.Succeeded, jobStates[edge.ParentId] == JobState.Failed)
+				: (batchStates[edge.ParentId] == BatchState.Succeeded, batchStates[edge.ParentId] == BatchState.Failed);
+			if (edge.Trigger == ContinuationTrigger.Success && !succeeded)
+				return true;
+			requiresFailure |= edge.Trigger == ContinuationTrigger.Failure;
+			anyParentFailed |= failed;
+		}
+
+		return requiresFailure && !anyParentFailed;
 	}
 
 	private static void AddFairQueueGroup(
@@ -2183,8 +2374,16 @@ public sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorage,
 		FromTicks(batch.CreatedAt),
 		FromTicks(batch.StartedAt),
 		FromTicks(batch.CompletedAt),
-		batch.TotalJobs == 0 ? 1 : (double)(batch.TotalJobs - batch.PendingCount) / batch.TotalJobs
+		BatchStatus.CalculateFractionSettled(batch.TotalJobs, batch.PendingCount)
 	);
+
+	private static JobContinuationEdge ToContinuationEdge(ImmediateJobContinuationEntity edge) => new()
+	{
+		ChildJobId = edge.ChildJobId,
+		ParentJobId = edge.ParentKind == ContinuationParentKind.Job ? edge.ParentId : null,
+		ParentBatchId = edge.ParentKind == ContinuationParentKind.Batch ? edge.ParentId : null,
+		Trigger = edge.Trigger,
+	};
 
 	private static BatchGraphEdge ToGraphEdge(ImmediateJobContinuationEntity edge) => new(
 		edge.ChildJobId,

@@ -58,7 +58,7 @@ const emit = defineEmits<{
 					<dt>Queue</dt>
 					<dd><code>{{ job.queueName }}</code></dd>
 				</div>
-				<div v-if="job.groupId">
+				<div v-if="job.groupId !== null">
 					<dt>Group</dt>
 					<dd><code>{{ job.groupId }}</code></dd>
 				</div>

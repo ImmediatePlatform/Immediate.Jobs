@@ -10,6 +10,9 @@ namespace Immediate.Jobs.Redis;
 /// </summary>
 public sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 {
+	private const int QueryWindowSize = 256;
+	private const int MaximumQueryTake = 1000;
+
 	private static readonly RedisValue[] JobMutableFields =
 	[
 		"record",
@@ -290,23 +293,45 @@ public sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 		ArgumentNullException.ThrowIfNull(query);
 		ArgumentOutOfRangeException.ThrowIfNegative(query.Skip);
 		ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(query.Take, 0);
-		var ids = query.Id is { } id
-			? [id]
-			: (await _database.SortedSetRangeByRankAsync(
-				AllJobsKey,
-				order: Order.Descending
-			).WaitAsync(cancellationToken).ConfigureAwait(false))
-				.Select(static value => (string)value!)
-				.ToArray();
-		var jobs = await ReadJobsAsync(ids, cancellationToken).ConfigureAwait(false);
-		IEnumerable<JobRecord> filtered = jobs;
-		if (query.State is { } state)
-			filtered = filtered.Where(job => job.State == state);
-		if (!string.IsNullOrWhiteSpace(query.QueueName))
-			filtered = filtered.Where(job => job.QueueName == query.QueueName);
-		if (!string.IsNullOrWhiteSpace(query.Search))
-			filtered = filtered.Where(job => job.JobName.Contains(query.Search, StringComparison.OrdinalIgnoreCase));
-		return [.. filtered.Skip(query.Skip).Take(Math.Min(query.Take, 1000))];
+		var take = Math.Min(query.Take, MaximumQueryTake);
+		if (query.Id is { } id)
+		{
+			var job = await ReadJobAsync(id, cancellationToken).ConfigureAwait(false);
+			return job is not null && query.Skip == 0 && MatchesQuery(job, query) ? [job] : [];
+		}
+
+		if (!HasFilters(query))
+		{
+			var ids = await ReadJobIdsByRankAsync(query.Skip, take, cancellationToken).ConfigureAwait(false);
+			return await ReadJobsAsync(ids, cancellationToken).ConfigureAwait(false);
+		}
+
+		var matchLimit = (long)query.Skip + take;
+		var matches = new List<JobRecord>(take);
+		long rank = 0;
+		long matched = 0;
+		while (matched < matchLimit)
+		{
+			cancellationToken.ThrowIfCancellationRequested();
+			var ids = await ReadJobIdsByRankAsync(rank, QueryWindowSize, cancellationToken).ConfigureAwait(false);
+			if (ids.Count == 0)
+				break;
+
+			var jobs = await ReadJobsAsync(ids, cancellationToken).ConfigureAwait(false);
+			foreach (var job in jobs)
+			{
+				if (!MatchesQuery(job, query))
+					continue;
+				if (matched++ >= query.Skip)
+					matches.Add(job);
+				if (matched == matchLimit)
+					break;
+			}
+
+			rank += ids.Count;
+		}
+
+		return matches;
 	}
 
 	/// <inheritdoc />
@@ -325,7 +350,7 @@ public sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 				job.QueueName,
 				job.State,
 				job.Attempt,
-				MaxAttempts: 0,
+				MaxAttempts: null,
 				job.CreatedAt,
 				job.DueAt,
 				job.CompletedAt,
@@ -351,7 +376,9 @@ public sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 			[Ticks(now), Score(now), jobId, _root],
 			cancellationToken
 		).ConfigureAwait(false);
-		if (result <= 0)
+		if (result == 0)
+			throw new KeyNotFoundException($"Job '{jobId}' was not found.");
+		if (result < 0)
 			throw new ImmediateJobException("Only failed jobs can be retried.");
 	}
 
@@ -365,6 +392,8 @@ public sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 			[jobId, _root],
 			cancellationToken
 		).ConfigureAwait(false);
+		if (result == 0)
+			throw new KeyNotFoundException($"Job '{jobId}' was not found.");
 		if (result < 0)
 			throw new ImmediateJobException("Only terminal jobs can be deleted.");
 	}
@@ -480,6 +509,8 @@ public sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 			[name],
 			cancellationToken
 		).ConfigureAwait(false);
+		if (result == 0)
+			throw new KeyNotFoundException($"Recurring schedule '{name}' was not found.");
 		if (result < 0)
 			throw new ImmediateJobException("Code-defined recurring schedules cannot be deleted.");
 	}
@@ -701,6 +732,32 @@ public sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 		var jobs = await Task.WhenAll(tasks).WaitAsync(cancellationToken).ConfigureAwait(false);
 		return [.. jobs.OfType<JobRecord>()];
 	}
+
+	private async Task<IReadOnlyList<string>> ReadJobIdsByRankAsync(
+		long start,
+		int count,
+		CancellationToken cancellationToken
+	)
+	{
+		var values = await _database.SortedSetRangeByRankAsync(
+			AllJobsKey,
+			start,
+			start + count - 1,
+			Order.Descending
+		).WaitAsync(cancellationToken).ConfigureAwait(false);
+		return [.. values.Select(static value => (string)value!)];
+	}
+
+	private static bool HasFilters(JobQuery query) =>
+		query.State is not null ||
+		!string.IsNullOrWhiteSpace(query.QueueName) ||
+		!string.IsNullOrWhiteSpace(query.Search);
+
+	private static bool MatchesQuery(JobRecord job, JobQuery query) =>
+		(query.State is not { } state || job.State == state) &&
+		(string.IsNullOrWhiteSpace(query.QueueName) || job.QueueName == query.QueueName) &&
+		(string.IsNullOrWhiteSpace(query.Search) ||
+			job.JobName.Contains(query.Search, StringComparison.OrdinalIgnoreCase));
 
 	private async ValueTask<JobRecord?> ReadJobAsync(string id, CancellationToken cancellationToken)
 	{

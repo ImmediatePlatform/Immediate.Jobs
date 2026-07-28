@@ -1,6 +1,7 @@
 using Immediate.Jobs.Aspire.Api.Contracts;
 using Immediate.Jobs.Aspire.Api.Jobs;
 using Immediate.Jobs.Aspire.Api.Workflows;
+using Immediate.Jobs.Shared;
 
 namespace Immediate.Jobs.Aspire.Api.Endpoints;
 
@@ -21,9 +22,9 @@ public static class SampleApiEndpoints
 			.WithName("EnqueueFairQueueDemo")
 			.WithSummary("Creates a noisy backlog followed by a quiet fair-queue group")
 			.WithDescription(
-				"Enqueues 100 deliberately slow jobs in one group, waits five seconds, then "
-				+ "enqueues one job in a second group. The second group's job should advance "
-				+ "ahead of the remaining backlog."
+				"Atomically enqueues 100 deliberately slow jobs in one group and one job in a "
+				+ "second group that becomes due five seconds later. The second group's job should "
+				+ "advance ahead of the remaining backlog."
 			)
 			.Produces<FairQueueDemoResponse>(StatusCodes.Status202Accepted);
 
@@ -66,6 +67,7 @@ public static class SampleApiEndpoints
 
 	private static async ValueTask<IResult> EnqueueFairQueueDemoAsync(
 		FairQueueDemoJob.Scheduler scheduler,
+		IJobBatchScheduler batches,
 		CancellationToken cancellationToken
 	)
 	{
@@ -73,21 +75,23 @@ public static class SampleApiEndpoints
 		var runId = Guid.NewGuid();
 		var backlogGroup = $"fair-demo:{runId:N}:backlog";
 		var quietGroup = $"fair-demo:{runId:N}:quiet";
+		await using var batch = batches.Begin();
 		for (var sequence = 1; sequence <= BacklogJobs; sequence++)
 		{
-			_ = await scheduler.EnqueueAsync(
+			_ = scheduler.AddToBatch(
+				batch,
 				new(runId, sequence, "backlog"),
-				groupId: backlogGroup,
-				cancellationToken: cancellationToken
+				groupId: backlogGroup
 			);
 		}
 
-		await Task.Delay(TimeSpan.FromSeconds(5), cancellationToken);
-		var quietJob = await scheduler.EnqueueAsync(
+		var quietJob = scheduler.AddToBatch(
+			batch,
 			new(runId, 1, "quiet"),
 			groupId: quietGroup,
-			cancellationToken: cancellationToken
+			delay: TimeSpan.FromSeconds(5)
 		);
+		_ = await batch.CommitAsync(cancellationToken);
 
 		return Results.Accepted(
 			"/jobs",

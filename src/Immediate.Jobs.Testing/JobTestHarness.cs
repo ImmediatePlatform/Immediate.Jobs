@@ -200,6 +200,8 @@ public sealed class JobTestHarness : IAsyncDisposable, IDisposable
 			);
 		}
 
+		if (childStatus.State == JobState.Cancelled)
+			throw new JobTestAssertionException($"Expected continuation '{child.Id}' to be released, but it was cancelled.");
 		if (childStatus.State == JobState.AwaitingContinuation)
 			throw new JobTestAssertionException($"Expected continuation '{child.Id}' to be released, but it is still waiting.");
 	}

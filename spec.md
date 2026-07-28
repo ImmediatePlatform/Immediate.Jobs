@@ -7,7 +7,7 @@ Status: Draft v0.2 · Date: 2026-07-22 · License: MIT · Target: .NET 8+
 > **Since v0.1:** job continuations/chains and atomic batches — originally listed as v1 non-goals —
 > are now implemented and part of the core package. See §2.8 and §3.2 here, and the full design in
 > [`docs/batches-and-continuations.md`](docs/batches-and-continuations.md). SQS-style *fair queues*
-> are designed but not yet built; see [`docs/fair-queues.md`](docs/fair-queues.md).
+> are also implemented; see [`docs/fair-queues.md`](docs/fair-queues.md).
 
 ---
 
@@ -29,8 +29,7 @@ DAG workflow surface (fan-out, fan-in, diamonds, batch continuations, mid-job dy
 
 **Remaining non-goals** (candidates for later): workflow/saga compensation & rollback, result-passing
 between parent and child jobs, human-in-the-loop suspension, calendar exclusions (holidays), and
-multi-tenancy/schema isolation in storage providers. *Fair queues* (SQS-style per-group fairness) are
-designed and slated but not yet shipped.
+multi-tenancy/schema isolation in storage providers.
 
 ---
 
@@ -399,14 +398,13 @@ implementation as default.
 | **M3 — Dashboard**             | Monitoring API (JSON + SSE), Vue SPA, actions (trigger/retry/delete/pause), auth integration                                                                                                           |
 | **M4 — Polish & ship**         | `Immediate.Jobs.Testing`, OTel + metrics + health checks, AOT CI, benchmarks, docs site, v1.0 to NuGet                                                                                                 |
 | **M5 — Batches & continuations** | Atomic batches, job→job and batch continuations, fan-out/fan-in/diamonds, mid-job dynamic expansion, `AwaitingContinuation` state + edge/counter storage across providers, batch dashboard views & graph, new diagnostics |
+| **M6 — Fair queues**           | Per-group backlog rotation and noisy-neighbor prioritization for in-memory, EF Core, LinqToDB, and single-server acquisition; persisted group visibility in the dashboard |
 
-**Designed, not yet scheduled:** SQS-style *fair queues* (per-group fairness at acquisition) —
+The shipped fair-queue behavior and provider support matrix are documented in
 [`docs/fair-queues.md`](docs/fair-queues.md).
 
 ---
 
 ## 8. Open Questions
 
-None open for shipped features. The fair-queues design ([`docs/fair-queues.md`](docs/fair-queues.md))
-carries a few small implementation-time decisions (group-id max length, threshold scope, cardinality
-guard) that are recorded and resolved there.
+None open for shipped features.

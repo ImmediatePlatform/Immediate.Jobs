@@ -61,8 +61,9 @@ The group id is persisted even when fair queues are disabled, but it does not af
 that configuration. The scheduler emits a one-time warning when it encounters grouped jobs while
 fair queues are disabled.
 
-Group ids are supported by direct enqueue and schedule operations. Continuation, batch, and
-recurring enqueue operations do not currently accept a group id.
+Group ids are supported by direct enqueue and schedule operations and by root members added to an
+atomic batch with the grouped `AddToBatch` and `AddToBatchAt` overloads. Continuation and recurring
+enqueue operations do not currently accept a group id.
 
 ## Configuration
 
@@ -181,26 +182,38 @@ Expired leases are reclaimed before fairness is measured. Only active jobs with 
 contribute to in-flight counts:
 
 ```text
+effectiveGroupId(job) = job.GroupId ?? job.Id
+
 inflight[g] = count(
   State == Active
   && LeaseExpiresAt > now
   && QueueName == queue
-  && GroupId == g)
+  && effectiveGroupId(job) == g)
 
 N = total non-expired Active jobs in the queue
 
-noisy(g) =
-  inflight[g] >= MinInflightForNoisy
-  && inflight[g] / N > ConcurrencyShareThreshold
+noisy(job) =
+  job.GroupId != null
+  && inflight[effectiveGroupId(job)] >= MinInflightForNoisy
+  && inflight[effectiveGroupId(job)] / N > ConcurrencyShareThreshold
 ```
 
-Ungrouped jobs are always quiet. Among noisy groups, the group with fewer in-flight jobs sorts
-first.
+Using the job id as the effective group for an ungrouped job keeps null group ids independent rather
+than coalescing every ungrouped job into one synthetic group. Ungrouped jobs are always quiet. Among
+noisy groups, the group with fewer in-flight jobs sorts first.
 
 ### Candidate ranking
 
 For each available acquisition slot, the provider considers the head eligible job from every
 group, plus the first eligible ungrouped job. Candidates are ranked by:
+
+```text
+candidateRank = row_number(
+  partition by effectiveGroupId(job)
+  order by DueAt, CreatedAt, Id)
+```
+
+Only rows with `candidateRank == 1` enter the fairness ranking:
 
 1. quiet before noisy;
 2. among noisy groups, lower in-flight count first;
@@ -213,6 +226,10 @@ for the next slot.
 
 With `GroupRoundRobin` disabled, the last-served comparison is omitted. Quiet groups still precede
 noisy groups, and the normal due-time order breaks the remaining ties.
+
+The effective-group pseudo-SQL describes the required semantics without grouping nulls together.
+Production providers keep ungrouped jobs on their independent fast path and apply grouped head
+selection only to non-null group ids; they do not need to materialize job ids as group keys.
 
 ## Provider behavior
 

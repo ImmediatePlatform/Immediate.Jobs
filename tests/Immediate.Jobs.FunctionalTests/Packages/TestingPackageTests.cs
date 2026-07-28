@@ -166,12 +166,63 @@ public sealed class TestingPackageTests
 		Assert.Equal(JobState.Succeeded, (await harness.GetJobAsync(id, cancellationToken)).State);
 	}
 
+	[Fact]
+	public async Task ContinuationReleaseAssertionRejectsCancellation()
+	{
+		var cancellationToken = TestContext.Current.CancellationToken;
+		await using var harness = new JobTestHarness();
+		var graphStorage = Assert.IsAssignableFrom<IJobGraphStorage>(harness.Storage);
+		var parent = CreateRawJob("parent");
+		var child = CreateRawJob("child") with
+		{
+			State = JobState.AwaitingContinuation,
+			RemainingDependencies = 1,
+		};
+		await graphStorage.EnqueueAsync(parent, cancellationToken);
+		await graphStorage.EnqueueContinuationAsync(
+			child,
+			[new() { ChildJobId = child.Id, ParentJobId = parent.Id }],
+			cancellationToken
+		);
+		_ = Assert.Single(await graphStorage.AcquireDueJobsAsync(new()
+		{
+			WorkerId = "worker",
+			Lease = TimeSpan.FromMinutes(1),
+			BatchSize = 1,
+			Queues =
+			[
+				new()
+				{
+					QueueName = JobQueueDefinition.DefaultName,
+					Capacity = 1,
+					JobCapacities = new Dictionary<string, int>(StringComparer.Ordinal) { [parent.JobName] = 1 },
+				},
+			],
+		}, cancellationToken));
+		await graphStorage.FailAsync(parent.Id, "worker", "broken", nextRetryAt: null, cancellationToken);
+
+		var exception = await Assert.ThrowsAsync<JobTestAssertionException>(
+			() => harness.AssertContinuationReleasedAfterAsync(new(parent.Id), new(child.Id), cancellationToken).AsTask()
+		);
+		Assert.Contains("cancelled", exception.Message, StringComparison.OrdinalIgnoreCase);
+	}
+
 	public sealed record TestPayload(string Value);
 
 	private sealed class InvocationCounter
 	{
 		public int Count { get; set; }
 	}
+
+	private static JobRecord CreateRawJob(string id) => new()
+	{
+		Id = id,
+		JobName = "raw-job",
+		Payload = "{}",
+		State = JobState.Pending,
+		DueAt = DateTimeOffset.UnixEpoch,
+		CreatedAt = DateTimeOffset.UnixEpoch,
+	};
 
 	private sealed class TestScheduler(
 		IJobStorage storage,

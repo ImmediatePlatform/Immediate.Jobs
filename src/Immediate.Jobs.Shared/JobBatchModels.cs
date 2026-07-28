@@ -142,11 +142,32 @@ public sealed record JobContinuationAddition
 /// <summary>Per-attempt buffer used by generated schedulers during job execution.</summary>
 public sealed class JobExecutionBuffer
 {
+	private readonly Lock _gate = new();
 	private readonly List<JobContinuationAddition> _additions = [];
+	private bool _sealed;
 
-	internal void Add(JobContinuationAddition addition) => _additions.Add(addition);
+	internal void Add(JobContinuationAddition addition)
+	{
+		lock (_gate)
+		{
+			if (_sealed)
+				throw new ImmediateJobException("The execution buffer is sealed and cannot accept additional continuations.");
+			_additions.Add(addition);
+		}
+	}
 
-	internal IReadOnlyList<JobContinuationAddition> Snapshot() => _additions.Count == 0 ? [] : [.. _additions];
+	internal IReadOnlyList<JobContinuationAddition> SealAndSnapshot()
+	{
+		lock (_gate)
+		{
+			if (_sealed)
+				throw new ImmediateJobException("The execution buffer has already been sealed.");
+			_sealed = true;
+			return _additions.Count == 0
+				? Array.Empty<JobContinuationAddition>()
+				: Array.AsReadOnly(_additions.ToArray());
+		}
+	}
 }
 
 /// <summary>Aggregate progress for an atomic batch.</summary>
@@ -162,7 +183,12 @@ public sealed record BatchStatus(
 	DateTimeOffset? StartedAt,
 	DateTimeOffset? CompletedAt,
 	double FractionSettled
-);
+)
+{
+	/// <summary>Calculates settled progress, treating an empty batch as fully settled.</summary>
+	public static double CalculateFractionSettled(int total, int remaining) =>
+		total == 0 ? 1d : (double)(total - remaining) / total;
+}
 
 /// <summary>Filters members returned from a batch.</summary>
 public sealed record BatchMemberQuery
@@ -223,7 +249,7 @@ public sealed record JobStatus(
 	string QueueName,
 	JobState State,
 	int Attempt,
-	int MaxAttempts,
+	int? MaxAttempts,
 	DateTimeOffset CreatedAt,
 	DateTimeOffset DueAt,
 	DateTimeOffset? CompletedAt,

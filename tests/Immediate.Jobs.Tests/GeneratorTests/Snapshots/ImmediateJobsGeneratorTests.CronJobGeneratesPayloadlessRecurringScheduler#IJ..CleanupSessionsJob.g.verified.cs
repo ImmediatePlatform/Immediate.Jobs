@@ -29,11 +29,25 @@ partial class CleanupSessionsJob
 			global::System.TimeSpan? delay = null) =>
 			base.AddToBatch(batch, payload, delay);
 
+		public new global::Immediate.Jobs.Shared.JobHandle AddToBatch(
+			global::Immediate.Jobs.Shared.IJobBatch batch,
+			global::Immediate.Jobs.Shared.EmptyJobRequest payload,
+			string? groupId,
+			global::System.TimeSpan? delay = null) =>
+			base.AddToBatch(batch, payload, groupId, delay);
+
 		public new global::Immediate.Jobs.Shared.JobHandle AddToBatchAt(
 			global::Immediate.Jobs.Shared.IJobBatch batch,
 			global::Immediate.Jobs.Shared.EmptyJobRequest payload,
 			global::System.DateTimeOffset runAt) =>
 			base.AddToBatchAt(batch, payload, runAt);
+
+		public new global::Immediate.Jobs.Shared.JobHandle AddToBatchAt(
+			global::Immediate.Jobs.Shared.IJobBatch batch,
+			global::Immediate.Jobs.Shared.EmptyJobRequest payload,
+			global::System.DateTimeOffset runAt,
+			string? groupId) =>
+			base.AddToBatchAt(batch, payload, runAt, groupId);
 
 		public new global::System.Threading.Tasks.ValueTask<global::Immediate.Jobs.Shared.JobHandle> ScheduleAfterAsync(
 			global::Immediate.Jobs.Shared.JobHandle parent,

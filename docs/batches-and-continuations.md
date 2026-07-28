@@ -621,7 +621,7 @@ public sealed record BatchStatus(
     int Total, int Succeeded, int Failed, int Cancelled,
     int Remaining,                          // non-terminal (running + waiting); == PendingCount
     DateTimeOffset CreatedAt, DateTimeOffset? StartedAt, DateTimeOffset? CompletedAt,
-    double FractionSettled);                // (Total - Remaining) / Total
+    double FractionSettled);                // empty = 1; otherwise (Total - Remaining) / Total
 
 public sealed record BatchMemberQuery { public JobState? State; public int Skip; public int Take = 100; }
 
@@ -637,7 +637,7 @@ public sealed record BatchGraphEdge(
 
 public sealed record JobStatus(
     string JobId, string JobName, string QueueName, JobState State,
-    int Attempt, int MaxAttempts,
+    int Attempt, int? MaxAttempts,           // null when the provider cannot determine the configured limit
     DateTimeOffset CreatedAt, DateTimeOffset DueAt, DateTimeOffset? CompletedAt,
     string? LastError, string? BatchId,
     IReadOnlyList<BatchGraphEdge> DependsOn); // its incoming continuation edges
@@ -687,7 +687,9 @@ concrete generated member, not a shared interface):
 
     // batch membership (root member, no dependency)
 	JobHandle AddToBatch(IJobBatch batch, Payload payload, TimeSpan? delay = null);
+	JobHandle AddToBatch(IJobBatch batch, Payload payload, string? groupId, TimeSpan? delay = null);
 	JobHandle AddToBatchAt(IJobBatch batch, Payload payload, DateTimeOffset runAt);
+	JobHandle AddToBatchAt(IJobBatch batch, Payload payload, DateTimeOffset runAt, string? groupId);
 
     // continuations — this job runs after the parent(s); works in a batch or standalone
     ValueTask<JobHandle> ScheduleAfterAsync(JobHandle parent, Payload payload,

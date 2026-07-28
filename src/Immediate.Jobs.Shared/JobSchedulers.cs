@@ -155,12 +155,20 @@ public abstract class JobScheduler<TPayload>(
 		IJobBatch batch,
 		TPayload payload,
 		TimeSpan? delay = null
+	) => AddToBatch(batch, payload, groupId: null, delay);
+
+	/// <summary>Adds grouped work to an atomic batch for immediate execution after commit.</summary>
+	public JobHandle AddToBatch(
+		IJobBatch batch,
+		TPayload payload,
+		string? groupId,
+		TimeSpan? delay = null
 	)
 	{
 		ArgumentNullException.ThrowIfNull(batch);
 		if (delay < TimeSpan.Zero)
 			throw new ArgumentOutOfRangeException(nameof(delay), "A job delay cannot be negative.");
-		return AddToBatchAt(batch, payload, TimeProvider.GetUtcNow() + (delay ?? TimeSpan.Zero));
+		return AddToBatchAt(batch, payload, TimeProvider.GetUtcNow() + (delay ?? TimeSpan.Zero), groupId);
 	}
 
 	/// <summary>Adds absolute-time work to an atomic batch.</summary>
@@ -168,14 +176,21 @@ public abstract class JobScheduler<TPayload>(
 		IJobBatch batch,
 		TPayload payload,
 		DateTimeOffset runAt
+	) => AddToBatchAt(batch, payload, runAt, groupId: null);
+
+	/// <summary>Adds grouped absolute-time work to an atomic batch.</summary>
+	public JobHandle AddToBatchAt(
+		IJobBatch batch,
+		TPayload payload,
+		DateTimeOffset runAt,
+		string? groupId
 	)
 	{
 		ArgumentNullException.ThrowIfNull(batch);
 		_ = JobStorageCapabilityGuards.RequireGraph(Storage);
 		if (batch is not JobBatch jobBatch)
 			throw new ArgumentException("The batch was not created by Immediate.Jobs.", nameof(batch));
-		jobBatch.EnsureOpen();
-		var record = CreateRecord(payload, runAt);
+		var record = CreateRecord(payload, runAt, groupId);
 		return jobBatch.Add(record, [], ContinuationTrigger.Success);
 	}
 
@@ -283,20 +298,14 @@ public abstract class JobScheduler<TPayload>(
 	{
 		var graphStorage = JobStorageCapabilityGuards.RequireGraph(Storage);
 		var runAt = TimeProvider.GetUtcNow() + (delay ?? TimeSpan.Zero);
+		var parentIds = ValidateContinuationParents(parents);
 		var batch = parents[0].Batch;
 		if (batch is not null)
 		{
-			batch.EnsureOpen();
 			var batchRecord = CreateRecord(payload, runAt);
 			return batch.Add(batchRecord, parents, on);
 		}
 
-		if (parents.Any(static parent => parent.Batch is not null))
-			throw new ImmediateJobException("Continuation handles from unrelated scopes cannot be mixed.");
-
-		var parentIds = parents.Select(static parent => parent.Id).ToHashSet(StringComparer.Ordinal);
-		if (parentIds.Count != parents.Length)
-			throw new ImmediateJobException("Duplicate continuation parents are not allowed.");
 		var record = CreateRecord(payload, runAt);
 		var waiting = record with { State = JobState.AwaitingContinuation, RemainingDependencies = parents.Length };
 		var edges = parentIds.Select(parentId => new JobContinuationEdge
@@ -308,6 +317,24 @@ public abstract class JobScheduler<TPayload>(
 		await graphStorage.EnqueueContinuationAsync(waiting, edges, cancellationToken).ConfigureAwait(false);
 		JobTelemetry.Enqueued(JobName, QueueName);
 		return new(record.Id);
+	}
+
+	private static HashSet<string> ValidateContinuationParents(JobHandle[] parents)
+	{
+		var parentIds = new HashSet<string>(StringComparer.Ordinal);
+		var batch = parents[0].Batch;
+		foreach (var parent in parents)
+		{
+			if (string.IsNullOrWhiteSpace(parent.Id))
+				throw new ImmediateJobException("Continuation parent handles must have a non-empty identifier.");
+			if (!ReferenceEquals(parent.Batch, batch))
+				throw new ImmediateJobException("Continuation handles from unrelated scopes cannot be mixed.");
+			if (!parentIds.Add(parent.Id))
+				throw new ImmediateJobException($"Duplicate continuation parent '{parent.Id}'.");
+		}
+
+		batch?.EnsureOpen();
+		return parentIds;
 	}
 
 	private JobRecord CreateRecord(TPayload payload, DateTimeOffset runAt, string? groupId = null)

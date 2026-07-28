@@ -268,7 +268,7 @@ public sealed partial class JobSchedulerService : BackgroundService
 		var started = _timeProvider.GetTimestamp();
 		var startedAt = _timeProvider.GetUtcNow();
 		using var timeout = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
-		ITimer? timeoutTimer = definition.Timeout is { } timeoutValue
+		var timeoutTimer = definition.Timeout is { } timeoutValue
 			? _timeProvider.CreateTimer(static state => ((CancellationTokenSource)state!).Cancel(), timeout, timeoutValue, Timeout.InfiniteTimeSpan)
 			: null;
 		using var leaseCancellation = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
@@ -301,14 +301,28 @@ public sealed partial class JobSchedulerService : BackgroundService
 
 		try
 		{
-			await _storage.SetExecutionTelemetryAsync(
-				record.Id,
-				_workerId,
-				activity?.TraceId.ToString(),
-				activity?.SpanId.ToString(),
-				startedAt,
-				stoppingToken
-			).ConfigureAwait(false);
+			try
+			{
+				await _storage.SetExecutionTelemetryAsync(
+					record.Id,
+					_workerId,
+					activity?.TraceId.ToString(),
+					activity?.SpanId.ToString(),
+					startedAt,
+					stoppingToken
+				).ConfigureAwait(false);
+			}
+			catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+			{
+				throw;
+			}
+#pragma warning disable CA1031 // Telemetry persistence is best-effort and must not consume a job attempt.
+			catch (Exception exception)
+#pragma warning restore CA1031
+			{
+				ExecutionTelemetryPersistenceFailed(_logger, exception);
+			}
+
 			await using var scope = _scopeFactory.CreateAsyncScope();
 			if (record.Context is { } orphanedEnvelope && definition.Invoker is not IJobContextAwareInvoker)
 			{
@@ -326,7 +340,7 @@ public sealed partial class JobSchedulerService : BackgroundService
 				await _graphStorage.CompleteWithContinuationsAsync(
 					record.Id,
 					_workerId,
-					executionBuffer.Snapshot(),
+						executionBuffer.SealAndSnapshot(),
 					stoppingToken
 				).ConfigureAwait(false);
 			}
@@ -635,6 +649,13 @@ public sealed partial class JobSchedulerService : BackgroundService
 		Message = "Grouped jobs were acquired while fair queues are disabled. Their group ids are persisted but do not affect dispatch order; call UseFairQueues() to enable fair acquisition."
 	)]
 	private static partial void GroupedJobsAcquiredWithoutFairQueues(ILogger logger);
+
+	[LoggerMessage(
+		EventId = 9,
+		Level = LogLevel.Warning,
+		Message = "Could not persist execution telemetry; job invocation will continue"
+	)]
+	private static partial void ExecutionTelemetryPersistenceFailed(ILogger logger, Exception exception);
 }
 
 /// <summary>Scheduler liveness state shared with health checks and monitoring.</summary>

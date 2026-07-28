@@ -112,6 +112,19 @@ public interface IRecurringJobStorage : IJobStorage
 /// <summary>Storage capability for atomic batches and continuation graphs.</summary>
 public interface IJobGraphStorage : IJobStorage
 {
+	/// <summary>
+	/// Gets incoming continuation edges for the supplied child invocations. Implementations return an
+	/// empty result for an empty collection and treat duplicate child identifiers as one lookup.
+	/// </summary>
+	/// <param name="childJobIds">Non-null child invocation identifiers. Identifiers cannot be null or blank.</param>
+	/// <param name="cancellationToken">A token that can cancel the storage operation.</param>
+	/// <exception cref="ArgumentNullException"><paramref name="childJobIds"/> is <see langword="null"/>.</exception>
+	/// <exception cref="ArgumentException"><paramref name="childJobIds"/> contains a null or blank identifier.</exception>
+	ValueTask<IReadOnlyList<JobContinuationEdge>> GetIncomingEdgesAsync(
+		IReadOnlyCollection<string> childJobIds,
+		CancellationToken cancellationToken = default
+	);
+
 	/// <summary>Atomically inserts a child invocation and its continuation dependencies.</summary>
 	ValueTask EnqueueContinuationAsync(
 		JobRecord job,
