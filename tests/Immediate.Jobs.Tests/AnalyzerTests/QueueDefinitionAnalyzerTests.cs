@@ -33,7 +33,7 @@ public sealed class QueueDefinitionAnalyzerTests
 
 	[Fact]
 	public async Task PresentQueueDefinitionAttributeShouldNotError() =>
-		await AnalyzerTestHelpers.CreateAnalyzerTest<MissingHandlerAttributeAnalyzer>(
+		await AnalyzerTestHelpers.CreateAnalyzerTest<QueueDefinitionAnalyzer>(
 			"""
 			using System.Threading;
 			using System.Threading.Tasks;

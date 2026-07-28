@@ -154,8 +154,8 @@ partial class WorkJob
 		Queue = new global::Immediate.Jobs.Shared.JobQueueDefinition
 		{
 			Name = "critical-queue",
-			Priority = 0,
-			Concurrency = 0,
+			Priority = 10,
+			Concurrency = 1,
 		},
 		Invoker = global::Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetRequiredService<Invoker>(services),
 		JobType = typeof(global::WorkJob),
