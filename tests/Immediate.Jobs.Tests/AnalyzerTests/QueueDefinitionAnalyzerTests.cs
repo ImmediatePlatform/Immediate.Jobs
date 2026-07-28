@@ -58,4 +58,61 @@ public sealed class QueueDefinitionAnalyzerTests
 			}
 			"""
 		).RunAsync(TestContext.Current.CancellationToken);
+
+	[Fact]
+	public async Task DualJobAttributeAndQueueDefinitionAttributeShouldError() =>
+		await AnalyzerTestHelpers.CreateAnalyzerTest<QueueDefinitionAnalyzer>(
+			"""
+			using System.Threading;
+			using System.Threading.Tasks;
+			using Immediate.Handlers.Shared;
+			using Immediate.Jobs.Shared;
+			
+			namespace Dummy;
+
+			[Handler, {|IJOB0010:Job|}, {|IJOB0010:QueueDefinition|}]
+			public sealed partial class GetUsersQuery
+			{
+				public record Query;
+
+				private async ValueTask Handle(
+					Query _,
+					CancellationToken token)
+				{
+				}
+			}
+			"""
+		).RunAsync(TestContext.Current.CancellationToken);
+
+	[Fact]
+	public async Task InvalidConfigurationShouldTriggerRepeatedly() =>
+		await AnalyzerTestHelpers.CreateAnalyzerTest<QueueDefinitionAnalyzer>(
+			"""
+			using System.Threading;
+			using System.Threading.Tasks;
+			using Immediate.Handlers.Shared;
+			using Immediate.Jobs.Shared;
+			
+			namespace Dummy;
+
+			[{|IJOB0011:{|IJOB0011:QueueDefinition(Name = "  ", Concurrency = -1)|}|}]
+			public sealed partial class UsersQueue;
+			"""
+		).RunAsync(TestContext.Current.CancellationToken);
+
+	[Fact]
+	public async Task QueueNamedDefaultShouldError() =>
+		await AnalyzerTestHelpers.CreateAnalyzerTest<QueueDefinitionAnalyzer>(
+			"""
+			using System.Threading;
+			using System.Threading.Tasks;
+			using Immediate.Handlers.Shared;
+			using Immediate.Jobs.Shared;
+			
+			namespace Dummy;
+
+			[{|IJOB0011:QueueDefinition(Name = "default")|}]
+			public sealed partial class UsersQueue;
+			"""
+		).RunAsync(TestContext.Current.CancellationToken);
 }

@@ -19,10 +19,35 @@ public sealed class QueueDefinitionAnalyzer : DiagnosticAnalyzer
 			customTags: [WellKnownDiagnosticTags.NotConfigurable]
 		);
 
+	public static readonly DiagnosticDescriptor JobCannotBeQueueDefinition =
+		new(
+			id: DiagnosticIds.IJOB0010JobCannotBeQueueDefinition,
+			title: "Applying both `Job` and `QueueDefinition` on the same class is invalid",
+			messageFormat: "Job `{0}` is also marked as `[QueueDefinition]`",
+			category: "ImmediateJobs",
+			defaultSeverity: DiagnosticSeverity.Warning,
+			isEnabledByDefault: true,
+			description: "Marking a single class as both a `Job` and a `QueueDefinition` is probably a mis-application."
+		);
+
+	public static readonly DiagnosticDescriptor QueueConfigurationInvalid =
+		new(
+			id: DiagnosticIds.IJOB0011QueueConfigurationInvalid,
+			title: "Queue Configuration Invalid",
+			messageFormat: "Queue `{0}` has an invalid configuration: {1}",
+			category: "ImmediateJobs",
+			defaultSeverity: DiagnosticSeverity.Error,
+			isEnabledByDefault: true,
+			description: "Invalid configurations of queues will prevent proper usage.",
+			customTags: [WellKnownDiagnosticTags.NotConfigurable]
+		);
+
 	public override ImmutableArray<DiagnosticDescriptor> SupportedDiagnostics { get; } =
 		ImmutableArray.Create(
 		[
 			MissingQueueDefinition,
+			JobCannotBeQueueDefinition,
+			QueueConfigurationInvalid,
 		]);
 
 	public override void Initialize(AnalysisContext context)
@@ -49,7 +74,6 @@ public sealed class QueueDefinitionAnalyzer : DiagnosticAnalyzer
 
 	private static void AnalyzeJob(SymbolAnalysisContext context, INamedTypeSymbol namedTypeSymbol)
 	{
-
 		if (
 			namedTypeSymbol.GetAttributes() is not
 			{
@@ -76,5 +100,65 @@ public sealed class QueueDefinitionAnalyzer : DiagnosticAnalyzer
 
 	private static void AnalyzeQueue(SymbolAnalysisContext context, INamedTypeSymbol namedTypeSymbol)
 	{
+		var attributes = namedTypeSymbol.GetAttributes();
+
+		if (attributes.QueueDefinitionAttribute is not { } queueDefinitionAttribute)
+			return;
+
+		if (attributes.JobAttribute is { } jobAttribute)
+		{
+			context.ReportDiagnostic(
+				Diagnostic.Create(
+					JobCannotBeQueueDefinition,
+					queueDefinitionAttribute.Location,
+					namedTypeSymbol.ToDisplayString(SymbolDisplayFormat.CSharpShortErrorMessageFormat)
+				)
+			);
+
+			context.ReportDiagnostic(
+				Diagnostic.Create(
+					JobCannotBeQueueDefinition,
+					jobAttribute.Location,
+					namedTypeSymbol.ToDisplayString(SymbolDisplayFormat.CSharpShortErrorMessageFormat)
+				)
+			);
+		}
+
+		var queueName = queueDefinitionAttribute.GetQueueName(namedTypeSymbol.Name);
+		if (string.IsNullOrWhiteSpace(queueName))
+		{
+			context.ReportDiagnostic(
+				Diagnostic.Create(
+					QueueConfigurationInvalid,
+					queueDefinitionAttribute.Location,
+					namedTypeSymbol.ToDisplayString(SymbolDisplayFormat.CSharpShortErrorMessageFormat),
+					"Name cannot be empty."
+				)
+			);
+		}
+		else if (string.Equals(queueName, "default", StringComparison.Ordinal))
+		{
+			context.ReportDiagnostic(
+				Diagnostic.Create(
+					QueueConfigurationInvalid,
+					queueDefinitionAttribute.Location,
+					namedTypeSymbol.ToDisplayString(SymbolDisplayFormat.CSharpShortErrorMessageFormat),
+					"Name 'default' is reserved"
+				)
+			);
+		}
+
+		var concurrency = queueDefinitionAttribute.NamedArguments.GetIntValue("Concurrency", 0);
+		if (concurrency < 0)
+		{
+			context.ReportDiagnostic(
+				Diagnostic.Create(
+					QueueConfigurationInvalid,
+					queueDefinitionAttribute.Location,
+					namedTypeSymbol.ToDisplayString(SymbolDisplayFormat.CSharpShortErrorMessageFormat),
+					"Concurrency cannot be negative"
+				)
+			);
+		}
 	}
 }

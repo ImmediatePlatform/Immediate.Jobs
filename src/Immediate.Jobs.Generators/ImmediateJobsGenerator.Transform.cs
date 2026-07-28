@@ -88,15 +88,15 @@ public sealed partial class ImmediateJobsGenerator
 				{ AttributeClass.TypeArguments: [{ } queueSymbol] }
 					when queueSymbol.GetAttributes().QueueDefinitionAttribute is { } queueDefinitionAttribute =>
 					(
-						QueueName: queueDefinitionAttribute.GetQueueName(queueSymbol.Name),
-						QueuePriority: 0,
-						QueueConcurrency: 0
+						QueueName: queueDefinitionAttribute.GetQueueName(queueSymbol.Name).NullIf("default"),
+						QueuePriority: queueDefinitionAttribute.NamedArguments.GetIntValue("Priority", 0),
+						QueueConcurrency: queueDefinitionAttribute.NamedArguments.GetIntValue("Concurrency", 0)
 					),
 
-				{ } => default((string QueueName, int QueuePriority, int QueueConcurrency)?),
+				{ } => default((string? QueueName, int QueuePriority, int QueueConcurrency)?),
 
 				_ => (QueueName: "default", QueuePriority: 0, QueueConcurrency: 0),
-			} is not (var queueName, var queuePriority, var queueConcurrency)
+			} is not ({ } queueName, var queuePriority, >= 0 and var queueConcurrency)
 		)
 		{
 			return null;
