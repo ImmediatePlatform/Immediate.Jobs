@@ -687,7 +687,7 @@ concrete generated member, not a shared interface):
 
     // batch membership (root member, no dependency)
 	JobHandle AddToBatch(IJobBatch batch, Payload payload, TimeSpan? delay = null);
-	JobHandle AddToBatch(IJobBatch batch, Payload payload, string? groupId, TimeSpan? delay = null);
+	JobHandle AddToBatchInGroup(IJobBatch batch, Payload payload, string? groupId, TimeSpan? delay = null);
 	JobHandle AddToBatchAt(IJobBatch batch, Payload payload, DateTimeOffset runAt);
 	JobHandle AddToBatchAt(IJobBatch batch, Payload payload, DateTimeOffset runAt, string? groupId);
 

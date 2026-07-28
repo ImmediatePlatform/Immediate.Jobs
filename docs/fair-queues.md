@@ -208,12 +208,20 @@ For each available acquisition slot, the provider considers the head eligible jo
 group, plus the first eligible ungrouped job. Candidates are ranked by:
 
 ```text
-candidateRank = row_number(
-  partition by effectiveGroupId(job)
+groupedCandidateRank = row_number(
+  partition by job.GroupId
   order by DueAt, CreatedAt, Id)
+  for jobs where job.GroupId != null
+
+groupedCandidates = jobs where groupedCandidateRank == 1
+
+ungroupedCandidate = first job where job.GroupId == null
+  ordered by DueAt, CreatedAt, Id
+
+candidates = groupedCandidates union ungroupedCandidate
 ```
 
-Only rows with `candidateRank == 1` enter the fairness ranking:
+Only rows in `candidates` enter the fairness ranking:
 
 1. quiet before noisy;
 2. among noisy groups, lower in-flight count first;

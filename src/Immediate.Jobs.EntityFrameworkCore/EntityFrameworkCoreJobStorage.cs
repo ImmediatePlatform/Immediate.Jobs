@@ -1340,7 +1340,8 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 		if (job.BatchId is not null)
 			throw new ImmediateJobException("Batch members are deleted with their batch so the workflow remains coherent.");
 		_ = await context.Set<ImmediateJobContinuationEntity>()
-			.Where(edge => edge.ParentKind == ContinuationParentKind.Job && edge.ParentId == jobId)
+			.Where(edge => edge.ChildJobId == jobId ||
+				(edge.ParentKind == ContinuationParentKind.Job && edge.ParentId == jobId))
 			.ExecuteDeleteAsync(cancellationToken)
 			.ConfigureAwait(false);
 		var removed = await context.Set<ImmediateJobEntity>()
@@ -1942,11 +1943,24 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 				.ConfigureAwait(false);
 		var requiresFailure = false;
 		var anyFailed = false;
+		// A missing parent has no success or failure outcome; Complete continuations can still proceed.
 		foreach (var edge in edges)
 		{
-			var (succeeded, failed) = edge.ParentKind == ContinuationParentKind.Job
-				? (parentJobs[edge.ParentId].State == JobState.Succeeded, parentJobs[edge.ParentId].State == JobState.Failed)
-				: (parentBatches[edge.ParentId].State == BatchState.Succeeded, parentBatches[edge.ParentId].State == BatchState.Failed);
+			bool succeeded;
+			bool failed;
+			if (edge.ParentKind == ContinuationParentKind.Job)
+			{
+				var state = parentJobs.TryGetValue(edge.ParentId, out var parentJob) ? parentJob?.State : null;
+				succeeded = state == JobState.Succeeded;
+				failed = state == JobState.Failed;
+			}
+			else
+			{
+				var state = parentBatches.TryGetValue(edge.ParentId, out var parentBatch) ? parentBatch?.State : null;
+				succeeded = state == BatchState.Succeeded;
+				failed = state == BatchState.Failed;
+			}
+
 			if (edge.Trigger == ContinuationTrigger.Success && !succeeded)
 				return true;
 			requiresFailure |= edge.Trigger == ContinuationTrigger.Failure;

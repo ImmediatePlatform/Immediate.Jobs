@@ -141,8 +141,8 @@ public sealed class BatchesAndContinuationsTests
 		var scheduler = scope.ServiceProvider.GetRequiredService<BatchWorkflowJob.Scheduler>();
 		await using var batch = batches.Begin();
 
-		_ = scheduler.AddToBatch(batch, new("grouped"), groupId: "tenant-a");
-		_ = scheduler.AddToBatch(batch, new("blank"), groupId: "  ");
+		_ = scheduler.AddToBatchInGroup(batch, new("grouped"), groupId: "tenant-a");
+		_ = scheduler.AddToBatchInGroup(batch, new("blank"), groupId: "  ");
 		_ = scheduler.AddToBatchAt(batch, new("absolute"), harness.TimeProvider.GetUtcNow(), groupId: "tenant-b");
 		_ = await batch.CommitAsync(cancellationToken);
 

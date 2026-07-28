@@ -508,7 +508,36 @@ public sealed class RelationalStorageMatrixTests(StorageContainers containers)
 		Assert.Equal(1, batch.Total);
 		Assert.Equal(1, batch.Remaining);
 		Assert.Equal(JobState.Active, (await storage.GetJobStatusAsync(current.Id, cancellationToken))!.State);
-		Assert.Empty(await storage.QueryJobsAsync(new() { Search = "with-" }, cancellationToken));
+		foreach (var id in new[] { "detached-with-batch", "tracked-with-wrong-batch", "added-with-wrong-batch" })
+			Assert.Empty(await storage.QueryJobsAsync(new() { Id = id }, cancellationToken));
+	}
+
+	[Theory]
+	[MemberData(nameof(Matrix))]
+	public async Task DeletingStandaloneContinuationRemovesIncomingEdges(
+		DatabaseKind database,
+		AdapterKind adapter
+	)
+	{
+		var cancellationToken = TestContext.Current.CancellationToken;
+		await using var fixture = await CreateFixtureAsync(database, adapter, cancellationToken);
+		var storage = fixture.GraphStorage;
+		var now = fixture.TimeProvider.GetUtcNow();
+		var parent = CreateJob("delete-parent", now) with { State = JobState.Succeeded, CompletedAt = now };
+		var child = CreateJob("delete-child", now) with { State = JobState.Succeeded, CompletedAt = now };
+		await storage.EnqueueAsync(parent, cancellationToken);
+		await storage.EnqueueContinuationAsync(child, [new()
+		{
+			ChildJobId = child.Id,
+			ParentJobId = parent.Id,
+			Trigger = ContinuationTrigger.Success,
+		}], cancellationToken);
+
+		_ = Assert.Single(await storage.GetIncomingEdgesAsync([child.Id], cancellationToken));
+		await storage.DeleteAsync(child.Id, cancellationToken);
+
+		Assert.Null(await storage.GetJobStatusAsync(child.Id, cancellationToken));
+		Assert.Empty(await storage.GetIncomingEdgesAsync([child.Id], cancellationToken));
 	}
 
 	[Theory]

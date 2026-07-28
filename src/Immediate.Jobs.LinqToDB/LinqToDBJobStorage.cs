@@ -1350,12 +1350,21 @@ public sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorage,
 			if (job.BatchId is not null)
 				throw new ImmediateJobException("Batch members are deleted with their batch so the workflow remains coherent.");
 			_ = await Continuations(connection)
-				.Where(edge => edge.ParentKind == ContinuationParentKind.Job && edge.ParentId == jobId)
+				.Where(edge => edge.ChildJobId == jobId ||
+					(edge.ParentKind == ContinuationParentKind.Job && edge.ParentId == jobId))
 				.DeleteAsync(cancellationToken)
 				.ConfigureAwait(false);
-			var removed = await Jobs(connection).Where(item => item.Id == jobId).DeleteAsync(cancellationToken).ConfigureAwait(false);
+			var removed = await Jobs(connection)
+				.Where(item => item.Id == jobId &&
+					(item.State == JobState.Succeeded || item.State == JobState.Failed || item.State == JobState.Cancelled))
+				.DeleteAsync(cancellationToken)
+				.ConfigureAwait(false);
 			if (removed == 0)
+			{
+				if (await Jobs(connection).AnyAsync(item => item.Id == jobId, cancellationToken).ConfigureAwait(false))
+					throw new ImmediateJobException("Only terminal jobs can be deleted.");
 				throw new KeyNotFoundException($"Job '{jobId}' was not found.");
+			}
 
 			await connection.CommitTransactionAsync(cancellationToken).ConfigureAwait(false);
 		}
@@ -1885,11 +1894,24 @@ public sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorage,
 
 		var requiresFailure = false;
 		var anyParentFailed = false;
+		// A missing parent has no success or failure outcome; Complete continuations can still proceed.
 		foreach (var edge in edges)
 		{
-			var (succeeded, failed) = edge.ParentKind == ContinuationParentKind.Job
-				? (jobStates[edge.ParentId] == JobState.Succeeded, jobStates[edge.ParentId] == JobState.Failed)
-				: (batchStates[edge.ParentId] == BatchState.Succeeded, batchStates[edge.ParentId] == BatchState.Failed);
+			bool succeeded;
+			bool failed;
+			if (edge.ParentKind == ContinuationParentKind.Job)
+			{
+				JobState? state = jobStates.TryGetValue(edge.ParentId, out var parentState) ? parentState : null;
+				succeeded = state == JobState.Succeeded;
+				failed = state == JobState.Failed;
+			}
+			else
+			{
+				BatchState? state = batchStates.TryGetValue(edge.ParentId, out var parentState) ? parentState : null;
+				succeeded = state == BatchState.Succeeded;
+				failed = state == BatchState.Failed;
+			}
+
 			if (edge.Trigger == ContinuationTrigger.Success && !succeeded)
 				return true;
 			requiresFailure |= edge.Trigger == ContinuationTrigger.Failure;

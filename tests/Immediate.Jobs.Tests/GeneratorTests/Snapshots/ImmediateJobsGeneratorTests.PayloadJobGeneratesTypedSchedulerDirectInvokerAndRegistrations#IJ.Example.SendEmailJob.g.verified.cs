@@ -31,7 +31,7 @@ partial class SendEmailJob
 			global::System.TimeSpan? delay = null) =>
 			base.AddToBatch(batch, payload, delay);
 
-		public new global::Immediate.Jobs.Shared.JobHandle AddToBatch(
+		public global::Immediate.Jobs.Shared.JobHandle AddToBatchInGroup(
 			global::Immediate.Jobs.Shared.IJobBatch batch,
 			global::Example.SendEmailJob.Payload payload,
 			string? groupId,
