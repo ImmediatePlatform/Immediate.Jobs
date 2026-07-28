@@ -26,6 +26,7 @@ public sealed partial class JobSchedulerService : BackgroundService
 	private readonly ConcurrentDictionary<string, int> _jobReservations = new(StringComparer.Ordinal);
 	private readonly Dictionary<int, int> _priorityOffsets = [];
 	private readonly SemaphoreSlim _scheduleInitialization = new(1, 1);
+	private readonly CancellationTokenSource _workerCancellation = new();
 	private readonly string _workerId = $"{Environment.MachineName}:{Environment.ProcessId}:{Guid.NewGuid():N}";
 	private readonly Channel<JobRecord> _channel;
 	private int _reservations;
@@ -89,9 +90,11 @@ public sealed partial class JobSchedulerService : BackgroundService
 				static group => group.Distinct().Single(),
 				StringComparer.Ordinal
 			);
-		_channel = Channel.CreateBounded<JobRecord>(new BoundedChannelOptions(options.MaxParallelJobs * 2)
+		// Reservation accounting in BuildAcquisitionRequest is the admission control, so the channel is
+		// only a handoff buffer. A bounded channel would add a second, redundant limit whose sole effect
+		// is to block the scheduler loop -- and with it the heartbeat -- if the two ever disagree.
+		_channel = Channel.CreateUnbounded<JobRecord>(new UnboundedChannelOptions
 		{
-			FullMode = BoundedChannelFullMode.Wait,
 			SingleWriter = true,
 			SingleReader = options.MaxParallelJobs == 1,
 		});
@@ -104,8 +107,10 @@ public sealed partial class JobSchedulerService : BackgroundService
 		await EnsureCodeSchedulesAsync(stoppingToken).ConfigureAwait(false);
 		_state.MarkStarted(_timeProvider.GetUtcNow());
 
+		// Workers observe _workerCancellation rather than stoppingToken: shutdown completes the channel so
+		// buffered records still drain, and only an exceeded drain deadline cancels a running job.
 		var workers = Enumerable.Range(0, _options.MaxParallelJobs)
-			.Select(_ => RunWorkerAsync(stoppingToken))
+			.Select(_ => RunWorkerAsync(_workerCancellation.Token))
 			.ToArray();
 
 		try
@@ -133,14 +138,20 @@ public sealed partial class JobSchedulerService : BackgroundService
 		finally
 		{
 			_ = _channel.Writer.TryComplete();
-			using var drain = new CancellationTokenSource(_options.ShutdownTimeout, _timeProvider);
 			try
 			{
-				await Task.WhenAll(workers).WaitAsync(drain.Token).ConfigureAwait(false);
+				// stoppingToken is already cancelled here; forwarding it would abort the drain immediately.
+				await Task.WhenAll(workers)
+					.WaitAsync(_options.ShutdownTimeout, _timeProvider, CancellationToken.None)
+					.ConfigureAwait(false);
 			}
-			catch (OperationCanceledException)
+			catch (TimeoutException)
 			{
 				ShutdownDrainExceeded(_logger, _options.ShutdownTimeout);
+			}
+			finally
+			{
+				await _workerCancellation.CancelAsync().ConfigureAwait(false);
 			}
 		}
 	}
@@ -186,6 +197,15 @@ public sealed partial class JobSchedulerService : BackgroundService
 
 	private async Task RunSchedulerIterationAsync(CancellationToken cancellationToken)
 	{
+		// The heartbeat runs first so that a failure in any later stage cannot make a polling scheduler
+		// look dead to ImmediateJobsHealthCheck.
+		var now = _timeProvider.GetUtcNow();
+		await _storage.HeartbeatAsync(
+			new(_workerId, now, _state.ActiveWorkers, _options.MaxParallelJobs),
+			cancellationToken
+		).ConfigureAwait(false);
+		_state.MarkHeartbeat(now);
+
 		await MaterializeRecurringAsync(cancellationToken).ConfigureAwait(false);
 		var request = BuildAcquisitionRequest();
 		var acquired = request is null
@@ -207,13 +227,6 @@ public sealed partial class JobSchedulerService : BackgroundService
 				throw;
 			}
 		}
-
-		var now = _timeProvider.GetUtcNow();
-		await _storage.HeartbeatAsync(
-			new(_workerId, now, _state.ActiveWorkers, _options.MaxParallelJobs),
-			cancellationToken
-		).ConfigureAwait(false);
-		_state.MarkHeartbeat(now);
 
 		if (_timeProvider.GetTimestamp() >= Interlocked.Read(ref _nextPurgeTimestamp))
 		{
@@ -237,22 +250,30 @@ public sealed partial class JobSchedulerService : BackgroundService
 
 	private async Task RunWorkerAsync(CancellationToken cancellationToken)
 	{
-		await foreach (var record in _channel.Reader.ReadAllAsync(cancellationToken).ConfigureAwait(false))
+		try
 		{
-			try
+			await foreach (var record in _channel.Reader.ReadAllAsync(cancellationToken).ConfigureAwait(false))
 			{
-				await ExecuteJobAsync(record, cancellationToken, releaseReservation: true).ConfigureAwait(false);
-			}
-			catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-			{
-				break;
-			}
+				try
+				{
+					await ExecuteJobAsync(record, cancellationToken, releaseReservation: true).ConfigureAwait(false);
+				}
+				catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+				{
+					break;
+				}
 #pragma warning disable CA1031 // A failed job must not terminate its worker loop.
-			catch (Exception exception)
+				catch (Exception exception)
 #pragma warning restore CA1031
-			{
-				UnhandledWorkerError(_logger, exception, record.Id);
+				{
+					UnhandledWorkerError(_logger, exception, record.Id);
+				}
 			}
+		}
+		catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+		{
+			// The drain deadline expired. Records still buffered stay Active until their lease expires,
+			// and the worker completes normally so a drained shutdown is not reported as an error.
 		}
 	}
 
@@ -501,7 +522,20 @@ public sealed partial class JobSchedulerService : BackgroundService
 		while (true)
 		{
 			await Task.Delay(interval, _timeProvider, cancellationToken).ConfigureAwait(false);
-			await _storage.RenewLeaseAsync(jobId, _workerId, _options.LeaseDuration, cancellationToken).ConfigureAwait(false);
+			try
+			{
+				await _storage.RenewLeaseAsync(jobId, _workerId, _options.LeaseDuration, cancellationToken).ConfigureAwait(false);
+			}
+			catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+			{
+				throw;
+			}
+#pragma warning disable CA1031 // A transient renewal failure must not stop later renewals or the job outcome.
+			catch (Exception exception)
+#pragma warning restore CA1031
+			{
+				LeaseRenewalFailed(_logger, exception, jobId);
+			}
 		}
 	}
 
@@ -618,10 +652,13 @@ public sealed partial class JobSchedulerService : BackgroundService
 			return definition.BackoffBase;
 
 		var exponent = Math.Min(30, Math.Max(0, attempt - 1));
-		var ticks = Math.Min(TimeSpan.MaxValue.Ticks, definition.BackoffBase.Ticks * Math.Pow(2, exponent));
+		var ticks = definition.BackoffBase.Ticks * Math.Pow(2, exponent);
 		if (definition.Backoff == BackoffStrategy.ExponentialJitter)
 			ticks *= 0.5 + Random.Shared.NextDouble();
-		return TimeSpan.FromTicks((long)ticks);
+
+		// long.MaxValue converts to 2^63 as a double, which is one past the representable range, so the
+		// bound has to be tested before the cast rather than clamped with Math.Min after it.
+		return ticks >= long.MaxValue ? TimeSpan.MaxValue : TimeSpan.FromTicks((long)ticks);
 	}
 
 	private long ToTimestampTicks(TimeSpan duration) => (long)(duration.TotalSeconds * _timeProvider.TimestampFrequency);
@@ -630,6 +667,7 @@ public sealed partial class JobSchedulerService : BackgroundService
 	public override void Dispose()
 	{
 		_scheduleInitialization.Dispose();
+		_workerCancellation.Dispose();
 		base.Dispose();
 	}
 
@@ -671,6 +709,13 @@ public sealed partial class JobSchedulerService : BackgroundService
 		Message = "Could not persist execution telemetry; job invocation will continue"
 	)]
 	private static partial void ExecutionTelemetryPersistenceFailed(ILogger logger, Exception exception);
+
+	[LoggerMessage(
+		EventId = 10,
+		Level = LogLevel.Warning,
+		Message = "Could not renew the lease for job {jobId}; renewal will be retried until the attempt finishes"
+	)]
+	private static partial void LeaseRenewalFailed(ILogger logger, Exception exception, string jobId);
 }
 
 /// <summary>Scheduler liveness state shared with health checks and monitoring.</summary>
