@@ -86,7 +86,7 @@ public sealed class DuplicateElementsAnalyzer : DiagnosticAnalyzer
 						}
 					}
 
-					if (attributes.QueueAttribute is { } queueAttribute)
+					if (attributes.QueueDefinitionAttribute is { } queueAttribute)
 					{
 						lock (@lock)
 						{

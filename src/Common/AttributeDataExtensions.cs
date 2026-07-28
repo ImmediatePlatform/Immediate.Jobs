@@ -10,8 +10,11 @@ internal static class AttributeDataExtensions
 		public AttributeData? JobAttribute =>
 			attributes.FirstOrDefault(x => x.AttributeClass.IsJobAttribute);
 
-		public AttributeData? QueueAttribute =>
+		public AttributeData? QueueDefinitionAttribute =>
 			attributes.FirstOrDefault(x => x.AttributeClass.IsQueueDefinitionAttribute);
+
+		public AttributeData? UsesQueueAttribute =>
+			attributes.FirstOrDefault(x => x.AttributeClass.IsUsesQueueAttribute);
 
 		public AttributeData? HandlerAttribute =>
 			attributes.FirstOrDefault(x => x.AttributeClass.IsHandlerAttribute);
