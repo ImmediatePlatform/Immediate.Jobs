@@ -57,8 +57,13 @@ public sealed class FairQueueOptions
 public sealed class ImmediateJobsOptions
 {
 	/// <summary>Maximum concurrently executing jobs on this node.</summary>
+	/// <remarks>
+	/// The default exceeds the core count because jobs are typically IO-bound. The practical ceiling
+	/// is usually the database connection pool: each executing job holds a service scope, and most
+	/// jobs hold one pooled connection for their duration.
+	/// </remarks>
 	/// <value>The maximum number of jobs that may execute concurrently on this node.</value>
-	public int MaxParallelJobs { get; set; } = Environment.ProcessorCount;
+	public int MaxParallelJobs { get; set; } = Math.Clamp(Environment.ProcessorCount * 4, 8, 32);
 
 	/// <summary>Maximum number claimed in one storage round-trip.</summary>
 	/// <value>The maximum number of jobs claimed in one acquisition.</value>
