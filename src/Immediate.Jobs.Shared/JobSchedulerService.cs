@@ -36,7 +36,6 @@ public sealed partial class JobSchedulerService : BackgroundService
 	/// <summary>Creates the hosted scheduler from generated definitions.</summary>
 	/// <param name="scopeFactory">The factory used to create a dependency injection scope for each execution.</param>
 	/// <param name="storage">The durable job storage provider.</param>
-	/// <param name="serializer">The serializer used for job payload and context data.</param>
 	/// <param name="definitions">The generated job definitions available to the scheduler.</param>
 	/// <param name="queueDefinitions">The configured queue definitions.</param>
 	/// <param name="options">The scheduler runtime options.</param>
@@ -47,7 +46,6 @@ public sealed partial class JobSchedulerService : BackgroundService
 	public JobSchedulerService(
 		IServiceScopeFactory scopeFactory,
 		IJobStorage storage,
-		IJobSerializer serializer,
 		IEnumerable<JobDefinition> definitions,
 		IEnumerable<JobQueueDefinition> queueDefinitions,
 		ImmediateJobsOptions options,
@@ -59,7 +57,6 @@ public sealed partial class JobSchedulerService : BackgroundService
 	{
 		ArgumentNullException.ThrowIfNull(scopeFactory);
 		ArgumentNullException.ThrowIfNull(storage);
-		ArgumentNullException.ThrowIfNull(serializer);
 		ArgumentNullException.ThrowIfNull(definitions);
 		ArgumentNullException.ThrowIfNull(queueDefinitions);
 		ArgumentNullException.ThrowIfNull(options);
@@ -299,8 +296,6 @@ public sealed partial class JobSchedulerService : BackgroundService
 			return;
 		}
 
-		_state.IncrementActive();
-		JobTelemetry.ExecutionStarted();
 		var started = _timeProvider.GetTimestamp();
 		var startedAt = _timeProvider.GetUtcNow();
 		using var timeout = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
@@ -334,6 +329,11 @@ public sealed partial class JobSchedulerService : BackgroundService
 			["JobId"] = record.Id,
 			["Attempt"] = record.Attempt,
 		});
+
+		// Paired with DecrementActive/ExecutionFinished in the finally below, so nothing that can throw
+		// may sit between this and the try.
+		_state.IncrementActive();
+		JobTelemetry.ExecutionStarted();
 
 		try
 		{
@@ -376,7 +376,7 @@ public sealed partial class JobSchedulerService : BackgroundService
 				await _graphStorage.CompleteWithContinuationsAsync(
 					record.Id,
 					_workerId,
-						executionBuffer.SealAndSnapshot(),
+					executionBuffer.SealAndSnapshot(),
 					stoppingToken
 				).ConfigureAwait(false);
 			}
@@ -547,11 +547,23 @@ public sealed partial class JobSchedulerService : BackgroundService
 
 		var now = _timeProvider.GetUtcNow();
 		var codeDefinitions = _definitions.Values.Where(static definition => definition.Cron is not null).ToArray();
+		var persisted = codeDefinitions.Length == 0
+			? []
+			: (await _storage.GetMonitoringSnapshotAsync(cancellationToken).ConfigureAwait(false))
+				.Recurring
+				.ToDictionary(static schedule => schedule.Name, StringComparer.Ordinal);
 		foreach (var definition in codeDefinitions)
 		{
 			var zone = JobCron.GetTimeZone(definition.TimeZone);
-			var next = JobCron.Parse(definition.Cron!).GetNextOccurrence(now, zone)
-				?? throw new ImmediateJobException($"Cron for '{definition.Name}' has no future occurrence.");
+			// An unchanged schedule keeps the occurrence it is already waiting for, even when that
+			// occurrence is already due: recomputing from now would silently drop an occurrence that
+			// fell between shutdown and restart. Only a changed cron or time zone recomputes.
+			var next = persisted.GetValueOrDefault(definition.Name) is { } current
+				&& string.Equals(current.Cron, definition.Cron, StringComparison.Ordinal)
+				&& string.Equals(current.TimeZone, definition.TimeZone, StringComparison.Ordinal)
+					? current.NextRunAt
+					: JobCron.Parse(definition.Cron!).GetNextOccurrence(now, zone)
+						?? throw new ImmediateJobException($"Cron for '{definition.Name}' has no future occurrence.");
 			await recurringStorage.UpsertRecurringAsync(
 				new()
 				{
@@ -630,12 +642,12 @@ public sealed partial class JobSchedulerService : BackgroundService
 
 			if (definition.OverlapPolicy == OverlapPolicy.Skip)
 			{
-				var active = await _storage.QueryJobsAsync(new() { State = JobState.Active, Search = definition.Name, Take = 1 }, cancellationToken)
-					.ConfigureAwait(false);
-				if (active.Any(x => string.Equals(x.JobName, definition.Name, StringComparison.Ordinal)))
-				{
+				var active = await _storage.QueryJobsAsync(
+					new() { State = JobState.Active, JobName = definition.Name, Take = 1 },
+					cancellationToken
+				).ConfigureAwait(false);
+				if (active.Count != 0)
 					record = record with { State = JobState.Cancelled, CompletedAt = now };
-				}
 			}
 
 			if (await recurringStorage.MaterializeRecurringAsync(schedule, record, next, cancellationToken).ConfigureAwait(false)

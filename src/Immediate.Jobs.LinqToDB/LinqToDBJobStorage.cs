@@ -1051,6 +1051,8 @@ public sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorage,
 			jobs = jobs.Where(job => job.State == state);
 		if (!string.IsNullOrWhiteSpace(query.QueueName))
 			jobs = jobs.Where(job => job.QueueName == query.QueueName);
+		if (!string.IsNullOrWhiteSpace(query.JobName))
+			jobs = jobs.Where(job => job.JobName == query.JobName);
 		if (!string.IsNullOrWhiteSpace(query.Search))
 		{
 			var search = query.Search.ToUpperInvariant();

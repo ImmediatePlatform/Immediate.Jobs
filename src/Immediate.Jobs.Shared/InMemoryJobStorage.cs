@@ -754,6 +754,8 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 				jobs = jobs.Where(x => x.State == state);
 			if (!string.IsNullOrWhiteSpace(query.QueueName))
 				jobs = jobs.Where(x => x.QueueName == query.QueueName);
+			if (!string.IsNullOrWhiteSpace(query.JobName))
+				jobs = jobs.Where(x => x.JobName == query.JobName);
 
 			if (!string.IsNullOrWhiteSpace(query.Search))
 				jobs = jobs.Where(x => x.JobName.Contains(query.Search, StringComparison.OrdinalIgnoreCase));

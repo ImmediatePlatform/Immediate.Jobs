@@ -754,11 +754,13 @@ public sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 	private static bool HasFilters(JobQuery query) =>
 		query.State is not null ||
 		!string.IsNullOrWhiteSpace(query.QueueName) ||
+		!string.IsNullOrWhiteSpace(query.JobName) ||
 		!string.IsNullOrWhiteSpace(query.Search);
 
 	private static bool MatchesQuery(JobRecord job, JobQuery query) =>
 		(query.State is not { } state || job.State == state) &&
 		(string.IsNullOrWhiteSpace(query.QueueName) || job.QueueName == query.QueueName) &&
+		(string.IsNullOrWhiteSpace(query.JobName) || job.JobName == query.JobName) &&
 		(string.IsNullOrWhiteSpace(query.Search) ||
 			job.JobName.Contains(query.Search, StringComparison.OrdinalIgnoreCase));
 

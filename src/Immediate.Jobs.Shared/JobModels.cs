@@ -222,6 +222,10 @@ public sealed record JobQuery
 	/// <value>The exact queue name to match, or <see langword="null"/> to match every queue.</value>
 	public string? QueueName { get; init; }
 
+	/// <summary>Optional exact, case-sensitive job name filter.</summary>
+	/// <value>The exact job name to match, or <see langword="null"/> to match every job name.</value>
+	public string? JobName { get; init; }
+
 	/// <summary>Optional case-insensitive job name search.</summary>
 	/// <value>The case-insensitive job-name search text, or <see langword="null"/> to disable searching.</value>
 	public string? Search { get; init; }
