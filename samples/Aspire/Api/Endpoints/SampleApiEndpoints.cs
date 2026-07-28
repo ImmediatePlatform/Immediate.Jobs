@@ -78,14 +78,14 @@ public static class SampleApiEndpoints
 		await using var batch = batches.Begin();
 		for (var sequence = 1; sequence <= BacklogJobs; sequence++)
 		{
-			_ = scheduler.AddToBatch(
+			_ = scheduler.AddToBatchInGroup(
 				batch,
 				new(runId, sequence, "backlog"),
 				groupId: backlogGroup
 			);
 		}
 
-		var quietJob = scheduler.AddToBatch(
+		var quietJob = scheduler.AddToBatchInGroup(
 			batch,
 			new(runId, 1, "quiet"),
 			groupId: quietGroup,

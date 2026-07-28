@@ -184,10 +184,10 @@ early**, never silently. Layers, outermost first:
 3. **No partial writes.** Because the guard trips *before* any storage write, a batch attempt on a
    queue-only provider does nothing — consistent with the atomic-batch contract.
 
-The generated `AddToBatch` / `ScheduleAfterAsync` methods still **compile** (they're emitted per job
-regardless of provider); they just throw at runtime under a queue-only provider. This keeps the
-generator provider-agnostic. *(Optional later: an analyzer hint if the project references only a
-queue-only provider package — deferred; provider choice isn't reliably known at compile time.)*
+The inherited `AddToBatch` / `ScheduleAfterAsync` methods still **compile** regardless of provider;
+they just throw at runtime under a queue-only provider. This keeps the generated scheduler
+provider-agnostic. *(Optional later: an analyzer hint if the project references only a queue-only
+provider package — deferred; provider choice isn't reliably known at compile time.)*
 
 ## 5. Registration
 

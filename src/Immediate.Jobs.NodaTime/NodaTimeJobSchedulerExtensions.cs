@@ -90,7 +90,7 @@ public static class NodaTimeJobSchedulerExtensions
 	/// <returns>A handle that identifies the job added to the batch.</returns>
 	public static JobHandle AddToBatch<TPayload>(
 		this JobScheduler<TPayload> scheduler,
-		IJobBatch batch,
+		JobBatch batch,
 		TPayload payload,
 		Duration? delay = null
 	)
@@ -108,7 +108,7 @@ public static class NodaTimeJobSchedulerExtensions
 	/// <returns>A handle that identifies the job added to the batch.</returns>
 	public static JobHandle AddToBatchAt<TPayload>(
 		this JobScheduler<TPayload> scheduler,
-		IJobBatch batch,
+		JobBatch batch,
 		TPayload payload,
 		Instant runAt
 	)

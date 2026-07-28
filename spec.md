@@ -235,14 +235,15 @@ expression trees, no `MethodInfo` — so no reflective dispatch is introduced. F
 [`docs/batches-and-continuations.md`](docs/batches-and-continuations.md).
 
 **Atomic batches.** `IJobBatchScheduler` is a scoped service. `Begin()` opens an in-memory buffer;
-each job's generated `AddToBatch`/`AddToBatchAt` buffers a fully-serialized `JobRecord`; `CommitAsync`
+each generated scheduler inherits typed `AddToBatch`/`AddToBatchAt` methods that buffer a
+fully-serialized `JobRecord`; `CommitAsync`
 flushes the whole buffer in **one atomic unit** (all rows or none). Disposing without committing rolls
 back. Because storage is touched only at commit, retrying the whole method after a mid-loop failure
 cannot double-enqueue. `RunAsync(body)` is sugar over `Begin → body → CommitAsync`.
 
-**Continuations.** Every scheduler has generated `ScheduleAfterAsync(parent, payload)` — it schedules *its
-own* job to run after `parent`, returning a new `JobHandle` so chains compose. Passing several parents
-as a collection (`[a, b, c]`) expresses **fan-in**; calling `ScheduleAfterAsync` on the same parent twice
+**Continuations.** Every generated scheduler inherits `ScheduleAfterAsync(parent, payload)` — it
+schedules *its own* job to run after `parent`, returning a new `JobHandle` so chains compose. Passing
+several parents as a collection (`[a, b, c]`) expresses **fan-in**; calling `ScheduleAfterAsync` on the same parent twice
 expresses **fan-out**; diamonds and continuations-of-continuations follow naturally. Parents may be a
 `JobHandle`, a collection of handles, or a committed batch's `BatchHandle` (a job that runs once the
 whole batch completes). Continuations work inside or outside a batch; a standalone continuation whose

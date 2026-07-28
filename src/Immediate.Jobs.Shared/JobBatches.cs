@@ -1,37 +1,24 @@
 namespace Immediate.Jobs.Shared;
 
-/// <summary>An in-progress atomic batch buffer.</summary>
-public interface IJobBatch : IAsyncDisposable
-{
-	/// <summary>The client-generated batch identifier.</summary>
-	/// <value>The identifier assigned to the batch.</value>
-	string Id { get; }
-
-	/// <summary>Atomically persists the buffered jobs and dependencies.</summary>
-	/// <param name="cancellationToken">A token that can cancel the commit operation.</param>
-	/// <returns>A handle for the committed batch.</returns>
-	ValueTask<BatchHandle> CommitAsync(CancellationToken cancellationToken = default);
-}
-
 /// <summary>Creates atomic batches of typed generated jobs.</summary>
 public interface IJobBatchScheduler
 {
 	/// <summary>Begins an in-memory batch buffer.</summary>
 	/// <returns>The new batch buffer.</returns>
-	IJobBatch Begin();
+	JobBatch Begin();
 
 	/// <summary>Begins a follow-up batch whose root members wait for a prior batch.</summary>
 	/// <param name="after">The batch that must reach a terminal state before the follow-up roots are released.</param>
 	/// <param name="on">The parent-batch outcome that releases the follow-up roots.</param>
 	/// <returns>The new follow-up batch buffer.</returns>
-	IJobBatch Begin(BatchHandle after, ContinuationTrigger on = ContinuationTrigger.Success);
+	JobBatch Begin(BatchHandle after, ContinuationTrigger on = ContinuationTrigger.Success);
 
 	/// <summary>Runs a batch body and commits it when the body succeeds.</summary>
 	/// <param name="body">The callback that adds jobs and dependencies to the batch.</param>
 	/// <param name="cancellationToken">A token that can cancel the commit operation.</param>
 	/// <returns>A handle for the committed batch.</returns>
 	ValueTask<BatchHandle> RunAsync(
-		Func<IJobBatch, ValueTask> body,
+		Func<JobBatch, ValueTask> body,
 		CancellationToken cancellationToken = default
 	);
 }
@@ -47,7 +34,7 @@ public sealed class JobBatchScheduler(
 ) : IJobBatchScheduler
 {
 	/// <inheritdoc />
-	public IJobBatch Begin() =>
+	public JobBatch Begin() =>
 		new JobBatch(
 			JobStorageCapabilityGuards.RequireGraph(storage),
 			timeProvider,
@@ -57,7 +44,7 @@ public sealed class JobBatchScheduler(
 		);
 
 	/// <inheritdoc />
-	public IJobBatch Begin(BatchHandle after, ContinuationTrigger on = ContinuationTrigger.Success)
+	public JobBatch Begin(BatchHandle after, ContinuationTrigger on = ContinuationTrigger.Success)
 	{
 		ArgumentNullException.ThrowIfNull(after);
 		return new JobBatch(
@@ -71,7 +58,7 @@ public sealed class JobBatchScheduler(
 
 	/// <inheritdoc />
 	public async ValueTask<BatchHandle> RunAsync(
-		Func<IJobBatch, ValueTask> body,
+		Func<JobBatch, ValueTask> body,
 		CancellationToken cancellationToken = default
 	)
 	{
@@ -82,13 +69,8 @@ public sealed class JobBatchScheduler(
 	}
 }
 
-internal sealed class JobBatch(
-	IJobGraphStorage storage,
-	TimeProvider timeProvider,
-	IIdGenerator idGenerator,
-	BatchHandle? after,
-	ContinuationTrigger trigger
-) : IJobBatch
+/// <summary>An in-progress atomic batch buffer created by <see cref="IJobBatchScheduler"/>.</summary>
+public sealed class JobBatch : IAsyncDisposable
 {
 	private enum Lifecycle
 	{
@@ -101,9 +83,30 @@ internal sealed class JobBatch(
 	private readonly Lock _gate = new();
 	private readonly List<JobRecord> _jobs = [];
 	private readonly List<JobContinuationEdge> _edges = [];
+	private readonly IJobGraphStorage _storage;
+	private readonly TimeProvider _timeProvider;
+	private readonly BatchHandle? _after;
+	private readonly ContinuationTrigger _trigger;
 	private Lifecycle _lifecycle;
 
-	public string Id { get; } = idGenerator.CreateId(IdKind.Batch);
+	internal JobBatch(
+		IJobGraphStorage storage,
+		TimeProvider timeProvider,
+		IIdGenerator idGenerator,
+		BatchHandle? after,
+		ContinuationTrigger trigger
+	)
+	{
+		_storage = storage;
+		_timeProvider = timeProvider;
+		_after = after;
+		_trigger = trigger;
+		Id = idGenerator.CreateId(IdKind.Batch);
+	}
+
+	/// <summary>The client-generated batch identifier.</summary>
+	/// <value>The identifier assigned to the batch.</value>
+	public string Id { get; }
 
 	internal JobHandle Add(JobRecord record, ReadOnlySpan<JobHandle> parents, ContinuationTrigger on)
 	{
@@ -147,6 +150,9 @@ internal sealed class JobBatch(
 		}
 	}
 
+	/// <summary>Atomically persists the buffered jobs and dependencies.</summary>
+	/// <param name="cancellationToken">A token that can cancel the commit operation.</param>
+	/// <returns>A handle for the committed batch.</returns>
 	public async ValueTask<BatchHandle> CommitAsync(CancellationToken cancellationToken = default)
 	{
 		JobBatchRecord record;
@@ -158,7 +164,7 @@ internal sealed class JobBatch(
 			if (_jobs.Count == 0)
 				throw new ImmediateJobException("An atomic batch cannot be committed without jobs.");
 
-			if (after is { } parentBatch)
+			if (_after is { } parentBatch)
 			{
 				var children = _jobs.Select(static job => job.Id).ToHashSet(StringComparer.Ordinal);
 				foreach (var edge in _edges)
@@ -177,7 +183,7 @@ internal sealed class JobBatch(
 					{
 						ChildJobId = childId,
 						ParentBatchId = parentBatch.Id,
-						Trigger = trigger,
+						Trigger = _trigger,
 					});
 				}
 			}
@@ -185,7 +191,7 @@ internal sealed class JobBatch(
 			record = new JobBatchRecord
 			{
 				Id = Id,
-				CreatedAt = timeProvider.GetUtcNow(),
+				CreatedAt = _timeProvider.GetUtcNow(),
 				TotalJobs = _jobs.Count,
 				PendingCount = _jobs.Count,
 				State = BatchState.Executing,
@@ -197,7 +203,7 @@ internal sealed class JobBatch(
 
 		try
 		{
-			await storage.EnqueueBatchAsync(record, jobs, edges, cancellationToken).ConfigureAwait(false);
+			await _storage.EnqueueBatchAsync(record, jobs, edges, cancellationToken).ConfigureAwait(false);
 			return new(Id);
 		}
 		finally
@@ -210,6 +216,7 @@ internal sealed class JobBatch(
 		}
 	}
 
+	/// <inheritdoc />
 	public ValueTask DisposeAsync()
 	{
 		lock (_gate)

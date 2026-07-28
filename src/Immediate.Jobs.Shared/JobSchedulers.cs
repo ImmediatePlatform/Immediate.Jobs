@@ -206,10 +206,10 @@ public abstract class JobScheduler<TPayload>(
 	/// <param name="delay">The optional delay before the invocation becomes due.</param>
 	/// <returns>A handle for the buffered invocation.</returns>
 	public JobHandle AddToBatch(
-		IJobBatch batch,
+		JobBatch batch,
 		TPayload payload,
 		TimeSpan? delay = null
-	) => AddToBatch(batch, payload, groupId: null, delay);
+	) => AddToBatchInGroup(batch, payload, groupId: null, delay);
 
 	/// <summary>Adds grouped work to an atomic batch for immediate execution after commit.</summary>
 	/// <param name="batch">The open batch to which the invocation is added.</param>
@@ -217,8 +217,8 @@ public abstract class JobScheduler<TPayload>(
 	/// <param name="groupId">The optional fair queue group identifier.</param>
 	/// <param name="delay">The optional delay before the invocation becomes due.</param>
 	/// <returns>A handle for the buffered invocation.</returns>
-	public JobHandle AddToBatch(
-		IJobBatch batch,
+	public JobHandle AddToBatchInGroup(
+		JobBatch batch,
 		TPayload payload,
 		string? groupId,
 		TimeSpan? delay = null
@@ -236,7 +236,7 @@ public abstract class JobScheduler<TPayload>(
 	/// <param name="runAt">The absolute time at which the invocation becomes due.</param>
 	/// <returns>A handle for the buffered invocation.</returns>
 	public JobHandle AddToBatchAt(
-		IJobBatch batch,
+		JobBatch batch,
 		TPayload payload,
 		DateTimeOffset runAt
 	) => AddToBatchAt(batch, payload, runAt, groupId: null);
@@ -248,7 +248,7 @@ public abstract class JobScheduler<TPayload>(
 	/// <param name="groupId">The optional fair queue group identifier.</param>
 	/// <returns>A handle for the buffered invocation.</returns>
 	public JobHandle AddToBatchAt(
-		IJobBatch batch,
+		JobBatch batch,
 		TPayload payload,
 		DateTimeOffset runAt,
 		string? groupId
@@ -256,10 +256,8 @@ public abstract class JobScheduler<TPayload>(
 	{
 		ArgumentNullException.ThrowIfNull(batch);
 		_ = JobStorageCapabilityGuards.RequireGraph(Storage);
-		if (batch is not JobBatch jobBatch)
-			throw new ArgumentException("The batch was not created by Immediate.Jobs.", nameof(batch));
 		var record = CreateRecord(payload, runAt, groupId);
-		return jobBatch.Add(record, [], ContinuationTrigger.Success);
+		return batch.Add(record, [], ContinuationTrigger.Success);
 	}
 
 	/// <summary>Schedules work after one parent job.</summary>
