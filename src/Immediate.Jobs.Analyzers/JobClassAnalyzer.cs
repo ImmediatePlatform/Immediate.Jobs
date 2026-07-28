@@ -56,6 +56,18 @@ public sealed class JobClassAnalyzer : DiagnosticAnalyzer
 			customTags: [WellKnownDiagnosticTags.NotConfigurable]
 		);
 
+	public static readonly DiagnosticDescriptor JobCannotHaveReturnValue =
+		new(
+			id: DiagnosticIds.IJOB0012JobCannotHaveReturnValue,
+			title: "Job cannot have return value",
+			messageFormat: "Job `{0}` returns `{1}`, but must return `ValueTask`",
+			category: "ImmediateJobs",
+			defaultSeverity: DiagnosticSeverity.Error,
+			isEnabledByDefault: true,
+			description: "A job cannot have a return value, since it runs in the background and has no consumer to return the value to.",
+			customTags: [WellKnownDiagnosticTags.NotConfigurable]
+		);
+
 	public override ImmutableArray<DiagnosticDescriptor> SupportedDiagnostics { get; } =
 		ImmutableArray.Create(
 		[
@@ -63,6 +75,7 @@ public sealed class JobClassAnalyzer : DiagnosticAnalyzer
 			CronJobCannotHaveParameters,
 			CronJobConfigurationInvalid,
 			JobNameInvalid,
+			JobCannotHaveReturnValue,
 		]);
 
 	public override void Initialize(AnalysisContext context)
@@ -95,6 +108,18 @@ public sealed class JobClassAnalyzer : DiagnosticAnalyzer
 
 		token.ThrowIfCancellationRequested();
 
+		if (!handleMethod.ReturnType.IsValueTask)
+		{
+			context.ReportDiagnostic(
+				Diagnostic.Create(
+					JobCannotHaveReturnValue,
+					handleMethod.Locations.FirstOrDefault(),
+					context.Symbol.Name,
+					handleMethod.ReturnType.ToDisplayString(SymbolDisplayFormat.CSharpErrorMessageFormat)
+				)
+			);
+		}
+
 		AnalyzeJobName(context, jobAttribute);
 		AnalyzeJobConfiguration(context, jobAttribute);
 		AnalyzeCronConfiguration(context, jobAttribute, parameterType);
@@ -102,6 +127,8 @@ public sealed class JobClassAnalyzer : DiagnosticAnalyzer
 
 	private static void AnalyzeJobName(SymbolAnalysisContext context, AttributeData jobAttribute)
 	{
+		context.CancellationToken.ThrowIfCancellationRequested();
+
 		if (jobAttribute.GetJobName(className: context.Symbol.Name).HasNameContent())
 			return;
 
@@ -121,6 +148,8 @@ public sealed class JobClassAnalyzer : DiagnosticAnalyzer
 
 	private static void AnalyzeJobConfiguration(SymbolAnalysisContext context, AttributeData jobAttribute)
 	{
+		context.CancellationToken.ThrowIfCancellationRequested();
+
 		var arguments = jobAttribute.NamedArguments;
 
 		var maxAttempts = arguments.GetIntValue("MaxAttempts", 3);
@@ -234,6 +263,8 @@ public sealed class JobClassAnalyzer : DiagnosticAnalyzer
 
 	private static void AnalyzeCronConfiguration(SymbolAnalysisContext context, AttributeData jobAttribute, ITypeSymbol parameterType)
 	{
+		context.CancellationToken.ThrowIfCancellationRequested();
+
 		var hasPayload = !parameterType.IsEmptyJobRequest;
 		var arguments = jobAttribute.NamedArguments;
 

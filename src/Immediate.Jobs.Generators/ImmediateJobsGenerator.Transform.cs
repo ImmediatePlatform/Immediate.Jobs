@@ -16,7 +16,7 @@ public sealed partial class ImmediateJobsGenerator
 		var symbol = (INamedTypeSymbol)context.TargetSymbol;
 		var attributes = symbol.GetAttributes();
 
-		if (symbol.GetValidHandleMethod() is not { } handleMethod)
+		if (symbol.GetValidHandleMethod() is not { ReturnType.IsValueTask: true } handleMethod)
 			return null;
 
 		if (attributes.HandlerAttribute is not { } handlerAttribute)
