@@ -52,7 +52,7 @@ internal static class PayloadValidation
 				string.Equals(member.Name, parameter.Name, StringComparison.OrdinalIgnoreCase)))))
 			return "the type has no public constructor that can be bound to its public members";
 
-		foreach (var member in named.GetMembers().Where(static member => !JobDiscovery.IsJobDetailsMember(member)))
+		foreach (var member in named.GetMembers().Where(static member => !IsJobDetailsMember(member)))
 		{
 			ITypeSymbol? memberType = member switch
 			{
@@ -70,6 +70,23 @@ internal static class PayloadValidation
 		}
 
 		return null;
+	}
+
+	public static bool IsJobDetailsMember(ISymbol member)
+	{
+		if (member.ContainingType is null)
+			return false;
+
+		if (member.Name != "JobDetails")
+			return false;
+
+		var jobRequest = member.ContainingType.AllInterfaces
+			.FirstOrDefault(static candidate => candidate.IsIJobRequest);
+		var details = jobRequest?.GetMembers("JobDetails").OfType<IPropertySymbol>().SingleOrDefault();
+		return details is not null && SymbolEqualityComparer.Default.Equals(
+			member.ContainingType.FindImplementationForInterfaceMember(details),
+			member
+		);
 	}
 
 	private static bool IsKnownSystemValue(INamedTypeSymbol type) => type.ToDisplayString() is
@@ -90,7 +107,7 @@ internal static class PayloadValidation
 			return true;
 
 		return named.GetMembers()
-			.Where(static member => !JobDiscovery.IsJobDetailsMember(member))
+			.Where(static member => !IsJobDetailsMember(member))
 			.Any(member => member switch
 			{
 				IPropertySymbol property when property.DeclaredAccessibility == Accessibility.Public && !property.IsStatic =>

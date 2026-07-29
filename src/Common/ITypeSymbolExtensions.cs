@@ -63,14 +63,6 @@ internal static class ITypeSymbolExtensions
 				ContainingNamespace.IsImmediateJobsShared: true,
 			};
 
-		public bool IsIJobContextExtractor1 =>
-			typeSymbol is INamedTypeSymbol
-			{
-				Arity: 1,
-				Name: "IJobContextExtractor",
-				ContainingNamespace.IsImmediateJobsShared: true,
-			};
-
 		public bool IsJobContextExtractor1 =>
 			typeSymbol is INamedTypeSymbol
 			{
@@ -120,6 +112,9 @@ internal static class ITypeSymbolExtensions
 			};
 
 		public bool ImplementsJobRequest => typeSymbol is INamedTypeSymbol { ImplementsJobRequest: true };
+
+		public string? RootNamespace =>
+			typeSymbol?.ContainingNamespace.RootNamespace;
 	}
 
 	extension(INamedTypeSymbol namedTypeSymbol)
@@ -202,6 +197,13 @@ internal static class ITypeSymbolExtensions
 						ContainingNamespace.IsGlobalNamespace: true,
 					},
 				},
+			};
+
+		public string? RootNamespace =>
+			namespaceSymbol switch
+			{
+				{ IsGlobalNamespace: true } => null,
+				_ => namespaceSymbol.ContainingNamespace.RootNamespace ?? namespaceSymbol.Name,
 			};
 	}
 }

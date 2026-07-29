@@ -112,7 +112,7 @@ internal static class JsonMetadataEmitter
 	private static ImmutableArray<ISymbol> GetMembers(INamedTypeSymbol type)
 	{
 		var members = type.GetMembers()
-			.Where(static member => !JobDiscovery.IsJobDetailsMember(member))
+			.Where(static member => !PayloadValidation.IsJobDetailsMember(member))
 			.Where(member => member switch
 			{
 				IPropertySymbol property => property.DeclaredAccessibility == Accessibility.Public && !property.IsStatic && property.GetMethod is not null && property.Parameters.Length == 0,
