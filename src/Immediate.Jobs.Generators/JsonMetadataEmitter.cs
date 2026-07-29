@@ -26,12 +26,10 @@ internal static class JsonMetadataEmitter
 		var converterName = GetConverter(type);
 		var isEnum = type.TypeKind == TypeKind.Enum;
 		var usesConfiguredConverter = type.RootNamespace == "NodaTime";
+		var collectionInfo = converterName is null ? CreateCollectionModel(type) : null;
 
-		string? elementTypeName = null;
 		JsonObjectRenderModel? objectInfo = null;
-		if (type is IArrayTypeSymbol { Rank: 1 } array)
-			elementTypeName = Display(array.ElementType);
-		else if (converterName is null && !isEnum && !usesConfiguredConverter)
+		if (converterName is null && !isEnum && !usesConfiguredConverter && collectionInfo is null)
 			objectInfo = CreateObjectModel((INamedTypeSymbol)type);
 
 		return new JsonTypeRenderModel
@@ -42,10 +40,54 @@ internal static class JsonMetadataEmitter
 			ConverterName = converterName,
 			IsEnum = isEnum,
 			UsesConfiguredConverter = usesConfiguredConverter,
-			ElementTypeName = elementTypeName,
+			CollectionInfo = collectionInfo,
 			ObjectInfo = objectInfo,
 		};
 	}
+
+	private static JsonCollectionRenderModel? CreateCollectionModel(ITypeSymbol type) => type switch
+	{
+		IArrayTypeSymbol { Rank: 1 } array => new()
+		{
+			IsArray = true,
+			IsDictionary = false,
+			ElementTypeName = Display(array.ElementType),
+			KeyTypeName = null,
+		},
+		INamedTypeSymbol
+		{
+			OriginalDefinition:
+			{
+				Name: "List",
+				Arity: 1,
+				ContainingNamespace.IsSystemCollectionsGeneric: true,
+			},
+			TypeArguments: [{ } elementType],
+		} => new()
+		{
+			IsArray = false,
+			IsDictionary = false,
+			ElementTypeName = Display(elementType),
+			KeyTypeName = null,
+		},
+		INamedTypeSymbol
+		{
+			OriginalDefinition:
+			{
+				Name: "Dictionary",
+				Arity: 2,
+				ContainingNamespace.IsSystemCollectionsGeneric: true,
+			},
+			TypeArguments: [{ } keyType, { } valueType],
+		} => new()
+		{
+			IsArray = false,
+			IsDictionary = true,
+			ElementTypeName = Display(valueType),
+			KeyTypeName = Display(keyType),
+		},
+		_ => null,
+	};
 
 	private static JsonObjectRenderModel CreateObjectModel(INamedTypeSymbol type)
 	{
@@ -55,7 +97,8 @@ internal static class JsonMetadataEmitter
 
 		return new()
 		{
-			HasParameterlessCreator = constructor is null or { Parameters: [] },
+			HasParameterlessCreator = constructor is { Parameters: [] },
+			HasParameterizedCreator = constructor is { Parameters.Length: > 0 },
 
 			ConstructorParameters = constructorParameters
 				.Select((parameter, index) => new JsonConstructorParameterRenderModel
@@ -93,8 +136,20 @@ internal static class JsonMetadataEmitter
 			if (!visited.Add(type))
 				return;
 
-			if (type is IArrayTypeSymbol array)
-				Visit(array.ElementType);
+			if (CreateCollectionModel(type) is not null)
+			{
+				if (type is IArrayTypeSymbol array)
+				{
+					Visit(array.ElementType);
+				}
+				else if (type is INamedTypeSymbol namedCollection)
+				{
+					foreach (var argument in namedCollection.TypeArguments)
+						Visit(argument);
+				}
+
+				return;
+			}
 
 			if (type is INamedTypeSymbol { TypeKind: not TypeKind.Enum, RootNamespace: not "NodaTime" } named && GetConverter(named) is null)
 			{
@@ -223,13 +278,22 @@ internal sealed record JsonTypeRenderModel
 	public required string? ConverterName { get; init; }
 	public required bool IsEnum { get; init; }
 	public required bool UsesConfiguredConverter { get; init; }
-	public required string? ElementTypeName { get; init; }
+	public required JsonCollectionRenderModel? CollectionInfo { get; init; }
 	public required JsonObjectRenderModel? ObjectInfo { get; init; }
+}
+
+internal sealed record JsonCollectionRenderModel
+{
+	public required bool IsArray { get; init; }
+	public required bool IsDictionary { get; init; }
+	public required string ElementTypeName { get; init; }
+	public required string? KeyTypeName { get; init; }
 }
 
 internal sealed record JsonObjectRenderModel
 {
 	public required bool HasParameterlessCreator { get; init; }
+	public required bool HasParameterizedCreator { get; init; }
 	public required EquatableReadOnlyList<JsonConstructorParameterRenderModel> ConstructorParameters { get; init; }
 	public required EquatableReadOnlyList<JsonMemberRenderModel> Members { get; init; }
 }

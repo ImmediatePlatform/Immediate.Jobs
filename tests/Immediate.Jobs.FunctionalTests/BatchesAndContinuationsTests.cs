@@ -132,6 +132,42 @@ public sealed class BatchesAndContinuationsTests
 	}
 
 	[Fact]
+	public async Task BatchRejectsEmptyForeignAndDuplicateParentHandles()
+	{
+		await using var harness = CreateHarness();
+		await using var scope = harness.Services.CreateAsyncScope();
+		var batches = scope.ServiceProvider.GetRequiredService<IJobBatchScheduler>();
+		var scheduler = scope.ServiceProvider.GetRequiredService<BatchWorkflowJob.Scheduler>();
+		await using var batch = batches.Begin();
+		await using var foreignBatch = batches.Begin();
+		var parent = scheduler.AddToBatch(batch, new("parent"));
+		var foreignParent = scheduler.AddToBatch(foreignBatch, new("foreign"));
+		var now = harness.TimeProvider.GetUtcNow();
+
+		JobRecord CreateRecord(string id) => new()
+		{
+			Id = id,
+			JobName = "batch-workflow-test",
+			Payload = "{}",
+			State = JobState.Pending,
+			DueAt = now,
+			CreatedAt = now,
+		};
+
+		var empty = Assert.Throws<ImmediateJobException>(() =>
+			batch.Add(CreateRecord("empty-parent"), [default], ContinuationTrigger.Success));
+		Assert.Contains("non-empty", empty.Message, StringComparison.Ordinal);
+
+		var foreign = Assert.Throws<ImmediateJobException>(() =>
+			batch.Add(CreateRecord("foreign-parent"), [foreignParent], ContinuationTrigger.Success));
+		Assert.Contains("same open batch", foreign.Message, StringComparison.Ordinal);
+
+		var duplicate = Assert.Throws<ImmediateJobException>(() =>
+			batch.Add(CreateRecord("duplicate-parent"), [parent, parent], ContinuationTrigger.Success));
+		Assert.Contains("Duplicate", duplicate.Message, StringComparison.Ordinal);
+	}
+
+	[Fact]
 	public async Task GroupedBatchAdditionsUseTheSameNormalizationAsDirectScheduling()
 	{
 		var cancellationToken = TestContext.Current.CancellationToken;
@@ -190,6 +226,38 @@ public sealed class BatchesAndContinuationsTests
 		AssertBefore(state.Events, "root", "fan-b");
 		AssertBefore(state.Events, "fan-a", "join");
 		AssertBefore(state.Events, "fan-b", "join");
+	}
+
+	[Fact]
+	public async Task FollowUpBatchAddsParentBatchDependencyOnlyToGraphRoots()
+	{
+		var cancellationToken = TestContext.Current.CancellationToken;
+		await using var harness = CreateHarness();
+		await using var scope = harness.Services.CreateAsyncScope();
+		var batches = scope.ServiceProvider.GetRequiredService<IJobBatchScheduler>();
+		var monitor = scope.ServiceProvider.GetRequiredService<IJobBatchMonitor>();
+		var scheduler = scope.ServiceProvider.GetRequiredService<BatchWorkflowJob.Scheduler>();
+
+		await using var parentBatch = batches.Begin();
+		_ = scheduler.AddToBatch(parentBatch, new("parent"));
+		var parentBatchHandle = await parentBatch.CommitAsync(cancellationToken);
+
+		await using var followUpBatch = batches.Begin(parentBatchHandle, ContinuationTrigger.Complete);
+		var root = scheduler.AddToBatch(followUpBatch, new("root"));
+		var child = await scheduler.ScheduleAfterAsync(root, new("child"), cancellationToken: cancellationToken);
+		var followUpHandle = await followUpBatch.CommitAsync(cancellationToken);
+
+		var graph = Assert.IsType<BatchGraph>(await monitor.GetGraphAsync(followUpHandle.Id, cancellationToken));
+		Assert.Equal(2, graph.Edges.Count);
+		var childEdge = Assert.Single(graph.Edges, edge => edge.ChildJobId == child.Id);
+		Assert.Equal(root.Id, childEdge.ParentJobId);
+		Assert.Null(childEdge.ParentBatchId);
+		var rootEdge = Assert.Single(graph.Edges, edge => edge.ChildJobId == root.Id);
+		Assert.Null(rootEdge.ParentJobId);
+		Assert.Equal(parentBatchHandle.Id, rootEdge.ParentBatchId);
+		Assert.Equal(ContinuationTrigger.Complete, rootEdge.Trigger);
+		Assert.Equal(1, (await harness.GetJobAsync(root, cancellationToken)).RemainingDependencies);
+		Assert.Equal(1, (await harness.GetJobAsync(child, cancellationToken)).RemainingDependencies);
 	}
 
 	[Fact]
@@ -442,6 +510,36 @@ public sealed class BatchesAndContinuationsTests
 	}
 
 	[Fact]
+	public async Task RunningJobCanImmediatelyAddConcurrentWorkToItsBatch()
+	{
+		var cancellationToken = TestContext.Current.CancellationToken;
+		var workflow = new BatchWorkflowState();
+		await using var harness = CreateHarness(workflow);
+		await using var scope = harness.Services.CreateAsyncScope();
+		var batches = scope.ServiceProvider.GetRequiredService<IJobBatchScheduler>();
+		var expanding = scope.ServiceProvider.GetRequiredService<ConcurrentExpansionJob.Scheduler>();
+		var workflowScheduler = scope.ServiceProvider.GetRequiredService<BatchWorkflowJob.Scheduler>();
+		await using var batch = batches.Begin();
+		var current = expanding.AddToBatch(batch, new());
+		var waiter = await workflowScheduler.ScheduleAfterAsync(
+			current,
+			new("waiter"),
+			cancellationToken: cancellationToken
+		);
+		var batchHandle = await batch.CommitAsync(cancellationToken);
+
+		await harness.DrainAsync(cancellationToken);
+
+		var jobs = (await harness.QueryJobsAsync(cancellationToken: cancellationToken))
+			.Where(job => job.BatchId == batchHandle.Id)
+			.ToArray();
+		Assert.Equal(3, jobs.Length);
+		Assert.All(jobs, static job => Assert.Equal(JobState.Succeeded, job.State));
+		Assert.Equal(["expanding", "inserted", "waiter"], workflow.Events);
+		Assert.Equal(JobState.Succeeded, (await harness.GetJobAsync(waiter, cancellationToken)).State);
+	}
+
+	[Fact]
 	public async Task ExecutionBufferAcceptsConcurrentAdditionsAndRejectsAdditionsAfterSealing()
 	{
 		var cancellationToken = TestContext.Current.CancellationToken;
@@ -574,6 +672,29 @@ public sealed partial class DynamicExpansionJob(
 		}
 
 		return ValueTask.CompletedTask;
+	}
+}
+
+[Handler, Job(Name = "concurrent-expansion-test", MaxAttempts = 1)]
+public sealed partial class ConcurrentExpansionJob(
+	BatchWorkflowJob.Scheduler scheduler,
+	BatchWorkflowState? state = null
+)
+{
+	public sealed record Payload : IJobRequest
+	{
+		public JobDetails? JobDetails { get; set; }
+	}
+
+	private async ValueTask HandleAsync(Payload payload, CancellationToken cancellationToken)
+	{
+		state?.Events.Add("expanding");
+		_ = await scheduler.AddToBatchAsync(
+			payload.JobDetails ?? throw new InvalidOperationException("Job details were not populated."),
+			new("inserted"),
+			ContinuationOptions.BeforeContinuations,
+			cancellationToken
+		);
 	}
 }
 

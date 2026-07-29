@@ -33,10 +33,19 @@ internal static class PayloadValidation
 		if (type is not INamedTypeSymbol named)
 			return true;
 
-		if (named is { TypeArguments: [{ } elementType] }
-			&& named.AllInterfaces.Any(i => i.IsIEnumerable1))
+		if (named.TypeArguments.Length > 0
+			&& named.AllInterfaces.Any(static i => i.IsIEnumerable1))
 		{
-			return Visit(elementType, location, reportError, visited);
+			var canSerialize = true;
+			foreach (var argument in named.TypeArguments)
+			{
+				var result = Visit(argument, location, reportError, visited);
+				if (reportError is null && !result)
+					return false;
+				canSerialize &= result;
+			}
+
+			return canSerialize;
 		}
 
 		foreach (var argument in named.TypeArguments)

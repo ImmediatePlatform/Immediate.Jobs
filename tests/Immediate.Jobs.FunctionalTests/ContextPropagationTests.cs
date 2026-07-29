@@ -182,6 +182,38 @@ public sealed class ContextPropagationTests
 	}
 
 	[Fact]
+	public async Task DynamicRecurringSchedulerValidatesAndPersistsGeneratedJobSchedule()
+	{
+		var cancellationToken = TestContext.Current.CancellationToken;
+		await using var harness = CreateHarness(new());
+		await using var scope = harness.Services.CreateAsyncScope();
+		var scheduler = scope.ServiceProvider.GetRequiredService<CaptureFailureJob.Scheduler>();
+
+		await scheduler.AddOrUpdateRecurringAsync(
+			"dynamic-capture",
+			"0 * * * *",
+			"UTC",
+			cancellationToken
+		);
+
+		var schedule = Assert.Single(
+			(await harness.Storage.GetMonitoringSnapshotAsync(cancellationToken)).Recurring,
+			static candidate => candidate.Name == "dynamic-capture"
+		);
+		Assert.Equal("capture-failure", schedule.JobName);
+		Assert.Equal("0 * * * *", schedule.Cron);
+		Assert.Equal("UTC", schedule.TimeZone);
+		Assert.False(schedule.IsCodeDefined);
+		Assert.True(schedule.NextRunAt > harness.TimeProvider.GetUtcNow());
+
+		await scheduler.RemoveRecurringAsync("dynamic-capture", cancellationToken);
+		Assert.DoesNotContain(
+			(await harness.Storage.GetMonitoringSnapshotAsync(cancellationToken)).Recurring,
+			static candidate => candidate.Name == "dynamic-capture"
+		);
+	}
+
+	[Fact]
 	public async Task CustomIdGeneratorCreatesJobBatchAndRecurringIds()
 	{
 		var cancellationToken = TestContext.Current.CancellationToken;

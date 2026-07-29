@@ -48,18 +48,21 @@ opt-in, typed** mechanism that also covers state living in scoped DI.
 ```csharp
 namespace Immediate.Jobs.Shared;
 
-public interface IJobContextExtractor<TContext>
+public abstract class JobContextExtractor
 {
-    // Stable slice key in the persisted envelope. Defined on the extractor (not derived from the
-    // type name) so renaming/moving the extractor type never orphans in-flight records.
-    string Key { get; }
+	// Stable slice key in the persisted envelope. Defined on the extractor (not derived from the
+	// type name) so renaming/moving the extractor type never orphans in-flight records.
+	public abstract string Key { get; }
+}
 
-    // Runs at enqueue, in the caller's scope. Reads ambient/scoped services.
-    // Return null to signal "nothing to capture" (e.g. no active request).
-	TContext? Capture();
+public abstract class JobContextExtractor<TContext> : JobContextExtractor
+{
+	// Runs at enqueue, in the caller's scope. Reads ambient/scoped services.
+	// Return null to signal "nothing to capture" (e.g. no active request).
+	public abstract TContext? Capture();
 
-    // Runs at execution, in the job's scope. Repopulates services from the captured value.
-	void Restore(TContext context);
+	// Runs at execution, in the job's scope. Repopulates services from the captured value.
+	public abstract void Restore(TContext context);
 }
 ```
 
@@ -80,13 +83,13 @@ public sealed class UsageContext
 }
 
 public sealed class UsageContextExtractor(UsageContext usage)
-	: IJobContextExtractor<UsageContextSnapshot>
+	: JobContextExtractor<UsageContextSnapshot>
 {
-	public string Key => "usage";   // stable; renaming this class won't break in-flight records
+	public override string Key => "usage";   // stable; renaming this class won't break in-flight records
 
-	public UsageContextSnapshot? Capture() => usage.Value;
+	public override UsageContextSnapshot? Capture() => usage.Value;
 
-	public void Restore(UsageContextSnapshot snapshot) => usage.Value = snapshot;
+	public override void Restore(UsageContextSnapshot snapshot) => usage.Value = snapshot;
 }
 
 builder.Services.AddScoped<UsageContext>();
@@ -232,7 +235,7 @@ the nullable `Capture` return models this explicitly.
 | Envelope slice references a `Key` with no matching registered extractor | Skip that slice, log | A durable record can outlive the extractor that produced it (extractor removed in a later deploy); the job must still run. |
 | Two registered extractors share a `Key` | Throw at capture (collision) | Deterministic envelope; surfaces the misconfiguration immediately via the capture-failure path. |
 | `Restore` throws (execution) | **Count as a failed attempt (retry)** | Consistent with "pipelines run inside the retry boundary"; stale captured data (e.g. deleted user) flows through normal retry → dead-letter. |
-| Multiple extractors | Run in declared order (direct attributes, then marker-attribute order), capture and restore symmetric | Deterministic, matches behavior ordering. |
+| Multiple extractors | Capture and restore are symmetric within generated code; no relative ordering is guaranteed across compiler or package versions | Extractors must be idempotent and must not depend on another extractor running before or after them. |
 
 ## 9. Storage impact
 
@@ -246,7 +249,7 @@ the nullable `Capture` return models this explicitly.
 1. Discover `[UsesJobContext<TExtractor>]` on the job, **including markers**: for each attribute on
    the job, use it if it is `UsesJobContext<>`, otherwise inspect that attribute's own attributes for
    `UsesJobContext<>` (identical to `TransformHandler.GetBehaviorsAttribute` walking
-   attribute-of-attribute). Resolve each extractor's `IJobContextExtractor<TContext>` to obtain
+   attribute-of-attribute). Resolve each extractor's `JobContextExtractor<TContext>` base to obtain
    `TContext`. Dedupe by extractor type so a job that reaches the same extractor twice captures once.
 2. Emit `JsonTypeInfo` for each distinct `TContext` (reuse `JsonMetadataEmitter`).
 3. Emit the `CaptureContext` override on the generated `Scheduler` (inject extractors, key each
@@ -259,7 +262,7 @@ the nullable `Capture` return models this explicitly.
 
 ## 11. Analyzer diagnostics (new)
 
-- `[UsesJobContext<T>]` where `T` does not implement `IJobContextExtractor<>`.
+- `[UsesJobContext<T>]` where `T` does not derive from `JobContextExtractor`.
 - Context type `TContext` not serializable (reuse payload validation messaging).
 - Context type contains NodaTime types without the integration package (reuse `IJOB007` shape).
 
@@ -273,7 +276,7 @@ public sealed class UsageContext
 	public UsageContextSnapshot? Value { get; set; }
 }
 public sealed class UsageContextExtractor(UsageContext usage)
-	: IJobContextExtractor<UsageContextSnapshot> { /* Capture/Restore as in §4.2 */ }
+	: JobContextExtractor<UsageContextSnapshot> { /* Capture/Restore as in §4.2 */ }
 
 builder.Services.AddScoped<UsageContext>();
 
@@ -318,8 +321,8 @@ the Entity Framework Core storage tests in `Immediate.Jobs.FunctionalTests`, and
   injects the extractor and builds the envelope; the generated `Invoker` contains the restore block
   ahead of the handler/behavior invocation; `JsonTypeInfo` is emitted for the context type; the
   extractor and scheduler are registered `Scoped`.
-- **Multiple extractors** — capture and restore are emitted in declared `[UsesJobContext<>]` order,
-  and each slice is keyed off `extractor.Key` at runtime.
+- **Multiple extractors** — capture and restore include every distinct extractor in the same order
+  within an individual generated artifact, and each slice is keyed off `extractor.Key` at runtime.
 - **Marker attribute** — a job carrying a custom `[WebJob]` attribute annotated with
   `[UsesJobContext<>]` emits the same capture/restore as the direct form; a job reaching one extractor
   both directly and via a marker captures it once (dedupe).
@@ -342,7 +345,7 @@ the Entity Framework Core storage tests in `Immediate.Jobs.FunctionalTests`, and
 
 ### 14.3 Analyzer diagnostics
 
-- `[UsesJobContext<T>]` where `T` does not implement `IJobContextExtractor<>` ⇒ diagnostic.
+- `[UsesJobContext<T>]` where `T` does not derive from `JobContextExtractor` ⇒ diagnostic.
 - Context type not serializable (reuse payload-validation messaging) ⇒ diagnostic.
 - Context type contains NodaTime types without the integration package ⇒ diagnostic (`IJOB007`
   shape).
@@ -354,7 +357,8 @@ the Entity Framework Core storage tests in `Immediate.Jobs.FunctionalTests`, and
 - **Round trip** — set an ambient/scoped value in an originating scope, enqueue, run the job in the
   worker, and assert the value is visible to the handler and its behaviors during background
   execution.
-- **Multiple extractors** — all contexts restore, in order.
+- **Multiple extractors** — all contexts restore; each extractor is idempotent and independent of
+  relative ordering.
 - **Recurring/cron** — `Capture` returns `null` (no ambient scope), no envelope is written, and
   the job still executes.
 - **Restore failure policy** — a throwing/stale `Restore` behaves per the §8 decision (fail the

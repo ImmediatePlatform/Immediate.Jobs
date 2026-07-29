@@ -249,7 +249,7 @@ The `IJobRequest` constraint keeps this global behavior out of ordinary handlers
 
 ## Propagating scoped context
 
-Use `IJobContextExtractor<TContext>` when a job needs request-scoped or ambient state that is not
+Derive from `JobContextExtractor<TContext>` when a job needs request-scoped or ambient state that is not
 part of its business payload. Capture runs while enqueueing in the caller's scope; restore runs in
 the job's execution scope before the handler and its behaviors are resolved. The context value is
 serialized with generated metadata, so it remains trimming- and Native AOT-safe.
@@ -265,13 +265,13 @@ public sealed class UsageContext
 }
 
 public sealed class UsageContextExtractor(UsageContext usage)
-	: IJobContextExtractor<UsageContextSnapshot>
+	: JobContextExtractor<UsageContextSnapshot>
 {
-	public string Key => "usage"; // stable across extractor type renames
+	public override string Key => "usage"; // stable across extractor type renames
 
-	public UsageContextSnapshot? Capture() => usage.Value;
+	public override UsageContextSnapshot? Capture() => usage.Value;
 
-	public void Restore(UsageContextSnapshot context) => usage.Value = context;
+	public override void Restore(UsageContextSnapshot context) => usage.Value = context;
 }
 
 [Handler, Job, UsesJobContext<UsageContextExtractor>]
