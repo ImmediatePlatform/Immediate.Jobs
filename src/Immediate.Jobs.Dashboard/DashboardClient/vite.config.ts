@@ -31,7 +31,7 @@ export default defineConfig(({ command, mode }) => {
 				output: {
 					entryFileNames: 'app.js',
 					assetFileNames: 'app.[ext]',
-					inlineDynamicImports: true,
+					codeSplitting: false,
 				},
 			},
 		},
