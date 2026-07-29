@@ -123,6 +123,7 @@ public sealed partial class ImmediateJobsGenerator
 				ExtractorTypeName = use.ExtractorType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
 				ContextTypeName = use.ContextType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
 				JsonPropertyName = $"Context{index}",
+				Index = index,
 			})
 			.ToEquatableReadOnlyList();
 
