@@ -111,10 +111,18 @@ internal static class ITypeSymbolExtensions
 				ContainingNamespace.IsSystemThreadingTasks: true,
 			};
 
+		public bool IsIEnumerable1 =>
+			typeSymbol is INamedTypeSymbol
+			{
+				Arity: 1,
+				Name: "IEnumerable",
+				ContainingNamespace.IsSystemCollectionsGeneric: true,
+			};
+
 		public bool ImplementsJobRequest => typeSymbol is INamedTypeSymbol { ImplementsJobRequest: true };
 
 		public string? RootNamespace =>
-			typeSymbol?.ContainingNamespace.RootNamespace;
+			typeSymbol?.ContainingNamespace?.RootNamespace;
 	}
 
 	extension(INamedTypeSymbol namedTypeSymbol)
@@ -182,6 +190,21 @@ internal static class ITypeSymbolExtensions
 					ContainingNamespace:
 					{
 						Name: "Immediate",
+						ContainingNamespace.IsGlobalNamespace: true,
+					},
+				},
+			};
+
+		public bool IsSystemCollectionsGeneric =>
+			namespaceSymbol is
+			{
+				Name: "Generic",
+				ContainingNamespace:
+				{
+					Name: "Collections",
+					ContainingNamespace:
+					{
+						Name: "System",
 						ContainingNamespace.IsGlobalNamespace: true,
 					},
 				},

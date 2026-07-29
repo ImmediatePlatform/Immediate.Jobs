@@ -9,9 +9,6 @@ internal static class PayloadValidation
 
 	private static bool Visit(ITypeSymbol type, Location? location, Action<string, Location?>? reportError, HashSet<ITypeSymbol> visited)
 	{
-		if (!visited.Add(type))
-			return true;
-
 		if (type.TypeKind is TypeKind.Pointer or TypeKind.FunctionPointer or TypeKind.TypeParameter || type.IsRefLikeType)
 		{
 			reportError?.Invoke("the type is pointer-like, ref-like, or open generic", location);
@@ -36,12 +33,21 @@ internal static class PayloadValidation
 		if (type is not INamedTypeSymbol named)
 			return true;
 
+		if (named is { TypeArguments: [{ } elementType] }
+			&& named.AllInterfaces.Any(i => i.IsIEnumerable1))
+		{
+			return Visit(elementType, location, reportError, visited);
+		}
+
 		foreach (var argument in named.TypeArguments)
 		{
 			var result = Visit(argument, argument.Locations.FirstOrDefault(), reportError, visited);
 			if (reportError is null && !result)
 				return false;
 		}
+
+		if (!visited.Add(type))
+			return true;
 
 		if (named is { SpecialType: not SpecialType.None }
 				or { TypeKind: TypeKind.Enum }

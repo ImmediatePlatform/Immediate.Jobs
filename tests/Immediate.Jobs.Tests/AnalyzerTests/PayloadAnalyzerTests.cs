@@ -109,6 +109,7 @@ public sealed class PayloadAnalyzerTests
 			using Immediate.Jobs.Shared;
 			using Immediate.Handlers.Shared;
 			using System;
+			using System.Collections.Generic;
 			using System.IO;
 			using System.Threading;
 			using System.Threading.Tasks;
@@ -127,6 +128,7 @@ public sealed class PayloadAnalyzerTests
 					public Formatter {|IJOB0013:Format|} { get; init; } = null!;
 					public Type {|IJOB0013:RuntimeType|} { get; init; } = null!;
 					public Stream {|IJOB0013:Stream|} { get; init; } = null!;
+					public List<Stream> {|IJOB0013:ListOfStream|} { get; init; } = null!;
 					public JobDetails? JobDetails { get; set; }
 				}
 			
