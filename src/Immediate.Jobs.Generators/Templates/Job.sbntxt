@@ -74,7 +74,7 @@ partial class {{ class_name }}
 	{{~ if has_payload || contexts.size > 0 ~}}
 	internal sealed class Invoker(global::Immediate.Jobs.Shared.IJobSerializer serializer) : global::Immediate.Jobs.Shared.IJobInvoker{{ if contexts.size > 0 }}, global::Immediate.Jobs.Shared.IJobContextAwareInvoker{{ end }}
 	{{~ else ~}}
-	internal sealed class Invoker : global::Immediate.Jobs.Shared.IJobInvoker{{ if contexts.size > 0 }}, global::Immediate.Jobs.Shared.IJobContextAwareInvoker{{ end }}
+	internal sealed class Invoker : global::Immediate.Jobs.Shared.IJobInvoker
 	{{~ end ~}}
 	{
 		public async global::System.Threading.Tasks.ValueTask InvokeAsync(global::System.IServiceProvider scopedServices, global::Immediate.Jobs.Shared.JobExecution execution)

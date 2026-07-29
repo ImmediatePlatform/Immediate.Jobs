@@ -12,11 +12,11 @@ public sealed class CurrentRequestContext
 public sealed class RequestContextExtractor(
 	IHttpContextAccessor httpContextAccessor,
 	CurrentRequestContext currentRequestContext
-) : IJobContextExtractor<OriginatingRequestContext>
+) : JobContextExtractor<OriginatingRequestContext>
 {
-	public string Key => "http-request";
+	public override string Key => "http-request";
 
-	public OriginatingRequestContext? Capture()
+	public override OriginatingRequestContext? Capture()
 	{
 		if (httpContextAccessor.HttpContext is not { } httpContext)
 			return null;
@@ -28,5 +28,5 @@ public sealed class RequestContextExtractor(
 		return context;
 	}
 
-	public void Restore(OriginatingRequestContext context) => currentRequestContext.Value = context;
+	public override void Restore(OriginatingRequestContext context) => currentRequestContext.Value = context;
 }

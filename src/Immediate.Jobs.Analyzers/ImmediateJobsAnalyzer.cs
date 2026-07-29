@@ -39,31 +39,31 @@ public sealed class ImmediateJobsAnalyzer : DiagnosticAnalyzer
 		{
 			context.CancellationToken.ThrowIfCancellationRequested();
 			var location = GetAttributeLocation(job);
-			var contextUses = JobDiscovery.GetJobContextUses(job);
-			foreach (var contextUse in contextUses)
-			{
-				var contextLocation = contextUse.AppliedAttribute.ApplicationSyntaxReference?.GetSyntax().GetLocation() ?? location;
-				if (contextUse.ContextType is null)
-				{
-					context.ReportDiagnostic(Diagnostic.Create(
-						DiagnosticDescriptors.InvalidContextExtractor,
-						contextLocation,
-						contextUse.ExtractorType.ToDisplayString()
-					));
-					continue;
-				}
+			//var contextUses = JobDiscovery.GetJobContextUses(job);
+			//foreach (var contextUse in contextUses)
+			//{
+			//	var contextLocation = contextUse.AppliedAttribute.ApplicationSyntaxReference?.GetSyntax().GetLocation() ?? location;
+			//	if (contextUse.ContextType is null)
+			//	{
+			//		context.ReportDiagnostic(Diagnostic.Create(
+			//			DiagnosticDescriptors.InvalidContextExtractor,
+			//			contextLocation,
+			//			contextUse.ExtractorType.ToDisplayString()
+			//		));
+			//		continue;
+			//	}
 
-				var contextProblem = PayloadValidation.FindProblem(contextUse.ContextType);
-				if (contextProblem is not null)
-				{
-					context.ReportDiagnostic(Diagnostic.Create(
-						DiagnosticDescriptors.UnsupportedContext,
-						contextLocation,
-						contextUse.ContextType.ToDisplayString(),
-						contextProblem
-					));
-				}
-			}
+			//	var contextProblem = PayloadValidation.FindProblem(contextUse.ContextType);
+			//	if (contextProblem is not null)
+			//	{
+			//		context.ReportDiagnostic(Diagnostic.Create(
+			//			DiagnosticDescriptors.UnsupportedContext,
+			//			contextLocation,
+			//			contextUse.ContextType.ToDisplayString(),
+			//			contextProblem
+			//		));
+			//	}
+			//}
 
 			if (JobDiscovery.GetUsesQueueAttribute(job) is { AttributeClass.TypeArguments: [INamedTypeSymbol queueType] } usesQueue &&
 				JobDiscovery.GetQueueDefinitionAttribute(queueType) is null)

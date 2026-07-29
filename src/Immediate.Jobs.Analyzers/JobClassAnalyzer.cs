@@ -96,15 +96,15 @@ public sealed class JobClassAnalyzer : DiagnosticAnalyzer
 		if (context.Symbol is not INamedTypeSymbol namedTypeSymbol)
 			return;
 
-		if (namedTypeSymbol.GetValidHandleMethod() is not { } handleMethod)
-			return;
-
-		var parameterType = handleMethod.Parameters[0].Type;
-
 		var attributes = namedTypeSymbol.GetAttributes();
 
 		if (attributes.JobAttribute is not { } jobAttribute)
 			return;
+
+		if (namedTypeSymbol.GetValidHandleMethod() is not { } handleMethod)
+			return;
+
+		var parameterType = handleMethod.Parameters[0].Type;
 
 		token.ThrowIfCancellationRequested();
 

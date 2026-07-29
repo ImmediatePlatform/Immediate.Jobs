@@ -31,14 +31,14 @@ public sealed class CurrentGreetingContext
 }
 
 public sealed class GreetingContextExtractor(CurrentGreetingContext currentContext)
-	: IJobContextExtractor<GreetingContext>
+	: JobContextExtractor<GreetingContext>
 {
-	public string Key => "greeting";
+	public override string Key => "greeting";
 
-	public GreetingContext? Capture() =>
+	public override GreetingContext? Capture() =>
 		currentContext.Value is { } value ? new GreetingContext(value) : null;
 
-	public void Restore(GreetingContext context)
+	public override void Restore(GreetingContext context)
 	{
 		ArgumentNullException.ThrowIfNull(context);
 		currentContext.Value = context.Value;

@@ -324,17 +324,17 @@ public sealed record FailureContext(string Value);
 public sealed record EmptyContext(string Value);
 
 public sealed class TenantContextExtractor(PropagationScopeState state, ContextProbe probe)
-	: IJobContextExtractor<TenantContext>
+	: JobContextExtractor<TenantContext>
 {
-	public string Key => "tenant";
+	public override string Key => "tenant";
 
-	public TenantContext? Capture()
+	public override TenantContext? Capture()
 	{
 		probe.Events.Add("capture:tenant");
 		return state.TenantId is null ? null : new TenantContext(state.TenantId);
 	}
 
-	public void Restore(TenantContext context)
+	public override void Restore(TenantContext context)
 	{
 		ArgumentNullException.ThrowIfNull(context);
 		probe.Events.Add("restore:tenant");
@@ -343,17 +343,17 @@ public sealed class TenantContextExtractor(PropagationScopeState state, ContextP
 }
 
 public sealed class CorrelationContextExtractor(PropagationScopeState state, ContextProbe probe)
-	: IJobContextExtractor<CorrelationContext>
+	: JobContextExtractor<CorrelationContext>
 {
-	public string Key => "correlation";
+	public override string Key => "correlation";
 
-	public CorrelationContext? Capture()
+	public override CorrelationContext? Capture()
 	{
 		probe.Events.Add("capture:correlation");
 		return state.CorrelationId is null ? null : new CorrelationContext(state.CorrelationId);
 	}
 
-	public void Restore(CorrelationContext context)
+	public override void Restore(CorrelationContext context)
 	{
 		ArgumentNullException.ThrowIfNull(context);
 		probe.Events.Add("restore:correlation");
@@ -361,34 +361,34 @@ public sealed class CorrelationContextExtractor(PropagationScopeState state, Con
 	}
 }
 
-public sealed class ThrowingCaptureExtractor : IJobContextExtractor<FailureContext>
+public sealed class ThrowingCaptureExtractor : JobContextExtractor<FailureContext>
 {
-	public string Key => "capture-failure";
-	public FailureContext? Capture() =>
+	public override string Key => "capture-failure";
+	public override FailureContext? Capture() =>
 		throw new InvalidOperationException("Capture failed");
-	public void Restore(FailureContext context) { }
+	public override void Restore(FailureContext context) { }
 }
 
-public sealed class ThrowingRestoreExtractor : IJobContextExtractor<FailureContext>
+public sealed class ThrowingRestoreExtractor : JobContextExtractor<FailureContext>
 {
-	public string Key => "restore-failure";
-	public FailureContext? Capture() => new("captured");
-	public void Restore(FailureContext context) =>
+	public override string Key => "restore-failure";
+	public override FailureContext? Capture() => new("captured");
+	public override void Restore(FailureContext context) =>
 		throw new InvalidOperationException("Restore failed");
 }
 
-public sealed class FirstNullExtractor : IJobContextExtractor<EmptyContext>
+public sealed class FirstNullExtractor : JobContextExtractor<EmptyContext>
 {
-	public string Key => "duplicate";
-	public EmptyContext? Capture() => null;
-	public void Restore(EmptyContext context) { }
+	public override string Key => "duplicate";
+	public override EmptyContext? Capture() => null;
+	public override void Restore(EmptyContext context) { }
 }
 
-public sealed class SecondNullExtractor : IJobContextExtractor<EmptyContext>
+public sealed class SecondNullExtractor : JobContextExtractor<EmptyContext>
 {
-	public string Key => "duplicate";
-	public EmptyContext? Capture() => null;
-	public void Restore(EmptyContext context) { }
+	public override string Key => "duplicate";
+	public override EmptyContext? Capture() => null;
+	public override void Restore(EmptyContext context) { }
 }
 
 public sealed class ReplacedIdGenerator : IIdGenerator
