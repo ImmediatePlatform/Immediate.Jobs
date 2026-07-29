@@ -102,14 +102,14 @@ public sealed partial class ImmediateJobsGenerator
 			return null;
 		}
 
-		if (hasPayload && PayloadValidation.FindProblem(parameterType, context.SemanticModel.Compilation) is not null)
+		if (hasPayload && PayloadValidation.FindProblem(parameterType) is not null)
 			return null;
 
 		var tags = handlerAttribute?.NamedArguments.GetStringArray("Tags");
 
 		var contextUses = JobDiscovery.GetJobContextUses(symbol);
 		if (contextUses.Any(use =>
-			use.ContextType is null || PayloadValidation.FindProblem(use.ContextType, context.SemanticModel.Compilation) is not null))
+			use.ContextType is null || PayloadValidation.FindProblem(use.ContextType) is not null))
 			return null;
 
 		var contexts = contextUses.Select((use, index) => new JobContextModel

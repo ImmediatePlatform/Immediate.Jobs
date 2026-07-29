@@ -53,7 +53,7 @@ public sealed class ImmediateJobsAnalyzer : DiagnosticAnalyzer
 					continue;
 				}
 
-				var contextProblem = PayloadValidation.FindProblem(contextUse.ContextType, context.Compilation);
+				var contextProblem = PayloadValidation.FindProblem(contextUse.ContextType);
 				if (contextProblem is not null)
 				{
 					context.ReportDiagnostic(Diagnostic.Create(
@@ -90,7 +90,7 @@ public sealed class ImmediateJobsAnalyzer : DiagnosticAnalyzer
 			if (!hasPayload)
 				continue;
 
-			var problem = PayloadValidation.FindProblem(payloadType!, context.Compilation);
+			var problem = PayloadValidation.FindProblem(payloadType!);
 			if (problem is not null)
 			{
 				context.ReportDiagnostic(Diagnostic.Create(

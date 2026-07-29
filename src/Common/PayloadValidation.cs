@@ -4,10 +4,10 @@ namespace Immediate.Jobs;
 
 internal static class PayloadValidation
 {
-	public static string? FindProblem(ITypeSymbol type, Compilation compilation)
+	public static string? FindProblem(ITypeSymbol type)
 	{
 		var visited = new HashSet<ITypeSymbol>(SymbolEqualityComparer.Default);
-		return Visit(type, compilation, visited);
+		return Visit(type, visited);
 	}
 
 	public static bool ContainsNodaTime(ITypeSymbol type)
@@ -16,7 +16,7 @@ internal static class PayloadValidation
 		return VisitForNodaTime(type, visited);
 	}
 
-	private static string? Visit(ITypeSymbol type, Compilation compilation, HashSet<ITypeSymbol> visited)
+	private static string? Visit(ITypeSymbol type, HashSet<ITypeSymbol> visited)
 	{
 		if (!visited.Add(type))
 			return null;
@@ -27,13 +27,13 @@ internal static class PayloadValidation
 		if (type.TypeKind == TypeKind.Delegate || type.SpecialType == SpecialType.System_Delegate || type.ToDisplayString() == "System.Type")
 			return "delegates and System.Type are not supported payload values";
 		if (type is IArrayTypeSymbol array)
-			return Visit(array.ElementType, compilation, visited);
+			return Visit(array.ElementType, visited);
 		if (type is not INamedTypeSymbol named)
 			return null;
 
 		foreach (var argument in named.TypeArguments)
 		{
-			var problem = Visit(argument, compilation, visited);
+			var problem = Visit(argument, visited);
 			if (problem is not null)
 				return problem;
 		}
@@ -64,7 +64,7 @@ internal static class PayloadValidation
 			if (memberType is null)
 				continue;
 
-			var problem = Visit(memberType, compilation, visited);
+			var problem = Visit(memberType, visited);
 			if (problem is not null)
 				return $"member '{member.Name}' uses an unsupported type ({problem})";
 		}
