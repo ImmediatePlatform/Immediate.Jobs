@@ -31,7 +31,7 @@ partial class {{ class_name }}
 		, global::Immediate.Jobs.Shared.{{ recurring_scheduler_interface }}
 		{{~ end ~}}
 	{
-		{{~ if contexts.size > 0 ~}}
+		{{~ if contexts.count > 0 ~}}
 		protected override string? CaptureContext()
 		{
 			var keys = new global::System.Collections.Generic.HashSet<string>(global::System.StringComparer.Ordinal);
@@ -71,15 +71,15 @@ partial class {{ class_name }}
 
 	[global::System.CodeDom.Compiler.GeneratedCodeAttribute("Immediate.Jobs", "{{ version }}")]
 	[global::System.ComponentModel.EditorBrowsable(global::System.ComponentModel.EditorBrowsableState.Never)]
-	{{~ if has_payload || contexts.size > 0 ~}}
-	internal sealed class Invoker(global::Immediate.Jobs.Shared.IJobSerializer serializer) : global::Immediate.Jobs.Shared.IJobInvoker{{ if contexts.size > 0 }}, global::Immediate.Jobs.Shared.IJobContextAwareInvoker{{ end }}
+	{{~ if has_payload || contexts.count > 0 ~}}
+	internal sealed class Invoker(global::Immediate.Jobs.Shared.IJobSerializer serializer) : global::Immediate.Jobs.Shared.IJobInvoker{{ if contexts.count > 0 }}, global::Immediate.Jobs.Shared.IJobContextAwareInvoker{{ end }}
 	{{~ else ~}}
 	internal sealed class Invoker : global::Immediate.Jobs.Shared.IJobInvoker
 	{{~ end ~}}
 	{
 		public async global::System.Threading.Tasks.ValueTask InvokeAsync(global::System.IServiceProvider scopedServices, global::Immediate.Jobs.Shared.JobExecution execution)
 		{
-			{{~ if contexts.size > 0 ~}}
+			{{~ if contexts.count > 0 ~}}
 			if (execution.Record.Context is { } envelope)
 			{
 				var contextSlices = global::Immediate.Jobs.Shared.JobContextEnvelope.Read(envelope);
