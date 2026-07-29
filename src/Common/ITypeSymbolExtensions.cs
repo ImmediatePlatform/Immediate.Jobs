@@ -138,6 +138,20 @@ internal static class ITypeSymbolExtensions
 			return handleMethod;
 		}
 
+		public ITypeSymbol? ContextType =>
+			namedTypeSymbol.BaseType switch
+			{
+				INamedTypeSymbol
+				{
+					IsJobContextExtractor1: true,
+					TypeArguments: [{ } contextType],
+				} => contextType,
+
+				INamedTypeSymbol bt => bt.ContextType,
+
+				_ => null,
+			};
+
 		public bool ImplementsJobRequest => namedTypeSymbol.AllInterfaces.Any(static i => i.IsIJobRequest);
 	}
 

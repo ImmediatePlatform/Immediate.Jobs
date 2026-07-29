@@ -102,14 +102,14 @@ public sealed partial class ImmediateJobsGenerator
 			return null;
 		}
 
-		if (hasPayload && PayloadValidation.FindProblem(parameterType) is not null)
+		if (hasPayload && !PayloadValidation.CanSerializeToJson(parameterType, reportError: null))
 			return null;
 
 		var tags = handlerAttribute?.NamedArguments.GetStringArray("Tags");
 
 		var extractors = attributes.GetContextExtractors();
 
-		if (extractors.Any(e => PayloadValidation.FindProblem(e.ContextType) is not null))
+		if (extractors.Any(e => !PayloadValidation.CanSerializeToJson(e.ContextType, reportError: null)))
 			return null;
 
 		var jsonMetadataEmitter = JsonMetadataEmitter.CreateModel(
@@ -199,11 +199,11 @@ file static class Extensions
 				case
 				{
 					IsUsesJobContextAttribute: true,
-					TypeArguments: [INamedTypeSymbol extractorType],
+					TypeArguments: [INamedTypeSymbol { ContextType: { } contextType } extractorType],
 				}:
 				{
 					if (seen.Add(extractorType))
-						yield return (extractorType, extractorType.ContextType);
+						yield return (extractorType, contextType);
 
 					break;
 				}
@@ -215,14 +215,14 @@ file static class Extensions
 						if (aa.AttributeClass is not
 							{
 								IsUsesJobContextAttribute: true,
-								TypeArguments: [INamedTypeSymbol extractorType],
+								TypeArguments: [INamedTypeSymbol { ContextType: { } contextType } extractorType],
 							})
 						{
 							continue;
 						}
 
 						if (seen.Add(extractorType))
-							yield return (extractorType, extractorType.ContextType);
+							yield return (extractorType, contextType);
 					}
 
 					break;
@@ -232,22 +232,5 @@ file static class Extensions
 					break;
 			}
 		}
-	}
-
-	extension(INamedTypeSymbol namedTypeSymbol)
-	{
-		public ITypeSymbol ContextType =>
-			namedTypeSymbol.BaseType switch
-			{
-				INamedTypeSymbol
-				{
-					IsJobContextExtractor1: true,
-					TypeArguments: [{ } contextType],
-				} => contextType,
-
-				INamedTypeSymbol bt => bt.ContextType,
-
-				_ => throw new InvalidOperationException("Should be impossible."),
-			};
 	}
 }
