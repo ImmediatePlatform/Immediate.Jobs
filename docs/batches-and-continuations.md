@@ -80,7 +80,7 @@ makes intra-batch continuations resolvable before commit.
 a generated `Scheduler`). `Begin()` opens an in-memory buffer; you add work by calling each job
 scheduler's inherited **`AddToBatch`** — the job is the receiver, exactly as with `EnqueueAsync`;
 `CommitAsync` flushes the buffer in one atomic unit. Disposing without committing rolls the buffer
-back — giving Hangfire's "exception before commit ⇒ nothing enqueued" guarantee mechanically.
+back, so failures before commit begins enqueue nothing.
 
 ```csharp
 public sealed class CampaignService(
@@ -101,8 +101,9 @@ public sealed class CampaignService(
 
 `AddToBatch` is inherited from the scheduler's closed `JobScheduler<TPayload>` base, so it is strongly
 typed and needs no generic `Add<T>(scheduler, payload)` seam. If storage is unavailable mid-loop,
-**nothing** was written (the buffer only touches storage at commit), so retrying the whole method
-cannot double-send — the "1000 emails" scenario, solved without duplicate-tracking bookkeeping.
+**nothing** was written because commit has not started. Once `CommitAsync` begins, a transport failure
+can leave its outcome unknown: persistence may have succeeded, so callers retrying the operation need
+idempotency or duplicate tracking.
 
 `AddToBatch` mirrors the scheduler timing surface — immediate, delayed, and absolute-time:
 
