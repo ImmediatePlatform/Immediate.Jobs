@@ -88,7 +88,7 @@ public sealed partial class ImmediateJobsGenerator
 				{ AttributeClass.TypeArguments: [{ } queueSymbol] }
 					when queueSymbol.GetAttributes().QueueDefinitionAttribute is { } queueDefinitionAttribute =>
 					(
-						QueueName: queueDefinitionAttribute.GetQueueName(queueSymbol.Name).NullIf("default"),
+						QueueName: queueDefinitionAttribute.GetQueueName(queueSymbol.Name).NullIf("default").NullIfWhitespace(),
 						QueuePriority: queueDefinitionAttribute.NamedArguments.GetIntValue("Priority", 0),
 						QueueConcurrency: queueDefinitionAttribute.NamedArguments.GetIntValue("Concurrency", 0)
 					),
@@ -102,25 +102,30 @@ public sealed partial class ImmediateJobsGenerator
 			return null;
 		}
 
-		if (hasPayload && PayloadValidation.FindProblem(parameterType, context.SemanticModel.Compilation) is not null)
+		if (hasPayload && !PayloadValidation.CanSerializeToJson(parameterType, reportError: null))
 			return null;
 
 		var tags = handlerAttribute?.NamedArguments.GetStringArray("Tags");
 
-		var contextUses = JobDiscovery.GetJobContextUses(symbol);
-		if (contextUses.Any(use =>
-			use.ContextType is null || PayloadValidation.FindProblem(use.ContextType, context.SemanticModel.Compilation) is not null))
+		var extractors = attributes.GetContextExtractors().ToList();
+
+		if (extractors.Any(e => !PayloadValidation.CanSerializeToJson(e.ContextType, reportError: null)))
 			return null;
 
-		var contexts = contextUses.Select((use, index) => new JobContextModel
-		{
-			ExtractorTypeName = use.ExtractorType.ToDisplayString(DisplayNameFormatters.FullyQualifiedWithNullableFormat),
-			ContextTypeName = use.ContextType!
-				.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
-			JsonPropertyName = $"Context{index}",
-		}).ToEquatableReadOnlyList();
+		var jsonMetadataEmitter = JsonMetadataEmitter.CreateModel(
+			parameterType,
+			extractors.Select(e => e.ContextType)
+		);
 
-		var contextTypes = contextUses.Select(static use => use.ContextType!).ToImmutableArray();
+		var contexts = extractors
+			.Select((use, index) => new JobContextModel
+			{
+				ExtractorTypeName = use.ExtractorType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
+				ContextTypeName = use.ContextType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
+				JsonPropertyName = $"Context{index}",
+				Index = index,
+			})
+			.ToEquatableReadOnlyList();
 
 		return new()
 		{
@@ -144,7 +149,7 @@ public sealed partial class ImmediateJobsGenerator
 			BackoffBase = backoffBase,
 			Tags = tags,
 			Contexts = contexts,
-			Json = JsonMetadataEmitter.CreateModel(parameterType, contextTypes),
+			Json = jsonMetadataEmitter,
 		};
 	}
 
@@ -156,19 +161,21 @@ public sealed partial class ImmediateJobsGenerator
 		cancellationToken.ThrowIfCancellationRequested();
 
 		var queueType = (INamedTypeSymbol)context.TargetSymbol;
+		var attribute = context.Attributes[0];
 
-		if (JobDiscovery.GetQueueDefinitionAttribute(queueType) is not { } definition)
+		if (attribute.GetQueueName(queueType.Name).NullIf("default").NullIfWhitespace() is not { } name)
 			return null;
 
-		var name = JobDiscovery.GetQueueName(queueType);
-		var concurrency = JobDiscovery.GetNamedInt(definition, "Concurrency", 0);
-		if (string.IsNullOrWhiteSpace(name) || name == "default" || concurrency < 0)
+		var concurrency = attribute.NamedArguments.GetIntValue("Concurrency", 0);
+		if (concurrency < 0)
 			return null;
+
+		var priority = attribute.NamedArguments.GetIntValue("Priority", 0);
 
 		return new()
 		{
 			Name = name,
-			Priority = JobDiscovery.GetNamedInt(definition, "Priority", 0),
+			Priority = priority,
 			Concurrency = concurrency,
 		};
 	}
@@ -178,4 +185,53 @@ file static class Extensions
 {
 	public static string? NullIf(this string value, string check) =>
 		value.Equals(check, StringComparison.Ordinal) ? null : value;
+
+	public static string? NullIfWhitespace(this string? value) =>
+		string.IsNullOrWhiteSpace(value) ? null : value;
+
+	public static IEnumerable<(INamedTypeSymbol ExtractorType, ITypeSymbol ContextType)> GetContextExtractors(this ImmutableArray<AttributeData> attributes)
+	{
+		var seen = new HashSet<ITypeSymbol>(SymbolEqualityComparer.Default);
+
+		foreach (var a in attributes)
+		{
+			switch (a.AttributeClass)
+			{
+				case
+				{
+					IsUsesJobContextAttribute: true,
+					TypeArguments: [INamedTypeSymbol { ContextType: { } contextType } extractorType],
+				}:
+				{
+					if (seen.Add(extractorType))
+						yield return (extractorType, contextType);
+
+					break;
+				}
+
+				case { } ac when ac.GetAttributes().Any(a => a is { AttributeClass.IsUsesJobContextAttribute: true }):
+				{
+					foreach (var aa in ac.GetAttributes())
+					{
+						if (aa.AttributeClass is not
+							{
+								IsUsesJobContextAttribute: true,
+								TypeArguments: [INamedTypeSymbol { ContextType: { } contextType } extractorType],
+							})
+						{
+							continue;
+						}
+
+						if (seen.Add(extractorType))
+							yield return (extractorType, contextType);
+					}
+
+					break;
+				}
+
+				default:
+					break;
+			}
+		}
+	}
 }

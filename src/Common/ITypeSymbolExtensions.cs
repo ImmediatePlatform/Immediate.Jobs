@@ -63,11 +63,11 @@ internal static class ITypeSymbolExtensions
 				ContainingNamespace.IsImmediateJobsShared: true,
 			};
 
-		public bool IsIJobContextExtractor1 =>
+		public bool IsJobContextExtractor1 =>
 			typeSymbol is INamedTypeSymbol
 			{
 				Arity: 1,
-				Name: "IJobContextExtractor",
+				Name: "JobContextExtractor",
 				ContainingNamespace.IsImmediateJobsShared: true,
 			};
 
@@ -111,7 +111,18 @@ internal static class ITypeSymbolExtensions
 				ContainingNamespace.IsSystemThreadingTasks: true,
 			};
 
+		public bool IsIEnumerable1 =>
+			typeSymbol is INamedTypeSymbol
+			{
+				Arity: 1,
+				Name: "IEnumerable",
+				ContainingNamespace.IsSystemCollectionsGeneric: true,
+			};
+
 		public bool ImplementsJobRequest => typeSymbol is INamedTypeSymbol { ImplementsJobRequest: true };
+
+		public string? RootNamespace =>
+			typeSymbol?.ContainingNamespace?.RootNamespace;
 	}
 
 	extension(INamedTypeSymbol namedTypeSymbol)
@@ -134,6 +145,20 @@ internal static class ITypeSymbolExtensions
 
 			return handleMethod;
 		}
+
+		public ITypeSymbol? ContextType =>
+			namedTypeSymbol.BaseType switch
+			{
+				INamedTypeSymbol
+				{
+					IsJobContextExtractor1: true,
+					TypeArguments: [{ } contextType],
+				} => contextType,
+
+				INamedTypeSymbol bt => bt.ContextType,
+
+				_ => null,
+			};
 
 		public bool ImplementsJobRequest => namedTypeSymbol.AllInterfaces.Any(static i => i.IsIJobRequest);
 	}
@@ -170,6 +195,21 @@ internal static class ITypeSymbolExtensions
 				},
 			};
 
+		public bool IsSystemCollectionsGeneric =>
+			namespaceSymbol is
+			{
+				Name: "Generic",
+				ContainingNamespace:
+				{
+					Name: "Collections",
+					ContainingNamespace:
+					{
+						Name: "System",
+						ContainingNamespace.IsGlobalNamespace: true,
+					},
+				},
+			};
+
 		public bool IsSystemThreading =>
 			namespaceSymbol is
 			{
@@ -194,6 +234,13 @@ internal static class ITypeSymbolExtensions
 						ContainingNamespace.IsGlobalNamespace: true,
 					},
 				},
+			};
+
+		public string? RootNamespace =>
+			namespaceSymbol switch
+			{
+				{ IsGlobalNamespace: true } => null,
+				_ => namespaceSymbol.ContainingNamespace.RootNamespace ?? namespaceSymbol.Name,
 			};
 	}
 }

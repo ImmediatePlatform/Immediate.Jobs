@@ -92,6 +92,7 @@ partial class ClockJob
 			_ = await handler.HandleAsync(payload, execution.CancellationToken).ConfigureAwait(false);
 		}
 
+		/// <summary>Generic reified method to support `struct`s with explicitly implemented properties</summary>
 		private static void SetJobDetails<TRequest>(
 			ref TRequest request,
 			global::Immediate.Jobs.Shared.JobDetails details

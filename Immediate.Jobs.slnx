@@ -3,6 +3,7 @@
     <File Path=".editorconfig" />
     <File Path=".github/dependabot.yml" />
     <File Path=".gitignore" />
+    <File Path="coderabbit.yml" />
     <File Path="coverage-settings.xml" />
     <File Path="Directory.Build.props" />
     <File Path="Directory.Packages.props" />
@@ -29,9 +30,9 @@
     <Project Path="src/Immediate.Jobs.Testing/Immediate.Jobs.Testing.csproj" />
   </Folder>
   <Folder Name="/Tests/">
-    <Project Path="tests/Immediate.Jobs.Tests/Immediate.Jobs.Tests.csproj" />
     <Project Path="tests/Immediate.Jobs.FunctionalTests/Immediate.Jobs.FunctionalTests.csproj" />
     <Project Path="tests/Immediate.Jobs.StorageTests/Immediate.Jobs.StorageTests.csproj" />
+    <Project Path="tests/Immediate.Jobs.Tests/Immediate.Jobs.Tests.csproj" />
   </Folder>
   <Folder Name="/Benchmarks/">
     <Project Path="benchmarks/Immediate.Jobs.Benchmarks/Immediate.Jobs.Benchmarks.csproj" />

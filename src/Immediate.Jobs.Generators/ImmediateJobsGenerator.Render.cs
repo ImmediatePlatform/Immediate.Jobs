@@ -31,16 +31,10 @@ public sealed partial class ImmediateJobsGenerator
 			MaxAttempts = job.MaxAttempts.ToString(CultureInfo.InvariantCulture),
 			TimeoutLiteral = job.Timeout is null ? null : Literal(job.Timeout),
 			MaxConcurrency = job.MaxConcurrency.ToString(CultureInfo.InvariantCulture),
-			OverlapPolicy = job.OverlapPolicy.ToString(CultureInfo.InvariantCulture),
-			Backoff = job.Backoff.ToString(CultureInfo.InvariantCulture),
+			job.OverlapPolicy,
+			job.Backoff,
 			BackoffBaseLiteral = Literal(job.BackoffBase),
-			Contexts = job.Contexts.Select((jobContext, index) => new
-			{
-				Index = index,
-				jobContext.ExtractorTypeName,
-				jobContext.ContextTypeName,
-				jobContext.JsonPropertyName,
-			}).ToArray(),
+			job.Contexts,
 			job.Json,
 			Version = ThisAssembly.InformationalVersion,
 		};
