@@ -41,11 +41,11 @@ public sealed class AddJobsTests
 			[QueueDefinition(Priority = 10, Concurrency = 1)]
 			public sealed class CriticalQueue;
 
-			public sealed class WorkContextExtractor : IJobContextExtractor<string>
+			public sealed class WorkContextExtractor : JobContextExtractor<string>
 			{
-				public string Key => "work";
-				public string? Capture() => null;
-				public void Restore(string context) { }
+				public override string Key => "work";
+				public override string? Capture() => null;
+				public override void Restore(string context) { }
 			}
 
 			[Handler(Tags = ["critical"]), Job, UsesQueue<CriticalQueue>, UsesJobContext<WorkContextExtractor>]

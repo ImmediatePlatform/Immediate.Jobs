@@ -9,10 +9,10 @@ internal static class JsonMetadataEmitter
 
 	public static JsonMetadataRenderModel CreateModel(
 		ITypeSymbol payloadType,
-		ImmutableArray<ITypeSymbol> contextTypes
+		IEnumerable<ITypeSymbol> contextTypes
 	)
 	{
-		var types = CollectTypes(contextTypes.Insert(0, payloadType));
+		var types = CollectTypes([payloadType, .. contextTypes]);
 		return new()
 		{
 			PayloadTypeName = Display(payloadType),
@@ -85,19 +85,18 @@ internal static class JsonMetadataEmitter
 		};
 	}
 
-	private static ImmutableArray<ITypeSymbol> CollectTypes(IEnumerable<ITypeSymbol> roots)
+	private static HashSet<ITypeSymbol> CollectTypes(IEnumerable<ITypeSymbol> roots)
 	{
-		var builder = ImmutableArray.CreateBuilder<ITypeSymbol>();
 		var visited = new HashSet<ITypeSymbol>(SymbolEqualityComparer.Default);
 		void Visit(ITypeSymbol type)
 		{
-			type = type.WithNullableAnnotation(NullableAnnotation.None);
 			if (!visited.Add(type))
 				return;
-			builder.Add(type);
+
 			if (type is IArrayTypeSymbol array)
 				Visit(array.ElementType);
-			if (type is INamedTypeSymbol named && GetConverter(named) is null && named.TypeKind != TypeKind.Enum && !UsesConfiguredConverter(named))
+
+			if (type is INamedTypeSymbol { TypeKind: not TypeKind.Enum } named && GetConverter(named) is null && !UsesConfiguredConverter(named))
 			{
 				foreach (var member in GetMembers(named))
 					Visit(GetMemberType(member));
@@ -107,7 +106,7 @@ internal static class JsonMetadataEmitter
 		foreach (var root in roots)
 			Visit(root);
 
-		return builder.ToImmutable();
+		return visited;
 	}
 
 	private static ImmutableArray<ISymbol> GetMembers(INamedTypeSymbol type)

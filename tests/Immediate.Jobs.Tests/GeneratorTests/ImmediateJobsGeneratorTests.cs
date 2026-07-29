@@ -221,18 +221,18 @@ public sealed class ImmediateJobsGeneratorTests
 				public string Value { get; }
 			}
 
-			public sealed class UsageContextExtractor : IJobContextExtractor<UsageContext>
+			public sealed class UsageContextExtractor : JobContextExtractor<UsageContext>
 			{
-				public string Key => "usage";
-				public UsageContext? Capture() => new(Guid.Empty, Region.Europe);
-				public void Restore(UsageContext context) { }
+				public override string Key => "usage";
+				public override UsageContext? Capture() => new(Guid.Empty, Region.Europe);
+				public override void Restore(UsageContext context) { }
 			}
 
-			public sealed class CorrelationExtractor : IJobContextExtractor<CorrelationContext>
+			public sealed class CorrelationExtractor : JobContextExtractor<CorrelationContext>
 			{
-				public string Key => "correlation";
-				public CorrelationContext? Capture() => new("abc");
-				public void Restore(CorrelationContext context) { }
+				public override string Key => "correlation";
+				public override CorrelationContext? Capture() => new("abc");
+				public override void Restore(CorrelationContext context) { }
 			}
 
 			[UsesJobContext<UsageContextExtractor>]
@@ -304,11 +304,11 @@ public sealed class ImmediateJobsGeneratorTests
 			using System.Threading;
 			using System.Threading.Tasks;
 			public sealed record ClockContext(Instant Now);
-			public sealed class ClockExtractor : IJobContextExtractor<ClockContext>
+			public sealed class ClockExtractor : JobContextExtractor<ClockContext>
 			{
-				public string Key => "clock";
-				public ClockContext? Capture() => new(Instant.FromUnixTimeTicks(1));
-				public void Restore(ClockContext context) { }
+				public override string Key => "clock";
+				public override ClockContext? Capture() => new(Instant.FromUnixTimeTicks(1));
+				public override void Restore(ClockContext context) { }
 			}
 			[Handler, Job, UsesJobContext<ClockExtractor>]
 			public sealed partial class ClockJob

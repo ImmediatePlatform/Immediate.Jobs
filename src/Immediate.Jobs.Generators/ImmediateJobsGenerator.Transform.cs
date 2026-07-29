@@ -107,20 +107,24 @@ public sealed partial class ImmediateJobsGenerator
 
 		var tags = handlerAttribute?.NamedArguments.GetStringArray("Tags");
 
-		var contextUses = JobDiscovery.GetJobContextUses(symbol);
-		if (contextUses.Any(use =>
-			use.ContextType is null || PayloadValidation.FindProblem(use.ContextType) is not null))
+		var extractors = attributes.GetContextExtractors();
+
+		if (extractors.Any(e => PayloadValidation.FindProblem(e.ContextType) is not null))
 			return null;
 
-		var contexts = contextUses.Select((use, index) => new JobContextModel
-		{
-			ExtractorTypeName = use.ExtractorType.ToDisplayString(DisplayNameFormatters.FullyQualifiedWithNullableFormat),
-			ContextTypeName = use.ContextType!
-				.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
-			JsonPropertyName = $"Context{index}",
-		}).ToEquatableReadOnlyList();
+		var jsonMetadataEmitter = JsonMetadataEmitter.CreateModel(
+			parameterType,
+			extractors.Select(e => e.ContextType)
+		);
 
-		var contextTypes = contextUses.Select(static use => use.ContextType!).ToImmutableArray();
+		var contexts = extractors
+			.Select((use, index) => new JobContextModel
+			{
+				ExtractorTypeName = use.ExtractorType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
+				ContextTypeName = use.ContextType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
+				JsonPropertyName = $"Context{index}",
+			})
+			.ToEquatableReadOnlyList();
 
 		return new()
 		{
@@ -144,7 +148,7 @@ public sealed partial class ImmediateJobsGenerator
 			BackoffBase = backoffBase,
 			Tags = tags,
 			Contexts = contexts,
-			Json = JsonMetadataEmitter.CreateModel(parameterType, contextTypes),
+			Json = jsonMetadataEmitter,
 		};
 	}
 
@@ -183,4 +187,67 @@ file static class Extensions
 
 	public static string? NullIfWhitespace(this string? value) =>
 		string.IsNullOrWhiteSpace(value) ? null : value;
+
+	public static IEnumerable<(INamedTypeSymbol ExtractorType, ITypeSymbol ContextType)> GetContextExtractors(this ImmutableArray<AttributeData> attributes)
+	{
+		var seen = new HashSet<ITypeSymbol>(SymbolEqualityComparer.Default);
+
+		foreach (var a in attributes)
+		{
+			switch (a.AttributeClass)
+			{
+				case
+				{
+					IsUsesJobContextAttribute: true,
+					TypeArguments: [INamedTypeSymbol extractorType],
+				}:
+				{
+					if (seen.Add(extractorType))
+						yield return (extractorType, extractorType.ContextType);
+
+					break;
+				}
+
+				case { } ac when ac.GetAttributes().Any(a => a is { AttributeClass.IsUsesJobContextAttribute: true }):
+				{
+					foreach (var aa in ac.GetAttributes())
+					{
+						if (aa.AttributeClass is not
+							{
+								IsUsesJobContextAttribute: true,
+								TypeArguments: [INamedTypeSymbol extractorType],
+							})
+						{
+							continue;
+						}
+
+						if (seen.Add(extractorType))
+							yield return (extractorType, extractorType.ContextType);
+					}
+
+					break;
+				}
+
+				default:
+					break;
+			}
+		}
+	}
+
+	extension(INamedTypeSymbol namedTypeSymbol)
+	{
+		public ITypeSymbol ContextType =>
+			namedTypeSymbol.BaseType switch
+			{
+				INamedTypeSymbol
+				{
+					IsJobContextExtractor1: true,
+					TypeArguments: [{ } contextType],
+				} => contextType,
+
+				INamedTypeSymbol bt => bt.ContextType,
+
+				_ => throw new InvalidOperationException("Should be impossible."),
+			};
+	}
 }

@@ -71,6 +71,14 @@ internal static class ITypeSymbolExtensions
 				ContainingNamespace.IsImmediateJobsShared: true,
 			};
 
+		public bool IsJobContextExtractor1 =>
+			typeSymbol is INamedTypeSymbol
+			{
+				Arity: 1,
+				Name: "JobContextExtractor",
+				ContainingNamespace.IsImmediateJobsShared: true,
+			};
+
 		public bool IsEmptyJobRequest =>
 			typeSymbol is INamedTypeSymbol
 			{

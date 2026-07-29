@@ -7,26 +7,37 @@ using Microsoft.Extensions.Logging;
 namespace Immediate.Jobs.Shared;
 
 /// <summary>Captures ambient state while enqueueing and restores it in a job execution scope.</summary>
-/// <typeparam name="TContext">The durable, serializable context value.</typeparam>
-public interface IJobContextExtractor<TContext>
+public abstract class JobContextExtractor
 {
+	internal JobContextExtractor() { }
+
 	/// <summary>The stable key used for this context slice in persisted job envelopes.</summary>
-	/// <value>The stable persisted context-slice key.</value>
-	string Key { get; }
+	public abstract string Key { get; }
+}
+
+/// <summary>Captures ambient state while enqueueing and restores it in a job execution scope.</summary>
+/// <typeparam name="TContext">The durable, serializable context value.</typeparam>
+public abstract class JobContextExtractor<TContext> : JobContextExtractor
+{
+	/// <summary>
+	/// Creates a new instance of <see cref="JobContextExtractor"/>.
+	/// </summary>
+	protected JobContextExtractor() : base() { }
 
 	/// <summary>Captures context from the enqueueing scope, or returns no value when none is available.</summary>
 	/// <returns>The captured context, or no value when none is available.</returns>
-	TContext? Capture();
+	public abstract TContext? Capture();
 
 	/// <summary>Restores captured context into services in the job execution scope.</summary>
 	/// <param name="context">The captured context to restore.</param>
-	void Restore(TContext context);
+	public abstract void Restore(TContext context);
 }
 
 /// <summary>Applies a context extractor to a generated job or reusable job marker attribute.</summary>
 /// <typeparam name="TExtractor">The extractor type.</typeparam>
 [AttributeUsage(AttributeTargets.Class, AllowMultiple = true, Inherited = false)]
-public sealed class UsesJobContextAttribute<TExtractor> : Attribute;
+public sealed class UsesJobContextAttribute<TExtractor> : Attribute
+	where TExtractor : JobContextExtractor;
 
 /// <summary>Marks a generated invoker that consumes persisted context slices itself.</summary>
 [EditorBrowsable(EditorBrowsableState.Never)]
