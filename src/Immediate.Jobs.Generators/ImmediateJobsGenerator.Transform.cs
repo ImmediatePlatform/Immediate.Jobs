@@ -107,7 +107,7 @@ public sealed partial class ImmediateJobsGenerator
 
 		var tags = handlerAttribute?.NamedArguments.GetStringArray("Tags");
 
-		var extractors = attributes.GetContextExtractors();
+		var extractors = attributes.GetContextExtractors().ToList();
 
 		if (extractors.Any(e => !PayloadValidation.CanSerializeToJson(e.ContextType, reportError: null)))
 			return null;

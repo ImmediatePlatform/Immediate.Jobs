@@ -13,9 +13,10 @@ internal static class JsonMetadataEmitter
 	)
 	{
 		var types = CollectTypes([payloadType, .. contextTypes]);
+
 		return new()
 		{
-			PayloadTypeName = Display(payloadType),
+			PayloadTypeName = payloadType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
 			Types = types.Select(CreateTypeModel).ToEquatableReadOnlyList(),
 		};
 	}
@@ -24,7 +25,7 @@ internal static class JsonMetadataEmitter
 	{
 		var converterName = GetConverter(type);
 		var isEnum = type.TypeKind == TypeKind.Enum;
-		var usesConfiguredConverter = UsesConfiguredConverter(type);
+		var usesConfiguredConverter = type.RootNamespace == "NodaTime";
 
 		string? elementTypeName = null;
 		JsonObjectRenderModel? objectInfo = null;
@@ -50,16 +51,12 @@ internal static class JsonMetadataEmitter
 	{
 		var members = GetMembers(type);
 		var constructor = GetConstructor(type, members);
-		var constructorParameters = constructor is null
-#if NETSTANDARD2_0
-			? ImmutableArray<IParameterSymbol>.Empty
-#else
-			? []
-#endif
-			: constructor.Parameters;
+		var constructorParameters = constructor?.Parameters ?? ImmutableArray<IParameterSymbol>.Empty;
+
 		return new()
 		{
-			HasParameterlessCreator = constructor is null || constructor.Parameters.Length == 0,
+			HasParameterlessCreator = constructor is null or { Parameters: [] },
+
 			ConstructorParameters = constructorParameters
 				.Select((parameter, index) => new JsonConstructorParameterRenderModel
 				{
@@ -69,19 +66,22 @@ internal static class JsonMetadataEmitter
 					HasDefaultValueLiteral = parameter.HasExplicitDefaultValue ? "true" : "false",
 				})
 				.ToEquatableReadOnlyList(),
-			Members = members.Select(member =>
-			{
-				var memberType = GetMemberType(member);
-				return new JsonMemberRenderModel
+
+			Members = members
+				.Select(member =>
 				{
-					Name = Escape(member.Name),
-					NameLiteral = Literal(member.Name),
-					TypeName = Display(memberType),
-					IsPropertyLiteral = member is IPropertySymbol ? "true" : "false",
-					CanSet = CanSet(member),
-					IsConstructorBound = constructor is not null && ConstructorContains(constructor, member.Name),
-				};
-			}).ToEquatableReadOnlyList(),
+					var memberType = GetMemberType(member);
+					return new JsonMemberRenderModel
+					{
+						Name = Escape(member.Name),
+						NameLiteral = Literal(member.Name),
+						TypeName = Display(memberType),
+						IsPropertyLiteral = member is IPropertySymbol ? "true" : "false",
+						CanSet = CanSet(member),
+						IsConstructorBound = constructor is not null && ConstructorContains(constructor, member.Name),
+					};
+				})
+				.ToEquatableReadOnlyList(),
 		};
 	}
 
@@ -96,7 +96,7 @@ internal static class JsonMetadataEmitter
 			if (type is IArrayTypeSymbol array)
 				Visit(array.ElementType);
 
-			if (type is INamedTypeSymbol { TypeKind: not TypeKind.Enum } named && GetConverter(named) is null && !UsesConfiguredConverter(named))
+			if (type is INamedTypeSymbol { TypeKind: not TypeKind.Enum, RootNamespace: not "NodaTime" } named && GetConverter(named) is null)
 			{
 				foreach (var member in GetMembers(named))
 					Visit(GetMemberType(member));
@@ -109,28 +109,32 @@ internal static class JsonMetadataEmitter
 		return visited;
 	}
 
-	private static ImmutableArray<ISymbol> GetMembers(INamedTypeSymbol type)
+	private static List<ISymbol> GetMembers(INamedTypeSymbol type)
 	{
-		var members = type.GetMembers()
-			.Where(static member => member is not IPropertySymbol { IsJobDetailsMember: true })
-			.Where(member => member switch
+		return type.GetMembers()
+			.Where(s => s is IPropertySymbol or IFieldSymbol)
+			.Where(ips => ips is
 			{
-				IPropertySymbol property => property.DeclaredAccessibility == Accessibility.Public && !property.IsStatic && property.GetMethod is not null && property.Parameters.Length == 0,
-				IFieldSymbol field => field.DeclaredAccessibility == Accessibility.Public && !field.IsStatic && !field.IsImplicitlyDeclared,
-				_ => false,
-			});
-#if NETSTANDARD2_0
-		return members.ToImmutableArray();
-#else
-		return [.. members];
-#endif
+				IsStatic: false,
+				DeclaredAccessibility: Accessibility.Public,
+			})
+			.Where(ips => ips is
+				IPropertySymbol
+				{
+					GetMethod: not null,
+					IsJobDetailsMember: false,
+				}
+				or IFieldSymbol { IsImplicitlyDeclared: true }
+			)
+			.ToList();
 	}
 
-	private static IMethodSymbol? GetConstructor(INamedTypeSymbol type, ImmutableArray<ISymbol> members) => type.InstanceConstructors
-		.Where(constructor => constructor.DeclaredAccessibility == Accessibility.Public)
-		.Where(constructor => constructor.Parameters.All(parameter => members.Any(member => string.Equals(member.Name, parameter.Name, StringComparison.OrdinalIgnoreCase))))
-		.OrderByDescending(constructor => constructor.Parameters.Length)
-		.FirstOrDefault();
+	private static IMethodSymbol? GetConstructor(INamedTypeSymbol type, List<ISymbol> members) =>
+		type.InstanceConstructors
+			.Where(c => c.DeclaredAccessibility == Accessibility.Public)
+			.Where(c => c.Parameters.All(p => members.Any(member => string.Equals(member.Name, p.Name, StringComparison.OrdinalIgnoreCase))))
+			.OrderByDescending(c => c.Parameters.Length)
+			.FirstOrDefault();
 
 	private static bool ConstructorContains(IMethodSymbol constructor, string name) =>
 		constructor.Parameters.Any(parameter => string.Equals(parameter.Name, name, StringComparison.OrdinalIgnoreCase));
@@ -147,8 +151,9 @@ internal static class JsonMetadataEmitter
 
 	private static string? GetConverter(ITypeSymbol type)
 	{
-		if (type is IArrayTypeSymbol array && array.ElementType.SpecialType == SpecialType.System_Byte)
+		if (type is IArrayTypeSymbol { ElementType.SpecialType: SpecialType.System_Byte })
 			return "ByteArrayConverter";
+
 		if (type.SpecialType == SpecialType.System_Boolean) return "BooleanConverter";
 		if (type.SpecialType == SpecialType.System_Byte) return "ByteConverter";
 		if (type.SpecialType == SpecialType.System_SByte) return "SByteConverter";
@@ -166,21 +171,31 @@ internal static class JsonMetadataEmitter
 		if (type.SpecialType == SpecialType.System_DateTime) return "DateTimeConverter";
 		if (type.SpecialType == SpecialType.System_Object) return "ObjectConverter";
 
-		return type.ToDisplayString() switch
+		if (type is not INamedTypeSymbol
+			{
+				Arity: 0,
+				ContainingNamespace:
+				{
+					Name: "System",
+					ContainingNamespace.IsGlobalNamespace: true,
+				},
+			})
 		{
-			"System.Guid" => "GuidConverter",
-			"System.DateTimeOffset" => "DateTimeOffsetConverter",
-			"System.TimeSpan" => "TimeSpanConverter",
-			"System.DateOnly" => "DateOnlyConverter",
-			"System.TimeOnly" => "TimeOnlyConverter",
-			"System.Uri" => "UriConverter",
-			"System.Version" => "VersionConverter",
+			return null;
+		}
+
+		return type.Name switch
+		{
+			"Guid" => "GuidConverter",
+			"DateTimeOffset" => "DateTimeOffsetConverter",
+			"TimeSpan" => "TimeSpanConverter",
+			"DateOnly" => "DateOnlyConverter",
+			"TimeOnly" => "TimeOnlyConverter",
+			"Uri" => "UriConverter",
+			"Version" => "VersionConverter",
 			_ => null,
 		};
 	}
-
-	private static bool UsesConfiguredConverter(ITypeSymbol type) =>
-		type.ContainingNamespace?.ToDisplayString().StartsWith("NodaTime", StringComparison.Ordinal) == true;
 
 	private static string Display(ITypeSymbol type) =>
 		type.WithNullableAnnotation(NullableAnnotation.None).ToDisplayString(TypeFormat);

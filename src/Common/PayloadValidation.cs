@@ -62,16 +62,24 @@ internal static class PayloadValidation
 		}
 
 		foreach (var member in named.GetMembers()
-			.OfType<IPropertySymbol>()
+			.Where(s => s is IPropertySymbol or IFieldSymbol)
 			.Where(ips => ips is
 			{
-				IsJobDetailsMember: false,
 				IsStatic: false,
 				DeclaredAccessibility: Accessibility.Public,
-				GetMethod: not null,
-			}))
+			})
+			.Where(ips => ips is
+				IPropertySymbol
+				{
+					GetMethod: not null,
+					IsJobDetailsMember: false,
+				}
+				or IFieldSymbol { IsImplicitlyDeclared: true }
+			))
 		{
-			var result = Visit(member.Type, member.Locations.FirstOrDefault(), reportError, visited);
+			var memberType = member switch { IPropertySymbol ips => ips.Type, IFieldSymbol ifs => ifs.Type, _ => null };
+
+			var result = Visit(memberType!, member.Locations.FirstOrDefault(), reportError, visited);
 			if (reportError is null && !result)
 				return false;
 		}

@@ -43,7 +43,7 @@ public sealed class PayloadAnalyzer : DiagnosticAnalyzer
 		ArgumentNullException.ThrowIfNull(context);
 
 		context.ConfigureGeneratedCodeAnalysis(GeneratedCodeAnalysisFlags.None);
-		//context.EnableConcurrentExecution();
+		context.EnableConcurrentExecution();
 
 		context.RegisterSymbolAction(AnalyzeSymbol, SymbolKind.NamedType);
 	}
