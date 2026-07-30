@@ -49,6 +49,31 @@ public sealed class RecurringSchedulerTests
 	}
 
 	[Fact]
+	public async Task OverlapQueueAcquiresOneInvocationAtATime()
+	{
+		var cancellationToken = TestContext.Current.CancellationToken;
+		var clock = new FakeTimeProvider(Start);
+		await using var storage = new InMemoryJobStorage(clock);
+		await storage.InitializeAsync(cancellationToken);
+		await AddPendingRecurringJob(storage, "queued", "queue:1", Start, cancellationToken);
+		await AddPendingRecurringJob(storage, "queued", "queue:2", Start, cancellationToken);
+		var invoker = new AssertNoOverlapInvoker(storage);
+		var scheduler = BuildScheduler(
+			storage,
+			clock,
+			"queued",
+			cron: null,
+			invoker,
+			OverlapPolicy.Queue,
+			maxParallelJobs: 2
+		);
+
+		await scheduler.DrainAsync(cancellationToken);
+
+		Assert.Equal(2, invoker.Executions);
+	}
+
+	[Fact]
 	public async Task RestartKeepsAnOccurrenceThatFellDuringDowntime()
 	{
 		var cancellationToken = TestContext.Current.CancellationToken;
@@ -176,27 +201,49 @@ public sealed class RecurringSchedulerTests
 		LeaseExpiresAt = clock.GetUtcNow().AddMinutes(30),
 	}, cancellationToken);
 
+	private static ValueTask AddPendingRecurringJob(
+		InMemoryJobStorage storage,
+		string jobName,
+		string recurringKey,
+		DateTimeOffset dueAt,
+		CancellationToken cancellationToken
+	) => storage.EnqueueAsync(new()
+	{
+		Id = Guid.NewGuid().ToString("N"),
+		JobName = jobName,
+		Payload = "{}",
+		State = JobState.Pending,
+		DueAt = dueAt,
+		CreatedAt = dueAt,
+		RecurringKey = recurringKey,
+	}, cancellationToken);
+
 	private static JobSchedulerService BuildScheduler(
 		InMemoryJobStorage storage,
 		TimeProvider clock,
 		string jobName,
-		string? cron
+		string? cron,
+		IJobInvoker? invoker = null,
+		OverlapPolicy overlapPolicy = OverlapPolicy.Skip,
+		int maxParallelJobs = 1
 	)
 	{
+		invoker ??= NoOpInvoker.Instance;
 		var services = new ServiceCollection();
 		_ = services.AddLogging();
 		_ = services.AddSingleton(clock);
 		_ = services.AddImmediateJobsCore(options =>
 		{
 			_ = options.UseStorage(_ => storage).UseDistributed();
-			options.MaxParallelJobs = 1;
+			options.MaxParallelJobs = maxParallelJobs;
 		});
 		_ = services.AddSingleton(new JobDefinition
 		{
 			Name = jobName,
 			Cron = cron,
-			Invoker = NoOpInvoker.Instance,
-			JobType = typeof(NoOpInvoker),
+			Invoker = invoker,
+			JobType = invoker.GetType(),
+			OverlapPolicy = overlapPolicy,
 		});
 
 		var provider = services.BuildServiceProvider();
@@ -209,6 +256,21 @@ public sealed class RecurringSchedulerTests
 
 		public ValueTask InvokeAsync(IServiceProvider scopedServices, JobExecution execution) =>
 			ValueTask.CompletedTask;
+	}
+
+	private sealed class AssertNoOverlapInvoker(InMemoryJobStorage storage) : IJobInvoker
+	{
+		public int Executions { get; private set; }
+
+		public async ValueTask InvokeAsync(IServiceProvider scopedServices, JobExecution execution)
+		{
+			var active = await storage.QueryJobsAsync(
+				new() { State = JobState.Active, JobName = execution.Record.JobName, Take = 100 },
+				execution.CancellationToken
+			);
+			_ = Assert.Single(active);
+			Executions++;
+		}
 	}
 }
 #pragma warning restore CS1591

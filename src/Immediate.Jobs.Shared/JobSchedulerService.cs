@@ -465,9 +465,7 @@ public sealed partial class JobSchedulerService : BackgroundService
 					.Select(definition => new
 					{
 						definition.Name,
-						Capacity = definition.MaxConcurrency == 0
-							? capacity
-							: definition.MaxConcurrency - _jobReservations.GetValueOrDefault(definition.Name),
+						Capacity = GetJobAcquisitionCapacity(definition, capacity),
 					})
 					.Where(static item => item.Capacity > 0)
 					.ToDictionary(static item => item.Name, static item => item.Capacity, StringComparer.Ordinal);
@@ -495,6 +493,14 @@ public sealed partial class JobSchedulerService : BackgroundService
 				Queues = queues,
 				FairQueues = _fairQueuePolicy,
 			};
+	}
+
+	private int GetJobAcquisitionCapacity(JobDefinition definition, int availableCapacity)
+	{
+		var limit = definition.OverlapPolicy == OverlapPolicy.Queue ? 1 : definition.MaxConcurrency;
+		return limit == 0
+			? availableCapacity
+			: limit - _jobReservations.GetValueOrDefault(definition.Name);
 	}
 
 	private void WarnIfGroupedJobsAreInert(IReadOnlyList<JobRecord> acquired)
