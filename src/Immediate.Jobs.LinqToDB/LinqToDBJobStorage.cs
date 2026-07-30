@@ -1570,7 +1570,8 @@ public sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorage,
 				terminalGroups,
 				cancellationToken
 			),
-			cancellationToken
+			cancellationToken,
+			maxAttempts: null
 		).ConfigureAwait(false);
 		await CleanupFairQueueGroupsAsync(terminalGroups).ConfigureAwait(false);
 	}
@@ -2155,10 +2156,11 @@ public sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorage,
 
 	private async ValueTask RetryConcurrencyAsync(
 		Func<DataConnection, Task> operation,
-		CancellationToken cancellationToken
+		CancellationToken cancellationToken,
+		int? maxAttempts = MaxConcurrencyAttempts
 	)
 	{
-		for (var attempt = 0; attempt < MaxConcurrencyAttempts; attempt++)
+		for (var attempt = 0; maxAttempts is null || attempt < maxAttempts.Value; attempt++)
 		{
 			await using var connection = CreateConnection();
 			_ = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
@@ -2168,7 +2170,7 @@ public sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorage,
 				await connection.CommitTransactionAsync(cancellationToken).ConfigureAwait(false);
 				return;
 			}
-			catch (LostRaceException) when (attempt + 1 < MaxConcurrencyAttempts)
+			catch (LostRaceException) when (maxAttempts is null || attempt + 1 < maxAttempts.Value)
 			{
 				await connection.RollbackTransactionAsync(cancellationToken).ConfigureAwait(false);
 			}

@@ -31,6 +31,13 @@ public sealed class RelationalStorageMatrixTests(StorageContainers containers)
 		AdapterKind.LinqToDB,
 	];
 
+	public static TheoryData<DatabaseKind> LinqToDbDatabases =>
+	[
+		DatabaseKind.Sqlite,
+		DatabaseKind.PostgreSql,
+		DatabaseKind.SqlServer,
+	];
+
 	[Theory]
 	[MemberData(nameof(Matrix))]
 	public async Task AdapterPassesCoreStorageConformance(DatabaseKind database, AdapterKind adapter)
@@ -201,6 +208,56 @@ public sealed class RelationalStorageMatrixTests(StorageContainers containers)
 		Assert.Empty(await first.QueryJobsAsync(new() { Id = "stale-continuation" }, cancellationToken));
 		Assert.Equal("node-b", reclaimed.WorkerId);
 		Assert.Equal(JobState.Active, (await first.GetJobStatusAsync("reclaimed-parent", cancellationToken))!.State);
+	}
+
+	[Theory]
+	[MemberData(nameof(LinqToDbDatabases))]
+	public async Task LinqCompletionSurvivesSustainedBatchHeaderContention(DatabaseKind database)
+	{
+		const int JobCount = 24;
+		var cancellationToken = TestContext.Current.CancellationToken;
+		await using var fixture = await CreateFixtureAsync(
+			database,
+			AdapterKind.LinqToDB,
+			cancellationToken
+		);
+		var storage = fixture.GraphStorage;
+		var replica = Assert.IsAssignableFrom<IJobStorageReplica>(storage);
+		var now = fixture.TimeProvider.GetUtcNow();
+		var jobs = Enumerable.Range(0, JobCount)
+			.Select(index =>
+			{
+				var id = string.Create(CultureInfo.InvariantCulture, $"contended-completion-{index}");
+				return CreateJob(id, now) with { BatchId = "contended-batch" };
+			})
+			.ToArray();
+		await storage.EnqueueBatchAsync(new()
+		{
+			Id = "contended-batch",
+			CreatedAt = now,
+			TotalJobs = JobCount,
+			PendingCount = JobCount,
+			State = BatchState.Executing,
+		}, jobs, [], cancellationToken);
+		Assert.Equal(JobCount, (await replica.AcquireJobsAsync(
+			[.. jobs.Select(static job => job.Id)],
+			"worker",
+			TimeSpan.FromMinutes(1),
+			cancellationToken
+		)).Count);
+		var start = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+		var completions = jobs.Select(async job =>
+		{
+			await start.Task;
+			await storage.CompleteAsync(job.Id, "worker", cancellationToken);
+		}).ToArray();
+
+		start.SetResult();
+		await Task.WhenAll(completions);
+
+		var batch = Assert.IsType<BatchStatus>(await storage.GetBatchStatusAsync("contended-batch", cancellationToken));
+		Assert.Equal(BatchState.Succeeded, batch.State);
+		Assert.Equal(JobCount, batch.Succeeded);
 	}
 
 	[Theory]
