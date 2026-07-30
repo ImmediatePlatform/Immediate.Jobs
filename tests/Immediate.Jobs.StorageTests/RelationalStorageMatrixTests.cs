@@ -144,8 +144,10 @@ public sealed class RelationalStorageMatrixTests(StorageContainers containers)
 			seen.AddRange(page.Select(static job => job.Id));
 		}
 
-		Assert.Equal(30, seen.Count);
-		Assert.Equal(30, seen.Distinct(StringComparer.Ordinal).Count());
+		Assert.Equal(
+			Enumerable.Range(0, 30).Select(static index => $"tied-{index:d2}"),
+			seen
+		);
 	}
 
 	[Theory]
