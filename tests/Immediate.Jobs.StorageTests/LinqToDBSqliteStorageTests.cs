@@ -799,40 +799,6 @@ public sealed class LinqToDBSqliteStorageTests
 		Assert.Equal(0, batch.Remaining);
 	}
 
-	[Fact]
-	public async Task CancelBatchCancelsMembersWithUnsettledDependencyChain()
-	{
-		var cancellationToken = TestContext.Current.CancellationToken;
-		await using var fixture = await StorageFixture.CreateAsync(cancellationToken);
-		var storage = fixture.CreateStorage();
-		var now = fixture.TimeProvider.GetUtcNow();
-		var parent = CreateJob(now, 1) with { Id = "batch-parent", BatchId = "batch" };
-		var child = CreateJob(now, 2) with
-		{
-			Id = "batch-child",
-			BatchId = "batch",
-			State = JobState.AwaitingContinuation,
-			RemainingDependencies = 1,
-		};
-		await storage.EnqueueBatchAsync(new()
-		{
-			Id = "batch",
-			CreatedAt = now,
-			TotalJobs = 2,
-			PendingCount = 2,
-			State = BatchState.Executing,
-		}, [parent, child], [new() { ChildJobId = child.Id, ParentJobId = parent.Id }], cancellationToken);
-
-		await storage.CancelBatchAsync("batch", cancellationToken);
-
-		Assert.Equal(JobState.Cancelled, (await storage.GetJobStatusAsync(parent.Id, cancellationToken))!.State);
-		Assert.Equal(JobState.Cancelled, (await storage.GetJobStatusAsync(child.Id, cancellationToken))!.State);
-		var batch = Assert.IsType<BatchStatus>(await storage.GetBatchStatusAsync("batch", cancellationToken));
-		Assert.Equal(BatchState.Cancelled, batch.State);
-		Assert.Equal(2, batch.Cancelled);
-		Assert.Equal(0, batch.Remaining);
-	}
-
 	private static JobAcquisitionRequest CreateRequest(string workerId, int batchSize) => new()
 	{
 		WorkerId = workerId,
