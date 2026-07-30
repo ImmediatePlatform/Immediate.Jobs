@@ -5,8 +5,6 @@ namespace Immediate.Jobs.Generators;
 
 internal static class JsonMetadataEmitter
 {
-	private static readonly SymbolDisplayFormat TypeFormat = SymbolDisplayFormat.FullyQualifiedFormat;
-
 	public static JsonMetadataRenderModel CreateModel(
 		ITypeSymbol payloadType,
 		IEnumerable<ITypeSymbol> contextTypes
@@ -26,24 +24,79 @@ internal static class JsonMetadataEmitter
 		var converterName = GetConverter(type);
 		var isEnum = type.TypeKind == TypeKind.Enum;
 		var usesConfiguredConverter = type.RootNamespace == "NodaTime";
+		var collectionInfo = converterName is null ? CreateCollectionModel(type) : null;
 
-		string? elementTypeName = null;
 		JsonObjectRenderModel? objectInfo = null;
-		if (type is IArrayTypeSymbol { Rank: 1 } array)
-			elementTypeName = Display(array.ElementType);
-		else if (converterName is null && !isEnum && !usesConfiguredConverter)
-			objectInfo = CreateObjectModel((INamedTypeSymbol)type);
+		if (converterName is null && !isEnum && !usesConfiguredConverter && collectionInfo is null
+			&& type is INamedTypeSymbol namedType)
+		{
+			objectInfo = CreateObjectModel(namedType);
+		}
 
 		return new JsonTypeRenderModel
 		{
 			Index = index,
-			TypeName = Display(type),
+			TypeName = type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
 			IsValueType = type.IsValueType,
 			ConverterName = converterName,
 			IsEnum = isEnum,
 			UsesConfiguredConverter = usesConfiguredConverter,
-			ElementTypeName = elementTypeName,
+			CollectionInfo = collectionInfo,
 			ObjectInfo = objectInfo,
+		};
+	}
+
+	private static JsonCollectionRenderModel? CreateCollectionModel(ITypeSymbol type)
+	{
+		return type switch
+		{
+			IArrayTypeSymbol { Rank: 1, ElementType: { } elementType } => new()
+			{
+				CollectionType = "Array",
+				ElementTypeName = elementType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
+				KeyTypeName = null,
+			},
+
+			INamedTypeSymbol
+			{
+				Name: ("List" or "IList" or "IEnumerable") and var name,
+				Arity: 1,
+				ContainingNamespace.IsSystemCollectionsGeneric: true,
+				TypeArguments: [{ } elementType],
+			} => new()
+			{
+				CollectionType = name,
+				ElementTypeName = elementType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
+				KeyTypeName = null,
+			},
+
+			INamedTypeSymbol
+			{
+				Name: "IReadOnlyList",
+				Arity: 1,
+				ContainingNamespace.IsSystemCollectionsGeneric: true,
+				TypeArguments: [{ } elementType],
+			} => new()
+			{
+				CollectionType = "IEnumerable",
+				ElementTypeName = elementType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
+				KeyTypeName = null,
+			},
+
+			INamedTypeSymbol
+			{
+				Name: ("Dictionary" or "IDictionary" or "IReadOnlyDictionary") and var name,
+				Arity: 2,
+				ContainingNamespace.IsSystemCollectionsGeneric: true,
+				TypeArguments: [{ } keyType, { } elementType],
+			} => new()
+			{
+				CollectionType = name,
+				ElementTypeName = elementType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
+				KeyTypeName = keyType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
+			},
+
+			_ => null,
 		};
 	}
 
@@ -55,14 +108,15 @@ internal static class JsonMetadataEmitter
 
 		return new()
 		{
-			HasParameterlessCreator = constructor is null or { Parameters: [] },
+			HasParameterlessCreator = constructor is { Parameters: [] },
+			HasParameterizedCreator = constructor is { Parameters.Length: > 0 },
 
 			ConstructorParameters = constructorParameters
 				.Select((parameter, index) => new JsonConstructorParameterRenderModel
 				{
 					Index = index,
 					NameLiteral = Literal(parameter.Name),
-					TypeName = Display(parameter.Type),
+					TypeName = parameter.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
 					HasDefaultValueLiteral = parameter.HasExplicitDefaultValue ? "true" : "false",
 				})
 				.ToEquatableReadOnlyList(),
@@ -75,7 +129,7 @@ internal static class JsonMetadataEmitter
 					{
 						Name = Escape(member.Name),
 						NameLiteral = Literal(member.Name),
-						TypeName = Display(memberType),
+						TypeName = memberType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
 						IsPropertyLiteral = member is IPropertySymbol ? "true" : "false",
 						CanSet = CanSet(member),
 						IsConstructorBound = constructor is not null && ConstructorContains(constructor, member.Name),
@@ -93,8 +147,20 @@ internal static class JsonMetadataEmitter
 			if (!visited.Add(type))
 				return;
 
-			if (type is IArrayTypeSymbol array)
-				Visit(array.ElementType);
+			if (CreateCollectionModel(type) is not null)
+			{
+				if (type is IArrayTypeSymbol array)
+				{
+					Visit(array.ElementType);
+				}
+				else if (type is INamedTypeSymbol namedCollection)
+				{
+					foreach (var argument in namedCollection.TypeArguments)
+						Visit(argument);
+				}
+
+				return;
+			}
 
 			if (type is INamedTypeSymbol { TypeKind: not TypeKind.Enum, RootNamespace: not "NodaTime" } named && GetConverter(named) is null)
 			{
@@ -174,11 +240,7 @@ internal static class JsonMetadataEmitter
 		if (type is not INamedTypeSymbol
 			{
 				Arity: 0,
-				ContainingNamespace:
-				{
-					Name: "System",
-					ContainingNamespace.IsGlobalNamespace: true,
-				},
+				ContainingNamespace.IsSystem: true,
 			})
 		{
 			return null;
@@ -196,9 +258,6 @@ internal static class JsonMetadataEmitter
 			_ => null,
 		};
 	}
-
-	private static string Display(ITypeSymbol type) =>
-		type.WithNullableAnnotation(NullableAnnotation.None).ToDisplayString(TypeFormat);
 
 	private static string Literal(string value) =>
 		Microsoft.CodeAnalysis.CSharp.SymbolDisplay.FormatLiteral(value, quote: true);
@@ -223,13 +282,21 @@ internal sealed record JsonTypeRenderModel
 	public required string? ConverterName { get; init; }
 	public required bool IsEnum { get; init; }
 	public required bool UsesConfiguredConverter { get; init; }
-	public required string? ElementTypeName { get; init; }
+	public required JsonCollectionRenderModel? CollectionInfo { get; init; }
 	public required JsonObjectRenderModel? ObjectInfo { get; init; }
+}
+
+internal sealed record JsonCollectionRenderModel
+{
+	public required string CollectionType { get; init; }
+	public required string ElementTypeName { get; init; }
+	public required string? KeyTypeName { get; init; }
 }
 
 internal sealed record JsonObjectRenderModel
 {
 	public required bool HasParameterlessCreator { get; init; }
+	public required bool HasParameterizedCreator { get; init; }
 	public required EquatableReadOnlyList<JsonConstructorParameterRenderModel> ConstructorParameters { get; init; }
 	public required EquatableReadOnlyList<JsonMemberRenderModel> Members { get; init; }
 }

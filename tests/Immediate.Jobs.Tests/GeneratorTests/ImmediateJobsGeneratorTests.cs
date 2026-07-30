@@ -202,6 +202,49 @@ public sealed class ImmediateJobsGeneratorTests
 	}
 
 	[Fact]
+	public async Task CollectionPayloadsAndTypesWithoutPublicConstructorsGenerateValidMetadata()
+	{
+		var result = GeneratorTestHelper.RunGenerator(
+			"""
+			using Immediate.Jobs.Shared;
+			using Immediate.Handlers.Shared;
+			using System.Collections.Generic;
+			using System.Threading;
+			using System.Threading.Tasks;
+
+			public sealed record Item(int Value);
+
+			public sealed class PrivateConstructorValue
+			{
+				private PrivateConstructorValue() { }
+				public string Value { get; } = "hidden";
+			}
+
+			[Handler, Job]
+			public sealed partial class CollectionJob
+			{
+				public sealed record Payload(
+					Item[] Array,
+					List<Item> List,
+					IList<Item> IList,
+					IReadOnlyList<Item> IReadOnlyList,
+					IEnumerable<Item> IEnumerable,
+					Dictionary<string, Item> Dictionary,
+					IDictionary<string, Item> IDictionary,
+					IReadOnlyDictionary<string, Item> IReadOnlyDictionary,
+					PrivateConstructorValue PrivateConstructor
+				);
+
+				private ValueTask HandleAsync(Payload payload, CancellationToken cancellationToken) =>
+					ValueTask.CompletedTask;
+			}
+			"""
+		);
+
+		_ = await Utility.VerifyIgnoreImmediateHandlers(result);
+	}
+
+	[Fact]
 	public async Task ContextExtractorsGenerateOrderedCaptureRestoreMetadataAndScopedRegistrations()
 	{
 		var result = GeneratorTestHelper.RunGenerator(

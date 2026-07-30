@@ -29,7 +29,7 @@ public sealed class InvalidAddToBatchCallAnalyzerTests
 					await regularJobScheduler.AddToBatchAsync(
 						request.JobDetails!,
 						request,
-						{|IJOB0020:ContinuationOptions.Detached|}
+						{|IJOB0015:ContinuationOptions.Detached|}
 					);
 				}
 			}
@@ -59,7 +59,7 @@ public sealed class InvalidAddToBatchCallAnalyzerTests
 				private async ValueTask HandleAsync(EmptyJobRequest request, CancellationToken ct)
 				{
 					await regularJobScheduler.AddToBatchAsync(
-						{|IJOB0020:options: ContinuationOptions.Detached|},
+						{|IJOB0015:options: ContinuationOptions.Detached|},
 						current: request.JobDetails!,
 						payload: request
 					);

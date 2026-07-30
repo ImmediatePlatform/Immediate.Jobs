@@ -7,7 +7,8 @@ public enum JobState
 {
 	/// <summary>The job is parked until all continuation dependencies are satisfied.</summary>
 	AwaitingContinuation,
-	/// <summary>Reserved for jobs parked until required inputs are supplied.</summary>
+	/// <summary>The job is parked until required inputs are supplied.</summary>
+	/// <remarks>This state is unused at the moment, but reserved for future work.</remarks>
 	AwaitingParameters,
 	/// <summary>The job is delayed until its due time.</summary>
 	Scheduled,

@@ -186,6 +186,41 @@ public sealed class SingleServerJobStorageTests
 	}
 
 	[Fact]
+	public async Task UnknownAcquiredJobIsFailedWithoutAnInvoker()
+	{
+		var cancellationToken = TestContext.Current.CancellationToken;
+		await using var inner = new InMemoryJobStorage(TimeProvider.System);
+		await using var proxy = CreateProxy(inner);
+		var proxyState = (DurableStorageProxy)(object)proxy;
+		proxyState.CaptureFailures = true;
+		var services = new ServiceCollection();
+		_ = services.AddLogging();
+		_ = services.AddSingleton<IJobStorage>(proxy);
+		_ = services.AddImmediateJobsCore();
+		await using var provider = services.BuildServiceProvider();
+		var service = provider.GetRequiredService<JobSchedulerService>();
+		var now = TimeProvider.System.GetUtcNow();
+
+		await service.ExecuteSingleAsync(
+			new()
+			{
+				Id = "unknown-job",
+				JobName = "unknown-definition",
+				Payload = "{}",
+				State = JobState.Active,
+				DueAt = now,
+				CreatedAt = now,
+			},
+			cancellationToken
+		);
+
+		Assert.Equal("unknown-job", proxyState.CapturedFailedJobId);
+		var failure = Assert.IsType<string>(proxyState.CapturedFailure);
+		Assert.Contains("No generated job definition", failure, StringComparison.Ordinal);
+		Assert.Contains("unknown-definition", failure, StringComparison.Ordinal);
+	}
+
+	[Fact]
 	public async Task HostShutdownDuringTelemetryKeepsCancellationSemantics()
 	{
 		var cancellationToken = TestContext.Current.CancellationToken;
@@ -508,7 +543,10 @@ public sealed class SingleServerJobStorageTests
 		public bool BlockInitialization { get; set; }
 		public bool BlockBatchEnqueue { get; set; }
 		public bool FailTelemetry { get; set; }
+		public bool CaptureFailures { get; set; }
 		public CancellationTokenSource? CancelTelemetry { get; set; }
+		public string? CapturedFailedJobId { get; private set; }
+		public string? CapturedFailure { get; private set; }
 		public int GetIncomingEdgesCalls { get; private set; }
 		public int GetJobStatusCalls { get; private set; }
 		public TaskCompletionSource InitializationEntered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -532,12 +570,20 @@ public sealed class SingleServerJobStorageTests
 #pragma warning disable CA2012 // Reflection proxies must box the ValueTask returned by the intercepted interface method.
 				return ValueTask.FromException(new InvalidOperationException("Expected telemetry persistence failure."));
 #pragma warning restore CA2012
+
 			if (targetMethod.Name == nameof(IJobStorage.SetExecutionTelemetryAsync) && CancelTelemetry is { } cancellation)
 			{
 				cancellation.Cancel();
 #pragma warning disable CA2012 // Reflection proxies must box the ValueTask returned by the intercepted interface method.
 				return ValueTask.FromCanceled((CancellationToken)args[^1]!);
 #pragma warning restore CA2012
+			}
+
+			if (targetMethod.Name == nameof(IJobStorage.FailAsync) && CaptureFailures)
+			{
+				CapturedFailedJobId = (string)args[0]!;
+				CapturedFailure = (string)args[2]!;
+				return ValueTask.CompletedTask;
 			}
 
 			if (targetMethod.Name == nameof(IJobGraphStorage.EnqueueBatchAsync) && BlockBatchEnqueue)

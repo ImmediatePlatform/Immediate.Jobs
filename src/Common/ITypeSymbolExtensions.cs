@@ -111,13 +111,36 @@ internal static class ITypeSymbolExtensions
 				ContainingNamespace.IsSystemThreadingTasks: true,
 			};
 
-		public bool IsIEnumerable1 =>
-			typeSymbol is INamedTypeSymbol
+		public bool IsSupportedJsonDictionaryKey => typeSymbol switch
+		{
+			{ TypeKind: TypeKind.Enum } => true,
+
 			{
-				Arity: 1,
-				Name: "IEnumerable",
-				ContainingNamespace.IsSystemCollectionsGeneric: true,
-			};
+				SpecialType: SpecialType.System_Boolean
+					or SpecialType.System_Byte
+					or SpecialType.System_SByte
+					or SpecialType.System_Int16
+					or SpecialType.System_UInt16
+					or SpecialType.System_Int32
+					or SpecialType.System_UInt32
+					or SpecialType.System_Int64
+					or SpecialType.System_UInt64
+					or SpecialType.System_Single
+					or SpecialType.System_Double
+					or SpecialType.System_Decimal
+					or SpecialType.System_String
+					or SpecialType.System_DateTime,
+			} => true,
+
+			INamedTypeSymbol
+			{
+				Arity: 0,
+				ContainingNamespace.IsSystem: true,
+				Name: "Guid" or "DateTimeOffset" or "TimeSpan" or "Uri" or "Version",
+			} => true,
+
+			_ => false,
+		};
 
 		public bool ImplementsJobRequest => typeSymbol is INamedTypeSymbol { ImplementsJobRequest: true };
 
@@ -195,6 +218,13 @@ internal static class ITypeSymbolExtensions
 				},
 			};
 
+		public bool IsSystem =>
+			namespaceSymbol is
+			{
+				Name: "System",
+				ContainingNamespace.IsGlobalNamespace: true,
+			};
+
 		public bool IsSystemCollectionsGeneric =>
 			namespaceSymbol is
 			{
@@ -202,11 +232,7 @@ internal static class ITypeSymbolExtensions
 				ContainingNamespace:
 				{
 					Name: "Collections",
-					ContainingNamespace:
-					{
-						Name: "System",
-						ContainingNamespace.IsGlobalNamespace: true,
-					},
+					ContainingNamespace.IsSystem: true,
 				},
 			};
 
@@ -214,26 +240,14 @@ internal static class ITypeSymbolExtensions
 			namespaceSymbol is
 			{
 				Name: "Threading",
-				ContainingNamespace:
-				{
-					Name: "System",
-					ContainingNamespace.IsGlobalNamespace: true,
-				},
+				ContainingNamespace.IsSystem: true,
 			};
 
 		public bool IsSystemThreadingTasks =>
 			namespaceSymbol is
 			{
 				Name: "Tasks",
-				ContainingNamespace:
-				{
-					Name: "Threading",
-					ContainingNamespace:
-					{
-						Name: "System",
-						ContainingNamespace.IsGlobalNamespace: true,
-					},
-				},
+				ContainingNamespace.IsSystemThreading: true,
 			};
 
 		public string? RootNamespace =>

@@ -71,6 +71,39 @@ public sealed class GeneratedJobTests
 	}
 
 	[Fact]
+	public async Task GeneratedMetadataRoundTripsArraysListsAndDictionaries()
+	{
+		var cancellationToken = TestContext.Current.CancellationToken;
+		var state = new CollectionExecutionState();
+		await using var harness = new JobTestHarness(services =>
+		{
+			_ = services.AddSingleton(state);
+			_ = services.AddSingleton(new ExecutionState());
+			_ = services.AddSingleton(new ContextProbe());
+			_ = services.AddScoped<PropagationScopeState>();
+			_ = services.AddImmediateJobsFunctionalTestsHandlers();
+			_ = services.AddImmediateJobsFunctionalTestsBehaviors();
+			_ = services.AddImmediateJobsFunctionalTestsJobs();
+		});
+		await using var scope = harness.Services.CreateAsyncScope();
+		var scheduler = scope.ServiceProvider.GetRequiredService<CollectionPayloadJob.Scheduler>();
+		var payload = new CollectionPayloadJob.Payload(
+			[new(1), new(2)],
+			[new(3), new(4)],
+			new Dictionary<string, CollectionItem> { ["five"] = new(5) }
+		);
+
+		var handle = await scheduler.EnqueueAsync(payload, cancellationToken);
+		await harness.DrainAsync(cancellationToken);
+
+		var received = Assert.IsType<CollectionPayloadJob.Payload>(state.Payload);
+		Assert.Equal([1, 2], received.Array.Select(static item => item.Value));
+		Assert.Equal([3, 4], received.List.Select(static item => item.Value));
+		Assert.Equal(5, received.Dictionary["five"].Value);
+		Assert.Equal(JobState.Succeeded, (await harness.GetJobAsync(handle, cancellationToken)).State);
+	}
+
+	[Fact]
 	public async Task FailedJobRetriesAfterGeneratedBackoff()
 	{
 		var cancellationToken = TestContext.Current.CancellationToken;
@@ -105,6 +138,36 @@ public sealed class GeneratedJobTests
 		Assert.Equal([1, 2], state.Details
 			.Where(details => details.JobId == id.Id)
 			.Select(details => details.Attempt));
+	}
+
+	[Fact]
+	public async Task JobTimeoutCancelsTheInvocationAndPersistsFailure()
+	{
+		var cancellationToken = TestContext.Current.CancellationToken;
+		var timeoutState = new TimeoutExecutionState();
+		await using var harness = new JobTestHarness(services =>
+		{
+			_ = services.AddSingleton(timeoutState);
+			_ = services.AddSingleton(new ExecutionState());
+			_ = services.AddSingleton(new ContextProbe());
+			_ = services.AddScoped<PropagationScopeState>();
+			_ = services.AddImmediateJobsFunctionalTestsHandlers();
+			_ = services.AddImmediateJobsFunctionalTestsBehaviors();
+			_ = services.AddImmediateJobsFunctionalTestsJobs();
+		});
+		await using var scope = harness.Services.CreateAsyncScope();
+		var scheduler = scope.ServiceProvider.GetRequiredService<TimeoutJob.Scheduler>();
+		var handle = await scheduler.EnqueueAsync(default, cancellationToken);
+
+		var drain = harness.DrainAsync(cancellationToken).AsTask();
+		await timeoutState.Started.Task.WaitAsync(cancellationToken);
+		harness.TimeProvider.Advance(TimeSpan.FromSeconds(1));
+		await drain.WaitAsync(cancellationToken);
+
+		var failed = await harness.GetJobAsync(handle, cancellationToken);
+		Assert.Equal(JobState.Failed, failed.State);
+		Assert.Equal(1, failed.Attempt);
+		Assert.Contains("TaskCanceledException", failed.LastError, StringComparison.Ordinal);
 	}
 
 	private static ActivityListener ListenForJobActivities()
@@ -191,6 +254,18 @@ public sealed class ExecutionState
 	public Collection<JobDetails> Details { get; } = [];
 	public int FailuresRemaining { get; set; }
 }
+
+public sealed class TimeoutExecutionState
+{
+	public TaskCompletionSource Started { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+}
+
+public sealed class CollectionExecutionState
+{
+	public CollectionPayloadJob.Payload? Payload { get; set; }
+}
+
+public sealed record CollectionItem(int Value);
 
 public sealed class JobCountingBehavior<TRequest, TResponse>(ExecutionState state)
 	: Behavior<TRequest, TResponse>
@@ -279,6 +354,39 @@ public sealed partial class PlainRequestJob(ExecutionState state)
 		return ValueTask.CompletedTask;
 	}
 }
+
+[Handler, Job(Name = "timeout", MaxAttempts = 1, Timeout = "00:00:01")]
+public sealed partial class TimeoutJob(TimeoutExecutionState? state = null)
+{
+	private async ValueTask HandleAsync(EmptyJobRequest payload, CancellationToken cancellationToken)
+	{
+		_ = payload;
+		if (state is null)
+			return;
+		_ = state.Started.TrySetResult();
+		await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+	}
+}
+
+#pragma warning disable CA1002, CA1819 // The payload intentionally exercises List<T> and array metadata generation.
+[Handler, Job(Name = "collection-payload")]
+public sealed partial class CollectionPayloadJob(CollectionExecutionState? state = null)
+{
+	public sealed record Payload(
+		CollectionItem[] Array,
+		List<CollectionItem> List,
+		Dictionary<string, CollectionItem> Dictionary
+	);
+
+	private ValueTask HandleAsync(Payload payload, CancellationToken cancellationToken)
+	{
+		_ = cancellationToken;
+		if (state is not null)
+			state.Payload = payload;
+		return ValueTask.CompletedTask;
+	}
+}
+#pragma warning restore CA1002, CA1819
 
 [Handler]
 public sealed partial class OrdinaryHandler(ExecutionState state)

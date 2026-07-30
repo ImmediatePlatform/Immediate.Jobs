@@ -9,35 +9,80 @@ internal static class PayloadValidation
 
 	private static bool Visit(ITypeSymbol type, Location? location, Action<string, Location?>? reportError, HashSet<ITypeSymbol> visited)
 	{
-		if (type.TypeKind is TypeKind.Pointer or TypeKind.FunctionPointer or TypeKind.TypeParameter || type.IsRefLikeType)
+		switch (type)
 		{
-			reportError?.Invoke("the type is pointer-like, ref-like, or open generic", location);
-			return false;
+			case IArrayTypeSymbol { Rank: not 1 }:
+			{
+				reportError?.Invoke("multi-dimensional arrays are not supported by generated JSON metadata", location);
+				return false;
+			}
+
+			case IArrayTypeSymbol { ElementType: { } elementType }:
+				return Visit(elementType, location, reportError, visited);
+
+			case INamedTypeSymbol
+			{
+				Name: "List" or "IList" or "IReadOnlyList" or "IEnumerable",
+				Arity: 1,
+				ContainingNamespace.IsSystemCollectionsGeneric: true,
+				TypeArguments: [{ } elementType],
+			}:
+				return Visit(elementType, location, reportError, visited);
+
+			case INamedTypeSymbol
+			{
+				Name: "Dictionary" or "IDictionary" or "IReadOnlyDictionary",
+				Arity: 2,
+				ContainingNamespace.IsSystemCollectionsGeneric: true,
+				TypeArguments: [{ } keyType, { } elementType],
+			}:
+			{
+				if (!keyType.IsSupportedJsonDictionaryKey)
+				{
+					reportError?.Invoke("the dictionary key type is not supported by System.Text.Json", location);
+					if (reportError is null)
+						return false;
+				}
+
+				return Visit(elementType, location, reportError, visited);
+			}
+
+			case { TypeKind: TypeKind.Interface } or INamedTypeSymbol { IsAbstract: true }:
+			{
+				reportError?.Invoke("interfaces and abstract types do not have a statically known JSON shape", location);
+				return false;
+			}
+
+			case { TypeKind: TypeKind.Pointer or TypeKind.FunctionPointer or TypeKind.TypeParameter }
+				or { IsRefLikeType: true }:
+			{
+				reportError?.Invoke("the type is pointer-like, ref-like, or open generic", location);
+				return false;
+			}
+
+			case { TypeKind: TypeKind.Delegate } or { SpecialType: SpecialType.System_Delegate }
+				or INamedTypeSymbol { Arity: 0, Name: "Type", ContainingNamespace.IsSystem: true, }:
+			{
+				reportError?.Invoke("delegates and System.Type are not supported payload values", location);
+				return false;
+			}
+
+			case not INamedTypeSymbol:
+				return true;
+
+			case { SpecialType: not SpecialType.None }
+				or { TypeKind: TypeKind.Enum }
+				or INamedTypeSymbol { IsKnownSystemValue: true }:
+			{
+				return true;
+			}
+
+			default:
+				break;
 		}
 
-		if (type.TypeKind == TypeKind.Interface || type is INamedTypeSymbol { IsAbstract: true })
-		{
-			reportError?.Invoke("interfaces and abstract types do not have a statically known JSON shape", location);
-			return false;
-		}
-
-		if (type.TypeKind == TypeKind.Delegate || type.SpecialType == SpecialType.System_Delegate || type.ToDisplayString() == "System.Type")
-		{
-			reportError?.Invoke("delegates and System.Type are not supported payload values", location);
-			return false;
-		}
-
-		if (type is IArrayTypeSymbol array)
-			return Visit(array.ElementType, location, reportError, visited);
-
-		if (type is not INamedTypeSymbol named)
-			return true;
-
-		if (named is { TypeArguments: [{ } elementType] }
-			&& named.AllInterfaces.Any(i => i.IsIEnumerable1))
-		{
-			return Visit(elementType, location, reportError, visited);
-		}
+		// secured by `case not INamedTypeSymbol:` above
+		var named = (INamedTypeSymbol)type;
 
 		foreach (var argument in named.TypeArguments)
 		{
@@ -48,13 +93,6 @@ internal static class PayloadValidation
 
 		if (!visited.Add(type))
 			return true;
-
-		if (named is { SpecialType: not SpecialType.None }
-				or { TypeKind: TypeKind.Enum }
-				or { IsKnownSystemValue: true })
-		{
-			return true;
-		}
 
 		var rootNamespace = named.RootNamespace;
 

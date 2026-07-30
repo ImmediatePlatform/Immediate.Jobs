@@ -249,7 +249,7 @@ The `IJobRequest` constraint keeps this global behavior out of ordinary handlers
 
 ## Propagating scoped context
 
-Use `IJobContextExtractor<TContext>` when a job needs request-scoped or ambient state that is not
+Derive from `JobContextExtractor<TContext>` when a job needs request-scoped or ambient state that is not
 part of its business payload. Capture runs while enqueueing in the caller's scope; restore runs in
 the job's execution scope before the handler and its behaviors are resolved. The context value is
 serialized with generated metadata, so it remains trimming- and Native AOT-safe.
@@ -265,13 +265,13 @@ public sealed class UsageContext
 }
 
 public sealed class UsageContextExtractor(UsageContext usage)
-	: IJobContextExtractor<UsageContextSnapshot>
+	: JobContextExtractor<UsageContextSnapshot>
 {
-	public string Key => "usage"; // stable across extractor type renames
+	public override string Key => "usage"; // stable across extractor type renames
 
-	public UsageContextSnapshot? Capture() => usage.Value;
+	public override UsageContextSnapshot? Capture() => usage.Value;
 
-	public void Restore(UsageContextSnapshot context) => usage.Value = context;
+	public override void Restore(UsageContextSnapshot context) => usage.Value = context;
 }
 
 [Handler, Job, UsesJobContext<UsageContextExtractor>]
@@ -443,22 +443,13 @@ Compile-time diagnostics:
 | `IJOB0006` | A cron job declares a payload |
 | `IJOB0007` | Invalid cron expression or time zone |
 | `IJOB0008` | No usable job name; rename the class or set `Name` |
-| `IJOB0020` | `AddToBatchAsync(JobDetails, ..., Detached)` is contradictory |
-| `IJOB003` | Unsupported payload member/type |
-| `IJOB004` | Invalid private `ValueTask HandleAsync(request, CancellationToken)` signature |
-| `IJOB010` | Invalid queue name or concurrency configuration |
-| `IJOB011` | `UsesQueue<T>` targets a type without `QueueDefinition` |
-| `IJOB013` | `UsesJobContext<T>` targets an invalid extractor type |
-| `IJOB014` | Unsupported context member/type |
-
-Runtime `ImmediateJobException` codes:
-
-| ID | Meaning |
-|---|---|
-| `IJOB016` | An empty atomic batch was committed |
-| `IJOB017` | Continuation handles belong to unrelated batches |
-| `IJOB018` | A continuation dependency cycle was detected |
-| `IJOB019` | A batch handle was used after commit or disposal |
+| `IJOB0009` | `UsesQueue<T>` targets a type without `QueueDefinition` |
+| `IJOB0010` | A job class is also marked as a queue definition |
+| `IJOB0011` | Invalid queue name or concurrency configuration |
+| `IJOB0012` | A job handler has a return value |
+| `IJOB0013` | Unsupported payload member or type |
+| `IJOB0014` | Unsupported context member or type |
+| `IJOB0015` | `AddToBatchAsync(JobDetails, ..., Detached)` is contradictory |
 
 Invalid Immediate.Jobs runtime operations and states throw `ImmediateJobException`. Invalid method
 arguments, cron expressions, serialized data, and missing records retain their standard exception types.
