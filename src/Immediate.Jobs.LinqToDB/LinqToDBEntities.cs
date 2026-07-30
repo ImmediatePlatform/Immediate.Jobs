@@ -9,6 +9,14 @@ internal enum ContinuationParentKind : short
 	Batch,
 }
 
+internal enum ContinuationParentOutcome : short
+{
+	Unsettled,
+	Succeeded,
+	Failed,
+	Other,
+}
+
 [Table(Name = "immediate_job_batches")]
 internal sealed class ImmediateJobBatchEntity
 {
@@ -113,6 +121,8 @@ internal sealed class ImmediateJobContinuationEntity
 	public string ParentId { get; set; } = null!;
 	[Column(DataType = DataType.Int16)]
 	public ContinuationTrigger Trigger { get; set; }
+	[Column(DataType = DataType.Int16)]
+	public ContinuationParentOutcome ParentOutcome { get; set; }
 }
 
 [Table(Name = "immediate_recurring_jobs")]

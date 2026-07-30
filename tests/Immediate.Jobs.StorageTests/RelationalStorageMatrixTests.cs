@@ -533,6 +533,69 @@ public sealed class RelationalStorageMatrixTests(StorageContainers containers)
 
 	[Theory]
 	[MemberData(nameof(Matrix))]
+	public async Task RetriedParentDoesNotSettleContinuationEdgeTwice(
+		DatabaseKind database,
+		AdapterKind adapter
+	)
+	{
+		var cancellationToken = TestContext.Current.CancellationToken;
+		await using var fixture = await CreateFixtureAsync(database, adapter, cancellationToken);
+		var storage = fixture.GraphStorage;
+		var replica = Assert.IsAssignableFrom<IJobStorageReplica>(storage);
+		var now = fixture.TimeProvider.GetUtcNow();
+		var retriedParent = CreateJob("retried-parent", now);
+		var otherParent = CreateJob("other-parent", now.AddTicks(1)) with { DueAt = now };
+		var child = CreateJob("retry-child", now.AddTicks(2)) with { DueAt = now };
+		await storage.EnqueueAsync(retriedParent, cancellationToken);
+		await storage.EnqueueAsync(otherParent, cancellationToken);
+		await storage.EnqueueContinuationAsync(child,
+		[
+			new()
+			{
+				ChildJobId = child.Id,
+				ParentJobId = retriedParent.Id,
+				Trigger = ContinuationTrigger.Complete,
+			},
+			new()
+			{
+				ChildJobId = child.Id,
+				ParentJobId = otherParent.Id,
+				Trigger = ContinuationTrigger.Complete,
+			},
+		], cancellationToken);
+		_ = Assert.Single(await replica.AcquireJobsAsync(
+			[retriedParent.Id],
+			"worker",
+			TimeSpan.FromMinutes(1),
+			cancellationToken
+		));
+		await storage.FailAsync(retriedParent.Id, "worker", "expected", nextRetryAt: null, cancellationToken);
+		await storage.RetryAsync(retriedParent.Id, cancellationToken);
+		_ = Assert.Single(await replica.AcquireJobsAsync(
+			[retriedParent.Id],
+			"worker",
+			TimeSpan.FromMinutes(1),
+			cancellationToken
+		));
+
+		await storage.CompleteAsync(retriedParent.Id, "worker", cancellationToken);
+
+		Assert.Equal(
+			JobState.AwaitingContinuation,
+			(await storage.GetJobStatusAsync(child.Id, cancellationToken))!.State
+		);
+		_ = Assert.Single(await replica.AcquireJobsAsync(
+			[otherParent.Id],
+			"worker",
+			TimeSpan.FromMinutes(1),
+			cancellationToken
+		));
+		await storage.CompleteAsync(otherParent.Id, "worker", cancellationToken);
+		Assert.Equal(JobState.Pending, (await storage.GetJobStatusAsync(child.Id, cancellationToken))!.State);
+	}
+
+	[Theory]
+	[MemberData(nameof(Matrix))]
 	public async Task DynamicAdditionsRejectInvalidBatchIdsBeforeMutation(
 		DatabaseKind database,
 		AdapterKind adapter

@@ -117,6 +117,7 @@ public static class ImmediateJobsModelBuilderExtensions
 		_ = entity.Property(edge => edge.ParentKind).HasConversion<short>();
 		_ = entity.Property(edge => edge.ParentId).HasMaxLength(256);
 		_ = entity.Property(edge => edge.Trigger).HasConversion<short>();
+		_ = entity.Property(edge => edge.ParentOutcome).HasConversion<short>();
 		_ = entity.HasOne<ImmediateJobEntity>()
 			.WithMany()
 			.HasForeignKey(edge => edge.ChildJobId)
@@ -161,6 +162,14 @@ internal enum ContinuationParentKind : short
 {
 	Job,
 	Batch,
+}
+
+internal enum ContinuationParentOutcome : short
+{
+	Unsettled,
+	Succeeded,
+	Failed,
+	Other,
 }
 
 internal sealed class ImmediateJobBatchEntity
@@ -220,6 +229,7 @@ internal sealed class ImmediateJobContinuationEntity
 	public ContinuationParentKind ParentKind { get; set; }
 	public string ParentId { get; set; } = null!;
 	public ContinuationTrigger Trigger { get; set; }
+	public ContinuationParentOutcome ParentOutcome { get; set; }
 }
 
 internal sealed class ImmediateRecurringJobEntity
