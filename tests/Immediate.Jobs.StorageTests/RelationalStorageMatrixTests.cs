@@ -596,6 +596,55 @@ public sealed class RelationalStorageMatrixTests(StorageContainers containers)
 
 	[Theory]
 	[MemberData(nameof(Matrix))]
+	public async Task ConcurrentCompletionAndContinuationInsertCannotStrandChild(
+		DatabaseKind database,
+		AdapterKind adapter
+	)
+	{
+		var cancellationToken = TestContext.Current.CancellationToken;
+		await using var fixture = await CreateFixtureAsync(database, adapter, cancellationToken);
+		var storage = fixture.GraphStorage;
+		var replica = Assert.IsAssignableFrom<IJobStorageReplica>(storage);
+		var now = fixture.TimeProvider.GetUtcNow();
+		for (var index = 0; index < 20; index++)
+		{
+			var parentId = string.Create(CultureInfo.InvariantCulture, $"racing-parent-{index}");
+			var childId = string.Create(CultureInfo.InvariantCulture, $"racing-child-{index}");
+			var parent = CreateJob(parentId, now.AddTicks(index * 2)) with { DueAt = now };
+			var child = CreateJob(childId, now.AddTicks(index * 2 + 1)) with { DueAt = now };
+			await storage.EnqueueAsync(parent, cancellationToken);
+			_ = Assert.Single(await replica.AcquireJobsAsync(
+				[parent.Id],
+				"worker",
+				TimeSpan.FromMinutes(1),
+				cancellationToken
+			));
+			var start = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+			var completion = Task.Run(async () =>
+			{
+				await start.Task;
+				await storage.CompleteAsync(parent.Id, "worker", cancellationToken);
+			}, cancellationToken);
+			var insertion = Task.Run(async () =>
+			{
+				await start.Task;
+				await storage.EnqueueContinuationAsync(child, [new()
+				{
+					ChildJobId = child.Id,
+					ParentJobId = parent.Id,
+					Trigger = ContinuationTrigger.Complete,
+				}], cancellationToken);
+			}, cancellationToken);
+
+			start.SetResult();
+			await Task.WhenAll(completion, insertion);
+
+			Assert.Equal(JobState.Pending, (await storage.GetJobStatusAsync(child.Id, cancellationToken))!.State);
+		}
+	}
+
+	[Theory]
+	[MemberData(nameof(Matrix))]
 	public async Task DynamicAdditionsRejectInvalidBatchIdsBeforeMutation(
 		DatabaseKind database,
 		AdapterKind adapter
