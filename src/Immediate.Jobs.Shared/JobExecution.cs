@@ -1,6 +1,7 @@
+using System.Collections.Concurrent;
+using System.Diagnostics.CodeAnalysis;
 using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
-using System.Diagnostics.CodeAnalysis;
 
 namespace Immediate.Jobs.Shared;
 
@@ -70,6 +71,8 @@ public interface IJobSerializer
 /// <param name="options">The JSON serializer options shared by generated schedulers and invokers.</param>
 public sealed class SystemTextJsonJobSerializer(JsonSerializerOptions options) : IJobSerializer
 {
+	private readonly ConcurrentDictionary<Type, JsonTypeInfo> _payloadTypeInfos = new();
+
 	/// <summary>Creates a serializer using web defaults.</summary>
 	public SystemTextJsonJobSerializer()
 		: this(new(JsonSerializerDefaults.Web))
@@ -99,7 +102,7 @@ public sealed class SystemTextJsonJobSerializer(JsonSerializerOptions options) :
 	)
 	{
 		ArgumentNullException.ThrowIfNull(payloadTypeInfoFactory);
-		return JsonSerializer.Serialize(payload, payloadTypeInfoFactory(new(Options)));
+		return JsonSerializer.Serialize(payload, GetPayloadTypeInfo(payloadTypeInfoFactory));
 	}
 
 	/// <inheritdoc />
@@ -109,7 +112,16 @@ public sealed class SystemTextJsonJobSerializer(JsonSerializerOptions options) :
 	)
 	{
 		ArgumentNullException.ThrowIfNull(payloadTypeInfoFactory);
-		return JsonSerializer.Deserialize(payload, payloadTypeInfoFactory(new(Options)))
+		return JsonSerializer.Deserialize(payload, GetPayloadTypeInfo(payloadTypeInfoFactory))
 			?? throw new JsonException($"The payload for {typeof(TPayload).FullName} was null.");
 	}
+
+	private JsonTypeInfo<TPayload> GetPayloadTypeInfo<TPayload>(
+		Func<JsonSerializerOptions, JsonTypeInfo<TPayload>> payloadTypeInfoFactory
+	) =>
+		(JsonTypeInfo<TPayload>)_payloadTypeInfos.GetOrAdd(
+			typeof(TPayload),
+			static (_, state) => state.Factory(new(state.Options)),
+			(Factory: payloadTypeInfoFactory, Options)
+		);
 }
