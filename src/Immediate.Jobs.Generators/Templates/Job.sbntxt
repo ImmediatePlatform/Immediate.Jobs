@@ -198,22 +198,22 @@ partial class {{ class_name }}
 			{{~ else if type.uses_configured_converter ~}}
 			var info = global::System.Text.Json.Serialization.Metadata.JsonMetadataServices.CreateValueInfo<{{ type.type_name }}>(options, (global::System.Text.Json.Serialization.JsonConverter<{{ type.type_name }}>)options.GetConverter(typeof({{ type.type_name }})));
 			{{~ else if type.collection_info != null ~}}
-			{{~ if type.collection_info.is_array ~}}
+			{{~ if type.collection_info.collection_type == "Array" ~}}
 			var info = global::System.Text.Json.Serialization.Metadata.JsonMetadataServices.CreateArrayInfo<{{ type.collection_info.element_type_name }}>(options, new()
 			{
 				ElementInfo = (global::System.Text.Json.Serialization.Metadata.JsonTypeInfo<{{ type.collection_info.element_type_name }}>)options.GetTypeInfo(typeof({{ type.collection_info.element_type_name }})),
 			});
-			{{~ else if type.collection_info.is_dictionary ~}}
-			var info = global::System.Text.Json.Serialization.Metadata.JsonMetadataServices.CreateDictionaryInfo<{{ type.type_name }}, {{ type.collection_info.key_type_name }}, {{ type.collection_info.element_type_name }}>(options, new()
+			{{~ else if string.contains type.collection_info.collection_type "Dictionary" ~}}
+			var info = global::System.Text.Json.Serialization.Metadata.JsonMetadataServices.Create{{ type.collection_info.collection_type }}Info<{{ type.type_name }}, {{ type.collection_info.key_type_name }}, {{ type.collection_info.element_type_name }}>(options, new()
 			{
-				ObjectCreator = static () => new {{ type.type_name }}(),
+				ObjectCreator = static () => new global::System.Collections.Generic.Dictionary<{{ type.collection_info.key_type_name }}, {{ type.collection_info.element_type_name }}>(),
 				KeyInfo = (global::System.Text.Json.Serialization.Metadata.JsonTypeInfo<{{ type.collection_info.key_type_name }}>)options.GetTypeInfo(typeof({{ type.collection_info.key_type_name }})),
 				ElementInfo = (global::System.Text.Json.Serialization.Metadata.JsonTypeInfo<{{ type.collection_info.element_type_name }}>)options.GetTypeInfo(typeof({{ type.collection_info.element_type_name }})),
 			});
 			{{~ else ~}}
-			var info = global::System.Text.Json.Serialization.Metadata.JsonMetadataServices.CreateListInfo<{{ type.type_name }}, {{ type.collection_info.element_type_name }}>(options, new()
+			var info = global::System.Text.Json.Serialization.Metadata.JsonMetadataServices.Create{{ type.collection_info.collection_type }}Info<{{ type.type_name }}, {{ type.collection_info.element_type_name }}>(options, new()
 			{
-				ObjectCreator = static () => new {{ type.type_name }}(),
+				ObjectCreator = static () => new global::System.Collections.Generic.List<{{ type.collection_info.element_type_name }}>(),
 				ElementInfo = (global::System.Text.Json.Serialization.Metadata.JsonTypeInfo<{{ type.collection_info.element_type_name }}>)options.GetTypeInfo(typeof({{ type.collection_info.element_type_name }})),
 			});
 			{{~ end ~}}
@@ -262,7 +262,6 @@ partial class {{ class_name }}
 		}
 		{{~ end ~}}
 	}
-
 
 	[global::System.CodeDom.Compiler.GeneratedCodeAttribute("Immediate.Jobs", "{{ version }}")]
 	[global::System.ComponentModel.EditorBrowsable(global::System.ComponentModel.EditorBrowsableState.Never)]

@@ -124,7 +124,6 @@ partial class PlainJob
 		}
 	}
 
-
 	[global::System.ComponentModel.EditorBrowsable(global::System.ComponentModel.EditorBrowsableState.Never)]
 	internal static global::Microsoft.Extensions.DependencyInjection.IServiceCollection AddJob(
 		global::Microsoft.Extensions.DependencyInjection.IServiceCollection services

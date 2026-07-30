@@ -9,72 +9,77 @@ internal static class PayloadValidation
 
 	private static bool Visit(ITypeSymbol type, Location? location, Action<string, Location?>? reportError, HashSet<ITypeSymbol> visited)
 	{
-		if (type.TypeKind is TypeKind.Pointer or TypeKind.FunctionPointer or TypeKind.TypeParameter || type.IsRefLikeType)
+		switch (type)
 		{
-			reportError?.Invoke("the type is pointer-like, ref-like, or open generic", location);
-			return false;
-		}
-
-		if (type.TypeKind == TypeKind.Interface || type is INamedTypeSymbol { IsAbstract: true })
-		{
-			reportError?.Invoke("interfaces and abstract types do not have a statically known JSON shape", location);
-			return false;
-		}
-
-		if (type.TypeKind == TypeKind.Delegate || type.SpecialType == SpecialType.System_Delegate || type.ToDisplayString() == "System.Type")
-		{
-			reportError?.Invoke("delegates and System.Type are not supported payload values", location);
-			return false;
-		}
-
-		if (type is IArrayTypeSymbol array)
-		{
-			if (array.GetJsonCollectionKind() is not JsonCollectionKind.Array)
+			case IArrayTypeSymbol { Rank: not 1 }:
 			{
 				reportError?.Invoke("multi-dimensional arrays are not supported by generated JSON metadata", location);
 				return false;
 			}
 
-			return Visit(array.ElementType, location, reportError, visited);
-		}
+			case IArrayTypeSymbol { ElementType: { } elementType }:
+				return Visit(elementType, location, reportError, visited);
 
-		if (type is not INamedTypeSymbol named)
-			return true;
-
-		if (named is { SpecialType: not SpecialType.None }
-				or { TypeKind: TypeKind.Enum }
-				or { IsKnownSystemValue: true })
-		{
-			return true;
-		}
-
-		var collectionKind = named.GetJsonCollectionKind();
-		if (collectionKind is JsonCollectionKind.List or JsonCollectionKind.Dictionary)
-		{
-			if (collectionKind is JsonCollectionKind.Dictionary
-				&& !named.TypeArguments[0].IsSupportedJsonDictionaryKey)
+			case INamedTypeSymbol
 			{
-				reportError?.Invoke("the dictionary key type is not supported by System.Text.Json", location);
+				Name: "List" or "IList" or "IReadOnlyList" or "IEnumerable",
+				Arity: 1,
+				ContainingNamespace.IsSystemCollectionsGeneric: true,
+				TypeArguments: [{ } elementType],
+			}:
+				return Visit(elementType, location, reportError, visited);
+
+			case INamedTypeSymbol
+			{
+				Name: "Dictionary" or "IDictionary" or "IReadOnlyDictionary",
+				Arity: 2,
+				ContainingNamespace.IsSystemCollectionsGeneric: true,
+				TypeArguments: [{ } keyType, { } elementType],
+			}:
+			{
+				var result = Visit(keyType, location, reportError, visited);
+				if (reportError is null && !result)
+					return false;
+
+				return Visit(elementType, location, reportError, visited);
+			}
+
+			case { TypeKind: TypeKind.Interface } or INamedTypeSymbol { IsAbstract: true }:
+			{
+				reportError?.Invoke("interfaces and abstract types do not have a statically known JSON shape", location);
 				return false;
 			}
 
-			var canSerialize = true;
-			foreach (var argument in named.TypeArguments)
+			case { TypeKind: TypeKind.Pointer or TypeKind.FunctionPointer or TypeKind.TypeParameter }
+				or { IsRefLikeType: true }:
 			{
-				var result = Visit(argument, location, reportError, visited);
-				if (reportError is null && !result)
-					return false;
-				canSerialize &= result;
+				reportError?.Invoke("the type is pointer-like, ref-like, or open generic", location);
+				return false;
 			}
 
-			return canSerialize;
+			case { TypeKind: TypeKind.Delegate } or { SpecialType: SpecialType.System_Delegate }
+				or INamedTypeSymbol { Arity: 0, Name: "Type", ContainingNamespace.IsSystem: true, }:
+			{
+				reportError?.Invoke("delegates and System.Type are not supported payload values", location);
+				return false;
+			}
+
+			case not INamedTypeSymbol:
+				return true;
+
+			case { SpecialType: not SpecialType.None }
+				or { TypeKind: TypeKind.Enum }
+				or INamedTypeSymbol { IsKnownSystemValue: true }:
+			{
+				return true;
+			}
+
+			default:
+				break;
 		}
 
-		if (named.AllInterfaces.Any(static i => i.IsIEnumerable1))
-		{
-			reportError?.Invoke("only one-dimensional arrays, List<T>, and Dictionary<TKey, TValue> have generated collection metadata", location);
-			return false;
-		}
+		// secured by `case not INamedTypeSymbol:` above
+		var named = (INamedTypeSymbol)type;
 
 		foreach (var argument in named.TypeArguments)
 		{

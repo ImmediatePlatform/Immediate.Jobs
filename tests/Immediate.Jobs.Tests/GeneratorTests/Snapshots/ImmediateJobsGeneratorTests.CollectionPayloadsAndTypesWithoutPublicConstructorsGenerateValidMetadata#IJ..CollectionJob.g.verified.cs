@@ -83,14 +83,29 @@ partial class CollectionJob
 			if (type == typeof(global::System.Collections.Generic.List<global::Item>))
 				return CreateTypeInfo4(options);
 
-			if (type == typeof(global::System.Collections.Generic.Dictionary<string, global::Item>))
+			if (type == typeof(global::System.Collections.Generic.IList<global::Item>))
 				return CreateTypeInfo5(options);
 
-			if (type == typeof(string))
+			if (type == typeof(global::System.Collections.Generic.IReadOnlyList<global::Item>))
 				return CreateTypeInfo6(options);
 
-			if (type == typeof(global::PrivateConstructorValue))
+			if (type == typeof(global::System.Collections.Generic.IEnumerable<global::Item>))
 				return CreateTypeInfo7(options);
+
+			if (type == typeof(global::System.Collections.Generic.Dictionary<string, global::Item>))
+				return CreateTypeInfo8(options);
+
+			if (type == typeof(string))
+				return CreateTypeInfo9(options);
+
+			if (type == typeof(global::System.Collections.Generic.IDictionary<string, global::Item>))
+				return CreateTypeInfo10(options);
+
+			if (type == typeof(global::System.Collections.Generic.IReadOnlyDictionary<string, global::Item>))
+				return CreateTypeInfo11(options);
+
+			if (type == typeof(global::PrivateConstructorValue))
+				return CreateTypeInfo12(options);
 
 			return null;
 		}
@@ -104,13 +119,18 @@ partial class CollectionJob
 		{
 			var objectInfo = new global::System.Text.Json.Serialization.Metadata.JsonObjectInfoValues<global::CollectionJob.Payload>
 			{
-				ObjectWithParameterizedConstructorCreator = static args => new global::CollectionJob.Payload((global::Item[])args[0], (global::System.Collections.Generic.List<global::Item>)args[1], (global::System.Collections.Generic.Dictionary<string, global::Item>)args[2], (global::PrivateConstructorValue)args[3]),
+				ObjectWithParameterizedConstructorCreator = static args => new global::CollectionJob.Payload((global::Item[])args[0], (global::System.Collections.Generic.List<global::Item>)args[1], (global::System.Collections.Generic.IList<global::Item>)args[2], (global::System.Collections.Generic.IReadOnlyList<global::Item>)args[3], (global::System.Collections.Generic.IEnumerable<global::Item>)args[4], (global::System.Collections.Generic.Dictionary<string, global::Item>)args[5], (global::System.Collections.Generic.IDictionary<string, global::Item>)args[6], (global::System.Collections.Generic.IReadOnlyDictionary<string, global::Item>)args[7], (global::PrivateConstructorValue)args[8]),
 				ConstructorParameterMetadataInitializer = static () => new global::System.Text.Json.Serialization.Metadata.JsonParameterInfoValues[]
 				{
 					new() { Name = "Array", ParameterType = typeof(global::Item[]), Position = 0, HasDefaultValue = false, DefaultValue = default(global::Item[]) },
 					new() { Name = "List", ParameterType = typeof(global::System.Collections.Generic.List<global::Item>), Position = 1, HasDefaultValue = false, DefaultValue = default(global::System.Collections.Generic.List<global::Item>) },
-					new() { Name = "Dictionary", ParameterType = typeof(global::System.Collections.Generic.Dictionary<string, global::Item>), Position = 2, HasDefaultValue = false, DefaultValue = default(global::System.Collections.Generic.Dictionary<string, global::Item>) },
-					new() { Name = "PrivateConstructor", ParameterType = typeof(global::PrivateConstructorValue), Position = 3, HasDefaultValue = false, DefaultValue = default(global::PrivateConstructorValue) },
+					new() { Name = "IList", ParameterType = typeof(global::System.Collections.Generic.IList<global::Item>), Position = 2, HasDefaultValue = false, DefaultValue = default(global::System.Collections.Generic.IList<global::Item>) },
+					new() { Name = "IReadOnlyList", ParameterType = typeof(global::System.Collections.Generic.IReadOnlyList<global::Item>), Position = 3, HasDefaultValue = false, DefaultValue = default(global::System.Collections.Generic.IReadOnlyList<global::Item>) },
+					new() { Name = "IEnumerable", ParameterType = typeof(global::System.Collections.Generic.IEnumerable<global::Item>), Position = 4, HasDefaultValue = false, DefaultValue = default(global::System.Collections.Generic.IEnumerable<global::Item>) },
+					new() { Name = "Dictionary", ParameterType = typeof(global::System.Collections.Generic.Dictionary<string, global::Item>), Position = 5, HasDefaultValue = false, DefaultValue = default(global::System.Collections.Generic.Dictionary<string, global::Item>) },
+					new() { Name = "IDictionary", ParameterType = typeof(global::System.Collections.Generic.IDictionary<string, global::Item>), Position = 6, HasDefaultValue = false, DefaultValue = default(global::System.Collections.Generic.IDictionary<string, global::Item>) },
+					new() { Name = "IReadOnlyDictionary", ParameterType = typeof(global::System.Collections.Generic.IReadOnlyDictionary<string, global::Item>), Position = 7, HasDefaultValue = false, DefaultValue = default(global::System.Collections.Generic.IReadOnlyDictionary<string, global::Item>) },
+					new() { Name = "PrivateConstructor", ParameterType = typeof(global::PrivateConstructorValue), Position = 8, HasDefaultValue = false, DefaultValue = default(global::PrivateConstructorValue) },
 				},
 				PropertyMetadataInitializer = _ => new global::System.Text.Json.Serialization.Metadata.JsonPropertyInfo[]
 				{
@@ -134,6 +154,36 @@ partial class CollectionJob
 						Setter = static (obj, value) => throw new global::System.InvalidOperationException("Setting constructor-bound properties is not supported."),
 						PropertyName = "List",
 					}),
+					global::System.Text.Json.Serialization.Metadata.JsonMetadataServices.CreatePropertyInfo<global::System.Collections.Generic.IList<global::Item>>(options, new()
+					{
+						IsProperty = true,
+						IsPublic = true,
+						DeclaringType = typeof(global::CollectionJob.Payload),
+						PropertyTypeInfo = (global::System.Text.Json.Serialization.Metadata.JsonTypeInfo<global::System.Collections.Generic.IList<global::Item>>)options.GetTypeInfo(typeof(global::System.Collections.Generic.IList<global::Item>)),
+						Getter = static obj => ((global::CollectionJob.Payload)obj).IList,
+						Setter = static (obj, value) => throw new global::System.InvalidOperationException("Setting constructor-bound properties is not supported."),
+						PropertyName = "IList",
+					}),
+					global::System.Text.Json.Serialization.Metadata.JsonMetadataServices.CreatePropertyInfo<global::System.Collections.Generic.IReadOnlyList<global::Item>>(options, new()
+					{
+						IsProperty = true,
+						IsPublic = true,
+						DeclaringType = typeof(global::CollectionJob.Payload),
+						PropertyTypeInfo = (global::System.Text.Json.Serialization.Metadata.JsonTypeInfo<global::System.Collections.Generic.IReadOnlyList<global::Item>>)options.GetTypeInfo(typeof(global::System.Collections.Generic.IReadOnlyList<global::Item>)),
+						Getter = static obj => ((global::CollectionJob.Payload)obj).IReadOnlyList,
+						Setter = static (obj, value) => throw new global::System.InvalidOperationException("Setting constructor-bound properties is not supported."),
+						PropertyName = "IReadOnlyList",
+					}),
+					global::System.Text.Json.Serialization.Metadata.JsonMetadataServices.CreatePropertyInfo<global::System.Collections.Generic.IEnumerable<global::Item>>(options, new()
+					{
+						IsProperty = true,
+						IsPublic = true,
+						DeclaringType = typeof(global::CollectionJob.Payload),
+						PropertyTypeInfo = (global::System.Text.Json.Serialization.Metadata.JsonTypeInfo<global::System.Collections.Generic.IEnumerable<global::Item>>)options.GetTypeInfo(typeof(global::System.Collections.Generic.IEnumerable<global::Item>)),
+						Getter = static obj => ((global::CollectionJob.Payload)obj).IEnumerable,
+						Setter = static (obj, value) => throw new global::System.InvalidOperationException("Setting constructor-bound properties is not supported."),
+						PropertyName = "IEnumerable",
+					}),
 					global::System.Text.Json.Serialization.Metadata.JsonMetadataServices.CreatePropertyInfo<global::System.Collections.Generic.Dictionary<string, global::Item>>(options, new()
 					{
 						IsProperty = true,
@@ -143,6 +193,26 @@ partial class CollectionJob
 						Getter = static obj => ((global::CollectionJob.Payload)obj).Dictionary,
 						Setter = static (obj, value) => throw new global::System.InvalidOperationException("Setting constructor-bound properties is not supported."),
 						PropertyName = "Dictionary",
+					}),
+					global::System.Text.Json.Serialization.Metadata.JsonMetadataServices.CreatePropertyInfo<global::System.Collections.Generic.IDictionary<string, global::Item>>(options, new()
+					{
+						IsProperty = true,
+						IsPublic = true,
+						DeclaringType = typeof(global::CollectionJob.Payload),
+						PropertyTypeInfo = (global::System.Text.Json.Serialization.Metadata.JsonTypeInfo<global::System.Collections.Generic.IDictionary<string, global::Item>>)options.GetTypeInfo(typeof(global::System.Collections.Generic.IDictionary<string, global::Item>)),
+						Getter = static obj => ((global::CollectionJob.Payload)obj).IDictionary,
+						Setter = static (obj, value) => throw new global::System.InvalidOperationException("Setting constructor-bound properties is not supported."),
+						PropertyName = "IDictionary",
+					}),
+					global::System.Text.Json.Serialization.Metadata.JsonMetadataServices.CreatePropertyInfo<global::System.Collections.Generic.IReadOnlyDictionary<string, global::Item>>(options, new()
+					{
+						IsProperty = true,
+						IsPublic = true,
+						DeclaringType = typeof(global::CollectionJob.Payload),
+						PropertyTypeInfo = (global::System.Text.Json.Serialization.Metadata.JsonTypeInfo<global::System.Collections.Generic.IReadOnlyDictionary<string, global::Item>>)options.GetTypeInfo(typeof(global::System.Collections.Generic.IReadOnlyDictionary<string, global::Item>)),
+						Getter = static obj => ((global::CollectionJob.Payload)obj).IReadOnlyDictionary,
+						Setter = static (obj, value) => throw new global::System.InvalidOperationException("Setting constructor-bound properties is not supported."),
+						PropertyName = "IReadOnlyDictionary",
 					}),
 					global::System.Text.Json.Serialization.Metadata.JsonMetadataServices.CreatePropertyInfo<global::PrivateConstructorValue>(options, new()
 					{
@@ -217,7 +287,40 @@ partial class CollectionJob
 			return info;
 		}
 
-		private global::System.Text.Json.Serialization.Metadata.JsonTypeInfo<global::System.Collections.Generic.Dictionary<string, global::Item>> CreateTypeInfo5(global::System.Text.Json.JsonSerializerOptions options)
+		private global::System.Text.Json.Serialization.Metadata.JsonTypeInfo<global::System.Collections.Generic.IList<global::Item>> CreateTypeInfo5(global::System.Text.Json.JsonSerializerOptions options)
+		{
+			var info = global::System.Text.Json.Serialization.Metadata.JsonMetadataServices.CreateIListInfo<global::System.Collections.Generic.IList<global::Item>, global::Item>(options, new()
+			{
+				ObjectCreator = static () => new global::System.Collections.Generic.List<global::Item>(),
+				ElementInfo = (global::System.Text.Json.Serialization.Metadata.JsonTypeInfo<global::Item>)options.GetTypeInfo(typeof(global::Item)),
+			});
+			info.OriginatingResolver = this;
+			return info;
+		}
+
+		private global::System.Text.Json.Serialization.Metadata.JsonTypeInfo<global::System.Collections.Generic.IReadOnlyList<global::Item>> CreateTypeInfo6(global::System.Text.Json.JsonSerializerOptions options)
+		{
+			var info = global::System.Text.Json.Serialization.Metadata.JsonMetadataServices.CreateIEnumerableInfo<global::System.Collections.Generic.IReadOnlyList<global::Item>, global::Item>(options, new()
+			{
+				ObjectCreator = static () => new global::System.Collections.Generic.List<global::Item>(),
+				ElementInfo = (global::System.Text.Json.Serialization.Metadata.JsonTypeInfo<global::Item>)options.GetTypeInfo(typeof(global::Item)),
+			});
+			info.OriginatingResolver = this;
+			return info;
+		}
+
+		private global::System.Text.Json.Serialization.Metadata.JsonTypeInfo<global::System.Collections.Generic.IEnumerable<global::Item>> CreateTypeInfo7(global::System.Text.Json.JsonSerializerOptions options)
+		{
+			var info = global::System.Text.Json.Serialization.Metadata.JsonMetadataServices.CreateIEnumerableInfo<global::System.Collections.Generic.IEnumerable<global::Item>, global::Item>(options, new()
+			{
+				ObjectCreator = static () => new global::System.Collections.Generic.List<global::Item>(),
+				ElementInfo = (global::System.Text.Json.Serialization.Metadata.JsonTypeInfo<global::Item>)options.GetTypeInfo(typeof(global::Item)),
+			});
+			info.OriginatingResolver = this;
+			return info;
+		}
+
+		private global::System.Text.Json.Serialization.Metadata.JsonTypeInfo<global::System.Collections.Generic.Dictionary<string, global::Item>> CreateTypeInfo8(global::System.Text.Json.JsonSerializerOptions options)
 		{
 			var info = global::System.Text.Json.Serialization.Metadata.JsonMetadataServices.CreateDictionaryInfo<global::System.Collections.Generic.Dictionary<string, global::Item>, string, global::Item>(options, new()
 			{
@@ -229,14 +332,38 @@ partial class CollectionJob
 			return info;
 		}
 
-		private global::System.Text.Json.Serialization.Metadata.JsonTypeInfo<string> CreateTypeInfo6(global::System.Text.Json.JsonSerializerOptions options)
+		private global::System.Text.Json.Serialization.Metadata.JsonTypeInfo<string> CreateTypeInfo9(global::System.Text.Json.JsonSerializerOptions options)
 		{
 			var info = global::System.Text.Json.Serialization.Metadata.JsonMetadataServices.CreateValueInfo<string>(options, global::System.Text.Json.Serialization.Metadata.JsonMetadataServices.StringConverter);
 			info.OriginatingResolver = this;
 			return info;
 		}
 
-		private global::System.Text.Json.Serialization.Metadata.JsonTypeInfo<global::PrivateConstructorValue> CreateTypeInfo7(global::System.Text.Json.JsonSerializerOptions options)
+		private global::System.Text.Json.Serialization.Metadata.JsonTypeInfo<global::System.Collections.Generic.IDictionary<string, global::Item>> CreateTypeInfo10(global::System.Text.Json.JsonSerializerOptions options)
+		{
+			var info = global::System.Text.Json.Serialization.Metadata.JsonMetadataServices.CreateIDictionaryInfo<global::System.Collections.Generic.IDictionary<string, global::Item>, string, global::Item>(options, new()
+			{
+				ObjectCreator = static () => new global::System.Collections.Generic.Dictionary<string, global::Item>(),
+				KeyInfo = (global::System.Text.Json.Serialization.Metadata.JsonTypeInfo<string>)options.GetTypeInfo(typeof(string)),
+				ElementInfo = (global::System.Text.Json.Serialization.Metadata.JsonTypeInfo<global::Item>)options.GetTypeInfo(typeof(global::Item)),
+			});
+			info.OriginatingResolver = this;
+			return info;
+		}
+
+		private global::System.Text.Json.Serialization.Metadata.JsonTypeInfo<global::System.Collections.Generic.IReadOnlyDictionary<string, global::Item>> CreateTypeInfo11(global::System.Text.Json.JsonSerializerOptions options)
+		{
+			var info = global::System.Text.Json.Serialization.Metadata.JsonMetadataServices.CreateIReadOnlyDictionaryInfo<global::System.Collections.Generic.IReadOnlyDictionary<string, global::Item>, string, global::Item>(options, new()
+			{
+				ObjectCreator = static () => new global::System.Collections.Generic.Dictionary<string, global::Item>(),
+				KeyInfo = (global::System.Text.Json.Serialization.Metadata.JsonTypeInfo<string>)options.GetTypeInfo(typeof(string)),
+				ElementInfo = (global::System.Text.Json.Serialization.Metadata.JsonTypeInfo<global::Item>)options.GetTypeInfo(typeof(global::Item)),
+			});
+			info.OriginatingResolver = this;
+			return info;
+		}
+
+		private global::System.Text.Json.Serialization.Metadata.JsonTypeInfo<global::PrivateConstructorValue> CreateTypeInfo12(global::System.Text.Json.JsonSerializerOptions options)
 		{
 			var objectInfo = new global::System.Text.Json.Serialization.Metadata.JsonObjectInfoValues<global::PrivateConstructorValue>
 			{
@@ -258,7 +385,6 @@ partial class CollectionJob
 			return info;
 		}
 	}
-
 
 	[global::System.ComponentModel.EditorBrowsable(global::System.ComponentModel.EditorBrowsableState.Never)]
 	internal static global::Microsoft.Extensions.DependencyInjection.IServiceCollection AddJob(

@@ -5,8 +5,6 @@ namespace Immediate.Jobs.Generators;
 
 internal static class JsonMetadataEmitter
 {
-	private static readonly SymbolDisplayFormat TypeFormat = SymbolDisplayFormat.FullyQualifiedFormat;
-
 	public static JsonMetadataRenderModel CreateModel(
 		ITypeSymbol payloadType,
 		IEnumerable<ITypeSymbol> contextTypes
@@ -38,7 +36,7 @@ internal static class JsonMetadataEmitter
 		return new JsonTypeRenderModel
 		{
 			Index = index,
-			TypeName = Display(type),
+			TypeName = type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
 			IsValueType = type.IsValueType,
 			ConverterName = converterName,
 			IsEnum = isEnum,
@@ -48,37 +46,59 @@ internal static class JsonMetadataEmitter
 		};
 	}
 
-	private static JsonCollectionRenderModel? CreateCollectionModel(ITypeSymbol type) => (type.GetJsonCollectionKind(), type) switch
+	private static JsonCollectionRenderModel? CreateCollectionModel(ITypeSymbol type)
 	{
-		(JsonCollectionKind.Array, IArrayTypeSymbol array) => new()
+		return type switch
 		{
-			IsArray = true,
-			IsDictionary = false,
-			ElementTypeName = Display(array.ElementType),
-			KeyTypeName = null,
-		},
-		(JsonCollectionKind.List, INamedTypeSymbol
-		{
-			TypeArguments: [{ } elementType],
-		}) => new()
-		{
-			IsArray = false,
-			IsDictionary = false,
-			ElementTypeName = Display(elementType),
-			KeyTypeName = null,
-		},
-		(JsonCollectionKind.Dictionary, INamedTypeSymbol
-		{
-			TypeArguments: [{ } keyType, { } valueType],
-		}) => new()
-		{
-			IsArray = false,
-			IsDictionary = true,
-			ElementTypeName = Display(valueType),
-			KeyTypeName = Display(keyType),
-		},
-		_ => null,
-	};
+			IArrayTypeSymbol { Rank: 1, ElementType: { } elementType } => new()
+			{
+				CollectionType = "Array",
+				ElementTypeName = elementType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
+				KeyTypeName = null,
+			},
+
+			INamedTypeSymbol
+			{
+				Name: ("List" or "IList" or "IEnumerable") and var name,
+				Arity: 1,
+				ContainingNamespace.IsSystemCollectionsGeneric: true,
+				TypeArguments: [{ } elementType],
+			} => new()
+			{
+				CollectionType = name,
+				ElementTypeName = elementType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
+				KeyTypeName = null,
+			},
+
+			INamedTypeSymbol
+			{
+				Name: "IReadOnlyList",
+				Arity: 1,
+				ContainingNamespace.IsSystemCollectionsGeneric: true,
+				TypeArguments: [{ } elementType],
+			} => new()
+			{
+				CollectionType = "IEnumerable",
+				ElementTypeName = elementType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
+				KeyTypeName = null,
+			},
+
+			INamedTypeSymbol
+			{
+				Name: ("Dictionary" or "IDictionary" or "IReadOnlyDictionary") and var name,
+				Arity: 2,
+				ContainingNamespace.IsSystemCollectionsGeneric: true,
+				TypeArguments: [{ } keyType, { } elementType],
+			} => new()
+			{
+				CollectionType = name,
+				ElementTypeName = elementType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
+				KeyTypeName = keyType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
+			},
+
+			_ => null,
+		};
+	}
 
 	private static JsonObjectRenderModel CreateObjectModel(INamedTypeSymbol type)
 	{
@@ -96,7 +116,7 @@ internal static class JsonMetadataEmitter
 				{
 					Index = index,
 					NameLiteral = Literal(parameter.Name),
-					TypeName = Display(parameter.Type),
+					TypeName = parameter.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
 					HasDefaultValueLiteral = parameter.HasExplicitDefaultValue ? "true" : "false",
 				})
 				.ToEquatableReadOnlyList(),
@@ -109,7 +129,7 @@ internal static class JsonMetadataEmitter
 					{
 						Name = Escape(member.Name),
 						NameLiteral = Literal(member.Name),
-						TypeName = Display(memberType),
+						TypeName = memberType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
 						IsPropertyLiteral = member is IPropertySymbol ? "true" : "false",
 						CanSet = CanSet(member),
 						IsConstructorBound = constructor is not null && ConstructorContains(constructor, member.Name),
@@ -220,11 +240,7 @@ internal static class JsonMetadataEmitter
 		if (type is not INamedTypeSymbol
 			{
 				Arity: 0,
-				ContainingNamespace:
-				{
-					Name: "System",
-					ContainingNamespace.IsGlobalNamespace: true,
-				},
+				ContainingNamespace.IsSystem: true,
 			})
 		{
 			return null;
@@ -242,9 +258,6 @@ internal static class JsonMetadataEmitter
 			_ => null,
 		};
 	}
-
-	private static string Display(ITypeSymbol type) =>
-		type.WithNullableAnnotation(NullableAnnotation.None).ToDisplayString(TypeFormat);
 
 	private static string Literal(string value) =>
 		Microsoft.CodeAnalysis.CSharp.SymbolDisplay.FormatLiteral(value, quote: true);
@@ -275,8 +288,7 @@ internal sealed record JsonTypeRenderModel
 
 internal sealed record JsonCollectionRenderModel
 {
-	public required bool IsArray { get; init; }
-	public required bool IsDictionary { get; init; }
+	public required string CollectionType { get; init; }
 	public required string ElementTypeName { get; init; }
 	public required string? KeyTypeName { get; init; }
 }

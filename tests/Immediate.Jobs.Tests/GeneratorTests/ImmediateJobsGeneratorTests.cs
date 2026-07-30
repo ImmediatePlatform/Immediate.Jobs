@@ -226,7 +226,12 @@ public sealed class ImmediateJobsGeneratorTests
 				public sealed record Payload(
 					Item[] Array,
 					List<Item> List,
+					IList<Item> IList,
+					IReadOnlyList<Item> IReadOnlyList,
+					IEnumerable<Item> IEnumerable,
 					Dictionary<string, Item> Dictionary,
+					IDictionary<string, Item> IDictionary,
+					IReadOnlyDictionary<string, Item> IReadOnlyDictionary,
 					PrivateConstructorValue PrivateConstructor
 				);
 

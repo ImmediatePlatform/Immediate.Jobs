@@ -3,14 +3,6 @@ using Microsoft.CodeAnalysis;
 
 namespace Immediate.Jobs;
 
-internal enum JsonCollectionKind
-{
-	None,
-	Array,
-	List,
-	Dictionary,
-}
-
 internal static class ITypeSymbolExtensions
 {
 	extension([NotNullWhen(true)] ITypeSymbol? typeSymbol)
@@ -119,41 +111,10 @@ internal static class ITypeSymbolExtensions
 				ContainingNamespace.IsSystemThreadingTasks: true,
 			};
 
-		public bool IsIEnumerable1 =>
-			typeSymbol is INamedTypeSymbol
-			{
-				Arity: 1,
-				Name: "IEnumerable",
-				ContainingNamespace.IsSystemCollectionsGeneric: true,
-			};
-
-		public JsonCollectionKind GetJsonCollectionKind() => typeSymbol switch
-		{
-			IArrayTypeSymbol { Rank: 1 } => JsonCollectionKind.Array,
-			INamedTypeSymbol
-			{
-				OriginalDefinition:
-				{
-					Name: "List",
-					Arity: 1,
-					ContainingNamespace.IsSystemCollectionsGeneric: true,
-				},
-			} => JsonCollectionKind.List,
-			INamedTypeSymbol
-			{
-				OriginalDefinition:
-				{
-					Name: "Dictionary",
-					Arity: 2,
-					ContainingNamespace.IsSystemCollectionsGeneric: true,
-				},
-			} => JsonCollectionKind.Dictionary,
-			_ => JsonCollectionKind.None,
-		};
-
 		public bool IsSupportedJsonDictionaryKey => typeSymbol switch
 		{
 			{ TypeKind: TypeKind.Enum } => true,
+
 			{
 				SpecialType: SpecialType.System_Boolean
 					or SpecialType.System_Byte
@@ -170,16 +131,14 @@ internal static class ITypeSymbolExtensions
 					or SpecialType.System_String
 					or SpecialType.System_DateTime,
 			} => true,
+
 			INamedTypeSymbol
 			{
 				Arity: 0,
-				ContainingNamespace:
-				{
-					Name: "System",
-					ContainingNamespace.IsGlobalNamespace: true,
-				},
+				ContainingNamespace.IsSystem: true,
 				Name: "Guid" or "DateTimeOffset" or "TimeSpan" or "Uri" or "Version",
 			} => true,
+
 			_ => false,
 		};
 
@@ -259,6 +218,13 @@ internal static class ITypeSymbolExtensions
 				},
 			};
 
+		public bool IsSystem =>
+			namespaceSymbol is
+			{
+				Name: "System",
+				ContainingNamespace.IsGlobalNamespace: true,
+			};
+
 		public bool IsSystemCollectionsGeneric =>
 			namespaceSymbol is
 			{
@@ -266,11 +232,7 @@ internal static class ITypeSymbolExtensions
 				ContainingNamespace:
 				{
 					Name: "Collections",
-					ContainingNamespace:
-					{
-						Name: "System",
-						ContainingNamespace.IsGlobalNamespace: true,
-					},
+					ContainingNamespace.IsSystem: true,
 				},
 			};
 
@@ -278,26 +240,14 @@ internal static class ITypeSymbolExtensions
 			namespaceSymbol is
 			{
 				Name: "Threading",
-				ContainingNamespace:
-				{
-					Name: "System",
-					ContainingNamespace.IsGlobalNamespace: true,
-				},
+				ContainingNamespace.IsSystem: true,
 			};
 
 		public bool IsSystemThreadingTasks =>
 			namespaceSymbol is
 			{
 				Name: "Tasks",
-				ContainingNamespace:
-				{
-					Name: "Threading",
-					ContainingNamespace:
-					{
-						Name: "System",
-						ContainingNamespace.IsGlobalNamespace: true,
-					},
-				},
+				ContainingNamespace.IsSystemThreading: true,
 			};
 
 		public string? RootNamespace =>
