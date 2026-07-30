@@ -132,42 +132,6 @@ public sealed class BatchesAndContinuationsTests
 	}
 
 	[Fact]
-	public async Task BatchRejectsEmptyForeignAndDuplicateParentHandles()
-	{
-		await using var harness = CreateHarness();
-		await using var scope = harness.Services.CreateAsyncScope();
-		var batches = scope.ServiceProvider.GetRequiredService<IJobBatchScheduler>();
-		var scheduler = scope.ServiceProvider.GetRequiredService<BatchWorkflowJob.Scheduler>();
-		await using var batch = batches.Begin();
-		await using var foreignBatch = batches.Begin();
-		var parent = scheduler.AddToBatch(batch, new("parent"));
-		var foreignParent = scheduler.AddToBatch(foreignBatch, new("foreign"));
-		var now = harness.TimeProvider.GetUtcNow();
-
-		JobRecord CreateRecord(string id) => new()
-		{
-			Id = id,
-			JobName = "batch-workflow-test",
-			Payload = "{}",
-			State = JobState.Pending,
-			DueAt = now,
-			CreatedAt = now,
-		};
-
-		var empty = Assert.Throws<ImmediateJobException>(() =>
-			batch.Add(CreateRecord("empty-parent"), [default], ContinuationTrigger.Success));
-		Assert.Contains("non-empty", empty.Message, StringComparison.Ordinal);
-
-		var foreign = Assert.Throws<ImmediateJobException>(() =>
-			batch.Add(CreateRecord("foreign-parent"), [foreignParent], ContinuationTrigger.Success));
-		Assert.Contains("same open batch", foreign.Message, StringComparison.Ordinal);
-
-		var duplicate = Assert.Throws<ImmediateJobException>(() =>
-			batch.Add(CreateRecord("duplicate-parent"), [parent, parent], ContinuationTrigger.Success));
-		Assert.Contains("Duplicate", duplicate.Message, StringComparison.Ordinal);
-	}
-
-	[Fact]
 	public async Task GroupedBatchAdditionsUseTheSameNormalizationAsDirectScheduling()
 	{
 		var cancellationToken = TestContext.Current.CancellationToken;
@@ -377,21 +341,25 @@ public sealed class BatchesAndContinuationsTests
 		await using var batch = batches.Begin();
 		var batched = scheduler.AddToBatch(batch, new("batched"));
 		_ = await batch.CommitAsync(cancellationToken);
+		await using var foreignBatch = batches.Begin();
+		var foreignBatched = scheduler.AddToBatch(foreignBatch, new("foreign-batched"));
 		var expectedCount = (await harness.QueryJobsAsync(cancellationToken: cancellationToken)).Count;
 
-		async Task AssertRejected(params JobHandle[] parents)
+		async Task AssertRejected(string expectedMessage, params JobHandle[] parents)
 		{
-			_ = await Assert.ThrowsAsync<ImmediateJobException>(async () =>
+			var exception = await Assert.ThrowsAsync<ImmediateJobException>(async () =>
 				await scheduler.ScheduleAfterAsync(parents, new("invalid"), cancellationToken: cancellationToken));
+			Assert.Contains(expectedMessage, exception.Message, StringComparison.OrdinalIgnoreCase);
 			Assert.Equal(expectedCount, (await harness.QueryJobsAsync(cancellationToken: cancellationToken)).Count);
 		}
 
-		await AssertRejected(new JobHandle());
-		await AssertRejected(new JobHandle(), standalone);
-		await AssertRejected(standalone, new JobHandle());
-		await AssertRejected(standalone, standalone);
-		await AssertRejected(standalone, batched);
-		await AssertRejected(batched, standalone);
+		await AssertRejected("non-empty", new JobHandle());
+		await AssertRejected("non-empty", new JobHandle(), standalone);
+		await AssertRejected("non-empty", standalone, new JobHandle());
+		await AssertRejected("duplicate", standalone, standalone);
+		await AssertRejected("unrelated scopes", standalone, batched);
+		await AssertRejected("unrelated scopes", batched, standalone);
+		await AssertRejected("unrelated scopes", batched, foreignBatched);
 	}
 
 	[Fact]
