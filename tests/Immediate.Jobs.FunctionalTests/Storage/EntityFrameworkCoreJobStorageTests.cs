@@ -489,6 +489,29 @@ public sealed class EntityFrameworkCoreJobStorageTests
 	}
 
 	[Fact]
+	public async Task FairQueueAcquisitionRunsInsideConfiguredExecutionStrategy()
+	{
+		var cancellationToken = TestContext.Current.CancellationToken;
+		await using var fixture = await StorageFixture.CreateAsync(
+			cancellationToken,
+			useRetryingExecutionStrategy: true
+		);
+		var storage = fixture.CreateStorage();
+		var now = fixture.TimeProvider.GetUtcNow();
+		await storage.EnqueueAsync(CreateJob(now, 1) with { Id = "a-first", GroupId = "group-a" }, cancellationToken);
+		await storage.EnqueueAsync(CreateJob(now, 2) with { Id = "a-second", GroupId = "group-a" }, cancellationToken);
+		await storage.EnqueueAsync(CreateJob(now, 3) with { Id = "b-first", GroupId = "group-b" }, cancellationToken);
+		var request = CreateFairRequest("fair-worker", 1);
+
+		var first = Assert.Single(await storage.AcquireDueJobsAsync(request, cancellationToken));
+		Assert.Equal("a-first", first.Id);
+		await storage.CompleteAsync(first.Id, "fair-worker", cancellationToken);
+
+		var second = Assert.Single(await storage.AcquireDueJobsAsync(request, cancellationToken));
+		Assert.Equal("b-first", second.Id);
+	}
+
+	[Fact]
 	public async Task RecurringMaterializationRunsInsideConfiguredExecutionStrategy()
 	{
 		var cancellationToken = TestContext.Current.CancellationToken;

@@ -503,6 +503,30 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 		CancellationToken cancellationToken
 	)
 	{
+		await using var strategyContext = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+		var strategy = strategyContext.Database.CreateExecutionStrategy();
+		return await strategy.ExecuteAsync(
+			operationCancellationToken => AcquireFairCandidateCoreAsync(
+				candidate,
+				workerId,
+				lease,
+				now,
+				nextSequence,
+				operationCancellationToken
+			),
+			cancellationToken
+		).ConfigureAwait(false);
+	}
+
+	private async Task<JobRecord?> AcquireFairCandidateCoreAsync(
+		ImmediateJobEntity candidate,
+		string workerId,
+		TimeSpan lease,
+		DateTimeOffset now,
+		long nextSequence,
+		CancellationToken cancellationToken
+	)
+	{
 		await using var context = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
 		await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
 		var entity = Copy(candidate);
