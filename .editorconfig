@@ -321,6 +321,7 @@ dotnet_diagnostic.MA0026.severity = suggestion
 dotnet_diagnostic.MA0048.severity = none
 dotnet_diagnostic.MA0051.severity = none
 dotnet_diagnostic.MA0053.severity = warning
+dotnet_diagnostic.MA0076.severity = warning             # MA0076: Do not use implicit culture-sensitive ToString in interpolated strings
 
 dotnet_diagnostic.RS1041.severity = none                # RS1041: Compiler extensions should be implemented in assemblies targeting netstandard2.0
 
@@ -340,3 +341,4 @@ dotnet_diagnostic.CA1822.severity = none                # CA1822: Mark members a
 dotnet_diagnostic.CA1873.severity = none                # CA1873: Evaluation of this argument may be expensive and unnecessary if logging is disabled
 
 dotnet_diagnostic.MA0002.severity = none                # MA0002: IEqualityComparer<string> or IComparer<string> is missing
+dotnet_diagnostic.MA0053.severity = none

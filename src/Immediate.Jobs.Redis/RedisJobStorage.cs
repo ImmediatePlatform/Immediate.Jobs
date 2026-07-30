@@ -2,6 +2,9 @@ using System.Globalization;
 using System.Text.Json;
 using StackExchange.Redis;
 
+// TODO: remove and fix diagnostics
+#pragma warning disable MA0015 // Specify the parameter name in ArgumentException
+
 namespace Immediate.Jobs.Redis;
 
 /// <summary>
@@ -911,8 +914,8 @@ public sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 
 	private RedisKey JobKey(string id) => _root + "job:" + id;
 	private RedisKey DueKey(string queue) => _root + "due:" + queue;
-	private RedisKey StateKey(JobState state) => _root + "state:" + (int)state;
-	private RedisKey CompletedKey(JobState state) => _root + "completed:" + (int)state;
+	private RedisKey StateKey(JobState state) => string.Create(CultureInfo.InvariantCulture, $"{_root}state:{(int)state}");
+	private RedisKey CompletedKey(JobState state) => string.Create(CultureInfo.InvariantCulture, $"{_root}completed:{(int)state}");
 	private RedisKey RecurringKey(string name) => _root + "recurring:" + name;
 	private RedisKey ServerKey(string workerId) => _root + "server:" + workerId;
 	private RedisKey AllJobsKey => _root + "jobs";

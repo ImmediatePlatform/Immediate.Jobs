@@ -54,13 +54,13 @@ public static class ImmediateJobsDashboardEndpointRouteBuilderExtensions
 		_ = group.MapGet("/", (Delegate)((HttpContext context) =>
 			context.Request.Path.Value is { Length: > 0 } path && path[^1] == '/'
 				? DashboardAssets.GetIndexAsync(context, prefix)
-				: Task.FromResult<IResult>(Results.Redirect(prefix + "/"))
+				: Task.FromResult(Results.Redirect(prefix + "/"))
 		)).ExcludeFromDescription();
 		_ = group.MapGet("/app.css", () => DashboardAssets.GetAsync("app.css")).ExcludeFromDescription();
 		_ = group.MapGet("/app.js", () => DashboardAssets.GetAsync("app.js")).ExcludeFromDescription();
 		_ = group.MapGet("/{**path}", (string path, HttpContext context) =>
 			path.StartsWith("api/", StringComparison.OrdinalIgnoreCase)
-				? Task.FromResult<IResult>(Results.NotFound())
+				? Task.FromResult(Results.NotFound())
 				: DashboardAssets.GetIndexAsync(context, prefix)
 		).WithOrder(int.MaxValue).ExcludeFromDescription();
 
@@ -217,14 +217,14 @@ public static class ImmediateJobsDashboardEndpointRouteBuilderExtensions
 			CancellationToken cancellationToken
 		) => storage is IRecurringJobStorage recurringStorage
 			? MutateRecurringAsync(recurringStorage.PauseRecurringAsync(name, cancellationToken))
-			: Task.FromResult<IResult>(Results.NotFound()));
+			: Task.FromResult(Results.NotFound()));
 		_ = api.MapPost("/recurring/{name}/resume", (
 			string name,
 			IJobStorage storage,
 			CancellationToken cancellationToken
 		) => storage is IRecurringJobStorage recurringStorage
 			? MutateRecurringAsync(recurringStorage.ResumeRecurringAsync(name, cancellationToken))
-			: Task.FromResult<IResult>(Results.NotFound()));
+			: Task.FromResult(Results.NotFound()));
 		_ = api.MapGet("/events", (HttpContext context, IJobStorage storage) =>
 			StreamEventsAsync(context, storage, options.UpdateInterval));
 	}

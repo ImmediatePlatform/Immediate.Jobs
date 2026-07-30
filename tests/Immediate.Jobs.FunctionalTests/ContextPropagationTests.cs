@@ -1,4 +1,5 @@
-using System.Collections.ObjectModel;
+using System.Diagnostics.CodeAnalysis;
+using System.Globalization;
 using Immediate.Handlers.Shared;
 using Immediate.Jobs.Testing;
 using Microsoft.Extensions.DependencyInjection;
@@ -267,7 +268,7 @@ public sealed class ContextPropagationTests
 	{
 		var cancellationToken = TestContext.Current.CancellationToken;
 		await using var harness = CreateHarness(new());
-		var recurringStorage = Assert.IsAssignableFrom<IRecurringJobStorage>(harness.Storage);
+		var recurringStorage = Assert.IsType<IRecurringJobStorage>(harness.Storage, exactMatch: false);
 		var nextRunAt = harness.TimeProvider.GetUtcNow() + TimeSpan.FromHours(1);
 		await recurringStorage.UpsertRecurringAsync(
 			CreateRecurringSchedule("removed-job", "removed-job", isCodeDefined: true, nextRunAt),
@@ -297,7 +298,7 @@ public sealed class ContextPropagationTests
 		await using var harness = CreateHarness(new());
 
 		_ = Assert.Throws<InvalidOperationException>(
-			() => harness.Services.GetRequiredService<ContextRoundTripJob.Scheduler>()
+			harness.Services.GetRequiredService<ContextRoundTripJob.Scheduler>
 		);
 
 		var consumer = harness.Services.GetRequiredService<ScopedSchedulerConsumer>();
@@ -323,7 +324,7 @@ public sealed class ContextPropagationTests
 		_ = services.AddImmediateJobsFunctionalTestsJobs();
 	});
 
-	private static JobRecord CreateContextRecord(JobTestHarness harness, string context) => new()
+	private static JobRecord CreateContextRecord(JobTestHarness harness, [StringSyntax("json")] string context) => new()
 	{
 		Id = Guid.NewGuid().ToString("N"),
 		JobName = "context-round-trip",
@@ -352,7 +353,7 @@ public sealed class ContextPropagationTests
 
 public sealed class ContextProbe
 {
-	public Collection<string> Events { get; } = [];
+	public IList<string> Events { get; } = [];
 }
 
 public sealed class PropagationScopeState
@@ -451,7 +452,7 @@ public sealed class TestIdGenerator(TimeProvider timeProvider) : IIdGenerator
 			IdKind.Batch => "batch",
 			_ => throw new ArgumentOutOfRangeException(nameof(kind)),
 		};
-		return $"{prefix}_{timeProvider.GetUtcNow().UtcTicks}_{Interlocked.Increment(ref _sequence)}";
+		return string.Create(CultureInfo.InvariantCulture, $"{prefix}_{timeProvider.GetUtcNow().UtcTicks}_{Interlocked.Increment(ref _sequence)}");
 	}
 }
 

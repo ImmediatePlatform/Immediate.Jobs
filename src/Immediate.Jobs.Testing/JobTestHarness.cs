@@ -1,3 +1,4 @@
+using System.Globalization;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -220,7 +221,7 @@ public sealed class JobTestHarness : IAsyncDisposable, IDisposable
 		if (status.Total != expectedMembers || members.Count != expectedMembers)
 		{
 			throw new JobTestAssertionException(
-				$"Expected batch '{batch.Id}' to contain {expectedMembers} jobs, but its header reports {status.Total} and {members.Count} members were found."
+				string.Create(CultureInfo.InvariantCulture, $"Expected batch '{batch.Id}' to contain {expectedMembers} jobs, but its header reports {status.Total} and {members.Count} members were found.")
 			);
 		}
 	}

@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 
 namespace Immediate.Jobs.Shared;
 
@@ -41,10 +42,12 @@ public sealed record JobRecord
 
 	/// <summary>The serialized payload.</summary>
 	/// <value>The serialized job payload.</value>
+	[StringSyntax("json")]
 	public required string Payload { get; init; }
 
 	/// <summary>Serialized ambient-context envelope captured while enqueueing.</summary>
 	/// <value>The serialized ambient-context envelope, if any.</value>
+	[StringSyntax("json")]
 	public string? Context { get; init; }
 
 	/// <summary>Optional fairness group key scoped within the queue. Null means an independent tenant.</summary>

@@ -70,7 +70,7 @@ internal static class CronValidator
 		{
 			if (!ValidateField(fields[index], kinds[index], out var fieldError))
 			{
-				error = $"field {index + 1} ({kinds[index]}) is invalid: {fieldError}";
+				error = string.Create(CultureInfo.InvariantCulture, $"field {index + 1} ({kinds[index]}) is invalid: {fieldError}");
 				return false;
 			}
 		}

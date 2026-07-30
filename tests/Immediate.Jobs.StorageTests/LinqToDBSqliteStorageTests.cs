@@ -1,3 +1,4 @@
+using System.Globalization;
 using Immediate.Jobs.LinqToDB;
 using LinqToDB;
 using LinqToDB.Data;
@@ -468,7 +469,7 @@ public sealed class LinqToDBSqliteStorageTests
 		var second = fixture.CreateStorage();
 		var now = fixture.TimeProvider.GetUtcNow();
 		foreach (var index in Enumerable.Range(0, 12))
-			await Enqueue(first, now, $"job-{index}", index, $"group-{index % 3}", cancellationToken);
+			await Enqueue(first, now, string.Create(CultureInfo.InvariantCulture, $"job-{index}"), index, string.Create(CultureInfo.InvariantCulture, $"group-{index % 3}"), cancellationToken);
 
 		var claims = await Task.WhenAll(
 			first.AcquireDueJobsAsync(CreateFairRequest("worker-a", 12), cancellationToken).AsTask(),
@@ -846,10 +847,10 @@ public sealed class LinqToDBSqliteStorageTests
 	{
 		await using var connection = new DataConnection(options);
 		_ = await connection.ExecuteAsync(
-			$"""
+			string.Create(CultureInfo.InvariantCulture, $"""
 			INSERT INTO "immediate_fair_queue_groups" ("QueueName", "GroupId", "LastServedSequence", "ConcurrencyStamp")
 			VALUES ('{JobQueueDefinition.DefaultName}', '{groupId}', {sequence}, '{Guid.NewGuid()}')
-			""",
+			"""),
 			cancellationToken
 		);
 	}
@@ -874,7 +875,7 @@ public sealed class LinqToDBSqliteStorageTests
 	{
 		Id = "job-" + Guid.NewGuid().ToString("N"),
 		JobName = "storage-test",
-		Payload = $"{{\"index\":{index}}}",
+		Payload = string.Create(CultureInfo.InvariantCulture, $"{{\"index\":{index}}}"),
 		State = JobState.Pending,
 		DueAt = now,
 		CreatedAt = now.AddTicks(index),

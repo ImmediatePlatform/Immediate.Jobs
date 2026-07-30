@@ -105,7 +105,7 @@ public static class JobContextEnvelope
 	[SuppressMessage(
 		"Design",
 		"MA0016:Prefer using collection abstraction instead of implementation",
-		Justification = "<Pending>"
+		Justification = "Hidden API used for context storage/retrieval; needs Dictionary<,> for `Remove(, out)` method."
 	)]
 	public static Dictionary<string, string> Read(string envelope)
 	{

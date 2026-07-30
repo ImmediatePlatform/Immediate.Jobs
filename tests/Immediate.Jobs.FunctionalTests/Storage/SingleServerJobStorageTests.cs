@@ -1,5 +1,6 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Time.Testing;
+using System.Globalization;
 using System.Reflection;
 using System.Runtime.ExceptionServices;
 
@@ -107,7 +108,7 @@ public sealed class SingleServerJobStorageTests
 		for (var index = 0; index < 1001; index++)
 		{
 			await inner.EnqueueAsync(
-				CreateJob(timeProvider.GetUtcNow()) with { Id = $"recovered-{index:D4}" },
+				CreateJob(timeProvider.GetUtcNow()) with { Id = string.Create(CultureInfo.InvariantCulture, $"recovered-{index:D4}") },
 				cancellationToken
 			);
 		}
@@ -258,7 +259,7 @@ public sealed class SingleServerJobStorageTests
 		var cancellationToken = TestContext.Current.CancellationToken;
 		var timeProvider = new FakeTimeProvider(DateTimeOffset.UnixEpoch);
 		await using var durable = new InMemoryJobStorage(timeProvider);
-		using var firstProcess = new SingleServerJobStorage(durable, timeProvider);
+		await using var firstProcess = new SingleServerJobStorage(durable, timeProvider);
 		var job = CreateJob(timeProvider.GetUtcNow() + TimeSpan.FromHours(1));
 		var schedule = new RecurringJobSchedule
 		{
@@ -277,7 +278,7 @@ public sealed class SingleServerJobStorageTests
 		Assert.Equal(job.Id, Assert.Single(await durable.QueryJobsAsync(new(), cancellationToken)).Id);
 		Assert.Equal(schedule.Name, Assert.Single((await durable.GetMonitoringSnapshotAsync(cancellationToken)).Recurring).Name);
 
-		using var restartedProcess = new SingleServerJobStorage(durable, timeProvider);
+		await using var restartedProcess = new SingleServerJobStorage(durable, timeProvider);
 		await restartedProcess.InitializeAsync(cancellationToken);
 
 		var recoveredJob = Assert.Single(await restartedProcess.QueryJobsAsync(new(), cancellationToken));
@@ -292,7 +293,7 @@ public sealed class SingleServerJobStorageTests
 		var cancellationToken = TestContext.Current.CancellationToken;
 		var timeProvider = new FakeTimeProvider(DateTimeOffset.UnixEpoch);
 		await using var durable = new InMemoryJobStorage(timeProvider);
-		using var storage = new SingleServerJobStorage(durable, timeProvider);
+		await using var storage = new SingleServerJobStorage(durable, timeProvider);
 		var job = CreateJob(timeProvider.GetUtcNow());
 		await storage.EnqueueAsync(job, cancellationToken);
 		_ = Assert.Single(await storage.AcquireDueJobsAsync(CreateRequest("worker"), cancellationToken));
@@ -368,7 +369,7 @@ public sealed class SingleServerJobStorageTests
 			cancellationToken
 		);
 
-		using var restartedProcess = new SingleServerJobStorage(durable, timeProvider);
+		await using var restartedProcess = new SingleServerJobStorage(durable, timeProvider);
 		await restartedProcess.InitializeAsync(cancellationToken);
 
 		var graph = Assert.IsType<BatchGraph>(
@@ -422,7 +423,7 @@ public sealed class SingleServerJobStorageTests
 		var cancellationToken = TestContext.Current.CancellationToken;
 		var timeProvider = new FakeTimeProvider(DateTimeOffset.UnixEpoch);
 		await using var durable = new InMemoryJobStorage(timeProvider);
-		using var storage = new SingleServerJobStorage(durable, timeProvider);
+		await using var storage = new SingleServerJobStorage(durable, timeProvider);
 		var current = CreateSchedule("current", isCodeDefined: true, timeProvider);
 		var obsolete = CreateSchedule("obsolete", isCodeDefined: true, timeProvider);
 		var dynamic = CreateSchedule("dynamic", isCodeDefined: false, timeProvider);
@@ -452,12 +453,12 @@ public sealed class SingleServerJobStorageTests
 		var cancellationToken = TestContext.Current.CancellationToken;
 		var timeProvider = new FakeTimeProvider(DateTimeOffset.UnixEpoch);
 		await using var durable = new InMemoryJobStorage(timeProvider);
-		using var firstProcess = new SingleServerJobStorage(durable, timeProvider);
+		await using var firstProcess = new SingleServerJobStorage(durable, timeProvider);
 		var job = CreateJob(timeProvider.GetUtcNow());
 		await firstProcess.EnqueueAsync(job, cancellationToken);
 		_ = Assert.Single(await firstProcess.AcquireDueJobsAsync(CreateRequest("first"), cancellationToken));
 
-		using var restartedProcess = new SingleServerJobStorage(durable, timeProvider);
+		await using var restartedProcess = new SingleServerJobStorage(durable, timeProvider);
 		Assert.Empty(await restartedProcess.AcquireDueJobsAsync(CreateRequest("second"), cancellationToken));
 
 		timeProvider.Advance(TimeSpan.FromMinutes(1));
@@ -480,7 +481,7 @@ public sealed class SingleServerJobStorageTests
 		var cancellationToken = TestContext.Current.CancellationToken;
 		var timeProvider = new FakeTimeProvider(DateTimeOffset.UnixEpoch);
 		await using var durable = new InMemoryJobStorage(timeProvider);
-		using var storage = new SingleServerJobStorage(durable, timeProvider);
+		await using var storage = new SingleServerJobStorage(durable, timeProvider);
 		var server = new JobServerSnapshot(
 			"single-server",
 			timeProvider.GetUtcNow(),
@@ -537,7 +538,7 @@ public sealed class SingleServerJobStorageTests
 
 	public interface ISingleServerDurableStorage : IRecurringJobStorage, IJobGraphStorage, IJobStorageReplica;
 
-	public sealed class DurableStorageProxy : DispatchProxy
+	public class DurableStorageProxy : DispatchProxy
 	{
 		public object Inner { get; set; } = null!;
 		public bool BlockInitialization { get; set; }
@@ -579,7 +580,7 @@ public sealed class SingleServerJobStorageTests
 #pragma warning restore CA2012
 			}
 
-			if (targetMethod.Name == nameof(IJobStorage.FailAsync) && CaptureFailures)
+			if (string.Equals(targetMethod.Name, nameof(IJobStorage.FailAsync), StringComparison.Ordinal) && CaptureFailures)
 			{
 				CapturedFailedJobId = (string)args[0]!;
 				CapturedFailure = (string)args[2]!;

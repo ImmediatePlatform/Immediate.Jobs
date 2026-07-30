@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
+using System.Globalization;
 using System.Threading.Channels;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -27,7 +28,7 @@ public sealed partial class JobSchedulerService : BackgroundService
 	private readonly Dictionary<int, int> _priorityOffsets = [];
 	private readonly SemaphoreSlim _scheduleInitialization = new(1, 1);
 	private readonly CancellationTokenSource _workerCancellation = new();
-	private readonly string _workerId = $"{Environment.MachineName}:{Environment.ProcessId}:{Guid.NewGuid():N}";
+	private readonly string _workerId = string.Create(CultureInfo.InvariantCulture, $"{Environment.MachineName}:{Environment.ProcessId}:{Guid.NewGuid():N}");
 	private readonly Channel<JobRecord> _channel;
 	private int _reservations;
 	private int _fairQueuesDisabledWarningLogged;
@@ -642,7 +643,7 @@ public sealed partial class JobSchedulerService : BackgroundService
 				State = JobState.Pending,
 				DueAt = schedule.NextRunAt,
 				CreatedAt = now,
-				RecurringKey = $"{schedule.Name}:{schedule.NextRunAt.UtcTicks}",
+				RecurringKey = string.Create(CultureInfo.InvariantCulture, $"{schedule.Name}:{schedule.NextRunAt.UtcTicks}"),
 				TraceParent = traceParent,
 				TraceState = traceState,
 			};

@@ -5,6 +5,7 @@ using Hangfire.MemoryStorage;
 using Quartz;
 using Quartz.Impl;
 using System.Diagnostics.CodeAnalysis;
+using System.Globalization;
 using System.Text.Json.Serialization;
 
 namespace Immediate.Jobs.Benchmarks;
@@ -62,11 +63,11 @@ public class EnqueueBenchmarks : IAsyncDisposable
 	{
 		var sequence = Interlocked.Increment(ref _sequence);
 		var job = JobBuilder.Create<QuartzNoOpJob>()
-			.WithIdentity($"enqueue-job-{sequence}")
+			.WithIdentity(string.Create(CultureInfo.InvariantCulture, $"enqueue-job-{sequence}"))
 			.UsingJobData("value", 42)
 			.Build();
 		var trigger = TriggerBuilder.Create()
-			.WithIdentity($"enqueue-trigger-{sequence}")
+			.WithIdentity(string.Create(CultureInfo.InvariantCulture, $"enqueue-trigger-{sequence}"))
 			.StartNow()
 			.Build();
 		return await _quartz.ScheduleJob(job, trigger);

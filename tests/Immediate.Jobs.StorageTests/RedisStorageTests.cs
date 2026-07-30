@@ -1,3 +1,4 @@
+using System.Globalization;
 using Immediate.Jobs.Redis;
 using Microsoft.Extensions.Time.Testing;
 using StackExchange.Redis;
@@ -31,10 +32,10 @@ public sealed class RedisStorageTests(RedisStorageFixture fixture)
 		await using var connection = await ConnectionMultiplexer.ConnectAsync(fixture.Container.GetConnectionString());
 		var timeProvider = CreateTimeProvider();
 		var options = CreateOptions();
-		using var first = new RedisJobStorage(connection, options, timeProvider);
-		using var second = new RedisJobStorage(connection, options, timeProvider);
+		await using var first = new RedisJobStorage(connection, options, timeProvider);
+		await using var second = new RedisJobStorage(connection, options, timeProvider);
 		foreach (var index in Enumerable.Range(0, 24))
-			await first.EnqueueAsync(CreateJob($"contended-{index}", timeProvider.GetUtcNow()), cancellationToken);
+			await first.EnqueueAsync(CreateJob(string.Create(CultureInfo.InvariantCulture, $"contended-{index}"), timeProvider.GetUtcNow()), cancellationToken);
 
 		var claims = await Task.WhenAll(
 			first.AcquireDueJobsAsync(CreateRequest("node-a", 24), cancellationToken).AsTask(),
@@ -54,8 +55,8 @@ public sealed class RedisStorageTests(RedisStorageFixture fixture)
 		await using var connection = await ConnectionMultiplexer.ConnectAsync(fixture.Container.GetConnectionString());
 		var timeProvider = CreateTimeProvider();
 		var options = CreateOptions();
-		using var first = new RedisJobStorage(connection, options, timeProvider);
-		using var second = new RedisJobStorage(connection, options, timeProvider);
+		await using var first = new RedisJobStorage(connection, options, timeProvider);
+		await using var second = new RedisJobStorage(connection, options, timeProvider);
 		await first.EnqueueAsync(
 			CreateJob("leased", timeProvider.GetUtcNow()) with { GroupId = "tenant-a" },
 			cancellationToken
@@ -94,7 +95,7 @@ public sealed class RedisStorageTests(RedisStorageFixture fixture)
 		await using var connection = await ConnectionMultiplexer.ConnectAsync(fixture.Container.GetConnectionString());
 		var timeProvider = CreateTimeProvider();
 		var options = CreateOptions();
-		using var storage = new RedisJobStorage(connection, options, timeProvider);
+		await using var storage = new RedisJobStorage(connection, options, timeProvider);
 		await storage.EnqueueAsync(
 			CreateJob("secondary", timeProvider.GetUtcNow()) with { QueueName = "secondary" },
 			cancellationToken
@@ -121,9 +122,9 @@ public sealed class RedisStorageTests(RedisStorageFixture fixture)
 		await using var connection = await ConnectionMultiplexer.ConnectAsync(fixture.Container.GetConnectionString());
 		var timeProvider = CreateTimeProvider();
 		var options = CreateOptions();
-		using var storage = new RedisJobStorage(connection, options, timeProvider);
+		await using var storage = new RedisJobStorage(connection, options, timeProvider);
 		await Task.WhenAll(Enumerable.Range(0, 3).Select(index => storage.EnqueueAsync(
-			CreateJob($"window-{index}", timeProvider.GetUtcNow().AddMilliseconds(index)),
+			CreateJob(string.Create(CultureInfo.InvariantCulture, $"window-{index}"), timeProvider.GetUtcNow().AddMilliseconds(index)),
 			cancellationToken
 		).AsTask()));
 		_ = await connection.GetDatabase(options.Database).HashSetAsync(
@@ -144,7 +145,7 @@ public sealed class RedisStorageTests(RedisStorageFixture fixture)
 		await using var connection = await ConnectionMultiplexer.ConnectAsync(fixture.Container.GetConnectionString());
 		var timeProvider = CreateTimeProvider();
 		var options = CreateOptions();
-		using var storage = new RedisJobStorage(connection, options, timeProvider);
+		await using var storage = new RedisJobStorage(connection, options, timeProvider);
 		await storage.EnqueueAsync(CreateJob("target", timeProvider.GetUtcNow()), cancellationToken);
 		await storage.EnqueueAsync(CreateJob("poison", timeProvider.GetUtcNow().AddMilliseconds(1)), cancellationToken);
 		_ = await connection.GetDatabase(options.Database).HashSetAsync(
@@ -165,10 +166,10 @@ public sealed class RedisStorageTests(RedisStorageFixture fixture)
 		await using var connection = await ConnectionMultiplexer.ConnectAsync(fixture.Container.GetConnectionString());
 		var timeProvider = CreateTimeProvider();
 		var options = CreateOptions();
-		using var storage = new RedisJobStorage(connection, options, timeProvider);
+		await using var storage = new RedisJobStorage(connection, options, timeProvider);
 		await Task.WhenAll(Enumerable.Range(0, 520).Select(index =>
 		{
-			var job = CreateJob($"filtered-{index:D3}", timeProvider.GetUtcNow().AddMilliseconds(index));
+			var job = CreateJob(string.Create(CultureInfo.InvariantCulture, $"filtered-{index:D3}"), timeProvider.GetUtcNow().AddMilliseconds(index));
 			if (index is 250 or 510)
 			{
 				job = job with
@@ -204,7 +205,7 @@ public sealed class RedisStorageTests(RedisStorageFixture fixture)
 	{
 		var cancellationToken = TestContext.Current.CancellationToken;
 		await using var connection = await ConnectionMultiplexer.ConnectAsync(fixture.Container.GetConnectionString());
-		using var storage = new RedisJobStorage(connection, CreateOptions(), CreateTimeProvider());
+		await using var storage = new RedisJobStorage(connection, CreateOptions(), CreateTimeProvider());
 
 		_ = await Assert.ThrowsAsync<KeyNotFoundException>(
 			() => storage.RetryAsync("missing", cancellationToken).AsTask()
@@ -223,7 +224,7 @@ public sealed class RedisStorageTests(RedisStorageFixture fixture)
 		var cancellationToken = TestContext.Current.CancellationToken;
 		await using var connection = await ConnectionMultiplexer.ConnectAsync(fixture.Container.GetConnectionString());
 		var timeProvider = CreateTimeProvider();
-		using var storage = new RedisJobStorage(connection, CreateOptions(), timeProvider);
+		await using var storage = new RedisJobStorage(connection, CreateOptions(), timeProvider);
 		await storage.EnqueueAsync(CreateJob("status", timeProvider.GetUtcNow()), cancellationToken);
 
 		var status = await storage.GetJobStatusAsync("status", cancellationToken);
@@ -238,7 +239,7 @@ public sealed class RedisStorageTests(RedisStorageFixture fixture)
 		var cancellationToken = TestContext.Current.CancellationToken;
 		await using var connection = await ConnectionMultiplexer.ConnectAsync(fixture.Container.GetConnectionString());
 		var timeProvider = CreateTimeProvider();
-		using var storage = new RedisJobStorage(connection, CreateOptions(), timeProvider);
+		await using var storage = new RedisJobStorage(connection, CreateOptions(), timeProvider);
 		await storage.EnqueueAsync(CreateJob("pending", timeProvider.GetUtcNow()), cancellationToken);
 		await storage.UpsertRecurringAsync(new()
 		{
@@ -268,7 +269,7 @@ public sealed class RedisStorageTests(RedisStorageFixture fixture)
 		await using var connection = await ConnectionMultiplexer.ConnectAsync(fixture.Container.GetConnectionString());
 		var timeProvider = CreateTimeProvider();
 		var options = CreateOptions();
-		using var storage = new RedisJobStorage(connection, options, timeProvider);
+		await using var storage = new RedisJobStorage(connection, options, timeProvider);
 		await storage.EnqueueAsync(CreateJob("wrong-state", timeProvider.GetUtcNow()), cancellationToken);
 		var database = connection.GetDatabase(options.Database);
 		var completedKey = CompletedKey(options, JobState.Succeeded);
@@ -291,7 +292,7 @@ public sealed class RedisStorageTests(RedisStorageFixture fixture)
 		await using var connection = await ConnectionMultiplexer.ConnectAsync(fixture.Container.GetConnectionString());
 		var timeProvider = CreateTimeProvider();
 		var options = CreateOptions();
-		using var storage = new RedisJobStorage(connection, options, timeProvider);
+		await using var storage = new RedisJobStorage(connection, options, timeProvider);
 		await storage.HeartbeatAsync(new("node-a", timeProvider.GetUtcNow(), 1, 8), cancellationToken);
 
 		var expiry = await connection.GetDatabase(options.Database).KeyTimeToLiveAsync(ServerKey(options, "node-a"));
@@ -306,7 +307,7 @@ public sealed class RedisStorageTests(RedisStorageFixture fixture)
 		await using var connection = await ConnectionMultiplexer.ConnectAsync(fixture.Container.GetConnectionString());
 		var timeProvider = CreateTimeProvider();
 		var options = CreateOptions();
-		using var storage = new RedisJobStorage(connection, options, timeProvider);
+		await using var storage = new RedisJobStorage(connection, options, timeProvider);
 		var now = timeProvider.GetUtcNow();
 		await storage.HeartbeatAsync(new("node-a", now, 1, 8), cancellationToken);
 		await storage.HeartbeatAsync(new("node-b", now, 2, 8), cancellationToken);
@@ -324,8 +325,8 @@ public sealed class RedisStorageTests(RedisStorageFixture fixture)
 		await using var connection = await ConnectionMultiplexer.ConnectAsync(fixture.Container.GetConnectionString());
 		var timeProvider = CreateTimeProvider();
 		var options = CreateOptions();
-		using var first = new RedisJobStorage(connection, options, timeProvider);
-		using var second = new RedisJobStorage(connection, options, timeProvider);
+		await using var first = new RedisJobStorage(connection, options, timeProvider);
+		await using var second = new RedisJobStorage(connection, options, timeProvider);
 		var now = timeProvider.GetUtcNow();
 		var schedule = new RecurringJobSchedule
 		{
@@ -337,7 +338,7 @@ public sealed class RedisStorageTests(RedisStorageFixture fixture)
 			NextRunAt = now,
 		};
 		await first.UpsertRecurringAsync(schedule, cancellationToken);
-		var recurringKey = $"{schedule.Name}:{schedule.NextRunAt.UtcTicks}";
+		var recurringKey = string.Create(CultureInfo.InvariantCulture, $"{schedule.Name}:{schedule.NextRunAt.UtcTicks}");
 
 		var results = await Task.WhenAll(
 			first.MaterializeRecurringAsync(
@@ -370,7 +371,7 @@ public sealed class RedisStorageTests(RedisStorageFixture fixture)
 		var cancellationToken = TestContext.Current.CancellationToken;
 		await using var connection = await ConnectionMultiplexer.ConnectAsync(fixture.Container.GetConnectionString());
 		var timeProvider = CreateTimeProvider();
-		using var storage = new RedisJobStorage(connection, CreateOptions(), timeProvider);
+		await using var storage = new RedisJobStorage(connection, CreateOptions(), timeProvider);
 		var now = timeProvider.GetUtcNow();
 		var schedule = new RecurringJobSchedule
 		{
@@ -389,7 +390,7 @@ public sealed class RedisStorageTests(RedisStorageFixture fixture)
 			{
 				State = JobState.Cancelled,
 				CompletedAt = now,
-				RecurringKey = $"{schedule.Name}:{now.UtcTicks}",
+				RecurringKey = string.Create(CultureInfo.InvariantCulture, $"{schedule.Name}:{now.UtcTicks}"),
 			},
 			now.AddHours(1),
 			cancellationToken
@@ -428,7 +429,7 @@ public sealed class RedisStorageTests(RedisStorageFixture fixture)
 	{
 		var cancellationToken = TestContext.Current.CancellationToken;
 		await using var connection = await ConnectionMultiplexer.ConnectAsync(fixture.Container.GetConnectionString());
-		using var storage = new RedisJobStorage(connection, CreateOptions(), CreateTimeProvider());
+		await using var storage = new RedisJobStorage(connection, CreateOptions(), CreateTimeProvider());
 		var request = CreateRequest("worker", 1) with
 		{
 			FairQueues = new(0.10, 30, GroupRoundRobin: true),
@@ -450,7 +451,7 @@ public sealed class RedisStorageTests(RedisStorageFixture fixture)
 		$"{{{options.KeyPrefix}}}:job:{id}";
 
 	private static RedisKey CompletedKey(RedisJobStorageOptions options, JobState state) =>
-		$"{{{options.KeyPrefix}}}:completed:{(int)state}";
+		string.Create(CultureInfo.InvariantCulture, $"{{{options.KeyPrefix}}}:completed:{(int)state}");
 
 	private static RedisKey ServerKey(RedisJobStorageOptions options, string workerId) =>
 		$"{{{options.KeyPrefix}}}:server:{workerId}";

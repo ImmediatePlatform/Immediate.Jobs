@@ -37,11 +37,11 @@ public static class ImmediateJobsRuntimeServiceCollectionExtensions
 		services.TryAddSingleton(TimeProvider.System);
 		services.TryAddSingleton<Immediate.Jobs.Shared.IIdGenerator>(Immediate.Jobs.Shared.GuidIdGenerator.Instance);
 		services.TryAddSingleton<Immediate.Jobs.Shared.IJobSerializer, Immediate.Jobs.Shared.SystemTextJsonJobSerializer>();
-		services.TryAddSingleton<Immediate.Jobs.Shared.IJobStorage>(sp => options.CreateStorage(sp));
-		services.TryAddSingleton<Immediate.Jobs.Shared.IRecurringJobStorage>(static sp =>
+		services.TryAddSingleton(options.CreateStorage);
+		services.TryAddSingleton(static sp =>
 			sp.GetRequiredService<Immediate.Jobs.Shared.IJobStorage>() as Immediate.Jobs.Shared.IRecurringJobStorage
 				?? null!);
-		services.TryAddSingleton<Immediate.Jobs.Shared.IJobGraphStorage>(static sp =>
+		services.TryAddSingleton(static sp =>
 			sp.GetRequiredService<Immediate.Jobs.Shared.IJobStorage>() as Immediate.Jobs.Shared.IJobGraphStorage
 				?? null!);
 		services.TryAddScoped<Immediate.Jobs.Shared.JobBatchScheduler>();

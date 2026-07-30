@@ -1,8 +1,8 @@
+using System.Collections.Concurrent;
+using System.Globalization;
 using Immediate.Handlers.Shared;
 using Immediate.Jobs.Testing;
 using Microsoft.Extensions.DependencyInjection;
-using System.Collections.Concurrent;
-using System.Collections.ObjectModel;
 
 namespace Immediate.Jobs.FunctionalTests;
 
@@ -21,7 +21,7 @@ public sealed class BatchesAndContinuationsTests
 		await using var scope = harness.Services.CreateAsyncScope();
 		var scheduler = scope.ServiceProvider.GetRequiredService<BatchWorkflowJob.Scheduler>();
 
-		JobHandle handle = await scheduler.EnqueueAsync(new("one"), cancellationToken);
+		var handle = await scheduler.EnqueueAsync(new("one"), cancellationToken);
 
 		Assert.False(string.IsNullOrWhiteSpace(handle.Id));
 		Assert.True(Guid.TryParseExact(handle.Id, "N", out _));
@@ -79,7 +79,7 @@ public sealed class BatchesAndContinuationsTests
 		await using var batch = batches.Begin();
 		var handles = new ConcurrentBag<JobHandle>();
 
-		_ = Parallel.For(0, 128, index => handles.Add(scheduler.AddToBatch(batch, new($"job-{index}"))));
+		_ = Parallel.For(0, 128, index => handles.Add(scheduler.AddToBatch(batch, new(string.Create(CultureInfo.InvariantCulture, $"job-{index}")))));
 		var batchHandle = await batch.CommitAsync(cancellationToken);
 
 		var jobs = (await harness.QueryJobsAsync(cancellationToken: cancellationToken))
@@ -120,8 +120,8 @@ public sealed class BatchesAndContinuationsTests
 		_ = await Assert.ThrowsAsync<ImmediateJobException>(() => batch.CommitAsync(cancellationToken).AsTask());
 		await batch.DisposeAsync();
 
-		var capturedJobs = Assert.IsAssignableFrom<IReadOnlyList<JobRecord>>(proxyState.CapturedBatchJobs);
-		var capturedEdges = Assert.IsAssignableFrom<IReadOnlyList<JobContinuationEdge>>(proxyState.CapturedBatchEdges);
+		var capturedJobs = Assert.IsType<IReadOnlyList<JobRecord>>(proxyState.CapturedBatchJobs, exactMatch: false);
+		var capturedEdges = Assert.IsType<IReadOnlyList<JobContinuationEdge>>(proxyState.CapturedBatchEdges, exactMatch: false);
 		_ = Assert.Single(capturedJobs);
 		Assert.Empty(capturedEdges);
 		_ = Assert.Throws<NotSupportedException>(() =>
@@ -213,10 +213,10 @@ public sealed class BatchesAndContinuationsTests
 
 		var graph = Assert.IsType<BatchGraph>(await monitor.GetGraphAsync(followUpHandle.Id, cancellationToken));
 		Assert.Equal(2, graph.Edges.Count);
-		var childEdge = Assert.Single(graph.Edges, edge => edge.ChildJobId == child.Id);
+		var childEdge = Assert.Single(graph.Edges, edge => string.Equals(edge.ChildJobId, child.Id, StringComparison.Ordinal));
 		Assert.Equal(root.Id, childEdge.ParentJobId);
 		Assert.Null(childEdge.ParentBatchId);
-		var rootEdge = Assert.Single(graph.Edges, edge => edge.ChildJobId == root.Id);
+		var rootEdge = Assert.Single(graph.Edges, edge => string.Equals(edge.ChildJobId, root.Id, StringComparison.Ordinal));
 		Assert.Null(rootEdge.ParentJobId);
 		Assert.Equal(parentBatchHandle.Id, rootEdge.ParentBatchId);
 		Assert.Equal(ContinuationTrigger.Complete, rootEdge.Trigger);
@@ -300,7 +300,7 @@ public sealed class BatchesAndContinuationsTests
 
 		await harness.DrainAsync(cancellationToken);
 
-		var graphStorage = Assert.IsAssignableFrom<IJobGraphStorage>(harness.Storage);
+		var graphStorage = Assert.IsType<IJobGraphStorage>(harness.Storage, exactMatch: false);
 		Assert.Equal(
 			BatchState.Failed,
 			(await graphStorage.GetBatchStatusAsync(batchHandle.Id, cancellationToken))!.State
@@ -499,7 +499,7 @@ public sealed class BatchesAndContinuationsTests
 		await harness.DrainAsync(cancellationToken);
 
 		var jobs = (await harness.QueryJobsAsync(cancellationToken: cancellationToken))
-			.Where(job => job.BatchId == batchHandle.Id)
+			.Where(job => string.Equals(job.BatchId, batchHandle.Id, StringComparison.Ordinal))
 			.ToArray();
 		Assert.Equal(3, jobs.Length);
 		Assert.All(jobs, static job => Assert.Equal(JobState.Succeeded, job.State));
@@ -566,7 +566,7 @@ public sealed class BatchesAndContinuationsTests
 		_ = services.AddImmediateJobsFunctionalTestsJobs();
 	});
 
-	private static void AssertBefore(IReadOnlyList<string> events, string first, string second)
+	private static void AssertBefore(IList<string> events, string first, string second)
 	{
 		var observed = events.ToArray();
 		var firstIndex = Array.IndexOf(observed, first);
@@ -582,7 +582,7 @@ public sealed class BatchesAndContinuationsTests
 
 public sealed class BatchWorkflowState
 {
-	public Collection<string> Events { get; } = [];
+	public IList<string> Events { get; } = [];
 }
 
 public sealed class DynamicExpansionState
@@ -687,7 +687,7 @@ public sealed partial class ExecutionBufferProbeJob(
 		_ = Parallel.For(
 			0,
 			payload.Count,
-			index => scheduler.ScheduleAfter(details, new($"buffer-{index}"), ContinuationOptions.Detached)
+			index => scheduler.ScheduleAfter(details, new(string.Create(CultureInfo.InvariantCulture, $"buffer-{index}")), ContinuationOptions.Detached)
 		);
 		return ValueTask.CompletedTask;
 	}

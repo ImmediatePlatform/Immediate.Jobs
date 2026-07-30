@@ -2,8 +2,8 @@ using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
-using global::NodaTime;
-using global::NodaTime.Serialization.SystemTextJson;
+using NodaTime;
+using NodaTime.Serialization.SystemTextJson;
 
 namespace Immediate.Jobs.NodaTime;
 

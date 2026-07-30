@@ -1,12 +1,13 @@
 using Immediate.Jobs.EntityFrameworkCore;
 using Immediate.Jobs.LinqToDB;
-using global::LinqToDB;
-using global::LinqToDB.Data;
+using LinqToDB;
+using LinqToDB.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Time.Testing;
 using System.Text.RegularExpressions;
+using System.Globalization;
 
 namespace Immediate.Jobs.StorageTests;
 
@@ -133,7 +134,7 @@ public sealed class RelationalStorageMatrixTests(StorageContainers containers)
 		var second = fixture.CreateStorage();
 		var now = fixture.TimeProvider.GetUtcNow();
 		foreach (var index in Enumerable.Range(0, 24))
-			await first.EnqueueAsync(CreateJob($"contended-{index}", now), cancellationToken);
+			await first.EnqueueAsync(CreateJob(string.Create(CultureInfo.InvariantCulture, $"contended-{index}"), now), cancellationToken);
 
 		var claims = await Task.WhenAll(
 			first.AcquireDueJobsAsync(CreateRequest("node-a", 24), cancellationToken).AsTask(),
@@ -174,7 +175,7 @@ public sealed class RelationalStorageMatrixTests(StorageContainers containers)
 		var storage = fixture.Storage;
 		var now = fixture.TimeProvider.GetUtcNow();
 		foreach (var index in Enumerable.Range(0, 30).Reverse())
-			await storage.EnqueueAsync(CreateJob($"tied-{index:d2}", now), cancellationToken);
+			await storage.EnqueueAsync(CreateJob(string.Create(CultureInfo.InvariantCulture, $"tied-{index:d2}"), now), cancellationToken);
 
 		var seen = new List<string>();
 		for (var skip = 0; skip < 30; skip += 7)
@@ -184,7 +185,7 @@ public sealed class RelationalStorageMatrixTests(StorageContainers containers)
 		}
 
 		Assert.Equal(
-			Enumerable.Range(0, 30).Select(static index => $"tied-{index:d2}"),
+			Enumerable.Range(0, 30).Select(static index => string.Create(CultureInfo.InvariantCulture, $"tied-{index:d2}")),
 			seen
 		);
 	}
@@ -300,7 +301,7 @@ public sealed class RelationalStorageMatrixTests(StorageContainers containers)
 			IsCodeDefined = true,
 			NextRunAt = now,
 		};
-		var occurrence = CreateJob("occurrence", now) with { RecurringKey = $"recurring:{now.UtcTicks}" };
+		var occurrence = CreateJob("occurrence", now) with { RecurringKey = string.Create(CultureInfo.InvariantCulture, $"recurring:{now.UtcTicks}") };
 		await storage.UpsertRecurringAsync(schedule, cancellationToken);
 		Assert.True(await storage.MaterializeRecurringAsync(schedule, occurrence, now.AddHours(1), cancellationToken));
 		Assert.False(await storage.MaterializeRecurringAsync(schedule, occurrence, now.AddHours(1), cancellationToken));
@@ -439,7 +440,7 @@ public sealed class RelationalStorageMatrixTests(StorageContainers containers)
 		var cancellationToken = TestContext.Current.CancellationToken;
 		await using var fixture = await CreateFixtureAsync(database, adapter, cancellationToken);
 		var storage = fixture.GraphStorage;
-		var replica = Assert.IsAssignableFrom<IJobStorageReplica>(storage);
+		var replica = Assert.IsType<IJobStorageReplica>(storage, exactMatch: false);
 		var now = fixture.TimeProvider.GetUtcNow();
 		var scenarios = new[]
 		{
@@ -451,9 +452,9 @@ public sealed class RelationalStorageMatrixTests(StorageContainers containers)
 		for (var index = 0; index < scenarios.Length; index++)
 		{
 			var (failureParentSettlesFirst, failureParentFails, expectedState) = scenarios[index];
-			var successParent = CreateJob($"success-parent-{index}", now.AddTicks(index * 3)) with { DueAt = now };
-			var failureParent = CreateJob($"failure-parent-{index}", now.AddTicks(index * 3 + 1)) with { DueAt = now };
-			var child = CreateJob($"mixed-child-{index}", now.AddTicks(index * 3 + 2)) with { DueAt = now };
+			var successParent = CreateJob(string.Create(CultureInfo.InvariantCulture, $"success-parent-{index}"), now.AddTicks(index * 3)) with { DueAt = now };
+			var failureParent = CreateJob(string.Create(CultureInfo.InvariantCulture, $"failure-parent-{index}"), now.AddTicks((index * 3) + 1)) with { DueAt = now };
+			var child = CreateJob(string.Create(CultureInfo.InvariantCulture, $"mixed-child-{index}"), now.AddTicks((index * 3) + 2)) with { DueAt = now };
 			await storage.EnqueueAsync(successParent, cancellationToken);
 			await storage.EnqueueAsync(failureParent, cancellationToken);
 			await storage.EnqueueContinuationAsync(child,
@@ -540,7 +541,7 @@ public sealed class RelationalStorageMatrixTests(StorageContainers containers)
 		var cancellationToken = TestContext.Current.CancellationToken;
 		await using var fixture = await CreateFixtureAsync(database, adapter, cancellationToken);
 		var storage = fixture.GraphStorage;
-		var replica = Assert.IsAssignableFrom<IJobStorageReplica>(storage);
+		var replica = Assert.IsType<IJobStorageReplica>(storage, exactMatch: false);
 		var now = fixture.TimeProvider.GetUtcNow();
 		var current = CreateJob("dynamic-current", now) with { BatchId = "dynamic-batch" };
 		await storage.EnqueueBatchAsync(new()
@@ -649,8 +650,8 @@ public sealed class RelationalStorageMatrixTests(StorageContainers containers)
 		var cancellationToken = TestContext.Current.CancellationToken;
 		await using var fixture = await CreateFixtureAsync(database, adapter, cancellationToken);
 		var storage = fixture.Storage;
-		var graphStorage = Assert.IsAssignableFrom<IJobGraphStorage>(storage);
-		var recurringStorage = Assert.IsAssignableFrom<IRecurringJobStorage>(storage);
+		var graphStorage = Assert.IsType<IJobGraphStorage>(storage, exactMatch: false);
+		var recurringStorage = Assert.IsType<IRecurringJobStorage>(storage, exactMatch: false);
 
 		_ = await Assert.ThrowsAsync<KeyNotFoundException>(
 			() => storage.RetryAsync("missing", cancellationToken).AsTask()
@@ -878,7 +879,7 @@ public sealed class RelationalStorageMatrixTests(StorageContainers containers)
 			string Quote(string identifier) => database == DatabaseKind.SqlServer
 				? $"[{identifier}]"
 				: $"\"{identifier}\"";
-			await using var connection = new global::LinqToDB.Data.DataConnection(dataOptions);
+			await using var connection = new DataConnection(dataOptions);
 			_ = await connection.ExecuteAsync(
 				$"DELETE FROM {jobTable} WHERE {Quote("BatchId")} = '{batchId}'",
 				cancellationToken
@@ -909,7 +910,7 @@ public sealed class RelationalStorageMatrixTests(StorageContainers containers)
 			var serverTable = tablePrefix + (database == DatabaseKind.SqlServer
 				? "[immediate_job_servers]"
 				: "\"immediate_job_servers\"");
-			await using var connection = new global::LinqToDB.Data.DataConnection(dataOptions);
+			await using var connection = new DataConnection(dataOptions);
 			return await connection.ExecuteAsync<int>(
 				$"SELECT COUNT(*) FROM {serverTable}",
 				cancellationToken
@@ -945,7 +946,7 @@ public sealed class RelationalStorageMatrixTests(StorageContainers containers)
 			var cleanupOptions = database == DatabaseKind.PostgreSql
 				? new DataOptions().UsePostgreSQL(connectionString)
 				: new DataOptions().UseSqlServer(connectionString);
-			await using var connection = new global::LinqToDB.Data.DataConnection(cleanupOptions);
+			await using var connection = new DataConnection(cleanupOptions);
 			if (database == DatabaseKind.PostgreSql)
 			{
 				_ = await connection.ExecuteAsync($"DROP SCHEMA IF EXISTS \"{schema}\" CASCADE");
