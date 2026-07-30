@@ -37,9 +37,12 @@ internal static class PayloadValidation
 				TypeArguments: [{ } keyType, { } elementType],
 			}:
 			{
-				var result = Visit(keyType, location, reportError, visited);
-				if (reportError is null && !result)
-					return false;
+				if (!keyType.IsSupportedJsonDictionaryKey)
+				{
+					reportError?.Invoke("the dictionary key type is not supported by System.Text.Json", location);
+					if (reportError is null)
+						return false;
+				}
 
 				return Visit(elementType, location, reportError, visited);
 			}
