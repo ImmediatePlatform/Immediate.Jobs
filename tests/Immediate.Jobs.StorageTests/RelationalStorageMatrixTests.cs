@@ -128,6 +128,28 @@ public sealed class RelationalStorageMatrixTests(StorageContainers containers)
 
 	[Theory]
 	[MemberData(nameof(Matrix))]
+	public async Task AdapterPagesJobsWithTiedCreationTimesExactlyOnce(DatabaseKind database, AdapterKind adapter)
+	{
+		var cancellationToken = TestContext.Current.CancellationToken;
+		await using var fixture = await CreateFixtureAsync(database, adapter, cancellationToken);
+		var storage = fixture.Storage;
+		var now = fixture.TimeProvider.GetUtcNow();
+		foreach (var index in Enumerable.Range(0, 30).Reverse())
+			await storage.EnqueueAsync(CreateJob($"tied-{index:d2}", now), cancellationToken);
+
+		var seen = new List<string>();
+		for (var skip = 0; skip < 30; skip += 7)
+		{
+			var page = await storage.QueryJobsAsync(new() { Skip = skip, Take = 7 }, cancellationToken);
+			seen.AddRange(page.Select(static job => job.Id));
+		}
+
+		Assert.Equal(30, seen.Count);
+		Assert.Equal(30, seen.Distinct(StringComparer.Ordinal).Count());
+	}
+
+	[Theory]
+	[MemberData(nameof(Matrix))]
 	public async Task AdapterRotatesToAGroupThatArrivesAfterEarlierService(
 		DatabaseKind database,
 		AdapterKind adapter

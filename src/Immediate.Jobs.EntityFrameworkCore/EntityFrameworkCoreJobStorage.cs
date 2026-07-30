@@ -978,6 +978,7 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 		}
 
 		var entities = await jobs.OrderByDescending(job => job.CreatedAt)
+			.ThenBy(job => job.Id)
 			.Skip(query.Skip)
 			.Take(query.Take)
 			.ToListAsync(cancellationToken)

@@ -762,7 +762,10 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 
 			return
 			[
-				.. jobs.OrderByDescending(x => x.CreatedAt).Skip(Math.Max(0, query.Skip)).Take(Math.Clamp(query.Take, 1, 1000)),
+				.. jobs.OrderByDescending(x => x.CreatedAt)
+					.ThenBy(x => x.Id, StringComparer.Ordinal)
+					.Skip(Math.Max(0, query.Skip))
+					.Take(Math.Clamp(query.Take, 1, 1000)),
 			];
 		}
 	}
