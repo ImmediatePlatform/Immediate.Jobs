@@ -7,6 +7,19 @@ namespace Immediate.Jobs.FunctionalTests;
 public sealed class RecurringSchedulerTests
 {
 	private static readonly DateTimeOffset Start = new(2026, 1, 1, 10, 0, 0, TimeSpan.Zero);
+	public static TheoryData<string, DateTimeOffset> RuntimeCronForms => new()
+	{
+		{ "@yearly", new(2027, 1, 1, 0, 0, 0, TimeSpan.Zero) },
+		{ "@annually", new(2027, 1, 1, 0, 0, 0, TimeSpan.Zero) },
+		{ "@monthly", new(2026, 2, 1, 0, 0, 0, TimeSpan.Zero) },
+		{ "@weekly", new(2026, 1, 4, 0, 0, 0, TimeSpan.Zero) },
+		{ "@DAILY", new(2026, 1, 2, 0, 0, 0, TimeSpan.Zero) },
+		{ "@midnight", new(2026, 1, 2, 0, 0, 0, TimeSpan.Zero) },
+		{ "@hourly", new(2026, 1, 1, 11, 0, 0, TimeSpan.Zero) },
+		{ "@every_minute", new(2026, 1, 1, 10, 1, 0, TimeSpan.Zero) },
+		{ "@every_second", new(2026, 1, 1, 10, 0, 1, TimeSpan.Zero) },
+		{ "0\t*\t*\t*\t*", new(2026, 1, 1, 11, 0, 0, TimeSpan.Zero) },
+	};
 
 	[Fact]
 	public async Task OverlapSkipDetectsAnActiveRunHiddenBehindALongerJobName()
@@ -76,6 +89,24 @@ public sealed class RecurringSchedulerTests
 		Assert.Equal(
 			new DateTimeOffset(2026, 1, 2, 0, 0, 0, TimeSpan.Zero),
 			(await GetSchedule(storage, "shifting", cancellationToken)).NextRunAt
+		);
+	}
+
+	[Theory]
+	[MemberData(nameof(RuntimeCronForms))]
+	public async Task RuntimeAcceptsAnalyzerCronForms(string cron, DateTimeOffset expectedNextRunAt)
+	{
+		var cancellationToken = TestContext.Current.CancellationToken;
+		var clock = new FakeTimeProvider(Start);
+		await using var storage = new InMemoryJobStorage(clock);
+		await storage.InitializeAsync(cancellationToken);
+		var scheduler = BuildScheduler(storage, clock, "analyzer-compatible", cron);
+
+		await scheduler.DrainAsync(cancellationToken);
+
+		Assert.Equal(
+			expectedNextRunAt,
+			(await GetSchedule(storage, "analyzer-compatible", cancellationToken)).NextRunAt
 		);
 	}
 
