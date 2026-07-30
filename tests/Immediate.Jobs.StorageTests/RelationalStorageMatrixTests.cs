@@ -86,6 +86,45 @@ public sealed class RelationalStorageMatrixTests(StorageContainers containers)
 
 	[Theory]
 	[MemberData(nameof(Matrix))]
+	public async Task CancelBatchCancelsMembersWithUnsettledDependencyChain(DatabaseKind database, AdapterKind adapter)
+	{
+		var cancellationToken = TestContext.Current.CancellationToken;
+		await using var fixture = await CreateFixtureAsync(database, adapter, cancellationToken);
+		var storage = fixture.GraphStorage;
+		var now = fixture.TimeProvider.GetUtcNow();
+		var parent = CreateJob("parent", now) with { BatchId = "batch" };
+		var child = CreateJob("child", now) with
+		{
+			BatchId = "batch",
+			State = JobState.AwaitingContinuation,
+			RemainingDependencies = 1,
+		};
+		await storage.EnqueueBatchAsync(new()
+		{
+			Id = "batch",
+			CreatedAt = now,
+			TotalJobs = 2,
+			PendingCount = 2,
+			State = BatchState.Executing,
+		}, [parent, child], [new()
+		{
+			ChildJobId = child.Id,
+			ParentJobId = parent.Id,
+			Trigger = ContinuationTrigger.Success,
+		}], cancellationToken);
+
+		await storage.CancelBatchAsync("batch", cancellationToken);
+
+		Assert.Equal(JobState.Cancelled, (await storage.GetJobStatusAsync(parent.Id, cancellationToken))!.State);
+		Assert.Equal(JobState.Cancelled, (await storage.GetJobStatusAsync(child.Id, cancellationToken))!.State);
+		var status = Assert.IsType<BatchStatus>(await storage.GetBatchStatusAsync("batch", cancellationToken));
+		Assert.Equal(BatchState.Cancelled, status.State);
+		Assert.Equal(2, status.Cancelled);
+		Assert.Equal(0, status.Remaining);
+	}
+
+	[Theory]
+	[MemberData(nameof(Matrix))]
 	public async Task AdapterHandlesContentionAndLeaseRecovery(DatabaseKind database, AdapterKind adapter)
 	{
 		var cancellationToken = TestContext.Current.CancellationToken;

@@ -1231,11 +1231,13 @@ public sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorage,
 			?? throw new KeyNotFoundException($"Batch '{batchId}' was not found.");
 		if (batch.State != BatchState.Executing)
 			throw new ImmediateJobException("Only an executing batch can be cancelled.");
-		var jobs = await Jobs(connection).Where(job => job.BatchId == batchId).ToListAsync(cancellationToken)
-			.ConfigureAwait(false);
-		foreach (var job in jobs)
+		var jobIds = await Jobs(connection).Where(job => job.BatchId == batchId).Select(job => job.Id)
+			.ToArrayAsync(cancellationToken).ConfigureAwait(false);
+		foreach (var jobId in jobIds)
 		{
-			if (IsTerminal(job.State))
+			var job = await Jobs(connection).SingleOrDefaultAsync(item => item.Id == jobId, cancellationToken)
+				.ConfigureAwait(false);
+			if (job is null || IsTerminal(job.State))
 				continue;
 			var oldStamp = job.ConcurrencyStamp;
 			job.State = JobState.Cancelled;
