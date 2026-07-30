@@ -24,7 +24,7 @@ public sealed class DuplicateElementsAnalyzer : DiagnosticAnalyzer
 			id: DiagnosticIds.IJOB0003DuplicateQueueName,
 			title: "Queue Names must be unique",
 			messageFormat: "Queue Name `{0}` has been specified multiple times: {1}",
-			category: "ImmediateQueues",
+			category: "ImmediateJobs",
 			defaultSeverity: DiagnosticSeverity.Error,
 			isEnabledByDefault: true,
 			description: "Duplicate queue names lead to conflict in identifying queues; queue names must be unique.",
