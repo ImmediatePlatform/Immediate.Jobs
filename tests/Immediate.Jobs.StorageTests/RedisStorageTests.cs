@@ -366,6 +366,127 @@ public sealed class RedisStorageTests(RedisStorageFixture fixture)
 	}
 
 	[Fact]
+	public async Task StaleRecurringDueMemberDoesNotMaterializeFutureOccurrence()
+	{
+		var cancellationToken = TestContext.Current.CancellationToken;
+		await using var connection = await ConnectionMultiplexer.ConnectAsync(fixture.Container.GetConnectionString());
+		var timeProvider = CreateTimeProvider();
+		var options = CreateOptions();
+		using var storage = new RedisJobStorage(connection, options, timeProvider);
+		var now = timeProvider.GetUtcNow();
+		var schedule = new RecurringJobSchedule
+		{
+			Name = "stale-due",
+			JobName = "test-job",
+			Cron = "0 * * * *",
+			TimeZone = "UTC",
+			IsCodeDefined = true,
+			NextRunAt = now,
+		};
+		await storage.UpsertRecurringAsync(schedule, cancellationToken);
+		Assert.True(await storage.MaterializeRecurringAsync(
+			schedule,
+			CreateJob("first-occurrence", now) with
+			{
+				RecurringKey = string.Create(CultureInfo.InvariantCulture, $"{schedule.Name}:{now.UtcTicks}"),
+			},
+			now.AddHours(1),
+			cancellationToken
+		));
+		var database = connection.GetDatabase(options.Database);
+		_ = await database.SortedSetAddAsync(
+			RecurringDueKey(options),
+			RecurringDueMember(now, schedule.Name),
+			now.ToUnixTimeMilliseconds()
+		);
+		var persisted = Assert.Single((await storage.GetMonitoringSnapshotAsync(cancellationToken)).Recurring);
+
+		Assert.False(await storage.MaterializeRecurringAsync(
+			persisted,
+			CreateJob("future-occurrence", persisted.NextRunAt) with
+			{
+				RecurringKey = string.Create(
+					CultureInfo.InvariantCulture,
+					$"{schedule.Name}:{persisted.NextRunAt.UtcTicks}"
+				),
+			},
+			persisted.NextRunAt.AddHours(1),
+			cancellationToken
+		));
+		Assert.Empty(await storage.GetDueRecurringAsync(now, 10, cancellationToken));
+
+		var member = Assert.Single(await database.SortedSetRangeByRankAsync(RecurringDueKey(options)));
+		Assert.Equal(RecurringDueMember(now.AddHours(1), schedule.Name), (string)member!);
+		Assert.Null(await storage.GetJobStatusAsync("future-occurrence", cancellationToken));
+	}
+
+	[Fact]
+	public async Task PauseResumeRaceKeepsOnlyTheCurrentDueMember()
+	{
+		var cancellationToken = TestContext.Current.CancellationToken;
+		await using var connection = await ConnectionMultiplexer.ConnectAsync(fixture.Container.GetConnectionString());
+		var timeProvider = CreateTimeProvider();
+		var options = CreateOptions();
+		using var storage = new RedisJobStorage(connection, options, timeProvider);
+		var database = connection.GetDatabase(options.Database);
+		var now = timeProvider.GetUtcNow();
+		for (var index = 0; index < 20; index++)
+		{
+			var schedule = new RecurringJobSchedule
+			{
+				Name = string.Create(CultureInfo.InvariantCulture, $"pause-race-{index}"),
+				JobName = "test-job",
+				Cron = "0 * * * *",
+				TimeZone = "UTC",
+				IsCodeDefined = true,
+				NextRunAt = now,
+			};
+			await storage.UpsertRecurringAsync(schedule, cancellationToken);
+			var start = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+			var materialize = Task.Run(async () =>
+			{
+				await start.Task;
+				_ = await storage.MaterializeRecurringAsync(
+					schedule,
+					CreateJob(string.Create(CultureInfo.InvariantCulture, $"pause-race-job-{index}"), now) with
+					{
+						RecurringKey = string.Create(
+							CultureInfo.InvariantCulture,
+							$"{schedule.Name}:{now.UtcTicks}"
+						),
+					},
+					now.AddHours(1),
+					cancellationToken
+				);
+			}, cancellationToken);
+			var pause = Task.Run(async () =>
+			{
+				await start.Task;
+				await storage.PauseRecurringAsync(schedule.Name, cancellationToken);
+			}, cancellationToken);
+			var resume = Task.Run(async () =>
+			{
+				await start.Task;
+				await storage.ResumeRecurringAsync(schedule.Name, cancellationToken);
+			}, cancellationToken);
+
+			start.SetResult();
+			await Task.WhenAll(materialize, pause, resume);
+
+			var persisted = (await storage.GetMonitoringSnapshotAsync(cancellationToken)).Recurring
+				.Single(item => string.Equals(item.Name, schedule.Name, StringComparison.Ordinal));
+			var members = (await database.SortedSetRangeByRankAsync(RecurringDueKey(options)))
+				.Select(static member => (string)member!)
+				.Where(member => member.EndsWith($"|{schedule.Name}", StringComparison.Ordinal))
+				.ToArray();
+			if (persisted.IsPaused)
+				Assert.Empty(members);
+			else
+				Assert.Equal(RecurringDueMember(persisted.NextRunAt, schedule.Name), Assert.Single(members));
+		}
+	}
+
+	[Fact]
 	public async Task RecurringMaterializationPersistsSkippedOccurrenceAsCancelled()
 	{
 		var cancellationToken = TestContext.Current.CancellationToken;
@@ -455,6 +576,12 @@ public sealed class RedisStorageTests(RedisStorageFixture fixture)
 
 	private static RedisKey ServerKey(RedisJobStorageOptions options, string workerId) =>
 		$"{{{options.KeyPrefix}}}:server:{workerId}";
+
+	private static RedisKey RecurringDueKey(RedisJobStorageOptions options) =>
+		$"{{{options.KeyPrefix}}}:recurring:due";
+
+	private static string RecurringDueMember(DateTimeOffset nextRunAt, string name) =>
+		string.Create(CultureInfo.InvariantCulture, $"{nextRunAt.UtcTicks:D19}|{name}");
 
 	private static JobRecord CreateJob(string id, DateTimeOffset now) => new()
 	{

@@ -541,10 +541,36 @@ public sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 			stop: Score(now),
 			take: batchSize
 		).WaitAsync(cancellationToken).ConfigureAwait(false);
-		return await ReadRecurringAsync(
-			[.. values.Select(static value => ((string)value!)[20..])],
+		var members = values.Select(static value => (string)value!).ToArray();
+		var schedules = await ReadRecurringAsync(
+			[.. members.Select(static member => member[20..])],
 			cancellationToken
 		).ConfigureAwait(false);
+		var schedulesByName = schedules.ToDictionary(static schedule => schedule.Name, StringComparer.Ordinal);
+		var due = new List<RecurringJobSchedule>(schedules.Count);
+		var added = new HashSet<string>(StringComparer.Ordinal);
+		var stale = new List<RedisValue>();
+		foreach (var member in members)
+		{
+			var name = member[20..];
+			if (!schedulesByName.TryGetValue(name, out var schedule)
+				|| !string.Equals(member, RecurringDueMember(schedule.NextRunAt, name), StringComparison.Ordinal))
+			{
+				stale.Add(member);
+				continue;
+			}
+
+			if (added.Add(name))
+				due.Add(schedule);
+		}
+
+		if (stale.Count != 0)
+		{
+			_ = await _database.SortedSetRemoveAsync(RecurringDueKey, [.. stale])
+				.WaitAsync(cancellationToken).ConfigureAwait(false);
+		}
+
+		return due;
 	}
 
 	/// <inheritdoc />
@@ -557,7 +583,7 @@ public sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 	{
 		ValidateRecurring(schedule);
 		ValidateMaterializedJob(job);
-		var jobArguments = CreateMaterializeArguments(schedule, job, nextRunAt);
+		var jobArguments = CreateMaterializeArguments(schedule, job, nextRunAt, _timeProvider.GetUtcNow());
 		var result = await EvaluateInt64Async(
 			RedisScripts.MaterializeRecurring,
 			[
@@ -610,17 +636,10 @@ public sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 	)
 	{
 		ArgumentException.ThrowIfNullOrWhiteSpace(name);
-		var schedule = await ReadRecurringAsync(name, cancellationToken).ConfigureAwait(false)
-			?? throw new KeyNotFoundException($"Recurring schedule '{name}' was not found.");
 		var result = await EvaluateInt64Async(
 			RedisScripts.SetRecurringPaused,
 			[RecurringKey(name), RecurringDueKey],
-			[
-				isPaused ? 1 : 0,
-				name,
-				Score(schedule.NextRunAt),
-				RecurringDueMember(schedule.NextRunAt, name),
-			],
+			[isPaused ? 1 : 0],
 			cancellationToken
 		).ConfigureAwait(false);
 		if (result == 0)
@@ -833,7 +852,8 @@ public sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 	private static RedisValue[] CreateMaterializeArguments(
 		RecurringJobSchedule schedule,
 		JobRecord job,
-		DateTimeOffset nextRunAt
+		DateTimeOffset nextRunAt,
+		DateTimeOffset now
 	) =>
 	[
 		Ticks(schedule.NextRunAt),
@@ -859,6 +879,7 @@ public sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 		schedule.Name,
 		Ticks(job.CreatedAt),
 		job.CompletedAt is { } completedAt ? Score(completedAt) : 0,
+		Score(now),
 	];
 
 	private static void ValidateQueueJob(JobRecord job)
