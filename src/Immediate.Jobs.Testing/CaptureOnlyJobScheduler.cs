@@ -43,7 +43,7 @@ public class CaptureOnlyJobScheduler<TPayload>(TimeProvider? timeProvider = null
 	public virtual ValueTask<JobHandle> EnqueueAsync(
 		TPayload payload,
 		string? groupId,
-		CancellationToken cancellationToken
+		CancellationToken cancellationToken = default
 	) => CaptureAsync(payload, _timeProvider.GetUtcNow(), groupId, cancellationToken);
 
 	/// <inheritdoc />
@@ -63,7 +63,7 @@ public class CaptureOnlyJobScheduler<TPayload>(TimeProvider? timeProvider = null
 		TPayload payload,
 		TimeSpan delay,
 		string? groupId,
-		CancellationToken cancellationToken
+		CancellationToken cancellationToken = default
 	)
 	{
 		if (delay < TimeSpan.Zero)
@@ -83,7 +83,7 @@ public class CaptureOnlyJobScheduler<TPayload>(TimeProvider? timeProvider = null
 		TPayload payload,
 		DateTimeOffset runAt,
 		string? groupId,
-		CancellationToken cancellationToken
+		CancellationToken cancellationToken = default
 	) => CaptureAsync(payload, runAt, groupId, cancellationToken);
 
 	/// <summary>Clears every captured call and cancellation.</summary>
