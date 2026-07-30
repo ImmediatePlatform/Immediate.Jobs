@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
+using System.Globalization;
 using System.Threading.Channels;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -27,7 +28,7 @@ public sealed partial class JobSchedulerService : BackgroundService
 	private readonly Dictionary<int, int> _priorityOffsets = [];
 	private readonly SemaphoreSlim _scheduleInitialization = new(1, 1);
 	private readonly CancellationTokenSource _workerCancellation = new();
-	private readonly string _workerId = $"{Environment.MachineName}:{Environment.ProcessId}:{Guid.NewGuid():N}";
+	private readonly string _workerId = string.Create(CultureInfo.InvariantCulture, $"{Environment.MachineName}:{Environment.ProcessId}:{Guid.NewGuid():N}");
 	private readonly Channel<JobRecord> _channel;
 	private int _reservations;
 	private int _fairQueuesDisabledWarningLogged;
@@ -284,7 +285,14 @@ public sealed partial class JobSchedulerService : BackgroundService
 		{
 			try
 			{
-				await _storage.FailAsync(record.Id, _workerId, $"No generated job definition exists for '{record.JobName}'.", null, stoppingToken)
+				await _storage
+					.FailAsync(
+						record.Id,
+						_workerId,
+						$"No generated job definition exists for '{record.JobName}'.",
+						nextRetryAt: null,
+						stoppingToken
+					)
 					.ConfigureAwait(false);
 			}
 			finally
@@ -307,7 +315,7 @@ public sealed partial class JobSchedulerService : BackgroundService
 
 		var parent = default(ActivityContext);
 		if (record.TraceParent is not null)
-			_ = ActivityContext.TryParse(record.TraceParent, record.TraceState, true, out parent);
+			_ = ActivityContext.TryParse(record.TraceParent, record.TraceState, isRemote: true, out parent);
 		IEnumerable<ActivityLink>? links = parent != default ? [new(parent)] : null;
 		using var activity = JobTelemetry.ActivitySource.StartActivity(
 			$"job {record.JobName}",
@@ -322,7 +330,7 @@ public sealed partial class JobSchedulerService : BackgroundService
 			],
 			links: links
 		);
-		using var logScope = _logger.BeginScope(new Dictionary<string, object>
+		using var logScope = _logger.BeginScope(new Dictionary<string, object>(StringComparer.Ordinal)
 		{
 			["JobName"] = record.JobName,
 			["QueueName"] = record.QueueName,
@@ -635,7 +643,7 @@ public sealed partial class JobSchedulerService : BackgroundService
 				State = JobState.Pending,
 				DueAt = schedule.NextRunAt,
 				CreatedAt = now,
-				RecurringKey = $"{schedule.Name}:{schedule.NextRunAt.UtcTicks}",
+				RecurringKey = string.Create(CultureInfo.InvariantCulture, $"{schedule.Name}:{schedule.NextRunAt.UtcTicks}"),
 				TraceParent = traceParent,
 				TraceState = traceState,
 			};

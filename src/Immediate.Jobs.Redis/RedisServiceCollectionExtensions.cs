@@ -67,7 +67,10 @@ public static class RedisServiceCollectionExtensions
 	{
 		var options = new RedisJobStorageOptions();
 		configure?.Invoke(options);
+		// TODO: Fix this shit?
+#pragma warning disable MA0015 // Specify the parameter name in ArgumentException
 		ArgumentException.ThrowIfNullOrWhiteSpace(options.KeyPrefix);
+#pragma warning restore MA0015 // Specify the parameter name in ArgumentException
 		if (options.KeyPrefix.IndexOfAny(['{', '}']) >= 0)
 			throw new ArgumentException("The Redis key prefix cannot contain '{' or '}'.", nameof(configure));
 		return options;

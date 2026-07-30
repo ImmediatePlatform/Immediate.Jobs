@@ -81,7 +81,7 @@ public sealed partial class ImmediateJobsGenerator
 					Priority = job.QueuePriority,
 					Concurrency = job.QueueConcurrency,
 				}))
-				.Where(static queue => queue.Name != "default")
+				.Where(static queue => !string.Equals(queue.Name, "default", StringComparison.Ordinal))
 				.Distinct()
 				.OrderBy(static queue => queue.Name, StringComparer.Ordinal)
 				.Select(queue => new

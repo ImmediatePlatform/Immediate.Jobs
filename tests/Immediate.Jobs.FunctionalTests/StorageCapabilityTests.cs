@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
 using Microsoft.Extensions.DependencyInjection;
@@ -149,7 +150,7 @@ public sealed class StorageCapabilityTests
 	private sealed class CapabilityIdGenerator : IIdGenerator
 	{
 		private int _value;
-		public string CreateId(IdKind kind) => $"{kind}-{Interlocked.Increment(ref _value)}";
+		public string CreateId(IdKind kind) => string.Create(CultureInfo.InvariantCulture, $"{kind}-{Interlocked.Increment(ref _value)}");
 	}
 
 	internal sealed class QueueOnlyStorage(TimeProvider timeProvider) : IJobStorage

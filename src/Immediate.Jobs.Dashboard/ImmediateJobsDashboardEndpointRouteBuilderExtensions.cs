@@ -54,13 +54,13 @@ public static class ImmediateJobsDashboardEndpointRouteBuilderExtensions
 		_ = group.MapGet("/", (Delegate)((HttpContext context) =>
 			context.Request.Path.Value is { Length: > 0 } path && path[^1] == '/'
 				? DashboardAssets.GetIndexAsync(context, prefix)
-				: Task.FromResult<IResult>(Results.Redirect(prefix + "/"))
+				: Task.FromResult(Results.Redirect(prefix + "/"))
 		)).ExcludeFromDescription();
 		_ = group.MapGet("/app.css", () => DashboardAssets.GetAsync("app.css")).ExcludeFromDescription();
 		_ = group.MapGet("/app.js", () => DashboardAssets.GetAsync("app.js")).ExcludeFromDescription();
 		_ = group.MapGet("/{**path}", (string path, HttpContext context) =>
 			path.StartsWith("api/", StringComparison.OrdinalIgnoreCase)
-				? Task.FromResult<IResult>(Results.NotFound())
+				? Task.FromResult(Results.NotFound())
 				: DashboardAssets.GetIndexAsync(context, prefix)
 		).WithOrder(int.MaxValue).ExcludeFromDescription();
 
@@ -217,14 +217,14 @@ public static class ImmediateJobsDashboardEndpointRouteBuilderExtensions
 			CancellationToken cancellationToken
 		) => storage is IRecurringJobStorage recurringStorage
 			? MutateRecurringAsync(recurringStorage.PauseRecurringAsync(name, cancellationToken))
-			: Task.FromResult<IResult>(Results.NotFound()));
+			: Task.FromResult(Results.NotFound()));
 		_ = api.MapPost("/recurring/{name}/resume", (
 			string name,
 			IJobStorage storage,
 			CancellationToken cancellationToken
 		) => storage is IRecurringJobStorage recurringStorage
 			? MutateRecurringAsync(recurringStorage.ResumeRecurringAsync(name, cancellationToken))
-			: Task.FromResult<IResult>(Results.NotFound()));
+			: Task.FromResult(Results.NotFound()));
 		_ = api.MapGet("/events", (HttpContext context, IJobStorage storage) =>
 			StreamEventsAsync(context, storage, options.UpdateInterval));
 	}
@@ -264,8 +264,8 @@ public static class ImmediateJobsDashboardEndpointRouteBuilderExtensions
 			if (url is null)
 				continue;
 			if (url.IsAbsoluteUri &&
-				url.Scheme != Uri.UriSchemeHttp &&
-				url.Scheme != Uri.UriSchemeHttps)
+				!string.Equals(url.Scheme, Uri.UriSchemeHttp, StringComparison.Ordinal) &&
+				!string.Equals(url.Scheme, Uri.UriSchemeHttps, StringComparison.Ordinal))
 			{
 				throw new ImmediateJobException(
 					$"Telemetry link '{registration.Label}' must use HTTP or HTTPS."
@@ -334,12 +334,14 @@ public static class ImmediateJobsDashboardEndpointRouteBuilderExtensions
 			string.Equals(candidate.Name, name, StringComparison.Ordinal));
 		if (schedule is null)
 			return Results.NotFound();
-		var definition = definitions.FirstOrDefault(candidate => candidate.Name == schedule.JobName);
+		var definition = definitions.FirstOrDefault(candidate => string.Equals(candidate.Name, schedule.JobName, StringComparison.Ordinal));
 		if (definition is null)
+		{
 			return Results.Problem(
 				detail: $"No generated job definition exists for '{schedule.JobName}'.",
 				statusCode: StatusCodes.Status409Conflict
 			);
+		}
 
 		var now = context.RequestServices.GetService<TimeProvider>()?.GetUtcNow() ?? TimeProvider.System.GetUtcNow();
 		var job = new JobRecord

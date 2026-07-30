@@ -43,7 +43,7 @@ internal static class TypedConstantExtensions
 				{
 					Kind: TypedConstantKind.Enum,
 					Type: { } type,
-					Value: int value
+					Value: int value,
 				})
 			{
 				return null;

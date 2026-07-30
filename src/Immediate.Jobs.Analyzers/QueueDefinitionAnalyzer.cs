@@ -78,7 +78,7 @@ public sealed class QueueDefinitionAnalyzer : DiagnosticAnalyzer
 			namedTypeSymbol.GetAttributes() is not
 			{
 				JobAttribute: { },
-				UsesQueueAttribute: { AttributeClass.TypeArguments: [{ } queueType] } usesQueueAttribute
+				UsesQueueAttribute: { AttributeClass.TypeArguments: [{ } queueType] } usesQueueAttribute,
 			}
 		)
 		{

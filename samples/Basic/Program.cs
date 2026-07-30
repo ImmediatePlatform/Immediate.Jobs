@@ -13,6 +13,7 @@ builder.Services.AddBasicJobs(options =>
 }).AddHealthCheck();
 
 var app = builder.Build();
+
 app.MapPost("/welcome/{userId:guid}", async (
 	Guid userId,
 	SendWelcomeEmail.Scheduler scheduler,
@@ -20,41 +21,45 @@ app.MapPost("/welcome/{userId:guid}", async (
 ) =>
 {
 	var jobId = await scheduler.EnqueueAsync(new(userId, "v2"), cancellationToken);
-	return Results.Accepted($"/jobs/api/jobs?search=send-welcome-email", new { jobId = jobId.Id });
+	return Results.Accepted("/jobs/api/jobs?search=send-welcome-email", new { jobId = jobId.Id });
 });
+
 app.MapImmediateJobsDashboard("/jobs");
 await app.RunAsync();
 
-[Handler, Job(Name = "send-welcome-email", MaxAttempts = 5, Timeout = "00:02:00")]
-public sealed partial class SendWelcomeEmail(IEmailSender sender)
+namespace Basic
 {
-	public sealed record Payload(Guid UserId, string Template);
-
-	private ValueTask HandleAsync(Payload payload, CancellationToken cancellationToken) =>
-		new(sender.SendAsync(payload.UserId, payload.Template, cancellationToken));
-}
-
-[Handler, Job(Cron = "0 */5 * * * *")]
-public sealed partial class CleanupSessionsJob(ILogger<CleanupSessionsJob> logger)
-{
-	private ValueTask HandleAsync(EmptyJobRequest request, CancellationToken cancellationToken)
+	[Handler, Job(Name = "send-welcome-email", MaxAttempts = 5, Timeout = "00:02:00")]
+	public sealed partial class SendWelcomeEmail(IEmailSender sender)
 	{
-		cancellationToken.ThrowIfCancellationRequested();
-		logger.LogInformation("Cleaning expired sessions for job {JobId}", request.JobDetails?.JobId);
-		return ValueTask.CompletedTask;
+		public sealed record Payload(Guid UserId, string Template);
+
+		private ValueTask HandleAsync(Payload payload, CancellationToken cancellationToken) =>
+			new(sender.SendAsync(payload.UserId, payload.Template, cancellationToken));
 	}
-}
 
-public interface IEmailSender
-{
-	Task SendAsync(Guid userId, string template, CancellationToken cancellationToken);
-}
-
-public sealed class ConsoleEmailSender(ILogger<ConsoleEmailSender> logger) : IEmailSender
-{
-	public Task SendAsync(Guid userId, string template, CancellationToken cancellationToken)
+	[Handler, Job(Cron = "0 */5 * * * *")]
+	public sealed partial class CleanupSessionsJob(ILogger<CleanupSessionsJob> logger)
 	{
-		logger.LogInformation("Sending template {Template} to user {UserId}", template, userId);
-		return Task.CompletedTask;
+		private ValueTask HandleAsync(EmptyJobRequest request, CancellationToken cancellationToken)
+		{
+			cancellationToken.ThrowIfCancellationRequested();
+			logger.LogInformation("Cleaning expired sessions for job {JobId}", request.JobDetails?.JobId);
+			return ValueTask.CompletedTask;
+		}
+	}
+
+	public interface IEmailSender
+	{
+		Task SendAsync(Guid userId, string template, CancellationToken cancellationToken);
+	}
+
+	public sealed class ConsoleEmailSender(ILogger<ConsoleEmailSender> logger) : IEmailSender
+	{
+		public Task SendAsync(Guid userId, string template, CancellationToken cancellationToken)
+		{
+			logger.LogInformation("Sending template {Template} to user {UserId}", template, userId);
+			return Task.CompletedTask;
+		}
 	}
 }

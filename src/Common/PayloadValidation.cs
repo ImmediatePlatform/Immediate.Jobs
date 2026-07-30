@@ -96,22 +96,16 @@ internal static class PayloadValidation
 
 		var rootNamespace = named.RootNamespace;
 
-		if (rootNamespace == "NodaTime")
+		if (string.Equals(rootNamespace, "NodaTime", StringComparison.Ordinal))
 			return true;
 
-		if (rootNamespace == "System")
+		if (string.Equals(rootNamespace, "System", StringComparison.Ordinal))
 		{
 			reportError?.Invoke("this System type does not have a generated metadata contract", location);
 			return false;
 		}
 
 		foreach (var member in named.GetMembers()
-			.Where(s => s is IPropertySymbol or IFieldSymbol)
-			.Where(ips => ips is
-			{
-				IsStatic: false,
-				DeclaredAccessibility: Accessibility.Public,
-			})
 			.Where(ips => ips is
 				IPropertySymbol
 				{
@@ -119,7 +113,12 @@ internal static class PayloadValidation
 					IsJobDetailsMember: false,
 				}
 				or IFieldSymbol { IsImplicitlyDeclared: true }
-			))
+			)
+			.Where(ips => ips is
+			{
+				IsStatic: false,
+				DeclaredAccessibility: Accessibility.Public,
+			}))
 		{
 			var memberType = member switch { IPropertySymbol ips => ips.Type, IFieldSymbol ifs => ifs.Type, _ => null };
 

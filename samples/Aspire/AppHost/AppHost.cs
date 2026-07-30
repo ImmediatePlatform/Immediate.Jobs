@@ -17,4 +17,4 @@ if (builder.Configuration["ASPNETCORE_URLS"]?
 	_ = jobsApi.WithEnvironment("Telemetry__AspireDashboardUrl", aspireDashboardUrl);
 }
 
-builder.Build().Run();
+await builder.Build().RunAsync();

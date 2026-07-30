@@ -1,4 +1,5 @@
 using System.Data.Common;
+using System.Globalization;
 using System.Runtime.CompilerServices;
 using Immediate.Jobs.EntityFrameworkCore;
 using Microsoft.Data.Sqlite;
@@ -167,7 +168,7 @@ public sealed class EntityFrameworkCoreJobStorageTests
 			await storage.EnqueueAsync(
 				CreateJob(now, index) with
 				{
-					Id = $"a-{index:D3}",
+					Id = string.Create(CultureInfo.InvariantCulture, $"a-{index:D3}"),
 					GroupId = "group-a",
 				},
 				cancellationToken
@@ -425,11 +426,11 @@ public sealed class EntityFrameworkCoreJobStorageTests
 	{
 		var cancellationToken = TestContext.Current.CancellationToken;
 		await using var fixture = await StorageFixture.CreateAsync(cancellationToken);
-		using var firstProcess = new SingleServerJobStorage(fixture.CreateStorage(), fixture.TimeProvider);
+		await using var firstProcess = new SingleServerJobStorage(fixture.CreateStorage(), fixture.TimeProvider);
 		var job = CreateJob(fixture.TimeProvider.GetUtcNow(), 1);
 		await firstProcess.EnqueueAsync(job, cancellationToken);
 
-		using var restartedProcess = new SingleServerJobStorage(fixture.CreateStorage(), fixture.TimeProvider);
+		await using var restartedProcess = new SingleServerJobStorage(fixture.CreateStorage(), fixture.TimeProvider);
 		await restartedProcess.InitializeAsync(cancellationToken);
 
 		Assert.Equal(job.Id, Assert.Single(await restartedProcess.QueryJobsAsync(new(), cancellationToken)).Id);
@@ -484,8 +485,8 @@ public sealed class EntityFrameworkCoreJobStorageTests
 		);
 		await restartedProcess.InitializeAsync(cancellationToken);
 		var restored = await restartedProcess.QueryJobsAsync(new(), cancellationToken);
-		Assert.Contains(restored, static job => job.Id == "a-second" && job.GroupId == "group-a");
-		Assert.Contains(restored, static job => job.Id == "b-first" && job.GroupId == "group-b");
+		Assert.Contains(restored, static job => string.Equals(job.Id, "a-second", StringComparison.Ordinal) && string.Equals(job.GroupId, "group-a", StringComparison.Ordinal));
+		Assert.Contains(restored, static job => string.Equals(job.Id, "b-first", StringComparison.Ordinal) && string.Equals(job.GroupId, "group-b", StringComparison.Ordinal));
 	}
 
 	[Fact]
@@ -533,7 +534,7 @@ public sealed class EntityFrameworkCoreJobStorageTests
 		};
 		var job = CreateJob(now, 1) with
 		{
-			RecurringKey = $"{schedule.Name}:{schedule.NextRunAt.UtcTicks}",
+			RecurringKey = string.Create(CultureInfo.InvariantCulture, $"{schedule.Name}:{schedule.NextRunAt.UtcTicks}"),
 		};
 		await storage.UpsertRecurringAsync(schedule, cancellationToken);
 
@@ -1057,7 +1058,7 @@ public sealed class EntityFrameworkCoreJobStorageTests
 	{
 		Id = "job-" + Guid.NewGuid().ToString("N"),
 		JobName = "ef-test",
-		Payload = $"{{\"index\":{index}}}",
+		Payload = string.Create(CultureInfo.InvariantCulture, $"{{\"index\":{index}}}"),
 		State = JobState.Pending,
 		DueAt = now,
 		CreatedAt = now.AddTicks(index),

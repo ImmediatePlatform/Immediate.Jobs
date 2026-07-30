@@ -35,7 +35,7 @@ public sealed class JobBatchScheduler(
 {
 	/// <inheritdoc />
 	public JobBatch Begin() =>
-		new JobBatch(
+		new(
 			JobStorageCapabilityGuards.RequireGraph(storage),
 			timeProvider,
 			idGenerator,
@@ -47,7 +47,7 @@ public sealed class JobBatchScheduler(
 	public JobBatch Begin(BatchHandle after, ContinuationTrigger on = ContinuationTrigger.Success)
 	{
 		ArgumentNullException.ThrowIfNull(after);
-		return new JobBatch(
+		return new(
 			JobStorageCapabilityGuards.RequireGraph(storage),
 			timeProvider,
 			idGenerator,
@@ -172,7 +172,7 @@ public sealed class JobBatch : IAsyncDisposable
 
 				foreach (var childId in children)
 				{
-					var index = _jobs.FindIndex(job => job.Id == childId);
+					var index = _jobs.FindIndex(job => string.Equals(job.Id, childId, StringComparison.Ordinal));
 					var job = _jobs[index];
 					_jobs[index] = job with
 					{

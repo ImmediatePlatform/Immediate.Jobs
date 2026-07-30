@@ -1,7 +1,7 @@
-using System.Collections.ObjectModel;
 using System.Diagnostics;
-using Immediate.Jobs.Testing;
+using System.Globalization;
 using Immediate.Handlers.Shared;
+using Immediate.Jobs.Testing;
 using Microsoft.Extensions.DependencyInjection;
 
 [assembly: Behaviors(typeof(Immediate.Jobs.FunctionalTests.JobCountingBehavior<,>))]
@@ -90,7 +90,12 @@ public sealed class GeneratedJobTests
 		var payload = new CollectionPayloadJob.Payload(
 			[new(1), new(2)],
 			[new(3), new(4)],
-			new Dictionary<string, CollectionItem> { ["five"] = new(5) }
+			[new(5), new(6)],
+			[new(7), new(8)],
+			[new(9), new(0)],
+			new Dictionary<string, CollectionItem> { ["five"] = new(5) },
+			new Dictionary<string, CollectionItem> { ["six"] = new(6) },
+			new Dictionary<string, CollectionItem> { ["seven"] = new(7) }
 		);
 
 		var handle = await scheduler.EnqueueAsync(payload, cancellationToken);
@@ -136,7 +141,7 @@ public sealed class GeneratedJobTests
 		var secondSpanId = Assert.IsType<string>(completed.ExecutionSpanId);
 		Assert.NotEqual(firstSpanId, secondSpanId);
 		Assert.Equal([1, 2], state.Details
-			.Where(details => details.JobId == id.Id)
+			.Where(details => string.Equals(details.JobId, id.Id, StringComparison.Ordinal))
 			.Select(details => details.Attempt));
 	}
 
@@ -182,7 +187,7 @@ public sealed class GeneratedJobTests
 		return listener;
 	}
 
-	private static bool ShouldListenToJobs(ActivitySource source) => source.Name == "Immediate.Jobs";
+	private static bool ShouldListenToJobs(ActivitySource source) => string.Equals(source.Name, "Immediate.Jobs", StringComparison.Ordinal);
 
 	private static ActivitySamplingResult SampleJobActivity(ref ActivityCreationOptions<ActivityContext> options)
 	{
@@ -250,8 +255,8 @@ public sealed class GeneratedJobTests
 
 public sealed class ExecutionState
 {
-	public Collection<string> Events { get; } = [];
-	public Collection<JobDetails> Details { get; } = [];
+	public IList<string> Events { get; } = [];
+	public IList<JobDetails> Details { get; } = [];
 	public int FailuresRemaining { get; set; }
 }
 
@@ -337,7 +342,7 @@ public sealed partial class ValueTypeJob(ExecutionState state)
 	{
 		_ = cancellationToken;
 		_ = request.JobDetails ?? throw new InvalidOperationException("Job details were not populated.");
-		state.Events.Add($"job:{request.Value}");
+		state.Events.Add(string.Create(CultureInfo.InvariantCulture, $"job:{request.Value}"));
 		return ValueTask.CompletedTask;
 	}
 }
@@ -368,25 +373,29 @@ public sealed partial class TimeoutJob(TimeoutExecutionState? state = null)
 	}
 }
 
-#pragma warning disable CA1002, CA1819 // The payload intentionally exercises List<T> and array metadata generation.
+#pragma warning disable CA1002, CA1819, MA0016 // The payload intentionally exercises List<T> and array metadata generation.
 [Handler, Job(Name = "collection-payload")]
 public sealed partial class CollectionPayloadJob(CollectionExecutionState? state = null)
 {
 	public sealed record Payload(
 		CollectionItem[] Array,
 		List<CollectionItem> List,
-		Dictionary<string, CollectionItem> Dictionary
+		IList<CollectionItem> IList,
+		IReadOnlyList<CollectionItem> IReadOnlyList,
+		IEnumerable<CollectionItem> IEnumerable,
+		Dictionary<string, CollectionItem> Dictionary,
+		IDictionary<string, CollectionItem> IDictionary,
+		IReadOnlyDictionary<string, CollectionItem> IReadOnlyDictionary
 	);
 
 	private ValueTask HandleAsync(Payload payload, CancellationToken cancellationToken)
 	{
 		_ = cancellationToken;
-		if (state is not null)
-			state.Payload = payload;
+		state?.Payload = payload;
 		return ValueTask.CompletedTask;
 	}
 }
-#pragma warning restore CA1002, CA1819
+#pragma warning restore CA1002, CA1819, MA0016
 
 [Handler]
 public sealed partial class OrdinaryHandler(ExecutionState state)
