@@ -3,6 +3,14 @@ using Microsoft.CodeAnalysis;
 
 namespace Immediate.Jobs;
 
+internal enum JsonCollectionKind
+{
+	None,
+	Array,
+	List,
+	Dictionary,
+}
+
 internal static class ITypeSymbolExtensions
 {
 	extension([NotNullWhen(true)] ITypeSymbol? typeSymbol)
@@ -118,6 +126,62 @@ internal static class ITypeSymbolExtensions
 				Name: "IEnumerable",
 				ContainingNamespace.IsSystemCollectionsGeneric: true,
 			};
+
+		public JsonCollectionKind GetJsonCollectionKind() => typeSymbol switch
+		{
+			IArrayTypeSymbol { Rank: 1 } => JsonCollectionKind.Array,
+			INamedTypeSymbol
+			{
+				OriginalDefinition:
+				{
+					Name: "List",
+					Arity: 1,
+					ContainingNamespace.IsSystemCollectionsGeneric: true,
+				},
+			} => JsonCollectionKind.List,
+			INamedTypeSymbol
+			{
+				OriginalDefinition:
+				{
+					Name: "Dictionary",
+					Arity: 2,
+					ContainingNamespace.IsSystemCollectionsGeneric: true,
+				},
+			} => JsonCollectionKind.Dictionary,
+			_ => JsonCollectionKind.None,
+		};
+
+		public bool IsSupportedJsonDictionaryKey => typeSymbol switch
+		{
+			{ TypeKind: TypeKind.Enum } => true,
+			{
+				SpecialType: SpecialType.System_Boolean
+					or SpecialType.System_Byte
+					or SpecialType.System_SByte
+					or SpecialType.System_Int16
+					or SpecialType.System_UInt16
+					or SpecialType.System_Int32
+					or SpecialType.System_UInt32
+					or SpecialType.System_Int64
+					or SpecialType.System_UInt64
+					or SpecialType.System_Single
+					or SpecialType.System_Double
+					or SpecialType.System_Decimal
+					or SpecialType.System_String
+					or SpecialType.System_DateTime,
+			} => true,
+			INamedTypeSymbol
+			{
+				Arity: 0,
+				ContainingNamespace:
+				{
+					Name: "System",
+					ContainingNamespace.IsGlobalNamespace: true,
+				},
+				Name: "Guid" or "DateTimeOffset" or "TimeSpan" or "Uri" or "Version",
+			} => true,
+			_ => false,
+		};
 
 		public bool ImplementsJobRequest => typeSymbol is INamedTypeSymbol { ImplementsJobRequest: true };
 

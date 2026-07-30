@@ -125,17 +125,23 @@ Jobs may be assigned to compile-time queue definitions with `[UsesQueue<TQueue>]
 
 ### 2.5 Compile-time diagnostics
 
-The generator ships an analyzer emitting, at minimum:
+The analyzer IDs are contiguous and ordered by the feature they validate:
 
-- `IJOB001` invalid cron expression
-- `IJOB002` duplicate job name
-- `IJOB003` payload type not serializable / unsupported member
-- `IJOB004` job method has invalid signature (private `ValueTask HandleAsync(request, CancellationToken)`)
-- `IJOB005` `[Job]` class not `partial`
-- `IJOB006` cron job uses a request other than the `NoPayload` marker
-- `IJOB007` payload contains NodaTime types but `Immediate.Jobs.NodaTime` is not referenced
-- `IJOB008` retry/concurrency/timeout configuration is invalid
-- `IJOB009` `[Job]` class is not also marked with Immediate.Handlers `[Handler]`
+- `IJOB0001` missing Immediate.Handlers `[Handler]`
+- `IJOB0002` duplicate job name
+- `IJOB0003` duplicate queue name
+- `IJOB0004` missing `Immediate.Jobs.NodaTime` integration
+- `IJOB0005` invalid job configuration
+- `IJOB0006` cron job declares a payload
+- `IJOB0007` invalid cron expression or time zone
+- `IJOB0008` invalid job name
+- `IJOB0009` missing queue definition
+- `IJOB0010` job is also a queue definition
+- `IJOB0011` invalid queue configuration
+- `IJOB0012` job handler has a return value
+- `IJOB0013` request type is not serializable
+- `IJOB0014` context type is not serializable
+- `IJOB0015` detached work is added to the current batch
 
 ### 2.6 Immediate.Handlers behaviors for jobs
 
@@ -266,7 +272,7 @@ the child once all parents reach any terminal state (for cleanup/notification st
 parent's *outcome*, not its return value), human-in-the-loop suspension, and saga/compensation
 rollback.
 
-New compile-time diagnostics accompany the feature (e.g. `IJOB020` rejects the contradictory
+New compile-time diagnostics accompany the feature (e.g. `IJOB0015` rejects the contradictory
 `AddToBatchAsync(JobDetails, Detached)`); batch-tracking calls from a job with no batch are guarded at run
 time.
 

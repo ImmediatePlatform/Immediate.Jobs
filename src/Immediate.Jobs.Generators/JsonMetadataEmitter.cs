@@ -29,8 +29,11 @@ internal static class JsonMetadataEmitter
 		var collectionInfo = converterName is null ? CreateCollectionModel(type) : null;
 
 		JsonObjectRenderModel? objectInfo = null;
-		if (converterName is null && !isEnum && !usesConfiguredConverter && collectionInfo is null)
-			objectInfo = CreateObjectModel((INamedTypeSymbol)type);
+		if (converterName is null && !isEnum && !usesConfiguredConverter && collectionInfo is null
+			&& type is INamedTypeSymbol namedType)
+		{
+			objectInfo = CreateObjectModel(namedType);
+		}
 
 		return new JsonTypeRenderModel
 		{
@@ -45,41 +48,29 @@ internal static class JsonMetadataEmitter
 		};
 	}
 
-	private static JsonCollectionRenderModel? CreateCollectionModel(ITypeSymbol type) => type switch
+	private static JsonCollectionRenderModel? CreateCollectionModel(ITypeSymbol type) => (type.GetJsonCollectionKind(), type) switch
 	{
-		IArrayTypeSymbol { Rank: 1 } array => new()
+		(JsonCollectionKind.Array, IArrayTypeSymbol array) => new()
 		{
 			IsArray = true,
 			IsDictionary = false,
 			ElementTypeName = Display(array.ElementType),
 			KeyTypeName = null,
 		},
-		INamedTypeSymbol
+		(JsonCollectionKind.List, INamedTypeSymbol
 		{
-			OriginalDefinition:
-			{
-				Name: "List",
-				Arity: 1,
-				ContainingNamespace.IsSystemCollectionsGeneric: true,
-			},
 			TypeArguments: [{ } elementType],
-		} => new()
+		}) => new()
 		{
 			IsArray = false,
 			IsDictionary = false,
 			ElementTypeName = Display(elementType),
 			KeyTypeName = null,
 		},
-		INamedTypeSymbol
+		(JsonCollectionKind.Dictionary, INamedTypeSymbol
 		{
-			OriginalDefinition:
-			{
-				Name: "Dictionary",
-				Arity: 2,
-				ContainingNamespace.IsSystemCollectionsGeneric: true,
-			},
 			TypeArguments: [{ } keyType, { } valueType],
-		} => new()
+		}) => new()
 		{
 			IsArray = false,
 			IsDictionary = true,

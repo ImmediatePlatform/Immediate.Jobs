@@ -9,8 +9,10 @@ namespace Immediate.Jobs.FunctionalTests;
 #pragma warning disable CS1591, CA1822
 public sealed class ContextPropagationTests
 {
-	[Fact]
-	public async Task ContextRoundTripsIntoJobAndHandlerBehaviorsInDeclaredOrder()
+	[Theory]
+	[InlineData(false)]
+	[InlineData(true)]
+	public async Task ContextRoundTripsIntoJobAndHandlerBehaviors(bool reverseExtractorDeclarations)
 	{
 		var cancellationToken = TestContext.Current.CancellationToken;
 		var probe = new ContextProbe();
@@ -22,8 +24,16 @@ public sealed class ContextPropagationTests
 			var ambient = scope.ServiceProvider.GetRequiredService<PropagationScopeState>();
 			ambient.TenantId = "tenant-42";
 			ambient.CorrelationId = "correlation-7";
-			var scheduler = scope.ServiceProvider.GetRequiredService<ContextRoundTripJob.Scheduler>();
-			id = await scheduler.EnqueueAsync(new("hello"), cancellationToken);
+			if (reverseExtractorDeclarations)
+			{
+				var scheduler = scope.ServiceProvider.GetRequiredService<ReversedContextRoundTripJob.Scheduler>();
+				id = await scheduler.EnqueueAsync(new("hello"), cancellationToken);
+			}
+			else
+			{
+				var scheduler = scope.ServiceProvider.GetRequiredService<ContextRoundTripJob.Scheduler>();
+				id = await scheduler.EnqueueAsync(new("hello"), cancellationToken);
+			}
 		}
 
 		var enqueued = await harness.GetJobAsync(id, cancellationToken);
@@ -32,7 +42,7 @@ public sealed class ContextPropagationTests
 
 		await harness.DrainAsync(cancellationToken);
 
-		Assert.Equal(
+		string[] expectedEvents =
 			[
 				"capture:tenant",
 				"capture:correlation",
@@ -40,8 +50,10 @@ public sealed class ContextPropagationTests
 				"restore:correlation",
 				"handler-behavior:tenant-42/correlation-7",
 				"handler:tenant-42/correlation-7:hello",
-			],
-			probe.Events
+			];
+		Assert.Equal(
+			expectedEvents.Order(StringComparer.Ordinal),
+			probe.Events.Order(StringComparer.Ordinal)
 		);
 		Assert.Equal(JobState.Succeeded, (await harness.GetJobAsync(id, cancellationToken)).State);
 	}
@@ -464,6 +476,24 @@ public sealed class ContextHandlerPipelineAttribute : Attribute;
 [Job(Name = "context-round-trip")]
 [UsesJobContext<TenantContextExtractor>, UsesJobContext<CorrelationContextExtractor>]
 public sealed partial class ContextRoundTripJob(PropagationScopeState state, ContextProbe probe)
+{
+	public sealed record Payload(string Message) : IJobRequest
+	{
+		public JobDetails? JobDetails { get; set; }
+	}
+
+	private ValueTask HandleAsync(Payload payload, CancellationToken cancellationToken)
+	{
+		_ = cancellationToken;
+		probe.Events.Add($"handler:{state.TenantId}/{state.CorrelationId}:{payload.Message}");
+		return ValueTask.CompletedTask;
+	}
+}
+
+[Handler, ContextHandlerPipeline]
+[Job(Name = "reversed-context-round-trip")]
+[UsesJobContext<CorrelationContextExtractor>, UsesJobContext<TenantContextExtractor>]
+public sealed partial class ReversedContextRoundTripJob(PropagationScopeState state, ContextProbe probe)
 {
 	public sealed record Payload(string Message) : IJobRequest
 	{

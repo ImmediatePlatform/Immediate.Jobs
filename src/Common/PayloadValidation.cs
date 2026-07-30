@@ -28,14 +28,36 @@ internal static class PayloadValidation
 		}
 
 		if (type is IArrayTypeSymbol array)
+		{
+			if (array.GetJsonCollectionKind() is not JsonCollectionKind.Array)
+			{
+				reportError?.Invoke("multi-dimensional arrays are not supported by generated JSON metadata", location);
+				return false;
+			}
+
 			return Visit(array.ElementType, location, reportError, visited);
+		}
 
 		if (type is not INamedTypeSymbol named)
 			return true;
 
-		if (named.TypeArguments.Length > 0
-			&& named.AllInterfaces.Any(static i => i.IsIEnumerable1))
+		if (named is { SpecialType: not SpecialType.None }
+				or { TypeKind: TypeKind.Enum }
+				or { IsKnownSystemValue: true })
 		{
+			return true;
+		}
+
+		var collectionKind = named.GetJsonCollectionKind();
+		if (collectionKind is JsonCollectionKind.List or JsonCollectionKind.Dictionary)
+		{
+			if (collectionKind is JsonCollectionKind.Dictionary
+				&& !named.TypeArguments[0].IsSupportedJsonDictionaryKey)
+			{
+				reportError?.Invoke("the dictionary key type is not supported by System.Text.Json", location);
+				return false;
+			}
+
 			var canSerialize = true;
 			foreach (var argument in named.TypeArguments)
 			{
@@ -48,6 +70,12 @@ internal static class PayloadValidation
 			return canSerialize;
 		}
 
+		if (named.AllInterfaces.Any(static i => i.IsIEnumerable1))
+		{
+			reportError?.Invoke("only one-dimensional arrays, List<T>, and Dictionary<TKey, TValue> have generated collection metadata", location);
+			return false;
+		}
+
 		foreach (var argument in named.TypeArguments)
 		{
 			var result = Visit(argument, argument.Locations.FirstOrDefault(), reportError, visited);
@@ -57,13 +85,6 @@ internal static class PayloadValidation
 
 		if (!visited.Add(type))
 			return true;
-
-		if (named is { SpecialType: not SpecialType.None }
-				or { TypeKind: TypeKind.Enum }
-				or { IsKnownSystemValue: true })
-		{
-			return true;
-		}
 
 		var rootNamespace = named.RootNamespace;
 

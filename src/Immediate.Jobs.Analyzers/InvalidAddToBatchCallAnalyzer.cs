@@ -10,7 +10,7 @@ public sealed class InvalidAddToBatchCallAnalyzer : DiagnosticAnalyzer
 {
 	public static readonly DiagnosticDescriptor DetachedJobCannotBeAddedToBatch =
 		new(
-			id: DiagnosticIds.IJOB0020DetachedJobCannotBeAddedToBatch,
+			id: DiagnosticIds.IJOB0015DetachedJobCannotBeAddedToBatch,
 			title: "Detached work cannot be added to a batch",
 			messageFormat: "AddToBatchAsync(JobDetails, ...) cannot use ContinuationOptions.Detached; use ScheduleAfter for detached work",
 			category: "ImmediateJobs",

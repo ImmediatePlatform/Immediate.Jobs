@@ -264,7 +264,7 @@ the nullable `Capture` return models this explicitly.
 
 - `[UsesJobContext<T>]` where `T` does not derive from `JobContextExtractor`.
 - Context type `TContext` not serializable (reuse payload validation messaging).
-- Context type contains NodaTime types without the integration package (reuse `IJOB007` shape).
+- Context type contains NodaTime types without the integration package (reuse `IJOB0004` shape).
 
 ## 12. Example end-to-end
 
@@ -347,7 +347,7 @@ the Entity Framework Core storage tests in `Immediate.Jobs.FunctionalTests`, and
 
 - `[UsesJobContext<T>]` where `T` does not derive from `JobContextExtractor` ⇒ diagnostic.
 - Context type not serializable (reuse payload-validation messaging) ⇒ diagnostic.
-- Context type contains NodaTime types without the integration package ⇒ diagnostic (`IJOB007`
+- Context type contains NodaTime types without the integration package ⇒ diagnostic (`IJOB0004`
   shape).
 - Each diagnostic has a positive "reports expected diagnostic" test and a negative "valid usage is
   clean" test.
