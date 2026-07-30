@@ -261,6 +261,77 @@ public sealed class RelationalStorageMatrixTests(StorageContainers containers)
 	}
 
 	[Theory]
+	[MemberData(nameof(LinqToDbDatabases))]
+	public async Task LinqRecurringUpsertSurvivesConcurrentMaterialization(DatabaseKind database)
+	{
+		var cancellationToken = TestContext.Current.CancellationToken;
+		await using var fixture = await CreateFixtureAsync(
+			database,
+			AdapterKind.LinqToDB,
+			cancellationToken
+		);
+		var storage = fixture.RecurringStorage;
+		var now = fixture.TimeProvider.GetUtcNow();
+		var schedule = new RecurringJobSchedule
+		{
+			Name = "racing-upsert",
+			JobName = "matrix-test",
+			Cron = "0 * * * *",
+			TimeZone = "UTC",
+			IsCodeDefined = false,
+			NextRunAt = now,
+		};
+		await storage.UpsertRecurringAsync(schedule, cancellationToken);
+
+		for (var iteration = 0; iteration < 20; iteration++)
+		{
+			var current = Assert.Single((await storage.GetMonitoringSnapshotAsync(cancellationToken)).Recurring);
+			var requested = schedule with
+			{
+				Cron = iteration % 2 == 0 ? "15 * * * *" : "45 * * * *",
+				NextRunAt = now.AddDays(iteration + 1),
+			};
+			var occurrence = CreateJob(
+				string.Create(CultureInfo.InvariantCulture, $"racing-occurrence-{iteration}"),
+				now
+			) with
+			{
+				RecurringKey = string.Create(
+					CultureInfo.InvariantCulture,
+					$"racing-upsert:{current.NextRunAt.UtcTicks}"
+				),
+			};
+			var start = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+			async Task MaterializeAsync()
+			{
+				await start.Task;
+				_ = await storage.MaterializeRecurringAsync(
+					current,
+					occurrence,
+					current.NextRunAt.AddMinutes(1),
+					cancellationToken
+				);
+			}
+
+			async Task UpsertAsync()
+			{
+				await start.Task;
+				await storage.UpsertRecurringAsync(requested, cancellationToken);
+			}
+
+			var materialization = MaterializeAsync();
+			var upsert = UpsertAsync();
+
+			start.SetResult();
+			await Task.WhenAll(materialization, upsert);
+
+			var persisted = Assert.Single((await storage.GetMonitoringSnapshotAsync(cancellationToken)).Recurring);
+			Assert.Equal(requested.Cron, persisted.Cron);
+			Assert.Equal(requested.NextRunAt, persisted.NextRunAt);
+		}
+	}
+
+	[Theory]
 	[MemberData(nameof(Matrix))]
 	public async Task AdapterPagesJobsWithTiedCreationTimesExactlyOnce(DatabaseKind database, AdapterKind adapter)
 	{

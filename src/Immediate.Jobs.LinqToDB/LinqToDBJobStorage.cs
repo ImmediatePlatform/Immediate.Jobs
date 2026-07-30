@@ -860,35 +860,39 @@ public sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorage,
 	)
 	{
 		ArgumentNullException.ThrowIfNull(schedule);
-		await using var connection = CreateConnection();
-		var existing = await Recurring(connection).SingleOrDefaultAsync(item => item.Name == schedule.Name, cancellationToken)
-			.ConfigureAwait(false);
-		if (existing is null)
+		while (true)
 		{
-			try
+			await using var connection = CreateConnection();
+			var existing = await Recurring(connection).SingleOrDefaultAsync(item => item.Name == schedule.Name, cancellationToken)
+				.ConfigureAwait(false);
+			if (existing is null)
 			{
-				_ = await InsertAsync(connection, ToEntity(schedule), cancellationToken).ConfigureAwait(false);
-				return;
+				try
+				{
+					_ = await InsertAsync(connection, ToEntity(schedule), cancellationToken).ConfigureAwait(false);
+					return;
+				}
+				catch (DbException)
+				{
+					existing = await Recurring(connection).SingleOrDefaultAsync(item => item.Name == schedule.Name, cancellationToken)
+						.ConfigureAwait(false);
+					if (existing is null)
+						throw;
+				}
 			}
-			catch (DbException)
-			{
-				existing = await Recurring(connection).SingleOrDefaultAsync(item => item.Name == schedule.Name, cancellationToken)
-					.ConfigureAwait(false);
-				if (existing is null)
-					throw;
-			}
-		}
 
-		if (!schedule.IsCodeDefined && existing.IsCodeDefined)
-			throw new ImmediateJobException("Code-defined recurring schedules cannot be replaced by dynamic schedules.");
-		var oldStamp = existing.ConcurrencyStamp;
-		existing.JobName = schedule.JobName;
-		existing.Cron = schedule.Cron;
-		existing.TimeZone = schedule.TimeZone;
-		existing.IsCodeDefined = schedule.IsCodeDefined;
-		existing.NextRunAt = schedule.NextRunAt.UtcTicks;
-		existing.ConcurrencyStamp = Guid.NewGuid();
-		_ = await UpdateRecurringAsync(connection, existing, oldStamp, cancellationToken).ConfigureAwait(false);
+			if (!schedule.IsCodeDefined && existing.IsCodeDefined)
+				throw new ImmediateJobException("Code-defined recurring schedules cannot be replaced by dynamic schedules.");
+			var oldStamp = existing.ConcurrencyStamp;
+			existing.JobName = schedule.JobName;
+			existing.Cron = schedule.Cron;
+			existing.TimeZone = schedule.TimeZone;
+			existing.IsCodeDefined = schedule.IsCodeDefined;
+			existing.NextRunAt = schedule.NextRunAt.UtcTicks;
+			existing.ConcurrencyStamp = Guid.NewGuid();
+			if (await UpdateRecurringAsync(connection, existing, oldStamp, cancellationToken).ConfigureAwait(false))
+				return;
+		}
 	}
 
 	/// <inheritdoc />
