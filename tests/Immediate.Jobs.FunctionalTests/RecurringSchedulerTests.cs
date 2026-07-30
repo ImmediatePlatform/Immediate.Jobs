@@ -79,6 +79,44 @@ public sealed class RecurringSchedulerTests
 		);
 	}
 
+	[Theory]
+	[InlineData("not-a-cron", "UTC")]
+	[InlineData("* * * * *", "Missing/TimeZone")]
+	public async Task BadRecurringScheduleDoesNotBlockOrdinaryJobs(string cron, string timeZone)
+	{
+		var cancellationToken = TestContext.Current.CancellationToken;
+		var clock = new FakeTimeProvider(Start);
+		await using var storage = new InMemoryJobStorage(clock);
+		await storage.InitializeAsync(cancellationToken);
+		await storage.UpsertRecurringAsync(new()
+		{
+			Name = "bad-schedule",
+			JobName = "ordinary",
+			Cron = cron,
+			TimeZone = timeZone,
+			IsCodeDefined = false,
+			NextRunAt = Start,
+		}, cancellationToken);
+		await storage.EnqueueAsync(new()
+		{
+			Id = "ordinary-job",
+			JobName = "ordinary",
+			Payload = "{}",
+			State = JobState.Pending,
+			DueAt = Start,
+			CreatedAt = Start,
+		}, cancellationToken);
+		var scheduler = BuildScheduler(storage, clock, "ordinary", cron: null);
+
+		await scheduler.DrainAsync(cancellationToken);
+
+		Assert.Equal(
+			JobState.Succeeded,
+			(await storage.GetJobStatusAsync("ordinary-job", cancellationToken))!.State
+		);
+		Assert.Equal(Start, (await GetSchedule(storage, "bad-schedule", cancellationToken)).NextRunAt);
+	}
+
 	private static async ValueTask<RecurringJobSchedule> GetSchedule(
 		InMemoryJobStorage storage,
 		string name,
@@ -111,7 +149,7 @@ public sealed class RecurringSchedulerTests
 		InMemoryJobStorage storage,
 		TimeProvider clock,
 		string jobName,
-		string cron
+		string? cron
 	)
 	{
 		var services = new ServiceCollection();
