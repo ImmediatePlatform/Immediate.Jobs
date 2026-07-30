@@ -35,9 +35,7 @@ public sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 	private readonly TimeProvider _timeProvider;
 	private readonly string _root;
 	private readonly bool _ownsConnection;
-#pragma warning disable IDE0330 // System.Threading.Lock is unavailable on the lowest target framework.
-	private readonly object _disposeGate = new();
-#pragma warning restore IDE0330
+	private readonly Lock _disposeGate = new();
 	private Task? _disposeTask;
 
 	/// <summary>Creates storage over an existing Redis connection.</summary>
@@ -705,7 +703,7 @@ public sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 	{
 		var tasks = names.Select(name => ReadRecurringAsync(name, cancellationToken).AsTask()).ToArray();
 		var schedules = await Task.WhenAll(tasks).WaitAsync(cancellationToken).ConfigureAwait(false);
-		return [.. schedules.OfType<RecurringJobSchedule>().OrderBy(schedule => schedule.NextRunAt).ThenBy(schedule => schedule.Name)];
+		return [.. schedules.OfType<RecurringJobSchedule>().OrderBy(schedule => schedule.NextRunAt).ThenBy(schedule => schedule.Name, StringComparer.Ordinal)];
 	}
 
 	private async ValueTask<RecurringJobSchedule?> ReadRecurringAsync(
@@ -763,8 +761,8 @@ public sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 
 	private static bool MatchesQuery(JobRecord job, JobQuery query) =>
 		(query.State is not { } state || job.State == state) &&
-		(string.IsNullOrWhiteSpace(query.QueueName) || job.QueueName == query.QueueName) &&
-		(string.IsNullOrWhiteSpace(query.JobName) || job.JobName == query.JobName) &&
+		(string.IsNullOrWhiteSpace(query.QueueName) || string.Equals(job.QueueName, query.QueueName, StringComparison.Ordinal)) &&
+		(string.IsNullOrWhiteSpace(query.JobName) || string.Equals(job.JobName, query.JobName, StringComparison.Ordinal)) &&
 		(string.IsNullOrWhiteSpace(query.Search) ||
 			job.JobName.Contains(query.Search, StringComparison.OrdinalIgnoreCase));
 

@@ -431,7 +431,7 @@ public sealed class RedisStorageTests(RedisStorageFixture fixture)
 		using var storage = new RedisJobStorage(connection, CreateOptions(), CreateTimeProvider());
 		var request = CreateRequest("worker", 1) with
 		{
-			FairQueues = new(0.10, 30, true),
+			FairQueues = new(0.10, 30, GroupRoundRobin: true),
 		};
 
 		var exception = await Assert.ThrowsAsync<NotSupportedException>(

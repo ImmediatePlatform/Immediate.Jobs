@@ -107,7 +107,7 @@ public sealed class DuplicateElementsAnalyzer : DiagnosticAnalyzer
 			context.RegisterCompilationEndAction(
 				context =>
 				{
-					foreach (var jobGroup in jobs.GroupBy(x => x.JobName).Where(g => g.Skip(1).Any()))
+					foreach (var jobGroup in jobs.GroupBy(x => x.JobName, StringComparer.Ordinal).Where(g => g.Skip(1).Any()))
 					{
 						var classes = string.Join(", ", jobGroup.Select(l => l.ClassName));
 
@@ -124,7 +124,7 @@ public sealed class DuplicateElementsAnalyzer : DiagnosticAnalyzer
 						}
 					}
 
-					foreach (var queueGroup in queues.GroupBy(x => x.QueueName).Where(g => g.Skip(1).Any()))
+					foreach (var queueGroup in queues.GroupBy(x => x.QueueName, StringComparer.Ordinal).Where(g => g.Skip(1).Any()))
 					{
 						var classes = string.Join(", ", queueGroup.Select(l => l.ClassName));
 

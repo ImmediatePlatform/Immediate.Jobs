@@ -264,8 +264,8 @@ public static class ImmediateJobsDashboardEndpointRouteBuilderExtensions
 			if (url is null)
 				continue;
 			if (url.IsAbsoluteUri &&
-				url.Scheme != Uri.UriSchemeHttp &&
-				url.Scheme != Uri.UriSchemeHttps)
+				!string.Equals(url.Scheme, Uri.UriSchemeHttp, StringComparison.Ordinal) &&
+				!string.Equals(url.Scheme, Uri.UriSchemeHttps, StringComparison.Ordinal))
 			{
 				throw new ImmediateJobException(
 					$"Telemetry link '{registration.Label}' must use HTTP or HTTPS."
@@ -334,12 +334,14 @@ public static class ImmediateJobsDashboardEndpointRouteBuilderExtensions
 			string.Equals(candidate.Name, name, StringComparison.Ordinal));
 		if (schedule is null)
 			return Results.NotFound();
-		var definition = definitions.FirstOrDefault(candidate => candidate.Name == schedule.JobName);
+		var definition = definitions.FirstOrDefault(candidate => string.Equals(candidate.Name, schedule.JobName, StringComparison.Ordinal));
 		if (definition is null)
+		{
 			return Results.Problem(
 				detail: $"No generated job definition exists for '{schedule.JobName}'.",
 				statusCode: StatusCodes.Status409Conflict
 			);
+		}
 
 		var now = context.RequestServices.GetService<TimeProvider>()?.GetUtcNow() ?? TimeProvider.System.GetUtcNow();
 		var job = new JobRecord

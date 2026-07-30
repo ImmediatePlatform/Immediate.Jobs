@@ -13,7 +13,7 @@ internal static class AspireDashboardTelemetryExtensions
 		ArgumentNullException.ThrowIfNull(options);
 		ArgumentNullException.ThrowIfNull(dashboardUrl);
 		if (!dashboardUrl.IsAbsoluteUri ||
-			(dashboardUrl.Scheme != Uri.UriSchemeHttp && dashboardUrl.Scheme != Uri.UriSchemeHttps))
+			(!string.Equals(dashboardUrl.Scheme, Uri.UriSchemeHttp, StringComparison.Ordinal) && !string.Equals(dashboardUrl.Scheme, Uri.UriSchemeHttps, StringComparison.Ordinal)))
 		{
 			throw new ArgumentException("The Aspire dashboard URL must use HTTP or HTTPS.", nameof(dashboardUrl));
 		}

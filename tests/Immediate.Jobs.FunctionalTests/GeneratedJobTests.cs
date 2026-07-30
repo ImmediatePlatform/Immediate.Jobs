@@ -136,7 +136,7 @@ public sealed class GeneratedJobTests
 		var secondSpanId = Assert.IsType<string>(completed.ExecutionSpanId);
 		Assert.NotEqual(firstSpanId, secondSpanId);
 		Assert.Equal([1, 2], state.Details
-			.Where(details => details.JobId == id.Id)
+			.Where(details => string.Equals(details.JobId, id.Id, StringComparison.Ordinal))
 			.Select(details => details.Attempt));
 	}
 
@@ -182,7 +182,7 @@ public sealed class GeneratedJobTests
 		return listener;
 	}
 
-	private static bool ShouldListenToJobs(ActivitySource source) => source.Name == "Immediate.Jobs";
+	private static bool ShouldListenToJobs(ActivitySource source) => string.Equals(source.Name, "Immediate.Jobs", StringComparison.Ordinal);
 
 	private static ActivitySamplingResult SampleJobActivity(ref ActivityCreationOptions<ActivityContext> options)
 	{

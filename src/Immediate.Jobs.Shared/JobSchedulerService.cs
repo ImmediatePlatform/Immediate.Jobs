@@ -284,7 +284,14 @@ public sealed partial class JobSchedulerService : BackgroundService
 		{
 			try
 			{
-				await _storage.FailAsync(record.Id, _workerId, $"No generated job definition exists for '{record.JobName}'.", null, stoppingToken)
+				await _storage
+					.FailAsync(
+						record.Id,
+						_workerId,
+						$"No generated job definition exists for '{record.JobName}'.",
+						nextRetryAt: null,
+						stoppingToken
+					)
 					.ConfigureAwait(false);
 			}
 			finally
@@ -307,7 +314,7 @@ public sealed partial class JobSchedulerService : BackgroundService
 
 		var parent = default(ActivityContext);
 		if (record.TraceParent is not null)
-			_ = ActivityContext.TryParse(record.TraceParent, record.TraceState, true, out parent);
+			_ = ActivityContext.TryParse(record.TraceParent, record.TraceState, isRemote: true, out parent);
 		IEnumerable<ActivityLink>? links = parent != default ? [new(parent)] : null;
 		using var activity = JobTelemetry.ActivitySource.StartActivity(
 			$"job {record.JobName}",
@@ -322,7 +329,7 @@ public sealed partial class JobSchedulerService : BackgroundService
 			],
 			links: links
 		);
-		using var logScope = _logger.BeginScope(new Dictionary<string, object>
+		using var logScope = _logger.BeginScope(new Dictionary<string, object>(StringComparer.Ordinal)
 		{
 			["JobName"] = record.JobName,
 			["QueueName"] = record.QueueName,

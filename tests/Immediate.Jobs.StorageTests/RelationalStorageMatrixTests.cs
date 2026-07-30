@@ -215,7 +215,7 @@ public sealed class RelationalStorageMatrixTests(StorageContainers containers)
 
 		var request = CreateRequest("fair-worker", 1) with
 		{
-			FairQueues = new(0.10, 30, true),
+			FairQueues = new(0.10, 30, GroupRoundRobin: true),
 		};
 		var first = Assert.Single(await storage.AcquireDueJobsAsync(request, cancellationToken));
 		Assert.Equal("group-a-first", first.Id);
@@ -260,7 +260,7 @@ public sealed class RelationalStorageMatrixTests(StorageContainers containers)
 		);
 		var request = CreateRequest("fair-worker", 1) with
 		{
-			FairQueues = new(0.10, 30, true),
+			FairQueues = new(0.10, 30, GroupRoundRobin: true),
 		};
 		var first = Assert.Single(await storage.AcquireDueJobsAsync(request, cancellationToken));
 		Assert.Equal("tenant-first", first.Id);
@@ -764,13 +764,12 @@ public sealed class RelationalStorageMatrixTests(StorageContainers containers)
 			if (adapter == AdapterKind.LinqToDB)
 			{
 				await dataOptions.CreateImmediateJobsSchemaAsync(schema, cancellationToken);
-				await dataOptions.CreateImmediateJobsSchemaAsync(schema, cancellationToken);
 			}
 			else
 			{
 				await using var context = contextFactory.CreateDbContext();
 				var script = context.Database.GenerateCreateScript();
-				foreach (var batch in Regex.Split(script, @"^\s*GO\s*$", RegexOptions.Multiline | RegexOptions.IgnoreCase))
+				foreach (var batch in Regex.Split(script, @"^\s*GO\s*$", RegexOptions.Multiline | RegexOptions.IgnoreCase, TimeSpan.FromSeconds(1)))
 				{
 					if (!string.IsNullOrWhiteSpace(batch))
 						_ = await context.Database.ExecuteSqlRawAsync(batch, cancellationToken);

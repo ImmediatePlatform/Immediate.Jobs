@@ -83,7 +83,7 @@ public sealed class BatchesAndContinuationsTests
 		var batchHandle = await batch.CommitAsync(cancellationToken);
 
 		var jobs = (await harness.QueryJobsAsync(cancellationToken: cancellationToken))
-			.Where(job => job.BatchId == batchHandle.Id)
+			.Where(job => string.Equals(job.BatchId, batchHandle.Id, StringComparison.Ordinal))
 			.ToArray();
 		Assert.Equal(128, handles.Count);
 		Assert.Equal(128, jobs.Length);
@@ -148,8 +148,8 @@ public sealed class BatchesAndContinuationsTests
 
 		var jobs = (await harness.QueryJobsAsync(cancellationToken: cancellationToken))
 			.ToDictionary(static job => job.Payload, StringComparer.Ordinal);
-		Assert.Contains(jobs.Values, static job => job.GroupId == "tenant-a");
-		Assert.Contains(jobs.Values, static job => job.GroupId == "tenant-b");
+		Assert.Contains(jobs.Values, static job => string.Equals(job.GroupId, "tenant-a", StringComparison.Ordinal));
+		Assert.Contains(jobs.Values, static job => string.Equals(job.GroupId, "tenant-b", StringComparison.Ordinal));
 		Assert.Contains(jobs.Values, static job => job.GroupId is null);
 	}
 
@@ -466,7 +466,7 @@ public sealed class BatchesAndContinuationsTests
 		await harness.AdvanceTimeAndDrainAsync(TimeSpan.FromSeconds(1), cancellationToken);
 
 		var jobs = (await harness.QueryJobsAsync(cancellationToken: cancellationToken))
-			.Where(job => job.BatchId == batchHandle.Id)
+			.Where(job => string.Equals(job.BatchId, batchHandle.Id, StringComparison.Ordinal))
 			.ToArray();
 		Assert.Equal(
 			["batch-workflow-test", "batch-workflow-test", "dynamic-expansion-test"],
@@ -521,10 +521,10 @@ public sealed class BatchesAndContinuationsTests
 		await harness.DrainAsync(cancellationToken);
 
 		var jobs = await harness.QueryJobsAsync(cancellationToken: cancellationToken);
-		var root = Assert.Single(jobs, static job => job.JobName == "execution-buffer-probe");
+		var root = Assert.Single(jobs, static job => string.Equals(job.JobName, "execution-buffer-probe", StringComparison.Ordinal));
 		Assert.True(root.State == JobState.Succeeded, root.LastError);
 		Assert.Equal(65, jobs.Count);
-		Assert.Equal(64, jobs.Count(static job => job.JobName == "batch-workflow-test"));
+		Assert.Equal(64, jobs.Count(static job => string.Equals(job.JobName, "batch-workflow-test", StringComparison.Ordinal)));
 		var details = Assert.IsType<JobDetails>(probe.Details);
 		var exception = Assert.Throws<ImmediateJobException>(() =>
 			workflowScheduler.ScheduleAfter(details, new("late"), ContinuationOptions.Detached));

@@ -23,46 +23,49 @@ await using (var scope = provider.CreateAsyncScope())
 
 await provider.GetRequiredService<JobSchedulerService>().DrainAsync();
 
-public sealed record GreetingContext(string Value);
-
-public sealed class CurrentGreetingContext
+namespace NativeAot
 {
-	public string? Value { get; set; }
-}
+	public sealed record GreetingContext(string Value);
 
-public sealed class GreetingContextExtractor(CurrentGreetingContext currentContext)
-	: JobContextExtractor<GreetingContext>
-{
-	public override string Key => "greeting";
-
-	public override GreetingContext? Capture() =>
-		currentContext.Value is { } value ? new GreetingContext(value) : null;
-
-	public override void Restore(GreetingContext context)
+	public sealed class CurrentGreetingContext
 	{
-		ArgumentNullException.ThrowIfNull(context);
-		currentContext.Value = context.Value;
+		public string? Value { get; set; }
 	}
-}
 
-[Handler, Job(Name = "aot-greeting"), UsesJobContext<GreetingContextExtractor>]
-public sealed partial class AotGreetingJob(CurrentGreetingContext currentContext)
-{
-	public sealed record Payload(string Name, string ExpectedContext);
-
-	private Task WriteAsync(Payload payload, CancellationToken cancellationToken)
+	public sealed class GreetingContextExtractor(CurrentGreetingContext currentContext)
+		: JobContextExtractor<GreetingContext>
 	{
-		cancellationToken.ThrowIfCancellationRequested();
+		public override string Key => "greeting";
 
-		if (currentContext.Value != payload.ExpectedContext)
+		public override GreetingContext? Capture() =>
+			currentContext.Value is { } value ? new GreetingContext(value) : null;
+
+		public override void Restore(GreetingContext context)
 		{
-			throw new InvalidOperationException("The enqueue-time context was not restored.");
+			ArgumentNullException.ThrowIfNull(context);
+			currentContext.Value = context.Value;
+		}
+	}
+
+	[Handler, Job(Name = "aot-greeting"), UsesJobContext<GreetingContextExtractor>]
+	public sealed partial class AotGreetingJob(CurrentGreetingContext currentContext)
+	{
+		public sealed record Payload(string Name, string ExpectedContext);
+
+		private Task WriteAsync(Payload payload, CancellationToken cancellationToken)
+		{
+			cancellationToken.ThrowIfCancellationRequested();
+
+			if (!string.Equals(currentContext.Value, payload.ExpectedContext, StringComparison.Ordinal))
+			{
+				throw new InvalidOperationException("The enqueue-time context was not restored.");
+			}
+
+			Console.WriteLine($"Hello, {payload.Name}! Restored context: {currentContext.Value}");
+			return Task.CompletedTask;
 		}
 
-		Console.WriteLine($"Hello, {payload.Name}! Restored context: {currentContext.Value}");
-		return Task.CompletedTask;
+		private ValueTask HandleAsync(Payload payload, CancellationToken cancellationToken) =>
+			new(WriteAsync(payload, cancellationToken));
 	}
-
-	private ValueTask HandleAsync(Payload payload, CancellationToken cancellationToken) =>
-		new(WriteAsync(payload, cancellationToken));
 }

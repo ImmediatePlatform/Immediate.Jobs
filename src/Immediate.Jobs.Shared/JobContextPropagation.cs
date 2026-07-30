@@ -1,5 +1,6 @@
 using System.Buffers;
 using System.ComponentModel;
+using System.Diagnostics.CodeAnalysis;
 using System.Text;
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
@@ -9,6 +10,11 @@ namespace Immediate.Jobs.Shared;
 /// <summary>Captures ambient state while enqueueing and restores it in a job execution scope.</summary>
 public abstract class JobContextExtractor
 {
+	[SuppressMessage(
+		"Design",
+		"MA0017:Abstract types should not have public or internal constructors",
+		Justification = "intentional to create a particular framework for consumption with attributes"
+	)]
 	internal JobContextExtractor() { }
 
 	/// <summary>The stable key used for this context slice in persisted job envelopes.</summary>
@@ -41,9 +47,8 @@ public sealed class UsesJobContextAttribute<TExtractor> : Attribute
 
 /// <summary>Marks a generated invoker that consumes persisted context slices itself.</summary>
 [EditorBrowsable(EditorBrowsableState.Never)]
-#pragma warning disable CA1040 // Generated invokers use this marker for a fast runtime capability check.
+[SuppressMessage("Design", "CA1040:Avoid empty interfaces", Justification = "Generated invokers use this marker for a fast runtime capability check")]
 public interface IJobContextAwareInvoker;
-#pragma warning restore CA1040
 
 /// <summary>Runtime helpers used by generated context capture and restore code.</summary>
 [EditorBrowsable(EditorBrowsableState.Never)]
@@ -97,6 +102,11 @@ public static class JobContextEnvelope
 	/// <summary>Reads an envelope into raw JSON slices keyed with ordinal comparison.</summary>
 	/// <param name="envelope">The JSON envelope to read.</param>
 	/// <returns>The raw JSON slices keyed by their stable context keys.</returns>
+	[SuppressMessage(
+		"Design",
+		"MA0016:Prefer using collection abstraction instead of implementation",
+		Justification = "<Pending>"
+	)]
 	public static Dictionary<string, string> Read(string envelope)
 	{
 		ArgumentNullException.ThrowIfNull(envelope);

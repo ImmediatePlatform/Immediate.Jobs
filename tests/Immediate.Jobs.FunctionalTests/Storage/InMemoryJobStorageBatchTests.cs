@@ -46,15 +46,10 @@ public sealed class InMemoryJobStorageBatchTests
 		Assert.Empty(await storage.GetIncomingEdgesAsync([], cancellationToken));
 		var edges = await storage.GetIncomingEdgesAsync([child.Id, child.Id, "missing"], cancellationToken);
 		Assert.Equal(2, edges.Count);
-		Assert.Contains(edges, edge =>
-			edge.ChildJobId == child.Id &&
-			edge.ParentJobId == jobParent.Id &&
+		Assert.Contains(edges, edge => string.Equals(edge.ChildJobId, child.Id, StringComparison.Ordinal) && string.Equals(edge.ParentJobId, jobParent.Id, StringComparison.Ordinal) &&
 			edge.ParentBatchId is null &&
 			edge.Trigger == ContinuationTrigger.Failure);
-		Assert.Contains(edges, edge =>
-			edge.ChildJobId == child.Id &&
-			edge.ParentJobId is null &&
-			edge.ParentBatchId == "parent-batch" &&
+		Assert.Contains(edges, edge => string.Equals(edge.ChildJobId, child.Id, StringComparison.Ordinal) && edge.ParentJobId is null && string.Equals(edge.ParentBatchId, "parent-batch", StringComparison.Ordinal) &&
 			edge.Trigger == ContinuationTrigger.Complete);
 		_ = await Assert.ThrowsAsync<ArgumentNullException>(
 			() => storage.GetIncomingEdgesAsync(null!, cancellationToken).AsTask()
@@ -411,7 +406,7 @@ public sealed class InMemoryJobStorageBatchTests
 		Assert.Equal(3, status!.Total);
 		Assert.Equal(2, status.Remaining);
 		var graph = await storage.GetBatchGraphAsync("batch", cancellationToken);
-		Assert.Contains(graph!.Edges, edge => edge.ParentJobId == inserted.Id && edge.ChildJobId == waiter.Id);
+		Assert.Contains(graph!.Edges, edge => string.Equals(edge.ParentJobId, inserted.Id, StringComparison.Ordinal) && string.Equals(edge.ChildJobId, waiter.Id, StringComparison.Ordinal));
 	}
 
 	[Fact]

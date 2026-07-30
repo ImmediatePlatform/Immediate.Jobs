@@ -1,6 +1,9 @@
 using System.Data.Common;
 using Microsoft.EntityFrameworkCore;
 
+// TODO: remove and fix diagnostics
+#pragma warning disable MA0015 // Specify the parameter name in ArgumentException
+
 namespace Immediate.Jobs.EntityFrameworkCore;
 
 /// <summary>An optimistic-concurrency EF Core implementation of <see cref="IJobStorage"/>.</summary>
@@ -116,7 +119,7 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 		var jobIds = jobs.Select(static job => job.Id).ToHashSet(StringComparer.Ordinal);
 		if (jobIds.Count != jobs.Count)
 			throw new ImmediateJobException("A batch or continuation insert contains duplicate job identifiers.");
-		if (batch is not null && jobs.Any(job => job.BatchId != batch.Id))
+		if (batch is not null && jobs.Any(job => !string.Equals(job.BatchId, batch.Id, StringComparison.Ordinal)))
 			throw new ImmediateJobException("Every atomic batch member must carry the committed batch identifier.");
 
 		var edgeEntities = edges.Select(ToEntity).ToArray();
@@ -350,7 +353,7 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 								.Select(static cursor => cursor.LastServedSequence)
 								.FirstOrDefault()
 						))
-						.ToDictionaryAsync(static state => state.JobId, cancellationToken)
+						.ToDictionaryAsync(static state => state.JobId, StringComparer.Ordinal, cancellationToken)
 						.ConfigureAwait(false)
 					: await groupStateQuery
 						.Select(job => new FairQueueCandidateState(
@@ -358,7 +361,7 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 							activeQuery.Count(active => active.GroupId == job.GroupId),
 							0
 						))
-						.ToDictionaryAsync(static state => state.JobId, cancellationToken)
+						.ToDictionaryAsync(static state => state.JobId, StringComparer.Ordinal, cancellationToken)
 						.ConfigureAwait(false);
 				var nextSequence = 0L;
 				if (request.FairQueues.GroupRoundRobin)
@@ -985,7 +988,7 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 		ArgumentOutOfRangeException.ThrowIfNegative(query.Skip);
 		ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(query.Take, 0);
 		await using var context = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
-		IQueryable<ImmediateJobEntity> jobs = context.Set<ImmediateJobEntity>().AsNoTracking();
+		var jobs = context.Set<ImmediateJobEntity>().AsNoTracking();
 		if (query.Id is { } id)
 			jobs = jobs.Where(job => job.Id == id);
 		if (query.State is { } state)
@@ -998,9 +1001,9 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 		{
 			var search = query.Search.ToUpperInvariant();
 			// The parameterless form is intentionally used because relational providers translate it to SQL.
-#pragma warning disable CA1304, CA1311, CA1862
+#pragma warning disable CA1304, CA1311, CA1862, MA0011
 			jobs = jobs.Where(job => job.JobName.ToUpper().Contains(search));
-#pragma warning restore CA1304, CA1311, CA1862
+#pragma warning restore CA1304, CA1311, CA1862, MA0011
 		}
 
 		var entities = await jobs.OrderByDescending(job => job.CreatedAt)
@@ -1062,7 +1065,7 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 		ArgumentOutOfRangeException.ThrowIfNegative(query.Skip);
 		ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(query.Take, 0);
 		await using var context = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
-		IQueryable<ImmediateJobBatchEntity> batches = context.Set<ImmediateJobBatchEntity>().AsNoTracking();
+		var batches = context.Set<ImmediateJobBatchEntity>().AsNoTracking();
 		if (query.State is { } state)
 			batches = batches.Where(batch => batch.State == state);
 		var entities = await batches.OrderByDescending(batch => batch.CreatedAt)
@@ -1086,7 +1089,7 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 		ArgumentOutOfRangeException.ThrowIfNegative(query.Skip);
 		ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(query.Take, 0);
 		await using var context = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
-		IQueryable<ImmediateJobEntity> jobs = context.Set<ImmediateJobEntity>()
+		var jobs = context.Set<ImmediateJobEntity>()
 			.AsNoTracking()
 			.Where(job => job.BatchId == batchId);
 		if (query.State is { } state)
@@ -1257,9 +1260,10 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 			.ConfigureAwait(false);
 		var jobIds = jobs.Select(static job => job.Id).ToArray();
 		var edges = await context.Set<ImmediateJobContinuationEntity>()
-			.Where(edge => jobIds.Contains(edge.ChildJobId)
-				|| edge.ParentKind == ContinuationParentKind.Job && jobIds.Contains(edge.ParentId)
-				|| edge.ParentKind == ContinuationParentKind.Batch && edge.ParentId == batchId)
+			.Where(edge =>
+				jobIds.Contains(edge.ChildJobId)
+				|| (edge.ParentKind == ContinuationParentKind.Job && jobIds.Contains(edge.ParentId))
+				|| (edge.ParentKind == ContinuationParentKind.Batch && edge.ParentId == batchId))
 			.ToListAsync(cancellationToken)
 			.ConfigureAwait(false);
 		context.RemoveRange(edges);
@@ -1450,8 +1454,10 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 		{
 			var jobIds = jobs.Select(static job => job.Id).ToArray();
 			var edges = await context.Set<ImmediateJobContinuationEntity>()
-				.Where(edge => jobIds.Contains(edge.ChildJobId)
-					|| jobIds.Contains(edge.ParentId) && edge.ParentKind == ContinuationParentKind.Job)
+				.Where(edge =>
+					jobIds.Contains(edge.ChildJobId)
+					|| (jobIds.Contains(edge.ParentId) && edge.ParentKind == ContinuationParentKind.Job)
+				)
 				.ToListAsync(cancellationToken)
 				.ConfigureAwait(false);
 			context.RemoveRange(edges);
@@ -1485,9 +1491,11 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 				.ToListAsync(cancellationToken)
 				.ConfigureAwait(false);
 			var edges = await context.Set<ImmediateJobContinuationEntity>()
-				.Where(edge => batchIds.Contains(edge.ParentId) && edge.ParentKind == ContinuationParentKind.Batch
+				.Where(edge =>
+					(batchIds.Contains(edge.ParentId) && edge.ParentKind == ContinuationParentKind.Batch)
 					|| memberIds.Contains(edge.ChildJobId)
-					|| memberIds.Contains(edge.ParentId) && edge.ParentKind == ContinuationParentKind.Job)
+					|| (memberIds.Contains(edge.ParentId) && edge.ParentKind == ContinuationParentKind.Job)
+				)
 				.ToListAsync(cancellationToken)
 				.ConfigureAwait(false);
 			context.RemoveRange(edges);
@@ -1742,7 +1750,7 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 			throw new ImmediateJobException("The current job does not belong to a batch.");
 		if (options is not (ContinuationOptions.BesideContinuations or ContinuationOptions.BeforeContinuations))
 			throw new ArgumentOutOfRangeException(nameof(options));
-		if (record.BatchId != batchId)
+		if (!string.Equals(record.BatchId, batchId, StringComparison.Ordinal))
 			throw new ImmediateJobException("The new job must belong to the current job's batch.");
 		if (record.State is JobState.Active or JobState.AwaitingContinuation || IsTerminal(record.State))
 			throw new ImmediateJobException($"Concurrent batch member '{record.Id}' has invalid state '{record.State}'.");
@@ -1804,7 +1812,7 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 			}
 			else if (addition.Options is ContinuationOptions.BesideContinuations or ContinuationOptions.BeforeContinuations)
 			{
-				if (current.BatchId is null || addition.Job.BatchId != current.BatchId)
+				if (current.BatchId is null || !string.Equals(addition.Job.BatchId, current.BatchId, StringComparison.Ordinal))
 					throw new ImmediateJobException("A batch-tracked continuation must belong to the current job's batch.");
 				trackedAdditions++;
 			}
@@ -2124,7 +2132,7 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 				}
 
 				job.FailedDependencies = failedDependencies;
-				if (violated || remaining == 0 && requiresFailure && failedDependencies == 0)
+				if (violated || (remaining == 0 && requiresFailure && failedDependencies == 0))
 				{
 					job.State = JobState.Cancelled;
 					job.RemainingDependencies = 0;

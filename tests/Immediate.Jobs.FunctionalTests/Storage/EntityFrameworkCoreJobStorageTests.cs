@@ -484,8 +484,8 @@ public sealed class EntityFrameworkCoreJobStorageTests
 		);
 		await restartedProcess.InitializeAsync(cancellationToken);
 		var restored = await restartedProcess.QueryJobsAsync(new(), cancellationToken);
-		Assert.Contains(restored, static job => job.Id == "a-second" && job.GroupId == "group-a");
-		Assert.Contains(restored, static job => job.Id == "b-first" && job.GroupId == "group-b");
+		Assert.Contains(restored, static job => string.Equals(job.Id, "a-second", StringComparison.Ordinal) && string.Equals(job.GroupId, "group-a", StringComparison.Ordinal));
+		Assert.Contains(restored, static job => string.Equals(job.Id, "b-first", StringComparison.Ordinal) && string.Equals(job.GroupId, "group-b", StringComparison.Ordinal));
 	}
 
 	[Fact]

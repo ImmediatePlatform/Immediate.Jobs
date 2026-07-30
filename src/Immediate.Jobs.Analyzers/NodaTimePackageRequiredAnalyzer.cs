@@ -40,13 +40,13 @@ public sealed class NodaTimePackageRequiredAnalyzer : DiagnosticAnalyzer
 		context.CancellationToken.ThrowIfCancellationRequested();
 
 		if (!context.Compilation.ReferencedAssemblyNames
-				.Any(identity => identity.Name == "NodaTime"))
+				.Any(identity => string.Equals(identity.Name, "NodaTime", StringComparison.Ordinal)))
 		{
 			return;
 		}
 
 		if (context.Compilation.ReferencedAssemblyNames
-				.Any(identity => identity.Name == "Immediate.Jobs.NodaTime"))
+				.Any(identity => string.Equals(identity.Name, "Immediate.Jobs.NodaTime", StringComparison.Ordinal)))
 		{
 			return;
 		}

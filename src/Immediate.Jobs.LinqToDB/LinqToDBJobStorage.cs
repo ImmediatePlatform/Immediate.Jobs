@@ -114,7 +114,7 @@ public sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorage,
 		var jobIds = jobs.Select(static job => job.Id).ToHashSet(StringComparer.Ordinal);
 		if (jobIds.Count != jobs.Count)
 			throw new ImmediateJobException("A batch or continuation insert contains duplicate job identifiers.");
-		if (batch is not null && jobs.Any(job => job.BatchId != batch.Id))
+		if (batch is not null && jobs.Any(job => !string.Equals(job.BatchId, batch.Id, StringComparison.Ordinal)))
 			throw new ImmediateJobException("Every atomic batch member must carry the committed batch identifier.");
 
 		var edgeEntities = edges.Select(ToEntity).ToArray();
@@ -1655,7 +1655,7 @@ public sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorage,
 		if (current.BatchId is not { } batchId)
 			throw new ImmediateJobException("The current job does not belong to a batch.");
 		ValidateDynamicJob(record, "Concurrent batch member");
-		if (record.BatchId != batchId)
+		if (!string.Equals(record.BatchId, batchId, StringComparison.Ordinal))
 			throw new ImmediateJobException("The new job must belong to the current job's batch.");
 		var batch = await Batches(connection)
 			.SingleAsync(item => item.Id == batchId && item.State == BatchState.Executing, cancellationToken)
@@ -1716,7 +1716,7 @@ public sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorage,
 			}
 			else if (addition.Options is ContinuationOptions.BesideContinuations or ContinuationOptions.BeforeContinuations)
 			{
-				if (current.BatchId is null || addition.Job.BatchId != current.BatchId)
+				if (current.BatchId is null || !string.Equals(addition.Job.BatchId, current.BatchId, StringComparison.Ordinal))
 					throw new ImmediateJobException("A batch-tracked continuation must belong to the current job's batch.");
 				trackedAdditions++;
 			}

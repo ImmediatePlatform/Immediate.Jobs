@@ -136,10 +136,13 @@ public static class LinqToDBSchemaExtensions
 		if (provider.Contains("PostgreSQL", StringComparison.OrdinalIgnoreCase))
 			return connection.ExecuteAsync($"CREATE SCHEMA IF NOT EXISTS \"{schema}\"", cancellationToken);
 		if (provider.Contains("SqlServer", StringComparison.OrdinalIgnoreCase))
+		{
 			return connection.ExecuteAsync(
 				$"IF SCHEMA_ID(N'{schema}') IS NULL EXEC(N'CREATE SCHEMA [{schema}]')",
 				cancellationToken
 			);
+		}
+
 		throw new NotSupportedException($"Immediate.Jobs schema bootstrap does not support provider '{provider}'.");
 	}
 
@@ -238,7 +241,7 @@ public static class LinqToDBSchemaExtensions
 		if (provider.Contains("SqlServer", StringComparison.OrdinalIgnoreCase))
 		{
 			var qualified = schema is null ? $"[dbo].[{table}]" : $"[{schema}].[{table}]";
-			var filter = name == "IX_immediate_jobs_RecurringKey" ? " WHERE [RecurringKey] IS NOT NULL" : string.Empty;
+			var filter = string.Equals(name, "IX_immediate_jobs_RecurringKey", StringComparison.Ordinal) ? " WHERE [RecurringKey] IS NOT NULL" : string.Empty;
 			return FormattableString.Invariant(
 				$"IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'{name}' AND object_id = OBJECT_ID(N'{qualified}')) CREATE {uniqueness}INDEX [{name}] ON {qualified} ({string.Join(", ", columns.Split(", ").Select(static column => $"[{column}]"))}){filter}"
 			);

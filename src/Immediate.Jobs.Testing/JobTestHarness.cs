@@ -140,7 +140,7 @@ public sealed class JobTestHarness : IAsyncDisposable, IDisposable
 	public async ValueTask<JobRecord> GetJobAsync(string jobId, CancellationToken cancellationToken = default)
 	{
 		var jobs = await Storage.QueryJobsAsync(new() { Take = 1000 }, cancellationToken).ConfigureAwait(false);
-		return jobs.FirstOrDefault(job => job.Id == jobId)
+		return jobs.FirstOrDefault(job => string.Equals(job.Id, jobId, StringComparison.Ordinal))
 			?? throw new JobTestAssertionException($"Expected job '{jobId}' to have been enqueued, but it was not found.");
 	}
 
@@ -238,7 +238,7 @@ public sealed class JobTestHarness : IAsyncDisposable, IDisposable
 	{
 		var childStatus = await Storage.GetJobStatusAsync(child.Id, cancellationToken).ConfigureAwait(false)
 			?? throw new JobTestAssertionException($"Expected continuation '{child.Id}', but it was not found.");
-		if (!childStatus.DependsOn.Any(edge => edge.ParentJobId == parent.Id))
+		if (!childStatus.DependsOn.Any(edge => string.Equals(edge.ParentJobId, parent.Id, StringComparison.Ordinal)))
 		{
 			throw new JobTestAssertionException(
 				$"Expected job '{child.Id}' to depend on '{parent.Id}', but no such edge was persisted."

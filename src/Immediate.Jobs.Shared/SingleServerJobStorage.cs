@@ -17,9 +17,7 @@ public sealed class SingleServerJobStorage :
 #pragma warning restore CA2213
 	private readonly IRecurringJobStorage _recurringDurableStorage;
 	private readonly IJobGraphStorage _graphDurableStorage;
-#pragma warning disable IDE0330 // System.Threading.Lock is unavailable on the lowest target framework.
-	private readonly object _disposeGate = new();
-#pragma warning restore IDE0330
+	private readonly Lock _disposeGate = new();
 	private InMemoryJobStorage _primary;
 	private bool _initialized;
 	private Task? _disposeTask;
@@ -561,7 +559,7 @@ public sealed class SingleServerJobStorage :
 						CompletedAt = status.CompletedAt,
 						State = status.State,
 					},
-					[.. recoveredJobs.Where(job => job.BatchId == batchId)],
+					[.. recoveredJobs.Where(job => string.Equals(job.BatchId, batchId, StringComparison.Ordinal))],
 					[.. graph.Edges.Select(ToContinuationEdge)]
 				));
 			}
@@ -618,7 +616,9 @@ public sealed class SingleServerJobStorage :
 					_ = restoredJobIds.Add(job.Id);
 				}
 				else
+				{
 					standaloneContinuations.Add(job.Id, job);
+				}
 			}
 
 			bool AreContinuationParentsRestored(JobRecord job) => recoveredIncomingEdges[job.Id].All(edge =>

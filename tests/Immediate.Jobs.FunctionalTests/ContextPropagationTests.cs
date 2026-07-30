@@ -186,8 +186,8 @@ public sealed class ContextPropagationTests
 
 		var job = Assert.Single(
 			await harness.QueryJobsAsync(cancellationToken: cancellationToken),
-			candidate => candidate.JobName == "context-cron"
-		);
+			candidate => string.Equals(candidate.JobName, "context-cron"
+, StringComparison.Ordinal));
 		Assert.Null(job.Context);
 		Assert.Equal(JobState.Succeeded, job.State);
 		Assert.Contains("cron:no-context", probe.Events);
@@ -210,7 +210,7 @@ public sealed class ContextPropagationTests
 
 		var schedule = Assert.Single(
 			(await harness.Storage.GetMonitoringSnapshotAsync(cancellationToken)).Recurring,
-			static candidate => candidate.Name == "dynamic-capture"
+			static candidate => string.Equals(candidate.Name, "dynamic-capture", StringComparison.Ordinal)
 		);
 		Assert.Equal("capture-failure", schedule.JobName);
 		Assert.Equal("0 * * * *", schedule.Cron);
@@ -221,7 +221,7 @@ public sealed class ContextPropagationTests
 		await scheduler.RemoveRecurringAsync("dynamic-capture", cancellationToken);
 		Assert.DoesNotContain(
 			(await harness.Storage.GetMonitoringSnapshotAsync(cancellationToken)).Recurring,
-			static candidate => candidate.Name == "dynamic-capture"
+			static candidate => string.Equals(candidate.Name, "dynamic-capture", StringComparison.Ordinal)
 		);
 	}
 
@@ -254,8 +254,7 @@ public sealed class ContextPropagationTests
 		await harness.AdvanceTimeAndDrainAsync(TimeSpan.FromSeconds(1), cancellationToken);
 		var recurring = Assert.Single(
 			await harness.QueryJobsAsync(cancellationToken: cancellationToken),
-			candidate => candidate.JobName == "context-cron"
-		);
+			candidate => string.Equals(candidate.JobName, "context-cron", StringComparison.Ordinal));
 
 		Assert.StartsWith("job_", job.Id, StringComparison.Ordinal);
 		Assert.StartsWith("job_", batchJob.Id, StringComparison.Ordinal);

@@ -23,7 +23,7 @@ internal static class JsonMetadataEmitter
 	{
 		var converterName = GetConverter(type);
 		var isEnum = type.TypeKind == TypeKind.Enum;
-		var usesConfiguredConverter = type.RootNamespace == "NodaTime";
+		var usesConfiguredConverter = string.Equals(type.RootNamespace, "NodaTime", StringComparison.Ordinal);
 		var collectionInfo = converterName is null ? CreateCollectionModel(type) : null;
 
 		JsonObjectRenderModel? objectInfo = null;

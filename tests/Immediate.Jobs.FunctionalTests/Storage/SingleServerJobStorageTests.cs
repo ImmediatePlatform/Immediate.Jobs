@@ -537,7 +537,7 @@ public sealed class SingleServerJobStorageTests
 
 	public interface ISingleServerDurableStorage : IRecurringJobStorage, IJobGraphStorage, IJobStorageReplica;
 
-	public class DurableStorageProxy : DispatchProxy
+	public sealed class DurableStorageProxy : DispatchProxy
 	{
 		public object Inner { get; set; } = null!;
 		public bool BlockInitialization { get; set; }
@@ -560,18 +560,18 @@ public sealed class SingleServerJobStorageTests
 		{
 			ArgumentNullException.ThrowIfNull(targetMethod);
 			ArgumentNullException.ThrowIfNull(args);
-			if (targetMethod.Name == nameof(IJobStorage.InitializeAsync) && BlockInitialization)
+			if (string.Equals(targetMethod.Name, nameof(IJobStorage.InitializeAsync), StringComparison.Ordinal) && BlockInitialization)
 			{
 				_ = InitializationEntered.TrySetResult();
 				return new ValueTask(InitializationRelease.Task);
 			}
 
-			if (targetMethod.Name == nameof(IJobStorage.SetExecutionTelemetryAsync) && FailTelemetry)
+			if (string.Equals(targetMethod.Name, nameof(IJobStorage.SetExecutionTelemetryAsync), StringComparison.Ordinal) && FailTelemetry)
 #pragma warning disable CA2012 // Reflection proxies must box the ValueTask returned by the intercepted interface method.
 				return ValueTask.FromException(new InvalidOperationException("Expected telemetry persistence failure."));
 #pragma warning restore CA2012
 
-			if (targetMethod.Name == nameof(IJobStorage.SetExecutionTelemetryAsync) && CancelTelemetry is { } cancellation)
+			if (string.Equals(targetMethod.Name, nameof(IJobStorage.SetExecutionTelemetryAsync), StringComparison.Ordinal) && CancelTelemetry is { } cancellation)
 			{
 				cancellation.Cancel();
 #pragma warning disable CA2012 // Reflection proxies must box the ValueTask returned by the intercepted interface method.
@@ -586,7 +586,7 @@ public sealed class SingleServerJobStorageTests
 				return ValueTask.CompletedTask;
 			}
 
-			if (targetMethod.Name == nameof(IJobGraphStorage.EnqueueBatchAsync) && BlockBatchEnqueue)
+			if (string.Equals(targetMethod.Name, nameof(IJobGraphStorage.EnqueueBatchAsync), StringComparison.Ordinal) && BlockBatchEnqueue)
 			{
 				CapturedBatchJobs = (IReadOnlyList<JobRecord>)args[1]!;
 				CapturedBatchEdges = (IReadOnlyList<JobContinuationEdge>)args[2]!;
@@ -594,9 +594,9 @@ public sealed class SingleServerJobStorageTests
 				return new ValueTask(BatchEnqueueRelease.Task);
 			}
 
-			if (targetMethod.Name == nameof(IJobGraphStorage.GetIncomingEdgesAsync))
+			if (string.Equals(targetMethod.Name, nameof(IJobGraphStorage.GetIncomingEdgesAsync), StringComparison.Ordinal))
 				GetIncomingEdgesCalls++;
-			if (targetMethod.Name == nameof(IJobStorage.GetJobStatusAsync))
+			if (string.Equals(targetMethod.Name, nameof(IJobStorage.GetJobStatusAsync), StringComparison.Ordinal))
 				GetJobStatusCalls++;
 
 			try
