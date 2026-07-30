@@ -1014,7 +1014,9 @@ public sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorage,
 			.OrderBy(schedule => schedule.Name)
 			.ToListAsync(cancellationToken)
 			.ConfigureAwait(false);
+		var cutoff = (_timeProvider.GetUtcNow() - TimeSpan.FromMinutes(2)).UtcTicks;
 		var serverEntities = await Servers(connection)
+			.Where(server => server.LastHeartbeat >= cutoff)
 			.OrderBy(server => server.WorkerId)
 			.ToListAsync(cancellationToken)
 			.ConfigureAwait(false);
@@ -1467,6 +1469,11 @@ public sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorage,
 	{
 		ArgumentNullException.ThrowIfNull(server);
 		await using var connection = CreateConnection();
+		var cutoff = (_timeProvider.GetUtcNow() - TimeSpan.FromMinutes(2)).UtcTicks;
+		_ = await Servers(connection)
+			.Where(entity => entity.LastHeartbeat < cutoff)
+			.DeleteAsync(cancellationToken)
+			.ConfigureAwait(false);
 		var updated = await Servers(connection)
 			.Where(entity => entity.WorkerId == server.WorkerId)
 			.Set(entity => entity.LastHeartbeat, server.LastHeartbeat.UtcTicks)
