@@ -964,8 +964,10 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 			})
 			.ToListAsync(cancellationToken)
 			.ConfigureAwait(false);
+		var cutoff = _timeProvider.GetUtcNow() - TimeSpan.FromMinutes(2);
 		var servers = await context.Set<ImmediateJobServerEntity>()
 			.AsNoTracking()
+			.Where(server => server.LastHeartbeat >= cutoff)
 			.OrderBy(server => server.WorkerId)
 			.Select(server => new JobServerSnapshot(server.WorkerId, server.LastHeartbeat, server.ActiveWorkers, server.MaxWorkers))
 			.ToListAsync(cancellationToken)
@@ -1500,6 +1502,11 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 	{
 		ArgumentNullException.ThrowIfNull(server);
 		await using var context = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+		var cutoff = _timeProvider.GetUtcNow() - TimeSpan.FromMinutes(2);
+		_ = await context.Set<ImmediateJobServerEntity>()
+			.Where(item => item.LastHeartbeat < cutoff)
+			.ExecuteDeleteAsync(cancellationToken)
+			.ConfigureAwait(false);
 		var entity = await context.Set<ImmediateJobServerEntity>().FindAsync([server.WorkerId], cancellationToken).ConfigureAwait(false);
 		if (entity is null)
 		{

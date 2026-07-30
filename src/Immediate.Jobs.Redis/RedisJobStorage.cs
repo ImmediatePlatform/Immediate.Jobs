@@ -433,6 +433,7 @@ public sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 				server.MaxWorkers,
 				Score(server.LastHeartbeat),
 				server.WorkerId,
+				(long)TimeSpan.FromMinutes(2).TotalMilliseconds,
 			],
 			cancellationToken
 		).ConfigureAwait(false);
@@ -674,12 +675,15 @@ public sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 		_ = await Task.WhenAll(tasks).WaitAsync(cancellationToken).ConfigureAwait(false);
 		return
 		[
-			.. tasks.Select((task, index) => new JobServerSnapshot(
-				(string)ids[index]!,
-				FromTicks(task.Result[0]),
-				ParseInt32(task.Result[1]),
-				ParseInt32(task.Result[2])
-			)),
+			.. tasks
+				.Select((task, index) => (Id: (string)ids[index]!, Values: task.Result))
+				.Where(static server => !server.Values[0].IsNullOrEmpty)
+				.Select(static server => new JobServerSnapshot(
+					server.Id,
+					FromTicks(server.Values[0]),
+					ParseInt32(server.Values[1]),
+					ParseInt32(server.Values[2])
+				)),
 		];
 	}
 

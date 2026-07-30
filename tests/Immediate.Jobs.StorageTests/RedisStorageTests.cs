@@ -285,6 +285,39 @@ public sealed class RedisStorageTests(RedisStorageFixture fixture)
 	}
 
 	[Fact]
+	public async Task HeartbeatExpiresServerStateAfterTheLivenessWindow()
+	{
+		var cancellationToken = TestContext.Current.CancellationToken;
+		await using var connection = await ConnectionMultiplexer.ConnectAsync(fixture.Container.GetConnectionString());
+		var timeProvider = CreateTimeProvider();
+		var options = CreateOptions();
+		using var storage = new RedisJobStorage(connection, options, timeProvider);
+		await storage.HeartbeatAsync(new("node-a", timeProvider.GetUtcNow(), 1, 8), cancellationToken);
+
+		var expiry = await connection.GetDatabase(options.Database).KeyTimeToLiveAsync(ServerKey(options, "node-a"));
+
+		Assert.InRange(Assert.NotNull(expiry), TimeSpan.FromSeconds(1), TimeSpan.FromMinutes(2));
+	}
+
+	[Fact]
+	public async Task SnapshotSkipsServersWhoseStateAlreadyExpired()
+	{
+		var cancellationToken = TestContext.Current.CancellationToken;
+		await using var connection = await ConnectionMultiplexer.ConnectAsync(fixture.Container.GetConnectionString());
+		var timeProvider = CreateTimeProvider();
+		var options = CreateOptions();
+		using var storage = new RedisJobStorage(connection, options, timeProvider);
+		var now = timeProvider.GetUtcNow();
+		await storage.HeartbeatAsync(new("node-a", now, 1, 8), cancellationToken);
+		await storage.HeartbeatAsync(new("node-b", now, 2, 8), cancellationToken);
+		_ = await connection.GetDatabase(options.Database).KeyDeleteAsync(ServerKey(options, "node-a"));
+
+		var snapshot = await storage.GetMonitoringSnapshotAsync(cancellationToken);
+
+		Assert.Equal("node-b", Assert.Single(snapshot.Servers).WorkerId);
+	}
+
+	[Fact]
 	public async Task ConcurrentRecurringMaterializationCreatesOneOccurrence()
 	{
 		var cancellationToken = TestContext.Current.CancellationToken;
@@ -418,6 +451,9 @@ public sealed class RedisStorageTests(RedisStorageFixture fixture)
 
 	private static RedisKey CompletedKey(RedisJobStorageOptions options, JobState state) =>
 		$"{{{options.KeyPrefix}}}:completed:{(int)state}";
+
+	private static RedisKey ServerKey(RedisJobStorageOptions options, string workerId) =>
+		$"{{{options.KeyPrefix}}}:server:{workerId}";
 
 	private static JobRecord CreateJob(string id, DateTimeOffset now) => new()
 	{

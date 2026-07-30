@@ -297,6 +297,24 @@ public sealed class RelationalStorageMatrixTests(StorageContainers containers)
 
 	[Theory]
 	[MemberData(nameof(Matrix))]
+	public async Task AdapterDropsServersWithoutARecentHeartbeat(DatabaseKind database, AdapterKind adapter)
+	{
+		var cancellationToken = TestContext.Current.CancellationToken;
+		await using var fixture = await CreateFixtureAsync(database, adapter, cancellationToken);
+		var storage = fixture.Storage;
+		var now = fixture.TimeProvider.GetUtcNow();
+		await storage.HeartbeatAsync(new("node-a", now, 1, 8), cancellationToken);
+		fixture.TimeProvider.Advance(TimeSpan.FromMinutes(3));
+		await storage.HeartbeatAsync(new("node-b", fixture.TimeProvider.GetUtcNow(), 2, 8), cancellationToken);
+
+		var snapshot = await storage.GetMonitoringSnapshotAsync(cancellationToken);
+
+		Assert.Equal("node-b", Assert.Single(snapshot.Servers).WorkerId);
+		Assert.Equal(1, await fixture.CountServersAsync(cancellationToken));
+	}
+
+	[Theory]
+	[MemberData(nameof(Matrix))]
 	public async Task BulkIncomingEdgesPreserveFieldsAndNormalizeInput(
 		DatabaseKind database,
 		AdapterKind adapter
@@ -852,6 +870,25 @@ public sealed class RelationalStorageMatrixTests(StorageContainers containers)
 					{Quote("CancelledCount")} = 0
 				WHERE {Quote("Id")} = '{batchId}'
 				""",
+				cancellationToken
+			);
+		}
+
+		public async ValueTask<int> CountServersAsync(CancellationToken cancellationToken)
+		{
+			var tablePrefix = database switch
+			{
+				DatabaseKind.Sqlite => string.Empty,
+				DatabaseKind.PostgreSql => $"\"{schema}\".",
+				DatabaseKind.SqlServer => $"[{schema}].",
+				_ => throw new InvalidOperationException($"Unknown matrix database '{database}'."),
+			};
+			var serverTable = tablePrefix + (database == DatabaseKind.SqlServer
+				? "[immediate_job_servers]"
+				: "\"immediate_job_servers\"");
+			await using var connection = new global::LinqToDB.Data.DataConnection(dataOptions);
+			return await connection.ExecuteAsync<int>(
+				$"SELECT COUNT(*) FROM {serverTable}",
 				cancellationToken
 			);
 		}
