@@ -392,7 +392,7 @@ public sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 		ArgumentException.ThrowIfNullOrWhiteSpace(jobId);
 		var result = await EvaluateInt64Async(
 			RedisScripts.Delete,
-			[JobKey(jobId), AllJobsKey],
+			[JobKey(jobId), AllJobsKey, RecurringDedupeKey],
 			[jobId, _root],
 			cancellationToken
 		).ConfigureAwait(false);
@@ -667,7 +667,7 @@ public sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 				var id = (string)value!;
 				_ = await EvaluateInt64Async(
 					RedisScripts.Purge,
-					[JobKey(id), CompletedKey(state), AllJobsKey, StateKey(state)],
+					[JobKey(id), CompletedKey(state), AllJobsKey, StateKey(state), RecurringDedupeKey],
 					[id, (int)state],
 					cancellationToken
 				).ConfigureAwait(false);

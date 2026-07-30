@@ -206,12 +206,14 @@ internal static class RedisScripts
 	internal const string Delete =
 		"""
 		if redis.call('EXISTS', KEYS[1]) == 0 then return 0 end
-		local state = redis.call('HGET', KEYS[1], 'state')
+		local values = redis.call('HMGET', KEYS[1], 'state', 'recurringKey')
+		local state = values[1]
 		if state ~= '5' and state ~= '6' and state ~= '7' then return -1 end
 		redis.call('DEL', KEYS[1])
 		redis.call('ZREM', KEYS[2], ARGV[1])
 		redis.call('SREM', ARGV[2] .. 'state:' .. state, ARGV[1])
 		redis.call('ZREM', ARGV[2] .. 'completed:' .. state, ARGV[1])
+		if values[2] and values[2] ~= '' then redis.call('HDEL', KEYS[3], values[2]) end
 		return 1
 		""";
 
@@ -221,7 +223,7 @@ internal static class RedisScripts
 			redis.call('ZREM', KEYS[2], ARGV[1])
 			return 0
 		end
-		local values = redis.call('HMGET', KEYS[1], 'state', 'completed')
+		local values = redis.call('HMGET', KEYS[1], 'state', 'completed', 'recurringKey')
 		if values[1] ~= ARGV[2] then
 			redis.call('ZREM', KEYS[2], ARGV[1])
 			return 0
@@ -230,6 +232,7 @@ internal static class RedisScripts
 		redis.call('ZREM', KEYS[2], ARGV[1])
 		redis.call('ZREM', KEYS[3], ARGV[1])
 		redis.call('SREM', KEYS[4], ARGV[1])
+		if values[3] and values[3] ~= '' then redis.call('HDEL', KEYS[5], values[3]) end
 		return 1
 		""";
 
@@ -313,7 +316,6 @@ internal static class RedisScripts
 		if ARGV[2] ~= '' then
 			inserted = redis.call('HSETNX', KEYS[2], ARGV[2], ARGV[3])
 		end
-		if inserted == 0 then return 0 end
 		if inserted == 1 then
 			if redis.call('EXISTS', KEYS[3]) == 1 then
 				if ARGV[2] ~= '' then redis.call('HDEL', KEYS[2], ARGV[2]) end
@@ -322,6 +324,7 @@ internal static class RedisScripts
 			redis.call('HSET', KEYS[3],
 				'record', ARGV[4], 'state', ARGV[5], 'due', ARGV[6], 'dueScore', ARGV[7],
 				'created', ARGV[22], 'dueMember', ARGV[6] .. '|' .. ARGV[22] .. '|' .. ARGV[3],
+				'recurringKey', ARGV[2],
 				'attempt', ARGV[8], 'worker', ARGV[9], 'lease', ARGV[10],
 				'error', ARGV[11], 'completed', ARGV[12],
 				'executionTraceId', ARGV[13], 'executionSpanId', ARGV[14],

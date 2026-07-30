@@ -487,6 +487,87 @@ public sealed class RedisStorageTests(RedisStorageFixture fixture)
 	}
 
 	[Fact]
+	public async Task RecurringDedupeHitAdvancesScheduleWithoutDuplicateJob()
+	{
+		var cancellationToken = TestContext.Current.CancellationToken;
+		await using var connection = await ConnectionMultiplexer.ConnectAsync(fixture.Container.GetConnectionString());
+		var timeProvider = CreateTimeProvider();
+		using var storage = new RedisJobStorage(connection, CreateOptions(), timeProvider);
+		var now = timeProvider.GetUtcNow();
+		var schedule = new RecurringJobSchedule
+		{
+			Name = "dedupe-advance",
+			JobName = "test-job",
+			Cron = "0 * * * *",
+			TimeZone = "UTC",
+			IsCodeDefined = true,
+			NextRunAt = now,
+		};
+		var recurringKey = string.Create(CultureInfo.InvariantCulture, $"{schedule.Name}:{now.UtcTicks}");
+		await storage.UpsertRecurringAsync(schedule, cancellationToken);
+		Assert.True(await storage.MaterializeRecurringAsync(
+			schedule,
+			CreateJob("dedupe-original", now) with { RecurringKey = recurringKey },
+			now.AddHours(1),
+			cancellationToken
+		));
+		await storage.UpsertRecurringAsync(schedule, cancellationToken);
+
+		Assert.False(await storage.MaterializeRecurringAsync(
+			schedule,
+			CreateJob("dedupe-duplicate", now) with { RecurringKey = recurringKey },
+			now.AddHours(1),
+			cancellationToken
+		));
+
+		var persisted = Assert.Single((await storage.GetMonitoringSnapshotAsync(cancellationToken)).Recurring);
+		Assert.Equal(now, persisted.LastRunAt);
+		Assert.Equal(now.AddHours(1), persisted.NextRunAt);
+		Assert.Null(await storage.GetJobStatusAsync("dedupe-duplicate", cancellationToken));
+		_ = Assert.Single(await storage.QueryJobsAsync(new() { Search = "test-job" }, cancellationToken));
+	}
+
+	[Fact]
+	public async Task PurgingRecurringJobRemovesItsDedupeEntry()
+	{
+		var cancellationToken = TestContext.Current.CancellationToken;
+		await using var connection = await ConnectionMultiplexer.ConnectAsync(fixture.Container.GetConnectionString());
+		var timeProvider = CreateTimeProvider();
+		var options = CreateOptions();
+		using var storage = new RedisJobStorage(connection, options, timeProvider);
+		var now = timeProvider.GetUtcNow();
+		var schedule = new RecurringJobSchedule
+		{
+			Name = "dedupe-purge",
+			JobName = "test-job",
+			Cron = "0 * * * *",
+			TimeZone = "UTC",
+			IsCodeDefined = true,
+			NextRunAt = now,
+		};
+		await storage.UpsertRecurringAsync(schedule, cancellationToken);
+		Assert.True(await storage.MaterializeRecurringAsync(
+			schedule,
+			CreateJob("purged-occurrence", now) with
+			{
+				RecurringKey = string.Create(CultureInfo.InvariantCulture, $"{schedule.Name}:{now.UtcTicks}"),
+			},
+			now.AddHours(1),
+			cancellationToken
+		));
+		_ = Assert.Single(await storage.AcquireDueJobsAsync(CreateRequest("worker", 1), cancellationToken));
+		await storage.CompleteAsync("purged-occurrence", "worker", cancellationToken);
+		var database = connection.GetDatabase(options.Database);
+		Assert.Equal(1, await database.HashLengthAsync(RecurringDedupeKey(options)));
+		timeProvider.Advance(TimeSpan.FromMilliseconds(1));
+
+		await storage.PurgeJobsAsync(TimeSpan.Zero, TimeSpan.Zero, cancellationToken);
+
+		Assert.Equal(0, await database.HashLengthAsync(RecurringDedupeKey(options)));
+		Assert.Null(await storage.GetJobStatusAsync("purged-occurrence", cancellationToken));
+	}
+
+	[Fact]
 	public async Task RecurringMaterializationPersistsSkippedOccurrenceAsCancelled()
 	{
 		var cancellationToken = TestContext.Current.CancellationToken;
@@ -579,6 +660,9 @@ public sealed class RedisStorageTests(RedisStorageFixture fixture)
 
 	private static RedisKey RecurringDueKey(RedisJobStorageOptions options) =>
 		$"{{{options.KeyPrefix}}}:recurring:due";
+
+	private static RedisKey RecurringDedupeKey(RedisJobStorageOptions options) =>
+		$"{{{options.KeyPrefix}}}:recurring:dedupe";
 
 	private static string RecurringDueMember(DateTimeOffset nextRunAt, string name) =>
 		string.Create(CultureInfo.InvariantCulture, $"{nextRunAt.UtcTicks:D19}|{name}");
