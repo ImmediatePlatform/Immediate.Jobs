@@ -11,10 +11,10 @@ internal enum ContinuationParentKind : short
 
 internal enum ContinuationParentOutcome : short
 {
-	Unsettled,
-	Succeeded,
-	Failed,
-	Other,
+	Unsettled = 0,
+	Succeeded = 1,
+	Failed = 2,
+	Other = 3,
 }
 
 [Table(Name = "immediate_job_batches")]

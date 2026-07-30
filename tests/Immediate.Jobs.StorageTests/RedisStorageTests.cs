@@ -421,6 +421,40 @@ public sealed class RedisStorageTests(RedisStorageFixture fixture)
 	}
 
 	[Fact]
+	public async Task DuplicateRecurringDueMembersForSameScheduleAreDeduplicated()
+	{
+		var cancellationToken = TestContext.Current.CancellationToken;
+		await using var connection = await ConnectionMultiplexer.ConnectAsync(fixture.Container.GetConnectionString());
+		var timeProvider = CreateTimeProvider();
+		var options = CreateOptions();
+		using var storage = new RedisJobStorage(connection, options, timeProvider);
+		var now = timeProvider.GetUtcNow();
+		var dueAt = now.AddHours(1);
+		var schedule = new RecurringJobSchedule
+		{
+			Name = "duplicate-due",
+			JobName = "test-job",
+			Cron = "0 * * * *",
+			TimeZone = "UTC",
+			IsCodeDefined = true,
+			NextRunAt = dueAt,
+		};
+		await storage.UpsertRecurringAsync(schedule, cancellationToken);
+		var database = connection.GetDatabase(options.Database);
+		_ = await database.SortedSetAddAsync(
+			RecurringDueKey(options),
+			RecurringDueMember(now, schedule.Name),
+			now.ToUnixTimeMilliseconds()
+		);
+
+		var due = Assert.Single(await storage.GetDueRecurringAsync(dueAt, 10, cancellationToken));
+
+		Assert.Equal(dueAt, due.NextRunAt);
+		var member = Assert.Single(await database.SortedSetRangeByRankAsync(RecurringDueKey(options)));
+		Assert.Equal(RecurringDueMember(dueAt, schedule.Name), (string)member!);
+	}
+
+	[Fact]
 	public async Task PauseResumeRaceKeepsOnlyTheCurrentDueMember()
 	{
 		var cancellationToken = TestContext.Current.CancellationToken;

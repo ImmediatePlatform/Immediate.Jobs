@@ -542,8 +542,9 @@ public sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 			take: batchSize
 		).WaitAsync(cancellationToken).ConfigureAwait(false);
 		var members = values.Select(static value => (string)value!).ToArray();
+		var names = members.Select(static member => member[20..]).Distinct(StringComparer.Ordinal).ToArray();
 		var schedules = await ReadRecurringAsync(
-			[.. members.Select(static member => member[20..])],
+			names,
 			cancellationToken
 		).ConfigureAwait(false);
 		var schedulesByName = schedules.ToDictionary(static schedule => schedule.Name, StringComparer.Ordinal);

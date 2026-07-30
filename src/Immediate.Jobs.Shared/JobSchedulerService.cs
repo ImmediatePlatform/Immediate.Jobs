@@ -691,7 +691,11 @@ public sealed partial class JobSchedulerService : BackgroundService
 				new() { State = JobState.Active, JobName = definition.Name, Take = 1 },
 				cancellationToken
 			).ConfigureAwait(false);
-			if (active.Count != 0)
+			var pending = await _storage.QueryJobsAsync(
+				new() { State = JobState.Pending, JobName = definition.Name, Take = 1 },
+				cancellationToken
+			).ConfigureAwait(false);
+			if (active.Count != 0 || pending.Count != 0)
 				record = record with { State = JobState.Cancelled, CompletedAt = now };
 		}
 

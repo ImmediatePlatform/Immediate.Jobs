@@ -11,6 +11,7 @@ namespace Immediate.Jobs.LinqToDB;
 /// <summary>An optimistic-concurrency LinqToDB implementation of <see cref="IJobStorage"/>.</summary>
 public sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorage, IJobStorageReplica
 {
+	private const int MaxContendedCompletionAttempts = 50;
 	private const int MaxConcurrencyAttempts = 5;
 	private const int MaxConsecutiveFailedFairClaims = 5;
 	private readonly DataOptions _dataOptions;
@@ -860,7 +861,7 @@ public sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorage,
 	)
 	{
 		ArgumentNullException.ThrowIfNull(schedule);
-		while (true)
+		for (var attempt = 0; attempt < MaxConcurrencyAttempts; attempt++)
 		{
 			await using var connection = CreateConnection();
 			var existing = await Recurring(connection).SingleOrDefaultAsync(item => item.Name == schedule.Name, cancellationToken)
@@ -892,7 +893,11 @@ public sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorage,
 			existing.ConcurrencyStamp = Guid.NewGuid();
 			if (await UpdateRecurringAsync(connection, existing, oldStamp, cancellationToken).ConfigureAwait(false))
 				return;
+			if (attempt + 1 < MaxConcurrencyAttempts)
+				await DelayConcurrencyRetryAsync(cancellationToken).ConfigureAwait(false);
 		}
+
+		throw new ImmediateJobException($"Recurring schedule '{schedule.Name}' could not be upserted under contention.");
 	}
 
 	/// <inheritdoc />
@@ -1575,7 +1580,7 @@ public sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorage,
 				cancellationToken
 			),
 			cancellationToken,
-			maxAttempts: null
+			maxAttempts: MaxContendedCompletionAttempts
 		).ConfigureAwait(false);
 		await CleanupFairQueueGroupsAsync(terminalGroups).ConfigureAwait(false);
 	}
@@ -2161,10 +2166,10 @@ public sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorage,
 	private async ValueTask RetryConcurrencyAsync(
 		Func<DataConnection, Task> operation,
 		CancellationToken cancellationToken,
-		int? maxAttempts = MaxConcurrencyAttempts
+		int maxAttempts = MaxConcurrencyAttempts
 	)
 	{
-		for (var attempt = 0; maxAttempts is null || attempt < maxAttempts.Value; attempt++)
+		for (var attempt = 0; attempt < maxAttempts; attempt++)
 		{
 			await using var connection = CreateConnection();
 			_ = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
@@ -2174,9 +2179,10 @@ public sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorage,
 				await connection.CommitTransactionAsync(cancellationToken).ConfigureAwait(false);
 				return;
 			}
-			catch (LostRaceException) when (maxAttempts is null || attempt + 1 < maxAttempts.Value)
+			catch (LostRaceException) when (attempt + 1 < maxAttempts)
 			{
 				await connection.RollbackTransactionAsync(cancellationToken).ConfigureAwait(false);
+				await DelayConcurrencyRetryAsync(cancellationToken).ConfigureAwait(false);
 			}
 			catch
 			{
@@ -2185,6 +2191,9 @@ public sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorage,
 			}
 		}
 	}
+
+	private static Task DelayConcurrencyRetryAsync(CancellationToken cancellationToken) =>
+		Task.Delay(Random.Shared.Next(1, 6), cancellationToken);
 
 	private async Task<bool> UpdateJobAsync(
 		DataConnection connection,

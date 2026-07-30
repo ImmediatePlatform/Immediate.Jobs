@@ -49,6 +49,28 @@ public sealed class RecurringSchedulerTests
 	}
 
 	[Fact]
+	public async Task OverlapSkipDetectsAPendingOccurrence()
+	{
+		var cancellationToken = TestContext.Current.CancellationToken;
+		var clock = new FakeTimeProvider(Start);
+		await using var storage = new InMemoryJobStorage(clock);
+		await storage.InitializeAsync(cancellationToken);
+		await AddPendingRecurringJob(storage, "cleanup", "cleanup:future", Start.AddHours(2), cancellationToken);
+
+		var scheduler = BuildScheduler(storage, clock, "cleanup", "0 * * * *");
+		await scheduler.DrainAsync(cancellationToken);
+		clock.SetUtcNow(Start.AddHours(1));
+		await scheduler.DrainAsync(cancellationToken);
+
+		var jobs = await storage.QueryJobsAsync(
+			new() { JobName = "cleanup", Take = 100 },
+			cancellationToken
+		);
+		var occurrence = Assert.Single(jobs, job => job.DueAt == Start.AddHours(1));
+		Assert.Equal(JobState.Cancelled, occurrence.State);
+	}
+
+	[Fact]
 	public async Task OverlapQueueAcquiresOneInvocationAtATime()
 	{
 		var cancellationToken = TestContext.Current.CancellationToken;
@@ -65,7 +87,8 @@ public sealed class RecurringSchedulerTests
 			cron: null,
 			invoker,
 			OverlapPolicy.Queue,
-			maxParallelJobs: 2
+			maxParallelJobs: 2,
+			maxAttempts: 1
 		);
 
 		await scheduler.DrainAsync(cancellationToken);
@@ -225,7 +248,8 @@ public sealed class RecurringSchedulerTests
 		string? cron,
 		IJobInvoker? invoker = null,
 		OverlapPolicy overlapPolicy = OverlapPolicy.Skip,
-		int maxParallelJobs = 1
+		int maxParallelJobs = 1,
+		int maxAttempts = 3
 	)
 	{
 		invoker ??= NoOpInvoker.Instance;
@@ -244,6 +268,7 @@ public sealed class RecurringSchedulerTests
 			Invoker = invoker,
 			JobType = invoker.GetType(),
 			OverlapPolicy = overlapPolicy,
+			MaxAttempts = maxAttempts,
 		});
 
 		var provider = services.BuildServiceProvider();

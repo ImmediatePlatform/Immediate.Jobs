@@ -16,6 +16,7 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 ) : IRecurringJobStorage, IJobGraphStorage, IJobStorageReplica
 	where TContext : DbContext
 {
+	private const int MaxConcurrencyAttempts = 5;
 	private const int MaxConsecutiveFailedFairClaims = 5;
 	private readonly TimeProvider _timeProvider = timeProvider ?? TimeProvider.System;
 
@@ -94,33 +95,15 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 		await ExecuteGraphInsertAsync(batch, jobs, edges, cancellationToken).ConfigureAwait(false);
 	}
 
-	private async ValueTask ExecuteGraphInsertAsync(
+	private ValueTask ExecuteGraphInsertAsync(
 		JobBatchRecord? batch,
 		IReadOnlyList<JobRecord> jobs,
 		IReadOnlyList<JobContinuationEdge> edges,
 		CancellationToken cancellationToken
-	)
-	{
-		const int MaxConcurrencyAttempts = 5;
-		for (var attempt = 0; attempt < MaxConcurrencyAttempts; attempt++)
-		{
-			try
-			{
-				await using var strategyContext = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
-				var strategy = strategyContext.Database.CreateExecutionStrategy();
-				await strategy.ExecuteAsync(
-					operationCancellationToken => InsertGraphCoreAsync(batch, jobs, edges, operationCancellationToken),
-					cancellationToken
-				).ConfigureAwait(false);
-				return;
-			}
-			catch (DbUpdateConcurrencyException) when (attempt + 1 < MaxConcurrencyAttempts)
-			{
-				// A parent completed while its continuation edge was being inserted. Retry so
-				// dependency evaluation observes either the edge or the terminal parent.
-			}
-		}
-	}
+	) => RetryConcurrencyAsync(
+		operationCancellationToken => InsertGraphCoreAsync(batch, jobs, edges, operationCancellationToken),
+		cancellationToken
+	);
 
 	private async Task InsertGraphCoreAsync(
 		JobBatchRecord? batch,
@@ -758,7 +741,7 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 	}
 
 	/// <inheritdoc />
-	public async ValueTask AddBatchJobAsync(
+	public ValueTask AddBatchJobAsync(
 		string currentJobId,
 		JobRecord job,
 		ContinuationOptions options,
@@ -768,28 +751,15 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 		ArgumentNullException.ThrowIfNull(job);
 		if (options == ContinuationOptions.Detached)
 			throw new ImmediateJobException("AddToBatchAsync cannot create a detached job.");
-		const int MaxConcurrencyAttempts = 5;
-		for (var attempt = 0; attempt < MaxConcurrencyAttempts; attempt++)
-		{
-			try
-			{
-				await using var strategyContext = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
-				var strategy = strategyContext.Database.CreateExecutionStrategy();
-				await strategy.ExecuteAsync(
-					operationCancellationToken => AddBatchJobCoreAsync(
-						currentJobId,
-						job,
-						options,
-						operationCancellationToken
-					),
-					cancellationToken
-				).ConfigureAwait(false);
-				return;
-			}
-			catch (DbUpdateConcurrencyException) when (attempt + 1 < MaxConcurrencyAttempts)
-			{
-			}
-		}
+		return RetryConcurrencyAsync(
+			operationCancellationToken => AddBatchJobCoreAsync(
+				currentJobId,
+				job,
+				options,
+				operationCancellationToken
+			),
+			cancellationToken
+		);
 	}
 
 	/// <inheritdoc />
@@ -1564,7 +1534,7 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 		}
 	}
 
-	private async ValueTask MutateOwnedWithDependenciesAsync(
+	private ValueTask MutateOwnedWithDependenciesAsync(
 		string jobId,
 		string workerId,
 		string? error,
@@ -1572,33 +1542,34 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 		bool succeeded,
 		IReadOnlyList<JobContinuationAddition> additions,
 		CancellationToken cancellationToken
+	) => RetryConcurrencyAsync(
+		operationCancellationToken => MutateOwnedCoreAsync(
+			jobId,
+			workerId,
+			error,
+			nextRetryAt,
+			succeeded,
+			additions,
+			operationCancellationToken
+		),
+		cancellationToken
+	);
+
+	private async ValueTask RetryConcurrencyAsync(
+		Func<CancellationToken, Task> operation,
+		CancellationToken cancellationToken
 	)
 	{
-		const int MaxConcurrencyAttempts = 5;
 		for (var attempt = 0; attempt < MaxConcurrencyAttempts; attempt++)
 		{
 			try
 			{
-				await using var strategyContext = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
-				var strategy = strategyContext.Database.CreateExecutionStrategy();
-				await strategy.ExecuteAsync(
-					operationCancellationToken => MutateOwnedCoreAsync(
-						jobId,
-						workerId,
-						error,
-						nextRetryAt,
-						succeeded,
-						additions,
-						operationCancellationToken
-					),
-					cancellationToken
-				).ConfigureAwait(false);
+				await ExecuteWithStrategyAsync(operation, cancellationToken).ConfigureAwait(false);
 				return;
 			}
 			catch (DbUpdateConcurrencyException) when (attempt + 1 < MaxConcurrencyAttempts)
 			{
-				// A competing parent completion changed a shared child or batch counter. The whole
-				// transaction rolled back, so retrying re-evaluates the graph from durable state.
+				// The transaction rolled back, so the next attempt re-evaluates the graph from durable state.
 			}
 		}
 	}
