@@ -168,6 +168,43 @@ public sealed class RelationalStorageMatrixTests(StorageContainers containers)
 
 	[Theory]
 	[MemberData(nameof(Matrix))]
+	public async Task ReclaimedLeaseRejectsStaleCompletionAndItsBufferedContinuation(
+		DatabaseKind database,
+		AdapterKind adapter
+	)
+	{
+		var cancellationToken = TestContext.Current.CancellationToken;
+		await using var fixture = await CreateFixtureAsync(database, adapter, cancellationToken);
+		var first = fixture.CreateStorage();
+		var second = fixture.CreateStorage();
+		var firstGraph = Assert.IsAssignableFrom<IJobGraphStorage>(first);
+		var now = fixture.TimeProvider.GetUtcNow();
+		await first.EnqueueAsync(CreateJob("reclaimed-parent", now), cancellationToken);
+		_ = Assert.Single(await first.AcquireDueJobsAsync(CreateRequest("node-a", 1), cancellationToken));
+		fixture.TimeProvider.Advance(TimeSpan.FromMinutes(2));
+		var reclaimed = Assert.Single(await second.AcquireDueJobsAsync(CreateRequest("node-b", 1), cancellationToken));
+
+		var exception = await Assert.ThrowsAsync<ImmediateJobException>(() =>
+			firstGraph.CompleteWithContinuationsAsync(
+				"reclaimed-parent",
+				"node-a",
+				[new()
+				{
+					Job = CreateJob("stale-continuation", fixture.TimeProvider.GetUtcNow()),
+					Options = ContinuationOptions.Detached,
+				}],
+				cancellationToken
+			).AsTask()
+		);
+
+		Assert.Contains("does not own active job", exception.Message, StringComparison.Ordinal);
+		Assert.Empty(await first.QueryJobsAsync(new() { Id = "stale-continuation" }, cancellationToken));
+		Assert.Equal("node-b", reclaimed.WorkerId);
+		Assert.Equal(JobState.Active, (await first.GetJobStatusAsync("reclaimed-parent", cancellationToken))!.State);
+	}
+
+	[Theory]
+	[MemberData(nameof(Matrix))]
 	public async Task AdapterPagesJobsWithTiedCreationTimesExactlyOnce(DatabaseKind database, AdapterKind adapter)
 	{
 		var cancellationToken = TestContext.Current.CancellationToken;

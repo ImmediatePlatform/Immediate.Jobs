@@ -1631,7 +1631,7 @@ public sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorage,
 			)
 			.ConfigureAwait(false);
 		if (job is null)
-			return;
+			throw new ImmediateJobException($"Worker '{workerId}' does not own active job '{jobId}'.");
 
 		var oldStamp = job.ConcurrencyStamp;
 		var now = _timeProvider.GetUtcNow().UtcTicks;

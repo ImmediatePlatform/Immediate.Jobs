@@ -1654,7 +1654,7 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 			.SingleOrDefaultAsync(item => item.Id == jobId && item.State == JobState.Active && item.WorkerId == workerId, cancellationToken)
 			.ConfigureAwait(false);
 		if (job is null)
-			return;
+			throw new ImmediateJobException($"Worker '{workerId}' does not own active job '{jobId}'.");
 
 		var now = _timeProvider.GetUtcNow();
 		job.WorkerId = null;
