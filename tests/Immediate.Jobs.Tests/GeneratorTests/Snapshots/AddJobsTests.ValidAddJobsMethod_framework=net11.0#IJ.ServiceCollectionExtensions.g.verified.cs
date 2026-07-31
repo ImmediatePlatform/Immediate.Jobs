@@ -4,6 +4,8 @@
 
 #pragma warning disable CS1591
 
+namespace Immediate.Jobs.Testing;
+
 public static class ImmediateJobsGeneratedServiceCollectionExtensions
 {
 	public static global::Immediate.Jobs.Shared.ImmediateJobsBuilder AddTestsJobs(
