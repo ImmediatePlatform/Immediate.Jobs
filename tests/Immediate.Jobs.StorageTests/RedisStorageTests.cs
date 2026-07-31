@@ -216,6 +216,12 @@ public sealed class RedisStorageTests(RedisStorageFixture fixture)
 		_ = await Assert.ThrowsAsync<KeyNotFoundException>(
 			() => storage.RemoveRecurringAsync("missing", cancellationToken).AsTask()
 		);
+		_ = await Assert.ThrowsAsync<KeyNotFoundException>(
+			() => storage.PauseRecurringAsync("missing", cancellationToken).AsTask()
+		);
+		_ = await Assert.ThrowsAsync<KeyNotFoundException>(
+			() => storage.ResumeRecurringAsync("missing", cancellationToken).AsTask()
+		);
 	}
 
 	[Fact]

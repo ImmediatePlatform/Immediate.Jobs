@@ -940,6 +940,12 @@ public sealed class RelationalStorageMatrixTests(StorageContainers containers)
 			() => recurringStorage.RemoveRecurringAsync("missing", cancellationToken).AsTask()
 		);
 		_ = await Assert.ThrowsAsync<KeyNotFoundException>(
+			() => recurringStorage.PauseRecurringAsync("missing", cancellationToken).AsTask()
+		);
+		_ = await Assert.ThrowsAsync<KeyNotFoundException>(
+			() => recurringStorage.ResumeRecurringAsync("missing", cancellationToken).AsTask()
+		);
+		_ = await Assert.ThrowsAsync<KeyNotFoundException>(
 			() => graphStorage.CancelBatchAsync("missing", cancellationToken).AsTask()
 		);
 		_ = await Assert.ThrowsAsync<KeyNotFoundException>(

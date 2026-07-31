@@ -244,6 +244,45 @@ public sealed class ImmediateJobsGeneratorTests
 		_ = await Utility.VerifyIgnoreImmediateHandlers(result);
 	}
 
+	[Theory]
+	[InlineData("init")]
+	[InlineData("set")]
+	public async Task RequiredPropertyBackedPayloadGeneratesCompilableMetadata(string setterKeyword)
+	{
+		var result = GeneratorTestHelper.RunGenerator(
+			$$"""
+			using Immediate.Jobs.Shared;
+			using Immediate.Handlers.Shared;
+			using System.Threading;
+			using System.Threading.Tasks;
+
+			[Handler, Job]
+			public sealed partial class PropertyBackedPayloadJob
+			{
+				public sealed record Payload
+				{
+					public required int Value { get; {{setterKeyword}}; }
+				}
+
+				private ValueTask HandleAsync(Payload payload, CancellationToken cancellationToken) =>
+					ValueTask.CompletedTask;
+			}
+			"""
+		);
+
+		Assert.Equal(
+			[
+				"Immediate.Handlers.Generators/Immediate.Handlers.Generators.ImmediateHandlersGenerator/IH..PropertyBackedPayloadJob.g.cs",
+				"Immediate.Handlers.Generators/Immediate.Handlers.Generators.ImmediateHandlersGenerator/IH.ServiceCollectionExtensions.g.cs",
+				"Immediate.Jobs.Generators/Immediate.Jobs.Generators.ImmediateJobsGenerator/IJ..PropertyBackedPayloadJob.g.cs",
+				"Immediate.Jobs.Generators/Immediate.Jobs.Generators.ImmediateJobsGenerator/IJ.ServiceCollectionExtensions.g.cs",
+			],
+			result.GeneratedTrees.Select(tree => tree.FilePath.Replace('\\', '/'))
+		);
+
+		_ = await Utility.VerifyIgnoreImmediateHandlers(result);
+	}
+
 	[Fact]
 	public async Task ContextExtractorsGenerateOrderedCaptureRestoreMetadataAndScopedRegistrations()
 	{

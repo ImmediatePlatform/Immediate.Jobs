@@ -223,10 +223,19 @@ partial class {{ class_name }}
 				{{~ if type.object_info.has_parameterless_creator ~}}
 				ObjectCreator = static () => new {{ type.type_name }}(),
 				{{~ else if type.object_info.has_parameterized_creator ~}}
+				{{~ if type.object_info.initializer_members.count == 0 ~}}
 				ObjectWithParameterizedConstructorCreator = static args => new {{ type.type_name }}({{ for parameter in type.object_info.constructor_parameters }}({{ parameter.type_name }})args[{{ parameter.index }}]{{ if !for.last }}, {{ end }}{{ end }}),
+				{{~ else ~}}
+				ObjectWithParameterizedConstructorCreator = static args => new {{ type.type_name }}({{ for parameter in type.object_info.constructor_parameters }}({{ parameter.type_name }})args[{{ parameter.index }}]{{ if !for.last }}, {{ end }}{{ end }})
+				{
+					{{~ for member in type.object_info.initializer_members ~}}
+					{{ member.name }} = ({{ member.type_name }})args[{{ member.index }}],
+					{{~ end ~}}
+				},
+				{{~ end ~}}
 				ConstructorParameterMetadataInitializer = static () => new global::System.Text.Json.Serialization.Metadata.JsonParameterInfoValues[]
 				{
-					{{~ for parameter in type.object_info.constructor_parameters ~}}
+					{{~ for parameter in type.object_info.creation_parameters ~}}
 					new() { Name = {{ parameter.name_literal }}, ParameterType = typeof({{ parameter.type_name }}), Position = {{ parameter.index }}, HasDefaultValue = {{ parameter.has_default_value_literal }}, DefaultValue = default({{ parameter.type_name }}) },
 					{{~ end ~}}
 				},

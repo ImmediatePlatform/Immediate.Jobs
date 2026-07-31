@@ -408,7 +408,6 @@ code {
 	font-size: 10px;
 	font-weight: 650;
 	letter-spacing: 0.065em;
-	text-transform: uppercase;
 }
 
 .metric-label > span {
@@ -698,12 +697,14 @@ tbody tr[data-selected="true"] td:first-child {
 }
 
 .job-detail-row > td {
+	max-width: 0;
 	padding: 0;
 	background: color-mix(in srgb, var(--panel-muted) 70%, var(--panel));
 	white-space: normal;
 }
 
 .inline-job-detail .inspector {
+	overflow: visible;
 	border: 0;
 	border-radius: 0;
 	box-shadow: none;

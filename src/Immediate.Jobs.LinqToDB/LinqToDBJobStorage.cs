@@ -942,12 +942,14 @@ public sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorage,
 	{
 		ArgumentException.ThrowIfNullOrWhiteSpace(name);
 		await using var connection = CreateConnection();
-		_ = await Recurring(connection)
+		var updated = await Recurring(connection)
 			.Where(schedule => schedule.Name == name)
 			.Set(schedule => schedule.IsPaused, paused)
 			.Set(schedule => schedule.ConcurrencyStamp, Guid.NewGuid())
 			.UpdateAsync(cancellationToken)
 			.ConfigureAwait(false);
+		if (updated == 0)
+			throw new KeyNotFoundException($"Recurring schedule '{name}' was not found.");
 	}
 
 	/// <inheritdoc />

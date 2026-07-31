@@ -976,7 +976,9 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 		cancellationToken.ThrowIfCancellationRequested();
 		lock (_gate)
 		{
-			if (!_jobs.TryGetValue(jobId, out var job) || job.State != JobState.Failed)
+			if (!_jobs.TryGetValue(jobId, out var job))
+				throw new KeyNotFoundException($"Job '{jobId}' was not found.");
+			if (job.State != JobState.Failed)
 				throw new ImmediateJobException("Only failed jobs can be retried.");
 
 			_jobs[jobId] = job with
@@ -1008,7 +1010,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 		lock (_gate)
 		{
 			if (!_jobs.TryGetValue(jobId, out var job))
-				return ValueTask.CompletedTask;
+				throw new KeyNotFoundException($"Job '{jobId}' was not found.");
 			if (!IsTerminal(job.State))
 				throw new ImmediateJobException("Only terminal jobs can be deleted.");
 			if (job.BatchId is not null)

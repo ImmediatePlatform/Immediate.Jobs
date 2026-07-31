@@ -6,6 +6,10 @@ const props = defineProps<{
 	value: number;
 }>();
 
+const formattedLabel = computed(() => {
+	const words = props.label.replace(/([a-z\d])(?=[A-Z])/g, '$1 ');
+	return words.charAt(0).toUpperCase() + words.slice(1).toLowerCase();
+});
 const formattedValue = computed(() => props.value.toLocaleString());
 </script>
 
@@ -13,7 +17,7 @@ const formattedValue = computed(() => props.value.toLocaleString());
 	<article class="metric-card" :data-state="label.toLowerCase()">
 		<div class="metric-label">
 			<span aria-hidden="true"></span>
-			{{ label }}
+			{{ formattedLabel }}
 		</div>
 		<strong :key="value">{{ formattedValue }}</strong>
 	</article>
