@@ -24,6 +24,10 @@
 
 		<Sources>
 			<Exclude>
+				<Source>.*/Immediate.Handlers.Generators/.*</Source>
+				<Source>.*/Immediate.Validations.Generators/.*</Source>
+				<Source>.*/Immediate.Apis.Generators/.*</Source>
+				<Source>.*/Microsoft.Extensions.Logging.Generators/.*</Source>
 				<Source>.*/scriban/.*</Source>
 			</Exclude>
 		</Sources>
