@@ -570,6 +570,8 @@ edges — a pipeline/graph canvas, not a list.
 
 - **Retry job** — re-runs *only* the selected failed member. Cascade-cancel is terminal, so
   downstream `Cancelled` nodes stay cancelled (see §4.4).
+- **Run now** — fast-forwards any invocation waiting in `Scheduled`, without changing its attempt
+  count or overwriting the latest failure details from an automatic retry.
 - **Retry from here** — re-materializes the failed member **and its cancelled descendants** as a
   fresh sub-DAG (new IDs, new edges) attached to the same batch, rather than resurrecting terminal
   rows. This is the "resume the workflow" action; the viewer shows the re-materialized branch as a

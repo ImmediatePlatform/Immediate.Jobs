@@ -374,6 +374,7 @@ public sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 			[
 				JobKey(jobId),
 				StateKey(JobState.Failed),
+				StateKey(JobState.Scheduled),
 				StateKey(JobState.Pending),
 				CompletedKey(JobState.Failed),
 			],
@@ -383,7 +384,7 @@ public sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 		if (result == 0)
 			throw new KeyNotFoundException($"Job '{jobId}' was not found.");
 		if (result < 0)
-			throw new ImmediateJobException("Only failed jobs can be retried.");
+			throw new ImmediateJobException("Only failed or scheduled jobs can be retried.");
 	}
 
 	/// <inheritdoc />

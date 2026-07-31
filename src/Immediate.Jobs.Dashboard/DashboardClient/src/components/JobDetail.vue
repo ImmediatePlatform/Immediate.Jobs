@@ -2,7 +2,7 @@
 import { Activity, ExternalLink, RotateCcw, ScrollText, X } from '@lucide/vue';
 
 import StateBadge from '@/components/StateBadge.vue';
-import type { JobRecord, JobTelemetryLink } from '@/contracts';
+import { canRetryJob, type JobRecord, type JobTelemetryLink } from '@/contracts';
 import { formatDate, formatJson } from '@/format';
 
 withDefaults(defineProps<{
@@ -20,6 +20,13 @@ const emit = defineEmits<{
 	close: [];
 	retry: [job: JobRecord];
 }>();
+
+function retryButtonLabel(job: JobRecord, pending: boolean): string {
+	if (pending) {
+		return 'Retrying…';
+	}
+	return job.state === 'Scheduled' ? 'Run now' : 'Retry job';
+}
 </script>
 
 <template>
@@ -38,14 +45,14 @@ const emit = defineEmits<{
 			<div class="flex items-center justify-between gap-3">
 				<StateBadge :state="job.state" />
 				<button
-					v-if="job.state === 'Failed'"
+					v-if="canRetryJob(job)"
 					class="button button-secondary"
 					type="button"
 					:disabled="pending"
 					@click="emit('retry', job)"
 				>
 					<RotateCcw :size="14" aria-hidden="true" />
-					{{ pending ? 'Retrying…' : 'Retry job' }}
+					{{ retryButtonLabel(job, pending) }}
 				</button>
 			</div>
 

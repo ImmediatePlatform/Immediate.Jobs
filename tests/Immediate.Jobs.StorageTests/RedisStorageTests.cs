@@ -201,6 +201,39 @@ public sealed class RedisStorageTests(RedisStorageFixture fixture)
 	}
 
 	[Fact]
+	public async Task RetryFastForwardsScheduledJobs()
+	{
+		var cancellationToken = TestContext.Current.CancellationToken;
+		await using var connection = await ConnectionMultiplexer.ConnectAsync(fixture.Container.GetConnectionString());
+		var timeProvider = CreateTimeProvider();
+		await using var storage = new RedisJobStorage(connection, CreateOptions(), timeProvider);
+		var job = CreateJob("scheduled-retry", timeProvider.GetUtcNow()) with
+		{
+			State = JobState.Scheduled,
+			DueAt = timeProvider.GetUtcNow().AddHours(1),
+			Attempt = 1,
+			LastError = "expected failure",
+		};
+		await storage.EnqueueAsync(job, cancellationToken);
+
+		await storage.RetryAsync(job.Id, cancellationToken);
+
+		var retried = Assert.Single(await storage.QueryJobsAsync(new() { Id = job.Id }, cancellationToken));
+		Assert.Equal(JobState.Pending, retried.State);
+		Assert.Equal(timeProvider.GetUtcNow(), retried.DueAt);
+		Assert.Equal(1, retried.Attempt);
+		Assert.Equal(job.LastError, retried.LastError);
+
+		var firstRun = job with { Id = "scheduled-first-run", Attempt = 0, LastError = null };
+		await storage.EnqueueAsync(firstRun, cancellationToken);
+		await storage.RetryAsync(firstRun.Id, cancellationToken);
+		var fastForwarded = Assert.Single(await storage.QueryJobsAsync(new() { Id = firstRun.Id }, cancellationToken));
+		Assert.Equal(JobState.Pending, fastForwarded.State);
+		Assert.Equal(timeProvider.GetUtcNow(), fastForwarded.DueAt);
+		Assert.Equal(0, fastForwarded.Attempt);
+	}
+
+	[Fact]
 	public async Task MissingDashboardActionsThrowKeyNotFoundException()
 	{
 		var cancellationToken = TestContext.Current.CancellationToken;

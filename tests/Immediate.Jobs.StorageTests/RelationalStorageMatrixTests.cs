@@ -901,6 +901,40 @@ public sealed class RelationalStorageMatrixTests(StorageContainers containers)
 
 	[Theory]
 	[MemberData(nameof(Matrix))]
+	public async Task RetryFastForwardsScheduledJobs(DatabaseKind database, AdapterKind adapter)
+	{
+		var cancellationToken = TestContext.Current.CancellationToken;
+		await using var fixture = await CreateFixtureAsync(database, adapter, cancellationToken);
+		var storage = fixture.Storage;
+		var now = fixture.TimeProvider.GetUtcNow();
+		var job = CreateJob("scheduled-retry", now) with
+		{
+			State = JobState.Scheduled,
+			DueAt = now.AddHours(1),
+			Attempt = 1,
+			LastError = "expected failure",
+		};
+		await storage.EnqueueAsync(job, cancellationToken);
+
+		await storage.RetryAsync(job.Id, cancellationToken);
+
+		var retried = Assert.Single(await storage.QueryJobsAsync(new() { Id = job.Id }, cancellationToken));
+		Assert.Equal(JobState.Pending, retried.State);
+		Assert.Equal(now, retried.DueAt);
+		Assert.Equal(1, retried.Attempt);
+		Assert.Equal(job.LastError, retried.LastError);
+
+		var firstRun = job with { Id = "scheduled-first-run", Attempt = 0, LastError = null };
+		await storage.EnqueueAsync(firstRun, cancellationToken);
+		await storage.RetryAsync(firstRun.Id, cancellationToken);
+		var fastForwarded = Assert.Single(await storage.QueryJobsAsync(new() { Id = firstRun.Id }, cancellationToken));
+		Assert.Equal(JobState.Pending, fastForwarded.State);
+		Assert.Equal(now, fastForwarded.DueAt);
+		Assert.Equal(0, fastForwarded.Attempt);
+	}
+
+	[Theory]
+	[MemberData(nameof(Matrix))]
 	public async Task EmptyBatchProgressIsFullySettled(DatabaseKind database, AdapterKind adapter)
 	{
 		var cancellationToken = TestContext.Current.CancellationToken;

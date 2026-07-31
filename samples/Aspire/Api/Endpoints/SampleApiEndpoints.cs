@@ -28,6 +28,15 @@ public static class SampleApiEndpoints
 			)
 			.Produces<FairQueueDemoResponse>(StatusCodes.Status202Accepted);
 
+		_ = endpoints.MapPost("/api/retry-demo", EnqueueRetryDemoAsync)
+			.WithName("EnqueueRetryDemo")
+			.WithSummary("Enqueues a job that succeeds on its third attempt")
+			.WithDescription(
+				"The first two attempts fail and schedule a retry five minutes later. Use Run now "
+				+ "in the Immediate.Jobs dashboard to fast-forward each scheduled retry."
+			)
+			.Produces<EnqueueJobResponse>(StatusCodes.Status202Accepted);
+
 		_ = endpoints.MapPost("/api/order-fulfillment-batches", CreateOrderBatchAsync)
 			.WithName("CreateOrderFulfillmentBatch")
 			.WithSummary("Creates a complex order-fulfillment batch")
@@ -103,6 +112,18 @@ public static class SampleApiEndpoints
 				quietJob.Id,
 				new Uri("/jobs", UriKind.Relative)
 			)
+		);
+	}
+
+	private static async ValueTask<IResult> EnqueueRetryDemoAsync(
+		ThirdAttemptSuccessJob.Scheduler scheduler,
+		CancellationToken cancellationToken
+	)
+	{
+		var job = await scheduler.EnqueueAsync(new(Guid.NewGuid()), cancellationToken);
+		return Results.Accepted(
+			"/jobs",
+			new EnqueueJobResponse(job.Id, new Uri("/jobs", UriKind.Relative))
 		);
 	}
 

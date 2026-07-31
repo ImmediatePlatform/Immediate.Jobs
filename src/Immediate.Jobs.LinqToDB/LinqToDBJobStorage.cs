@@ -1321,16 +1321,18 @@ public sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorage,
 	private async Task RetryCoreAsync(DataConnection connection, string jobId, CancellationToken cancellationToken)
 	{
 		var job = await Jobs(connection)
-			.SingleOrDefaultAsync(item => item.Id == jobId && item.State == JobState.Failed, cancellationToken)
+			.SingleOrDefaultAsync(item => item.Id == jobId &&
+				(item.State == JobState.Failed || item.State == JobState.Scheduled), cancellationToken)
 			.ConfigureAwait(false);
 		if (job is null)
 		{
 			if (await Jobs(connection).AnyAsync(item => item.Id == jobId, cancellationToken).ConfigureAwait(false))
-				throw new ImmediateJobException("Only failed jobs can be retried.");
+				throw new ImmediateJobException("Only failed or scheduled jobs can be retried.");
 			throw new KeyNotFoundException($"Job '{jobId}' was not found.");
 		}
 
-		if (job.BatchId is { } batchId)
+		var wasFailed = job.State == JobState.Failed;
+		if (wasFailed && job.BatchId is { } batchId)
 		{
 			var batch = await Batches(connection).SingleAsync(item => item.Id == batchId, cancellationToken).ConfigureAwait(false);
 			var batchStamp = batch.ConcurrencyStamp;
@@ -1348,8 +1350,12 @@ public sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorage,
 		job.DueAt = _timeProvider.GetUtcNow().UtcTicks;
 		job.WorkerId = null;
 		job.LeaseExpiresAt = null;
-		job.CompletedAt = null;
-		job.LastError = null;
+		if (wasFailed)
+		{
+			job.CompletedAt = null;
+			job.LastError = null;
+		}
+
 		job.ConcurrencyStamp = Guid.NewGuid();
 		if (!await UpdateJobAsync(connection, job, oldStamp, cancellationToken).ConfigureAwait(false))
 			throw new LostRaceException();

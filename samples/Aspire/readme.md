@@ -23,6 +23,11 @@ dotnet run --project samples/Aspire/AppHost/Immediate.Jobs.Aspire.AppHost.csproj
 
 Open the Aspire dashboard URL printed in the console, then select the `jobs-api` endpoint. It opens
 Scalar at `/scalar`. `POST /api/greetings/{name}` demonstrates captured request context.
+
+`POST /api/retry-demo` enqueues a job that intentionally fails its first two attempts, waits five
+minutes between retries, and succeeds on attempt three. Once an attempt fails, use **Run now** in
+the Immediate.Jobs dashboard to fast-forward its scheduled retry.
+
 `POST /api/order-fulfillment-batches` creates an atomic ten-job workflow with chains, parallel
 inventory/fraud/payment work, two fan-in joins, and a `Complete` audit continuation. While the
 fraud-check member runs, it uses its `JobDetails` to schedule a retry-safe eleventh member before the
@@ -54,6 +59,7 @@ The raw OpenAPI document is available at `/openapi/v1.json`. You can also enqueu
 
 ```console
 curl -X POST http://localhost:<port>/api/greetings/Ada
+curl -X POST http://localhost:<port>/api/retry-demo
 curl -X POST http://localhost:<port>/api/order-fulfillment-batches
 curl -X POST http://localhost:<port>/api/game-release-batches/Starfall
 ```

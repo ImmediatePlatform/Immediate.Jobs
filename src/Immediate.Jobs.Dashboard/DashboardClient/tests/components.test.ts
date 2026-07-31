@@ -59,6 +59,27 @@ describe('dashboard components', () => {
 		expect(dashboardStyles).toMatch(/\.inline-job-detail \.inspector\s*\{[^}]*overflow:\s*visible/s);
 	});
 
+	it('can fast-forward scheduled jobs', async () => {
+		const scheduled = {
+			...completedJob,
+			id: 'scheduled-retry',
+			jobName: 'retry-test',
+			state: 'Scheduled' as const,
+			attempt: 1,
+			completedAt: null,
+		};
+		const firstRun = { ...scheduled, id: 'scheduled-first-run', jobName: 'first-run', attempt: 0 };
+		const table = mount(JobTable, { props: { rows: [scheduled, firstRun] } });
+
+		expect(table.find('button[aria-label="Run first-run now"]').exists()).toBe(true);
+		const runNow = table.get('button[aria-label="Run retry-test now"]');
+		await runNow.trigger('click');
+		expect(table.emitted('retry')?.[0]).toEqual([scheduled]);
+
+		const detail = mount(JobDetail, { props: { job: scheduled } });
+		expect(detail.get('button.button-secondary').text()).toContain('Run now');
+	});
+
 	it.each([
 		{ groupId: null, rendersGroup: false },
 		{ groupId: '', rendersGroup: true },

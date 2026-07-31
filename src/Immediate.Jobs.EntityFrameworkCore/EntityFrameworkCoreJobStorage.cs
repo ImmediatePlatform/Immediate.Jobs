@@ -1271,7 +1271,8 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 		await using var context = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
 		await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
 		var job = await context.Set<ImmediateJobEntity>()
-			.SingleOrDefaultAsync(item => item.Id == jobId && item.State == JobState.Failed, cancellationToken)
+			.SingleOrDefaultAsync(item => item.Id == jobId &&
+				(item.State == JobState.Failed || item.State == JobState.Scheduled), cancellationToken)
 			.ConfigureAwait(false);
 		if (job is null)
 		{
@@ -1279,13 +1280,14 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 				.AnyAsync(item => item.Id == jobId, cancellationToken)
 				.ConfigureAwait(false))
 			{
-				throw new ImmediateJobException("Only failed jobs can be retried.");
+				throw new ImmediateJobException("Only failed or scheduled jobs can be retried.");
 			}
 
 			throw new KeyNotFoundException($"Job '{jobId}' was not found.");
 		}
 
-		if (job.BatchId is { } batchId)
+		var wasFailed = job.State == JobState.Failed;
+		if (wasFailed && job.BatchId is { } batchId)
 		{
 			var batch = await context.Set<ImmediateJobBatchEntity>()
 				.SingleAsync(item => item.Id == batchId, cancellationToken)
@@ -1301,8 +1303,12 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 		job.DueAt = _timeProvider.GetUtcNow();
 		job.WorkerId = null;
 		job.LeaseExpiresAt = null;
-		job.CompletedAt = null;
-		job.LastError = null;
+		if (wasFailed)
+		{
+			job.CompletedAt = null;
+			job.LastError = null;
+		}
+
 		job.ConcurrencyStamp = Guid.NewGuid();
 		try
 		{
@@ -1318,7 +1324,7 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 				throw new KeyNotFoundException($"Job '{jobId}' was not found.");
 			}
 
-			throw new ImmediateJobException("Only failed jobs can be retried.");
+			throw new ImmediateJobException("Only failed or scheduled jobs can be retried.");
 		}
 
 		await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
