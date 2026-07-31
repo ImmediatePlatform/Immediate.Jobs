@@ -247,7 +247,7 @@ public sealed class ImmediateJobsGeneratorTests
 	[Theory]
 	[InlineData("init")]
 	[InlineData("set")]
-	public void RequiredPropertyBackedPayloadGeneratesCompilableMetadata(string setterKeyword)
+	public async Task RequiredPropertyBackedPayloadGeneratesCompilableMetadata(string setterKeyword)
 	{
 		var result = GeneratorTestHelper.RunGenerator(
 			$$"""
@@ -270,14 +270,17 @@ public sealed class ImmediateJobsGeneratorTests
 			"""
 		);
 
-		var generated = Assert.Single(result.GeneratedTrees.Where(tree =>
-			tree.FilePath.EndsWith("IJ..PropertyBackedPayloadJob.g.cs", StringComparison.Ordinal)
-		));
-		Assert.Contains(
-			"Value = (int)args[0]",
-			generated.GetText(TestContext.Current.CancellationToken).ToString(),
-			StringComparison.Ordinal
+		Assert.Equal(
+			[
+				"Immediate.Handlers.Generators/Immediate.Handlers.Generators.ImmediateHandlersGenerator/IH..PropertyBackedPayloadJob.g.cs",
+				"Immediate.Handlers.Generators/Immediate.Handlers.Generators.ImmediateHandlersGenerator/IH.ServiceCollectionExtensions.g.cs",
+				"Immediate.Jobs.Generators/Immediate.Jobs.Generators.ImmediateJobsGenerator/IJ..PropertyBackedPayloadJob.g.cs",
+				"Immediate.Jobs.Generators/Immediate.Jobs.Generators.ImmediateJobsGenerator/IJ.ServiceCollectionExtensions.g.cs",
+			],
+			result.GeneratedTrees.Select(tree => tree.FilePath.Replace('\\', '/'))
 		);
+
+		_ = await Utility.VerifyIgnoreImmediateHandlers(result);
 	}
 
 	[Fact]
