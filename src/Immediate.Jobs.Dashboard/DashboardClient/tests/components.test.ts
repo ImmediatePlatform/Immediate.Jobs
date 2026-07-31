@@ -262,9 +262,16 @@ describe('dashboard components', () => {
 		const runNow = table.get('button[aria-label="Run retry-test now"]');
 		await runNow.trigger('click');
 		expect(table.emitted('retry')?.[0]).toEqual([scheduled]);
+		const cancel = table.get('button[aria-label="Cancel retry-test"]');
+		await cancel.trigger('click');
+		expect(table.emitted('cancel')?.[0]).toEqual([scheduled]);
 
 		const detail = mount(JobDetail, { props: { job: scheduled } });
-		expect(detail.get('button.button-secondary').text()).toContain('Run now');
+		expect(detail.findAll('button.button-secondary').some(button => button.text().includes('Run now'))).toBe(true);
+		const cancelDetail = detail.findAll('button.button-secondary').find(button => button.text().includes('Cancel job'));
+		expect(cancelDetail).toBeDefined();
+		await cancelDetail?.trigger('click');
+		expect(detail.emitted('cancel')?.[0]).toEqual([scheduled]);
 	});
 
 	it('shows skipped branches', () => {

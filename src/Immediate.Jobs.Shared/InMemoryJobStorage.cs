@@ -1053,6 +1053,27 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 	}
 
 	/// <inheritdoc />
+	public ValueTask CancelAsync(string jobId, CancellationToken cancellationToken = default)
+	{
+		ArgumentException.ThrowIfNullOrWhiteSpace(jobId);
+		cancellationToken.ThrowIfCancellationRequested();
+		lock (_gate)
+		{
+			if (!_jobs.TryGetValue(jobId, out var job))
+				throw new KeyNotFoundException($"Job '{jobId}' was not found.");
+			if (IsTerminal(job.State))
+				throw new ImmediateJobException("Only a non-terminal job can be cancelled.");
+
+			var now = timeProvider.GetUtcNow();
+			if (job.State == JobState.Active)
+				CompleteExecution(job, JobExecutionState.Cancelled, now);
+			TransitionToTerminal(jobId, JobState.Cancelled, error: null, now);
+		}
+
+		return ValueTask.CompletedTask;
+	}
+
+	/// <inheritdoc />
 	public ValueTask RetryAsync(string jobId, CancellationToken cancellationToken = default)
 	{
 		cancellationToken.ThrowIfCancellationRequested();

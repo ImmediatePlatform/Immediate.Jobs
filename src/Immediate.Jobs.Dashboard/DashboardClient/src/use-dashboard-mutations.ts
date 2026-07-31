@@ -3,6 +3,7 @@ import { useMutation, useQueryClient } from '@tanstack/vue-query';
 
 import {
 	cancelBatch,
+	cancelJob,
 	deleteBatch,
 	deleteJob,
 	retryJob,
@@ -14,6 +15,16 @@ import { queryKeys, refreshDashboardQueries } from '@/query';
 
 export function useJobMutations() {
 	const queryClient = useQueryClient();
+	const cancelMutation = useMutation({
+		mutationFn: cancelJob,
+		onSuccess: async (_, jobId) => {
+			notify('Job cancelled.');
+			await queryClient.invalidateQueries({ queryKey: queryKeys.job(jobId) });
+			await queryClient.invalidateQueries({ queryKey: queryKeys.batchRoot });
+			await refreshDashboardQueries(queryClient);
+		},
+		onError: (reason) => notify(errorText(reason), 'error'),
+	});
 	const retryMutation = useMutation({
 		mutationFn: retryJob,
 		onSuccess: async (_, jobId) => {
@@ -34,14 +45,19 @@ export function useJobMutations() {
 	});
 
 	return {
+		cancelJob: cancelMutation.mutateAsync,
 		retryJob: retryMutation.mutate,
 		deleteJob: deleteMutation.mutateAsync,
 		busyJobId: computed(() => {
+			if (cancelMutation.isPending.value) {
+				return cancelMutation.variables.value;
+			}
 			if (retryMutation.isPending.value) {
 				return retryMutation.variables.value;
 			}
 			return deleteMutation.isPending.value ? deleteMutation.variables.value : undefined;
 		}),
+		cancelling: cancelMutation.isPending,
 		deleting: deleteMutation.isPending,
 	};
 }

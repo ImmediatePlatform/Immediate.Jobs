@@ -47,6 +47,17 @@ public sealed class SignupService(SendWelcomeEmail.Scheduler welcomeEmail)
 string invocation ID. Consumers must not parse it or depend on its format; storage integrations may
 use another string ID scheme.
 
+Use the same generated scheduler to cancel a non-terminal invocation:
+
+```csharp
+JobHandle handle = await scheduler.EnqueueAsync(new(importId), cancellationToken);
+await scheduler.CancelAsync(handle, cancellationToken);
+```
+
+Cancellation immediately records the durable job as `Cancelled`. If a worker already owns it, the
+current in-process handler is not forcibly interrupted, but its stale completion cannot overwrite the
+cancelled state.
+
 ## Register Jobs and Execution Engine
 
 In your `Program.cs`, add a call to `services.AddXxxJobs()`, where `Xxx` is the application identifier.
@@ -83,6 +94,12 @@ await finalize.ScheduleAfterAsync(
 );
 
 BatchHandle committed = await batch.CommitAsync(cancellationToken);
+```
+
+Cancel every non-terminal member through the same batch scheduler:
+
+```csharp
+await batches.CancelAsync(committed, cancellationToken);
 ```
 
 `ContinuationTrigger.Success` is the default; `Failure` runs after every parent settles when at

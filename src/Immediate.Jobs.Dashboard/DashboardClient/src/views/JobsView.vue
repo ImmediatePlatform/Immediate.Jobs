@@ -22,6 +22,7 @@ const stateQuery = useRouteQuery<string>('state', '');
 const pageQuery = useRouteQuery<string>('page', '1');
 const debouncedSearch = refDebounced(searchQuery, 250);
 const debouncedQueue = refDebounced(queueQuery, 250);
+const cancelCandidate = ref<JobRecord>();
 const deleteCandidate = ref<JobRecord>();
 
 const selectedState = computed<JobState | ''>(() => {
@@ -83,6 +84,18 @@ async function confirmDelete(): Promise<void> {
 		// The mutation displays the API error and leaves the confirmation open.
 	}
 }
+
+async function confirmCancel(): Promise<void> {
+	if (!cancelCandidate.value) {
+		return;
+	}
+	try {
+		await jobMutations.cancelJob(cancelCandidate.value.id);
+		cancelCandidate.value = undefined;
+	} catch {
+		// The mutation displays the API error and leaves the confirmation open.
+	}
+}
 </script>
 
 <template>
@@ -120,6 +133,7 @@ async function confirmDelete(): Promise<void> {
 				:busy-job-id="jobMutations.busyJobId.value"
 				@select="openJob"
 				@open-batch="openBatch"
+				@cancel="cancelCandidate = $event"
 				@retry="(job) => jobMutations.retryJob(job.id)"
 				@delete="deleteCandidate = $event"
 			/>
@@ -135,6 +149,16 @@ async function confirmDelete(): Promise<void> {
 				</button>
 			</div>
 		</div>
+
+		<ConfirmDialog
+			:open="Boolean(cancelCandidate)"
+			title="Cancel job?"
+			:description="`This marks ${cancelCandidate?.jobName ?? 'this job'} as cancelled. Work already running may finish its current attempt.`"
+			confirm-label="Cancel job"
+			:pending="jobMutations.cancelling.value"
+			@cancel="cancelCandidate = undefined"
+			@confirm="confirmCancel"
+		/>
 
 		<ConfirmDialog
 			:open="Boolean(deleteCandidate)"

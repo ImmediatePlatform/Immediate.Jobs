@@ -48,6 +48,13 @@ export function canRetryJob(job: Pick<JobRecord, 'state'>): boolean {
 	return job.state === 'Failed' || job.state === 'Scheduled';
 }
 
+export function canCancelJob(job: Pick<JobRecord, 'state'>): boolean {
+	return job.state !== 'Succeeded'
+		&& job.state !== 'Failed'
+		&& job.state !== 'Cancelled'
+		&& job.state !== 'Skipped';
+}
+
 export interface RecurringJobSchedule {
 	name: string;
 	jobName: string;

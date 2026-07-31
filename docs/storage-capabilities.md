@@ -44,7 +44,7 @@ each `: IJobStorage`.
 
 **`IJobStorage`** (the required base = the queue capability):
 `InitializeAsync`, `EnqueueAsync`, `AcquireDueJobsAsync`, `RenewLeaseAsync`, `CompleteAsync`,
-`FailAsync`, `RetryAsync`, `DeleteAsync`, `HeartbeatAsync`, `IsHealthyAsync`, `QueryJobsAsync`,
+`FailAsync`, `CancelAsync`, `RetryAsync`, `DeleteAsync`, `HeartbeatAsync`, `IsHealthyAsync`, `QueryJobsAsync`,
 `GetJobStatusAsync`, `GetMonitoringSnapshotAsync`, and a job-history slice of `PurgeAsync` (see §3.3).
 
 **`IRecurringJobStorage`:**

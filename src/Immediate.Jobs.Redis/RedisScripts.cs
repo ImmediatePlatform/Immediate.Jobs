@@ -247,6 +247,36 @@ internal static class RedisScripts
 		return 1
 		""";
 
+	internal const string Cancel =
+		"""
+		if redis.call('EXISTS', KEYS[1]) == 0 then return 0 end
+		local values = redis.call('HMGET', KEYS[1], 'state', 'queue', 'dueMember', 'attempt',
+			'worker', 'executionStartedAt', 'executionTraceId', 'executionSpanId')
+		local state = values[1]
+		if state == '5' or state == '6' or state == '7' or state == '8' then return -1 end
+		local attempt = tonumber(values[4] or '0')
+		if state == '4' and attempt > 0 then
+			local field = tostring(attempt) .. ':'
+			if redis.call('HEXISTS', KEYS[4], field .. 'state') == 0 then
+				redis.call('ZADD', KEYS[3], attempt, attempt)
+				redis.call('HSET', KEYS[4],
+					field .. 'worker', values[5] or '', field .. 'acquired', '',
+					field .. 'started', values[6] or '', field .. 'trace', values[7] or '',
+					field .. 'span', values[8] or '', field .. 'synthetic', '1')
+			end
+			redis.call('HSET', KEYS[4],
+				field .. 'state', '3', field .. 'completed', ARGV[2], field .. 'error', '')
+		end
+		redis.call('HSET', KEYS[1],
+			'state', '7', 'worker', '', 'lease', '', 'error', '', 'completed', ARGV[2])
+		redis.call('SREM', ARGV[4] .. 'state:' .. state, ARGV[1])
+		redis.call('SADD', ARGV[4] .. 'state:7', ARGV[1])
+		redis.call('ZREM', KEYS[2], ARGV[1])
+		if values[3] then redis.call('ZREM', ARGV[4] .. 'due:' .. values[2], values[3]) end
+		redis.call('ZADD', ARGV[4] .. 'completed:7', ARGV[3], ARGV[1])
+		return 1
+		""";
+
 	internal const string Retry =
 		"""
 		if redis.call('EXISTS', KEYS[1]) == 0 then return 0 end

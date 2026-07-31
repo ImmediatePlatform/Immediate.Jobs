@@ -330,6 +330,7 @@ public sealed class DashboardPackageTests
 	[InlineData("POST", "/jobs/api/recurring/missing/resume")]
 	[InlineData("POST", "/jobs/api/batches/missing/cancel")]
 	[InlineData("DELETE", "/jobs/api/batches/missing")]
+	[InlineData("POST", "/jobs/api/jobs/missing/cancel")]
 	[InlineData("POST", "/jobs/api/jobs/missing/retry")]
 	[InlineData("DELETE", "/jobs/api/jobs/missing")]
 	public async Task InMemoryDashboardReturnsNotFoundForMissingMutationTargets(string method, string path)
@@ -350,6 +351,49 @@ public sealed class DashboardPackageTests
 		using var response = await app.GetTestClient().SendAsync(request, TestContext.Current.CancellationToken);
 
 		Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+	}
+
+	[Fact]
+	public async Task DashboardCancelsNonTerminalJob()
+	{
+		var cancellationToken = TestContext.Current.CancellationToken;
+		await using var storage = new InMemoryJobStorage(TimeProvider.System);
+		var now = TimeProvider.System.GetUtcNow();
+		await storage.EnqueueAsync(new()
+		{
+			Id = "dashboard-cancel",
+			JobName = "cancel-test",
+			Payload = "{}",
+			State = JobState.Pending,
+			DueAt = now,
+			CreatedAt = now,
+		}, cancellationToken);
+		var builder = WebApplication.CreateBuilder(new WebApplicationOptions
+		{
+			EnvironmentName = Environments.Development,
+		});
+		_ = builder.WebHost.UseTestServer();
+		_ = builder.Services.AddImmediateJobsDashboard();
+		_ = builder.Services.AddSingleton<IJobStorage>(storage);
+
+		await using var app = builder.Build();
+		_ = app.MapImmediateJobsDashboard();
+		await app.StartAsync(cancellationToken);
+
+		using var response = await app.GetTestClient().PostAsync(
+			new Uri("/jobs/api/jobs/dashboard-cancel/cancel", UriKind.Relative),
+			content: null,
+			cancellationToken
+		);
+
+		Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+		Assert.Equal(JobState.Cancelled, (await storage.GetJobStatusAsync("dashboard-cancel", cancellationToken))!.State);
+		using var conflict = await app.GetTestClient().PostAsync(
+			new Uri("/jobs/api/jobs/dashboard-cancel/cancel", UriKind.Relative),
+			content: null,
+			cancellationToken
+		);
+		Assert.Equal(HttpStatusCode.Conflict, conflict.StatusCode);
 	}
 
 	[Theory]

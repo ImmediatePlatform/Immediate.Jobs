@@ -445,6 +445,23 @@ public sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 	}
 
 	/// <inheritdoc />
+	public async ValueTask CancelAsync(string jobId, CancellationToken cancellationToken = default)
+	{
+		ArgumentException.ThrowIfNullOrWhiteSpace(jobId);
+		var now = _timeProvider.GetUtcNow();
+		var result = await EvaluateInt64Async(
+			RedisScripts.Cancel,
+			[JobKey(jobId), LeasesKey, ExecutionIndexKey(jobId), ExecutionDataKey(jobId)],
+			[jobId, Ticks(now), Score(now), _root],
+			cancellationToken
+		).ConfigureAwait(false);
+		if (result == 0)
+			throw new KeyNotFoundException($"Job '{jobId}' was not found.");
+		if (result < 0)
+			throw new ImmediateJobException("Only a non-terminal job can be cancelled.");
+	}
+
+	/// <inheritdoc />
 	public async ValueTask RetryAsync(string jobId, CancellationToken cancellationToken = default)
 	{
 		ArgumentException.ThrowIfNullOrWhiteSpace(jobId);

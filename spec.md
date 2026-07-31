@@ -319,7 +319,7 @@ Grouped by concern:
 - **Reads (dashboard/monitoring):** `GetMonitoringSnapshotAsync`, `QueryJobsAsync`,
   `QueryJobExecutionsAsync`, `GetJobStatusAsync`, `QueryBatchesAsync`, `QueryBatchMembersAsync`,
   `GetBatchStatusAsync`, `GetBatchGraphAsync`.
-- **Maintenance & health:** `RetryAsync`, `DeleteAsync`, `PurgeAsync(retention)`, `HeartbeatAsync`,
+- **Maintenance & health:** `CancelAsync`, `RetryAsync`, `DeleteAsync`, `PurgeAsync(retention)`, `HeartbeatAsync`,
   `IsHealthyAsync`, `InitializeAsync`.
 
 Single-server mode additionally uses the small `IJobStorageReplica` capability to mirror the exact set

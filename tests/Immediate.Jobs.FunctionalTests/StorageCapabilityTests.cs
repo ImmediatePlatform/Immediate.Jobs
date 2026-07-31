@@ -249,6 +249,9 @@ public sealed class StorageCapabilityTests
 			CancellationToken cancellationToken = default
 		) => _inner.GetJobStatusAsync(jobId, cancellationToken);
 
+		public ValueTask CancelAsync(string jobId, CancellationToken cancellationToken = default) =>
+			_inner.CancelAsync(jobId, cancellationToken);
+
 		public ValueTask RetryAsync(string jobId, CancellationToken cancellationToken = default) =>
 			_inner.RetryAsync(jobId, cancellationToken);
 

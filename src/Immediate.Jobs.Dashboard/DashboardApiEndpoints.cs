@@ -489,6 +489,28 @@ internal static partial class RetryDashboardJob
 }
 
 [Handler]
+[MapPost("jobs/{jobId}/cancel")]
+[MapGroup<DashboardApi>]
+internal static partial class CancelDashboardJob
+{
+	[Validate]
+	internal sealed partial record Command : IValidationTarget<Command>
+	{
+		[FromRoute]
+		[NotEmpty]
+		public required string JobId { get; init; }
+	}
+
+	private static ValueTask<IResult> HandleAsync(
+		Command command,
+		IJobStorage storage,
+		CancellationToken cancellationToken
+	) => DashboardApiEndpointOperations.MutateJobAsync(
+		() => storage.CancelAsync(command.JobId, cancellationToken)
+	);
+}
+
+[Handler]
 [MapDelete("jobs/{jobId}")]
 [MapGroup<DashboardApi>]
 internal static partial class DeleteDashboardJob
