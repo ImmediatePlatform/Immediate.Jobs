@@ -19,6 +19,15 @@ public sealed partial class ImmediateJobsGenerator : IIncrementalGenerator
 			})
 			.WithTrackingName("AssemblyDefaults");
 
+		var @namespace = context
+			.AnalyzerConfigOptionsProvider
+			.Select(
+				(c, _) => c.GlobalOptions
+					.TryGetValue("build_property.rootnamespace", out var ns)
+						? ns : ""
+			)
+			.WithTrackingName("RootNamespace");
+
 		var jobs = context.SyntaxProvider
 			.ForAttributeWithMetadataName(
 				"Immediate.Jobs.Shared.JobAttribute",
@@ -48,12 +57,13 @@ public sealed partial class ImmediateJobsGenerator : IIncrementalGenerator
 
 		var registrationsTemplate = GetTemplate("ServiceCollectionExtensions");
 		context.RegisterSourceOutput(
-			collectedJobs.Combine(queues).Combine(assemblyDefaults),
+			collectedJobs.Combine(queues).Combine(assemblyDefaults.Combine(@namespace)),
 			(productionContext, input) => RenderRegistrations(
 				productionContext,
 				input.Left.Left,
 				input.Left.Right,
-				input.Right,
+				input.Right.Left,
+				input.Right.Right,
 				registrationsTemplate
 			)
 		);

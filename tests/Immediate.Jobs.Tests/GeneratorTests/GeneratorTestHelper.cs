@@ -132,6 +132,7 @@ internal static class GeneratorTestHelper
 		new string[]
 		{
 			"AssemblyDefaults",
+			"RootNamespace",
 			"Jobs",
 			"JobsCollected",
 			"QueuesCollected",

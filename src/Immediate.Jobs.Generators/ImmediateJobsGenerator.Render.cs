@@ -50,6 +50,7 @@ public sealed partial class ImmediateJobsGenerator
 		ImmutableArray<JobModel> jobs,
 		ImmutableArray<QueueModel> queues,
 		AssemblyDefaults assemblyDefaults,
+		string @namespace,
 		Template template
 	)
 	{
@@ -73,6 +74,7 @@ public sealed partial class ImmediateJobsGenerator
 		{
 			assemblyDefaults.AssemblyName,
 			assemblyDefaults.LanguageVersion,
+			Namespace = @namespace,
 
 			Queues = queues
 				.Concat(models.Select(job => new QueueModel

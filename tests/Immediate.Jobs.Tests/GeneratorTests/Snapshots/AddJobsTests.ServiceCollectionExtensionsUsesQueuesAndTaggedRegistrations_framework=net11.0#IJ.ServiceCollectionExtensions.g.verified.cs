@@ -4,8 +4,6 @@
 
 #pragma warning disable CS1591
 
-namespace Microsoft.Extensions.DependencyInjection;
-
 public static class ImmediateJobsGeneratedServiceCollectionExtensions
 {
 	public static global::Immediate.Jobs.Shared.ImmediateJobsBuilder AddTestsJobs(
@@ -14,14 +12,17 @@ public static class ImmediateJobsGeneratedServiceCollectionExtensions
 		params global::System.ReadOnlySpan<string> tags
 	)
 	{
-		var builder = global::Microsoft.Extensions.DependencyInjection.ImmediateJobsRuntimeServiceCollectionExtensions.AddImmediateJobsCore(services, configure);
+		var builder = global::Immediate.Jobs.Shared.ImmediateJobsRuntimeServiceCollectionExtensions.AddImmediateJobsCore(services, configure);
 
-		services.AddSingleton(new global::Immediate.Jobs.Shared.JobQueueDefinition
-		{
-			Name = "critical-queue",
-			Priority = 10,
-			Concurrency = 1,
-		});
+		global::Microsoft.Extensions.DependencyInjection.ServiceCollectionServiceExtensions.AddSingleton(
+			services,
+			new global::Immediate.Jobs.Shared.JobQueueDefinition
+			{
+				Name = "critical-queue",
+				Priority = 10,
+				Concurrency = 1,
+			}
+		);
 		if (tags is [] || Intersects(tags, ["critical"]))
 		{
 		global::WorkJob.AddJob(services);

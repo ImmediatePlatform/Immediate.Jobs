@@ -1,11 +1,10 @@
 using System.Diagnostics.CodeAnalysis;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Hosting;
 
-#pragma warning disable IDE0130 // Extension methods intentionally follow the namespace of the extended type.
-namespace Microsoft.Extensions.DependencyInjection;
-#pragma warning restore IDE0130
+namespace Immediate.Jobs.Shared;
 
 /// <summary>Runtime registration methods used by generated application extensions.</summary>
 public static class ImmediateJobsRuntimeServiceCollectionExtensions
@@ -14,19 +13,19 @@ public static class ImmediateJobsRuntimeServiceCollectionExtensions
 	/// <param name="services">The service collection to which the runtime is added.</param>
 	/// <param name="configure">An optional callback that configures the runtime.</param>
 	/// <returns>A builder for selecting storage and adding runtime integrations.</returns>
-	public static Immediate.Jobs.Shared.ImmediateJobsBuilder AddImmediateJobsCore(
+	public static ImmediateJobsBuilder AddImmediateJobsCore(
 		this IServiceCollection services,
-		Action<Immediate.Jobs.Shared.ImmediateJobsOptions>? configure = null
+		Action<ImmediateJobsOptions>? configure = null
 	)
 	{
 		ArgumentNullException.ThrowIfNull(services);
 
-		var options = new Immediate.Jobs.Shared.ImmediateJobsOptions();
+		var options = new ImmediateJobsOptions();
 		configure?.Invoke(options);
 		if (options.StorageFactory is null)
 		{
 			if (options.StorageModeExplicitlySelected)
-				throw new Immediate.Jobs.Shared.ImmediateJobException("Select a durable storage provider before choosing single-server or distributed mode.");
+				throw new ImmediateJobException("Select a durable storage provider before choosing single-server or distributed mode.");
 
 			_ = options.UseInMemory();
 		}
@@ -35,32 +34,32 @@ public static class ImmediateJobsRuntimeServiceCollectionExtensions
 
 		services.TryAddSingleton(options);
 		services.TryAddSingleton(TimeProvider.System);
-		services.TryAddSingleton<Immediate.Jobs.Shared.IIdGenerator>(Immediate.Jobs.Shared.GuidIdGenerator.Instance);
-		services.TryAddSingleton<Immediate.Jobs.Shared.IJobSerializer, Immediate.Jobs.Shared.SystemTextJsonJobSerializer>();
+		services.TryAddSingleton<IIdGenerator>(GuidIdGenerator.Instance);
+		services.TryAddSingleton<IJobSerializer, SystemTextJsonJobSerializer>();
 		services.TryAddSingleton(options.CreateStorage);
 		services.TryAddSingleton(static sp =>
-			sp.GetRequiredService<Immediate.Jobs.Shared.IJobStorage>() as Immediate.Jobs.Shared.IRecurringJobStorage
+			sp.GetRequiredService<IJobStorage>() as IRecurringJobStorage
 				?? null!);
 		services.TryAddSingleton(static sp =>
-			sp.GetRequiredService<Immediate.Jobs.Shared.IJobStorage>() as Immediate.Jobs.Shared.IJobGraphStorage
+			sp.GetRequiredService<IJobStorage>() as IJobGraphStorage
 				?? null!);
-		services.TryAddScoped<Immediate.Jobs.Shared.JobBatchScheduler>();
-		services.TryAddScoped<Immediate.Jobs.Shared.IJobBatchScheduler>(static sp =>
-			sp.GetService<Immediate.Jobs.Shared.IJobGraphStorage>() is null
+		services.TryAddScoped<JobBatchScheduler>();
+		services.TryAddScoped<IJobBatchScheduler>(static sp =>
+			sp.GetService<IJobGraphStorage>() is null
 				? null!
-				: sp.GetRequiredService<Immediate.Jobs.Shared.JobBatchScheduler>());
-		services.TryAddScoped<Immediate.Jobs.Shared.JobMonitor>();
-		services.TryAddScoped<Immediate.Jobs.Shared.IJobBatchMonitor>(static sp =>
-			sp.GetService<Immediate.Jobs.Shared.IJobGraphStorage>() is null
+				: sp.GetRequiredService<JobBatchScheduler>());
+		services.TryAddScoped<JobMonitor>();
+		services.TryAddScoped<IJobBatchMonitor>(static sp =>
+			sp.GetService<IJobGraphStorage>() is null
 				? null!
-				: sp.GetRequiredService<Immediate.Jobs.Shared.JobMonitor>());
-		services.TryAddScoped<Immediate.Jobs.Shared.IJobMonitor>(static sp =>
-			sp.GetRequiredService<Immediate.Jobs.Shared.JobMonitor>());
-		_ = services.AddSingleton(Immediate.Jobs.Shared.JobQueueDefinition.Default);
-		services.TryAddSingleton<Immediate.Jobs.Shared.JobSchedulerState>();
-		services.TryAddSingleton<Immediate.Jobs.Shared.JobSchedulerService>();
+				: sp.GetRequiredService<JobMonitor>());
+		services.TryAddScoped<IJobMonitor>(static sp =>
+			sp.GetRequiredService<JobMonitor>());
+		_ = services.AddSingleton(JobQueueDefinition.Default);
+		services.TryAddSingleton<JobSchedulerState>();
+		services.TryAddSingleton<JobSchedulerService>();
 		_ = services.AddSingleton<IHostedService>(
-			static sp => sp.GetRequiredService<Immediate.Jobs.Shared.JobSchedulerService>()
+			static sp => sp.GetRequiredService<JobSchedulerService>()
 		);
 		return new(services);
 	}
@@ -69,15 +68,15 @@ public static class ImmediateJobsRuntimeServiceCollectionExtensions
 	/// <typeparam name="TGenerator">The identifier generator implementation.</typeparam>
 	/// <param name="builder">The Immediate.Jobs builder.</param>
 	/// <returns>The supplied builder.</returns>
-	public static Immediate.Jobs.Shared.ImmediateJobsBuilder UseIdGenerator<
+	public static ImmediateJobsBuilder UseIdGenerator<
 		[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TGenerator
 	>(
-		this Immediate.Jobs.Shared.ImmediateJobsBuilder builder
+		this ImmediateJobsBuilder builder
 	)
-		where TGenerator : class, Immediate.Jobs.Shared.IIdGenerator
+		where TGenerator : class, IIdGenerator
 	{
 		ArgumentNullException.ThrowIfNull(builder);
-		_ = builder.Services.Replace(ServiceDescriptor.Singleton<Immediate.Jobs.Shared.IIdGenerator, TGenerator>());
+		_ = builder.Services.Replace(ServiceDescriptor.Singleton<IIdGenerator, TGenerator>());
 		return builder;
 	}
 
@@ -87,15 +86,15 @@ public static class ImmediateJobsRuntimeServiceCollectionExtensions
 	/// <param name="failureStatus">The status reported when the check fails.</param>
 	/// <param name="tags">The tags associated with the health check.</param>
 	/// <returns>The supplied builder.</returns>
-	public static Immediate.Jobs.Shared.ImmediateJobsBuilder AddHealthCheck(
-		this Immediate.Jobs.Shared.ImmediateJobsBuilder builder,
+	public static ImmediateJobsBuilder AddHealthCheck(
+		this ImmediateJobsBuilder builder,
 		string name = "immediate-jobs",
 		HealthStatus? failureStatus = null,
 		IEnumerable<string>? tags = null
 	)
 	{
 		ArgumentNullException.ThrowIfNull(builder);
-		_ = builder.Services.AddHealthChecks().AddCheck<Immediate.Jobs.Shared.ImmediateJobsHealthCheck>(name, failureStatus, tags ?? []);
+		_ = builder.Services.AddHealthChecks().AddCheck<ImmediateJobsHealthCheck>(name, failureStatus, tags ?? []);
 		return builder;
 	}
 }
