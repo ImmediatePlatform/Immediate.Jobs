@@ -1,3 +1,6 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+
 import { flushPromises, mount } from '@vue/test-utils';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -5,11 +8,23 @@ import BatchTable from '@/components/BatchTable.vue';
 import HistoryChart from '@/components/HistoryChart.vue';
 import JobDetail from '@/components/JobDetail.vue';
 import JobTable from '@/components/JobTable.vue';
+import MetricCard from '@/components/MetricCard.vue';
 import WorkflowGraph from '@/components/WorkflowGraph.vue';
 import type { BatchGraph } from '@/contracts';
 import { completedJob, executingBatch, workflowGraph } from './fixtures';
 
+const dashboardStyles = readFileSync(resolve(process.cwd(), 'src/styles.css'), 'utf8');
+
 describe('dashboard components', () => {
+	it('renders multi-word metric labels as readable text', () => {
+		const wrapper = mount(MetricCard, {
+			props: { label: 'AwaitingContinuation', value: 3 },
+		});
+
+		expect(wrapper.get('.metric-label').text()).toBe('Awaiting continuation');
+		expect(dashboardStyles).not.toMatch(/\.metric-label\s*\{[^}]*text-transform:\s*uppercase/s);
+	});
+
 	it('renders job rows and complete payload/context details', () => {
 		const table = mount(JobTable, { props: { rows: [completedJob] } });
 		expect(table.text()).toContain('SendGreeting');
@@ -37,6 +52,11 @@ describe('dashboard components', () => {
 		expect(detail.get('a[href="https://telemetry.example/traces/4bf92f"]').attributes('target')).toBe('_blank');
 		expect(detail.get('a[aria-label="View all retry logs"]').text()).toContain('Logs');
 		expect(detail.text()).not.toContain('Observability');
+	});
+
+	it('does not clip inline job details', () => {
+		expect(dashboardStyles).toMatch(/\.job-detail-row > td\s*\{[^}]*max-width:\s*0/s);
+		expect(dashboardStyles).toMatch(/\.inline-job-detail \.inspector\s*\{[^}]*overflow:\s*visible/s);
 	});
 
 	it.each([
