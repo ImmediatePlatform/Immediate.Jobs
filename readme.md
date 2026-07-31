@@ -1,8 +1,23 @@
 # Immediate.Jobs
 
-Immediate.Jobs is a reflection-free background job scheduler for .NET 8+ built on Immediate.Handlers. A job is an `[Handler]` whose request can also be durably enqueued; a Roslyn source generator emits its typed scheduler, payload metadata, and dependency-injection registrations at compile time.
+[![NuGet](https://img.shields.io/nuget/v/Immediate.Jobs.svg?style=plastic)](https://www.nuget.org/packages/Immediate.Jobs/)
+[![GitHub release](https://img.shields.io/github/release/ImmediatePlatform/Immediate.Jobs.svg)](https://GitHub.com/ImmediatePlatform/Immediate.Jobs/releases/)
+[![GitHub license](https://img.shields.io/github/license/ImmediatePlatform/Immediate.Jobs.svg)](https://github.com/ImmediatePlatform/Immediate.Jobs/blob/master/license.txt) 
+[![GitHub issues](https://img.shields.io/github/issues/ImmediatePlatform/Immediate.Jobs.svg)](https://GitHub.com/ImmediatePlatform/Immediate.Jobs/issues/) 
+[![GitHub issues-closed](https://img.shields.io/github/issues-closed/ImmediatePlatform/Immediate.Jobs.svg)](https://GitHub.com/ImmediatePlatform/Immediate.Jobs/issues?q=is%3Aissue+is%3Aclosed) 
+[![GitHub Actions](https://github.com/ImmediatePlatform/Immediate.Jobs/actions/workflows/build.yml/badge.svg)](https://github.com/ImmediatePlatform/Immediate.Jobs/actions)
+[![Coverage Status](https://coveralls.io/repos/github/ImmediatePlatform/Immediate.Jobs/badge.svg)](https://coveralls.io/github/ImmediatePlatform/Immediate.Jobs)
+[![Docs](https://img.shields.io/badge/docs-online-brightgreen)](https://immediateplatform.dev/docs/Immediate.Jobs/introduction)
 
-> Immediate.Jobs provides **at-least-once delivery**. Every handler that performs externally visible work must be idempotent. The in-memory provider is single-node, non-durable, and intended only for development, tests, and non-critical work.
+---
+
+Immediate.Jobs is a reflection-free background job scheduler for .NET 8+ built on Immediate.Handlers. A job is an
+`[Handler]` whose request can also be durably enqueued; a Roslyn source generator emits its typed scheduler, payload
+metadata, and dependency-injection registrations at compile time.
+
+> Immediate.Jobs provides **at-least-once delivery**. Every handler that performs externally visible work must be
+idempotent. The in-memory provider is single-node, non-durable, and intended only for development, tests, and
+non-critical work.
 
 ## Define and enqueue a job
 
@@ -28,40 +43,22 @@ public sealed class SignupService(SendWelcomeEmail.Scheduler welcomeEmail)
 
 `Scheduler` is a nested generated type. The worker invokes the generated `SendWelcomeEmail.Handler`, so the same handler and its ordinary Immediate.Handlers behaviors work both inline and in the background. `[Job]` is class-only and is rejected unless the class is also marked `[Handler]`.
 
-Generated schedulers are scoped services. Resolve or inject them from a request or other DI scope so
-enqueue-time context extractors can read the same scoped state as the caller. A singleton consumer,
-such as an `IHostedService`, must create a scope for each unit of work rather than inject a generated
-scheduler directly:
-
-```csharp
-public sealed class ImportWorker(IServiceScopeFactory scopeFactory)
-{
-	public async ValueTask EnqueueAsync(Guid importId, CancellationToken cancellationToken)
-	{
-		await using var scope = scopeFactory.CreateAsyncScope();
-		var scheduler = scope.ServiceProvider.GetRequiredService<ImportJob.Scheduler>();
-		await scheduler.EnqueueAsync(new(importId), cancellationToken);
-	}
-}
-```
-
-`EnqueueAsync`, `ScheduleAsync`, `ScheduleAtAsync`, and `TriggerNowAsync` return a `JobHandle`. Its `Id` is an opaque
+`EnqueueAsync`, `ScheduleAsync`, `ScheduleAtAsync`, and `TriggerNowAsync` each return a `JobHandle`. Its `Id` is an opaque
 string invocation ID. Consumers must not parse it or depend on its format; storage integrations may
 use another string ID scheme.
 
-Applications that need Snowflake, ULID, or another identifier format can replace the singleton ID
-generator. The implementation is resolved from DI and must be thread-safe:
+## Register Jobs and Execution Engine
 
-```csharp
-services.AddMyAppJobs(options => options.UseInMemory())
-	.UseIdGenerator<SnowflakeIdGenerator>();
+In your `Program.cs`, add a call to `services.AddXxxJobs()`, where `Xxx` is the application identifier.
+By default, this is the short form of the assembly name. For example:
+* For a project named `Web`, it will be `services.AddWebJobs()`
+* For a project named `Application.Web`, it will be `services.AddApplicationWebJobs()`
 
-sealed class SnowflakeIdGenerator(ISnowflakeService snowflakes) : IIdGenerator
-{
-	public string CreateId(IdKind kind) =>
-		$"{(kind is IdKind.Job ? "job" : "batch")}_{snowflakes.GenerateSnowflakeId()}";
-}
-```
+However, this name can be overridden using `[assembly: ImmediateAssemblyIdentifier("SomeIdentifier")]`.
+
+> [!NOTE]
+> Because Jobs are based on [Immediate.Handlers](https://github.com/ImmediatePlatform/Immediate.Handlers) handlers,
+> they must be registered as well, using `services.AddXxxHandlers()`.
 
 ## Batches and continuations
 
@@ -91,8 +88,6 @@ BatchHandle committed = await batch.CommitAsync(cancellationToken);
 `ContinuationTrigger.Success` is the default; `Failure` runs after every parent settles when at
 least one failed, and `Complete` runs regardless of outcome. A running batch member can also expand its workflow through its injected
 `JobDetails`, with additions buffered until the attempt succeeds so retries do not duplicate work.
-Use `IJobBatchMonitor` and `IJobMonitor` for status, member, graph, and job reads. See
-[Batches & Continuations](docs/batches-and-continuations.md) for the complete API and semantics.
 
 ## Queues, priority, and concurrency
 
@@ -138,50 +133,11 @@ deprioritize a group only when its non-expired in-flight share exceeds the confi
 Null, empty, or whitespace group ids are ungrouped and retain the existing due-time order. Group ids
 should identify reusable tenants, not individual jobs; use `null` for ordinary ungrouped work.
 
-In-memory, EF Core, LinqToDB, and single-server storage support fair acquisition. Redis persists the
-group id but rejects fair acquisition in this release. EF applications must migrate the nullable
-`GroupId` column, `(QueueName, State, GroupId)` index, and `immediate_fair_queue_groups` table.
-LinqToDB schema bootstrap creates them for new databases; existing databases need the equivalent
-additive upgrade. See [Fair queues](docs/fair-queues.md) for the algorithm, schema, tradeoffs, and
+In-memory, EF Core, and LinqToDB support fair acquisition. Redis persists the group id but rejects fair acquisition in
+this release. EF applications must migrate the nullable `GroupId` column, `(QueueName, State, GroupId)` index, and
+`immediate_fair_queue_groups` table. LinqToDB schema bootstrap creates them for new databases; existing databases need
+the equivalent additive upgrade. See [Fair queues](docs/fair-queues.md) for the algorithm, schema, tradeoffs, and
 provider details.
-
-Register the generated application job module:
-
-```csharp
-builder.Services.AddMyAppHandlers();
-builder.Services.AddMyAppJobs(options =>
-{
-	options.UseEntityFrameworkCore<AppDbContext>(); // memory-primary single-server mode by default
-	options.MaxParallelJobs = 16;
-	options.PollingInterval = TimeSpan.FromSeconds(1);
-}).AddHealthCheck();
-```
-
-Both registration methods are generated per assembly and named after it, with `.`, `-`, and spaces
-removed: an assembly named `MyApp` produces `AddMyAppJobs`, and `Contoso.Billing.Api` produces
-`AddContosoBillingApiJobs`. Apply Immediate.Handlers'
-`[assembly: ImmediateAssemblyIdentifier("Billing")]` to choose the infix yourself. The handlers
-method comes from Immediate.Handlers and is declared in the assembly's root namespace, so a `using`
-may be required; the jobs method is declared in `Microsoft.Extensions.DependencyInjection`.
-
-`AddMyAppJobs` registers each job's scheduler, invoker, context extractors, queue definitions, and
-job definition, but **not** the handlers themselves. The worker resolves `SendWelcomeEmail.Handler`
-from DI when it executes an invocation, so an application that does not also call
-`AddMyAppHandlers()` (and `AddMyAppBehaviors()`, if it declares behaviors) will enqueue jobs
-successfully and then fail every attempt at execution time.
-
-The EF Core package adds `UseEntityFrameworkCore<TContext>()`; the LinqToDB package adds
-`UseLinqToDB(dataOptions, schema)`. A durable provider implicitly selects single-server mode: memory
-is the live authority and every transition is written through to the database for restart recovery.
-Use `options.UseSingleServer()` to state that topology explicitly, `options.UseDistributed()` to
-make the database authoritative for multi-node coordination, or `options.UseInMemory()` for a
-non-durable development store.
-
-Adding queue support introduces the required `QueueName` column on `immediate_jobs`, and invocation
-IDs are stored as strings with a maximum length of 256. Execution correlation adds nullable
-`ExecutionTraceId`, `ExecutionSpanId`, and `ExecutionStartedAt` columns. Applications using EF Core
-storage must add a migration (or recreate a development database created from an earlier draft).
-The model supplies `"default"` as the queue database default so existing rows are backfilled safely.
 
 ## Recurring work
 
@@ -216,11 +172,12 @@ await tenantCleanupScheduler.AddOrUpdateRecurringAsync("tenant-42-cleanup", "0 0
 await tenantCleanupScheduler.RemoveRecurringAsync("tenant-42-cleanup", cancellationToken);
 ```
 
-Code schedules are reconciled at startup: current definitions are re-asserted and persisted code-defined schedules that no longer exist are removed. Dynamic schedules are left unchanged and cannot replace a code-defined schedule with the same name. Storage uses a unique `(schedule name, scheduled UTC occurrence)` materialization key, so competing nodes produce one durable invocation for each occurrence.
-
 ## Immediate.Handlers behaviors for jobs
 
-Background dispatch calls the generated Immediate.Handlers handler, so jobs use the same behavior pipeline as inline requests. A job request does not need a jobs-specific base type or interface. Implement the optional `IJobRequest` capability only when the handler or a behavior needs execution metadata; the worker then populates its non-persisted `JobDetails` immediately before entering the pipeline.
+Background dispatch calls the generated Immediate.Handlers handler, so jobs use the same behavior pipeline as inline
+requests. A job request does not need a jobs-specific base type or interface. Implement the optional `IJobRequest`
+capability only when the handler or a behavior needs execution metadata; the worker then populates its non-persisted
+`JobDetails` immediately before entering the pipeline.
 
 ```csharp
 public sealed record Payload(Guid UserId, string Template) : IJobRequest
@@ -245,14 +202,18 @@ public sealed class JobLoggingBehavior<TRequest, TResponse>(ILogger<JobLoggingBe
 }
 ```
 
-The `IJobRequest` constraint keeps this global behavior out of ordinary handlers and jobs that have not opted into execution metadata. Use Immediate.Handlers `[Behaviors(...)]` directly on a job to replace assembly behaviors, or put `[Behaviors(...)]` on a reusable custom attribute for a named job pipeline. Handler behaviors execute inside the retry boundary.
+The `IJobRequest` constraint keeps this global behavior out of ordinary handlers and jobs that have not opted into
+execution metadata. Use Immediate.Handlers `[Behaviors(...)]` directly on a job to replace assembly behaviors, or put
+`[Behaviors(...)]` on a reusable custom attribute for a named job pipeline. Handler behaviors execute inside the retry
+boundary.
 
 ## Propagating scoped context
 
-Derive from `JobContextExtractor<TContext>` when a job needs request-scoped or ambient state that is not
-part of its business payload. Capture runs while enqueueing in the caller's scope; restore runs in
-the job's execution scope before the handler and its behaviors are resolved. The context value is
-serialized with generated metadata, so it remains trimming- and Native AOT-safe.
+Ambient or request-scoped context can be captured and restored to be available ambiently during job execution. Dedicated
+context extractors are used to provide this capability. An extractor must derive from `JobContextExtractor<TContext>`
+and implement the necessary `abstract` methods. The context type specified as `TContext` will be serialized as part of
+the job creation process, and deserialized and provided back to the extractor to be restored during the job execution.
+The context value is serialized with generated metadata, so it remains trimming- and Native AOT-safe.
 
 ```csharp
 // This is the durable, serializable value stored with the job.
@@ -281,11 +242,12 @@ public sealed partial class AuditUsageJob(UsageContext usage)
 }
 ```
 
-Register the application-owned holder as scoped: `builder.Services.AddScoped<UsageContext>()`.
-The generated job registrations add `UsageContextExtractor` as scoped automatically. At enqueue,
-the extractor reads the caller's `UsageContext`; at execution, it writes the deserialized snapshot
-into the new job scope's `UsageContext` before the job and its behaviors are resolved. The snapshot
-itself is persisted data passed to `Restore`, not a service resolved from DI.
+Register the application-owned holder as scoped: `builder.Services.AddScoped<UsageContext>()`, or using
+[Immediate.Injections](https://github.com/ImmediatePlatform/Immediate.Injections), by applying `[RegisterScoped]` to the
+class. The generated job registrations add `UsageContextExtractor` as scoped automatically. At enqueue, the extractor
+reads the caller's `UsageContext`; at execution, it writes the deserialized snapshot into the new job scope's
+`UsageContext` before the job and its behaviors are resolved. The snapshot itself is persisted data passed to `Restore`,
+not a service resolved from DI.
 
 For a family of jobs, put one or more extractor markers on a reusable attribute:
 
@@ -385,7 +347,12 @@ storage conformance tests.
 
 Queue-aware dispatch changes the provider acquisition seam to `AcquireDueJobsAsync(JobAcquisitionRequest, ...)`. Custom providers must honor the request's queue order, queue capacities, and per-job capacities when upgrading.
 
-## Dashboard and monitoring API
+## Monitoring API
+
+Use `IJobBatchMonitor` and `IJobMonitor` for status, member, graph, and job reads. See
+[Batches & Continuations](docs/batches-and-continuations.md) for the complete API and semantics.
+
+## Dashboard and Monitoring Web API
 
 Reference `Immediate.Jobs.Dashboard`, then map it after building the app:
 
