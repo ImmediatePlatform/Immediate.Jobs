@@ -23,7 +23,7 @@ describe('dashboard API client', () => {
 		await cancelJob('job/one');
 
 		const requestedUrl = new URL(String(fetchMock.mock.calls[0]?.[0]));
-		expect(requestedUrl.pathname.endsWith('/api/jobs/job%2Fone')).toBe(true);
+		expect(requestedUrl.pathname.endsWith('/api/jobs/job%2Fone/cancel')).toBe(true);
 		expect(fetchMock.mock.calls[0]?.[1]).toEqual(expect.objectContaining({ method: 'POST' }));
 	});
 

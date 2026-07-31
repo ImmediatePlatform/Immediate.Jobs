@@ -489,7 +489,7 @@ internal static partial class RetryDashboardJob
 }
 
 [Handler]
-[MapPost("jobs/{jobId}")]
+[MapPost("jobs/{jobId}/cancel")]
 [MapGroup<DashboardApi>]
 internal static partial class CancelDashboardJob
 {
