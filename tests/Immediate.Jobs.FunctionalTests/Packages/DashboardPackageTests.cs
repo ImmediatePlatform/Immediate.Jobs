@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Net;
 using System.Text.Json;
 using Immediate.Jobs.Dashboard;
@@ -35,7 +36,7 @@ public sealed class DashboardPackageTests
 	}
 
 	[Fact]
-	public async Task JobTelemetryApiBuildsConfiguredExternalLinks()
+	public async Task JobAndExecutionTelemetryApisSupplyTheExpectedCallbackContext()
 	{
 		const string JobId = "job:with retries";
 		const string TraceId = "4bf92f3577b34da6a3ce929d0e0e4736";
@@ -66,36 +67,215 @@ public sealed class DashboardPackageTests
 		_ = app.MapImmediateJobsDashboard(configure: options =>
 		{
 			_ = options.AddTelemetryLink(
-				"View latest trace",
+				"View execution trace",
+				JobTelemetryLinkKind.Trace,
+				context => context.Execution?.ExecutionTraceId is { } traceId
+					? new($"https://traces.example/trace/{traceId}")
+					: null
+			);
+			_ = options.AddTelemetryLink(
+				"View execution logs",
+				JobTelemetryLinkKind.Logs,
+				context => context.Execution is { } execution
+					? new(string.Create(
+						CultureInfo.InvariantCulture,
+						$"https://logs.example/search?jobId={Uri.EscapeDataString(context.Job.Id)}&attempt={execution.Attempt}"
+					))
+					: null
+			);
+			_ = options.AddTelemetryLink(
+				"View all retry logs",
+				JobTelemetryLinkKind.Logs,
+				context => context.Execution is null
+					? new($"https://logs.example/search?jobId={Uri.EscapeDataString(context.Job.Id)}")
+					: null
+			);
+		});
+		await app.StartAsync(TestContext.Current.CancellationToken);
+
+		using var jobResponse = await app.GetTestClient().GetAsync(
+			new Uri($"/jobs/api/jobs/{Uri.EscapeDataString(JobId)}/telemetry-links", UriKind.Relative),
+			TestContext.Current.CancellationToken
+		);
+
+		_ = jobResponse.EnsureSuccessStatusCode();
+		using var jobDocument = JsonDocument.Parse(
+			await jobResponse.Content.ReadAsStringAsync(TestContext.Current.CancellationToken)
+		);
+		var jobLink = Assert.Single(jobDocument.RootElement.EnumerateArray());
+		Assert.Equal("View all retry logs", jobLink.GetProperty("label").GetString());
+		Assert.Contains("job%3Awith%20retries", jobLink.GetProperty("url").GetString(), StringComparison.Ordinal);
+
+		using var executionResponse = await app.GetTestClient().GetAsync(
+			new Uri($"/jobs/api/jobs/{Uri.EscapeDataString(JobId)}/executions/3/telemetry-links", UriKind.Relative),
+			TestContext.Current.CancellationToken
+		);
+		_ = executionResponse.EnsureSuccessStatusCode();
+		using var executionDocument = JsonDocument.Parse(
+			await executionResponse.Content.ReadAsStringAsync(TestContext.Current.CancellationToken)
+		);
+		var executionLinks = executionDocument.RootElement.EnumerateArray().ToArray();
+		Assert.Equal(2, executionLinks.Length);
+		Assert.Equal("View execution trace", executionLinks[0].GetProperty("label").GetString());
+		Assert.Equal("Trace", executionLinks[0].GetProperty("kind").GetString());
+		Assert.Equal($"https://traces.example/trace/{TraceId}", executionLinks[0].GetProperty("url").GetString());
+		Assert.Equal("View execution logs", executionLinks[1].GetProperty("label").GetString());
+		Assert.Contains("attempt=3", executionLinks[1].GetProperty("url").GetString(), StringComparison.Ordinal);
+
+		using var pageResponse = await app.GetTestClient().GetAsync(
+			new Uri($"/jobs/api/jobs/{Uri.EscapeDataString(JobId)}/executions?skip=0&take=1", UriKind.Relative),
+			TestContext.Current.CancellationToken
+		);
+		_ = pageResponse.EnsureSuccessStatusCode();
+		using var pageDocument = JsonDocument.Parse(
+			await pageResponse.Content.ReadAsStringAsync(TestContext.Current.CancellationToken)
+		);
+		var execution = Assert.Single(pageDocument.RootElement.GetProperty("items").EnumerateArray());
+		Assert.Equal(3, execution.GetProperty("attempt").GetInt32());
+		Assert.True(execution.GetProperty("isSynthetic").GetBoolean());
+		Assert.False(pageDocument.RootElement.GetProperty("hasNext").GetBoolean());
+	}
+
+	[Fact]
+	public async Task ExactExecutionTelemetryScopesLegacyJobProjectionToTheSelectedAttempt()
+	{
+		const string JobId = "job:legacy telemetry callback";
+		const string FirstTraceId = "11111111111111111111111111111111";
+		const string FirstSpanId = "1111111111111111";
+		const string LatestTraceId = "22222222222222222222222222222222";
+		const string LatestSpanId = "2222222222222222";
+		var cancellationToken = TestContext.Current.CancellationToken;
+		var now = TimeProvider.System.GetUtcNow();
+		await using var storage = new InMemoryJobStorage(TimeProvider.System);
+		await storage.EnqueueAsync(new()
+		{
+			Id = JobId,
+			JobName = "SendGreeting",
+			Payload = "{}",
+			State = JobState.Pending,
+			DueAt = now,
+			CreatedAt = now,
+		}, cancellationToken);
+		var request = new JobAcquisitionRequest
+		{
+			WorkerId = "worker",
+			Lease = TimeSpan.FromMinutes(1),
+			BatchSize = 1,
+			Queues =
+			[
+				new()
+				{
+					QueueName = JobQueueDefinition.DefaultName,
+					Capacity = 1,
+					JobCapacities = new Dictionary<string, int> { ["SendGreeting"] = 1 },
+				},
+			],
+		};
+		var first = Assert.Single(await storage.AcquireDueJobsAsync(request, cancellationToken));
+		await storage.SetExecutionTelemetryAsync(
+			JobId,
+			first.Attempt,
+			"worker",
+			FirstTraceId,
+			FirstSpanId,
+			now,
+			cancellationToken
+		);
+		await storage.FailAsync(JobId, first.Attempt, "worker", "first failure", now, cancellationToken);
+		var latest = Assert.Single(await storage.AcquireDueJobsAsync(request, cancellationToken));
+		await storage.SetExecutionTelemetryAsync(
+			JobId,
+			latest.Attempt,
+			"worker",
+			LatestTraceId,
+			LatestSpanId,
+			now.AddSeconds(1),
+			cancellationToken
+		);
+		await storage.CompleteAsync(JobId, latest.Attempt, "worker", cancellationToken);
+
+		var builder = WebApplication.CreateBuilder(new WebApplicationOptions
+		{
+			EnvironmentName = Environments.Development,
+		});
+		_ = builder.WebHost.UseTestServer();
+		_ = builder.Services.AddSingleton<IJobStorage>(storage);
+		await using var app = builder.Build();
+		_ = app.MapImmediateJobsDashboard(configure: options =>
+		{
+			_ = options.AddTelemetryLink(
+				"Legacy trace callback",
 				JobTelemetryLinkKind.Trace,
 				context => context.Job.ExecutionTraceId is { } traceId
 					? new($"https://traces.example/trace/{traceId}")
 					: null
 			);
 			_ = options.AddTelemetryLink(
-				"View all retry logs",
+				"Legacy attempt callback",
 				JobTelemetryLinkKind.Logs,
-				context => new($"https://logs.example/search?jobId={Uri.EscapeDataString(context.Job.Id)}")
+				context => new(string.Create(
+					CultureInfo.InvariantCulture,
+					$"https://logs.example/search?attempt={context.Job.Attempt}&span={context.Job.ExecutionSpanId}"
+				))
 			);
 		});
+		await app.StartAsync(cancellationToken);
+
+		using var executionResponse = await app.GetTestClient().GetAsync(
+			new Uri($"/jobs/api/jobs/{Uri.EscapeDataString(JobId)}/executions/1/telemetry-links", UriKind.Relative),
+			cancellationToken
+		);
+		_ = executionResponse.EnsureSuccessStatusCode();
+		using var executionDocument = JsonDocument.Parse(await executionResponse.Content.ReadAsStringAsync(cancellationToken));
+		var executionLinks = executionDocument.RootElement.EnumerateArray().ToArray();
+		Assert.Equal($"https://traces.example/trace/{FirstTraceId}", executionLinks[0].GetProperty("url").GetString());
+		Assert.Contains("attempt=1", executionLinks[1].GetProperty("url").GetString(), StringComparison.Ordinal);
+		Assert.Contains($"span={FirstSpanId}", executionLinks[1].GetProperty("url").GetString(), StringComparison.Ordinal);
+
+		using var jobResponse = await app.GetTestClient().GetAsync(
+			new Uri($"/jobs/api/jobs/{Uri.EscapeDataString(JobId)}/telemetry-links", UriKind.Relative),
+			cancellationToken
+		);
+		_ = jobResponse.EnsureSuccessStatusCode();
+		using var jobDocument = JsonDocument.Parse(await jobResponse.Content.ReadAsStringAsync(cancellationToken));
+		var jobLinks = jobDocument.RootElement.EnumerateArray().ToArray();
+		Assert.Equal($"https://traces.example/trace/{LatestTraceId}", jobLinks[0].GetProperty("url").GetString());
+		Assert.Contains("attempt=2", jobLinks[1].GetProperty("url").GetString(), StringComparison.Ordinal);
+		Assert.Contains($"span={LatestSpanId}", jobLinks[1].GetProperty("url").GetString(), StringComparison.Ordinal);
+	}
+
+	[Theory]
+	[InlineData("/jobs/api/jobs/missing/executions", HttpStatusCode.NotFound)]
+	[InlineData("/jobs/api/jobs/missing/executions/1/telemetry-links", HttpStatusCode.NotFound)]
+	[InlineData("/jobs/api/jobs/job/executions?skip=-1", HttpStatusCode.BadRequest)]
+	[InlineData("/jobs/api/jobs/job/executions?take=0", HttpStatusCode.BadRequest)]
+	public async Task ExecutionApiValidatesPagingAndMissingResources(string path, HttpStatusCode expectedStatus)
+	{
+		await using var storage = new InMemoryJobStorage(TimeProvider.System);
+		await storage.EnqueueAsync(new()
+		{
+			Id = "job",
+			JobName = "validation",
+			Payload = "{}",
+			State = JobState.Pending,
+			DueAt = DateTimeOffset.UnixEpoch,
+			CreatedAt = DateTimeOffset.UnixEpoch,
+		}, TestContext.Current.CancellationToken);
+		var builder = WebApplication.CreateBuilder(new WebApplicationOptions
+		{
+			EnvironmentName = Environments.Development,
+		});
+		_ = builder.WebHost.UseTestServer();
+		_ = builder.Services.AddSingleton<IJobStorage>(storage);
+		await using var app = builder.Build();
+		_ = app.MapImmediateJobsDashboard();
 		await app.StartAsync(TestContext.Current.CancellationToken);
 
 		using var response = await app.GetTestClient().GetAsync(
-			new Uri($"/jobs/api/jobs/{Uri.EscapeDataString(JobId)}/telemetry-links", UriKind.Relative),
+			new Uri(path, UriKind.Relative),
 			TestContext.Current.CancellationToken
 		);
-
-		_ = response.EnsureSuccessStatusCode();
-		using var document = JsonDocument.Parse(
-			await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken)
-		);
-		var links = document.RootElement.EnumerateArray().ToArray();
-		Assert.Equal(2, links.Length);
-		Assert.Equal("View latest trace", links[0].GetProperty("label").GetString());
-		Assert.Equal("Trace", links[0].GetProperty("kind").GetString());
-		Assert.Equal($"https://traces.example/trace/{TraceId}", links[0].GetProperty("url").GetString());
-		Assert.Equal("View all retry logs", links[1].GetProperty("label").GetString());
-		Assert.Contains("job%3Awith%20retries", links[1].GetProperty("url").GetString(), StringComparison.Ordinal);
+		Assert.Equal(expectedStatus, response.StatusCode);
 	}
 
 	[Fact]

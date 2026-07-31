@@ -7,7 +7,7 @@ describe('dashboard routes', () => {
 	it('resolves shareable job and batch detail routes', async () => {
 		const router = createRouter({ history: createMemoryHistory(), routes });
 		await router.push('/invocations/redis:jobs:opaque?state=Failed&page=3');
-		expect(router.currentRoute.value.name).toBe('jobs');
+		expect(router.currentRoute.value.name).toBe('job-detail');
 		expect(router.currentRoute.value.params.jobId).toBe('redis:jobs:opaque');
 		expect(router.currentRoute.value.query).toMatchObject({ state: 'Failed', page: '3' });
 
@@ -26,7 +26,7 @@ describe('dashboard routes', () => {
 		expect(router.currentRoute.value.name).toBe('overview');
 	});
 
-	it('lets inline job details control scrolling within their current view', async () => {
+	it('starts dedicated job pages at the top and preserves inline batch scrolling', async () => {
 		const scrollBehavior = dashboardRouter.options.scrollBehavior;
 		expect(scrollBehavior).toBeDefined();
 		if (!scrollBehavior) {
@@ -44,7 +44,7 @@ describe('dashboard routes', () => {
 			null,
 		);
 
-		expect(jobsScroll).toBe(false);
+		expect(jobsScroll).toEqual({ top: 0 });
 		expect(batchScroll).toBe(false);
 	});
 });

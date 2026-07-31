@@ -2,6 +2,7 @@ import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
 
 import BatchDetailView from '@/views/BatchDetailView.vue';
 import BatchesView from '@/views/BatchesView.vue';
+import JobDetailView from '@/views/JobDetailView.vue';
 import JobsView from '@/views/JobsView.vue';
 import OverviewView from '@/views/OverviewView.vue';
 import RecurringView from '@/views/RecurringView.vue';
@@ -15,10 +16,16 @@ export const routes: RouteRecordRaw[] = [
 		meta: { title: 'Overview' },
 	},
 	{
-		path: '/invocations/:jobId?',
+		path: '/invocations',
 		name: 'jobs',
 		component: JobsView,
 		meta: { title: 'Jobs' },
+	},
+	{
+		path: '/invocations/:jobId',
+		name: 'job-detail',
+		component: JobDetailView,
+		meta: { title: 'Job details' },
 	},
 	{
 		path: '/batches/:batchId/jobs/:jobId',
@@ -66,8 +73,7 @@ export const router = createRouter({
 		if (savedPosition) {
 			return savedPosition;
 		}
-		if ((to.name === 'jobs' && from.name === 'jobs')
-			|| (batchDetailRouteNames.has(String(to.name)) && batchDetailRouteNames.has(String(from.name)))) {
+		if (batchDetailRouteNames.has(String(to.name)) && batchDetailRouteNames.has(String(from.name))) {
 			return false;
 		}
 		if (to.path !== from.path) {

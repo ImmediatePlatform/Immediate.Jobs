@@ -1,8 +1,8 @@
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Time.Testing;
 using System.Globalization;
 using System.Reflection;
 using System.Runtime.ExceptionServices;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Time.Testing;
 
 namespace Immediate.Jobs.FunctionalTests.Storage;
 
@@ -301,7 +301,7 @@ public sealed class SingleServerJobStorageTests
 		var startedAt = timeProvider.GetUtcNow();
 		await storage.SetExecutionTelemetryAsync(
 			job.Id,
-			"worker",
+			1, "worker",
 			"4bf92f3577b34da6a3ce929d0e0e4736",
 			"00f067aa0ba902b7",
 			startedAt,
@@ -313,6 +313,16 @@ public sealed class SingleServerJobStorageTests
 		Assert.Equal(primaryJob.ExecutionTraceId, durableJob.ExecutionTraceId);
 		Assert.Equal(primaryJob.ExecutionSpanId, durableJob.ExecutionSpanId);
 		Assert.Equal(primaryJob.ExecutionStartedAt, durableJob.ExecutionStartedAt);
+		var primaryExecution = Assert.Single(await storage.PrimaryStorage.QueryJobExecutionsAsync(
+			new() { JobId = job.Id },
+			cancellationToken
+		));
+		var durableExecution = Assert.Single(await storage.QueryJobExecutionsAsync(
+			new() { JobId = job.Id },
+			cancellationToken
+		));
+		Assert.Equal(primaryExecution, durableExecution);
+		Assert.Equal(JobExecutionState.Active, durableExecution.State);
 	}
 
 	[Fact]
@@ -473,6 +483,23 @@ public sealed class SingleServerJobStorageTests
 		Assert.Equal(recovered.State, durableRecord.State);
 		Assert.Equal(recovered.Attempt, durableRecord.Attempt);
 		Assert.Equal(recovered.WorkerId, durableRecord.WorkerId);
+		var executions = await restartedProcess.QueryJobExecutionsAsync(
+			new() { JobId = job.Id },
+			cancellationToken
+		);
+		Assert.Collection(
+			executions,
+			execution =>
+			{
+				Assert.Equal(2, execution.Attempt);
+				Assert.Equal(JobExecutionState.Active, execution.State);
+			},
+			execution =>
+			{
+				Assert.Equal(1, execution.Attempt);
+				Assert.Equal(JobExecutionState.Interrupted, execution.State);
+			}
+		);
 	}
 
 	[Fact]
@@ -583,7 +610,7 @@ public sealed class SingleServerJobStorageTests
 			if (string.Equals(targetMethod.Name, nameof(IJobStorage.FailAsync), StringComparison.Ordinal) && CaptureFailures)
 			{
 				CapturedFailedJobId = (string)args[0]!;
-				CapturedFailure = (string)args[2]!;
+				CapturedFailure = (string)args[3]!;
 				return ValueTask.CompletedTask;
 			}
 

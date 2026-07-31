@@ -15,11 +15,40 @@ public static class ImmediateJobsModelBuilderExtensions
 		ArgumentNullException.ThrowIfNull(modelBuilder);
 		ConfigureBatches(modelBuilder.Entity<ImmediateJobBatchEntity>(), schema);
 		ConfigureJobs(modelBuilder.Entity<ImmediateJobEntity>(), schema);
+		ConfigureExecutions(modelBuilder.Entity<ImmediateJobExecutionEntity>(), schema);
 		ConfigureFairQueueGroups(modelBuilder.Entity<ImmediateFairQueueGroupEntity>(), schema);
 		ConfigureContinuations(modelBuilder.Entity<ImmediateJobContinuationEntity>(), schema);
 		ConfigureRecurring(modelBuilder.Entity<ImmediateRecurringJobEntity>(), schema);
 		ConfigureServers(modelBuilder.Entity<ImmediateJobServerEntity>(), schema);
 		return modelBuilder;
+	}
+
+	private static void ConfigureExecutions(EntityTypeBuilder<ImmediateJobExecutionEntity> entity, string? schema)
+	{
+		_ = entity.ToTable("immediate_job_executions", schema);
+		_ = entity.HasKey(execution => new { execution.JobId, execution.Attempt });
+		_ = entity.Property(execution => execution.JobId).HasMaxLength(256);
+		_ = entity.Property(execution => execution.State).HasConversion<short>();
+		_ = entity.Property(execution => execution.WorkerId).HasMaxLength(256);
+		_ = entity.Property(execution => execution.AcquiredAt).HasConversion(
+			value => value.HasValue ? value.Value.UtcTicks : (long?)null,
+			value => value.HasValue ? new DateTimeOffset(value.Value, TimeSpan.Zero) : null
+		);
+		_ = entity.Property(execution => execution.ExecutionStartedAt).HasConversion(
+			value => value.HasValue ? value.Value.UtcTicks : (long?)null,
+			value => value.HasValue ? new DateTimeOffset(value.Value, TimeSpan.Zero) : null
+		);
+		_ = entity.Property(execution => execution.CompletedAt).HasConversion(
+			value => value.HasValue ? value.Value.UtcTicks : (long?)null,
+			value => value.HasValue ? new DateTimeOffset(value.Value, TimeSpan.Zero) : null
+		);
+		_ = entity.Property(execution => execution.ExecutionTraceId).HasMaxLength(32);
+		_ = entity.Property(execution => execution.ExecutionSpanId).HasMaxLength(16);
+		_ = entity.Property(execution => execution.IsSynthetic).HasDefaultValue(value: false);
+		_ = entity.HasOne<ImmediateJobEntity>()
+			.WithMany()
+			.HasForeignKey(execution => execution.JobId)
+			.OnDelete(DeleteBehavior.Cascade);
 	}
 
 	private static void ConfigureBatches(EntityTypeBuilder<ImmediateJobBatchEntity> entity, string? schema)
@@ -214,6 +243,21 @@ internal sealed class ImmediateJobEntity
 	public int RemainingDependencies { get; set; }
 	public int FailedDependencies { get; set; }
 	public Guid ConcurrencyStamp { get; set; }
+}
+
+internal sealed class ImmediateJobExecutionEntity
+{
+	public string JobId { get; set; } = null!;
+	public int Attempt { get; set; }
+	public JobExecutionState State { get; set; }
+	public string? WorkerId { get; set; }
+	public DateTimeOffset? AcquiredAt { get; set; }
+	public DateTimeOffset? ExecutionStartedAt { get; set; }
+	public DateTimeOffset? CompletedAt { get; set; }
+	public string? ExecutionTraceId { get; set; }
+	public string? ExecutionSpanId { get; set; }
+	public string? Error { get; set; }
+	public bool IsSynthetic { get; set; }
 }
 
 internal sealed class ImmediateFairQueueGroupEntity

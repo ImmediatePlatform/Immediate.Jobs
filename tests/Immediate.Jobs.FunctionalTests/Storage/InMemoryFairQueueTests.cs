@@ -20,7 +20,7 @@ public sealed class InMemoryFairQueueTests
 			CreateRequest("worker-1", capacity: 1, DefaultPolicy),
 			cancellationToken
 		));
-		await storage.CompleteAsync(first.Id, "worker-1", cancellationToken);
+		await storage.CompleteAsync(first.Id, 1, "worker-1", cancellationToken);
 		await Enqueue(storage, clock, "group-2-first", 2, "group-2", cancellationToken);
 		var second = Assert.Single(await storage.AcquireDueJobsAsync(
 			CreateRequest("worker-2", capacity: 1, DefaultPolicy),
@@ -45,7 +45,7 @@ public sealed class InMemoryFairQueueTests
 			CreateRequest("worker-1", capacity: 1, policy: null),
 			cancellationToken
 		));
-		await storage.CompleteAsync(first.Id, "worker-1", cancellationToken);
+		await storage.CompleteAsync(first.Id, 1, "worker-1", cancellationToken);
 		var second = Assert.Single(await storage.AcquireDueJobsAsync(
 			CreateRequest("worker-2", capacity: 1, policy: null),
 			cancellationToken
@@ -142,7 +142,7 @@ public sealed class InMemoryFairQueueTests
 			CreateRequest("worker-1", capacity: 1, DefaultPolicy),
 			cancellationToken
 		));
-		await storage.CompleteAsync(first.Id, "worker-1", cancellationToken);
+		await storage.CompleteAsync(first.Id, 1, "worker-1", cancellationToken);
 		var second = Assert.Single(await storage.AcquireDueJobsAsync(
 			CreateRequest("worker-2", capacity: 1, new(0.10, 30, GroupRoundRobin: false)),
 			cancellationToken
@@ -219,12 +219,12 @@ public sealed class InMemoryFairQueueTests
 			CreateRequest("worker-2", capacity: 1, DefaultPolicy),
 			cancellationToken
 		));
-		await storage.CompleteAsync(first.Id, "worker-1", cancellationToken);
+		await storage.CompleteAsync(first.Id, 1, "worker-1", cancellationToken);
 		var third = Assert.Single(await storage.AcquireDueJobsAsync(
 			CreateRequest("worker-3", capacity: 1, DefaultPolicy),
 			cancellationToken
 		));
-		await storage.CompleteAsync(third.Id, "worker-3", cancellationToken);
+		await storage.CompleteAsync(third.Id, 1, "worker-3", cancellationToken);
 		await Enqueue(storage, clock, "group-1-returned", 4, "group-1", cancellationToken);
 
 		var afterReset = Assert.Single(await storage.AcquireDueJobsAsync(

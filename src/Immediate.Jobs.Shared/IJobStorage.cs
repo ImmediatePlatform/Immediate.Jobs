@@ -28,6 +28,7 @@ public interface IJobStorage : IAsyncDisposable
 
 	/// <summary>Records OpenTelemetry correlation for the active execution attempt.</summary>
 	/// <param name="jobId">The active invocation identifier.</param>
+	/// <param name="executionNumber">The execution ordinal that fences the active owner.</param>
 	/// <param name="workerId">The identifier of the worker that owns the invocation.</param>
 	/// <param name="traceId">The execution trace identifier, if one was created.</param>
 	/// <param name="spanId">The execution span identifier, if one was created.</param>
@@ -36,6 +37,7 @@ public interface IJobStorage : IAsyncDisposable
 	/// <returns>A value task that represents the asynchronous update.</returns>
 	ValueTask SetExecutionTelemetryAsync(
 		string jobId,
+		int executionNumber,
 		string workerId,
 		string? traceId,
 		string? spanId,
@@ -45,21 +47,35 @@ public interface IJobStorage : IAsyncDisposable
 
 	/// <summary>Extends the lease on an active job owned by the worker.</summary>
 	/// <param name="jobId">The active invocation identifier.</param>
+	/// <param name="executionNumber">The execution ordinal that fences the active owner.</param>
 	/// <param name="workerId">The identifier of the worker that owns the invocation.</param>
 	/// <param name="lease">The new lease duration.</param>
 	/// <param name="cancellationToken">A token that can cancel the storage operation.</param>
 	/// <returns>A value task that represents the asynchronous lease renewal.</returns>
-	ValueTask RenewLeaseAsync(string jobId, string workerId, TimeSpan lease, CancellationToken cancellationToken = default);
+	ValueTask RenewLeaseAsync(
+		string jobId,
+		int executionNumber,
+		string workerId,
+		TimeSpan lease,
+		CancellationToken cancellationToken = default
+	);
 
 	/// <summary>Marks an active job successful.</summary>
 	/// <param name="jobId">The active invocation identifier.</param>
+	/// <param name="executionNumber">The execution ordinal that fences the active owner.</param>
 	/// <param name="workerId">The identifier of the worker that owns the invocation.</param>
 	/// <param name="cancellationToken">A token that can cancel the storage operation.</param>
 	/// <returns>A value task that represents the asynchronous completion.</returns>
-	ValueTask CompleteAsync(string jobId, string workerId, CancellationToken cancellationToken = default);
+	ValueTask CompleteAsync(
+		string jobId,
+		int executionNumber,
+		string workerId,
+		CancellationToken cancellationToken = default
+	);
 
 	/// <summary>Reschedules or dead-letters a failed attempt.</summary>
 	/// <param name="jobId">The failed invocation identifier.</param>
+	/// <param name="executionNumber">The execution ordinal that fences the active owner.</param>
 	/// <param name="workerId">The identifier of the worker that owns the invocation.</param>
 	/// <param name="error">The failure details to persist.</param>
 	/// <param name="nextRetryAt">The next UTC retry time, or <see langword="null"/> to dead-letter the invocation.</param>
@@ -67,6 +83,7 @@ public interface IJobStorage : IAsyncDisposable
 	/// <returns>A value task that represents the asynchronous failure update.</returns>
 	ValueTask FailAsync(
 		string jobId,
+		int executionNumber,
 		string workerId,
 		string error,
 		DateTimeOffset? nextRetryAt,
@@ -83,6 +100,15 @@ public interface IJobStorage : IAsyncDisposable
 	/// <param name="cancellationToken">A token that can cancel the storage operation.</param>
 	/// <returns>The jobs matching the query.</returns>
 	ValueTask<IReadOnlyList<JobRecord>> QueryJobsAsync(JobQuery query, CancellationToken cancellationToken = default);
+
+	/// <summary>Returns retained executions for one job, newest first unless an exact ordinal is requested.</summary>
+	/// <param name="query">The owning job, exact-ordinal filter, and paging options.</param>
+	/// <param name="cancellationToken">A token that can cancel the storage operation.</param>
+	/// <returns>The matching retained executions.</returns>
+	ValueTask<IReadOnlyList<JobExecutionRecord>> QueryJobExecutionsAsync(
+		JobExecutionQuery query,
+		CancellationToken cancellationToken = default
+	);
 
 	/// <summary>Gets one job and its incoming dependencies.</summary>
 	/// <param name="jobId">The invocation identifier.</param>
@@ -229,12 +255,14 @@ public interface IJobGraphStorage : IJobStorage
 
 	/// <summary>Marks an active job successful and atomically flushes its gated dynamic continuations.</summary>
 	/// <param name="jobId">The active invocation identifier.</param>
+	/// <param name="executionNumber">The execution ordinal that fences the active owner.</param>
 	/// <param name="workerId">The identifier of the worker that owns the invocation.</param>
 	/// <param name="additions">The buffered continuations to commit.</param>
 	/// <param name="cancellationToken">A token that can cancel the storage operation.</param>
 	/// <returns>A value task that represents the asynchronous completion.</returns>
 	ValueTask CompleteWithContinuationsAsync(
 		string jobId,
+		int executionNumber,
 		string workerId,
 		IReadOnlyList<JobContinuationAddition> additions,
 		CancellationToken cancellationToken = default
@@ -242,12 +270,14 @@ public interface IJobGraphStorage : IJobStorage
 
 	/// <summary>Immediately adds a concurrent member to the batch of a running job.</summary>
 	/// <param name="currentJobId">The running invocation whose batch receives the new member.</param>
+	/// <param name="executionNumber">The execution ordinal that fences the running invocation.</param>
 	/// <param name="job">The new batch member to insert.</param>
 	/// <param name="options">How the new invocation joins the current workflow.</param>
 	/// <param name="cancellationToken">A token that can cancel the storage operation.</param>
 	/// <returns>A value task that represents the asynchronous addition.</returns>
 	ValueTask AddBatchJobAsync(
 		string currentJobId,
+		int executionNumber,
 		JobRecord job,
 		ContinuationOptions options,
 		CancellationToken cancellationToken = default

@@ -81,6 +81,29 @@ export interface DashboardJobPage {
 	hasNext: boolean;
 }
 
+export type JobExecutionState = 'Active' | 'Succeeded' | 'Failed' | 'Cancelled' | 'Interrupted';
+
+export interface JobExecutionRecord {
+	jobId: string;
+	attempt: number;
+	state: JobExecutionState;
+	workerId: string | null;
+	acquiredAt: IsoDateTime | null;
+	executionStartedAt: IsoDateTime | null;
+	completedAt: IsoDateTime | null;
+	executionTraceId: string | null;
+	executionSpanId: string | null;
+	error: string | null;
+	isSynthetic: boolean;
+}
+
+export interface DashboardJobExecutionPage {
+	items: JobExecutionRecord[];
+	skip: number;
+	take: number;
+	hasNext: boolean;
+}
+
 export interface BatchStatus {
 	id: string;
 	state: BatchState;

@@ -66,7 +66,7 @@ public sealed class RedisStorageTests(RedisStorageFixture fixture)
 		Assert.Equal("tenant-a", firstClaim.GroupId);
 		await first.SetExecutionTelemetryAsync(
 			"leased",
-			"node-a",
+			1, "node-a",
 			"4bf92f3577b34da6a3ce929d0e0e4736",
 			"00f067aa0ba902b7",
 			timeProvider.GetUtcNow(),
@@ -76,15 +76,52 @@ public sealed class RedisStorageTests(RedisStorageFixture fixture)
 		Assert.Empty(await second.AcquireDueJobsAsync(CreateRequest("node-b", 1), cancellationToken));
 
 		timeProvider.Advance(TimeSpan.FromSeconds(2));
-		var recovered = Assert.Single(await second.AcquireDueJobsAsync(CreateRequest("node-b", 1), cancellationToken));
+		var recovered = Assert.Single(await second.AcquireDueJobsAsync(CreateRequest("node-a", 1), cancellationToken));
 		Assert.Equal(2, recovered.Attempt);
-		Assert.Equal("node-b", recovered.WorkerId);
+		Assert.Equal("node-a", recovered.WorkerId);
 		Assert.Equal("tenant-a", recovered.GroupId);
 		Assert.Null(recovered.ExecutionTraceId);
 		Assert.Null(recovered.ExecutionSpanId);
 		Assert.Null(recovered.ExecutionStartedAt);
 		_ = await Assert.ThrowsAsync<ImmediateJobException>(
-			() => first.CompleteAsync("leased", "node-a", cancellationToken).AsTask()
+			() => first.CompleteAsync("leased", 1, "node-a", cancellationToken).AsTask()
+		);
+		_ = await Assert.ThrowsAsync<ImmediateJobException>(
+			() => first.RenewLeaseAsync("leased", 1, "node-a", TimeSpan.FromMinutes(1), cancellationToken).AsTask()
+		);
+		_ = await Assert.ThrowsAsync<ImmediateJobException>(() => first.SetExecutionTelemetryAsync(
+			"leased",
+			1,
+			"node-a",
+			"stale",
+			"stale",
+			timeProvider.GetUtcNow(),
+			cancellationToken
+		).AsTask());
+		_ = await Assert.ThrowsAsync<ImmediateJobException>(() => first.FailAsync(
+			"leased",
+			1,
+			"node-a",
+			"stale",
+			nextRetryAt: null,
+			cancellationToken
+		).AsTask());
+
+		var executions = await first.QueryJobExecutionsAsync(new() { JobId = "leased" }, cancellationToken);
+		Assert.Collection(
+			executions,
+			execution =>
+			{
+				Assert.Equal(2, execution.Attempt);
+				Assert.Equal(JobExecutionState.Active, execution.State);
+			},
+			execution =>
+			{
+				Assert.Equal(1, execution.Attempt);
+				Assert.Equal(JobExecutionState.Interrupted, execution.State);
+				Assert.Equal(firstClaim.LeaseExpiresAt, execution.CompletedAt);
+				Assert.Equal("4bf92f3577b34da6a3ce929d0e0e4736", execution.ExecutionTraceId);
+			}
 		);
 	}
 
@@ -629,15 +666,21 @@ public sealed class RedisStorageTests(RedisStorageFixture fixture)
 			cancellationToken
 		));
 		_ = Assert.Single(await storage.AcquireDueJobsAsync(CreateRequest("worker", 1), cancellationToken));
-		await storage.CompleteAsync("purged-occurrence", "worker", cancellationToken);
+		await storage.CompleteAsync("purged-occurrence", 1, "worker", cancellationToken);
 		var database = connection.GetDatabase(options.Database);
 		Assert.Equal(1, await database.HashLengthAsync(RecurringDedupeKey(options)));
+		Assert.True(await database.KeyExistsAsync(ExecutionIndexKey(options, "purged-occurrence")));
+		Assert.True(await database.KeyExistsAsync(ExecutionDataKey(options, "purged-occurrence")));
+		Assert.Contains($"{{{options.KeyPrefix}}}", ExecutionIndexKey(options, "purged-occurrence").ToString(), StringComparison.Ordinal);
+		Assert.Contains($"{{{options.KeyPrefix}}}", ExecutionDataKey(options, "purged-occurrence").ToString(), StringComparison.Ordinal);
 		timeProvider.Advance(TimeSpan.FromMilliseconds(1));
 
 		await storage.PurgeJobsAsync(TimeSpan.Zero, TimeSpan.Zero, cancellationToken);
 
 		Assert.Equal(0, await database.HashLengthAsync(RecurringDedupeKey(options)));
 		Assert.Null(await storage.GetJobStatusAsync("purged-occurrence", cancellationToken));
+		Assert.False(await database.KeyExistsAsync(ExecutionIndexKey(options, "purged-occurrence")));
+		Assert.False(await database.KeyExistsAsync(ExecutionDataKey(options, "purged-occurrence")));
 	}
 
 	[Fact]
@@ -724,6 +767,12 @@ public sealed class RedisStorageTests(RedisStorageFixture fixture)
 
 	private static RedisKey JobKey(RedisJobStorageOptions options, string id) =>
 		$"{{{options.KeyPrefix}}}:job:{id}";
+
+	private static RedisKey ExecutionIndexKey(RedisJobStorageOptions options, string id) =>
+		$"{{{options.KeyPrefix}}}:executions:index:{id}";
+
+	private static RedisKey ExecutionDataKey(RedisJobStorageOptions options, string id) =>
+		$"{{{options.KeyPrefix}}}:executions:data:{id}";
 
 	private static RedisKey CompletedKey(RedisJobStorageOptions options, JobState state) =>
 		string.Create(CultureInfo.InvariantCulture, $"{{{options.KeyPrefix}}}:completed:{(int)state}");

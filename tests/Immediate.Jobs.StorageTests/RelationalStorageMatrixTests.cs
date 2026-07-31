@@ -1,13 +1,13 @@
+using System.Globalization;
+using System.Text.RegularExpressions;
 using Immediate.Jobs.EntityFrameworkCore;
 using Immediate.Jobs.LinqToDB;
 using LinqToDB;
 using LinqToDB.Data;
+using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
-using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Time.Testing;
-using System.Text.RegularExpressions;
-using System.Globalization;
 
 namespace Immediate.Jobs.StorageTests;
 
@@ -73,7 +73,7 @@ public sealed class RelationalStorageMatrixTests(StorageContainers containers)
 		var executionStartedAt = now.AddSeconds(1);
 		await storage.SetExecutionTelemetryAsync(
 			parent.Id,
-			"worker",
+			1, "worker",
 			"4bf92f3577b34da6a3ce929d0e0e4736",
 			"00f067aa0ba902b7",
 			executionStartedAt,
@@ -83,13 +83,35 @@ public sealed class RelationalStorageMatrixTests(StorageContainers containers)
 		Assert.Equal("4bf92f3577b34da6a3ce929d0e0e4736", correlated.ExecutionTraceId);
 		Assert.Equal("00f067aa0ba902b7", correlated.ExecutionSpanId);
 		Assert.Equal(executionStartedAt, correlated.ExecutionStartedAt);
-		await storage.CompleteAsync(parent.Id, "worker", cancellationToken);
+		var activeExecution = Assert.Single(await storage.QueryJobExecutionsAsync(
+			new() { JobId = parent.Id },
+			cancellationToken
+		));
+		Assert.Equal(JobExecutionState.Active, activeExecution.State);
+		Assert.Equal("worker", activeExecution.WorkerId);
+		Assert.Equal(executionStartedAt, activeExecution.ExecutionStartedAt);
+		await storage.CompleteAsync(parent.Id, 1, "worker", cancellationToken);
+		var completedExecution = Assert.Single(await storage.QueryJobExecutionsAsync(
+			new() { JobId = parent.Id },
+			cancellationToken
+		));
+		Assert.Equal(JobExecutionState.Succeeded, completedExecution.State);
+		_ = Assert.NotNull(completedExecution.CompletedAt);
 		var acquiredChild = Assert.Single(await storage.AcquireDueJobsAsync(CreateRequest("worker", 1), cancellationToken));
 		Assert.Equal(child.Id, acquiredChild.Id);
-		await storage.CompleteAsync(child.Id, "worker", cancellationToken);
+		await storage.CompleteAsync(child.Id, 1, "worker", cancellationToken);
 		var status = Assert.IsType<BatchStatus>(await storage.GetBatchStatusAsync("batch", cancellationToken));
 		Assert.Equal(BatchState.Succeeded, status.State);
 		Assert.Equal(2, status.Succeeded);
+		var childExecution = Assert.Single(await storage.QueryJobExecutionsAsync(
+			new() { JobId = child.Id },
+			cancellationToken
+		));
+		Assert.Equal(JobExecutionState.Succeeded, childExecution.State);
+
+		await storage.DeleteBatchAsync("batch", cancellationToken);
+		Assert.Empty(await storage.QueryJobExecutionsAsync(new() { JobId = parent.Id }, cancellationToken));
+		Assert.Empty(await storage.QueryJobExecutionsAsync(new() { JobId = child.Id }, cancellationToken));
 	}
 
 	[Theory]
@@ -150,14 +172,15 @@ public sealed class RelationalStorageMatrixTests(StorageContainers containers)
 		var claimed = claims.SelectMany(static claim => claim).ToArray();
 		Assert.Equal(24, claimed.Select(job => job.Id).Distinct().Count());
 		foreach (var job in claimed)
-			await first.CompleteAsync(job.Id, job.WorkerId!, cancellationToken);
+			await first.CompleteAsync(job.Id, job.Attempt, job.WorkerId!, cancellationToken);
 
 		var leased = CreateJob("leased", now.AddMinutes(1));
 		await first.EnqueueAsync(leased, cancellationToken);
 		fixture.TimeProvider.Advance(TimeSpan.FromMinutes(1));
-		_ = Assert.Single(await first.AcquireDueJobsAsync(CreateRequest("node-a", 1), cancellationToken));
+		var original = Assert.Single(await first.AcquireDueJobsAsync(CreateRequest("node-a", 1), cancellationToken));
 		await first.SetExecutionTelemetryAsync(
 			leased.Id,
+			1,
 			"node-a",
 			"4bf92f3577b34da6a3ce929d0e0e4736",
 			"00f067aa0ba902b7",
@@ -165,12 +188,54 @@ public sealed class RelationalStorageMatrixTests(StorageContainers containers)
 			cancellationToken
 		);
 		fixture.TimeProvider.Advance(TimeSpan.FromMinutes(2));
-		var recovered = Assert.Single(await second.AcquireDueJobsAsync(CreateRequest("node-b", 1), cancellationToken));
+		var recovered = Assert.Single(await second.AcquireDueJobsAsync(CreateRequest("node-a", 1), cancellationToken));
 		Assert.Equal("leased", recovered.Id);
 		Assert.Equal(2, recovered.Attempt);
+		Assert.Equal("node-a", recovered.WorkerId);
 		Assert.Null(recovered.ExecutionTraceId);
 		Assert.Null(recovered.ExecutionSpanId);
 		Assert.Null(recovered.ExecutionStartedAt);
+
+		_ = await Assert.ThrowsAsync<ImmediateJobException>(
+			() => first.RenewLeaseAsync(leased.Id, original.Attempt, "node-a", TimeSpan.FromMinutes(1), cancellationToken).AsTask()
+		);
+		_ = await Assert.ThrowsAsync<ImmediateJobException>(() => first.SetExecutionTelemetryAsync(
+			leased.Id,
+			original.Attempt,
+			"node-a",
+			"stale",
+			"stale",
+			fixture.TimeProvider.GetUtcNow(),
+			cancellationToken
+		).AsTask());
+		_ = await Assert.ThrowsAsync<ImmediateJobException>(
+			() => first.CompleteAsync(leased.Id, original.Attempt, "node-a", cancellationToken).AsTask()
+		);
+		_ = await Assert.ThrowsAsync<ImmediateJobException>(() => first.FailAsync(
+			leased.Id,
+			original.Attempt,
+			"node-a",
+			"stale",
+			nextRetryAt: null,
+			cancellationToken
+		).AsTask());
+
+		var executions = await first.QueryJobExecutionsAsync(new() { JobId = leased.Id }, cancellationToken);
+		Assert.Collection(
+			executions,
+			execution =>
+			{
+				Assert.Equal(2, execution.Attempt);
+				Assert.Equal(JobExecutionState.Active, execution.State);
+			},
+			execution =>
+			{
+				Assert.Equal(1, execution.Attempt);
+				Assert.Equal(JobExecutionState.Interrupted, execution.State);
+				Assert.Equal(original.LeaseExpiresAt, execution.CompletedAt);
+				Assert.Equal("4bf92f3577b34da6a3ce929d0e0e4736", execution.ExecutionTraceId);
+			}
+		);
 	}
 
 	[Theory]
@@ -194,7 +259,7 @@ public sealed class RelationalStorageMatrixTests(StorageContainers containers)
 		var exception = await Assert.ThrowsAsync<ImmediateJobException>(() =>
 			firstGraph.CompleteWithContinuationsAsync(
 				"reclaimed-parent",
-				"node-a",
+				1, "node-a",
 				[new()
 				{
 					Job = CreateJob("stale-continuation", fixture.TimeProvider.GetUtcNow()),
@@ -249,7 +314,7 @@ public sealed class RelationalStorageMatrixTests(StorageContainers containers)
 		var completions = jobs.Select(async job =>
 		{
 			await start.Task;
-			await storage.CompleteAsync(job.Id, "worker", cancellationToken);
+			await storage.CompleteAsync(job.Id, 1, "worker", cancellationToken);
 		}).ToArray();
 
 		start.SetResult();
@@ -385,7 +450,7 @@ public sealed class RelationalStorageMatrixTests(StorageContainers containers)
 		};
 		var first = Assert.Single(await storage.AcquireDueJobsAsync(request, cancellationToken));
 		Assert.Equal("group-a-first", first.Id);
-		await storage.CompleteAsync(first.Id, "fair-worker", cancellationToken);
+		await storage.CompleteAsync(first.Id, 1, "fair-worker", cancellationToken);
 		await storage.EnqueueAsync(
 			CreateJob("group-b-first", now) with
 			{
@@ -430,7 +495,7 @@ public sealed class RelationalStorageMatrixTests(StorageContainers containers)
 		};
 		var first = Assert.Single(await storage.AcquireDueJobsAsync(request, cancellationToken));
 		Assert.Equal("tenant-first", first.Id);
-		await storage.CompleteAsync(first.Id, "fair-worker", cancellationToken);
+		await storage.CompleteAsync(first.Id, 1, "fair-worker", cancellationToken);
 		await storage.EnqueueAsync(
 			CreateJob("quiet-first", now) with
 			{
@@ -651,14 +716,14 @@ public sealed class RelationalStorageMatrixTests(StorageContainers containers)
 			));
 
 			async Task SettleSuccessParentAsync() =>
-				await storage.CompleteAsync(successParent.Id, "worker", cancellationToken);
+				await storage.CompleteAsync(successParent.Id, 1, "worker", cancellationToken);
 			async Task SettleFailureParentAsync()
 			{
 				if (failureParentFails)
 				{
 					await storage.FailAsync(
 						failureParent.Id,
-						"worker",
+						1, "worker",
 						"expected",
 						nextRetryAt: null,
 						cancellationToken
@@ -666,7 +731,7 @@ public sealed class RelationalStorageMatrixTests(StorageContainers containers)
 				}
 				else
 				{
-					await storage.CompleteAsync(failureParent.Id, "worker", cancellationToken);
+					await storage.CompleteAsync(failureParent.Id, 1, "worker", cancellationToken);
 				}
 			}
 
@@ -734,7 +799,7 @@ public sealed class RelationalStorageMatrixTests(StorageContainers containers)
 			TimeSpan.FromMinutes(1),
 			cancellationToken
 		));
-		await storage.FailAsync(retriedParent.Id, "worker", "expected", nextRetryAt: null, cancellationToken);
+		await storage.FailAsync(retriedParent.Id, 1, "worker", "expected", nextRetryAt: null, cancellationToken);
 		await storage.RetryAsync(retriedParent.Id, cancellationToken);
 		_ = Assert.Single(await replica.AcquireJobsAsync(
 			[retriedParent.Id],
@@ -743,7 +808,7 @@ public sealed class RelationalStorageMatrixTests(StorageContainers containers)
 			cancellationToken
 		));
 
-		await storage.CompleteAsync(retriedParent.Id, "worker", cancellationToken);
+		await storage.CompleteAsync(retriedParent.Id, 2, "worker", cancellationToken);
 
 		Assert.Equal(
 			JobState.AwaitingContinuation,
@@ -755,7 +820,7 @@ public sealed class RelationalStorageMatrixTests(StorageContainers containers)
 			TimeSpan.FromMinutes(1),
 			cancellationToken
 		));
-		await storage.CompleteAsync(otherParent.Id, "worker", cancellationToken);
+		await storage.CompleteAsync(otherParent.Id, 1, "worker", cancellationToken);
 		Assert.Equal(JobState.Pending, (await storage.GetJobStatusAsync(child.Id, cancellationToken))!.State);
 	}
 
@@ -776,7 +841,7 @@ public sealed class RelationalStorageMatrixTests(StorageContainers containers)
 			var parentId = string.Create(CultureInfo.InvariantCulture, $"racing-parent-{index}");
 			var childId = string.Create(CultureInfo.InvariantCulture, $"racing-child-{index}");
 			var parent = CreateJob(parentId, now.AddTicks(index * 2)) with { DueAt = now };
-			var child = CreateJob(childId, now.AddTicks(index * 2 + 1)) with { DueAt = now };
+			var child = CreateJob(childId, now.AddTicks((index * 2) + 1)) with { DueAt = now };
 			await storage.EnqueueAsync(parent, cancellationToken);
 			_ = Assert.Single(await replica.AcquireJobsAsync(
 				[parent.Id],
@@ -788,7 +853,7 @@ public sealed class RelationalStorageMatrixTests(StorageContainers containers)
 			var completion = Task.Run(async () =>
 			{
 				await start.Task;
-				await storage.CompleteAsync(parent.Id, "worker", cancellationToken);
+				await storage.CompleteAsync(parent.Id, 1, "worker", cancellationToken);
 			}, cancellationToken);
 			var insertion = Task.Run(async () =>
 			{
@@ -838,7 +903,7 @@ public sealed class RelationalStorageMatrixTests(StorageContainers containers)
 
 		_ = await Assert.ThrowsAsync<ImmediateJobException>(() => storage.CompleteWithContinuationsAsync(
 			current.Id,
-			"worker",
+			1, "worker",
 			[new()
 			{
 				Job = CreateJob("detached-with-batch", now.AddTicks(1)) with { BatchId = "dynamic-batch" },
@@ -848,7 +913,7 @@ public sealed class RelationalStorageMatrixTests(StorageContainers containers)
 		).AsTask());
 		_ = await Assert.ThrowsAsync<ImmediateJobException>(() => storage.CompleteWithContinuationsAsync(
 			current.Id,
-			"worker",
+			1, "worker",
 			[new()
 			{
 				Job = CreateJob("tracked-with-wrong-batch", now.AddTicks(2)) with { BatchId = "other-batch" },
@@ -858,6 +923,7 @@ public sealed class RelationalStorageMatrixTests(StorageContainers containers)
 		).AsTask());
 		_ = await Assert.ThrowsAsync<ImmediateJobException>(() => storage.AddBatchJobAsync(
 			current.Id,
+			1,
 			CreateJob("added-with-wrong-batch", now.AddTicks(3)) with { BatchId = "other-batch" },
 			ContinuationOptions.BesideContinuations,
 			cancellationToken
@@ -966,7 +1032,7 @@ public sealed class RelationalStorageMatrixTests(StorageContainers containers)
 		}], cancellationToken);
 		_ = Assert.Single(await storage.AcquireDueJobsAsync(CreateRequest("worker", 1), cancellationToken));
 
-		await storage.CompleteAsync(parent.Id, "worker", cancellationToken);
+		await storage.CompleteAsync(parent.Id, 1, "worker", cancellationToken);
 
 		Assert.Equal(JobState.Skipped, (await storage.GetJobStatusAsync(failureOnly.Id, cancellationToken))!.State);
 		var status = Assert.IsType<BatchStatus>(await storage.GetBatchStatusAsync("skipped-branch-batch", cancellationToken));
@@ -1318,6 +1384,7 @@ public sealed class RelationalStorageMatrixTests(StorageContainers containers)
 				foreach (var table in new[]
 				{
 					"immediate_job_continuations",
+					"immediate_job_executions",
 					"immediate_fair_queue_groups",
 					"immediate_jobs",
 					"immediate_job_batches",

@@ -24,6 +24,19 @@ internal static class RedisScripts
 
 	internal const string Acquire =
 		"""
+		local function materialize(jobKey, indexKey, dataKey, attempt, state, completed)
+			if attempt <= 0 or redis.call('HEXISTS', dataKey, attempt .. ':state') == 1 then return end
+			local values = redis.call('HMGET', jobKey, 'worker', 'executionStartedAt',
+				'executionTraceId', 'executionSpanId', 'error')
+			redis.call('ZADD', indexKey, attempt, attempt)
+			redis.call('HSET', dataKey,
+				attempt .. ':state', state, attempt .. ':worker', values[1] or '',
+				attempt .. ':acquired', '', attempt .. ':started', values[2] or '',
+				attempt .. ':completed', completed or '', attempt .. ':trace', values[3] or '',
+				attempt .. ':span', values[4] or '',
+				attempt .. ':error', state == '2' and (values[5] or '') or '',
+				attempt .. ':synthetic', '1')
+		end
 		local nowScore = tonumber(ARGV[1])
 		local leaseScore = tonumber(ARGV[2])
 		local leaseTicks = ARGV[3]
@@ -32,7 +45,8 @@ internal static class RedisScripts
 		local queueCount = tonumber(ARGV[6])
 		local root = ARGV[7]
 		local queues = {}
-		local position = 8
+		local nowTicks = ARGV[8]
+		local position = 9
 		for queueIndex = 1, queueCount do
 			local queueName = ARGV[position]
 			local capacity = tonumber(ARGV[position + 1])
@@ -63,6 +77,15 @@ internal static class RedisScripts
 			local queueName = redis.call('HGET', jobKey, 'queue')
 			local dueKey = dueByQueue[queueName]
 			if state == '4' and dueKey then
+				local attempt = tonumber(redis.call('HGET', jobKey, 'attempt') or '0')
+				local lease = redis.call('HGET', jobKey, 'lease') or ''
+				local indexKey = root .. 'executions:index:' .. id
+				local dataKey = root .. 'executions:data:' .. id
+				materialize(jobKey, indexKey, dataKey, attempt, '0', '')
+				if attempt > 0 then
+					redis.call('HSET', dataKey,
+						attempt .. ':state', '4', attempt .. ':completed', lease, attempt .. ':error', '')
+				end
 				redis.call('HSET', jobKey, 'state', '3', 'worker', '', 'lease', '')
 				redis.call('SREM', KEYS[2], id)
 				redis.call('SADD', KEYS[3], id)
@@ -111,7 +134,13 @@ internal static class RedisScripts
 				for _, member in ipairs(stale) do redis.call('ZREM', queue.dueKey, member) end
 				for _, candidate in ipairs(selected) do
 					local jobKey = root .. 'job:' .. candidate.id
-					local attempt = tonumber(redis.call('HGET', jobKey, 'attempt') or '0') + 1
+					local previousAttempt = tonumber(redis.call('HGET', jobKey, 'attempt') or '0')
+					local indexKey = root .. 'executions:index:' .. candidate.id
+					local dataKey = root .. 'executions:data:' .. candidate.id
+					local previousError = redis.call('HGET', jobKey, 'error') or ''
+					materialize(jobKey, indexKey, dataKey, previousAttempt,
+						previousError ~= '' and '2' or '4', '')
+					local attempt = previousAttempt + 1
 					redis.call('HSET', jobKey,
 						'state', '4', 'attempt', attempt, 'worker', worker, 'lease', leaseTicks,
 						'executionTraceId', '', 'executionSpanId', '', 'executionStartedAt', '')
@@ -119,6 +148,12 @@ internal static class RedisScripts
 					redis.call('ZADD', KEYS[1], leaseScore, candidate.id)
 					redis.call('SREM', candidate.state == '2' and KEYS[4] or KEYS[3], candidate.id)
 					redis.call('SADD', KEYS[2], candidate.id)
+					redis.call('ZADD', indexKey, attempt, attempt)
+					redis.call('HSET', dataKey,
+						attempt .. ':state', '0', attempt .. ':worker', worker,
+						attempt .. ':acquired', nowTicks, attempt .. ':started', '',
+						attempt .. ':completed', '', attempt .. ':trace', '', attempt .. ':span', '',
+						attempt .. ':error', '', attempt .. ':synthetic', '0')
 					table.insert(acquired, candidate.id)
 				end
 			end
@@ -129,59 +164,85 @@ internal static class RedisScripts
 	internal const string SetTelemetry =
 		"""
 		if redis.call('EXISTS', KEYS[1]) == 0 then return 0 end
-		local values = redis.call('HMGET', KEYS[1], 'state', 'worker')
-		if values[1] ~= '4' or values[2] ~= ARGV[1] then return -1 end
+		local values = redis.call('HMGET', KEYS[1], 'state', 'worker', 'attempt')
+		if values[1] ~= '4' or values[2] ~= ARGV[1] or values[3] ~= ARGV[2] then return -1 end
+		local field = ARGV[2] .. ':'
+		if redis.call('HEXISTS', KEYS[3], field .. 'state') == 0 then
+			redis.call('ZADD', KEYS[2], ARGV[2], ARGV[2])
+			redis.call('HSET', KEYS[3], field .. 'state', '0', field .. 'worker', ARGV[1],
+				field .. 'acquired', '', field .. 'completed', '', field .. 'error', '', field .. 'synthetic', '1')
+		end
 		redis.call('HSET', KEYS[1],
-			'executionTraceId', ARGV[2], 'executionSpanId', ARGV[3], 'executionStartedAt', ARGV[4])
+			'executionTraceId', ARGV[3], 'executionSpanId', ARGV[4], 'executionStartedAt', ARGV[5])
+		redis.call('HSET', KEYS[3],
+			field .. 'trace', ARGV[3], field .. 'span', ARGV[4], field .. 'started', ARGV[5])
 		return 1
 		""";
 
 	internal const string RenewLease =
 		"""
 		if redis.call('EXISTS', KEYS[1]) == 0 then return 0 end
-		local values = redis.call('HMGET', KEYS[1], 'state', 'worker')
-		if values[1] ~= '4' or values[2] ~= ARGV[1] then return -1 end
-		redis.call('HSET', KEYS[1], 'lease', ARGV[2])
-		redis.call('ZADD', KEYS[2], ARGV[3], ARGV[4])
+		local values = redis.call('HMGET', KEYS[1], 'state', 'worker', 'attempt')
+		if values[1] ~= '4' or values[2] ~= ARGV[1] or values[3] ~= ARGV[2] then return -1 end
+		redis.call('HSET', KEYS[1], 'lease', ARGV[3])
+		redis.call('ZADD', KEYS[2], ARGV[4], ARGV[5])
 		return 1
 		""";
 
 	internal const string Complete =
 		"""
 		if redis.call('EXISTS', KEYS[1]) == 0 then return 0 end
-		local values = redis.call('HMGET', KEYS[1], 'state', 'worker')
-		if values[1] ~= '4' or values[2] ~= ARGV[1] then return -1 end
+		local values = redis.call('HMGET', KEYS[1], 'state', 'worker', 'attempt',
+			'executionStartedAt', 'executionTraceId', 'executionSpanId')
+		if values[1] ~= '4' or values[2] ~= ARGV[1] or values[3] ~= ARGV[2] then return -1 end
+		local field = ARGV[2] .. ':'
+		if redis.call('HEXISTS', KEYS[7], field .. 'state') == 0 then
+			redis.call('ZADD', KEYS[6], ARGV[2], ARGV[2])
+			redis.call('HSET', KEYS[7], field .. 'worker', ARGV[1], field .. 'acquired', '',
+				field .. 'started', values[4] or '', field .. 'trace', values[5] or '',
+				field .. 'span', values[6] or '', field .. 'synthetic', '1')
+		end
+		redis.call('HSET', KEYS[7], field .. 'state', '1', field .. 'completed', ARGV[3], field .. 'error', '')
 		redis.call('HSET', KEYS[1],
-			'state', '5', 'worker', '', 'lease', '', 'error', '', 'completed', ARGV[2])
-		redis.call('ZREM', KEYS[2], ARGV[3])
-		redis.call('SREM', KEYS[3], ARGV[3])
-		redis.call('SADD', KEYS[4], ARGV[3])
-		redis.call('ZADD', KEYS[5], ARGV[4], ARGV[3])
+			'state', '5', 'worker', '', 'lease', '', 'error', '', 'completed', ARGV[3])
+		redis.call('ZREM', KEYS[2], ARGV[4])
+		redis.call('SREM', KEYS[3], ARGV[4])
+		redis.call('SADD', KEYS[4], ARGV[4])
+		redis.call('ZADD', KEYS[5], ARGV[5], ARGV[4])
 		return 1
 		""";
 
 	internal const string Fail =
 		"""
 		if redis.call('EXISTS', KEYS[1]) == 0 then return 0 end
-		local values = redis.call('HMGET', KEYS[1], 'state', 'worker', 'queue', 'created')
-		if values[1] ~= '4' or values[2] ~= ARGV[1] then return -1 end
-		redis.call('ZREM', KEYS[2], ARGV[2])
-		redis.call('SREM', KEYS[3], ARGV[2])
-		if ARGV[3] == '' then
+		local values = redis.call('HMGET', KEYS[1], 'state', 'worker', 'queue', 'created', 'attempt',
+			'executionStartedAt', 'executionTraceId', 'executionSpanId')
+		if values[1] ~= '4' or values[2] ~= ARGV[1] or values[5] ~= ARGV[2] then return -1 end
+		local field = ARGV[2] .. ':'
+		if redis.call('HEXISTS', KEYS[9], field .. 'state') == 0 then
+			redis.call('ZADD', KEYS[8], ARGV[2], ARGV[2])
+			redis.call('HSET', KEYS[9], field .. 'worker', ARGV[1], field .. 'acquired', '',
+				field .. 'started', values[6] or '', field .. 'trace', values[7] or '',
+				field .. 'span', values[8] or '', field .. 'synthetic', '1')
+		end
+		redis.call('HSET', KEYS[9], field .. 'state', '2', field .. 'completed', ARGV[6], field .. 'error', ARGV[5])
+		redis.call('ZREM', KEYS[2], ARGV[3])
+		redis.call('SREM', KEYS[3], ARGV[3])
+		if ARGV[4] == '' then
 			redis.call('HSET', KEYS[1],
-				'state', '6', 'worker', '', 'lease', '', 'error', ARGV[4], 'completed', ARGV[5])
-			redis.call('SADD', KEYS[4], ARGV[2])
-			redis.call('ZADD', KEYS[5], ARGV[6], ARGV[2])
+				'state', '6', 'worker', '', 'lease', '', 'error', ARGV[5], 'completed', ARGV[6])
+			redis.call('SADD', KEYS[4], ARGV[3])
+			redis.call('ZADD', KEYS[5], ARGV[7], ARGV[3])
 		else
 			local nextState = '2'
-			if tonumber(ARGV[7]) <= tonumber(ARGV[8]) then nextState = '3' end
+			if tonumber(ARGV[8]) <= tonumber(ARGV[9]) then nextState = '3' end
 			redis.call('HSET', KEYS[1],
-				'state', nextState, 'due', ARGV[3], 'dueScore', ARGV[7],
-				'dueMember', ARGV[3] .. '|' .. values[4] .. '|' .. ARGV[2],
-				'worker', '', 'lease', '', 'error', ARGV[4], 'completed', '')
-			redis.call('SADD', nextState == '2' and KEYS[6] or KEYS[7], ARGV[2])
-			redis.call('ZADD', ARGV[9] .. 'due:' .. values[3], ARGV[7],
-				ARGV[3] .. '|' .. values[4] .. '|' .. ARGV[2])
+				'state', nextState, 'due', ARGV[4], 'dueScore', ARGV[8],
+				'dueMember', ARGV[4] .. '|' .. values[4] .. '|' .. ARGV[3],
+				'worker', '', 'lease', '', 'error', ARGV[5], 'completed', '')
+			redis.call('SADD', nextState == '2' and KEYS[6] or KEYS[7], ARGV[3])
+			redis.call('ZADD', ARGV[10] .. 'due:' .. values[3], ARGV[8],
+				ARGV[4] .. '|' .. values[4] .. '|' .. ARGV[3])
 		end
 		return 1
 		""";
@@ -189,10 +250,23 @@ internal static class RedisScripts
 	internal const string Retry =
 		"""
 		if redis.call('EXISTS', KEYS[1]) == 0 then return 0 end
-		local values = redis.call('HMGET', KEYS[1], 'state', 'queue', 'created', 'dueMember')
+		local values = redis.call('HMGET', KEYS[1], 'state', 'queue', 'created', 'dueMember',
+			'attempt', 'worker', 'executionStartedAt', 'executionTraceId', 'executionSpanId', 'error', 'completed')
 		local failed = values[1] == '6'
 		local scheduled = values[1] == '2'
 		if not failed and not scheduled then return -1 end
+		local attempt = tonumber(values[5] or '0')
+		local field = tostring(attempt) .. ':'
+		if attempt > 0 and redis.call('HEXISTS', KEYS[7], field .. 'state') == 0 then
+			local executionState = (failed or (values[10] and values[10] ~= '')) and '2' or '4'
+			redis.call('ZADD', KEYS[6], attempt, attempt)
+			redis.call('HSET', KEYS[7], field .. 'state', executionState,
+				field .. 'worker', values[6] or '', field .. 'acquired', '',
+				field .. 'started', values[7] or '', field .. 'completed', values[11] or '',
+				field .. 'trace', values[8] or '', field .. 'span', values[9] or '',
+				field .. 'error', executionState == '2' and (values[10] or '') or '',
+				field .. 'synthetic', '1')
+		end
 		redis.call('HSET', KEYS[1],
 			'state', '3', 'due', ARGV[1], 'dueScore', ARGV[2],
 			'dueMember', ARGV[1] .. '|' .. values[3] .. '|' .. ARGV[3],
@@ -218,6 +292,7 @@ internal static class RedisScripts
 		local state = values[1]
 		if state ~= '5' and state ~= '6' and state ~= '7' and state ~= '8' then return -1 end
 		redis.call('DEL', KEYS[1])
+		redis.call('DEL', KEYS[4], KEYS[5])
 		redis.call('ZREM', KEYS[2], ARGV[1])
 		redis.call('SREM', ARGV[2] .. 'state:' .. state, ARGV[1])
 		redis.call('ZREM', ARGV[2] .. 'completed:' .. state, ARGV[1])
@@ -228,6 +303,7 @@ internal static class RedisScripts
 	internal const string Purge =
 		"""
 		if redis.call('EXISTS', KEYS[1]) == 0 then
+			redis.call('DEL', KEYS[6], KEYS[7])
 			redis.call('ZREM', KEYS[2], ARGV[1])
 			return 0
 		end
@@ -237,6 +313,7 @@ internal static class RedisScripts
 			return 0
 		end
 		redis.call('DEL', KEYS[1])
+		redis.call('DEL', KEYS[6], KEYS[7])
 		redis.call('ZREM', KEYS[2], ARGV[1])
 		redis.call('ZREM', KEYS[3], ARGV[1])
 		redis.call('SREM', KEYS[4], ARGV[1])

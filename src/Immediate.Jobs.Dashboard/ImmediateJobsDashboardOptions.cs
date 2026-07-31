@@ -26,8 +26,9 @@ public sealed class ImmediateJobsDashboardOptions
 	/// <param name="label">User-facing action label.</param>
 	/// <param name="kind">Whether the link opens traces or logs.</param>
 	/// <param name="createUrl">
-	/// Builds a URL from the latest job record. Return <see langword="null"/> when the link is not
-	/// available, such as before an execution trace has been created.
+	/// Builds a URL from the job and optional exact execution. Exact-execution requests scope the job's
+	/// attempt, trace ID, span ID, and execution-started compatibility fields to that execution. Return
+	/// <see langword="null"/> when the link is not available, such as before a trace has been created.
 	/// </param>
 	/// <returns>This options instance.</returns>
 	public ImmediateJobsDashboardOptions AddTelemetryLink(

@@ -1,5 +1,5 @@
-using Cronos;
 using System.Text.Json.Serialization.Metadata;
+using Cronos;
 
 namespace Immediate.Jobs.Shared;
 
@@ -376,7 +376,13 @@ public abstract class JobScheduler<TPayload>(
 
 		var record = CreateRecord(payload, TimeProvider.GetUtcNow());
 		record = record with { BatchId = current.BatchId };
-		await graphStorage.AddBatchJobAsync(current.JobId, record, options, cancellationToken).ConfigureAwait(false);
+		await graphStorage.AddBatchJobAsync(
+			current.JobId,
+			current.Attempt,
+			record,
+			options,
+			cancellationToken
+		).ConfigureAwait(false);
 		JobTelemetry.Enqueued(JobName, QueueName);
 		return new(record.Id);
 	}

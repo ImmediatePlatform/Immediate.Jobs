@@ -7,12 +7,11 @@ import { ChevronLeft, ChevronRight, Search } from '@lucide/vue';
 
 import ConfirmDialog from '@/components/ConfirmDialog.vue';
 import FeedbackState from '@/components/FeedbackState.vue';
-import JobDetail from '@/components/JobDetail.vue';
 import JobTable from '@/components/JobTable.vue';
 import PageHeader from '@/components/PageHeader.vue';
 import { jobStates, type JobFilters, type JobRecord, type JobState } from '@/contracts';
 import { errorText } from '@/notifications';
-import { useJobQuery, useJobsQuery, useJobTelemetryLinksQuery } from '@/query';
+import { useJobsQuery } from '@/query';
 import { useJobMutations } from '@/use-dashboard-mutations';
 
 const route = useRoute();
@@ -25,10 +24,6 @@ const debouncedSearch = refDebounced(searchQuery, 250);
 const debouncedQueue = refDebounced(queueQuery, 250);
 const deleteCandidate = ref<JobRecord>();
 
-const selectedJobId = computed(() => {
-	const value = route.params.jobId;
-	return typeof value === 'string' ? value : undefined;
-});
 const selectedState = computed<JobState | ''>(() => {
 	return jobStates.includes(stateQuery.value as JobState) ? stateQuery.value as JobState : '';
 });
@@ -44,10 +39,7 @@ const filters = computed<JobFilters>(() => ({
 }));
 
 const jobsQuery = useJobsQuery(filters);
-const selectedJobQuery = useJobQuery(selectedJobId);
-const telemetryLinksQuery = useJobTelemetryLinksQuery(selectedJobId);
 const jobMutations = useJobMutations();
-const error = computed(() => jobsQuery.error.value ?? selectedJobQuery.error.value);
 
 watch([searchQuery, queueQuery, stateQuery], () => {
 	pageQuery.value = '1';
@@ -65,14 +57,10 @@ watch(pageQuery, (value) => {
 
 function openJob(job: JobRecord): void {
 	void router.push({
-		name: 'jobs',
+		name: 'job-detail',
 		params: { jobId: job.id },
 		query: route.query,
 	});
-}
-
-function closeJob(): void {
-	void router.push({ name: 'jobs', query: route.query });
 }
 
 function openBatch(batchId: string): void {
@@ -91,9 +79,6 @@ async function confirmDelete(): Promise<void> {
 	try {
 		await jobMutations.deleteJob(deletedId);
 		deleteCandidate.value = undefined;
-		if (selectedJobId.value === deletedId) {
-			closeJob();
-		}
 	} catch {
 		// The mutation displays the API error and leaves the confirmation open.
 	}
@@ -127,38 +112,17 @@ async function confirmDelete(): Promise<void> {
 			</label>
 		</div>
 
-		<FeedbackState v-if="error && !jobsQuery.data.value" type="error" title="Jobs could not be loaded" :description="errorText(error)" />
+		<FeedbackState v-if="jobsQuery.error.value && !jobsQuery.data.value" type="error" title="Jobs could not be loaded" :description="errorText(jobsQuery.error.value)" />
 		<FeedbackState v-else-if="jobsQuery.isPending.value" type="loading" title="Loading jobs" />
 		<div v-else>
 			<JobTable
 				:rows="jobsQuery.data.value?.items ?? []"
-				:selected-id="selectedJobId"
 				:busy-job-id="jobMutations.busyJobId.value"
 				@select="openJob"
 				@open-batch="openBatch"
 				@retry="(job) => jobMutations.retryJob(job.id)"
 				@delete="deleteCandidate = $event"
-			>
-				<template #details>
-					<div class="inline-job-detail">
-						<FeedbackState v-if="selectedJobQuery.isPending.value" type="loading" title="Loading job details" />
-						<FeedbackState
-							v-else-if="selectedJobQuery.error.value"
-							type="error"
-							title="Job details could not be loaded"
-							:description="errorText(selectedJobQuery.error.value)"
-						/>
-						<JobDetail
-							v-else-if="selectedJobQuery.data.value"
-							:job="selectedJobQuery.data.value"
-							:telemetry-links="telemetryLinksQuery.data.value ?? []"
-							:pending="jobMutations.busyJobId.value === selectedJobId"
-							@close="closeJob"
-							@retry="(job) => jobMutations.retryJob(job.id)"
-						/>
-					</div>
-				</template>
-			</JobTable>
+			/>
 			<div class="pagination" aria-label="Jobs pagination">
 				<button class="button button-secondary" type="button" :disabled="page === 1" @click="changePage(page - 1)">
 					<ChevronLeft :size="15" aria-hidden="true" />
