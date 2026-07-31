@@ -143,6 +143,7 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 			var succeeded = terminal.Count(static job => job.State == JobState.Succeeded);
 			var failed = terminal.Count(static job => job.State == JobState.Failed);
 			var cancelled = terminal.Count(static job => job.State == JobState.Cancelled);
+			var skipped = terminal.Count(static job => job.State == JobState.Skipped);
 			_ = context.Add(new ImmediateJobBatchEntity
 			{
 				Id = batch.Id,
@@ -152,6 +153,7 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 				SucceededCount = succeeded,
 				FailedCount = failed,
 				CancelledCount = cancelled,
+				SkippedCount = skipped,
 				StartedAt = batch.StartedAt,
 				CompletedAt = pending == 0 ? batch.CompletedAt ?? _timeProvider.GetUtcNow() : null,
 				State = pending == 0 ? GetTerminalBatchState(failed, cancelled) : BatchState.Executing,
@@ -1195,17 +1197,18 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 			.Where(job => job.BatchId == batchId)
 			.ToListAsync(cancellationToken)
 			.ConfigureAwait(false);
-		foreach (var job in jobs)
+		var jobsToCancel = jobs.Where(job => !IsTerminal(job.State)).ToArray();
+		foreach (var job in jobsToCancel)
 		{
-			if (IsTerminal(job.State))
-				continue;
 			job.State = JobState.Cancelled;
 			job.CompletedAt = now;
 			job.WorkerId = null;
 			job.LeaseExpiresAt = null;
 			job.ConcurrencyStamp = Guid.NewGuid();
-			await PropagateTerminalAsync(context, job, now, cancellationToken).ConfigureAwait(false);
 		}
+
+		foreach (var job in jobsToCancel)
+			await PropagateTerminalAsync(context, job, now, cancellationToken).ConfigureAwait(false);
 
 		var terminalGroups = GetTerminalFairQueueGroups(context);
 		_ = await context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
@@ -1347,7 +1350,7 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 		var job = await context.Set<ImmediateJobEntity>()
 			.AsNoTracking()
 			.SingleOrDefaultAsync(item => item.Id == jobId
-				&& (item.State == JobState.Succeeded || item.State == JobState.Failed || item.State == JobState.Cancelled), cancellationToken)
+				&& (item.State == JobState.Succeeded || item.State == JobState.Failed || item.State == JobState.Cancelled || item.State == JobState.Skipped), cancellationToken)
 			.ConfigureAwait(false);
 		if (job is null)
 		{
@@ -1370,7 +1373,7 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 			.ConfigureAwait(false);
 		var removed = await context.Set<ImmediateJobEntity>()
 			.Where(item => item.Id == jobId &&
-				(item.State == JobState.Succeeded || item.State == JobState.Failed || item.State == JobState.Cancelled))
+				(item.State == JobState.Succeeded || item.State == JobState.Failed || item.State == JobState.Cancelled || item.State == JobState.Skipped))
 			.ExecuteDeleteAsync(cancellationToken)
 			.ConfigureAwait(false);
 		if (removed == 0)
@@ -1435,7 +1438,7 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 		var jobs = await context.Set<ImmediateJobEntity>()
 			.Where(job => job.BatchId == null
 				&& ((job.State == JobState.Succeeded && job.CompletedAt < succeededBefore)
-				|| ((job.State == JobState.Failed || job.State == JobState.Cancelled) && job.CompletedAt < failedBefore))
+				|| ((job.State == JobState.Failed || job.State == JobState.Cancelled || job.State == JobState.Skipped) && job.CompletedAt < failedBefore))
 			)
 			.ToListAsync(cancellationToken)
 			.ConfigureAwait(false);
@@ -1923,14 +1926,14 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 					child.FailedDependencies++;
 				if (child.RemainingDependencies == 0)
 				{
-					var cancel = await ShouldCancelSettledContinuationAsync(
+					var skip = await ShouldSkipSettledContinuationAsync(
 						context,
 						child.Id,
 						cancellationToken
 					).ConfigureAwait(false);
-					if (cancel)
+					if (skip)
 					{
-						child.State = JobState.Cancelled;
+						child.State = JobState.Skipped;
 						child.CompletedAt = now;
 						parents.Enqueue((ContinuationParentKind.Job, child.Id, ContinuationParentOutcome.Other));
 						await UpdateBatchForTerminalJobAsync(context, child, now, parents, cancellationToken).ConfigureAwait(false);
@@ -1946,7 +1949,7 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 		}
 	}
 
-	private static async Task<bool> ShouldCancelSettledContinuationAsync(
+	private static async Task<bool> ShouldSkipSettledContinuationAsync(
 		TContext context,
 		string childJobId,
 		CancellationToken cancellationToken
@@ -1994,6 +1997,9 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 				break;
 			case JobState.Cancelled:
 				batch.CancelledCount++;
+				break;
+			case JobState.Skipped:
+				batch.SkippedCount++;
 				break;
 			case JobState.AwaitingContinuation:
 			case JobState.AwaitingParameters:
@@ -2100,7 +2106,7 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 				job.FailedDependencies = failedDependencies;
 				if (violated || (remaining == 0 && requiresFailure && failedDependencies == 0))
 				{
-					job.State = JobState.Cancelled;
+					job.State = JobState.Skipped;
 					job.RemainingDependencies = 0;
 					job.CompletedAt = now;
 					changed = true;
@@ -2171,7 +2177,7 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 	}
 
 	private static bool IsTerminal(JobState state) =>
-		state is JobState.Succeeded or JobState.Failed or JobState.Cancelled;
+		state is JobState.Succeeded or JobState.Failed or JobState.Cancelled or JobState.Skipped;
 
 	private static ContinuationParentOutcome GetParentOutcome(JobState state) => state switch
 	{
@@ -2182,7 +2188,8 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 		JobState.Scheduled or
 		JobState.Pending or
 		JobState.Active or
-		JobState.Cancelled => ContinuationParentOutcome.Other,
+		JobState.Cancelled or
+		JobState.Skipped => ContinuationParentOutcome.Other,
 		_ => throw new ArgumentOutOfRangeException(nameof(state), state, "Unknown job state."),
 	};
 
@@ -2355,6 +2362,7 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 		batch.SucceededCount,
 		batch.FailedCount,
 		batch.CancelledCount,
+		batch.SkippedCount,
 		batch.PendingCount,
 		batch.CreatedAt,
 		batch.StartedAt,

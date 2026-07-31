@@ -555,6 +555,7 @@ public sealed class SingleServerJobStorage :
 						SucceededCount = status.Succeeded,
 						FailedCount = status.Failed,
 						CancelledCount = status.Cancelled,
+						SkippedCount = status.Skipped,
 						StartedAt = status.StartedAt,
 						CompletedAt = status.CompletedAt,
 						State = status.State,

@@ -641,7 +641,7 @@ public sealed class RedisStorageTests(RedisStorageFixture fixture)
 	}
 
 	[Fact]
-	public async Task RecurringMaterializationPersistsSkippedOccurrenceAsCancelled()
+	public async Task RecurringMaterializationPersistsSkippedOccurrenceAsSkipped()
 	{
 		var cancellationToken = TestContext.Current.CancellationToken;
 		await using var connection = await ConnectionMultiplexer.ConnectAsync(fixture.Container.GetConnectionString());
@@ -663,7 +663,7 @@ public sealed class RedisStorageTests(RedisStorageFixture fixture)
 			schedule,
 			CreateJob("skipped", now) with
 			{
-				State = JobState.Cancelled,
+				State = JobState.Skipped,
 				CompletedAt = now,
 				RecurringKey = string.Create(CultureInfo.InvariantCulture, $"{schedule.Name}:{now.UtcTicks}"),
 			},
@@ -671,7 +671,7 @@ public sealed class RedisStorageTests(RedisStorageFixture fixture)
 			cancellationToken
 		));
 		var skipped = Assert.Single(await storage.QueryJobsAsync(
-			new() { State = JobState.Cancelled },
+			new() { State = JobState.Skipped },
 			cancellationToken
 		));
 		Assert.Equal(now, skipped.CompletedAt);

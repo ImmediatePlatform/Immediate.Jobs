@@ -54,6 +54,7 @@ function width(value: number, total: number): string {
 								<span data-state="succeeded" :style="{ width: width(batch.succeeded, batch.total) }" />
 								<span data-state="failed" :style="{ width: width(batch.failed, batch.total) }" />
 								<span data-state="cancelled" :style="{ width: width(batch.cancelled, batch.total) }" />
+								<span data-state="skipped" :style="{ width: width(batch.skipped, batch.total) }" />
 								<span data-state="remaining" :style="{ width: width(batch.remaining, batch.total) }" />
 							</div>
 						</td>

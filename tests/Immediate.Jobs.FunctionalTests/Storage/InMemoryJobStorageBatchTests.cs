@@ -136,7 +136,7 @@ public sealed class InMemoryJobStorageBatchTests
 			[new() { ChildJobId = successOnly.Id, ParentJobId = parent.Id }],
 			cancellationToken
 		);
-		Assert.Equal(JobState.Cancelled, (await GetJobAsync(storage, successOnly.Id, cancellationToken)).State);
+		Assert.Equal(JobState.Skipped, (await GetJobAsync(storage, successOnly.Id, cancellationToken)).State);
 
 		var always = CreateJob("always") with
 		{
@@ -176,7 +176,7 @@ public sealed class InMemoryJobStorageBatchTests
 	}
 
 	[Fact]
-	public async Task FailureContinuationIsCancelledWhenEveryParentSucceeds()
+	public async Task FailureContinuationIsSkippedWhenEveryParentSucceeds()
 	{
 		var cancellationToken = TestContext.Current.CancellationToken;
 		await using var storage = new InMemoryJobStorage(new FakeTimeProvider(DateTimeOffset.UnixEpoch));
@@ -201,7 +201,7 @@ public sealed class InMemoryJobStorageBatchTests
 
 		await storage.CompleteAsync(parent.Id, "worker", cancellationToken);
 
-		Assert.Equal(JobState.Cancelled, (await GetJobAsync(storage, child.Id, cancellationToken)).State);
+		Assert.Equal(JobState.Skipped, (await GetJobAsync(storage, child.Id, cancellationToken)).State);
 	}
 
 	[Fact]
@@ -255,8 +255,8 @@ public sealed class InMemoryJobStorageBatchTests
 	}
 
 	[Theory]
-	[InlineData(false, false, JobState.Cancelled)]
-	[InlineData(false, true, JobState.Cancelled)]
+	[InlineData(false, false, JobState.Skipped)]
+	[InlineData(false, true, JobState.Skipped)]
 	[InlineData(true, false, JobState.Pending)]
 	[InlineData(true, true, JobState.Pending)]
 	public async Task MixedTriggersUseAllIncomingEdgesRegardlessOfCompletionOrder(

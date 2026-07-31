@@ -80,6 +80,13 @@ describe('dashboard components', () => {
 		expect(detail.get('button.button-secondary').text()).toContain('Run now');
 	});
 
+	it('shows skipped branches', () => {
+		const skipped = { ...completedJob, id: 'skipped', state: 'Skipped' as const };
+		const table = mount(JobTable, { props: { rows: [skipped] } });
+
+		expect(table.text()).toContain('Skipped');
+	});
+
 	it.each([
 		{ groupId: null, rendersGroup: false },
 		{ groupId: '', rendersGroup: true },

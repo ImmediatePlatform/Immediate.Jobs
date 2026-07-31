@@ -104,7 +104,7 @@ public interface IJobStorage : IAsyncDisposable
 
 	/// <summary>Deletes terminal job history older than the supplied retention periods.</summary>
 	/// <param name="succeededRetention">The retention period for successful invocations.</param>
-	/// <param name="failedRetention">The retention period for failed or cancelled invocations.</param>
+	/// <param name="failedRetention">The retention period for failed, cancelled, or skipped invocations.</param>
 	/// <param name="cancellationToken">A token that can cancel the storage operation.</param>
 	/// <returns>A value task that represents the asynchronous purge operation.</returns>
 	ValueTask PurgeJobsAsync(

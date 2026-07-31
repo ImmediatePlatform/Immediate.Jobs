@@ -45,7 +45,7 @@ public sealed class RecurringSchedulerTests
 			cancellationToken
 		);
 		var occurrence = Assert.Single(materialized, job => job.RecurringKey is not null);
-		Assert.Equal(JobState.Cancelled, occurrence.State);
+		Assert.Equal(JobState.Skipped, occurrence.State);
 	}
 
 	[Fact]
@@ -67,7 +67,7 @@ public sealed class RecurringSchedulerTests
 			cancellationToken
 		);
 		var occurrence = Assert.Single(jobs, job => job.DueAt == Start.AddHours(1));
-		Assert.Equal(JobState.Cancelled, occurrence.State);
+		Assert.Equal(JobState.Skipped, occurrence.State);
 	}
 
 	[Fact]

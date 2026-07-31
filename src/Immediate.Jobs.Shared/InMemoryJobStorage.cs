@@ -933,13 +933,18 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 			if (batch.State != BatchState.Executing)
 				throw new ImmediateJobException("Only an executing batch can be cancelled.");
 
-			foreach (var jobId in _jobs.Values
+			var now = timeProvider.GetUtcNow();
+			var jobIds = _jobs.Values
 				.Where(job => string.Equals(job.BatchId, batchId, StringComparison.Ordinal) && !IsTerminal(job.State))
 				.Select(static job => job.Id)
-				.ToArray())
+				.ToArray();
+			foreach (var jobId in jobIds)
 			{
-				TransitionToTerminal(jobId, JobState.Cancelled, error: null, timeProvider.GetUtcNow());
+				TransitionToTerminal(jobId, JobState.Cancelled, error: null, now, propagateContinuations: false);
 			}
+
+			foreach (var jobId in jobIds)
+				ProcessTerminalJob(jobId);
 		}
 
 		return ValueTask.CompletedTask;
@@ -1042,7 +1047,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 						x.CompletedAt is { } completed
 						&& (
 							(x.State is JobState.Succeeded && completed < now - succeededRetention)
-							|| (x.State is JobState.Failed or JobState.Cancelled && completed < now - failedRetention)
+							|| (x.State is JobState.Failed or JobState.Cancelled or JobState.Skipped && completed < now - failedRetention)
 						)
 				)
 				.Select(static job => job.Id)
@@ -1133,7 +1138,8 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 		var succeeded = jobs.Count(static job => job.State == JobState.Succeeded);
 		var failed = jobs.Count(static job => job.State == JobState.Failed);
 		var cancelled = jobs.Count(static job => job.State == JobState.Cancelled);
-		var pending = jobs.Count - succeeded - failed - cancelled;
+		var skipped = jobs.Count(static job => job.State == JobState.Skipped);
+		var pending = jobs.Count - succeeded - failed - cancelled - skipped;
 
 		var expectedState = true switch
 		{
@@ -1149,6 +1155,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 			batch.SucceededCount != succeeded ||
 			batch.FailedCount != failed ||
 			batch.CancelledCount != cancelled ||
+			batch.SkippedCount != skipped ||
 			batch.State != expectedState ||
 			((pending == 0) != (batch.CompletedAt is not null))
 		)
@@ -1261,7 +1268,8 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 			batch.SucceededCount != 0 ||
 			batch.FailedCount != 0 ||
 			batch.CancelledCount != 0 ||
-			jobs.Any(static job => job.State is JobState.Active or JobState.Succeeded or JobState.Failed or JobState.Cancelled))
+			batch.SkippedCount != 0 ||
+			jobs.Any(static job => job.State is JobState.Active or JobState.Succeeded or JobState.Failed or JobState.Cancelled or JobState.Skipped))
 		{
 			return true;
 		}
@@ -1330,7 +1338,8 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 		string jobId,
 		JobState terminalState,
 		string? error,
-		DateTimeOffset completedAt
+		DateTimeOffset completedAt,
+		bool propagateContinuations = true
 	)
 	{
 		if (!IsTerminal(terminalState))
@@ -1347,7 +1356,8 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 			CompletedAt = completedAt,
 		};
 		UpdateBatchAfterTerminal(job.BatchId, terminalState, completedAt);
-		ProcessTerminalJob(jobId);
+		if (propagateContinuations)
+			ProcessTerminalJob(jobId);
 		RemoveFairQueueCursorWhenBacklogClears(job.QueueName, job.GroupId);
 	}
 
@@ -1377,6 +1387,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 			SucceededCount = batch.SucceededCount + (state == JobState.Succeeded ? 1 : 0),
 			FailedCount = batch.FailedCount + (state == JobState.Failed ? 1 : 0),
 			CancelledCount = batch.CancelledCount + (state == JobState.Cancelled ? 1 : 0),
+			SkippedCount = batch.SkippedCount + (state == JobState.Skipped ? 1 : 0),
 		};
 		if (pending == 0)
 		{
@@ -1448,7 +1459,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 			FailedDependencies = failedDependencies,
 		};
 		if (!triggersSatisfied)
-			TransitionToTerminal(child.Id, JobState.Cancelled, error: null, timeProvider.GetUtcNow());
+			TransitionToTerminal(child.Id, JobState.Skipped, error: null, timeProvider.GetUtcNow());
 	}
 
 	private (bool Satisfied, int FailedDependencies) EvaluateIncomingTriggers(string childJobId)
@@ -1559,7 +1570,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 	}
 
 	private static bool IsTerminal(JobState state) =>
-		state is JobState.Succeeded or JobState.Failed or JobState.Cancelled;
+		state is JobState.Succeeded or JobState.Failed or JobState.Cancelled or JobState.Skipped;
 
 	private static bool IsTerminal(BatchState state) => state is not BatchState.Executing;
 
@@ -1570,6 +1581,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 		batch.SucceededCount,
 		batch.FailedCount,
 		batch.CancelledCount,
+		batch.SkippedCount,
 		batch.PendingCount,
 		batch.CreatedAt,
 		batch.StartedAt,
