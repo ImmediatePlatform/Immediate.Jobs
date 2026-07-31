@@ -189,14 +189,18 @@ public static class ImmediateJobsDashboardEndpointRouteBuilderExtensions
 			IJobStorage storage,
 			CancellationToken cancellationToken
 		) => storage is IJobGraphStorage graphStorage
-			? await MutateBatchAsync(graphStorage.CancelBatchAsync(batchId, cancellationToken)).ConfigureAwait(false)
+			? await MutateBatchAsync(
+				() => graphStorage.CancelBatchAsync(batchId, cancellationToken)
+			).ConfigureAwait(false)
 			: Results.NotFound());
 		_ = api.MapDelete("/batches/{batchId}", async (
 			string batchId,
 			IJobStorage storage,
 			CancellationToken cancellationToken
 		) => storage is IJobGraphStorage graphStorage
-			? await MutateBatchAsync(graphStorage.DeleteBatchAsync(batchId, cancellationToken)).ConfigureAwait(false)
+			? await MutateBatchAsync(
+				() => graphStorage.DeleteBatchAsync(batchId, cancellationToken)
+			).ConfigureAwait(false)
 			: Results.NotFound());
 		_ = api.MapGet("/recurring", async (IJobStorage storage, CancellationToken cancellationToken) =>
 		{
@@ -216,14 +220,14 @@ public static class ImmediateJobsDashboardEndpointRouteBuilderExtensions
 			IJobStorage storage,
 			CancellationToken cancellationToken
 		) => storage is IRecurringJobStorage recurringStorage
-			? MutateRecurringAsync(recurringStorage.PauseRecurringAsync(name, cancellationToken))
+			? MutateRecurringAsync(() => recurringStorage.PauseRecurringAsync(name, cancellationToken))
 			: Task.FromResult(Results.NotFound()));
 		_ = api.MapPost("/recurring/{name}/resume", (
 			string name,
 			IJobStorage storage,
 			CancellationToken cancellationToken
 		) => storage is IRecurringJobStorage recurringStorage
-			? MutateRecurringAsync(recurringStorage.ResumeRecurringAsync(name, cancellationToken))
+			? MutateRecurringAsync(() => recurringStorage.ResumeRecurringAsync(name, cancellationToken))
 			: Task.FromResult(Results.NotFound()));
 		_ = api.MapGet("/events", (HttpContext context, IJobStorage storage) =>
 			StreamEventsAsync(context, storage, options.UpdateInterval));
@@ -358,11 +362,11 @@ public static class ImmediateJobsDashboardEndpointRouteBuilderExtensions
 		return Results.Accepted();
 	}
 
-	private static async Task<IResult> MutateRecurringAsync(ValueTask operation)
+	private static async Task<IResult> MutateRecurringAsync(Func<ValueTask> operation)
 	{
 		try
 		{
-			await operation.ConfigureAwait(false);
+			await operation().ConfigureAwait(false);
 			return Results.NoContent();
 		}
 		catch (KeyNotFoundException)
@@ -371,11 +375,11 @@ public static class ImmediateJobsDashboardEndpointRouteBuilderExtensions
 		}
 	}
 
-	private static async Task<IResult> MutateBatchAsync(ValueTask operation)
+	private static async Task<IResult> MutateBatchAsync(Func<ValueTask> operation)
 	{
 		try
 		{
-			await operation.ConfigureAwait(false);
+			await operation().ConfigureAwait(false);
 			return Results.NoContent();
 		}
 		catch (KeyNotFoundException)

@@ -132,6 +132,32 @@ public sealed class DashboardPackageTests
 	}
 
 	[Theory]
+	[InlineData("POST", "/jobs/api/recurring/missing/pause")]
+	[InlineData("POST", "/jobs/api/recurring/missing/resume")]
+	[InlineData("POST", "/jobs/api/batches/missing/cancel")]
+	[InlineData("DELETE", "/jobs/api/batches/missing")]
+	[InlineData("POST", "/jobs/api/jobs/missing/retry")]
+	[InlineData("DELETE", "/jobs/api/jobs/missing")]
+	public async Task InMemoryDashboardReturnsNotFoundForMissingMutationTargets(string method, string path)
+	{
+		var builder = WebApplication.CreateBuilder(new WebApplicationOptions
+		{
+			EnvironmentName = Environments.Development,
+		});
+		_ = builder.WebHost.UseTestServer();
+		_ = builder.Services.AddSingleton<IJobStorage>(static _ => new InMemoryJobStorage(TimeProvider.System));
+
+		await using var app = builder.Build();
+		_ = app.MapImmediateJobsDashboard();
+		await app.StartAsync(TestContext.Current.CancellationToken);
+
+		using var request = new HttpRequestMessage(new(method), path);
+		using var response = await app.GetTestClient().SendAsync(request, TestContext.Current.CancellationToken);
+
+		Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+	}
+
+	[Theory]
 	[InlineData("/jobs/")]
 	[InlineData("/jobs/invocations")]
 	[InlineData("/jobs/batches/batch-42/jobs/job-7")]
