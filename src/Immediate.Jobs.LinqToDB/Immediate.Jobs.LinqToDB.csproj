@@ -22,7 +22,7 @@
 
   <ItemGroup>
 	<PackageReference Include="linq2db" />
-    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" NoWarn="NU5104" />
   </ItemGroup>
 
   <ItemGroup>

@@ -21,9 +21,9 @@
   </ItemGroup>
 
   <ItemGroup>
-	<PackageReference Include="Microsoft.EntityFrameworkCore" />
-    <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" />
-    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
+	<PackageReference Include="Microsoft.EntityFrameworkCore" NoWarn="NU5104" />
+	<PackageReference Include="Microsoft.EntityFrameworkCore.Relational" NoWarn="NU5104" />
+	<PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" NoWarn="NU5104" />
   </ItemGroup>
 
   <ItemGroup>
