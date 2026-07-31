@@ -23,7 +23,6 @@ const pageQuery = useRouteQuery<string>('page', '1');
 const debouncedSearch = refDebounced(searchQuery, 250);
 const debouncedQueue = refDebounced(queueQuery, 250);
 const cancelCandidate = ref<JobRecord>();
-const deleteCandidate = ref<JobRecord>();
 
 const selectedState = computed<JobState | ''>(() => {
 	return jobStates.includes(stateQuery.value as JobState) ? stateQuery.value as JobState : '';
@@ -70,19 +69,6 @@ function openBatch(batchId: string): void {
 
 function changePage(nextPage: number): void {
 	pageQuery.value = String(Math.max(1, nextPage));
-}
-
-async function confirmDelete(): Promise<void> {
-	if (!deleteCandidate.value) {
-		return;
-	}
-	const deletedId = deleteCandidate.value.id;
-	try {
-		await jobMutations.deleteJob(deletedId);
-		deleteCandidate.value = undefined;
-	} catch {
-		// The mutation displays the API error and leaves the confirmation open.
-	}
 }
 
 async function confirmCancel(): Promise<void> {
@@ -135,7 +121,6 @@ async function confirmCancel(): Promise<void> {
 				@open-batch="openBatch"
 				@cancel="cancelCandidate = $event"
 				@retry="(job) => jobMutations.retryJob(job.id)"
-				@delete="deleteCandidate = $event"
 			/>
 			<div class="pagination" aria-label="Jobs pagination">
 				<button class="button button-secondary" type="button" :disabled="page === 1" @click="changePage(page - 1)">
@@ -158,16 +143,6 @@ async function confirmCancel(): Promise<void> {
 			:pending="jobMutations.cancelling.value"
 			@cancel="cancelCandidate = undefined"
 			@confirm="confirmCancel"
-		/>
-
-		<ConfirmDialog
-			:open="Boolean(deleteCandidate)"
-			title="Delete failed job?"
-			:description="`This permanently removes ${deleteCandidate?.jobName ?? 'this job'} and its stored payload.`"
-			confirm-label="Delete job"
-			:pending="jobMutations.deleting.value"
-			@cancel="deleteCandidate = undefined"
-			@confirm="confirmDelete"
 		/>
 	</section>
 </template>

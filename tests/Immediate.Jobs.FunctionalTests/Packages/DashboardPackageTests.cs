@@ -330,9 +330,8 @@ public sealed class DashboardPackageTests
 	[InlineData("POST", "/jobs/api/recurring/missing/resume")]
 	[InlineData("POST", "/jobs/api/batches/missing/cancel")]
 	[InlineData("DELETE", "/jobs/api/batches/missing")]
-	[InlineData("POST", "/jobs/api/jobs/missing/cancel")]
 	[InlineData("POST", "/jobs/api/jobs/missing/retry")]
-	[InlineData("DELETE", "/jobs/api/jobs/missing")]
+	[InlineData("POST", "/jobs/api/jobs/missing")]
 	public async Task InMemoryDashboardReturnsNotFoundForMissingMutationTargets(string method, string path)
 	{
 		var builder = WebApplication.CreateBuilder(new WebApplicationOptions
@@ -381,7 +380,7 @@ public sealed class DashboardPackageTests
 		await app.StartAsync(cancellationToken);
 
 		using var response = await app.GetTestClient().PostAsync(
-			new Uri("/jobs/api/jobs/dashboard-cancel/cancel", UriKind.Relative),
+			new Uri("/jobs/api/jobs/dashboard-cancel", UriKind.Relative),
 			content: null,
 			cancellationToken
 		);
@@ -389,7 +388,7 @@ public sealed class DashboardPackageTests
 		Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
 		Assert.Equal(JobState.Cancelled, (await storage.GetJobStatusAsync("dashboard-cancel", cancellationToken))!.State);
 		using var conflict = await app.GetTestClient().PostAsync(
-			new Uri("/jobs/api/jobs/dashboard-cancel/cancel", UriKind.Relative),
+			new Uri("/jobs/api/jobs/dashboard-cancel", UriKind.Relative),
 			content: null,
 			cancellationToken
 		);

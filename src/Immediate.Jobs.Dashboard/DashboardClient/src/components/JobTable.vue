@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Ban, Eye, Layers3, RotateCcw, Trash2 } from '@lucide/vue';
+import { Ban, Eye, Layers3, RotateCcw } from '@lucide/vue';
 
 import FeedbackState from '@/components/FeedbackState.vue';
 import StateBadge from '@/components/StateBadge.vue';
@@ -18,7 +18,6 @@ const emit = defineEmits<{
 	openBatch: [batchId: string];
 	cancel: [job: JobRecord];
 	retry: [job: JobRecord];
-	delete: [job: JobRecord];
 }>();
 
 function retryLabel(job: JobRecord): string {
@@ -101,16 +100,6 @@ function retryLabel(job: JobRecord): string {
 									@click="emit('cancel', job)"
 								>
 									<Ban :size="15" aria-hidden="true" />
-								</button>
-								<button
-									v-if="job.state === 'Failed'"
-									class="icon-button danger"
-									type="button"
-									:disabled="busyJobId === job.id"
-									:aria-label="`Delete ${job.jobName}`"
-									@click="emit('delete', job)"
-								>
-									<Trash2 :size="15" aria-hidden="true" />
 								</button>
 							</div>
 						</td>

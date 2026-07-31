@@ -5,7 +5,6 @@ import {
 	cancelBatch,
 	cancelJob,
 	deleteBatch,
-	deleteJob,
 	retryJob,
 	setRecurringPaused,
 	triggerRecurring,
@@ -34,20 +33,9 @@ export function useJobMutations() {
 		},
 		onError: (reason) => notify(errorText(reason), 'error'),
 	});
-	const deleteMutation = useMutation({
-		mutationFn: deleteJob,
-		onSuccess: async (_, jobId) => {
-			notify('Job deleted.');
-			queryClient.removeQueries({ queryKey: queryKeys.job(jobId) });
-			await refreshDashboardQueries(queryClient);
-		},
-		onError: (reason) => notify(errorText(reason), 'error'),
-	});
-
 	return {
 		cancelJob: cancelMutation.mutateAsync,
 		retryJob: retryMutation.mutate,
-		deleteJob: deleteMutation.mutateAsync,
 		busyJobId: computed(() => {
 			if (cancelMutation.isPending.value) {
 				return cancelMutation.variables.value;
@@ -55,10 +43,9 @@ export function useJobMutations() {
 			if (retryMutation.isPending.value) {
 				return retryMutation.variables.value;
 			}
-			return deleteMutation.isPending.value ? deleteMutation.variables.value : undefined;
+			return undefined;
 		}),
 		cancelling: cancelMutation.isPending,
-		deleting: deleteMutation.isPending,
 	};
 }
 
