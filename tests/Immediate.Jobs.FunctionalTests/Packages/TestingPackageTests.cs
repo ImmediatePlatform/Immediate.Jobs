@@ -167,7 +167,7 @@ public sealed class TestingPackageTests
 	}
 
 	[Fact]
-	public async Task ContinuationReleaseAssertionRejectsCancellation()
+	public async Task ContinuationReleaseAssertionRejectsSkippedBranch()
 	{
 		var cancellationToken = TestContext.Current.CancellationToken;
 		await using var harness = new JobTestHarness();
@@ -204,7 +204,7 @@ public sealed class TestingPackageTests
 		var exception = await Assert.ThrowsAsync<JobTestAssertionException>(
 			() => harness.AssertContinuationReleasedAfterAsync(new(parent.Id), new(child.Id), cancellationToken).AsTask()
 		);
-		Assert.Contains("cancelled", exception.Message, StringComparison.OrdinalIgnoreCase);
+		Assert.Contains("Skipped", exception.Message, StringComparison.Ordinal);
 	}
 
 	public sealed record TestPayload(string Value);

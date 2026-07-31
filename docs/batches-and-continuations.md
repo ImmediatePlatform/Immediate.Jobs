@@ -51,7 +51,7 @@ dispatch resolves the job through the same generated `IJobInvoker`. No reflectio
 Continuations preserve this property. `child.ScheduleAfterAsync(parent, payload)` does **not** defer code.
 It writes a real, fully-serialized `JobRecord` for the child *now*, parked in a new
 `AwaitingContinuation` state, plus one or more **edges** describing what it waits for. When a parent
-reaches a terminal state, storage flips the child to `Pending` (or `Cancelled`). The only new
+reaches a terminal state, storage flips the child to `Pending` (or `Skipped`). The only new
 durable data is **edges and counters** — never behavior.
 
 ---
@@ -167,7 +167,7 @@ await two.ScheduleAfterAsync(oneBJob, new());           // `two` runs after `one
 
 > A standalone `ScheduleAfterAsync` and its parent are two separate writes, so the parent may already be
 > terminal by the time the child is created. In that case the continuation is **evaluated
-> immediately** (released or cancelled per its trigger) rather than waiting forever. Inside a batch
+> immediately** (released or skipped per its trigger) rather than waiting forever. Inside a batch
 > the two are written atomically, so this race cannot occur.
 
 ### 3.4 Fan-in / join
@@ -297,11 +297,11 @@ dashboard (§7).
 
 ### 3.8 Continuation triggers
 
-| Trigger                 | Fires when …                                               | When the condition is not met                    |
-| ----------------------- | ---------------------------------------------------------- | ------------------------------------------------ |
-| `Success` **(default)** | every parent reached `Succeeded`                           | child is **cancelled**, cascading to its subtree |
-| `Failure`               | every parent is terminal and at least one reached `Failed` | child is **cancelled**, cascading to its subtree |
-| `Complete`              | every parent reached any terminal state                    | always runs                                      |
+| Trigger                 | Fires when …                                               | When the condition is not met                  |
+| ----------------------- | ---------------------------------------------------------- | ---------------------------------------------- |
+| `Success` **(default)** | every parent reached `Succeeded`                           | child is **skipped**, cascading to its subtree |
+| `Failure`               | every parent is terminal and at least one reached `Failed` | child is **skipped**, cascading to its subtree |
+| `Complete`              | every parent reached any terminal state                    | always runs                                    |
 
 `Success` is the safe default: a broken upstream step never silently runs downstream work.
 `Failure` is the failure-handler trigger. For a `BatchHandle`, it fires only when the aggregate
@@ -333,7 +333,7 @@ await handleImportFailure.ScheduleAfterAsync(
 A new lifecycle state parks pre-created continuation rows, plus one reserved state:
 
 ```
-Scheduled → Pending → Active → Succeeded | Failed | Cancelled
+Scheduled → Pending → Active → Succeeded | Failed | Cancelled | Skipped
                  ↑
    AwaitingContinuation   (created, ineligible until every incoming edge is satisfied)
    AwaitingParameters     (reserved; ineligible until required inputs are supplied → Pending)
@@ -358,13 +358,16 @@ like `AwaitingContinuation`.
 | `PendingCount`   | int             | Non-terminal members; decremented as members reach terminal state |
 | `SucceededCount` | int             | Members that succeeded (maintained in §4.4)       |
 | `FailedCount`    | int             | Members that failed                               |
-| `CancelledCount` | int             | Members cancelled (incl. cascade)                 |
+| `CancelledCount` | int             | Members cancelled by an explicit action           |
+| `SkippedCount`   | int             | Conditional branches whose trigger was not selected |
 | `StartedAt`      | timestamptz?    | Set when the first member goes `Active`           |
 | `CompletedAt`    | timestamptz?    | Set when `State` becomes terminal                 |
 | `State`          | enum            | `Executing | Succeeded | Failed | Cancelled`      |
 
-The three per-state counters (plus `PendingCount`) make `GetStatusAsync` (§8) a single-row read; they
+The four per-state counters (plus `PendingCount`) make `GetStatusAsync` (§8) a single-row read; they
 are incremented in the same completion transaction that already decrements `PendingCount`.
+Existing EF Core databases need an application migration that adds non-null `SkippedCount` with a
+default of `0`; the LinqToDB bootstrap helper remains fresh-schema-only.
 
 **`immediate_job_continuations`** (edge table — expresses arbitrary DAGs)
 
@@ -412,21 +415,22 @@ unit commits, so a worker cannot observe a partial batch.
 transaction** as the state change:
 
 1. If the job belongs to a batch, decrement `PendingCount` and increment the matching
-   `Succeeded`/`Failed`/`CancelledCount` (and set `StartedAt` on the first `Active` transition); if
+   `SucceededCount`/`FailedCount`/`CancelledCount`/`SkippedCount` (and set `StartedAt` on the first `Active` transition); if
    `PendingCount` reaches `0`, finalize the batch's `State`, stamp `CompletedAt`, and treat the batch
    as a terminal parent for batch→job edges.
 2. For each outgoing edge from this job (or batch), decrement the child's `RemainingDependencies`
    and increment `FailedDependencies` when the parent failed.
-   - **`Success`:** a non-successful parent immediately moves the child to `Cancelled`; otherwise,
+   - **`Success`:** a non-successful parent immediately moves the child to `Skipped`; otherwise,
      release it when `RemainingDependencies` reaches `0`.
    - **`Failure`:** wait until `RemainingDependencies` reaches `0`, then release if
-     `FailedDependencies > 0`; otherwise move the child to `Cancelled`.
+     `FailedDependencies > 0`; otherwise move the child to `Skipped`.
    - **`Complete`:** release when `RemainingDependencies` reaches `0`, regardless of outcomes.
-   Cancellation **recurses** through outgoing edges, cascading the resulting outcome through the
+   Skipping **recurses** through outgoing edges, cascading the resulting outcome through the
    subtree.
 
-Release and cancellation are set-based within the provider (EF Core: `ExecuteUpdate` over the
-affected edge/child set) so a wide fan-out doesn't degrade to N round-trips.
+Release and skipping are committed atomically with the parent terminal transition. Relational
+providers evaluate and update the affected edges and children within the same transaction, so a
+worker cannot observe a terminal parent before its continuations have been evaluated.
 
 ### 4.5 Mid-job scheduling mechanics
 
@@ -500,7 +504,7 @@ still within its window.
 - **Distributed safety.** Counter decrements and edge evaluation run inside the same optimistic-
   concurrency transaction as the terminal state change, so concurrent completions on different nodes
   can't double-release or lose a decrement. A released child is claimable by any node.
-- **Crash mid-cascade.** Because release/cancel is transactional with completion, a node dying
+- **Crash mid-cascade.** Because release/skipping is transactional with completion, a node dying
   leaves either the pre- or post-completion state — never a half-released fan-out. Orphan sweeps
   (already used for expired leases) also reconcile any `AwaitingContinuation` row whose every parent
   is terminal but whose release was interrupted.
@@ -539,7 +543,7 @@ dashboard renders it as a graph rather than a flat job list.
 
 A table of batches with live progress, one row each:
 
-- A compact **progress bar** segmented by state — succeeded / failed / cancelled / running / waiting
+- A compact **progress bar** segmented by state — succeeded / failed / cancelled / skipped / running / waiting
   of `TotalJobs` — updated over SSE.
 - Batch `State` badge (`Executing`, `Succeeded`, `Failed`, `Cancelled`), member count, age, and the
   originating job/queue.
@@ -551,12 +555,12 @@ The centrepiece: an auto-laid-out **left-to-right DAG** of the batch's members a
 edges — a pipeline/graph canvas, not a list.
 
 - **Nodes** are jobs, colour-coded by state (waiting · scheduled · running · succeeded · failed ·
-  cancelled), labelled with the job name; a running node shows a subtle pulse, a failed node a
+  cancelled · skipped), labelled with the job name; a running node shows a subtle pulse, a failed node a
   badge. Selecting a node opens the existing job-detail panel (payload, attempts, errors, timings)
   in a side drawer without leaving the graph.
 - **Edges** are continuation dependencies, drawn `parent → child` and styled by trigger
   (`Success` solid, `Failure` red/dotted, `Complete` dashed). Fan-out, fan-in (join), and diamonds render as their
-  true shape; a **violated `Success` edge and the subtree it cancelled are dimmed/struck** so a
+  true shape; a **violated `Success` edge and the subtree it skipped are dimmed/struck** so a
   cascade is visible at a glance.
 - **Layered layout** (topological rank) with pan/zoom and a mini-map for large fan-outs; nodes with
   hundreds of siblings collapse into a **"×N same job"** group that expands on demand, so a
@@ -568,14 +572,14 @@ edges — a pipeline/graph canvas, not a list.
 
 ### 7.3 Actions
 
-- **Retry job** — re-runs *only* the selected failed member. Cascade-cancel is terminal, so
-  downstream `Cancelled` nodes stay cancelled (see §4.4).
+- **Retry job** — re-runs *only* the selected failed member. Skipped branches are terminal, so
+  downstream `Skipped` nodes stay skipped (see §4.4).
 - **Run now** — fast-forwards any invocation waiting in `Scheduled`, without changing its attempt
   count or overwriting the latest failure details from an automatic retry.
-- **Retry from here** — re-materializes the failed member **and its cancelled descendants** as a
+- **Retry from here** — re-materializes the failed member **and its skipped descendants** as a
   fresh sub-DAG (new IDs, new edges) attached to the same batch, rather than resurrecting terminal
   rows. This is the "resume the workflow" action; the viewer shows the re-materialized branch as a
-  new generation grafted onto the graph, with the original cancelled subtree preserved for history.
+  new generation grafted onto the graph, with the original skipped subtree preserved for history.
 - **Cancel batch** — cascades to all non-terminal members.
 - **Delete batch** — removes a terminal batch as a unit (members + edges), consistent with §4.7.
 
@@ -621,7 +625,7 @@ Result records:
 ```csharp
 public sealed record BatchStatus(
     string Id, BatchState State,
-    int Total, int Succeeded, int Failed, int Cancelled,
+    int Total, int Succeeded, int Failed, int Cancelled, int Skipped,
     int Remaining,                          // non-terminal (running + waiting); == PendingCount
     DateTimeOffset CreatedAt, DateTimeOffset? StartedAt, DateTimeOffset? CompletedAt,
     double FractionSettled);                // empty = 1; otherwise (Total - Remaining) / Total
@@ -669,7 +673,7 @@ Each maps to a storage call over the batch/member/edge tables already defined �
 - `JobTestHarness.Batches` — build and commit batches against the in-memory provider under
   `FakeTimeProvider`.
 - Assertions: `AssertBatchCommittedAtomicallyAsync`, `AssertContinuationReleasedAfterAsync(parent)`,
-  `AssertCascadeCancelledAsync(subtree)`.
+  and `AssertCascadeSkippedAsync(subtree)` (`AssertCascadeCancelledAsync` remains a compatibility alias).
 - Advance-and-drain helpers already resolve delayed members; continuation release is deterministic
   because it is driven by completion, not wall-clock.
 
@@ -762,7 +766,7 @@ public enum ContinuationOptions
 | **B0**      | v1 scheduler change: `EnqueueAsync`/`ScheduleAsync`/`ScheduleAtAsync` return `JobHandle` instead of `string`     |
 | **B1**      | `IJobBatchScheduler` + `Begin`/`AddToBatch`/`CommitAsync`, atomic `EnqueueBatchAsync`, in-memory + EF Core |
 | **B2**      | `ScheduleAfterAsync` continuations (chains + fan-out), `AwaitingContinuation`, transactional release   |
-| **B3**      | Fan-in joins (`ScheduleAfterAsync([...])`), cascade-cancel, cycle detection, batch continuations (`Begin(after:)`) |
+| **B3**      | Fan-in joins (`ScheduleAfterAsync([...])`), cascade-skipping, cycle detection, batch continuations (`Begin(after:)`) |
 | **B4**      | Mid-job scheduling (§3.6) — `ScheduleAfter`/`AddToBatchAsync(JobDetails, …)`, `ContinuationOptions`, execution buffer + flush, `IJOB0015` |
 | **B5**      | Read API (§8) — `IJobBatchMonitor` + `IJobMonitor`, batch-row counters, backing storage reads    |
 | **B6**      | Batch-atom retention (§4.7), dashboard batches list + workflow viewer + retry/cancel/delete, testing helpers, docs |
@@ -776,9 +780,9 @@ public enum ContinuationOptions
   state (`BatchSucceededRetention` 24h / `BatchFailedRetention` 7d), not member-by-member — so a
   failed DAG can be inspected whole. *(Rejected: inheriting per-member job retention, which leaves
   half-purged batches and wrong aggregate counts.)*
-- **Partial retry (§7.3):** cascade-cancel stays terminal. "Retry job" re-runs only the failed
+- **Partial retry (§7.3):** cascade-skipped work stays terminal. "Retry job" re-runs only the failed
   member; a separate **"Retry from here"** action (B7) re-materializes the failed member and its
-  cancelled descendants as a fresh sub-DAG rather than resurrecting terminal rows. *(Rejected:
+  skipped descendants as a fresh sub-DAG rather than resurrecting terminal rows. *(Rejected:
   un-cancelling terminal rows, which would poison every "terminal is final" assumption in purge,
   cascade, and metrics.)*
 

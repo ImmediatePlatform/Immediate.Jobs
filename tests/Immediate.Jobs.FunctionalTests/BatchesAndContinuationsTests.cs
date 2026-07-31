@@ -225,7 +225,40 @@ public sealed class BatchesAndContinuationsTests
 	}
 
 	[Fact]
-	public async Task FailedParentCancelsSuccessChildButReleasesFailureAndCompleteChildren()
+	public async Task SuccessfulBatchSkipsFailureBranchAndStillSucceeds()
+	{
+		var cancellationToken = TestContext.Current.CancellationToken;
+		var state = new BatchWorkflowState();
+		await using var harness = CreateHarness(state);
+		await using var scope = harness.Services.CreateAsyncScope();
+		var batches = scope.ServiceProvider.GetRequiredService<IJobBatchScheduler>();
+		var monitor = scope.ServiceProvider.GetRequiredService<IJobBatchMonitor>();
+		var scheduler = scope.ServiceProvider.GetRequiredService<BatchWorkflowJob.Scheduler>();
+		await using var batch = batches.Begin();
+
+		var parent = scheduler.AddToBatch(batch, new("parent"));
+		var failureOnly = await scheduler.ScheduleAfterAsync(
+			parent,
+			new("failure-only"),
+			ContinuationTrigger.Failure,
+			cancellationToken: cancellationToken
+		);
+		var batchHandle = await batch.CommitAsync(cancellationToken);
+
+		await harness.DrainAsync(cancellationToken);
+
+		Assert.Equal(JobState.Succeeded, (await harness.GetJobAsync(parent.Id, cancellationToken)).State);
+		Assert.Equal(JobState.Skipped, (await harness.GetJobAsync(failureOnly.Id, cancellationToken)).State);
+		var status = Assert.IsType<BatchStatus>(await monitor.GetStatusAsync(batchHandle.Id, cancellationToken));
+		Assert.Equal(BatchState.Succeeded, status.State);
+		Assert.Equal(1, status.Succeeded);
+		Assert.Equal(1, status.Skipped);
+		Assert.Equal(0, status.Cancelled);
+		Assert.Equal(["parent"], state.Events);
+	}
+
+	[Fact]
+	public async Task FailedParentSkipsSuccessChildButReleasesFailureAndCompleteChildren()
 	{
 		var cancellationToken = TestContext.Current.CancellationToken;
 		var state = new BatchWorkflowState();
@@ -257,7 +290,7 @@ public sealed class BatchesAndContinuationsTests
 		await harness.DrainAsync(cancellationToken);
 
 		Assert.Equal(JobState.Failed, (await harness.GetJobAsync(parent.Id, cancellationToken)).State);
-		Assert.Equal(JobState.Cancelled, (await harness.GetJobAsync(successOnly.Id, cancellationToken)).State);
+		Assert.Equal(JobState.Skipped, (await harness.GetJobAsync(successOnly.Id, cancellationToken)).State);
 		Assert.Equal(JobState.Succeeded, (await harness.GetJobAsync(failureOnly.Id, cancellationToken)).State);
 		Assert.Equal(JobState.Succeeded, (await harness.GetJobAsync(always.Id, cancellationToken)).State);
 		Assert.Equal(["always", "failure-only", "parent"], state.Events.Order(StringComparer.Ordinal));
@@ -305,7 +338,7 @@ public sealed class BatchesAndContinuationsTests
 			BatchState.Failed,
 			(await graphStorage.GetBatchStatusAsync(batchHandle.Id, cancellationToken))!.State
 		);
-		Assert.Equal(JobState.Cancelled, (await harness.GetJobAsync(successOnly, cancellationToken)).State);
+		Assert.Equal(JobState.Skipped, (await harness.GetJobAsync(successOnly, cancellationToken)).State);
 		Assert.Equal(JobState.Succeeded, (await harness.GetJobAsync(failureOnly, cancellationToken)).State);
 		Assert.Equal(JobState.Succeeded, (await harness.GetJobAsync(always, cancellationToken)).State);
 		Assert.Equal(["batch-complete", "batch-failure", "batch-parent"], state.Events.Order(StringComparer.Ordinal));

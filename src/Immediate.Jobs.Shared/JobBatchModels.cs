@@ -64,10 +64,10 @@ public sealed record BatchHandle
 /// <summary>Determines how a continuation evaluates its parents.</summary>
 public enum ContinuationTrigger
 {
-	/// <summary>Run only when every parent succeeds; otherwise cancel the continuation.</summary>
+	/// <summary>Run only when every parent succeeds; otherwise skip the continuation.</summary>
 	Success,
 
-	/// <summary>Run only when every parent is terminal and at least one parent failed.</summary>
+	/// <summary>Run only when every parent is terminal and at least one parent failed; otherwise skip the continuation.</summary>
 	Failure,
 
 	/// <summary>Run after every parent reaches any terminal state.</summary>
@@ -92,7 +92,7 @@ public enum BatchState
 {
 	/// <summary>At least one member has not reached a terminal state.</summary>
 	Executing,
-	/// <summary>Every member succeeded.</summary>
+	/// <summary>Every executed member succeeded; conditional branches may have been skipped.</summary>
 	Succeeded,
 	/// <summary>At least one member failed.</summary>
 	Failed,
@@ -121,9 +121,12 @@ public sealed record JobBatchRecord
 	/// <summary>Members that exhausted their attempts.</summary>
 	/// <value>The number of failed members.</value>
 	public int FailedCount { get; init; }
-	/// <summary>Members cancelled by an explicit action or dependency violation.</summary>
+	/// <summary>Members cancelled by an explicit action.</summary>
 	/// <value>The number of cancelled members.</value>
 	public int CancelledCount { get; init; }
+	/// <summary>Members skipped because their continuation conditions were not met.</summary>
+	/// <value>The number of skipped members.</value>
+	public int SkippedCount { get; init; }
 	/// <summary>UTC time at which the first member was acquired.</summary>
 	/// <value>The UTC batch-start time, if any member has been acquired.</value>
 	public DateTimeOffset? StartedAt { get; init; }
@@ -204,6 +207,7 @@ public sealed class JobExecutionBuffer
 /// <param name="Succeeded">The number of successful members.</param>
 /// <param name="Failed">The number of failed members.</param>
 /// <param name="Cancelled">The number of cancelled members.</param>
+/// <param name="Skipped">The number of skipped members.</param>
 /// <param name="Remaining">The number of non-terminal members.</param>
 /// <param name="CreatedAt">The UTC batch-creation time.</param>
 /// <param name="StartedAt">The UTC time at which the first member was acquired, if any.</param>
@@ -216,6 +220,7 @@ public sealed record BatchStatus(
 	int Succeeded,
 	int Failed,
 	int Cancelled,
+	int Skipped,
 	int Remaining,
 	DateTimeOffset CreatedAt,
 	DateTimeOffset? StartedAt,

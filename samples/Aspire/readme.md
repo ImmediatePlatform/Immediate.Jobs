@@ -28,6 +28,11 @@ Scalar at `/scalar`. `POST /api/greetings/{name}` demonstrates captured request 
 minutes between retries, and succeeds on attempt three. Once an attempt fails, use **Run now** in
 the Immediate.Jobs dashboard to fast-forward its scheduled retry.
 
+`POST /api/continuation-branch-demo/{failRoot}` creates one root job with success and failure
+continuations. Pass `false` to run the success branch or `true` to run the failure branch; the
+unselected branch is recorded as `Skipped` in the Immediate.Jobs dashboard. The jobs use positional
+record payloads.
+
 `POST /api/order-fulfillment-batches` creates an atomic ten-job workflow with chains, parallel
 inventory/fraud/payment work, two fan-in joins, and a `Complete` audit continuation. While the
 fraud-check member runs, it uses its `JobDetails` to schedule a retry-safe eleventh member before the
@@ -60,6 +65,8 @@ The raw OpenAPI document is available at `/openapi/v1.json`. You can also enqueu
 ```console
 curl -X POST http://localhost:<port>/api/greetings/Ada
 curl -X POST http://localhost:<port>/api/retry-demo
+curl -X POST http://localhost:<port>/api/continuation-branch-demo/false
+curl -X POST http://localhost:<port>/api/continuation-branch-demo/true
 curl -X POST http://localhost:<port>/api/order-fulfillment-batches
 curl -X POST http://localhost:<port>/api/game-release-batches/Starfall
 ```

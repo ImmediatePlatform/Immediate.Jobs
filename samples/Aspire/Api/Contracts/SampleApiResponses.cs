@@ -11,6 +11,17 @@ public sealed record FairQueueDemoResponse(
 	Uri DashboardUrl
 );
 
+public sealed record CreateContinuationBranchDemoResponse(
+	Guid RunId,
+	bool RootWillFail,
+	string BatchId,
+	string RootJobId,
+	string SuccessJobId,
+	string FailureJobId,
+	Uri DashboardUrl,
+	Uri StatusUrl
+);
+
 public sealed record CreateOrderBatchResponse(
 	Guid OrderId,
 	string BatchId,

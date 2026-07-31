@@ -696,7 +696,7 @@ public sealed partial class JobSchedulerService : BackgroundService
 				cancellationToken
 			).ConfigureAwait(false);
 			if (active.Count != 0 || pending.Count != 0)
-				record = record with { State = JobState.Cancelled, CompletedAt = now };
+				record = record with { State = JobState.Skipped, CompletedAt = now };
 		}
 
 		if (await recurringStorage.MaterializeRecurringAsync(schedule, record, next, cancellationToken).ConfigureAwait(false)

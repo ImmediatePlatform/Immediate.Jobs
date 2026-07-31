@@ -246,17 +246,17 @@ public sealed class JobTestHarness : IAsyncDisposable, IDisposable
 			);
 		}
 
-		if (childStatus.State == JobState.Cancelled)
-			throw new JobTestAssertionException($"Expected continuation '{child.Id}' to be released, but it was cancelled.");
+		if (childStatus.State is JobState.Cancelled or JobState.Skipped)
+			throw new JobTestAssertionException($"Expected continuation '{child.Id}' to be released, but it was {childStatus.State}.");
 		if (childStatus.State == JobState.AwaitingContinuation)
 			throw new JobTestAssertionException($"Expected continuation '{child.Id}' to be released, but it is still waiting.");
 	}
 
-	/// <summary>Asserts that every supplied invocation was cancelled by a dependency cascade.</summary>
-	/// <param name="subtree">The invocations expected to be cascade-cancelled.</param>
+	/// <summary>Asserts that every supplied invocation was skipped by a dependency cascade.</summary>
+	/// <param name="subtree">The invocations expected to be cascade-skipped.</param>
 	/// <param name="cancellationToken">A token that can cancel the assertion query.</param>
 	/// <returns>A task that completes when the assertion succeeds.</returns>
-	public async ValueTask AssertCascadeCancelledAsync(
+	public async ValueTask AssertCascadeSkippedAsync(
 		IReadOnlyCollection<JobHandle> subtree,
 		CancellationToken cancellationToken = default
 	)
@@ -265,10 +265,19 @@ public sealed class JobTestHarness : IAsyncDisposable, IDisposable
 		foreach (var handle in subtree)
 		{
 			var job = await GetJobAsync(handle, cancellationToken).ConfigureAwait(false);
-			if (job.State != JobState.Cancelled)
-				throw new JobTestAssertionException($"Expected job '{handle.Id}' to be cascade-cancelled, but it was {job.State}.");
+			if (job.State != JobState.Skipped)
+				throw new JobTestAssertionException($"Expected job '{handle.Id}' to be cascade-skipped, but it was {job.State}.");
 		}
 	}
+
+	/// <summary>Compatibility alias for <see cref="AssertCascadeSkippedAsync"/>.</summary>
+	/// <param name="subtree">The invocations expected to be cascade-skipped.</param>
+	/// <param name="cancellationToken">A token that can cancel the assertion query.</param>
+	/// <returns>A task that completes when the assertion succeeds.</returns>
+	public ValueTask AssertCascadeCancelledAsync(
+		IReadOnlyCollection<JobHandle> subtree,
+		CancellationToken cancellationToken = default
+	) => AssertCascadeSkippedAsync(subtree, cancellationToken);
 
 	/// <summary>Runs one generated invoker, including its compile-time behavior pipeline, outside durable state.</summary>
 	/// <typeparam name="TPayload">The payload type accepted by the generated invoker.</typeparam>

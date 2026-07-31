@@ -30,6 +30,7 @@ const summaryStates: JobState[] = [
 	'Succeeded',
 	'Failed',
 	'Cancelled',
+	'Skipped',
 ];
 
 const snapshot = computed(() => overviewQuery.data.value);
@@ -37,7 +38,8 @@ const error = computed(() => overviewQuery.error.value ?? recentJobsQuery.error.
 
 watch(snapshot, (value) => {
 	if (value && dashboardHistory.value.length === 0) {
-		const complete = (value.counts.Succeeded ?? 0) + (value.counts.Failed ?? 0);
+		const complete = (value.counts.Succeeded ?? 0) + (value.counts.Failed ?? 0)
+			+ (value.counts.Cancelled ?? 0) + (value.counts.Skipped ?? 0);
 		dashboardHistory.value = [{
 			capturedAt: value.capturedAt,
 			complete,

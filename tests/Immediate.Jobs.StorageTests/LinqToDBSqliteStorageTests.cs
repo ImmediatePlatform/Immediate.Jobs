@@ -180,8 +180,8 @@ public sealed class LinqToDBSqliteStorageTests
 			_ = await connection.ExecuteAsync(
 				$"""
 				INSERT INTO "immediate_job_batches"
-				("Id", "CreatedAt", "TotalJobs", "PendingCount", "SucceededCount", "FailedCount", "CancelledCount", "State", "ConcurrencyStamp")
-				VALUES ('empty', 0, 0, 0, 0, 0, 0, {(int)BatchState.Succeeded}, '{Guid.NewGuid()}')
+				("Id", "CreatedAt", "TotalJobs", "PendingCount", "SucceededCount", "FailedCount", "CancelledCount", "SkippedCount", "State", "ConcurrencyStamp")
+				VALUES ('empty', 0, 0, 0, 0, 0, 0, 0, {(int)BatchState.Succeeded}, '{Guid.NewGuid()}')
 				""",
 				cancellationToken
 			);
@@ -542,8 +542,8 @@ public sealed class LinqToDBSqliteStorageTests
 
 	[Theory]
 	[InlineData(ContinuationTrigger.Success, true, JobState.Pending)]
-	[InlineData(ContinuationTrigger.Success, false, JobState.Cancelled)]
-	[InlineData(ContinuationTrigger.Failure, true, JobState.Cancelled)]
+	[InlineData(ContinuationTrigger.Success, false, JobState.Skipped)]
+	[InlineData(ContinuationTrigger.Failure, true, JobState.Skipped)]
 	[InlineData(ContinuationTrigger.Failure, false, JobState.Pending)]
 	[InlineData(ContinuationTrigger.Complete, true, JobState.Pending)]
 	[InlineData(ContinuationTrigger.Complete, false, JobState.Pending)]
@@ -580,8 +580,8 @@ public sealed class LinqToDBSqliteStorageTests
 	}
 
 	[Theory]
-	[InlineData(true, false, JobState.Cancelled)]
-	[InlineData(false, false, JobState.Cancelled)]
+	[InlineData(true, false, JobState.Skipped)]
+	[InlineData(false, false, JobState.Skipped)]
 	[InlineData(true, true, JobState.Pending)]
 	[InlineData(false, true, JobState.Pending)]
 	public async Task MixedTriggersUseEveryIncomingEdgeRegardlessOfCompletionOrder(

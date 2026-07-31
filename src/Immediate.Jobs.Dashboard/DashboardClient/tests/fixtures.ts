@@ -33,6 +33,7 @@ export const executingBatch: BatchStatus = {
 	succeeded: 6,
 	failed: 1,
 	cancelled: 1,
+	skipped: 0,
 	remaining: 2,
 	createdAt: '2026-07-21T12:00:00Z',
 	startedAt: '2026-07-21T12:00:01Z',

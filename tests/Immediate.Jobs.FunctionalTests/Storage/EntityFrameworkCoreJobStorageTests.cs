@@ -685,7 +685,7 @@ public sealed class EntityFrameworkCoreJobStorageTests
 
 	[Theory]
 	[InlineData(true, JobState.Pending)]
-	[InlineData(false, JobState.Cancelled)]
+	[InlineData(false, JobState.Skipped)]
 	public async Task EntityFrameworkCoreFailureContinuationRunsOnlyWhenParentFails(
 		bool parentFails,
 		JobState expectedState
@@ -814,7 +814,7 @@ public sealed class EntityFrameworkCoreJobStorageTests
 		Assert.Equal(JobState.AwaitingContinuation, (await storage.GetJobStatusAsync(child.Id, cancellationToken))!.State);
 		await storage.CompleteAsync(second, "mixed-worker", cancellationToken);
 
-		Assert.Equal(JobState.Cancelled, (await storage.GetJobStatusAsync(child.Id, cancellationToken))!.State);
+		Assert.Equal(JobState.Skipped, (await storage.GetJobStatusAsync(child.Id, cancellationToken))!.State);
 	}
 
 	[Theory]
@@ -1138,7 +1138,7 @@ public sealed class EntityFrameworkCoreJobStorageTests
 		{
 			await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 			_ = await context.Database.ExecuteSqlAsync(
-				$"""INSERT INTO immediate_job_batches (Id, CreatedAt, TotalJobs, PendingCount, SucceededCount, FailedCount, CancelledCount, StartedAt, CompletedAt, State, ConcurrencyStamp) VALUES ({batchId}, {createdAt.UtcTicks}, 0, 0, 0, 0, 0, NULL, {createdAt.UtcTicks}, {(short)BatchState.Succeeded}, {Guid.NewGuid()})""",
+				$"""INSERT INTO immediate_job_batches (Id, CreatedAt, TotalJobs, PendingCount, SucceededCount, FailedCount, CancelledCount, SkippedCount, StartedAt, CompletedAt, State, ConcurrencyStamp) VALUES ({batchId}, {createdAt.UtcTicks}, 0, 0, 0, 0, 0, 0, NULL, {createdAt.UtcTicks}, {(short)BatchState.Succeeded}, {Guid.NewGuid()})""",
 				cancellationToken
 			);
 		}

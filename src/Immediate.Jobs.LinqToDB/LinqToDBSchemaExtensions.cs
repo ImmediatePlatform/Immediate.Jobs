@@ -76,6 +76,7 @@ public static class LinqToDBSchemaExtensions
 			"Id" TEXT NOT NULL CONSTRAINT "PK_immediate_job_batches" PRIMARY KEY,
 			"CreatedAt" INTEGER NOT NULL, "TotalJobs" INTEGER NOT NULL, "PendingCount" INTEGER NOT NULL,
 			"SucceededCount" INTEGER NOT NULL, "FailedCount" INTEGER NOT NULL, "CancelledCount" INTEGER NOT NULL,
+			"SkippedCount" INTEGER NOT NULL,
 			"StartedAt" INTEGER NULL, "CompletedAt" INTEGER NULL, "State" INTEGER NOT NULL,
 			"ConcurrencyStamp" TEXT NOT NULL
 		);

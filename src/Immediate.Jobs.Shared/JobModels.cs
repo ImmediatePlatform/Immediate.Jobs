@@ -23,6 +23,8 @@ public enum JobState
 	Failed,
 	/// <summary>The job was cancelled.</summary>
 	Cancelled,
+	/// <summary>The job was not run because a continuation condition or scheduling policy was not met.</summary>
+	Skipped,
 }
 
 /// <summary>A storage-neutral durable job record.</summary>

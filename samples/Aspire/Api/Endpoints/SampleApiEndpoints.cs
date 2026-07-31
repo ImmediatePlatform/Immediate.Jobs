@@ -37,6 +37,18 @@ public static class SampleApiEndpoints
 			)
 			.Produces<EnqueueJobResponse>(StatusCodes.Status202Accepted);
 
+		_ = endpoints.MapPost(
+				"/api/continuation-branch-demo/{failRoot:bool}",
+				CreateContinuationBranchDemoAsync
+			)
+			.WithName("CreateContinuationBranchDemo")
+			.WithSummary("Creates success and failure continuations for one root job")
+			.WithDescription(
+				"Creates an atomic three-job workflow. Set failRoot to choose whether the success "
+				+ "or failure continuation runs; the unselected branch becomes Skipped."
+			)
+			.Produces<CreateContinuationBranchDemoResponse>(StatusCodes.Status202Accepted);
+
 		_ = endpoints.MapPost("/api/order-fulfillment-batches", CreateOrderBatchAsync)
 			.WithName("CreateOrderFulfillmentBatch")
 			.WithSummary("Creates a complex order-fulfillment batch")
@@ -124,6 +136,47 @@ public static class SampleApiEndpoints
 		return Results.Accepted(
 			"/jobs",
 			new EnqueueJobResponse(job.Id, new Uri("/jobs", UriKind.Relative))
+		);
+	}
+
+	private static async ValueTask<IResult> CreateContinuationBranchDemoAsync(
+		bool failRoot,
+		IJobBatchScheduler batches,
+		ContinuationBranchRootJob.Scheduler rootScheduler,
+		ContinuationBranchSuccessJob.Scheduler successScheduler,
+		ContinuationBranchFailureJob.Scheduler failureScheduler,
+		CancellationToken cancellationToken
+	)
+	{
+		var runId = Guid.NewGuid();
+		await using var batch = batches.Begin();
+		var root = rootScheduler.AddToBatch(batch, new(runId, failRoot));
+		var success = await successScheduler.ScheduleAfterAsync(
+			root,
+			new(runId),
+			ContinuationTrigger.Success,
+			cancellationToken: cancellationToken
+		);
+		var failure = await failureScheduler.ScheduleAfterAsync(
+			root,
+			new(runId),
+			ContinuationTrigger.Failure,
+			cancellationToken: cancellationToken
+		);
+		var batchHandle = await batch.CommitAsync(cancellationToken);
+
+		return Results.Accepted(
+			$"/jobs/api/batches/{batchHandle.Id}",
+			new CreateContinuationBranchDemoResponse(
+				runId,
+				failRoot,
+				batchHandle.Id,
+				root.Id,
+				success.Id,
+				failure.Id,
+				new Uri("/jobs", UriKind.Relative),
+				new Uri($"/jobs/api/batches/{batchHandle.Id}", UriKind.Relative)
+			)
 		);
 	}
 

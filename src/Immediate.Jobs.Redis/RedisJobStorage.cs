@@ -416,6 +416,7 @@ public sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 		await PurgeStateAsync(JobState.Succeeded, now - succeededRetention, cancellationToken).ConfigureAwait(false);
 		await PurgeStateAsync(JobState.Failed, now - failedRetention, cancellationToken).ConfigureAwait(false);
 		await PurgeStateAsync(JobState.Cancelled, now - failedRetention, cancellationToken).ConfigureAwait(false);
+		await PurgeStateAsync(JobState.Skipped, now - failedRetention, cancellationToken).ConfigureAwait(false);
 	}
 
 	/// <inheritdoc />
@@ -596,7 +597,7 @@ public sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 				StateKey(job.State),
 				DueKey(job.QueueName),
 				RecurringDueKey,
-				CompletedKey(JobState.Cancelled),
+				CompletedKey(job.State),
 			],
 			jobArguments,
 			cancellationToken
@@ -914,10 +915,10 @@ public sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 			);
 		}
 
-		if (job.State is not (JobState.Pending or JobState.Scheduled or JobState.Cancelled))
+		if (job.State is not (JobState.Pending or JobState.Scheduled or JobState.Cancelled or JobState.Skipped))
 			throw new ImmediateJobException($"Recurring job '{job.Id}' has invalid state '{job.State}'.");
-		if (job.State == JobState.Cancelled && job.CompletedAt is null)
-			throw new ImmediateJobException($"Cancelled recurring job '{job.Id}' must have a completion time.");
+		if (job.CompletedAt is null && (job.State == JobState.Cancelled || job.State == JobState.Skipped))
+			throw new ImmediateJobException($"Terminal recurring job '{job.Id}' must have a completion time.");
 	}
 
 	private static void ValidateRecurring(RecurringJobSchedule schedule)

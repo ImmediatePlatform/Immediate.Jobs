@@ -34,6 +34,8 @@ internal sealed class ImmediateJobBatchEntity
 	public int FailedCount { get; set; }
 	[Column]
 	public int CancelledCount { get; set; }
+	[Column]
+	public int SkippedCount { get; set; }
 	[Column(DataType = DataType.Int64, CanBeNull = true)]
 	public long? StartedAt { get; set; }
 	[Column(DataType = DataType.Int64, CanBeNull = true)]

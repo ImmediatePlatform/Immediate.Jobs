@@ -181,6 +181,7 @@ internal sealed class ImmediateJobBatchEntity
 	public int SucceededCount { get; set; }
 	public int FailedCount { get; set; }
 	public int CancelledCount { get; set; }
+	public int SkippedCount { get; set; }
 	public DateTimeOffset? StartedAt { get; set; }
 	public DateTimeOffset? CompletedAt { get; set; }
 	public BatchState State { get; set; }

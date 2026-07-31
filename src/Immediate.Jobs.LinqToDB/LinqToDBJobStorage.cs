@@ -155,6 +155,7 @@ public sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorage,
 			var pending = jobEntities.Count - terminal.Length;
 			var failed = terminal.Count(static job => job.State == JobState.Failed);
 			var cancelled = terminal.Count(static job => job.State == JobState.Cancelled);
+			var skipped = terminal.Count(static job => job.State == JobState.Skipped);
 			_ = await InsertAsync(connection, new ImmediateJobBatchEntity
 			{
 				Id = batch.Id,
@@ -164,6 +165,7 @@ public sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorage,
 				SucceededCount = terminal.Count(static job => job.State == JobState.Succeeded),
 				FailedCount = failed,
 				CancelledCount = cancelled,
+				SkippedCount = skipped,
 				StartedAt = Ticks(batch.StartedAt),
 				CompletedAt = pending == 0 ? Ticks(batch.CompletedAt ?? _timeProvider.GetUtcNow()) : null,
 				State = pending == 0 ? GetTerminalBatchState(failed, cancelled) : BatchState.Executing,
@@ -1250,6 +1252,7 @@ public sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorage,
 			throw new ImmediateJobException("Only an executing batch can be cancelled.");
 		var jobIds = await Jobs(connection).Where(job => job.BatchId == batchId).Select(job => job.Id)
 			.ToArrayAsync(cancellationToken).ConfigureAwait(false);
+		var jobsToCancel = new List<ImmediateJobEntity>(jobIds.Length);
 		foreach (var jobId in jobIds)
 		{
 			var job = await Jobs(connection).SingleOrDefaultAsync(item => item.Id == jobId, cancellationToken)
@@ -1264,6 +1267,11 @@ public sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorage,
 			job.ConcurrencyStamp = Guid.NewGuid();
 			if (!await UpdateJobAsync(connection, job, oldStamp, cancellationToken).ConfigureAwait(false))
 				throw new LostRaceException();
+			jobsToCancel.Add(job);
+		}
+
+		foreach (var job in jobsToCancel)
+		{
 			await PropagateTerminalAsync(
 				connection,
 				job,
@@ -1370,7 +1378,7 @@ public sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorage,
 		try
 		{
 			var job = await Jobs(connection).SingleOrDefaultAsync(item => item.Id == jobId &&
-				(item.State == JobState.Succeeded || item.State == JobState.Failed || item.State == JobState.Cancelled), cancellationToken)
+				(item.State == JobState.Succeeded || item.State == JobState.Failed || item.State == JobState.Cancelled || item.State == JobState.Skipped), cancellationToken)
 				.ConfigureAwait(false);
 			if (job is null)
 			{
@@ -1388,7 +1396,7 @@ public sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorage,
 				.ConfigureAwait(false);
 			var removed = await Jobs(connection)
 				.Where(item => item.Id == jobId &&
-					(item.State == JobState.Succeeded || item.State == JobState.Failed || item.State == JobState.Cancelled))
+					(item.State == JobState.Succeeded || item.State == JobState.Failed || item.State == JobState.Cancelled || item.State == JobState.Skipped))
 				.DeleteAsync(cancellationToken)
 				.ConfigureAwait(false);
 			if (removed == 0)
@@ -1427,7 +1435,7 @@ public sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorage,
 							job.State == JobState.Succeeded
 							&& job.CompletedAt < (now - succeededRetention).UtcTicks
 						) || (
-							(job.State == JobState.Failed || job.State == JobState.Cancelled)
+							(job.State == JobState.Failed || job.State == JobState.Cancelled || job.State == JobState.Skipped)
 							&& job.CompletedAt < (now - failedRetention).UtcTicks
 						)
 					)
@@ -1901,9 +1909,9 @@ public sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorage,
 					child.FailedDependencies++;
 				if (child.RemainingDependencies == 0)
 				{
-					if (await ShouldCancelSettledContinuationAsync(connection, child.Id, cancellationToken).ConfigureAwait(false))
+					if (await ShouldSkipSettledContinuationAsync(connection, child.Id, cancellationToken).ConfigureAwait(false))
 					{
-						child.State = JobState.Cancelled;
+						child.State = JobState.Skipped;
 						child.CompletedAt = now;
 						child.WorkerId = null;
 						child.LeaseExpiresAt = null;
@@ -1925,7 +1933,7 @@ public sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorage,
 		}
 	}
 
-	private async Task<bool> ShouldCancelSettledContinuationAsync(
+	private async Task<bool> ShouldSkipSettledContinuationAsync(
 		DataConnection connection,
 		string childJobId,
 		CancellationToken cancellationToken
@@ -1982,6 +1990,9 @@ public sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorage,
 				break;
 			case JobState.Cancelled:
 				batch.CancelledCount++;
+				break;
+			case JobState.Skipped:
+				batch.SkippedCount++;
 				break;
 			case JobState.AwaitingContinuation:
 			case JobState.AwaitingParameters:
@@ -2101,7 +2112,7 @@ public sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorage,
 				job.FailedDependencies = failedDependencies;
 				if (violated || (remaining == 0 && requiresFailure && failedDependencies == 0))
 				{
-					job.State = JobState.Cancelled;
+					job.State = JobState.Skipped;
 					job.RemainingDependencies = 0;
 					job.CompletedAt = now;
 					changed = true;
@@ -2273,6 +2284,7 @@ public sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorage,
 			.Set(entity => entity.SucceededCount, batch.SucceededCount)
 			.Set(entity => entity.FailedCount, batch.FailedCount)
 			.Set(entity => entity.CancelledCount, batch.CancelledCount)
+			.Set(entity => entity.SkippedCount, batch.SkippedCount)
 			.Set(entity => entity.StartedAt, batch.StartedAt)
 			.Set(entity => entity.CompletedAt, batch.CompletedAt)
 			.Set(entity => entity.State, batch.State)
@@ -2331,7 +2343,7 @@ public sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorage,
 		where T : notnull => connection.InsertAsync(entity, schemaName: _schema, token: cancellationToken);
 
 	private static bool IsTerminal(JobState state) =>
-		state is JobState.Succeeded or JobState.Failed or JobState.Cancelled;
+		state is JobState.Succeeded or JobState.Failed or JobState.Cancelled or JobState.Skipped;
 
 	private static ContinuationParentOutcome GetParentOutcome(JobState state) => state switch
 	{
@@ -2342,7 +2354,8 @@ public sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorage,
 		JobState.Scheduled or
 		JobState.Pending or
 		JobState.Active or
-		JobState.Cancelled => ContinuationParentOutcome.Other,
+		JobState.Cancelled or
+		JobState.Skipped => ContinuationParentOutcome.Other,
 		_ => throw new ArgumentOutOfRangeException(nameof(state), state, "Unknown job state."),
 	};
 
@@ -2478,6 +2491,7 @@ public sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorage,
 		batch.SucceededCount,
 		batch.FailedCount,
 		batch.CancelledCount,
+		batch.SkippedCount,
 		batch.PendingCount,
 		FromTicks(batch.CreatedAt),
 		FromTicks(batch.StartedAt),

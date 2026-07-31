@@ -988,6 +988,11 @@ tbody tr[data-selected="true"] td:first-child {
 	background: var(--text-subtle);
 }
 
+.batch-progress span[data-state="skipped"] {
+	background: var(--info);
+	opacity: 0.55;
+}
+
 .batch-progress span[data-state="remaining"] {
 	background: var(--warning);
 	opacity: 0.55;
@@ -1116,7 +1121,8 @@ tbody tr[data-selected="true"] td:first-child {
 	animation: workflow-pulse 1.6s infinite;
 }
 
-.workflow-node.cancelled {
+.workflow-node.cancelled,
+.workflow-node.skipped {
 	opacity: 0.5;
 }
 

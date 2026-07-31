@@ -7,6 +7,7 @@ export const jobStates = [
 	'Succeeded',
 	'Failed',
 	'Cancelled',
+	'Skipped',
 ] as const;
 
 export type JobState = (typeof jobStates)[number];
@@ -87,6 +88,7 @@ export interface BatchStatus {
 	succeeded: number;
 	failed: number;
 	cancelled: number;
+	skipped: number;
 	remaining: number;
 	createdAt: IsoDateTime;
 	startedAt: IsoDateTime | null;

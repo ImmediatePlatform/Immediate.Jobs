@@ -216,7 +216,7 @@ internal static class RedisScripts
 		if redis.call('EXISTS', KEYS[1]) == 0 then return 0 end
 		local values = redis.call('HMGET', KEYS[1], 'state', 'recurringKey')
 		local state = values[1]
-		if state ~= '5' and state ~= '6' and state ~= '7' then return -1 end
+		if state ~= '5' and state ~= '6' and state ~= '7' and state ~= '8' then return -1 end
 		redis.call('DEL', KEYS[1])
 		redis.call('ZREM', KEYS[2], ARGV[1])
 		redis.call('SREM', ARGV[2] .. 'state:' .. state, ARGV[1])
@@ -341,7 +341,7 @@ internal static class RedisScripts
 			redis.call('SADD', KEYS[5], ARGV[3])
 			if ARGV[5] == '2' or ARGV[5] == '3' then
 				redis.call('ZADD', KEYS[6], ARGV[7], ARGV[6] .. '|' .. ARGV[22] .. '|' .. ARGV[3])
-			elseif ARGV[5] == '7' then
+			elseif ARGV[5] == '7' or ARGV[5] == '8' then
 				redis.call('ZADD', KEYS[8], ARGV[23], ARGV[3])
 			end
 		end

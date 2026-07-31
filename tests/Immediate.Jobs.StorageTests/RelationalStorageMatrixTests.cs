@@ -609,8 +609,8 @@ public sealed class RelationalStorageMatrixTests(StorageContainers containers)
 		var now = fixture.TimeProvider.GetUtcNow();
 		var scenarios = new[]
 		{
-			(FailureParentSettlesFirst: true, FailureParentFails: false, ExpectedState: JobState.Cancelled),
-			(FailureParentSettlesFirst: false, FailureParentFails: false, ExpectedState: JobState.Cancelled),
+			(FailureParentSettlesFirst: true, FailureParentFails: false, ExpectedState: JobState.Skipped),
+			(FailureParentSettlesFirst: false, FailureParentFails: false, ExpectedState: JobState.Skipped),
 			(FailureParentSettlesFirst: true, FailureParentFails: true, ExpectedState: JobState.Pending),
 			(FailureParentSettlesFirst: false, FailureParentFails: true, ExpectedState: JobState.Pending),
 		};
@@ -935,6 +935,50 @@ public sealed class RelationalStorageMatrixTests(StorageContainers containers)
 
 	[Theory]
 	[MemberData(nameof(Matrix))]
+	public async Task SkippedFailureBranchDoesNotCancelSuccessfulBatch(
+		DatabaseKind database,
+		AdapterKind adapter
+	)
+	{
+		var cancellationToken = TestContext.Current.CancellationToken;
+		await using var fixture = await CreateFixtureAsync(database, adapter, cancellationToken);
+		var storage = fixture.GraphStorage;
+		var now = fixture.TimeProvider.GetUtcNow();
+		var parent = CreateJob("successful-parent", now) with { BatchId = "skipped-branch-batch" };
+		var failureOnly = CreateJob("failure-only", now) with
+		{
+			BatchId = "skipped-branch-batch",
+			State = JobState.AwaitingContinuation,
+			RemainingDependencies = 1,
+		};
+		await storage.EnqueueBatchAsync(new()
+		{
+			Id = "skipped-branch-batch",
+			CreatedAt = now,
+			TotalJobs = 2,
+			PendingCount = 2,
+			State = BatchState.Executing,
+		}, [parent, failureOnly], [new()
+		{
+			ChildJobId = failureOnly.Id,
+			ParentJobId = parent.Id,
+			Trigger = ContinuationTrigger.Failure,
+		}], cancellationToken);
+		_ = Assert.Single(await storage.AcquireDueJobsAsync(CreateRequest("worker", 1), cancellationToken));
+
+		await storage.CompleteAsync(parent.Id, "worker", cancellationToken);
+
+		Assert.Equal(JobState.Skipped, (await storage.GetJobStatusAsync(failureOnly.Id, cancellationToken))!.State);
+		var status = Assert.IsType<BatchStatus>(await storage.GetBatchStatusAsync("skipped-branch-batch", cancellationToken));
+		Assert.Equal(BatchState.Succeeded, status.State);
+		Assert.Equal(1, status.Succeeded);
+		Assert.Equal(1, status.Skipped);
+		Assert.Equal(0, status.Cancelled);
+		Assert.Equal(0, status.Remaining);
+	}
+
+	[Theory]
+	[MemberData(nameof(Matrix))]
 	public async Task EmptyBatchProgressIsFullySettled(DatabaseKind database, AdapterKind adapter)
 	{
 		var cancellationToken = TestContext.Current.CancellationToken;
@@ -1208,7 +1252,8 @@ public sealed class RelationalStorageMatrixTests(StorageContainers containers)
 					{Quote("PendingCount")} = 0,
 					{Quote("SucceededCount")} = 0,
 					{Quote("FailedCount")} = 0,
-					{Quote("CancelledCount")} = 0
+					{Quote("CancelledCount")} = 0,
+					{Quote("SkippedCount")} = 0
 				WHERE {Quote("Id")} = '{batchId}'
 				""",
 				cancellationToken
