@@ -1385,6 +1385,53 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 	}
 
 	/// <inheritdoc />
+	public ValueTask CancelAsync(string jobId, CancellationToken cancellationToken = default)
+	{
+		ArgumentException.ThrowIfNullOrWhiteSpace(jobId);
+		return RetryConcurrencyAsync(
+			operationCancellationToken => CancelCoreAsync(jobId, operationCancellationToken),
+			cancellationToken
+		);
+	}
+
+	private async Task CancelCoreAsync(string jobId, CancellationToken cancellationToken)
+	{
+		var now = _timeProvider.GetUtcNow();
+		await using var context = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+		await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+		var job = await context.Set<ImmediateJobEntity>()
+			.SingleOrDefaultAsync(item => item.Id == jobId, cancellationToken)
+			.ConfigureAwait(false)
+			?? throw new KeyNotFoundException($"Job '{jobId}' was not found.");
+		if (IsTerminal(job.State))
+			throw new ImmediateJobException("Only a non-terminal job can be cancelled.");
+
+		if (job.State == JobState.Active)
+		{
+			var execution = await GetOrMaterializeExecutionAsync(context, job, cancellationToken).ConfigureAwait(false)
+				?? throw new ImmediateJobException($"Active job '{job.Id}' has no execution ordinal.");
+			execution.State = JobExecutionState.Cancelled;
+			execution.CompletedAt = now;
+			execution.Error = null;
+		}
+
+		job.State = JobState.Cancelled;
+		job.CompletedAt = now;
+		job.WorkerId = null;
+		job.LeaseExpiresAt = null;
+		job.ConcurrencyStamp = Guid.NewGuid();
+		await PropagateTerminalAsync(context, job, now, cancellationToken).ConfigureAwait(false);
+
+		var terminalGroups = GetTerminalFairQueueGroups(context);
+		_ = await context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+		await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+		foreach (var (queueName, groupId) in terminalGroups)
+		{
+			await TryRemoveFairQueueCursorAsync(queueName, groupId, CancellationToken.None).ConfigureAwait(false);
+		}
+	}
+
+	/// <inheritdoc />
 	public ValueTask RetryAsync(string jobId, CancellationToken cancellationToken = default)
 	{
 		ArgumentException.ThrowIfNullOrWhiteSpace(jobId);

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { ApiError, getJobs, request } from '@/api';
+import { ApiError, cancelJob, getJobs, request } from '@/api';
 
 describe('dashboard API client', () => {
 	it('requests server-side job pages of fifty with encoded filters', async () => {
@@ -15,6 +15,16 @@ describe('dashboard API client', () => {
 		expect(requestedUrl.searchParams.get('search')).toBe('send email');
 		expect(requestedUrl.searchParams.get('queue')).toBe('priority/jobs');
 		expect(requestedUrl.searchParams.get('state')).toBe('Failed');
+	});
+
+	it('cancels jobs through an encoded dashboard route', async () => {
+		const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(null, { status: 204 }));
+
+		await cancelJob('job/one');
+
+		const requestedUrl = new URL(String(fetchMock.mock.calls[0]?.[0]));
+		expect(requestedUrl.pathname.endsWith('/api/jobs/job%2Fone/cancel')).toBe(true);
+		expect(fetchMock.mock.calls[0]?.[1]).toEqual(expect.objectContaining({ method: 'POST' }));
 	});
 
 	it('handles empty successful responses and structured problems', async () => {

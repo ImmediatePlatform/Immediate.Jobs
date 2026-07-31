@@ -691,6 +691,7 @@ for a job with a `Payload` request):
     ValueTask<JobHandle> EnqueueAsync(Payload payload, CancellationToken ct = default);
     ValueTask<JobHandle> ScheduleAsync(Payload payload, TimeSpan delay, CancellationToken ct = default);
     ValueTask<JobHandle> ScheduleAtAsync(Payload payload, DateTimeOffset runAt, CancellationToken ct = default);
+    ValueTask CancelAsync(JobHandle handle, CancellationToken ct = default);
 
     // batch membership (root member, no dependency)
     JobHandle AddToBatch(JobBatch batch, Payload payload, TimeSpan? delay = null);
@@ -722,6 +723,7 @@ Batch and handle types:
 ```csharp
 public interface IJobBatchScheduler
 {
+    ValueTask CancelAsync(BatchHandle handle, CancellationToken ct = default);
     JobBatch Begin();
     JobBatch Begin(BatchHandle after, ContinuationTrigger on = ContinuationTrigger.Success);
     ValueTask<BatchHandle> RunAsync(Func<JobBatch, ValueTask> build, CancellationToken ct = default);

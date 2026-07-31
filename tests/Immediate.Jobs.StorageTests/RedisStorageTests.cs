@@ -271,12 +271,44 @@ public sealed class RedisStorageTests(RedisStorageFixture fixture)
 	}
 
 	[Fact]
+	public async Task CancelActiveJobClosesExecutionAndFencesWorker()
+	{
+		var cancellationToken = TestContext.Current.CancellationToken;
+		await using var connection = await ConnectionMultiplexer.ConnectAsync(fixture.Container.GetConnectionString());
+		var timeProvider = CreateTimeProvider();
+		await using var storage = new RedisJobStorage(connection, CreateOptions(), timeProvider);
+		var job = CreateJob("cancel-active", timeProvider.GetUtcNow());
+		await storage.EnqueueAsync(job, cancellationToken);
+		var active = Assert.Single(await storage.AcquireDueJobsAsync(CreateRequest("worker", 1), cancellationToken));
+
+		await storage.CancelAsync(job.Id, cancellationToken);
+
+		Assert.Equal(JobState.Cancelled, (await storage.GetJobStatusAsync(job.Id, cancellationToken))!.State);
+		var execution = Assert.Single(await storage.QueryJobExecutionsAsync(new() { JobId = job.Id }, cancellationToken));
+		Assert.Equal(JobExecutionState.Cancelled, execution.State);
+		_ = await Assert.ThrowsAsync<ImmediateJobException>(
+			() => storage.CompleteAsync(job.Id, active.Attempt, "worker", cancellationToken).AsTask()
+		);
+		_ = await Assert.ThrowsAsync<ImmediateJobException>(
+			() => storage.CancelAsync(job.Id, cancellationToken).AsTask()
+		);
+
+		var pending = CreateJob("cancel-pending", timeProvider.GetUtcNow());
+		await storage.EnqueueAsync(pending, cancellationToken);
+		await storage.CancelAsync(pending.Id, cancellationToken);
+		Assert.Empty(await storage.AcquireDueJobsAsync(CreateRequest("worker", 1), cancellationToken));
+	}
+
+	[Fact]
 	public async Task MissingDashboardActionsThrowKeyNotFoundException()
 	{
 		var cancellationToken = TestContext.Current.CancellationToken;
 		await using var connection = await ConnectionMultiplexer.ConnectAsync(fixture.Container.GetConnectionString());
 		await using var storage = new RedisJobStorage(connection, CreateOptions(), CreateTimeProvider());
 
+		_ = await Assert.ThrowsAsync<KeyNotFoundException>(
+			() => storage.CancelAsync("missing", cancellationToken).AsTask()
+		);
 		_ = await Assert.ThrowsAsync<KeyNotFoundException>(
 			() => storage.RetryAsync("missing", cancellationToken).AsTask()
 		);

@@ -1444,6 +1444,56 @@ public sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorage,
 	}
 
 	/// <inheritdoc />
+	public async ValueTask CancelAsync(string jobId, CancellationToken cancellationToken = default)
+	{
+		ArgumentException.ThrowIfNullOrWhiteSpace(jobId);
+		var terminalGroups = new HashSet<(string QueueName, string GroupId)>();
+		await RetryConcurrencyAsync(
+			connection => CancelCoreAsync(connection, jobId, terminalGroups, cancellationToken),
+			cancellationToken
+		).ConfigureAwait(false);
+		await CleanupFairQueueGroupsAsync(terminalGroups).ConfigureAwait(false);
+	}
+
+	private async Task CancelCoreAsync(
+		DataConnection connection,
+		string jobId,
+		ISet<(string QueueName, string GroupId)> terminalGroups,
+		CancellationToken cancellationToken
+	)
+	{
+		var job = await Jobs(connection).SingleOrDefaultAsync(item => item.Id == jobId, cancellationToken)
+			.ConfigureAwait(false)
+			?? throw new KeyNotFoundException($"Job '{jobId}' was not found.");
+		if (IsTerminal(job.State))
+			throw new ImmediateJobException("Only a non-terminal job can be cancelled.");
+
+		var now = _timeProvider.GetUtcNow().UtcTicks;
+		if (job.State == JobState.Active)
+		{
+			_ = await GetOrMaterializeExecutionAsync(connection, job, cancellationToken).ConfigureAwait(false)
+				?? throw new ImmediateJobException($"Active job '{job.Id}' has no execution ordinal.");
+			_ = await Executions(connection)
+				.Where(execution => execution.JobId == job.Id && execution.Attempt == job.Attempt)
+				.Set(execution => execution.State, JobExecutionState.Cancelled)
+				.Set(execution => execution.CompletedAt, now)
+				.Set(execution => execution.Error, (string?)null)
+				.UpdateAsync(cancellationToken)
+				.ConfigureAwait(false);
+		}
+
+		var oldStamp = job.ConcurrencyStamp;
+		job.State = JobState.Cancelled;
+		job.CompletedAt = now;
+		job.WorkerId = null;
+		job.LeaseExpiresAt = null;
+		job.ConcurrencyStamp = Guid.NewGuid();
+		if (!await UpdateJobAsync(connection, job, oldStamp, cancellationToken).ConfigureAwait(false))
+			throw new LostRaceException();
+		await PropagateTerminalAsync(connection, job, now, terminalGroups, cancellationToken).ConfigureAwait(false);
+	}
+
+	/// <inheritdoc />
 	public ValueTask RetryAsync(string jobId, CancellationToken cancellationToken = default)
 	{
 		ArgumentException.ThrowIfNullOrWhiteSpace(jobId);

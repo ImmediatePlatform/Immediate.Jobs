@@ -116,6 +116,12 @@ public interface IJobStorage : IAsyncDisposable
 	/// <returns>The job status, or <see langword="null"/> when the invocation does not exist.</returns>
 	ValueTask<JobStatus?> GetJobStatusAsync(string jobId, CancellationToken cancellationToken = default);
 
+	/// <summary>Moves a non-terminal invocation to the cancelled state.</summary>
+	/// <param name="jobId">The non-terminal invocation identifier.</param>
+	/// <param name="cancellationToken">A token that can cancel the storage operation.</param>
+	/// <returns>A value task that represents the asynchronous cancellation.</returns>
+	ValueTask CancelAsync(string jobId, CancellationToken cancellationToken = default);
+
 	/// <summary>Moves a failed invocation back to pending or fast-forwards a scheduled invocation.</summary>
 	/// <param name="jobId">The failed or scheduled invocation identifier.</param>
 	/// <param name="cancellationToken">A token that can cancel the storage operation.</param>

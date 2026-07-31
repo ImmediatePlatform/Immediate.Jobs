@@ -9,6 +9,7 @@ import JobDetail from '@/components/JobDetail.vue';
 import PageHeader from '@/components/PageHeader.vue';
 import StateBadge from '@/components/StateBadge.vue';
 import WorkflowGraph from '@/components/WorkflowGraph.vue';
+import type { JobRecord } from '@/contracts';
 import { formatDate } from '@/format';
 import { errorText } from '@/notifications';
 import { useBatchGraphQuery, useBatchQuery, useJobQuery, useJobTelemetryLinksQuery } from '@/query';
@@ -18,6 +19,7 @@ import { useBatchStream } from '@/use-dashboard-stream';
 const route = useRoute();
 const router = useRouter();
 const pendingAction = ref<'cancel' | 'delete'>();
+const jobCancelCandidate = ref<JobRecord>();
 const graphJobDetail = ref<HTMLElement>();
 
 const batchId = computed(() => {
@@ -90,6 +92,18 @@ async function confirmAction(): Promise<void> {
 			await batchMutations.deleteBatch(batchId.value);
 			backToBatches();
 		}
+	} catch {
+		// The mutation displays the API error and leaves the confirmation open.
+	}
+}
+
+async function confirmJobCancel(): Promise<void> {
+	if (!jobCancelCandidate.value) {
+		return;
+	}
+	try {
+		await jobMutations.cancelJob(jobCancelCandidate.value.id);
+		jobCancelCandidate.value = undefined;
 	} catch {
 		// The mutation displays the API error and leaves the confirmation open.
 	}
@@ -185,6 +199,7 @@ async function confirmAction(): Promise<void> {
 							:telemetry-links="telemetryLinksQuery.data.value ?? []"
 							:pending="jobMutations.busyJobId.value === selectedJobId"
 							@close="closeGraphJob"
+							@cancel="jobCancelCandidate = $event"
 							@retry="(job) => jobMutations.retryJob(job.id)"
 						/>
 					</div>
@@ -202,6 +217,16 @@ async function confirmAction(): Promise<void> {
 			:pending="batchMutations.mutating.value"
 			@cancel="pendingAction = undefined"
 			@confirm="confirmAction"
+		/>
+
+		<ConfirmDialog
+			:open="Boolean(jobCancelCandidate)"
+			title="Cancel job?"
+			:description="`This marks ${jobCancelCandidate?.jobName ?? 'this job'} as cancelled. Work already running may finish its current attempt.`"
+			confirm-label="Cancel job"
+			:pending="jobMutations.cancelling.value"
+			@cancel="jobCancelCandidate = undefined"
+			@confirm="confirmJobCancel"
 		/>
 	</section>
 </template>

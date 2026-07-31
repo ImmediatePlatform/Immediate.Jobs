@@ -39,6 +39,7 @@ export const queryKeys = {
 	jobs: (filters: JobFilters) => ['jobs', 'page', filters] as const,
 	job: (jobId: string) => ['jobs', 'detail', jobId] as const,
 	jobTelemetryLinks: (jobId: string) => ['jobs', 'telemetry-links', jobId] as const,
+	batchRoot: ['batches'] as const,
 	batches: ['batches', 'list'] as const,
 	batch: (batchId: string) => ['batches', 'detail', batchId] as const,
 	batchGraph: (batchId: string) => ['batches', 'graph', batchId] as const,

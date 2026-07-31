@@ -30,6 +30,32 @@ public sealed class BatchesAndContinuationsTests
 	}
 
 	[Fact]
+	public async Task TypedSchedulersCancelJobsAndCommittedBatches()
+	{
+		var cancellationToken = TestContext.Current.CancellationToken;
+		await using var harness = CreateHarness();
+		await using var scope = harness.Services.CreateAsyncScope();
+		var batches = scope.ServiceProvider.GetRequiredService<IJobBatchScheduler>();
+		var scheduler = scope.ServiceProvider.GetRequiredService<BatchWorkflowJob.Scheduler>();
+		var jobHandle = await scheduler.EnqueueAsync(new("cancel-job"), cancellationToken);
+
+		await scheduler.CancelAsync(jobHandle, cancellationToken);
+
+		Assert.Equal(JobState.Cancelled, (await harness.GetJobAsync(jobHandle.Id, cancellationToken)).State);
+
+		await using var batch = batches.Begin();
+		var memberHandle = scheduler.AddToBatch(batch, new("cancel-batch"));
+		var batchHandle = await batch.CommitAsync(cancellationToken);
+
+		await batches.CancelAsync(batchHandle, cancellationToken);
+
+		Assert.Equal(JobState.Cancelled, (await harness.GetJobAsync(memberHandle.Id, cancellationToken)).State);
+		var graphStorage = Assert.IsAssignableFrom<IJobGraphStorage>(harness.Storage);
+		var status = Assert.IsType<BatchStatus>(await graphStorage.GetBatchStatusAsync(batchHandle.Id, cancellationToken));
+		Assert.Equal(BatchState.Cancelled, status.State);
+	}
+
+	[Fact]
 	public async Task BatchBuffersUntilCommitAndDisposalRollsBackUncommittedJobs()
 	{
 		var cancellationToken = TestContext.Current.CancellationToken;

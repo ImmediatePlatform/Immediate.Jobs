@@ -7,6 +7,13 @@ namespace Immediate.Jobs.Shared;
 /// <typeparam name="TPayload">The job payload type.</typeparam>
 public interface IJobScheduler<TPayload>
 {
+	/// <summary>Cancels a non-terminal durable invocation.</summary>
+	/// <param name="handle">The invocation to cancel.</param>
+	/// <param name="cancellationToken">A token that can cancel the storage operation.</param>
+	/// <returns>A value task that represents the asynchronous cancellation.</returns>
+	ValueTask CancelAsync(JobHandle handle, CancellationToken cancellationToken = default) =>
+		throw new NotSupportedException("This scheduler does not support cancelling jobs.");
+
 	/// <summary>Enqueues work immediately and returns its opaque invocation identifier.</summary>
 	/// <param name="payload">The payload to enqueue.</param>
 	/// <param name="cancellationToken">A token that can cancel the enqueue operation.</param>
@@ -143,6 +150,13 @@ public abstract class JobScheduler<TPayload>(
 	/// <summary>The stable queue used for new invocations.</summary>
 	/// <value>The queue name.</value>
 	protected string QueueName { get; } = queueName;
+
+	/// <inheritdoc />
+	public ValueTask CancelAsync(JobHandle handle, CancellationToken cancellationToken = default)
+	{
+		ArgumentException.ThrowIfNullOrWhiteSpace(handle.Id, nameof(handle));
+		return Storage.CancelAsync(handle.Id, cancellationToken);
+	}
 
 	/// <inheritdoc />
 	public ValueTask<JobHandle> EnqueueAsync(TPayload payload, CancellationToken cancellationToken = default) =>

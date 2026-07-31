@@ -83,6 +83,51 @@ public sealed class QueueStorageTests
 	}
 
 	[Fact]
+	public async Task CancellingAnActiveJobClosesItsExecutionAndFencesTheWorker()
+	{
+		var cancellationToken = TestContext.Current.CancellationToken;
+		var clock = new FakeTimeProvider(DateTimeOffset.UnixEpoch);
+		await using var storage = new InMemoryJobStorage(clock);
+		var job = new JobRecord
+		{
+			Id = "cancel-active",
+			JobName = "cancel-test",
+			Payload = "{}",
+			State = JobState.Pending,
+			DueAt = clock.GetUtcNow(),
+			CreatedAt = clock.GetUtcNow(),
+		};
+		await storage.EnqueueAsync(job, cancellationToken);
+		var active = Assert.Single(await storage.AcquireDueJobsAsync(new()
+		{
+			WorkerId = "worker",
+			Lease = TimeSpan.FromMinutes(1),
+			BatchSize = 1,
+			Queues =
+			[
+				new()
+				{
+					QueueName = JobQueueDefinition.DefaultName,
+					Capacity = 1,
+					JobCapacities = new Dictionary<string, int> { [job.JobName] = 1 },
+				},
+			],
+		}, cancellationToken));
+
+		await storage.CancelAsync(job.Id, cancellationToken);
+
+		Assert.Equal(JobState.Cancelled, (await storage.GetJobStatusAsync(job.Id, cancellationToken))!.State);
+		var execution = Assert.Single(await storage.QueryJobExecutionsAsync(new() { JobId = job.Id }, cancellationToken));
+		Assert.Equal(JobExecutionState.Cancelled, execution.State);
+		_ = await Assert.ThrowsAsync<ImmediateJobException>(
+			() => storage.CompleteAsync(job.Id, active.Attempt, "worker", cancellationToken).AsTask()
+		);
+		_ = await Assert.ThrowsAsync<ImmediateJobException>(
+			() => storage.CancelAsync(job.Id, cancellationToken).AsTask()
+		);
+	}
+
+	[Fact]
 	public async Task AcquisitionHonorsQueueOrderAndQueueAndJobCapacities()
 	{
 		var cancellationToken = TestContext.Current.CancellationToken;

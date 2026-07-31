@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { onBeforeUnmount, ref, watch } from 'vue';
-import { Activity, Check, ChevronDown, Copy, ExternalLink, RotateCcw, ScrollText, X } from '@lucide/vue';
+import { Activity, Ban, Check, ChevronDown, Copy, ExternalLink, RotateCcw, ScrollText, X } from '@lucide/vue';
 
 import StateBadge from '@/components/StateBadge.vue';
 import { getJobExecutions, getJobExecutionTelemetryLinks } from '@/api';
 import {
+	canCancelJob,
 	canRetryJob,
 	type JobExecutionRecord,
 	type JobRecord,
@@ -24,6 +25,7 @@ const props = withDefaults(defineProps<{
 });
 
 const emit = defineEmits<{
+	cancel: [job: JobRecord];
 	close: [];
 	retry: [job: JobRecord];
 }>();
@@ -174,16 +176,28 @@ function retryButtonLabel(job: JobRecord, pending: boolean): string {
 		<div class="inspector-content">
 			<div class="flex items-center justify-between gap-3">
 				<StateBadge :state="job.state" />
-				<button
-					v-if="canRetryJob(job)"
-					class="button button-secondary"
-					type="button"
-					:disabled="pending"
-					@click="emit('retry', job)"
-				>
-					<RotateCcw :size="14" aria-hidden="true" />
-					{{ retryButtonLabel(job, pending) }}
-				</button>
+				<div class="flex items-center gap-2">
+					<button
+						v-if="canCancelJob(job)"
+						class="button button-secondary danger-text"
+						type="button"
+						:disabled="pending"
+						@click="emit('cancel', job)"
+					>
+						<Ban :size="14" aria-hidden="true" />
+						Cancel job
+					</button>
+					<button
+						v-if="canRetryJob(job)"
+						class="button button-secondary"
+						type="button"
+						:disabled="pending"
+						@click="emit('retry', job)"
+					>
+						<RotateCcw :size="14" aria-hidden="true" />
+						{{ retryButtonLabel(job, pending) }}
+					</button>
+				</div>
 			</div>
 
 			<dl class="detail-list">

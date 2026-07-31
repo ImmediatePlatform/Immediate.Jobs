@@ -3,6 +3,13 @@ namespace Immediate.Jobs.Shared;
 /// <summary>Creates atomic batches of typed generated jobs.</summary>
 public interface IJobBatchScheduler
 {
+	/// <summary>Cancels every non-terminal member of a committed batch.</summary>
+	/// <param name="handle">The committed batch to cancel.</param>
+	/// <param name="cancellationToken">A token that can cancel the storage operation.</param>
+	/// <returns>A value task that represents the asynchronous cancellation.</returns>
+	ValueTask CancelAsync(BatchHandle handle, CancellationToken cancellationToken = default) =>
+		throw new NotSupportedException("This scheduler does not support cancelling batches.");
+
 	/// <summary>Begins an in-memory batch buffer.</summary>
 	/// <returns>The new batch buffer.</returns>
 	JobBatch Begin();
@@ -33,6 +40,13 @@ public sealed class JobBatchScheduler(
 	IIdGenerator idGenerator
 ) : IJobBatchScheduler
 {
+	/// <inheritdoc />
+	public ValueTask CancelAsync(BatchHandle handle, CancellationToken cancellationToken = default)
+	{
+		ArgumentNullException.ThrowIfNull(handle);
+		return JobStorageCapabilityGuards.RequireGraph(storage).CancelBatchAsync(handle.Id, cancellationToken);
+	}
+
 	/// <inheritdoc />
 	public JobBatch Begin() =>
 		new(

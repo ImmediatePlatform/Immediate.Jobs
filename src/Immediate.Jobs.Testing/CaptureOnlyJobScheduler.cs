@@ -8,6 +8,7 @@ namespace Immediate.Jobs.Testing;
 public class CaptureOnlyJobScheduler<TPayload>(TimeProvider? timeProvider = null) : IJobScheduler<TPayload>
 {
 	private readonly List<ScheduledJobCapture<TPayload>> _captures = [];
+	private readonly HashSet<string> _cancelledIds = new(StringComparer.Ordinal);
 	private readonly TimeProvider _timeProvider = timeProvider ?? TimeProvider.System;
 
 	/// <summary>All calls captured in call order.</summary>
@@ -17,6 +18,22 @@ public class CaptureOnlyJobScheduler<TPayload>(TimeProvider? timeProvider = null
 	/// <summary>The latest captured call, or <see langword="null"/> when none exists.</summary>
 	/// <value>The latest captured call, or <see langword="null"/>.</value>
 	public ScheduledJobCapture<TPayload>? Last => _captures.Count == 0 ? null : _captures[^1];
+
+	/// <summary>The identifiers explicitly cancelled through this scheduler.</summary>
+	/// <value>The cancelled invocation identifiers.</value>
+	public IReadOnlySet<string> CancelledIds => _cancelledIds;
+
+	/// <inheritdoc />
+	public virtual ValueTask CancelAsync(JobHandle handle, CancellationToken cancellationToken = default)
+	{
+		ArgumentException.ThrowIfNullOrWhiteSpace(handle.Id, nameof(handle));
+		cancellationToken.ThrowIfCancellationRequested();
+		if (!_captures.Any(capture => string.Equals(capture.Id, handle.Id, StringComparison.Ordinal)))
+			throw new KeyNotFoundException($"Job '{handle.Id}' was not found.");
+		if (!_cancelledIds.Add(handle.Id))
+			throw new ImmediateJobException("Only a non-terminal job can be cancelled.");
+		return ValueTask.CompletedTask;
+	}
 
 	/// <inheritdoc />
 	public virtual ValueTask<JobHandle> EnqueueAsync(TPayload payload, CancellationToken cancellationToken = default) =>
@@ -69,8 +86,12 @@ public class CaptureOnlyJobScheduler<TPayload>(TimeProvider? timeProvider = null
 		CancellationToken cancellationToken
 	) => CaptureAsync(payload, runAt, groupId, cancellationToken);
 
-	/// <summary>Clears every captured call.</summary>
-	public void Clear() => _captures.Clear();
+	/// <summary>Clears every captured call and cancellation.</summary>
+	public void Clear()
+	{
+		_captures.Clear();
+		_cancelledIds.Clear();
+	}
 
 	/// <summary>Creates invocation identifiers. Override when a test requires predictable identifiers.</summary>
 	/// <returns>A new invocation identifier.</returns>

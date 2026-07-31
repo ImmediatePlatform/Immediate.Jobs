@@ -137,8 +137,8 @@ export function retryJob(jobId: string): Promise<void> {
 	return request(`jobs/${encodeURIComponent(jobId)}/retry`, { method: 'POST' });
 }
 
-export function deleteJob(jobId: string): Promise<void> {
-	return request(`jobs/${encodeURIComponent(jobId)}`, { method: 'DELETE' });
+export function cancelJob(jobId: string): Promise<void> {
+	return request(`jobs/${encodeURIComponent(jobId)}/cancel`, { method: 'POST' });
 }
 
 export function cancelBatch(batchId: string): Promise<void> {

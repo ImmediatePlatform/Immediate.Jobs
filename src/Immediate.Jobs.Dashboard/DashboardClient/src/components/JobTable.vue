@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { Eye, Layers3, RotateCcw, Trash2 } from '@lucide/vue';
+import { Ban, Eye, Layers3, RotateCcw } from '@lucide/vue';
 
 import FeedbackState from '@/components/FeedbackState.vue';
 import StateBadge from '@/components/StateBadge.vue';
-import { canRetryJob, type JobRecord } from '@/contracts';
+import { canCancelJob, canRetryJob, type JobRecord } from '@/contracts';
 import { formatDate } from '@/format';
 
 withDefaults(defineProps<{
@@ -16,8 +16,8 @@ withDefaults(defineProps<{
 const emit = defineEmits<{
 	select: [job: JobRecord];
 	openBatch: [batchId: string];
+	cancel: [job: JobRecord];
 	retry: [job: JobRecord];
-	delete: [job: JobRecord];
 }>();
 
 function retryLabel(job: JobRecord): string {
@@ -92,14 +92,14 @@ function retryLabel(job: JobRecord): string {
 									<RotateCcw :size="15" aria-hidden="true" />
 								</button>
 								<button
-									v-if="job.state === 'Failed'"
+									v-if="canCancelJob(job)"
 									class="icon-button danger"
 									type="button"
 									:disabled="busyJobId === job.id"
-									:aria-label="`Delete ${job.jobName}`"
-									@click="emit('delete', job)"
+									:aria-label="`Cancel ${job.jobName}`"
+									@click="emit('cancel', job)"
 								>
-									<Trash2 :size="15" aria-hidden="true" />
+									<Ban :size="15" aria-hidden="true" />
 								</button>
 							</div>
 						</td>

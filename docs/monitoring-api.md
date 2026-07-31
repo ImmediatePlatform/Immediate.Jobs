@@ -21,8 +21,8 @@ Call `services.AddImmediateJobsDashboard()` before building the application, the
 | `GET` | `/api/recurring` | All code-defined and dynamic recurring schedules |
 | `GET` | `/api/servers` | Scheduler-node heartbeat snapshots |
 | `GET` | `/api/events` | Server-Sent Events snapshot stream |
+| `POST` | `/api/jobs/{id}/cancel` | Cancel a non-terminal invocation |
 | `POST` | `/api/jobs/{id}/retry` | Move a failed invocation to pending |
-| `DELETE` | `/api/jobs/{id}` | Delete a terminal invocation |
 | `POST` | `/api/recurring/{name}/trigger` | Enqueue one immediate invocation for a schedule |
 | `POST` | `/api/recurring/{name}/pause` | Pause future scheduled occurrences |
 | `POST` | `/api/recurring/{name}/resume` | Resume future scheduled occurrences |

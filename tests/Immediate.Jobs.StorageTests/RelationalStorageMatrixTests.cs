@@ -1041,6 +1041,86 @@ public sealed class RelationalStorageMatrixTests(StorageContainers containers)
 
 	[Theory]
 	[MemberData(nameof(Matrix))]
+	public async Task CancelActiveJobClosesExecutionAndFencesWorker(DatabaseKind database, AdapterKind adapter)
+	{
+		var cancellationToken = TestContext.Current.CancellationToken;
+		await using var fixture = await CreateFixtureAsync(database, adapter, cancellationToken);
+		var storage = fixture.Storage;
+		var job = CreateJob("cancel-active", fixture.TimeProvider.GetUtcNow());
+		await storage.EnqueueAsync(job, cancellationToken);
+		var active = Assert.Single(await storage.AcquireDueJobsAsync(CreateRequest("worker", 1), cancellationToken));
+
+		await storage.CancelAsync(job.Id, cancellationToken);
+
+		Assert.Equal(JobState.Cancelled, (await storage.GetJobStatusAsync(job.Id, cancellationToken))!.State);
+		var execution = Assert.Single(await storage.QueryJobExecutionsAsync(new() { JobId = job.Id }, cancellationToken));
+		Assert.Equal(JobExecutionState.Cancelled, execution.State);
+		_ = await Assert.ThrowsAsync<ImmediateJobException>(
+			() => storage.CompleteAsync(job.Id, active.Attempt, "worker", cancellationToken).AsTask()
+		);
+		_ = await Assert.ThrowsAsync<ImmediateJobException>(
+			() => storage.CancelAsync(job.Id, cancellationToken).AsTask()
+		);
+	}
+
+	[Theory]
+	[MemberData(nameof(Matrix))]
+	public async Task CancelBatchMemberPropagatesContinuations(DatabaseKind database, AdapterKind adapter)
+	{
+		var cancellationToken = TestContext.Current.CancellationToken;
+		await using var fixture = await CreateFixtureAsync(database, adapter, cancellationToken);
+		var storage = fixture.GraphStorage;
+		var now = fixture.TimeProvider.GetUtcNow();
+		var parent = CreateJob("cancel-parent", now) with { BatchId = "cancel-member-batch" };
+		var successChild = CreateJob("cancel-success-child", now) with
+		{
+			BatchId = "cancel-member-batch",
+			State = JobState.AwaitingContinuation,
+			RemainingDependencies = 1,
+		};
+		var completeChild = CreateJob("cancel-complete-child", now) with
+		{
+			BatchId = "cancel-member-batch",
+			State = JobState.AwaitingContinuation,
+			RemainingDependencies = 1,
+		};
+		await storage.EnqueueBatchAsync(new()
+		{
+			Id = "cancel-member-batch",
+			CreatedAt = now,
+			TotalJobs = 3,
+			PendingCount = 3,
+			State = BatchState.Executing,
+		}, [parent, successChild, completeChild],
+		[
+			new()
+			{
+				ChildJobId = successChild.Id,
+				ParentJobId = parent.Id,
+				Trigger = ContinuationTrigger.Success,
+			},
+			new()
+			{
+				ChildJobId = completeChild.Id,
+				ParentJobId = parent.Id,
+				Trigger = ContinuationTrigger.Complete,
+			},
+		], cancellationToken);
+
+		await storage.CancelAsync(parent.Id, cancellationToken);
+
+		Assert.Equal(JobState.Cancelled, (await storage.GetJobStatusAsync(parent.Id, cancellationToken))!.State);
+		Assert.Equal(JobState.Skipped, (await storage.GetJobStatusAsync(successChild.Id, cancellationToken))!.State);
+		Assert.Equal(JobState.Pending, (await storage.GetJobStatusAsync(completeChild.Id, cancellationToken))!.State);
+		var status = Assert.IsType<BatchStatus>(await storage.GetBatchStatusAsync("cancel-member-batch", cancellationToken));
+		Assert.Equal(BatchState.Executing, status.State);
+		Assert.Equal(1, status.Cancelled);
+		Assert.Equal(1, status.Skipped);
+		Assert.Equal(1, status.Remaining);
+	}
+
+	[Theory]
+	[MemberData(nameof(Matrix))]
 	public async Task SkippedFailureBranchDoesNotCancelSuccessfulBatch(
 		DatabaseKind database,
 		AdapterKind adapter
@@ -1114,6 +1194,9 @@ public sealed class RelationalStorageMatrixTests(StorageContainers containers)
 		var graphStorage = Assert.IsType<IJobGraphStorage>(storage, exactMatch: false);
 		var recurringStorage = Assert.IsType<IRecurringJobStorage>(storage, exactMatch: false);
 
+		_ = await Assert.ThrowsAsync<KeyNotFoundException>(
+			() => storage.CancelAsync("missing", cancellationToken).AsTask()
+		);
 		_ = await Assert.ThrowsAsync<KeyNotFoundException>(
 			() => storage.RetryAsync("missing", cancellationToken).AsTask()
 		);

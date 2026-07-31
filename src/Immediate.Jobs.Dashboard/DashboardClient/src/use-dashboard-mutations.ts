@@ -3,8 +3,8 @@ import { useMutation, useQueryClient } from '@tanstack/vue-query';
 
 import {
 	cancelBatch,
+	cancelJob,
 	deleteBatch,
-	deleteJob,
 	retryJob,
 	setRecurringPaused,
 	triggerRecurring,
@@ -14,6 +14,16 @@ import { queryKeys, refreshDashboardQueries } from '@/query';
 
 export function useJobMutations() {
 	const queryClient = useQueryClient();
+	const cancelMutation = useMutation({
+		mutationFn: cancelJob,
+		onSuccess: async (_, jobId) => {
+			notify('Job cancelled.');
+			await queryClient.invalidateQueries({ queryKey: queryKeys.job(jobId) });
+			await queryClient.invalidateQueries({ queryKey: queryKeys.batchRoot });
+			await refreshDashboardQueries(queryClient);
+		},
+		onError: (reason) => notify(errorText(reason), 'error'),
+	});
 	const retryMutation = useMutation({
 		mutationFn: retryJob,
 		onSuccess: async (_, jobId) => {
@@ -23,26 +33,19 @@ export function useJobMutations() {
 		},
 		onError: (reason) => notify(errorText(reason), 'error'),
 	});
-	const deleteMutation = useMutation({
-		mutationFn: deleteJob,
-		onSuccess: async (_, jobId) => {
-			notify('Job deleted.');
-			queryClient.removeQueries({ queryKey: queryKeys.job(jobId) });
-			await refreshDashboardQueries(queryClient);
-		},
-		onError: (reason) => notify(errorText(reason), 'error'),
-	});
-
 	return {
+		cancelJob: cancelMutation.mutateAsync,
 		retryJob: retryMutation.mutate,
-		deleteJob: deleteMutation.mutateAsync,
 		busyJobId: computed(() => {
+			if (cancelMutation.isPending.value) {
+				return cancelMutation.variables.value;
+			}
 			if (retryMutation.isPending.value) {
 				return retryMutation.variables.value;
 			}
-			return deleteMutation.isPending.value ? deleteMutation.variables.value : undefined;
+			return undefined;
 		}),
-		deleting: deleteMutation.isPending,
+		cancelling: cancelMutation.isPending,
 	};
 }
 

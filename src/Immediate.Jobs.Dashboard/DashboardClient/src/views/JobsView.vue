@@ -22,7 +22,7 @@ const stateQuery = useRouteQuery<string>('state', '');
 const pageQuery = useRouteQuery<string>('page', '1');
 const debouncedSearch = refDebounced(searchQuery, 250);
 const debouncedQueue = refDebounced(queueQuery, 250);
-const deleteCandidate = ref<JobRecord>();
+const cancelCandidate = ref<JobRecord>();
 
 const selectedState = computed<JobState | ''>(() => {
 	return jobStates.includes(stateQuery.value as JobState) ? stateQuery.value as JobState : '';
@@ -71,14 +71,13 @@ function changePage(nextPage: number): void {
 	pageQuery.value = String(Math.max(1, nextPage));
 }
 
-async function confirmDelete(): Promise<void> {
-	if (!deleteCandidate.value) {
+async function confirmCancel(): Promise<void> {
+	if (!cancelCandidate.value) {
 		return;
 	}
-	const deletedId = deleteCandidate.value.id;
 	try {
-		await jobMutations.deleteJob(deletedId);
-		deleteCandidate.value = undefined;
+		await jobMutations.cancelJob(cancelCandidate.value.id);
+		cancelCandidate.value = undefined;
 	} catch {
 		// The mutation displays the API error and leaves the confirmation open.
 	}
@@ -120,8 +119,8 @@ async function confirmDelete(): Promise<void> {
 				:busy-job-id="jobMutations.busyJobId.value"
 				@select="openJob"
 				@open-batch="openBatch"
+				@cancel="cancelCandidate = $event"
 				@retry="(job) => jobMutations.retryJob(job.id)"
-				@delete="deleteCandidate = $event"
 			/>
 			<div class="pagination" aria-label="Jobs pagination">
 				<button class="button button-secondary" type="button" :disabled="page === 1" @click="changePage(page - 1)">
@@ -137,13 +136,13 @@ async function confirmDelete(): Promise<void> {
 		</div>
 
 		<ConfirmDialog
-			:open="Boolean(deleteCandidate)"
-			title="Delete failed job?"
-			:description="`This permanently removes ${deleteCandidate?.jobName ?? 'this job'} and its stored payload.`"
-			confirm-label="Delete job"
-			:pending="jobMutations.deleting.value"
-			@cancel="deleteCandidate = undefined"
-			@confirm="confirmDelete"
+			:open="Boolean(cancelCandidate)"
+			title="Cancel job?"
+			:description="`This marks ${cancelCandidate?.jobName ?? 'this job'} as cancelled. Work already running may finish its current attempt.`"
+			confirm-label="Cancel job"
+			:pending="jobMutations.cancelling.value"
+			@cancel="cancelCandidate = undefined"
+			@confirm="confirmCancel"
 		/>
 	</section>
 </template>

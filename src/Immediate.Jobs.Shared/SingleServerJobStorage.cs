@@ -401,6 +401,14 @@ public sealed class SingleServerJobStorage :
 	}
 
 	/// <inheritdoc />
+	public async ValueTask CancelAsync(string jobId, CancellationToken cancellationToken = default)
+	{
+		await EnsureInitializedAsync(cancellationToken).ConfigureAwait(false);
+		await DurableStorage.CancelAsync(jobId, cancellationToken).ConfigureAwait(false);
+		await _primary.CancelAsync(jobId, cancellationToken).ConfigureAwait(false);
+	}
+
+	/// <inheritdoc />
 	public async ValueTask RetryAsync(string jobId, CancellationToken cancellationToken = default)
 	{
 		await EnsureInitializedAsync(cancellationToken).ConfigureAwait(false);
