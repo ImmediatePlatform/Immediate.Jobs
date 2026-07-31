@@ -61,10 +61,7 @@ public sealed class DashboardPackageTests
 			EnvironmentName = Environments.Development,
 		});
 		_ = builder.WebHost.UseTestServer();
-		_ = builder.Services.AddSingleton<IJobStorage>(storage);
-
-		await using var app = builder.Build();
-		_ = app.MapImmediateJobsDashboard(configure: options =>
+		_ = builder.Services.AddImmediateJobsDashboard(options =>
 		{
 			_ = options.AddTelemetryLink(
 				"View execution trace",
@@ -91,6 +88,10 @@ public sealed class DashboardPackageTests
 					: null
 			);
 		});
+		_ = builder.Services.AddSingleton<IJobStorage>(storage);
+
+		await using var app = builder.Build();
+		_ = app.MapImmediateJobsDashboard();
 		await app.StartAsync(TestContext.Current.CancellationToken);
 
 		using var jobResponse = await app.GetTestClient().GetAsync(
@@ -199,6 +200,7 @@ public sealed class DashboardPackageTests
 			EnvironmentName = Environments.Development,
 		});
 		_ = builder.WebHost.UseTestServer();
+		_ = builder.Services.AddImmediateJobsDashboard();
 		_ = builder.Services.AddSingleton<IJobStorage>(storage);
 		await using var app = builder.Build();
 		_ = app.MapImmediateJobsDashboard(configure: options =>
@@ -247,9 +249,9 @@ public sealed class DashboardPackageTests
 	[Theory]
 	[InlineData("/jobs/api/jobs/missing/executions", HttpStatusCode.NotFound)]
 	[InlineData("/jobs/api/jobs/missing/executions/1/telemetry-links", HttpStatusCode.NotFound)]
-	[InlineData("/jobs/api/jobs/job/executions?skip=-1", HttpStatusCode.OK)]
-	[InlineData("/jobs/api/jobs/job/executions?take=0", HttpStatusCode.OK)]
-	public async Task ExecutionApiClampsPagingAndReportsMissingResources(string path, HttpStatusCode expectedStatus)
+	[InlineData("/jobs/api/jobs/job/executions?skip=-1", HttpStatusCode.BadRequest)]
+	[InlineData("/jobs/api/jobs/job/executions?take=0", HttpStatusCode.BadRequest)]
+	public async Task ExecutionApiValidatesPagingAndMissingResources(string path, HttpStatusCode expectedStatus)
 	{
 		await using var storage = new InMemoryJobStorage(TimeProvider.System);
 		await storage.EnqueueAsync(new()
@@ -266,6 +268,7 @@ public sealed class DashboardPackageTests
 			EnvironmentName = Environments.Development,
 		});
 		_ = builder.WebHost.UseTestServer();
+		_ = builder.Services.AddImmediateJobsDashboard();
 		_ = builder.Services.AddSingleton<IJobStorage>(storage);
 		await using var app = builder.Build();
 		_ = app.MapImmediateJobsDashboard();
@@ -276,6 +279,16 @@ public sealed class DashboardPackageTests
 			TestContext.Current.CancellationToken
 		);
 		Assert.Equal(expectedStatus, response.StatusCode);
+		if (expectedStatus == HttpStatusCode.BadRequest)
+		{
+			Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
+			using var document = JsonDocument.Parse(
+				await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken)
+			);
+			var error = Assert.Single(document.RootElement.GetProperty("errors").EnumerateObject());
+			Assert.True(error.Name is "Skip" or "Take");
+			Assert.NotEmpty(error.Value.EnumerateArray());
+		}
 	}
 
 	[Fact]
@@ -286,6 +299,7 @@ public sealed class DashboardPackageTests
 			EnvironmentName = Environments.Development,
 		});
 		_ = builder.WebHost.UseTestServer();
+		_ = builder.Services.AddImmediateJobsDashboard();
 		_ = builder.Services.AddSingleton<IJobStorage>(
 			static _ => new StorageCapabilityTests.QueueOnlyStorage(TimeProvider.System)
 		);
@@ -325,6 +339,7 @@ public sealed class DashboardPackageTests
 			EnvironmentName = Environments.Development,
 		});
 		_ = builder.WebHost.UseTestServer();
+		_ = builder.Services.AddImmediateJobsDashboard();
 		_ = builder.Services.AddSingleton<IJobStorage>(static _ => new InMemoryJobStorage(TimeProvider.System));
 
 		await using var app = builder.Build();
@@ -348,6 +363,7 @@ public sealed class DashboardPackageTests
 			EnvironmentName = Environments.Development,
 		});
 		_ = builder.WebHost.UseTestServer();
+		_ = builder.Services.AddImmediateJobsDashboard();
 		_ = builder.Services.AddSingleton<IJobStorage>(static _ => new InMemoryJobStorage(TimeProvider.System));
 
 		await using var app = builder.Build();
@@ -373,6 +389,7 @@ public sealed class DashboardPackageTests
 			EnvironmentName = Environments.Development,
 		});
 		_ = builder.WebHost.UseTestServer();
+		_ = builder.Services.AddImmediateJobsDashboard();
 		_ = builder.Services.AddSingleton<IJobStorage>(static _ => new InMemoryJobStorage(TimeProvider.System));
 
 		await using var app = builder.Build();
@@ -400,6 +417,7 @@ public sealed class DashboardPackageTests
 			EnvironmentName = Environments.Development,
 		});
 		_ = builder.WebHost.UseTestServer();
+		_ = builder.Services.AddImmediateJobsDashboard();
 		_ = builder.Services.AddSingleton<IJobStorage>(static _ => new InMemoryJobStorage(TimeProvider.System));
 
 		await using var app = builder.Build();
@@ -428,6 +446,7 @@ public sealed class DashboardPackageTests
 			EnvironmentName = Environments.Development,
 		});
 		_ = builder.WebHost.UseTestServer();
+		_ = builder.Services.AddImmediateJobsDashboard();
 		_ = builder.Services.AddSingleton<IJobStorage>(static _ => new InMemoryJobStorage(TimeProvider.System));
 
 		await using var app = builder.Build();
@@ -464,6 +483,7 @@ public sealed class DashboardPackageTests
 			EnvironmentName = Environments.Development,
 		});
 		_ = builder.WebHost.UseTestServer();
+		_ = builder.Services.AddImmediateJobsDashboard();
 		_ = builder.Services.AddSingleton<IJobStorage>(storage);
 
 		await using var app = builder.Build();
@@ -520,6 +540,7 @@ public sealed class DashboardPackageTests
 			EnvironmentName = Environments.Development,
 		});
 		_ = builder.WebHost.UseTestServer();
+		_ = builder.Services.AddImmediateJobsDashboard();
 		_ = builder.Services.AddSingleton<IJobStorage>(storage);
 
 		await using var app = builder.Build();

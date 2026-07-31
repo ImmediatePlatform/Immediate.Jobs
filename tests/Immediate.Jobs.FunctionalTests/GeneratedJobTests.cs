@@ -2,9 +2,13 @@ using System.Diagnostics;
 using System.Globalization;
 using Immediate.Handlers.Shared;
 using Immediate.Jobs.Testing;
+using Immediate.Validations.Shared;
 using Microsoft.Extensions.DependencyInjection;
 
-[assembly: Behaviors(typeof(Immediate.Jobs.FunctionalTests.JobCountingBehavior<,>))]
+[assembly: Behaviors(
+	typeof(Immediate.Jobs.FunctionalTests.JobCountingBehavior<,>),
+	typeof(ValidationBehavior<,>)
+)]
 
 namespace Immediate.Jobs.FunctionalTests;
 

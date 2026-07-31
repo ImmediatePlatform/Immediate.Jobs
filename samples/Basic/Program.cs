@@ -5,6 +5,7 @@ using Immediate.Handlers.Shared;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddSingleton<IEmailSender, ConsoleEmailSender>();
+builder.Services.AddImmediateJobsDashboard();
 builder.Services.AddBasicHandlers();
 builder.Services.AddBasicJobs(options =>
 {

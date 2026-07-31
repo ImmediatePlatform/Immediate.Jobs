@@ -1,6 +1,7 @@
 # Monitoring API
 
-`MapImmediateJobsDashboard("/jobs")` exposes the following stable endpoints under the selected prefix:
+Call `services.AddImmediateJobsDashboard()` before building the application, then
+`MapImmediateJobsDashboard("/jobs")` to expose the following stable endpoints under the selected prefix:
 
 | Method | Path | Purpose |
 |---|---|---|
@@ -26,7 +27,7 @@
 | `POST` | `/api/recurring/{name}/pause` | Pause future scheduled occurrences |
 | `POST` | `/api/recurring/{name}/resume` | Resume future scheduled occurrences |
 
-Read endpoints return the public job, schedule, server, batch-status, member, and graph JSON shapes from `Immediate.Jobs.Shared`. Successful mutations return `202 Accepted` or `204 No Content`; missing resources return `404`, and an invalid state transition returns Problem Details with `409 Conflict`.
+Read endpoints return the public job, schedule, server, batch-status, member, and graph JSON shapes from `Immediate.Jobs.Shared`. Successful mutations return `202 Accepted` or `204 No Content`; missing resources return `404`, an invalid state transition returns Problem Details with `409 Conflict`, and invalid route or paging values return Validation Problem Details with `400 Bad Request`.
 
 Job records continue to expose `executionTraceId`, `executionSpanId`, and `executionStartedAt` as a
 latest-execution compatibility projection. The execution page contains the canonical retained
