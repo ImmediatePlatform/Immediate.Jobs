@@ -7,6 +7,19 @@ namespace Immediate.Jobs.FunctionalTests;
 public sealed class RecurringSchedulerTests
 {
 	private static readonly DateTimeOffset Start = new(2026, 1, 1, 10, 0, 0, TimeSpan.Zero);
+	public static TheoryData<string, DateTimeOffset> RuntimeCronForms => new()
+	{
+		{ "@yearly", new(2027, 1, 1, 0, 0, 0, TimeSpan.Zero) },
+		{ "@annually", new(2027, 1, 1, 0, 0, 0, TimeSpan.Zero) },
+		{ "@monthly", new(2026, 2, 1, 0, 0, 0, TimeSpan.Zero) },
+		{ "@weekly", new(2026, 1, 4, 0, 0, 0, TimeSpan.Zero) },
+		{ "@DAILY", new(2026, 1, 2, 0, 0, 0, TimeSpan.Zero) },
+		{ "@midnight", new(2026, 1, 2, 0, 0, 0, TimeSpan.Zero) },
+		{ "@hourly", new(2026, 1, 1, 11, 0, 0, TimeSpan.Zero) },
+		{ "@every_minute", new(2026, 1, 1, 10, 1, 0, TimeSpan.Zero) },
+		{ "@every_second", new(2026, 1, 1, 10, 0, 1, TimeSpan.Zero) },
+		{ "0\t*\t*\t*\t*", new(2026, 1, 1, 11, 0, 0, TimeSpan.Zero) },
+	};
 
 	[Fact]
 	public async Task OverlapSkipDetectsAnActiveRunHiddenBehindALongerJobName()
@@ -33,6 +46,54 @@ public sealed class RecurringSchedulerTests
 		);
 		var occurrence = Assert.Single(materialized, job => job.RecurringKey is not null);
 		Assert.Equal(JobState.Cancelled, occurrence.State);
+	}
+
+	[Fact]
+	public async Task OverlapSkipDetectsAPendingOccurrence()
+	{
+		var cancellationToken = TestContext.Current.CancellationToken;
+		var clock = new FakeTimeProvider(Start);
+		await using var storage = new InMemoryJobStorage(clock);
+		await storage.InitializeAsync(cancellationToken);
+		await AddPendingRecurringJob(storage, "cleanup", "cleanup:future", Start.AddHours(2), cancellationToken);
+
+		var scheduler = BuildScheduler(storage, clock, "cleanup", "0 * * * *");
+		await scheduler.DrainAsync(cancellationToken);
+		clock.SetUtcNow(Start.AddHours(1));
+		await scheduler.DrainAsync(cancellationToken);
+
+		var jobs = await storage.QueryJobsAsync(
+			new() { JobName = "cleanup", Take = 100 },
+			cancellationToken
+		);
+		var occurrence = Assert.Single(jobs, job => job.DueAt == Start.AddHours(1));
+		Assert.Equal(JobState.Cancelled, occurrence.State);
+	}
+
+	[Fact]
+	public async Task OverlapQueueAcquiresOneInvocationAtATime()
+	{
+		var cancellationToken = TestContext.Current.CancellationToken;
+		var clock = new FakeTimeProvider(Start);
+		await using var storage = new InMemoryJobStorage(clock);
+		await storage.InitializeAsync(cancellationToken);
+		await AddPendingRecurringJob(storage, "queued", "queue:1", Start, cancellationToken);
+		await AddPendingRecurringJob(storage, "queued", "queue:2", Start, cancellationToken);
+		var invoker = new AssertNoOverlapInvoker(storage);
+		var scheduler = BuildScheduler(
+			storage,
+			clock,
+			"queued",
+			cron: null,
+			invoker,
+			OverlapPolicy.Queue,
+			maxParallelJobs: 2,
+			maxAttempts: 1
+		);
+
+		await scheduler.DrainAsync(cancellationToken);
+
+		Assert.Equal(2, invoker.Executions);
 	}
 
 	[Fact]
@@ -79,6 +140,62 @@ public sealed class RecurringSchedulerTests
 		);
 	}
 
+	[Theory]
+	[MemberData(nameof(RuntimeCronForms))]
+	public async Task RuntimeAcceptsAnalyzerCronForms(string cron, DateTimeOffset expectedNextRunAt)
+	{
+		var cancellationToken = TestContext.Current.CancellationToken;
+		var clock = new FakeTimeProvider(Start);
+		await using var storage = new InMemoryJobStorage(clock);
+		await storage.InitializeAsync(cancellationToken);
+		var scheduler = BuildScheduler(storage, clock, "analyzer-compatible", cron);
+
+		await scheduler.DrainAsync(cancellationToken);
+
+		Assert.Equal(
+			expectedNextRunAt,
+			(await GetSchedule(storage, "analyzer-compatible", cancellationToken)).NextRunAt
+		);
+	}
+
+	[Theory]
+	[InlineData("not-a-cron", "UTC")]
+	[InlineData("* * * * *", "Missing/TimeZone")]
+	public async Task BadRecurringScheduleDoesNotBlockOrdinaryJobs(string cron, string timeZone)
+	{
+		var cancellationToken = TestContext.Current.CancellationToken;
+		var clock = new FakeTimeProvider(Start);
+		await using var storage = new InMemoryJobStorage(clock);
+		await storage.InitializeAsync(cancellationToken);
+		await storage.UpsertRecurringAsync(new()
+		{
+			Name = "bad-schedule",
+			JobName = "ordinary",
+			Cron = cron,
+			TimeZone = timeZone,
+			IsCodeDefined = false,
+			NextRunAt = Start,
+		}, cancellationToken);
+		await storage.EnqueueAsync(new()
+		{
+			Id = "ordinary-job",
+			JobName = "ordinary",
+			Payload = "{}",
+			State = JobState.Pending,
+			DueAt = Start,
+			CreatedAt = Start,
+		}, cancellationToken);
+		var scheduler = BuildScheduler(storage, clock, "ordinary", cron: null);
+
+		await scheduler.DrainAsync(cancellationToken);
+
+		Assert.Equal(
+			JobState.Succeeded,
+			(await storage.GetJobStatusAsync("ordinary-job", cancellationToken))!.State
+		);
+		Assert.Equal(Start, (await GetSchedule(storage, "bad-schedule", cancellationToken)).NextRunAt);
+	}
+
 	private static async ValueTask<RecurringJobSchedule> GetSchedule(
 		InMemoryJobStorage storage,
 		string name,
@@ -107,27 +224,51 @@ public sealed class RecurringSchedulerTests
 		LeaseExpiresAt = clock.GetUtcNow().AddMinutes(30),
 	}, cancellationToken);
 
+	private static ValueTask AddPendingRecurringJob(
+		InMemoryJobStorage storage,
+		string jobName,
+		string recurringKey,
+		DateTimeOffset dueAt,
+		CancellationToken cancellationToken
+	) => storage.EnqueueAsync(new()
+	{
+		Id = Guid.NewGuid().ToString("N"),
+		JobName = jobName,
+		Payload = "{}",
+		State = JobState.Pending,
+		DueAt = dueAt,
+		CreatedAt = dueAt,
+		RecurringKey = recurringKey,
+	}, cancellationToken);
+
 	private static JobSchedulerService BuildScheduler(
 		InMemoryJobStorage storage,
 		TimeProvider clock,
 		string jobName,
-		string cron
+		string? cron,
+		IJobInvoker? invoker = null,
+		OverlapPolicy overlapPolicy = OverlapPolicy.Skip,
+		int maxParallelJobs = 1,
+		int maxAttempts = 3
 	)
 	{
+		invoker ??= NoOpInvoker.Instance;
 		var services = new ServiceCollection();
 		_ = services.AddLogging();
 		_ = services.AddSingleton(clock);
 		_ = services.AddImmediateJobsCore(options =>
 		{
 			_ = options.UseStorage(_ => storage).UseDistributed();
-			options.MaxParallelJobs = 1;
+			options.MaxParallelJobs = maxParallelJobs;
 		});
 		_ = services.AddSingleton(new JobDefinition
 		{
 			Name = jobName,
 			Cron = cron,
-			Invoker = NoOpInvoker.Instance,
-			JobType = typeof(NoOpInvoker),
+			Invoker = invoker,
+			JobType = invoker.GetType(),
+			OverlapPolicy = overlapPolicy,
+			MaxAttempts = maxAttempts,
 		});
 
 		var provider = services.BuildServiceProvider();
@@ -140,6 +281,21 @@ public sealed class RecurringSchedulerTests
 
 		public ValueTask InvokeAsync(IServiceProvider scopedServices, JobExecution execution) =>
 			ValueTask.CompletedTask;
+	}
+
+	private sealed class AssertNoOverlapInvoker(InMemoryJobStorage storage) : IJobInvoker
+	{
+		public int Executions { get; private set; }
+
+		public async ValueTask InvokeAsync(IServiceProvider scopedServices, JobExecution execution)
+		{
+			var active = await storage.QueryJobsAsync(
+				new() { State = JobState.Active, JobName = execution.Record.JobName, Take = 100 },
+				execution.CancellationToken
+			);
+			_ = Assert.Single(active);
+			Executions++;
+		}
 	}
 }
 #pragma warning restore CS1591

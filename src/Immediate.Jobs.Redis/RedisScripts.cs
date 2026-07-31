@@ -206,12 +206,14 @@ internal static class RedisScripts
 	internal const string Delete =
 		"""
 		if redis.call('EXISTS', KEYS[1]) == 0 then return 0 end
-		local state = redis.call('HGET', KEYS[1], 'state')
+		local values = redis.call('HMGET', KEYS[1], 'state', 'recurringKey')
+		local state = values[1]
 		if state ~= '5' and state ~= '6' and state ~= '7' then return -1 end
 		redis.call('DEL', KEYS[1])
 		redis.call('ZREM', KEYS[2], ARGV[1])
 		redis.call('SREM', ARGV[2] .. 'state:' .. state, ARGV[1])
 		redis.call('ZREM', ARGV[2] .. 'completed:' .. state, ARGV[1])
+		if values[2] and values[2] ~= '' then redis.call('HDEL', KEYS[3], values[2]) end
 		return 1
 		""";
 
@@ -221,7 +223,7 @@ internal static class RedisScripts
 			redis.call('ZREM', KEYS[2], ARGV[1])
 			return 0
 		end
-		local values = redis.call('HMGET', KEYS[1], 'state', 'completed')
+		local values = redis.call('HMGET', KEYS[1], 'state', 'completed', 'recurringKey')
 		if values[1] ~= ARGV[2] then
 			redis.call('ZREM', KEYS[2], ARGV[1])
 			return 0
@@ -230,6 +232,7 @@ internal static class RedisScripts
 		redis.call('ZREM', KEYS[2], ARGV[1])
 		redis.call('ZREM', KEYS[3], ARGV[1])
 		redis.call('SREM', KEYS[4], ARGV[1])
+		if values[3] and values[3] ~= '' then redis.call('HDEL', KEYS[5], values[3]) end
 		return 1
 		""";
 
@@ -247,7 +250,7 @@ internal static class RedisScripts
 		end
 		redis.call('HSET', KEYS[1],
 			'record', ARGV[1], 'code', ARGV[2], 'paused', paused,
-			'next', ARGV[4], 'last', last, 'dueMember', ARGV[8])
+			'next', ARGV[4], 'last', last, 'dueScore', ARGV[7], 'dueMember', ARGV[8])
 		redis.call('SADD', KEYS[2], ARGV[6])
 		if paused == '1' then
 			redis.call('ZREM', KEYS[3], ARGV[8])
@@ -291,10 +294,11 @@ internal static class RedisScripts
 		"""
 		if redis.call('EXISTS', KEYS[1]) == 0 then return 0 end
 		redis.call('HSET', KEYS[1], 'paused', ARGV[1])
+		local due = redis.call('HMGET', KEYS[1], 'dueScore', 'dueMember')
 		if ARGV[1] == '1' then
-			redis.call('ZREM', KEYS[2], ARGV[4])
-		else
-			redis.call('ZADD', KEYS[2], ARGV[3], ARGV[4])
+			if due[2] then redis.call('ZREM', KEYS[2], due[2]) end
+		elseif due[1] and due[2] then
+			redis.call('ZADD', KEYS[2], due[1], due[2])
 		end
 		return 1
 		""";
@@ -302,14 +306,16 @@ internal static class RedisScripts
 	internal const string MaterializeRecurring =
 		"""
 		if redis.call('EXISTS', KEYS[1]) == 0 then return 0 end
-		if redis.call('HGET', KEYS[1], 'next') ~= ARGV[1] then return 0 end
-		if redis.call('HGET', KEYS[1], 'paused') == '1' then return 0 end
-		local previousDueMember = redis.call('HGET', KEYS[1], 'dueMember')
+		local schedule = redis.call('HMGET', KEYS[1], 'next', 'paused', 'dueMember')
+		if schedule[1] ~= ARGV[1] or schedule[2] == '1' then return 0 end
+		local previousDueMember = schedule[3]
+		if not previousDueMember or previousDueMember ~= ARGV[1] .. '|' .. ARGV[21] then return 0 end
+		local previousDueScore = redis.call('ZSCORE', KEYS[7], previousDueMember)
+		if not previousDueScore or tonumber(previousDueScore) > tonumber(ARGV[24]) then return 0 end
 		local inserted = 1
 		if ARGV[2] ~= '' then
 			inserted = redis.call('HSETNX', KEYS[2], ARGV[2], ARGV[3])
 		end
-		if inserted == 0 then return 0 end
 		if inserted == 1 then
 			if redis.call('EXISTS', KEYS[3]) == 1 then
 				if ARGV[2] ~= '' then redis.call('HDEL', KEYS[2], ARGV[2]) end
@@ -318,6 +324,7 @@ internal static class RedisScripts
 			redis.call('HSET', KEYS[3],
 				'record', ARGV[4], 'state', ARGV[5], 'due', ARGV[6], 'dueScore', ARGV[7],
 				'created', ARGV[22], 'dueMember', ARGV[6] .. '|' .. ARGV[22] .. '|' .. ARGV[3],
+				'recurringKey', ARGV[2],
 				'attempt', ARGV[8], 'worker', ARGV[9], 'lease', ARGV[10],
 				'error', ARGV[11], 'completed', ARGV[12],
 				'executionTraceId', ARGV[13], 'executionSpanId', ARGV[14],
@@ -332,7 +339,7 @@ internal static class RedisScripts
 		end
 		local nextDueMember = ARGV[19] .. '|' .. ARGV[21]
 		redis.call('HSET', KEYS[1],
-			'last', ARGV[1], 'next', ARGV[19], 'dueMember', nextDueMember)
+			'last', ARGV[1], 'next', ARGV[19], 'dueScore', ARGV[20], 'dueMember', nextDueMember)
 		if previousDueMember then redis.call('ZREM', KEYS[7], previousDueMember) end
 		redis.call('ZADD', KEYS[7], ARGV[20], nextDueMember)
 		return inserted

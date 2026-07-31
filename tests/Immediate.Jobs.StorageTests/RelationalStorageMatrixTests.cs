@@ -31,6 +31,13 @@ public sealed class RelationalStorageMatrixTests(StorageContainers containers)
 		AdapterKind.LinqToDB,
 	];
 
+	public static TheoryData<DatabaseKind> LinqToDbDatabases =>
+	[
+		DatabaseKind.Sqlite,
+		DatabaseKind.PostgreSql,
+		DatabaseKind.SqlServer,
+	];
+
 	[Theory]
 	[MemberData(nameof(Matrix))]
 	public async Task AdapterPassesCoreStorageConformance(DatabaseKind database, AdapterKind adapter)
@@ -164,6 +171,164 @@ public sealed class RelationalStorageMatrixTests(StorageContainers containers)
 		Assert.Null(recovered.ExecutionTraceId);
 		Assert.Null(recovered.ExecutionSpanId);
 		Assert.Null(recovered.ExecutionStartedAt);
+	}
+
+	[Theory]
+	[MemberData(nameof(Matrix))]
+	public async Task ReclaimedLeaseRejectsStaleCompletionAndItsBufferedContinuation(
+		DatabaseKind database,
+		AdapterKind adapter
+	)
+	{
+		var cancellationToken = TestContext.Current.CancellationToken;
+		await using var fixture = await CreateFixtureAsync(database, adapter, cancellationToken);
+		var first = fixture.CreateStorage();
+		var second = fixture.CreateStorage();
+		var firstGraph = Assert.IsAssignableFrom<IJobGraphStorage>(first);
+		var now = fixture.TimeProvider.GetUtcNow();
+		await first.EnqueueAsync(CreateJob("reclaimed-parent", now), cancellationToken);
+		_ = Assert.Single(await first.AcquireDueJobsAsync(CreateRequest("node-a", 1), cancellationToken));
+		fixture.TimeProvider.Advance(TimeSpan.FromMinutes(2));
+		var reclaimed = Assert.Single(await second.AcquireDueJobsAsync(CreateRequest("node-b", 1), cancellationToken));
+
+		var exception = await Assert.ThrowsAsync<ImmediateJobException>(() =>
+			firstGraph.CompleteWithContinuationsAsync(
+				"reclaimed-parent",
+				"node-a",
+				[new()
+				{
+					Job = CreateJob("stale-continuation", fixture.TimeProvider.GetUtcNow()),
+					Options = ContinuationOptions.Detached,
+				}],
+				cancellationToken
+			).AsTask()
+		);
+
+		Assert.Contains("does not own active job", exception.Message, StringComparison.Ordinal);
+		Assert.Empty(await first.QueryJobsAsync(new() { Id = "stale-continuation" }, cancellationToken));
+		Assert.Equal("node-b", reclaimed.WorkerId);
+		Assert.Equal(JobState.Active, (await first.GetJobStatusAsync("reclaimed-parent", cancellationToken))!.State);
+	}
+
+	[Theory]
+	[MemberData(nameof(LinqToDbDatabases))]
+	public async Task LinqCompletionSurvivesSustainedBatchHeaderContention(DatabaseKind database)
+	{
+		const int JobCount = 24;
+		var cancellationToken = TestContext.Current.CancellationToken;
+		await using var fixture = await CreateFixtureAsync(
+			database,
+			AdapterKind.LinqToDB,
+			cancellationToken
+		);
+		var storage = fixture.GraphStorage;
+		var replica = Assert.IsAssignableFrom<IJobStorageReplica>(storage);
+		var now = fixture.TimeProvider.GetUtcNow();
+		var jobs = Enumerable.Range(0, JobCount)
+			.Select(index =>
+			{
+				var id = string.Create(CultureInfo.InvariantCulture, $"contended-completion-{index}");
+				return CreateJob(id, now) with { BatchId = "contended-batch" };
+			})
+			.ToArray();
+		await storage.EnqueueBatchAsync(new()
+		{
+			Id = "contended-batch",
+			CreatedAt = now,
+			TotalJobs = JobCount,
+			PendingCount = JobCount,
+			State = BatchState.Executing,
+		}, jobs, [], cancellationToken);
+		Assert.Equal(JobCount, (await replica.AcquireJobsAsync(
+			[.. jobs.Select(static job => job.Id)],
+			"worker",
+			TimeSpan.FromMinutes(1),
+			cancellationToken
+		)).Count);
+		var start = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+		var completions = jobs.Select(async job =>
+		{
+			await start.Task;
+			await storage.CompleteAsync(job.Id, "worker", cancellationToken);
+		}).ToArray();
+
+		start.SetResult();
+		await Task.WhenAll(completions);
+
+		var batch = Assert.IsType<BatchStatus>(await storage.GetBatchStatusAsync("contended-batch", cancellationToken));
+		Assert.Equal(BatchState.Succeeded, batch.State);
+		Assert.Equal(JobCount, batch.Succeeded);
+	}
+
+	[Theory]
+	[MemberData(nameof(LinqToDbDatabases))]
+	public async Task LinqRecurringUpsertSurvivesConcurrentMaterialization(DatabaseKind database)
+	{
+		var cancellationToken = TestContext.Current.CancellationToken;
+		await using var fixture = await CreateFixtureAsync(
+			database,
+			AdapterKind.LinqToDB,
+			cancellationToken
+		);
+		var storage = fixture.RecurringStorage;
+		var now = fixture.TimeProvider.GetUtcNow();
+		var schedule = new RecurringJobSchedule
+		{
+			Name = "racing-upsert",
+			JobName = "matrix-test",
+			Cron = "0 * * * *",
+			TimeZone = "UTC",
+			IsCodeDefined = false,
+			NextRunAt = now,
+		};
+		await storage.UpsertRecurringAsync(schedule, cancellationToken);
+
+		for (var iteration = 0; iteration < 20; iteration++)
+		{
+			var current = Assert.Single((await storage.GetMonitoringSnapshotAsync(cancellationToken)).Recurring);
+			var requested = schedule with
+			{
+				Cron = iteration % 2 == 0 ? "15 * * * *" : "45 * * * *",
+				NextRunAt = now.AddDays(iteration + 1),
+			};
+			var occurrence = CreateJob(
+				string.Create(CultureInfo.InvariantCulture, $"racing-occurrence-{iteration}"),
+				now
+			) with
+			{
+				RecurringKey = string.Create(
+					CultureInfo.InvariantCulture,
+					$"racing-upsert:{current.NextRunAt.UtcTicks}"
+				),
+			};
+			var start = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+			async Task MaterializeAsync()
+			{
+				await start.Task;
+				_ = await storage.MaterializeRecurringAsync(
+					current,
+					occurrence,
+					current.NextRunAt.AddMinutes(1),
+					cancellationToken
+				);
+			}
+
+			async Task UpsertAsync()
+			{
+				await start.Task;
+				await storage.UpsertRecurringAsync(requested, cancellationToken);
+			}
+
+			var materialization = MaterializeAsync();
+			var upsert = UpsertAsync();
+
+			start.SetResult();
+			await Task.WhenAll(materialization, upsert);
+
+			var persisted = Assert.Single((await storage.GetMonitoringSnapshotAsync(cancellationToken)).Recurring);
+			Assert.Equal(requested.Cron, persisted.Cron);
+			Assert.Equal(requested.NextRunAt, persisted.NextRunAt);
+		}
 	}
 
 	[Theory]
@@ -528,6 +693,118 @@ public sealed class RelationalStorageMatrixTests(StorageContainers containers)
 				expectedState,
 				(await storage.GetJobStatusAsync(child.Id, cancellationToken))!.State
 			);
+		}
+	}
+
+	[Theory]
+	[MemberData(nameof(Matrix))]
+	public async Task RetriedParentDoesNotSettleContinuationEdgeTwice(
+		DatabaseKind database,
+		AdapterKind adapter
+	)
+	{
+		var cancellationToken = TestContext.Current.CancellationToken;
+		await using var fixture = await CreateFixtureAsync(database, adapter, cancellationToken);
+		var storage = fixture.GraphStorage;
+		var replica = Assert.IsAssignableFrom<IJobStorageReplica>(storage);
+		var now = fixture.TimeProvider.GetUtcNow();
+		var retriedParent = CreateJob("retried-parent", now);
+		var otherParent = CreateJob("other-parent", now.AddTicks(1)) with { DueAt = now };
+		var child = CreateJob("retry-child", now.AddTicks(2)) with { DueAt = now };
+		await storage.EnqueueAsync(retriedParent, cancellationToken);
+		await storage.EnqueueAsync(otherParent, cancellationToken);
+		await storage.EnqueueContinuationAsync(child,
+		[
+			new()
+			{
+				ChildJobId = child.Id,
+				ParentJobId = retriedParent.Id,
+				Trigger = ContinuationTrigger.Complete,
+			},
+			new()
+			{
+				ChildJobId = child.Id,
+				ParentJobId = otherParent.Id,
+				Trigger = ContinuationTrigger.Complete,
+			},
+		], cancellationToken);
+		_ = Assert.Single(await replica.AcquireJobsAsync(
+			[retriedParent.Id],
+			"worker",
+			TimeSpan.FromMinutes(1),
+			cancellationToken
+		));
+		await storage.FailAsync(retriedParent.Id, "worker", "expected", nextRetryAt: null, cancellationToken);
+		await storage.RetryAsync(retriedParent.Id, cancellationToken);
+		_ = Assert.Single(await replica.AcquireJobsAsync(
+			[retriedParent.Id],
+			"worker",
+			TimeSpan.FromMinutes(1),
+			cancellationToken
+		));
+
+		await storage.CompleteAsync(retriedParent.Id, "worker", cancellationToken);
+
+		Assert.Equal(
+			JobState.AwaitingContinuation,
+			(await storage.GetJobStatusAsync(child.Id, cancellationToken))!.State
+		);
+		_ = Assert.Single(await replica.AcquireJobsAsync(
+			[otherParent.Id],
+			"worker",
+			TimeSpan.FromMinutes(1),
+			cancellationToken
+		));
+		await storage.CompleteAsync(otherParent.Id, "worker", cancellationToken);
+		Assert.Equal(JobState.Pending, (await storage.GetJobStatusAsync(child.Id, cancellationToken))!.State);
+	}
+
+	[Theory]
+	[MemberData(nameof(Matrix))]
+	public async Task ConcurrentCompletionAndContinuationInsertCannotStrandChild(
+		DatabaseKind database,
+		AdapterKind adapter
+	)
+	{
+		var cancellationToken = TestContext.Current.CancellationToken;
+		await using var fixture = await CreateFixtureAsync(database, adapter, cancellationToken);
+		var storage = fixture.GraphStorage;
+		var replica = Assert.IsAssignableFrom<IJobStorageReplica>(storage);
+		var now = fixture.TimeProvider.GetUtcNow();
+		for (var index = 0; index < 20; index++)
+		{
+			var parentId = string.Create(CultureInfo.InvariantCulture, $"racing-parent-{index}");
+			var childId = string.Create(CultureInfo.InvariantCulture, $"racing-child-{index}");
+			var parent = CreateJob(parentId, now.AddTicks(index * 2)) with { DueAt = now };
+			var child = CreateJob(childId, now.AddTicks(index * 2 + 1)) with { DueAt = now };
+			await storage.EnqueueAsync(parent, cancellationToken);
+			_ = Assert.Single(await replica.AcquireJobsAsync(
+				[parent.Id],
+				"worker",
+				TimeSpan.FromMinutes(1),
+				cancellationToken
+			));
+			var start = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+			var completion = Task.Run(async () =>
+			{
+				await start.Task;
+				await storage.CompleteAsync(parent.Id, "worker", cancellationToken);
+			}, cancellationToken);
+			var insertion = Task.Run(async () =>
+			{
+				await start.Task;
+				await storage.EnqueueContinuationAsync(child, [new()
+				{
+					ChildJobId = child.Id,
+					ParentJobId = parent.Id,
+					Trigger = ContinuationTrigger.Complete,
+				}], cancellationToken);
+			}, cancellationToken);
+
+			start.SetResult();
+			await Task.WhenAll(completion, insertion);
+
+			Assert.Equal(JobState.Pending, (await storage.GetJobStatusAsync(child.Id, cancellationToken))!.State);
 		}
 	}
 

@@ -465,9 +465,7 @@ public sealed partial class JobSchedulerService : BackgroundService
 					.Select(definition => new
 					{
 						definition.Name,
-						Capacity = definition.MaxConcurrency == 0
-							? capacity
-							: definition.MaxConcurrency - _jobReservations.GetValueOrDefault(definition.Name),
+						Capacity = GetJobAcquisitionCapacity(definition, capacity),
 					})
 					.Where(static item => item.Capacity > 0)
 					.ToDictionary(static item => item.Name, static item => item.Capacity, StringComparer.Ordinal);
@@ -495,6 +493,14 @@ public sealed partial class JobSchedulerService : BackgroundService
 				Queues = queues,
 				FairQueues = _fairQueuePolicy,
 			};
+	}
+
+	private int GetJobAcquisitionCapacity(JobDefinition definition, int availableCapacity)
+	{
+		var limit = definition.OverlapPolicy == OverlapPolicy.Queue ? 1 : definition.MaxConcurrency;
+		return limit == 0
+			? availableCapacity
+			: limit - _jobReservations.GetValueOrDefault(definition.Name);
 	}
 
 	private void WarnIfGroupedJobsAreInert(IReadOnlyList<JobRecord> acquired)
@@ -630,39 +636,73 @@ public sealed partial class JobSchedulerService : BackgroundService
 			if (!_definitions.TryGetValue(schedule.JobName, out var definition))
 				continue;
 
-			var expression = JobCron.Parse(schedule.Cron);
-			var next = expression.GetNextOccurrence(schedule.NextRunAt, JobCron.GetTimeZone(schedule.TimeZone))
-				?? throw new ImmediateJobException($"Recurring schedule '{schedule.Name}' has no future occurrence.");
-			var (traceParent, traceState) = TraceContextCapture.Current();
-			var record = new JobRecord
+			try
 			{
-				Id = _idGenerator.CreateId(IdKind.Job),
-				JobName = schedule.JobName,
-				QueueName = definition.Queue.Name,
-				Payload = "{}",
-				State = JobState.Pending,
-				DueAt = schedule.NextRunAt,
-				CreatedAt = now,
-				RecurringKey = string.Create(CultureInfo.InvariantCulture, $"{schedule.Name}:{schedule.NextRunAt.UtcTicks}"),
-				TraceParent = traceParent,
-				TraceState = traceState,
-			};
-
-			if (definition.OverlapPolicy == OverlapPolicy.Skip)
-			{
-				var active = await _storage.QueryJobsAsync(
-					new() { State = JobState.Active, JobName = definition.Name, Take = 1 },
+				await MaterializeRecurringScheduleAsync(
+					recurringStorage,
+					schedule,
+					definition,
+					now,
 					cancellationToken
 				).ConfigureAwait(false);
-				if (active.Count != 0)
-					record = record with { State = JobState.Cancelled, CompletedAt = now };
 			}
-
-			if (await recurringStorage.MaterializeRecurringAsync(schedule, record, next, cancellationToken).ConfigureAwait(false)
-				&& record.State == JobState.Pending)
+			catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
 			{
-				JobTelemetry.Enqueued(record.JobName, record.QueueName);
+				throw;
 			}
+#pragma warning disable CA1031 // One malformed schedule must not block unrelated schedules or job acquisition.
+			catch (Exception exception)
+#pragma warning restore CA1031
+			{
+				RecurringMaterializationFailed(_logger, exception, schedule.Name);
+			}
+		}
+	}
+
+	private async Task MaterializeRecurringScheduleAsync(
+		IRecurringJobStorage recurringStorage,
+		RecurringJobSchedule schedule,
+		JobDefinition definition,
+		DateTimeOffset now,
+		CancellationToken cancellationToken
+	)
+	{
+		var expression = JobCron.Parse(schedule.Cron);
+		var next = expression.GetNextOccurrence(schedule.NextRunAt, JobCron.GetTimeZone(schedule.TimeZone))
+			?? throw new ImmediateJobException($"Recurring schedule '{schedule.Name}' has no future occurrence.");
+		var (traceParent, traceState) = TraceContextCapture.Current();
+		var record = new JobRecord
+		{
+			Id = _idGenerator.CreateId(IdKind.Job),
+			JobName = schedule.JobName,
+			QueueName = definition.Queue.Name,
+			Payload = "{}",
+			State = JobState.Pending,
+			DueAt = schedule.NextRunAt,
+			CreatedAt = now,
+			RecurringKey = string.Create(CultureInfo.InvariantCulture, $"{schedule.Name}:{schedule.NextRunAt.UtcTicks}"),
+			TraceParent = traceParent,
+			TraceState = traceState,
+		};
+
+		if (definition.OverlapPolicy == OverlapPolicy.Skip)
+		{
+			var active = await _storage.QueryJobsAsync(
+				new() { State = JobState.Active, JobName = definition.Name, Take = 1 },
+				cancellationToken
+			).ConfigureAwait(false);
+			var pending = await _storage.QueryJobsAsync(
+				new() { State = JobState.Pending, JobName = definition.Name, Take = 1 },
+				cancellationToken
+			).ConfigureAwait(false);
+			if (active.Count != 0 || pending.Count != 0)
+				record = record with { State = JobState.Cancelled, CompletedAt = now };
+		}
+
+		if (await recurringStorage.MaterializeRecurringAsync(schedule, record, next, cancellationToken).ConfigureAwait(false)
+			&& record.State == JobState.Pending)
+		{
+			JobTelemetry.Enqueued(record.JobName, record.QueueName);
 		}
 	}
 
@@ -736,6 +776,17 @@ public sealed partial class JobSchedulerService : BackgroundService
 		Message = "Could not renew the lease for job {jobId}; renewal will be retried until the attempt finishes"
 	)]
 	private static partial void LeaseRenewalFailed(ILogger logger, Exception exception, string jobId);
+
+	[LoggerMessage(
+		EventId = 11,
+		Level = LogLevel.Error,
+		Message = "Could not materialize recurring schedule {scheduleName}; other schedules and job acquisition will continue"
+	)]
+	private static partial void RecurringMaterializationFailed(
+		ILogger logger,
+		Exception exception,
+		string scheduleName
+	);
 }
 
 /// <summary>Scheduler liveness state shared with health checks and monitoring.</summary>

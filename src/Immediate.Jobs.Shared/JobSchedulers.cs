@@ -515,11 +515,22 @@ internal static class JobCron
 	public static CronExpression Parse(string cron)
 	{
 		ArgumentException.ThrowIfNullOrWhiteSpace(cron);
-		var fields = cron.Split(' ', StringSplitOptions.RemoveEmptyEntries).Length;
+		var normalized = cron.Trim().ToUpperInvariant() switch
+		{
+			"@YEARLY" or "@ANNUALLY" => "0 0 1 1 *",
+			"@MONTHLY" => "0 0 1 * *",
+			"@WEEKLY" => "0 0 * * 0",
+			"@DAILY" or "@MIDNIGHT" => "0 0 * * *",
+			"@HOURLY" => "0 * * * *",
+			"@EVERY_MINUTE" => "* * * * *",
+			"@EVERY_SECOND" => "* * * * * *",
+			_ => string.Join(' ', cron.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries)),
+		};
+		var fields = normalized.Split(' ').Length;
 		if (fields is not (5 or 6))
 			throw new CronFormatException("A cron expression must contain five or six fields.");
 
-		return CronExpression.Parse(cron, fields == 6 ? CronFormat.IncludeSeconds : CronFormat.Standard);
+		return CronExpression.Parse(normalized, fields == 6 ? CronFormat.IncludeSeconds : CronFormat.Standard);
 	}
 
 	public static TimeZoneInfo GetTimeZone(string timeZone)
