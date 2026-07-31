@@ -189,15 +189,23 @@ internal static class RedisScripts
 	internal const string Retry =
 		"""
 		if redis.call('EXISTS', KEYS[1]) == 0 then return 0 end
-		local values = redis.call('HMGET', KEYS[1], 'state', 'queue', 'created')
-		if values[1] ~= '6' then return -1 end
+		local values = redis.call('HMGET', KEYS[1], 'state', 'queue', 'created', 'dueMember')
+		local failed = values[1] == '6'
+		local scheduled = values[1] == '2'
+		if not failed and not scheduled then return -1 end
 		redis.call('HSET', KEYS[1],
 			'state', '3', 'due', ARGV[1], 'dueScore', ARGV[2],
 			'dueMember', ARGV[1] .. '|' .. values[3] .. '|' .. ARGV[3],
-			'worker', '', 'lease', '', 'error', '', 'completed', '')
-		redis.call('SREM', KEYS[2], ARGV[3])
-		redis.call('SADD', KEYS[3], ARGV[3])
-		redis.call('ZREM', KEYS[4], ARGV[3])
+			'worker', '', 'lease', '')
+		if failed then
+			redis.call('HSET', KEYS[1], 'error', '', 'completed', '')
+			redis.call('SREM', KEYS[2], ARGV[3])
+			redis.call('ZREM', KEYS[5], ARGV[3])
+		else
+			redis.call('SREM', KEYS[3], ARGV[3])
+			if values[4] then redis.call('ZREM', ARGV[4] .. 'due:' .. values[2], values[4]) end
+		end
+		redis.call('SADD', KEYS[4], ARGV[3])
 		redis.call('ZADD', ARGV[4] .. 'due:' .. values[2], ARGV[2],
 			ARGV[1] .. '|' .. values[3] .. '|' .. ARGV[3])
 		return 1

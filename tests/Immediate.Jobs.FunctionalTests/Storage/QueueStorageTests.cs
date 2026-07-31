@@ -47,6 +47,42 @@ public sealed class QueueStorageTests
 	}
 
 	[Fact]
+	public async Task RetryFastForwardsScheduledJobs()
+	{
+		var cancellationToken = TestContext.Current.CancellationToken;
+		var clock = new FakeTimeProvider(DateTimeOffset.UnixEpoch);
+		await using var storage = new InMemoryJobStorage(clock);
+		var job = new JobRecord
+		{
+			Id = "scheduled-retry",
+			JobName = "retry-test",
+			Payload = "{}",
+			State = JobState.Scheduled,
+			DueAt = clock.GetUtcNow().AddHours(1),
+			CreatedAt = clock.GetUtcNow(),
+			Attempt = 1,
+			LastError = "expected failure",
+		};
+		await storage.EnqueueAsync(job, cancellationToken);
+
+		await storage.RetryAsync(job.Id, cancellationToken);
+
+		var retried = Assert.Single(await storage.QueryJobsAsync(new() { Id = job.Id }, cancellationToken));
+		Assert.Equal(JobState.Pending, retried.State);
+		Assert.Equal(clock.GetUtcNow(), retried.DueAt);
+		Assert.Equal(1, retried.Attempt);
+		Assert.Equal(job.LastError, retried.LastError);
+
+		var firstRun = job with { Id = "scheduled-first-run", Attempt = 0, LastError = null };
+		await storage.EnqueueAsync(firstRun, cancellationToken);
+		await storage.RetryAsync(firstRun.Id, cancellationToken);
+		var fastForwarded = Assert.Single(await storage.QueryJobsAsync(new() { Id = firstRun.Id }, cancellationToken));
+		Assert.Equal(JobState.Pending, fastForwarded.State);
+		Assert.Equal(clock.GetUtcNow(), fastForwarded.DueAt);
+		Assert.Equal(0, fastForwarded.Attempt);
+	}
+
+	[Fact]
 	public async Task AcquisitionHonorsQueueOrderAndQueueAndJobCapacities()
 	{
 		var cancellationToken = TestContext.Current.CancellationToken;

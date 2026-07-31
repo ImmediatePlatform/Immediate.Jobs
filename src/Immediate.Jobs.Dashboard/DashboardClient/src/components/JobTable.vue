@@ -4,7 +4,7 @@ import { Eye, Layers3, RotateCcw, Trash2 } from '@lucide/vue';
 
 import FeedbackState from '@/components/FeedbackState.vue';
 import StateBadge from '@/components/StateBadge.vue';
-import type { JobRecord } from '@/contracts';
+import { canRetryJob, type JobRecord } from '@/contracts';
 import { formatDate } from '@/format';
 
 const props = withDefaults(defineProps<{
@@ -40,6 +40,10 @@ function selectJob(job: JobRecord): void {
 	if (props.selectedId === job.id) {
 		void scrollJobIntoView(job.id);
 	}
+}
+
+function retryLabel(job: JobRecord): string {
+	return job.state === 'Scheduled' ? `Run ${job.jobName} now` : `Retry ${job.jobName}`;
 }
 
 watch(() => props.selectedId, (jobId) => {
@@ -111,11 +115,11 @@ watch(() => props.selectedId, (jobId) => {
 										<Eye :size="15" aria-hidden="true" />
 									</button>
 									<button
-										v-if="job.state === 'Failed'"
+										v-if="canRetryJob(job)"
 										class="icon-button"
 										type="button"
 										:disabled="busyJobId === job.id"
-										:aria-label="`Retry ${job.jobName}`"
+										:aria-label="retryLabel(job)"
 										@click="emit('retry', job)"
 									>
 										<RotateCcw :size="15" aria-hidden="true" />

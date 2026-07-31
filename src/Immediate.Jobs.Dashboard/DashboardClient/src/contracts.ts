@@ -43,6 +43,10 @@ export interface JobRecord {
 	failedDependencies: number;
 }
 
+export function canRetryJob(job: Pick<JobRecord, 'state'>): boolean {
+	return job.state === 'Failed' || job.state === 'Scheduled';
+}
+
 export interface RecurringJobSchedule {
 	name: string;
 	jobName: string;

@@ -978,17 +978,18 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 		{
 			if (!_jobs.TryGetValue(jobId, out var job))
 				throw new KeyNotFoundException($"Job '{jobId}' was not found.");
-			if (job.State != JobState.Failed)
-				throw new ImmediateJobException("Only failed jobs can be retried.");
+			var wasFailed = job.State == JobState.Failed;
+			if (!wasFailed && job.State != JobState.Scheduled)
+				throw new ImmediateJobException("Only failed or scheduled jobs can be retried.");
 
 			_jobs[jobId] = job with
 			{
 				State = JobState.Pending,
 				DueAt = timeProvider.GetUtcNow(),
-				CompletedAt = null,
-				LastError = null,
+				CompletedAt = wasFailed ? null : job.CompletedAt,
+				LastError = wasFailed ? null : job.LastError,
 			};
-			if (job.BatchId is { } batchId && _batches.TryGetValue(batchId, out var batch))
+			if (wasFailed && job.BatchId is { } batchId && _batches.TryGetValue(batchId, out var batch))
 			{
 				_batches[batchId] = batch with
 				{
