@@ -99,6 +99,25 @@ public sealed class EntityFrameworkCoreJobStorageTests
 	}
 
 	[Fact]
+	public async Task CancellationRetriesAfterConcurrencyConflict()
+	{
+		var cancellationToken = TestContext.Current.CancellationToken;
+		var interceptor = new CancelConcurrencyInterceptor();
+		await using var fixture = await StorageFixture.CreateAsync(
+			cancellationToken,
+			interceptor: interceptor
+		);
+		var storage = fixture.CreateStorage();
+		var job = CreateJob(fixture.TimeProvider.GetUtcNow(), 1) with { Id = "cancel-contention" };
+		await storage.EnqueueAsync(job, cancellationToken);
+
+		await storage.CancelAsync(job.Id, cancellationToken);
+
+		Assert.Equal(1, interceptor.Conflicts);
+		Assert.Equal(JobState.Cancelled, (await storage.GetJobStatusAsync(job.Id, cancellationToken))!.State);
+	}
+
+	[Fact]
 	public async Task FairQueuesRotateGroupsAcrossCapacityOneAcquisitions()
 	{
 		var cancellationToken = TestContext.Current.CancellationToken;
@@ -1147,7 +1166,7 @@ public sealed class EntityFrameworkCoreJobStorageTests
 		public static async Task<StorageFixture> CreateAsync(
 			CancellationToken cancellationToken,
 			bool useRetryingExecutionStrategy = false,
-			DbCommandInterceptor? interceptor = null
+			IInterceptor? interceptor = null
 		)
 		{
 			var connectionString = $"Data Source=jobs-{Guid.NewGuid():N};Mode=Memory;Cache=Shared";
@@ -1188,6 +1207,33 @@ public sealed class EntityFrameworkCoreJobStorageTests
 		{
 			await services.DisposeAsync();
 			await _anchor.DisposeAsync();
+		}
+	}
+
+	private sealed class CancelConcurrencyInterceptor : SaveChangesInterceptor
+	{
+		private int _conflicts;
+
+		public int Conflicts => Volatile.Read(ref _conflicts);
+
+		public override ValueTask<InterceptionResult<int>> SavingChangesAsync(
+			DbContextEventData eventData,
+			InterceptionResult<int> result,
+			CancellationToken cancellationToken = default
+		)
+		{
+			var cancelling = eventData.Context?.ChangeTracker
+				.Entries()
+				.Any(static entry =>
+					entry.State == EntityState.Modified
+					&& entry.Properties.Any(static property =>
+						property.IsModified
+						&& string.Equals(property.Metadata.Name, "State", StringComparison.Ordinal)
+						&& Equals(property.CurrentValue, JobState.Cancelled))) == true;
+			if (cancelling && Interlocked.CompareExchange(ref _conflicts, 1, 0) == 0)
+				throw new DbUpdateConcurrencyException("Injected cancellation concurrency conflict.");
+
+			return base.SavingChangesAsync(eventData, result, cancellationToken);
 		}
 	}
 

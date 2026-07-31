@@ -1388,7 +1388,7 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 	public ValueTask CancelAsync(string jobId, CancellationToken cancellationToken = default)
 	{
 		ArgumentException.ThrowIfNullOrWhiteSpace(jobId);
-		return ExecuteWithStrategyAsync(
+		return RetryConcurrencyAsync(
 			operationCancellationToken => CancelCoreAsync(jobId, operationCancellationToken),
 			cancellationToken
 		);
