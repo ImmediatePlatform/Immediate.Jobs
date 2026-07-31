@@ -564,7 +564,7 @@ public sealed partial class JobSchedulerService : BackgroundService
 			catch (Exception exception)
 #pragma warning restore CA1031
 			{
-				LeaseRenewalFailed(_logger, exception, jobId);
+				LeaseRenewalFailed(_logger, exception, jobId, executionNumber);
 			}
 		}
 	}
@@ -789,9 +789,14 @@ public sealed partial class JobSchedulerService : BackgroundService
 	[LoggerMessage(
 		EventId = 10,
 		Level = LogLevel.Warning,
-		Message = "Could not renew the lease for job {jobId}; renewal will be retried until the attempt finishes"
+		Message = "Could not renew the lease for job {jobId} execution {executionNumber}; renewal will be retried until the attempt finishes"
 	)]
-	private static partial void LeaseRenewalFailed(ILogger logger, Exception exception, string jobId);
+	private static partial void LeaseRenewalFailed(
+		ILogger logger,
+		Exception exception,
+		string jobId,
+		int executionNumber
+	);
 
 	[LoggerMessage(
 		EventId = 11,

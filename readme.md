@@ -346,9 +346,9 @@ SQL Server. SQLite has no server schemas and is normally embedded/file-backed, i
 storage conformance tests.
 
 Upgrading either relational adapter for retained execution history requires the
-`immediate_job_executions` table. Apply the [provider-specific upgrade DDL](docs/job-execution-migrations.md)
-before deploying the new binaries. During a mixed-version rollout, history remains best effort until
-all scheduler nodes have been upgraded.
+`immediate_job_executions` table. Apply the corresponding application migration before deploying the
+new binaries. During a mixed-version rollout, history remains best effort until all scheduler nodes
+have been upgraded.
 
 Queue-aware dispatch changes the provider acquisition seam to `AcquireDueJobsAsync(JobAcquisitionRequest, ...)`. Custom providers must honor the request's queue order, queue capacities, and per-job capacities when upgrading.
 

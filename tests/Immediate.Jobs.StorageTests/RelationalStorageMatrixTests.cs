@@ -276,6 +276,46 @@ public sealed class RelationalStorageMatrixTests(StorageContainers containers)
 	}
 
 	[Theory]
+	[MemberData(nameof(Matrix))]
+	public async Task ConcurrentLegacyRetriesTreatSyntheticExecutionInsertAsARace(
+		DatabaseKind database,
+		AdapterKind adapter
+	)
+	{
+		var cancellationToken = TestContext.Current.CancellationToken;
+		await using var fixture = await CreateFixtureAsync(database, adapter, cancellationToken);
+		var first = fixture.CreateStorage();
+		var second = fixture.CreateStorage();
+		var now = fixture.TimeProvider.GetUtcNow();
+		await first.EnqueueAsync(CreateJob("legacy-retry", now) with
+		{
+			State = JobState.Failed,
+			Attempt = 1,
+			CompletedAt = now,
+			LastError = "legacy failure",
+		}, cancellationToken);
+		var start = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+		async Task<Exception?> RetryAsync(IJobStorage storage)
+		{
+			await start.Task;
+			return await Record.ExceptionAsync(() => storage.RetryAsync("legacy-retry", cancellationToken).AsTask());
+		}
+
+		var retries = new[] { RetryAsync(first), RetryAsync(second) };
+		start.SetResult();
+		var exceptions = await Task.WhenAll(retries);
+
+		_ = Assert.Single(exceptions, static exception => exception is null);
+		_ = Assert.IsType<ImmediateJobException>(Assert.Single(exceptions.OfType<Exception>()));
+		var execution = Assert.Single(await first.QueryJobExecutionsAsync(
+			new() { JobId = "legacy-retry" },
+			cancellationToken
+		));
+		Assert.True(execution.IsSynthetic);
+	}
+
+	[Theory]
 	[MemberData(nameof(LinqToDbDatabases))]
 	public async Task LinqCompletionSurvivesSustainedBatchHeaderContention(DatabaseKind database)
 	{

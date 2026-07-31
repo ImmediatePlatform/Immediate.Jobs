@@ -169,6 +169,83 @@ describe('dashboard components', () => {
 		expect(cards[1]?.get('summary').text()).toContain('Failed');
 	});
 
+	it('preserves loaded executions when the cached job object is replaced', async () => {
+		const execution = {
+			jobId: completedJob.id,
+			state: 'Succeeded' as const,
+			workerId: 'worker-1',
+			acquiredAt: '2026-07-21T12:01:00Z',
+			executionStartedAt: '2026-07-21T12:01:01Z',
+			completedAt: '2026-07-21T12:01:02Z',
+			executionTraceId: null,
+			executionSpanId: null,
+			error: null,
+			isSynthetic: false,
+		};
+		getJobExecutionsMock
+			.mockResolvedValueOnce({
+				items: [{ ...execution, attempt: 3 }],
+				skip: 0,
+				take: 20,
+				hasNext: true,
+			})
+			.mockResolvedValueOnce({
+				items: [{ ...execution, attempt: 2 }],
+				skip: 1,
+				take: 20,
+				hasNext: false,
+			})
+			.mockResolvedValueOnce({
+				items: [{ ...execution, attempt: 4 }],
+				skip: 0,
+				take: 20,
+				hasNext: false,
+			});
+
+		const detail = mount(JobDetail, { props: { job: completedJob } });
+		await flushPromises();
+		await detail.get('.execution-history > button').trigger('click');
+		await flushPromises();
+
+		await detail.setProps({ job: { ...completedJob, lastError: 'cache refresh' } });
+		await flushPromises();
+		expect(getJobExecutionsMock).toHaveBeenCalledTimes(2);
+		expect(detail.findAll('details.execution-card')).toHaveLength(2);
+
+		await detail.setProps({ job: { ...completedJob, attempt: completedJob.attempt + 1 } });
+		await flushPromises();
+		expect(getJobExecutionsMock).toHaveBeenCalledTimes(3);
+		expect(detail.findAll('details.execution-card')).toHaveLength(1);
+	});
+
+	it('keeps execution history visible when a telemetry link fails', async () => {
+		getJobExecutionsMock.mockResolvedValue({
+			items: [{
+				jobId: completedJob.id,
+				attempt: completedJob.attempt,
+				state: 'Succeeded',
+				workerId: 'worker-1',
+				acquiredAt: '2026-07-21T12:01:00Z',
+				executionStartedAt: completedJob.executionStartedAt,
+				completedAt: completedJob.completedAt,
+				executionTraceId: null,
+				executionSpanId: null,
+				error: null,
+				isSynthetic: false,
+			}],
+			skip: 0,
+			take: 20,
+			hasNext: false,
+		});
+		getJobExecutionTelemetryLinksMock.mockRejectedValue(new Error('telemetry unavailable'));
+
+		const detail = mount(JobDetail, { props: { job: completedJob } });
+		await flushPromises();
+
+		expect(detail.text()).toContain(`Attempt ${completedJob.attempt}`);
+		expect(detail.text()).not.toContain('telemetry unavailable');
+	});
+
 	it('can fast-forward scheduled jobs', async () => {
 		const scheduled = {
 			...completedJob,

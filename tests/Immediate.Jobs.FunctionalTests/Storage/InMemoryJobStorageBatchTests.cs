@@ -116,6 +116,30 @@ public sealed class InMemoryJobStorageBatchTests
 	}
 
 	[Fact]
+	public async Task AddingBatchJobReportsStaleAndActiveExecutionNumbers()
+	{
+		var cancellationToken = TestContext.Current.CancellationToken;
+		var clock = new FakeTimeProvider(DateTimeOffset.UnixEpoch);
+		await using var storage = new InMemoryJobStorage(clock);
+		var current = CreateJob("parent", batchId: "batch");
+		await storage.EnqueueBatchAsync(CreateBatch("batch", 1), [current], [], cancellationToken);
+		_ = Assert.Single(await storage.AcquireDueJobsAsync(CreateRequest("worker"), cancellationToken));
+		clock.Advance(TimeSpan.FromMinutes(2));
+		_ = Assert.Single(await storage.AcquireDueJobsAsync(CreateRequest("worker"), cancellationToken));
+
+		var exception = await Assert.ThrowsAsync<ImmediateJobException>(() => storage.AddBatchJobAsync(
+			current.Id,
+			1,
+			CreateJob("child", batchId: "batch"),
+			ContinuationOptions.BesideContinuations,
+			cancellationToken
+		).AsTask());
+
+		Assert.Contains("Execution 1", exception.Message, StringComparison.Ordinal);
+		Assert.Contains("active execution is 2", exception.Message, StringComparison.Ordinal);
+	}
+
+	[Fact]
 	public async Task TerminalParentIsEvaluatedWhenContinuationIsInserted()
 	{
 		var cancellationToken = TestContext.Current.CancellationToken;

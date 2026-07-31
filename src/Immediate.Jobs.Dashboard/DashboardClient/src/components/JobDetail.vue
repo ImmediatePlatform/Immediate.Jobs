@@ -37,9 +37,10 @@ const executionsError = ref<string>();
 const copiedExecutionIdentifier = ref<string>();
 let executionRequest: AbortController | undefined;
 let copyResetTimer: number | undefined;
+const executionPageSize = 20;
 
 watch(
-	() => props.job,
+	[() => props.job.id, () => props.job.attempt, () => props.job.state],
 	() => void loadExecutions(),
 	{ immediate: true },
 );
@@ -58,7 +59,7 @@ async function loadExecutions(): Promise<void> {
 	executionsLoading.value = true;
 	executionsError.value = undefined;
 	try {
-		const page = await getJobExecutions(props.job.id, 0, 20, request.signal);
+		const page = await getJobExecutions(props.job.id, 0, executionPageSize, request.signal);
 		executions.value = page.items;
 		executionLinks.value = await loadExecutionLinks(page.items, request.signal);
 		hasOlderExecutions.value = page.hasNext;
@@ -84,7 +85,7 @@ async function showOlderExecutions(): Promise<void> {
 		const page = await getJobExecutions(
 			props.job.id,
 			executions.value.length,
-			20,
+			executionPageSize,
 			executionRequest.signal,
 		);
 		executions.value.push(...page.items);
@@ -103,11 +104,14 @@ async function loadExecutionLinks(
 	items: JobExecutionRecord[],
 	signal: AbortSignal,
 ): Promise<Record<number, JobTelemetryLink[]>> {
-	const entries = await Promise.all(items.map(async execution => [
+	const results = await Promise.allSettled(items.map(async execution => [
 		execution.attempt,
 		await getJobExecutionTelemetryLinks(execution.jobId, execution.attempt, signal),
 	] as const));
-	return Object.fromEntries(entries);
+	return Object.fromEntries(results
+		.filter((result): result is PromiseFulfilledResult<readonly [number, JobTelemetryLink[]]> =>
+			result.status === 'fulfilled')
+		.map(result => result.value));
 }
 
 function executionDuration(execution: JobExecutionRecord): string | undefined {

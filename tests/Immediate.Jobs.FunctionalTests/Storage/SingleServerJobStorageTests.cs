@@ -317,7 +317,7 @@ public sealed class SingleServerJobStorageTests
 			new() { JobId = job.Id },
 			cancellationToken
 		));
-		var durableExecution = Assert.Single(await storage.QueryJobExecutionsAsync(
+		var durableExecution = Assert.Single(await durable.QueryJobExecutionsAsync(
 			new() { JobId = job.Id },
 			cancellationToken
 		));

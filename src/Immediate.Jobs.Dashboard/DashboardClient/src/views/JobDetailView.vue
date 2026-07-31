@@ -32,7 +32,12 @@ function backToJobs(): void {
 		</button>
 
 		<FeedbackState
-			v-if="jobQuery.error.value"
+			v-if="!jobId"
+			title="Job not found"
+			description="The requested job does not exist."
+		/>
+		<FeedbackState
+			v-else-if="jobQuery.error.value"
 			type="error"
 			title="Job details could not be loaded"
 			:description="errorText(jobQuery.error.value)"
@@ -45,6 +50,11 @@ function backToJobs(): void {
 			:pending="jobMutations.busyJobId.value === jobId"
 			:show-close="false"
 			@retry="(job) => jobMutations.retryJob(job.id)"
+		/>
+		<FeedbackState
+			v-else
+			title="Job not found"
+			description="The requested job does not exist."
 		/>
 	</section>
 </template>

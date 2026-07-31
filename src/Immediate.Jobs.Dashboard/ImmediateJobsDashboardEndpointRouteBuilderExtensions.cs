@@ -261,11 +261,8 @@ public static class ImmediateJobsDashboardEndpointRouteBuilderExtensions
 		CancellationToken cancellationToken
 	)
 	{
-		var pageStart = skip ?? 0;
-		var pageSize = take ?? 50;
-		if (pageStart < 0 || pageSize <= 0)
-			return Results.BadRequest();
-		pageSize = Math.Min(pageSize, 200);
+		var pageStart = Math.Max(0, skip ?? 0);
+		var pageSize = Math.Clamp(take ?? 50, 1, 200);
 
 		var jobs = await storage.QueryJobsAsync(new() { Id = jobId, Take = 1 }, cancellationToken).ConfigureAwait(false);
 		if (jobs.Count == 0)

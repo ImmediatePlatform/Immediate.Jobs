@@ -67,9 +67,11 @@ public sealed class JobExecutionStorageTests
 			clock.GetUtcNow(),
 			cancellationToken
 		).AsTask());
-		_ = await Assert.ThrowsAsync<ImmediateJobException>(
+		var staleCompletion = await Assert.ThrowsAsync<ImmediateJobException>(
 			() => storage.CompleteAsync(second.Id, first.Attempt, "worker", cancellationToken).AsTask()
 		);
+		Assert.Contains("Execution 1", staleCompletion.Message, StringComparison.Ordinal);
+		Assert.Contains("active execution is 2", staleCompletion.Message, StringComparison.Ordinal);
 		_ = await Assert.ThrowsAsync<ImmediateJobException>(() => storage.FailAsync(
 			second.Id,
 			first.Attempt,

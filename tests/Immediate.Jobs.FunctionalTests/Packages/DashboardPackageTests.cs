@@ -247,9 +247,9 @@ public sealed class DashboardPackageTests
 	[Theory]
 	[InlineData("/jobs/api/jobs/missing/executions", HttpStatusCode.NotFound)]
 	[InlineData("/jobs/api/jobs/missing/executions/1/telemetry-links", HttpStatusCode.NotFound)]
-	[InlineData("/jobs/api/jobs/job/executions?skip=-1", HttpStatusCode.BadRequest)]
-	[InlineData("/jobs/api/jobs/job/executions?take=0", HttpStatusCode.BadRequest)]
-	public async Task ExecutionApiValidatesPagingAndMissingResources(string path, HttpStatusCode expectedStatus)
+	[InlineData("/jobs/api/jobs/job/executions?skip=-1", HttpStatusCode.OK)]
+	[InlineData("/jobs/api/jobs/job/executions?take=0", HttpStatusCode.OK)]
+	public async Task ExecutionApiClampsPagingAndReportsMissingResources(string path, HttpStatusCode expectedStatus)
 	{
 		await using var storage = new InMemoryJobStorage(TimeProvider.System);
 		await storage.EnqueueAsync(new()

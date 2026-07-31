@@ -569,6 +569,13 @@ public sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorage,
 			await connection.CommitTransactionAsync(cancellationToken).ConfigureAwait(false);
 			return ToRecord(candidate);
 		}
+		catch (SyntheticExecutionInsertFailedException exception)
+		{
+			await connection.RollbackTransactionAsync(cancellationToken).ConfigureAwait(false);
+			if (await SyntheticExecutionExistsAsync(exception.JobId, exception.Attempt, cancellationToken).ConfigureAwait(false))
+				return null;
+			throw exception.DatabaseException;
+		}
 		catch (LostRaceException)
 		{
 			await connection.RollbackTransactionAsync(cancellationToken).ConfigureAwait(false);
@@ -760,6 +767,15 @@ public sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorage,
 
 				await connection.CommitTransactionAsync(cancellationToken).ConfigureAwait(false);
 				acquired.Add(ToRecord(candidate));
+			}
+			catch (SyntheticExecutionInsertFailedException exception)
+			{
+				await connection.RollbackTransactionAsync(cancellationToken).ConfigureAwait(false);
+				if (!await SyntheticExecutionExistsAsync(exception.JobId, exception.Attempt, cancellationToken)
+					.ConfigureAwait(false))
+				{
+					throw exception.DatabaseException;
+				}
 			}
 			catch (LostRaceException)
 			{
@@ -1158,7 +1174,7 @@ public sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorage,
 				cancellationToken
 			).ConfigureAwait(false);
 		var skip = query.Skip;
-		var take = Math.Min(query.Take, 1000);
+		var take = Math.Min(query.Take, JobExecutionQuery.MaximumTake);
 		var result = new List<JobExecutionRecord>(take);
 		if (syntheticMissing && skip == 0)
 		{
@@ -2321,7 +2337,8 @@ public sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorage,
 		int maxAttempts = MaxConcurrencyAttempts
 	)
 	{
-		for (var attempt = 0; attempt < maxAttempts; attempt++)
+		var concurrencyAttempt = 0;
+		while (true)
 		{
 			await using var connection = CreateConnection();
 			_ = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
@@ -2331,7 +2348,17 @@ public sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorage,
 				await connection.CommitTransactionAsync(cancellationToken).ConfigureAwait(false);
 				return;
 			}
-			catch (LostRaceException) when (attempt + 1 < maxAttempts)
+			catch (SyntheticExecutionInsertFailedException exception)
+			{
+				await connection.RollbackTransactionAsync(cancellationToken).ConfigureAwait(false);
+				if (!await SyntheticExecutionExistsAsync(exception.JobId, exception.Attempt, cancellationToken)
+					.ConfigureAwait(false))
+				{
+					throw exception.DatabaseException;
+				}
+				// Retry in a new transaction and re-read the execution inserted by the winner.
+			}
+			catch (LostRaceException) when (++concurrencyAttempt < maxAttempts)
 			{
 				await connection.RollbackTransactionAsync(cancellationToken).ConfigureAwait(false);
 				await DelayConcurrencyRetryAsync(cancellationToken).ConfigureAwait(false);
@@ -2341,6 +2368,28 @@ public sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorage,
 				await connection.RollbackTransactionAsync(cancellationToken).ConfigureAwait(false);
 				throw;
 			}
+		}
+	}
+
+	private async ValueTask<bool> SyntheticExecutionExistsAsync(
+		string jobId,
+		int attempt,
+		CancellationToken cancellationToken
+	)
+	{
+		try
+		{
+			await using var connection = CreateConnection();
+			return await Executions(connection)
+				.AnyAsync(
+					execution => execution.JobId == jobId && execution.Attempt == attempt,
+					cancellationToken
+				)
+				.ConfigureAwait(false);
+		}
+		catch (DbException)
+		{
+			return false;
 		}
 	}
 
@@ -2605,7 +2654,15 @@ public sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorage,
 		if (synthetic is null)
 			return null;
 		execution = ToEntity(synthetic);
-		_ = await InsertAsync(connection, execution, cancellationToken).ConfigureAwait(false);
+		try
+		{
+			_ = await InsertAsync(connection, execution, cancellationToken).ConfigureAwait(false);
+		}
+		catch (DbException exception)
+		{
+			throw new SyntheticExecutionInsertFailedException(job.Id, job.Attempt, exception);
+		}
+
 		return execution;
 	}
 
@@ -2738,5 +2795,16 @@ public sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorage,
 
 #pragma warning disable CA1032, CA1064
 	private sealed class LostRaceException : Exception;
+
+	private sealed class SyntheticExecutionInsertFailedException(
+		string jobId,
+		int attempt,
+		DbException databaseException
+	) : Exception("A synthetic execution insert failed.", databaseException)
+	{
+		public string JobId { get; } = jobId;
+		public int Attempt { get; } = attempt;
+		public DbException DatabaseException { get; } = databaseException;
+	}
 #pragma warning restore CA1032, CA1064
 }

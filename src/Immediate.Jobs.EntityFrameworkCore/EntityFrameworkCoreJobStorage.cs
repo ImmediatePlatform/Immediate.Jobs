@@ -691,11 +691,35 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 			}
 			catch (DbUpdateException)
 			{
-				// Another scheduler claimed or changed this candidate first.
+				// Suppress only an expected optimistic-claim race; genuine provider failures remain visible.
+				if (!await CandidateWasClaimedAsync(candidate, cancellationToken).ConfigureAwait(false))
+					throw;
 			}
 		}
 
 		return acquired;
+	}
+
+	private async ValueTask<bool> CandidateWasClaimedAsync(
+		ImmediateJobEntity candidate,
+		CancellationToken cancellationToken
+	)
+	{
+		try
+		{
+			await using var context = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+			var currentStamp = await context.Set<ImmediateJobEntity>()
+				.AsNoTracking()
+				.Where(job => job.Id == candidate.Id)
+				.Select(static job => (Guid?)job.ConcurrencyStamp)
+				.SingleOrDefaultAsync(cancellationToken)
+				.ConfigureAwait(false);
+			return currentStamp != candidate.ConcurrencyStamp;
+		}
+		catch (Exception exception) when (exception is DbException or InvalidOperationException)
+		{
+			return false;
+		}
 	}
 
 	/// <inheritdoc />
@@ -1066,7 +1090,7 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 				cancellationToken
 			).ConfigureAwait(false);
 		var skip = query.Skip;
-		var take = Math.Min(query.Take, 1000);
+		var take = Math.Min(query.Take, JobExecutionQuery.MaximumTake);
 		var result = new List<JobExecutionRecord>(take);
 		if (syntheticMissing && skip == 0 && take != 0)
 		{
@@ -1267,7 +1291,7 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 	public ValueTask CancelBatchAsync(string batchId, CancellationToken cancellationToken = default)
 	{
 		ArgumentException.ThrowIfNullOrWhiteSpace(batchId);
-		return ExecuteWithStrategyAsync(
+		return RetryConcurrencyAsync(
 			operationCancellationToken => CancelBatchCoreAsync(batchId, operationCancellationToken),
 			cancellationToken
 		);
@@ -1364,7 +1388,7 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 	public ValueTask RetryAsync(string jobId, CancellationToken cancellationToken = default)
 	{
 		ArgumentException.ThrowIfNullOrWhiteSpace(jobId);
-		return ExecuteWithStrategyAsync(
+		return RetryConcurrencyAsync(
 			operationCancellationToken => RetryCoreAsync(jobId, operationCancellationToken),
 			cancellationToken
 		);
@@ -1673,16 +1697,23 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 		CancellationToken cancellationToken
 	)
 	{
-		for (var attempt = 0; attempt < MaxConcurrencyAttempts; attempt++)
+		var concurrencyAttempt = 0;
+		while (true)
 		{
 			try
 			{
 				await ExecuteWithStrategyAsync(operation, cancellationToken).ConfigureAwait(false);
 				return;
 			}
-			catch (DbUpdateConcurrencyException) when (attempt + 1 < MaxConcurrencyAttempts)
+			catch (DbUpdateConcurrencyException) when (++concurrencyAttempt < MaxConcurrencyAttempts)
 			{
 				// The transaction rolled back, so the next attempt re-evaluates the graph from durable state.
+			}
+			catch (DbUpdateException exception)
+			{
+				if (!await IsSyntheticExecutionInsertRaceAsync(exception, cancellationToken).ConfigureAwait(false))
+					throw;
+				// The failed context is disposed by the operation; retry with the execution inserted by the winner.
 			}
 		}
 	}
@@ -1697,7 +1728,65 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 		await strategy.ExecuteAsync(operation, cancellationToken).ConfigureAwait(false);
 	}
 
-	private async ValueTask MutateOwnedAsync(
+	private async ValueTask<bool> IsSyntheticExecutionInsertRaceAsync(
+		DbUpdateException exception,
+		CancellationToken cancellationToken
+	)
+	{
+		var syntheticExecutions = exception.Entries
+			.Select(static entry => entry.Entity)
+			.OfType<ImmediateJobExecutionEntity>()
+			.Where(static execution => execution.IsSynthetic)
+			.DistinctBy(static execution => (execution.JobId, execution.Attempt))
+			.ToArray();
+		if (syntheticExecutions.Length == 0)
+			return false;
+
+		try
+		{
+			await using var context = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+			foreach (var execution in syntheticExecutions)
+			{
+				if (!await context.Set<ImmediateJobExecutionEntity>()
+					.AsNoTracking()
+					.AnyAsync(
+						item => item.JobId == execution.JobId && item.Attempt == execution.Attempt,
+						cancellationToken
+					)
+					.ConfigureAwait(false))
+				{
+					return false;
+				}
+			}
+
+			return true;
+		}
+		catch (Exception verificationException) when (
+			verificationException is DbException or InvalidOperationException
+		)
+		{
+			return false;
+		}
+	}
+
+	private ValueTask MutateOwnedAsync(
+		string jobId,
+		int executionNumber,
+		string workerId,
+		Action<ImmediateJobEntity, ImmediateJobExecutionEntity> mutate,
+		CancellationToken cancellationToken
+	) => RetryConcurrencyAsync(
+		operationCancellationToken => MutateOwnedOnceAsync(
+			jobId,
+			executionNumber,
+			workerId,
+			mutate,
+			operationCancellationToken
+		),
+		cancellationToken
+	);
+
+	private async Task MutateOwnedOnceAsync(
 		string jobId,
 		int executionNumber,
 		string workerId,

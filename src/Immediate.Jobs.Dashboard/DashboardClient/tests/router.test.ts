@@ -6,6 +6,9 @@ import { router as dashboardRouter, routes } from '@/router';
 describe('dashboard routes', () => {
 	it('resolves shareable job and batch detail routes', async () => {
 		const router = createRouter({ history: createMemoryHistory(), routes });
+		await router.push('/invocations?state=Failed');
+		expect(router.currentRoute.value.name).toBe('jobs');
+
 		await router.push('/invocations/redis:jobs:opaque?state=Failed&page=3');
 		expect(router.currentRoute.value.name).toBe('job-detail');
 		expect(router.currentRoute.value.params.jobId).toBe('redis:jobs:opaque');

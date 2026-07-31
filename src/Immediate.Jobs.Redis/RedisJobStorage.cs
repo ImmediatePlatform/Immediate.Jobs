@@ -32,6 +32,18 @@ public sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 	];
 
 	private static readonly RedisValue[] RecurringMutableFields = ["record", "paused", "next", "last"];
+	private static readonly string[] ExecutionFieldNames =
+	[
+		"state",
+		"worker",
+		"acquired",
+		"started",
+		"completed",
+		"trace",
+		"span",
+		"error",
+		"synthetic",
+	];
 
 	private readonly IConnectionMultiplexer _connection;
 	private readonly IDatabase _database;
@@ -847,28 +859,28 @@ public sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 		CancellationToken cancellationToken
 	)
 	{
-		var tasks = attempts.Select(attempt =>
-		{
-			var executionNumber = ParseInt32(attempt);
-			return _database.HashGetAsync(ExecutionDataKey(jobId),
-			[
-				ExecutionField(executionNumber, "state"),
-				ExecutionField(executionNumber, "worker"),
-				ExecutionField(executionNumber, "acquired"),
-				ExecutionField(executionNumber, "started"),
-				ExecutionField(executionNumber, "completed"),
-				ExecutionField(executionNumber, "trace"),
-				ExecutionField(executionNumber, "span"),
-				ExecutionField(executionNumber, "error"),
-				ExecutionField(executionNumber, "synthetic"),
-			]);
-		}).ToArray();
-		var valuesByExecution = await Task.WhenAll(tasks).WaitAsync(cancellationToken).ConfigureAwait(false);
+		if (attempts.Length == 0)
+			return [];
 
-		var executions = new List<JobExecutionRecord>(tasks.Length);
-		for (var index = 0; index < tasks.Length; index++)
+		var fields = new RedisValue[attempts.Length * ExecutionFieldNames.Length];
+		for (var index = 0; index < attempts.Length; index++)
 		{
-			var values = valuesByExecution[index];
+			var executionNumber = ParseInt32(attempts[index]);
+			for (var fieldIndex = 0; fieldIndex < ExecutionFieldNames.Length; fieldIndex++)
+			{
+				fields[(index * ExecutionFieldNames.Length) + fieldIndex] =
+					ExecutionField(executionNumber, ExecutionFieldNames[fieldIndex]);
+			}
+		}
+
+		var allValues = await _database.HashGetAsync(ExecutionDataKey(jobId), fields)
+			.WaitAsync(cancellationToken)
+			.ConfigureAwait(false);
+
+		var executions = new List<JobExecutionRecord>(attempts.Length);
+		for (var index = 0; index < attempts.Length; index++)
+		{
+			var values = allValues.AsSpan(index * ExecutionFieldNames.Length, ExecutionFieldNames.Length);
 			if (values[0].IsNull)
 				continue;
 			executions.Add(new()

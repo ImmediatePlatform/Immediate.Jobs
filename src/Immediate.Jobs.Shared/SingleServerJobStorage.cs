@@ -329,6 +329,7 @@ public sealed class SingleServerJobStorage :
 	)
 	{
 		await EnsureInitializedAsync(cancellationToken).ConfigureAwait(false);
+		// Recovery restores current jobs and related state into the primary, but not retained executions.
 		return await DurableStorage.QueryJobExecutionsAsync(query, cancellationToken).ConfigureAwait(false);
 	}
 

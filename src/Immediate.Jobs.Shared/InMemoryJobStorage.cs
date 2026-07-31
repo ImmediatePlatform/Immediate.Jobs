@@ -593,8 +593,16 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 		cancellationToken.ThrowIfCancellationRequested();
 		lock (_gate)
 		{
-			if (!_jobs.TryGetValue(currentJobId, out var current) || current.State != JobState.Active || current.Attempt != executionNumber)
+			if (!_jobs.TryGetValue(currentJobId, out var current) || current.State != JobState.Active)
 				throw new ImmediateJobException($"Job '{currentJobId}' is not currently active.");
+			if (current.Attempt != executionNumber)
+			{
+				throw new ImmediateJobException(string.Create(
+					CultureInfo.InvariantCulture,
+					$"Execution {executionNumber} cannot add a batch job for '{currentJobId}'; the active execution is {current.Attempt}."
+				));
+			}
+
 			if (current.BatchId is null || !_batches.ContainsKey(current.BatchId))
 				throw new ImmediateJobException("The current job does not belong to a batch.");
 			if (options == ContinuationOptions.Detached)
@@ -1236,7 +1244,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 			batch.CancelledCount != cancelled ||
 			batch.SkippedCount != skipped ||
 			batch.State != expectedState ||
-			(pending == 0 != (batch.CompletedAt is not null))
+			((pending == 0) != (batch.CompletedAt is not null))
 		)
 		{
 			throw new ImmediateJobException("A batch header does not match its members or aggregate state.");
@@ -1772,13 +1780,21 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 
 	private JobRecord GetOwnedActive(string jobId, int executionNumber, string workerId)
 	{
-		if (!_jobs.TryGetValue(jobId, out var job) ||
-			job.State != JobState.Active ||
-			job.Attempt != executionNumber ||
-			!string.Equals(job.WorkerId, workerId, StringComparison.Ordinal))
+		if (!_jobs.TryGetValue(jobId, out var job) || job.State != JobState.Active)
 		{
 			throw new ImmediateJobException($"Worker '{workerId}' does not own active job '{jobId}'.");
 		}
+
+		if (job.Attempt != executionNumber)
+		{
+			throw new ImmediateJobException(string.Create(
+				CultureInfo.InvariantCulture,
+				$"Execution {executionNumber} does not own active job '{jobId}'; the active execution is {job.Attempt}."
+			));
+		}
+
+		if (!string.Equals(job.WorkerId, workerId, StringComparison.Ordinal))
+			throw new ImmediateJobException($"Worker '{workerId}' does not own active job '{jobId}'.");
 
 		return job;
 	}

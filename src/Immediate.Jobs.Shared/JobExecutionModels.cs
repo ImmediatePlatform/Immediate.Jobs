@@ -64,6 +64,9 @@ public sealed record JobExecutionRecord
 /// <summary>Paging and exact-ordinal filters for retained job executions.</summary>
 public sealed record JobExecutionQuery
 {
+	/// <summary>The largest execution-history page returned by a storage provider.</summary>
+	public const int MaximumTake = 1000;
+
 	/// <summary>Validates the job identifier, exact ordinal, and paging values.</summary>
 	public void Validate() => JobExecutionRecords.ValidateQuery(this);
 
