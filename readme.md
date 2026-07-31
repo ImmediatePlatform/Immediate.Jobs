@@ -209,7 +209,7 @@ boundary.
 
 ## Propagating scoped context
 
-Ambient or request-scoped context can be capture and restored to be available ambiently during job execution. Dedicated
+Ambient or request-scoped context can be captured and restored to be available ambiently during job execution. Dedicated
 context extractors are used to provide this capability. An extractor must derive from `JobContextExtractor<TContext>`
 and implement the necessary `abstract` methods. The context type specified as `TContext` will be serialized as part of
 the job creation process, and deserialized and provided back to the extractor to be restored during the job execution.
