@@ -6,6 +6,8 @@
 		<ModulePaths>
 			<Exclude>
 				<ModulePath>.*Immediate.Handlers.Generators.dll$</ModulePath>
+				<ModulePath>.*Immediate.Validations.Generators.dll$</ModulePath>
+				<ModulePath>.*Immediate.Apis.Generators.dll$</ModulePath>
 			</Exclude>
 		</ModulePaths>
 
