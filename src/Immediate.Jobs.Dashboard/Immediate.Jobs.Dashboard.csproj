@@ -37,6 +37,8 @@
   </ItemGroup>
 
   <ItemGroup>
+	<PackageReference Include="Immediate.Apis" />
+	<PackageReference Include="Immediate.Validations" />
 	<FrameworkReference Include="Microsoft.AspNetCore.App" />
   </ItemGroup>
 

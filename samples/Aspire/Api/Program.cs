@@ -33,6 +33,11 @@ builder.Services.AddDbContextFactory<JobsDbContext>(options =>
 	options.UseNpgsql(connectionString, npgsql => npgsql.EnableRetryOnFailure()));
 
 builder.Services.AddAspireApiHandlers();
+builder.Services.AddImmediateJobsDashboard(options =>
+{
+	if (aspireDashboardUrl is not null)
+		_ = options.AddAspireTelemetryLinks(aspireDashboardUrl);
+});
 builder.Services.AddAspireApiJobs(options =>
 {
 	_ = options.UseEntityFrameworkCore<JobsDbContext>();
@@ -52,11 +57,7 @@ await using (var scope = app.Services.CreateAsyncScope())
 }
 
 _ = app.MapDefaultEndpoints();
-_ = app.MapImmediateJobsDashboard("/jobs", options =>
-{
-	if (aspireDashboardUrl is not null)
-		_ = options.AddAspireTelemetryLinks(aspireDashboardUrl);
-});
+_ = app.MapImmediateJobsDashboard("/jobs");
 
 if (app.Environment.IsDevelopment())
 {

@@ -6,6 +6,8 @@
 		<ModulePaths>
 			<Exclude>
 				<ModulePath>.*Immediate.Handlers.Generators.dll$</ModulePath>
+				<ModulePath>.*Immediate.Validations.Generators.dll$</ModulePath>
+				<ModulePath>.*Immediate.Apis.Generators.dll$</ModulePath>
 			</Exclude>
 		</ModulePaths>
 
@@ -22,6 +24,10 @@
 
 		<Sources>
 			<Exclude>
+				<Source>.*/Immediate.Handlers.Generators/.*</Source>
+				<Source>.*/Immediate.Validations.Generators/.*</Source>
+				<Source>.*/Immediate.Apis.Generators/.*</Source>
+				<Source>.*/Microsoft.Extensions.Logging.Generators/.*</Source>
 				<Source>.*/scriban/.*</Source>
 			</Exclude>
 		</Sources>

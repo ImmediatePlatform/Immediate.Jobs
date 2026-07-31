@@ -359,13 +359,13 @@ Use `IJobBatchMonitor` and `IJobMonitor` for status, member, graph, and job read
 
 ## Dashboard and Monitoring Web API
 
-Reference `Immediate.Jobs.Dashboard`, then map it after building the app:
+Reference `Immediate.Jobs.Dashboard`, register its generated handlers before building the app, then map it:
 
 ```csharp
 var traceExplorer = new Uri("https://traces.example/");
 var logExplorer = new Uri("https://logs.example/");
 
-app.MapImmediateJobsDashboard("/jobs", options =>
+builder.Services.AddImmediateJobsDashboard(options =>
 {
 	_ = options.RequireAuthorization("operations");
 	_ = options.AddTelemetryLink(
@@ -388,9 +388,13 @@ app.MapImmediateJobsDashboard("/jobs", options =>
 			? new(logExplorer, $"search?jobId={Uri.EscapeDataString(context.Job.Id)}")
 			: null);
 });
+
+var app = builder.Build();
+app.MapImmediateJobsDashboard("/jobs");
 ```
 
-The package serves an embedded SPA, JSON monitoring endpoints, and Server-Sent Events streams.
+The package serves an embedded SPA plus Immediate.Apis-generated JSON and Server-Sent Events endpoints.
+Immediate.Validations returns `application/problem+json` for invalid route and paging inputs.
 Without an authorization policy, dashboard access is allowed only in the `Development` environment.
 The dashboard includes batch progress and a live dependency-graph viewer alongside filtered jobs,
 recurring schedule actions, retry, cancellation, and atomic batch deletion. Job search and filters
