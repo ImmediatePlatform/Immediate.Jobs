@@ -12,3 +12,10 @@ internal sealed record DashboardJobPage(
 	int Take,
 	bool HasNext
 );
+
+internal sealed record DashboardJobExecutionPage(
+	JobExecutionRecord[] Items,
+	int Skip,
+	int Take,
+	bool HasNext
+);

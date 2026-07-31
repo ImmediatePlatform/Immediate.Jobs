@@ -294,7 +294,7 @@ time.
 | `Immediate.Jobs.NodaTime`            | Optional: `Instant`/`Duration`/`DateTimeZone` overloads on generated schedulers; NodaTime STJ converters wired into generated serializer contexts                                       |
 | `Immediate.Jobs.Testing`             | `JobTestHarness` (in-memory provider + `FakeTimeProvider`, advance-time-and-drain), typed enqueue assertions, capture-only scheduler call recorders, run-single-job-through-pipeline helper |
 
-Both relational adapters use the same five-table schema, UTC-tick timestamps, enum values, and
+Both relational adapters use the same seven-table schema, UTC-tick timestamps, enum values, and
 optimistic concurrency stamps. EF applications own migrations; LinqToDB applications explicitly
 bootstrap fresh databases with `CreateImmediateJobsSchemaAsync`. Database drivers remain application
 dependencies rather than adapter dependencies.
@@ -307,8 +307,9 @@ Grouped by concern:
 - **Enqueue & claim:** `EnqueueAsync(JobRecord)`; `AcquireDueJobsAsync(JobAcquisitionRequest)` —
   atomically claims due work honoring per-queue and per-job capacities in priority order (the
   concurrency-critical call); `RenewLeaseAsync` / `CompleteAsync` / `FailAsync(nextRetryAt |
-  deadLetter)`; `SetExecutionTelemetryAsync` persists the latest attempt's trace/span correlation
-  after an invocation is claimed.
+  deadLetter)`; `SetExecutionTelemetryAsync` persists trace/span correlation after an invocation is
+  claimed. Every active-owner mutation is fenced by `(JobId, Attempt, WorkerId)` so a stale execution
+  cannot mutate a reacquired job, even when the worker ID is unchanged.
 - **Continuations & batches:** `EnqueueContinuationAsync` (child + edges, atomic),
   `EnqueueBatchAsync` (header + members + edges, atomic), `CompleteWithContinuationsAsync` (complete +
   flush gated dynamic continuations), `AddBatchJobAsync`, `CancelBatchAsync`, `DeleteBatchAsync`.
@@ -316,8 +317,8 @@ Grouped by concern:
   `RemoveRecurringAsync` / `RemoveObsoleteCodeDefinedRecurringAsync`; `GetDueRecurringAsync` +
   `MaterializeRecurringAsync` (create occurrence + advance schedule, atomic).
 - **Reads (dashboard/monitoring):** `GetMonitoringSnapshotAsync`, `QueryJobsAsync`,
-  `GetJobStatusAsync`, `QueryBatchesAsync`, `QueryBatchMembersAsync`, `GetBatchStatusAsync`,
-  `GetBatchGraphAsync`.
+  `QueryJobExecutionsAsync`, `GetJobStatusAsync`, `QueryBatchesAsync`, `QueryBatchMembersAsync`,
+  `GetBatchStatusAsync`, `GetBatchGraphAsync`.
 - **Maintenance & health:** `RetryAsync`, `DeleteAsync`, `PurgeAsync(retention)`, `HeartbeatAsync`,
   `IsHealthyAsync`, `InitializeAsync`.
 
@@ -325,6 +326,14 @@ Single-server mode additionally uses the small `IJobStorageReplica` capability t
 of jobs its authoritative in-memory queue selected. Payloads are stored as JSON, serialized via the
 generated `JsonSerializerContext`. A pluggable `IJobSerializer` exists with the generated STJ
 implementation as default.
+
+An acquisition creates a durable `JobExecutionRecord` keyed by `(JobId, Attempt)`. Success, failure,
+active cancellation, and expired-lease interruption close that execution atomically with the job
+transition. Executions retain their own timing, worker, trace/span, and error data for exactly as long
+as the owning job or batch. `JobRecord` keeps the latest-execution telemetry fields as a compatibility
+projection. Custom `IJobStorage` providers must implement `QueryJobExecutionsAsync` and accept the
+execution number in telemetry, lease, completion, failure, graph completion, and active batch-add
+operations.
 
 ### 3.3 Execution model
 
@@ -365,7 +374,10 @@ implementation as default.
 - **Real-time:** Server-Sent Events for live updates (no SignalR dependency — keeps core lean and works everywhere); SPA falls back to polling.
 - **Views:** overview (throughput, queue depth, success/failure sparklines), recurring jobs (next/last run, pause state), job list per state with filtering/search, job detail (payload, attempts, errors, timings, incoming dependencies), batches (progress: total/pending/succeeded/failed/cancelled, per-member status, and the continuation **dependency graph**), servers/nodes (heartbeat, active workers).
 - **Telemetry links:** applications configure provider-specific trace and log destinations with
-  `AddTelemetryLink`; job detail exposes the latest execution trace/span and external actions.
+  `AddTelemetryLink`; job detail exposes a newest-first retained execution timeline with exact-attempt
+  trace/log actions, while job-level actions can query across all retries. Exact-attempt callbacks
+  receive both the retained execution and a compatibility job projection scoped to its attempt and
+  trace/span fields.
 - **Actions:** trigger recurring job now · retry failed · delete failed · pause/resume recurring schedule · cancel a running batch · delete a terminal batch.
 - **Auth:** dashboard endpoints integrate with ASP.NET Core authorization — `MapImmediateJobsDashboard(o => o.RequireAuthorization("policy"))`. Default: allowed only in `Development` unless a policy is configured (Hangfire's local-only default, but explicit).
 - **Read/write split:** the JSON+SSE monitoring API is a documented, stable surface usable without the SPA.
@@ -375,10 +387,11 @@ implementation as default.
 ## 5. Observability
 
 - **Traces:** `ActivitySource` `Immediate.Jobs` — one activity per execution attempt; enqueue
-  propagates trace context so the handler's trace links to the enqueuer's. The latest attempt's trace
-  ID, span ID, and start time are persisted on the job record for dashboard correlation.
+  propagates trace context so the handler's trace links to the enqueuer's. Trace ID, span ID, timing,
+  outcome, worker, and failure text are retained per execution; the latest values remain projected on
+  the job record for compatibility.
 - **Metrics:** `Meter` `Immediate.Jobs` — counters `jobs.enqueued/succeeded/failed/retried`, histogram `job.duration`, gauges `queue.depth`, `workers.active`, all tagged by job name.
-- **Logging:** structured `ILogger` with scope `{JobName, JobId, Attempt}`; log levels follow .NET conventions (failures = Error on final attempt, Warning on retryable). A stable `JobId` query spans every retry even though only the latest attempt has a persisted direct trace link.
+- **Logging:** structured `ILogger` with scope `{JobName, JobId, Attempt}`; log levels follow .NET conventions (failures = Error on final attempt, Warning on retryable). A stable `JobId` query spans every retry, while retained attempts provide exact trace and attempt-log links.
 - **Health checks:** `AddImmediateJobs().AddHealthCheck()` reports scheduler liveness (loop heartbeat) and storage connectivity.
 
 ---

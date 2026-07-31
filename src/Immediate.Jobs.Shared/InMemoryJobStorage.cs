@@ -1,3 +1,5 @@
+using System.Globalization;
+
 namespace Immediate.Jobs.Shared;
 
 // TODO: remove and fix diagnostics
@@ -14,6 +16,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 {
 	private readonly Lock _gate = new();
 	private readonly Dictionary<string, JobRecord> _jobs = new(StringComparer.Ordinal);
+	private readonly Dictionary<string, SortedDictionary<int, JobExecutionRecord>> _executions = new(StringComparer.Ordinal);
 	private readonly Dictionary<string, JobBatchRecord> _batches = new(StringComparer.Ordinal);
 	private readonly List<JobContinuationEdge> _edges = [];
 	private readonly HashSet<JobContinuationEdge> _settledEdges = [];
@@ -158,6 +161,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 		{
 			foreach (var expired in _jobs.Values.Where(x => x.State == JobState.Active && x.LeaseExpiresAt <= now).ToArray())
 			{
+				InterruptExecution(expired);
 				_jobs[expired.Id] = expired with
 				{
 					State = JobState.Pending,
@@ -368,6 +372,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 
 	private JobRecord Acquire(JobRecord candidate, JobAcquisitionRequest request, DateTimeOffset now)
 	{
+		MaterializeSyntheticExecution(candidate);
 		var job = candidate with
 		{
 			State = JobState.Active,
@@ -379,6 +384,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 			ExecutionStartedAt = null,
 		};
 		_jobs[job.Id] = job;
+		CreateExecution(job, now);
 		MarkBatchStarted(job.BatchId, now);
 		return job;
 	}
@@ -405,6 +411,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 					continue;
 				if (job.State == JobState.Active && job.LeaseExpiresAt <= now)
 				{
+					InterruptExecution(job);
 					job = job with { State = JobState.Pending, WorkerId = null, LeaseExpiresAt = null };
 					_jobs[id] = job;
 				}
@@ -412,6 +419,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 				if (job.State is not (JobState.Pending or JobState.Scheduled) || job.DueAt > now)
 					continue;
 
+				MaterializeSyntheticExecution(job);
 				job = job with
 				{
 					State = JobState.Active,
@@ -423,6 +431,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 					ExecutionStartedAt = null,
 				};
 				_jobs[id] = job;
+				CreateExecution(job, now);
 				MarkBatchStarted(job.BatchId, now);
 				acquired.Add(job);
 			}
@@ -434,6 +443,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 	/// <inheritdoc />
 	public ValueTask SetExecutionTelemetryAsync(
 		string jobId,
+		int executionNumber,
 		string workerId,
 		string? traceId,
 		string? spanId,
@@ -444,25 +454,38 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 		cancellationToken.ThrowIfCancellationRequested();
 		lock (_gate)
 		{
-			var job = GetOwnedActive(jobId, workerId);
+			var job = GetOwnedActive(jobId, executionNumber, workerId);
+			MaterializeSyntheticExecution(job);
 			_jobs[jobId] = job with
 			{
 				ExecutionTraceId = traceId,
 				ExecutionSpanId = spanId,
 				ExecutionStartedAt = startedAt,
 			};
+			UpdateExecution(jobId, executionNumber, execution => execution with
+			{
+				ExecutionTraceId = traceId,
+				ExecutionSpanId = spanId,
+				ExecutionStartedAt = startedAt,
+			});
 		}
 
 		return ValueTask.CompletedTask;
 	}
 
 	/// <inheritdoc />
-	public ValueTask RenewLeaseAsync(string jobId, string workerId, TimeSpan lease, CancellationToken cancellationToken = default)
+	public ValueTask RenewLeaseAsync(
+		string jobId,
+		int executionNumber,
+		string workerId,
+		TimeSpan lease,
+		CancellationToken cancellationToken = default
+	)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
 		lock (_gate)
 		{
-			var job = GetOwnedActive(jobId, workerId);
+			var job = GetOwnedActive(jobId, executionNumber, workerId);
 			_jobs[jobId] = job with { LeaseExpiresAt = timeProvider.GetUtcNow() + lease };
 		}
 
@@ -470,12 +493,17 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 	}
 
 	/// <inheritdoc />
-	public ValueTask CompleteAsync(string jobId, string workerId, CancellationToken cancellationToken = default)
-		=> CompleteWithContinuationsAsync(jobId, workerId, [], cancellationToken);
+	public ValueTask CompleteAsync(
+		string jobId,
+		int executionNumber,
+		string workerId,
+		CancellationToken cancellationToken = default
+	) => CompleteWithContinuationsAsync(jobId, executionNumber, workerId, [], cancellationToken);
 
 	/// <inheritdoc />
 	public ValueTask CompleteWithContinuationsAsync(
 		string jobId,
+		int executionNumber,
 		string workerId,
 		IReadOnlyList<JobContinuationAddition> additions,
 		CancellationToken cancellationToken = default
@@ -491,7 +519,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 		cancellationToken.ThrowIfCancellationRequested();
 		lock (_gate)
 		{
-			var current = GetOwnedActive(jobId, workerId);
+			var current = GetOwnedActive(jobId, executionNumber, workerId);
 			var existingWaiters = GetUnsettledWaiters(jobId);
 			var newJobIds = new HashSet<string>(StringComparer.Ordinal);
 			var dependencyEdges = new List<JobContinuationEdge>(additions.Count);
@@ -544,7 +572,9 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 			}
 
 			_edges.AddRange(dependencyEdges);
-			TransitionToTerminal(jobId, JobState.Succeeded, error: null, timeProvider.GetUtcNow());
+			var completedAt = timeProvider.GetUtcNow();
+			CompleteExecution(current, JobExecutionState.Succeeded, completedAt);
+			TransitionToTerminal(jobId, JobState.Succeeded, error: null, completedAt);
 		}
 
 		return ValueTask.CompletedTask;
@@ -553,6 +583,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 	/// <inheritdoc />
 	public ValueTask AddBatchJobAsync(
 		string currentJobId,
+		int executionNumber,
 		JobRecord job,
 		ContinuationOptions options,
 		CancellationToken cancellationToken = default
@@ -564,6 +595,14 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 		{
 			if (!_jobs.TryGetValue(currentJobId, out var current) || current.State != JobState.Active)
 				throw new ImmediateJobException($"Job '{currentJobId}' is not currently active.");
+			if (current.Attempt != executionNumber)
+			{
+				throw new ImmediateJobException(string.Create(
+					CultureInfo.InvariantCulture,
+					$"Execution {executionNumber} cannot add a batch job for '{currentJobId}'; the active execution is {current.Attempt}."
+				));
+			}
+
 			if (current.BatchId is null || !_batches.ContainsKey(current.BatchId))
 				throw new ImmediateJobException("The current job does not belong to a batch.");
 			if (options == ContinuationOptions.Detached)
@@ -592,6 +631,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 	/// <inheritdoc />
 	public ValueTask FailAsync(
 		string jobId,
+		int executionNumber,
 		string workerId,
 		string error,
 		DateTimeOffset? nextRetryAt,
@@ -601,7 +641,9 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 		cancellationToken.ThrowIfCancellationRequested();
 		lock (_gate)
 		{
-			var job = GetOwnedActive(jobId, workerId);
+			var job = GetOwnedActive(jobId, executionNumber, workerId);
+			var completedAt = timeProvider.GetUtcNow();
+			CompleteExecution(job, JobExecutionState.Failed, completedAt, error);
 			if (nextRetryAt.HasValue)
 			{
 				var now = timeProvider.GetUtcNow();
@@ -617,7 +659,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 			}
 			else
 			{
-				TransitionToTerminal(jobId, JobState.Failed, error, timeProvider.GetUtcNow());
+				TransitionToTerminal(jobId, JobState.Failed, error, completedAt);
 			}
 		}
 
@@ -774,6 +816,35 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 					.Skip(Math.Max(0, query.Skip))
 					.Take(Math.Clamp(query.Take, 1, 1000)),
 			];
+		}
+	}
+
+	/// <inheritdoc />
+	public async ValueTask<IReadOnlyList<JobExecutionRecord>> QueryJobExecutionsAsync(
+		JobExecutionQuery query,
+		CancellationToken cancellationToken = default
+	)
+	{
+		JobExecutionRecords.ValidateQuery(query);
+		cancellationToken.ThrowIfCancellationRequested();
+		lock (_gate)
+		{
+			if (!_jobs.TryGetValue(query.JobId, out var job))
+				return [];
+
+			var executions = _executions.TryGetValue(query.JobId, out var persisted)
+				? persisted.Values.AsEnumerable()
+				: [];
+			var synthetic = JobExecutionRecords.CreateSynthetic(job);
+			if (synthetic is not null && (persisted is null || !persisted.ContainsKey(synthetic.Attempt)))
+				executions = executions.Append(synthetic);
+			if (query.Attempt is { } attempt)
+				executions = executions.Where(execution => execution.Attempt == attempt);
+
+			return [.. executions
+				.OrderByDescending(static execution => execution.Attempt)
+				.Skip(query.Skip)
+				.Take(Math.Min(query.Take, 1000))];
 		}
 	}
 
@@ -940,6 +1011,8 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 				.ToArray();
 			foreach (var jobId in jobIds)
 			{
+				if (_jobs.TryGetValue(jobId, out var job) && job.State == JobState.Active)
+					CompleteExecution(job, JobExecutionState.Cancelled, now);
 				TransitionToTerminal(jobId, JobState.Cancelled, error: null, now, propagateContinuations: false);
 			}
 
@@ -967,7 +1040,11 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 				.Select(static job => job.Id)
 				.ToHashSet(StringComparer.Ordinal);
 			foreach (var jobId in jobIds)
+			{
 				_ = _jobs.Remove(jobId);
+				_ = _executions.Remove(jobId);
+			}
+
 			_ = _batches.Remove(batchId);
 			RemoveEdgesForJobs(jobIds, [batchId]);
 		}
@@ -987,6 +1064,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 			if (!wasFailed && job.State != JobState.Scheduled)
 				throw new ImmediateJobException("Only failed or scheduled jobs can be retried.");
 
+			MaterializeSyntheticExecution(job);
 			_jobs[jobId] = job with
 			{
 				State = JobState.Pending,
@@ -1023,6 +1101,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 				throw new ImmediateJobException("Batch members cannot be deleted individually.");
 
 			_ = _jobs.Remove(jobId);
+			_ = _executions.Remove(jobId);
 			RemoveEdgesForJobs(new(StringComparer.Ordinal) { jobId });
 		}
 
@@ -1054,7 +1133,11 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 				.ToHashSet(StringComparer.Ordinal);
 
 			foreach (var id in standaloneJobIds)
+			{
 				_ = _jobs.Remove(id);
+				_ = _executions.Remove(id);
+			}
+
 			RemoveEdgesForJobs(standaloneJobIds);
 		}
 
@@ -1089,7 +1172,11 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 				.Select(static job => job.Id)
 				.ToHashSet(StringComparer.Ordinal);
 			foreach (var id in batchJobIds)
+			{
 				_ = _jobs.Remove(id);
+				_ = _executions.Remove(id);
+			}
+
 			foreach (var batchId in batchIds)
 				_ = _batches.Remove(batchId);
 			RemoveEdgesForJobs(batchJobIds, batchIds);
@@ -1620,10 +1707,95 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 		}
 	}
 
-	private JobRecord GetOwnedActive(string jobId, string workerId)
+	private void CreateExecution(JobRecord job, DateTimeOffset acquiredAt)
 	{
-		if (!_jobs.TryGetValue(jobId, out var job) || job.State != JobState.Active || !string.Equals(job.WorkerId, workerId, StringComparison.Ordinal))
+		if (!_executions.TryGetValue(job.Id, out var executions))
+			_executions.Add(job.Id, executions = []);
+		if (!executions.TryAdd(job.Attempt, new()
+		{
+			JobId = job.Id,
+			Attempt = job.Attempt,
+			State = JobExecutionState.Active,
+			WorkerId = job.WorkerId,
+			AcquiredAt = acquiredAt,
+		}))
+		{
+			throw new ImmediateJobException(string.Create(
+				CultureInfo.InvariantCulture,
+				$"Execution {job.Attempt} for job '{job.Id}' already exists."
+			));
+		}
+	}
+
+	private void MaterializeSyntheticExecution(JobRecord job)
+	{
+		var synthetic = JobExecutionRecords.CreateSynthetic(job);
+		if (synthetic is null)
+			return;
+		if (!_executions.TryGetValue(job.Id, out var executions))
+			_executions.Add(job.Id, executions = []);
+		_ = executions.TryAdd(synthetic.Attempt, synthetic);
+	}
+
+	private void InterruptExecution(JobRecord job)
+	{
+		CompleteExecution(job, JobExecutionState.Interrupted, job.LeaseExpiresAt ?? timeProvider.GetUtcNow());
+	}
+
+	private void CompleteExecution(
+		JobRecord job,
+		JobExecutionState state,
+		DateTimeOffset completedAt,
+		string? error = null
+	)
+	{
+		if (job.Attempt <= 0)
+			return;
+
+		MaterializeSyntheticExecution(job);
+		UpdateExecution(job.Id, job.Attempt, execution => execution with
+		{
+			State = state,
+			CompletedAt = completedAt,
+			Error = error,
+		});
+	}
+
+	private void UpdateExecution(
+		string jobId,
+		int executionNumber,
+		Func<JobExecutionRecord, JobExecutionRecord> update
+	)
+	{
+		if (!_executions.TryGetValue(jobId, out var executions) || !executions.TryGetValue(executionNumber, out var execution))
+		{
+			throw new ImmediateJobException(string.Create(
+				CultureInfo.InvariantCulture,
+				$"Execution {executionNumber} for job '{jobId}' was not found."
+			));
+		}
+
+		executions[executionNumber] = update(execution);
+	}
+
+	private JobRecord GetOwnedActive(string jobId, int executionNumber, string workerId)
+	{
+		if (!_jobs.TryGetValue(jobId, out var job) || job.State != JobState.Active)
+		{
 			throw new ImmediateJobException($"Worker '{workerId}' does not own active job '{jobId}'.");
+		}
+
+		if (job.Attempt != executionNumber)
+		{
+			throw new ImmediateJobException(string.Create(
+				CultureInfo.InvariantCulture,
+				$"Execution {executionNumber} does not own active job '{jobId}'; the active execution is {job.Attempt}."
+			));
+		}
+
+		if (!string.Equals(job.WorkerId, workerId, StringComparison.Ordinal))
+			throw new ImmediateJobException($"Worker '{workerId}' does not own active job '{jobId}'.");
+
 		return job;
 	}
 

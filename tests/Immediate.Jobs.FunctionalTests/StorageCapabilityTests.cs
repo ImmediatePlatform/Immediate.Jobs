@@ -64,7 +64,7 @@ public sealed class StorageCapabilityTests
 			idGenerator
 		);
 
-		var beginException = Assert.Throws<NotSupportedException>(() => batchScheduler.Begin());
+		var beginException = Assert.Throws<NotSupportedException>(batchScheduler.Begin);
 		Assert.Contains("SQL database", beginException.Message, StringComparison.Ordinal);
 
 		var continuationException = await Assert.ThrowsAsync<NotSupportedException>(() =>
@@ -178,6 +178,7 @@ public sealed class StorageCapabilityTests
 
 		public ValueTask SetExecutionTelemetryAsync(
 			string jobId,
+			int executionNumber,
 			string workerId,
 			string? traceId,
 			string? spanId,
@@ -185,6 +186,7 @@ public sealed class StorageCapabilityTests
 			CancellationToken cancellationToken = default
 		) => _inner.SetExecutionTelemetryAsync(
 			jobId,
+			executionNumber,
 			workerId,
 			traceId,
 			spanId,
@@ -194,28 +196,31 @@ public sealed class StorageCapabilityTests
 
 		public ValueTask RenewLeaseAsync(
 			string jobId,
+			int executionNumber,
 			string workerId,
 			TimeSpan lease,
 			CancellationToken cancellationToken = default
-		) => _inner.RenewLeaseAsync(jobId, workerId, lease, cancellationToken);
+		) => _inner.RenewLeaseAsync(jobId, executionNumber, workerId, lease, cancellationToken);
 
 		public ValueTask CompleteAsync(
 			string jobId,
+			int executionNumber,
 			string workerId,
 			CancellationToken cancellationToken = default
 		)
 		{
 			CompleteCalls++;
-			return _inner.CompleteAsync(jobId, workerId, cancellationToken);
+			return _inner.CompleteAsync(jobId, executionNumber, workerId, cancellationToken);
 		}
 
 		public ValueTask FailAsync(
 			string jobId,
+			int executionNumber,
 			string workerId,
 			string error,
 			DateTimeOffset? nextRetryAt,
 			CancellationToken cancellationToken = default
-		) => _inner.FailAsync(jobId, workerId, error, nextRetryAt, cancellationToken);
+		) => _inner.FailAsync(jobId, executionNumber, workerId, error, nextRetryAt, cancellationToken);
 
 		public async ValueTask<JobMonitoringSnapshot> GetMonitoringSnapshotAsync(
 			CancellationToken cancellationToken = default
@@ -233,6 +238,11 @@ public sealed class StorageCapabilityTests
 			JobQuery query,
 			CancellationToken cancellationToken = default
 		) => _inner.QueryJobsAsync(query, cancellationToken);
+
+		public ValueTask<IReadOnlyList<JobExecutionRecord>> QueryJobExecutionsAsync(
+			JobExecutionQuery query,
+			CancellationToken cancellationToken = default
+		) => _inner.QueryJobExecutionsAsync(query, cancellationToken);
 
 		public ValueTask<JobStatus?> GetJobStatusAsync(
 			string jobId,

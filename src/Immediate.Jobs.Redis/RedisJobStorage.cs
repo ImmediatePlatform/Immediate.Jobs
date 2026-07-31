@@ -32,6 +32,18 @@ public sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 	];
 
 	private static readonly RedisValue[] RecurringMutableFields = ["record", "paused", "next", "last"];
+	private static readonly string[] ExecutionFieldNames =
+	[
+		"state",
+		"worker",
+		"acquired",
+		"started",
+		"completed",
+		"trace",
+		"span",
+		"error",
+		"synthetic",
+	];
 
 	private readonly IConnectionMultiplexer _connection;
 	private readonly IDatabase _database;
@@ -129,6 +141,7 @@ public sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 			request.BatchSize,
 			request.Queues.Count,
 			_root,
+			Ticks(now),
 		};
 		foreach (var queue in request.Queues)
 		{
@@ -159,6 +172,7 @@ public sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 	/// <inheritdoc />
 	public async ValueTask SetExecutionTelemetryAsync(
 		string jobId,
+		int executionNumber,
 		string workerId,
 		string? traceId,
 		string? spanId,
@@ -170,8 +184,8 @@ public sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 		ArgumentException.ThrowIfNullOrWhiteSpace(workerId);
 		var result = await EvaluateInt64Async(
 			RedisScripts.SetTelemetry,
-			[JobKey(jobId)],
-			[workerId, traceId ?? "", spanId ?? "", Ticks(startedAt)],
+			[JobKey(jobId), ExecutionIndexKey(jobId), ExecutionDataKey(jobId)],
+			[workerId, executionNumber, traceId ?? "", spanId ?? "", Ticks(startedAt)],
 			cancellationToken
 		).ConfigureAwait(false);
 		ThrowIfNotOwned(result, jobId, workerId);
@@ -180,6 +194,7 @@ public sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 	/// <inheritdoc />
 	public async ValueTask RenewLeaseAsync(
 		string jobId,
+		int executionNumber,
 		string workerId,
 		TimeSpan lease,
 		CancellationToken cancellationToken = default
@@ -192,7 +207,7 @@ public sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 		var result = await EvaluateInt64Async(
 			RedisScripts.RenewLease,
 			[JobKey(jobId), LeasesKey],
-			[workerId, Ticks(expiresAt), Score(expiresAt), jobId],
+			[workerId, executionNumber, Ticks(expiresAt), Score(expiresAt), jobId],
 			cancellationToken
 		).ConfigureAwait(false);
 		ThrowIfNotOwned(result, jobId, workerId);
@@ -201,6 +216,7 @@ public sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 	/// <inheritdoc />
 	public async ValueTask CompleteAsync(
 		string jobId,
+		int executionNumber,
 		string workerId,
 		CancellationToken cancellationToken = default
 	)
@@ -216,8 +232,10 @@ public sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 				StateKey(JobState.Active),
 				StateKey(JobState.Succeeded),
 				CompletedKey(JobState.Succeeded),
+				ExecutionIndexKey(jobId),
+				ExecutionDataKey(jobId),
 			],
-			[workerId, Ticks(now), jobId, Score(now)],
+			[workerId, executionNumber, Ticks(now), jobId, Score(now)],
 			cancellationToken
 		).ConfigureAwait(false);
 		ThrowIfNotOwned(result, jobId, workerId);
@@ -226,6 +244,7 @@ public sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 	/// <inheritdoc />
 	public async ValueTask FailAsync(
 		string jobId,
+		int executionNumber,
 		string workerId,
 		string error,
 		DateTimeOffset? nextRetryAt,
@@ -248,9 +267,12 @@ public sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 				CompletedKey(JobState.Failed),
 				StateKey(JobState.Scheduled),
 				StateKey(JobState.Pending),
+				ExecutionIndexKey(jobId),
+				ExecutionDataKey(jobId),
 			],
 			[
 				workerId,
+				executionNumber,
 				jobId,
 				nextTicks,
 				error,
@@ -339,6 +361,64 @@ public sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 	}
 
 	/// <inheritdoc />
+	public async ValueTask<IReadOnlyList<JobExecutionRecord>> QueryJobExecutionsAsync(
+		JobExecutionQuery query,
+		CancellationToken cancellationToken = default
+	)
+	{
+		ArgumentNullException.ThrowIfNull(query);
+		query.Validate();
+		var job = await ReadJobAsync(query.JobId, cancellationToken).ConfigureAwait(false);
+		if (job is null)
+			return [];
+
+		var synthetic = JobExecutionRecord.CreateSynthetic(job);
+		var syntheticMissing = synthetic is not null
+			&& (query.Attempt is null || query.Attempt == synthetic.Attempt)
+			&& !await _database.HashExistsAsync(
+				ExecutionDataKey(query.JobId),
+				ExecutionField(synthetic.Attempt, "state")
+			).WaitAsync(cancellationToken).ConfigureAwait(false);
+		var skip = query.Skip;
+		var take = Math.Min(query.Take, MaximumQueryTake);
+		var result = new List<JobExecutionRecord>(take);
+		if (syntheticMissing && skip == 0)
+		{
+			result.Add(synthetic!);
+			take--;
+		}
+		else if (syntheticMissing)
+		{
+			skip--;
+		}
+
+		if (take == 0 || skip < 0)
+			return result;
+
+		RedisValue[] attempts;
+		if (query.Attempt is { } attempt)
+		{
+			var exists = await _database.HashExistsAsync(
+				ExecutionDataKey(query.JobId),
+				ExecutionField(attempt, "state")
+			).WaitAsync(cancellationToken).ConfigureAwait(false);
+			attempts = exists && skip == 0 ? [attempt] : [];
+		}
+		else
+		{
+			attempts = await _database.SortedSetRangeByRankAsync(
+				ExecutionIndexKey(query.JobId),
+				skip,
+				skip + take - 1,
+				Order.Descending
+			).WaitAsync(cancellationToken).ConfigureAwait(false);
+		}
+
+		result.AddRange(await ReadExecutionsAsync(query.JobId, attempts, cancellationToken).ConfigureAwait(false));
+		return result;
+	}
+
+	/// <inheritdoc />
 	public async ValueTask<JobStatus?> GetJobStatusAsync(
 		string jobId,
 		CancellationToken cancellationToken = default
@@ -377,6 +457,8 @@ public sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 				StateKey(JobState.Scheduled),
 				StateKey(JobState.Pending),
 				CompletedKey(JobState.Failed),
+				ExecutionIndexKey(jobId),
+				ExecutionDataKey(jobId),
 			],
 			[Ticks(now), Score(now), jobId, _root],
 			cancellationToken
@@ -393,7 +475,7 @@ public sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 		ArgumentException.ThrowIfNullOrWhiteSpace(jobId);
 		var result = await EvaluateInt64Async(
 			RedisScripts.Delete,
-			[JobKey(jobId), AllJobsKey, RecurringDedupeKey],
+			[JobKey(jobId), AllJobsKey, RecurringDedupeKey, ExecutionIndexKey(jobId), ExecutionDataKey(jobId)],
 			[jobId, _root],
 			cancellationToken
 		).ConfigureAwait(false);
@@ -670,7 +752,15 @@ public sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 				var id = (string)value!;
 				_ = await EvaluateInt64Async(
 					RedisScripts.Purge,
-					[JobKey(id), CompletedKey(state), AllJobsKey, StateKey(state), RecurringDedupeKey],
+					[
+						JobKey(id),
+						CompletedKey(state),
+						AllJobsKey,
+						StateKey(state),
+						RecurringDedupeKey,
+						ExecutionIndexKey(id),
+						ExecutionDataKey(id),
+					],
 					[id, (int)state],
 					cancellationToken
 				).ConfigureAwait(false);
@@ -761,6 +851,55 @@ public sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 		var tasks = ids.Select(id => ReadJobAsync(id, cancellationToken).AsTask()).ToArray();
 		var jobs = await Task.WhenAll(tasks).WaitAsync(cancellationToken).ConfigureAwait(false);
 		return [.. jobs.OfType<JobRecord>()];
+	}
+
+	private async Task<IReadOnlyList<JobExecutionRecord>> ReadExecutionsAsync(
+		string jobId,
+		RedisValue[] attempts,
+		CancellationToken cancellationToken
+	)
+	{
+		if (attempts.Length == 0)
+			return [];
+
+		var fields = new RedisValue[attempts.Length * ExecutionFieldNames.Length];
+		for (var index = 0; index < attempts.Length; index++)
+		{
+			var executionNumber = ParseInt32(attempts[index]);
+			for (var fieldIndex = 0; fieldIndex < ExecutionFieldNames.Length; fieldIndex++)
+			{
+				fields[(index * ExecutionFieldNames.Length) + fieldIndex] =
+					ExecutionField(executionNumber, ExecutionFieldNames[fieldIndex]);
+			}
+		}
+
+		var allValues = await _database.HashGetAsync(ExecutionDataKey(jobId), fields)
+			.WaitAsync(cancellationToken)
+			.ConfigureAwait(false);
+
+		var executions = new List<JobExecutionRecord>(attempts.Length);
+		for (var index = 0; index < attempts.Length; index++)
+		{
+			var values = allValues.AsSpan(index * ExecutionFieldNames.Length, ExecutionFieldNames.Length);
+			if (values[0].IsNull)
+				continue;
+			executions.Add(new()
+			{
+				JobId = jobId,
+				Attempt = ParseInt32(attempts[index]),
+				State = (JobExecutionState)ParseInt32(values[0]),
+				WorkerId = NullIfEmpty(values[1]),
+				AcquiredAt = FromNullableTicks(values[2]),
+				ExecutionStartedAt = FromNullableTicks(values[3]),
+				CompletedAt = FromNullableTicks(values[4]),
+				ExecutionTraceId = NullIfEmpty(values[5]),
+				ExecutionSpanId = NullIfEmpty(values[6]),
+				Error = NullIfEmpty(values[7]),
+				IsSynthetic = values[8] == "1",
+			});
+		}
+
+		return executions;
 	}
 
 	private async Task<IReadOnlyList<string>> ReadJobIdsByRankAsync(
@@ -937,6 +1076,8 @@ public sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 	}
 
 	private RedisKey JobKey(string id) => _root + "job:" + id;
+	private RedisKey ExecutionIndexKey(string id) => _root + "executions:index:" + id;
+	private RedisKey ExecutionDataKey(string id) => _root + "executions:data:" + id;
 	private RedisKey DueKey(string queue) => _root + "due:" + queue;
 	private RedisKey StateKey(JobState state) => string.Create(CultureInfo.InvariantCulture, $"{_root}state:{(int)state}");
 	private RedisKey CompletedKey(JobState state) => string.Create(CultureInfo.InvariantCulture, $"{_root}completed:{(int)state}");
@@ -954,6 +1095,8 @@ public sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 	private static string DueMember(JobRecord job) => $"{Ticks(job.DueAt)}|{Ticks(job.CreatedAt)}|{job.Id}";
 	private static string RecurringDueMember(DateTimeOffset nextRunAt, string name) => $"{Ticks(nextRunAt)}|{name}";
 	private static string NullableTicks(DateTimeOffset? value) => value is { } actual ? Ticks(actual) : "";
+	private static RedisValue ExecutionField(int executionNumber, string name) =>
+		string.Create(CultureInfo.InvariantCulture, $"{executionNumber}:{name}");
 	private static DateTimeOffset FromTicks(RedisValue value) =>
 		new(long.Parse((string)value!, NumberStyles.None, CultureInfo.InvariantCulture), TimeSpan.Zero);
 	private static DateTimeOffset? FromNullableTicks(RedisValue value) =>

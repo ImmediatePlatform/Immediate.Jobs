@@ -93,7 +93,7 @@ public sealed class InMemoryJobStorageBatchTests
 		Assert.Equal(parent.Id, acquiredParent.Id);
 		Assert.Equal(DateTimeOffset.UnixEpoch, (await storage.GetBatchStatusAsync("batch", cancellationToken))!.StartedAt);
 
-		await storage.CompleteAsync(parent.Id, "worker", cancellationToken);
+		await storage.CompleteAsync(parent.Id, 1, "worker", cancellationToken);
 		var waitingReleased = await GetJobAsync(storage, child.Id, cancellationToken);
 		Assert.Equal(JobState.Pending, waitingReleased.State);
 		Assert.Equal(0, waitingReleased.RemainingDependencies);
@@ -103,7 +103,7 @@ public sealed class InMemoryJobStorageBatchTests
 
 		var acquiredChild = Assert.Single(await storage.AcquireDueJobsAsync(CreateRequest("worker"), cancellationToken));
 		Assert.Equal(child.Id, acquiredChild.Id);
-		await storage.CompleteAsync(child.Id, "worker", cancellationToken);
+		await storage.CompleteAsync(child.Id, 1, "worker", cancellationToken);
 
 		var completed = await storage.GetBatchStatusAsync("batch", cancellationToken);
 		Assert.Equal(BatchState.Succeeded, completed!.State);
@@ -116,6 +116,30 @@ public sealed class InMemoryJobStorageBatchTests
 	}
 
 	[Fact]
+	public async Task AddingBatchJobReportsStaleAndActiveExecutionNumbers()
+	{
+		var cancellationToken = TestContext.Current.CancellationToken;
+		var clock = new FakeTimeProvider(DateTimeOffset.UnixEpoch);
+		await using var storage = new InMemoryJobStorage(clock);
+		var current = CreateJob("parent", batchId: "batch");
+		await storage.EnqueueBatchAsync(CreateBatch("batch", 1), [current], [], cancellationToken);
+		_ = Assert.Single(await storage.AcquireDueJobsAsync(CreateRequest("worker"), cancellationToken));
+		clock.Advance(TimeSpan.FromMinutes(2));
+		_ = Assert.Single(await storage.AcquireDueJobsAsync(CreateRequest("worker"), cancellationToken));
+
+		var exception = await Assert.ThrowsAsync<ImmediateJobException>(() => storage.AddBatchJobAsync(
+			current.Id,
+			1,
+			CreateJob("child", batchId: "batch"),
+			ContinuationOptions.BesideContinuations,
+			cancellationToken
+		).AsTask());
+
+		Assert.Contains("Execution 1", exception.Message, StringComparison.Ordinal);
+		Assert.Contains("active execution is 2", exception.Message, StringComparison.Ordinal);
+	}
+
+	[Fact]
 	public async Task TerminalParentIsEvaluatedWhenContinuationIsInserted()
 	{
 		var cancellationToken = TestContext.Current.CancellationToken;
@@ -124,7 +148,7 @@ public sealed class InMemoryJobStorageBatchTests
 		var parent = CreateJob("parent");
 		await storage.EnqueueAsync(parent, cancellationToken);
 		_ = Assert.Single(await storage.AcquireDueJobsAsync(CreateRequest("worker"), cancellationToken));
-		await storage.FailAsync(parent.Id, "worker", "broken", nextRetryAt: null, cancellationToken);
+		await storage.FailAsync(parent.Id, 1, "worker", "broken", nextRetryAt: null, cancellationToken);
 
 		var successOnly = CreateJob("success-only") with
 		{
@@ -199,7 +223,7 @@ public sealed class InMemoryJobStorageBatchTests
 		);
 		_ = Assert.Single(await storage.AcquireDueJobsAsync(CreateRequest("worker"), cancellationToken));
 
-		await storage.CompleteAsync(parent.Id, "worker", cancellationToken);
+		await storage.CompleteAsync(parent.Id, 1, "worker", cancellationToken);
 
 		Assert.Equal(JobState.Skipped, (await GetJobAsync(storage, child.Id, cancellationToken)).State);
 	}
@@ -239,14 +263,14 @@ public sealed class InMemoryJobStorageBatchTests
 		var parents = await storage.AcquireDueJobsAsync(CreateRequest("worker"), cancellationToken);
 		Assert.Equal(2, parents.Count);
 
-		await storage.CompleteAsync(successfulParent.Id, "worker", cancellationToken);
+		await storage.CompleteAsync(successfulParent.Id, 1, "worker", cancellationToken);
 
 		var waiting = await GetJobAsync(storage, child.Id, cancellationToken);
 		Assert.Equal(JobState.AwaitingContinuation, waiting.State);
 		Assert.Equal(1, waiting.RemainingDependencies);
 		Assert.Equal(0, waiting.FailedDependencies);
 
-		await storage.FailAsync(failedParent.Id, "worker", "broken", nextRetryAt: null, cancellationToken);
+		await storage.FailAsync(failedParent.Id, 1, "worker", "broken", nextRetryAt: null, cancellationToken);
 
 		var released = await GetJobAsync(storage, child.Id, cancellationToken);
 		Assert.Equal(JobState.Pending, released.State);
@@ -299,13 +323,13 @@ public sealed class InMemoryJobStorageBatchTests
 
 		if (successParentSettlesFirst)
 		{
-			await storage.CompleteAsync(successParent.Id, "worker", cancellationToken);
+			await storage.CompleteAsync(successParent.Id, 1, "worker", cancellationToken);
 			await SettleFailureParentAsync();
 		}
 		else
 		{
 			await SettleFailureParentAsync();
-			await storage.CompleteAsync(successParent.Id, "worker", cancellationToken);
+			await storage.CompleteAsync(successParent.Id, 1, "worker", cancellationToken);
 		}
 
 		var settled = await GetJobAsync(storage, child.Id, cancellationToken);
@@ -316,9 +340,9 @@ public sealed class InMemoryJobStorageBatchTests
 		async ValueTask SettleFailureParentAsync()
 		{
 			if (failureParentFails)
-				await storage.FailAsync(failureParent.Id, "worker", "broken", nextRetryAt: null, cancellationToken);
+				await storage.FailAsync(failureParent.Id, 1, "worker", "broken", nextRetryAt: null, cancellationToken);
 			else
-				await storage.CompleteAsync(failureParent.Id, "worker", cancellationToken);
+				await storage.CompleteAsync(failureParent.Id, 1, "worker", cancellationToken);
 		}
 	}
 
@@ -339,7 +363,7 @@ public sealed class InMemoryJobStorageBatchTests
 
 		_ = await Assert.ThrowsAsync<ImmediateJobException>(() => storage.CompleteWithContinuationsAsync(
 			current.Id,
-			"worker",
+			1, "worker",
 			[new() { Job = addition, Options = options }],
 			cancellationToken
 		).AsTask());
@@ -393,7 +417,7 @@ public sealed class InMemoryJobStorageBatchTests
 
 		await storage.CompleteWithContinuationsAsync(
 			current.Id,
-			"worker",
+			1, "worker",
 			[new() { Job = inserted, Options = ContinuationOptions.BeforeContinuations }],
 			cancellationToken
 		);

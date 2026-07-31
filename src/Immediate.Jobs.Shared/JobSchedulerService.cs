@@ -288,6 +288,7 @@ public sealed partial class JobSchedulerService : BackgroundService
 				await _storage
 					.FailAsync(
 						record.Id,
+						record.Attempt,
 						_workerId,
 						$"No generated job definition exists for '{record.JobName}'.",
 						nextRetryAt: null,
@@ -311,7 +312,7 @@ public sealed partial class JobSchedulerService : BackgroundService
 			? _timeProvider.CreateTimer(static state => ((CancellationTokenSource)state!).Cancel(), timeout, timeoutValue, Timeout.InfiniteTimeSpan)
 			: null;
 		using var leaseCancellation = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
-		var leaseTask = RenewLeaseLoopAsync(record.Id, leaseCancellation.Token);
+		var leaseTask = RenewLeaseLoopAsync(record.Id, record.Attempt, leaseCancellation.Token);
 
 		var parent = default(ActivityContext);
 		if (record.TraceParent is not null)
@@ -349,6 +350,7 @@ public sealed partial class JobSchedulerService : BackgroundService
 			{
 				await _storage.SetExecutionTelemetryAsync(
 					record.Id,
+					record.Attempt,
 					_workerId,
 					activity?.TraceId.ToString(),
 					activity?.SpanId.ToString(),
@@ -383,6 +385,7 @@ public sealed partial class JobSchedulerService : BackgroundService
 			{
 				await _graphStorage.CompleteWithContinuationsAsync(
 					record.Id,
+					record.Attempt,
 					_workerId,
 					executionBuffer.SealAndSnapshot(),
 					stoppingToken
@@ -390,7 +393,7 @@ public sealed partial class JobSchedulerService : BackgroundService
 			}
 			else
 			{
-				await _storage.CompleteAsync(record.Id, _workerId, stoppingToken).ConfigureAwait(false);
+				await _storage.CompleteAsync(record.Id, record.Attempt, _workerId, stoppingToken).ConfigureAwait(false);
 			}
 
 			var duration = _timeProvider.GetElapsedTime(started);
@@ -402,7 +405,14 @@ public sealed partial class JobSchedulerService : BackgroundService
 		{
 			var retry = record.Attempt < definition.MaxAttempts;
 			DateTimeOffset? nextRetryAt = retry ? _timeProvider.GetUtcNow() + GetRetryDelay(definition, record.Attempt) : null;
-			await _storage.FailAsync(record.Id, _workerId, exception.ToString(), nextRetryAt, stoppingToken).ConfigureAwait(false);
+			await _storage.FailAsync(
+				record.Id,
+				record.Attempt,
+				_workerId,
+				exception.ToString(),
+				nextRetryAt,
+				stoppingToken
+			).ConfigureAwait(false);
 			var duration = _timeProvider.GetElapsedTime(started);
 			JobTelemetry.Failed(record.JobName, record.QueueName, duration);
 			_ = activity?.SetStatus(ActivityStatusCode.Error, exception.Message);
@@ -530,7 +540,7 @@ public sealed partial class JobSchedulerService : BackgroundService
 		_ = _jobReservations.AddOrUpdate(record.JobName, 0, static (_, count) => Math.Max(0, count - 1));
 	}
 
-	private async Task RenewLeaseLoopAsync(string jobId, CancellationToken cancellationToken)
+	private async Task RenewLeaseLoopAsync(string jobId, int executionNumber, CancellationToken cancellationToken)
 	{
 		var interval = TimeSpan.FromTicks(Math.Max(1, _options.LeaseDuration.Ticks / 3));
 		while (true)
@@ -538,7 +548,13 @@ public sealed partial class JobSchedulerService : BackgroundService
 			await Task.Delay(interval, _timeProvider, cancellationToken).ConfigureAwait(false);
 			try
 			{
-				await _storage.RenewLeaseAsync(jobId, _workerId, _options.LeaseDuration, cancellationToken).ConfigureAwait(false);
+				await _storage.RenewLeaseAsync(
+					jobId,
+					executionNumber,
+					_workerId,
+					_options.LeaseDuration,
+					cancellationToken
+				).ConfigureAwait(false);
 			}
 			catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
 			{
@@ -548,7 +564,7 @@ public sealed partial class JobSchedulerService : BackgroundService
 			catch (Exception exception)
 #pragma warning restore CA1031
 			{
-				LeaseRenewalFailed(_logger, exception, jobId);
+				LeaseRenewalFailed(_logger, exception, jobId, executionNumber);
 			}
 		}
 	}
@@ -773,9 +789,14 @@ public sealed partial class JobSchedulerService : BackgroundService
 	[LoggerMessage(
 		EventId = 10,
 		Level = LogLevel.Warning,
-		Message = "Could not renew the lease for job {jobId}; renewal will be retried until the attempt finishes"
+		Message = "Could not renew the lease for job {jobId} execution {executionNumber}; renewal will be retried until the attempt finishes"
 	)]
-	private static partial void LeaseRenewalFailed(ILogger logger, Exception exception, string jobId);
+	private static partial void LeaseRenewalFailed(
+		ILogger logger,
+		Exception exception,
+		string jobId,
+		int executionNumber
+	);
 
 	[LoggerMessage(
 		EventId = 11,

@@ -532,6 +532,7 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 		await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
 		var entity = Copy(candidate);
 		_ = context.Attach(entity);
+		await PrepareAcquisitionExecutionsAsync(context, candidate, workerId, now, cancellationToken).ConfigureAwait(false);
 		entity.State = JobState.Active;
 		entity.WorkerId = workerId;
 		entity.LeaseExpiresAt = now + lease;
@@ -661,6 +662,7 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 			await using var context = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
 			var entity = Copy(candidate);
 			_ = context.Attach(entity);
+			await PrepareAcquisitionExecutionsAsync(context, candidate, workerId, now, cancellationToken).ConfigureAwait(false);
 			entity.State = JobState.Active;
 			entity.WorkerId = workerId;
 			entity.LeaseExpiresAt = now + lease;
@@ -687,44 +689,89 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 				_ = await context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 				acquired.Add(ToRecord(entity));
 			}
-			catch (DbUpdateConcurrencyException)
+			catch (DbUpdateException)
 			{
-				// Another scheduler claimed or changed this candidate first.
+				// Suppress only an expected optimistic-claim race; genuine provider failures remain visible.
+				if (!await CandidateWasClaimedAsync(candidate, cancellationToken).ConfigureAwait(false))
+					throw;
 			}
 		}
 
 		return acquired;
 	}
 
+	private async ValueTask<bool> CandidateWasClaimedAsync(
+		ImmediateJobEntity candidate,
+		CancellationToken cancellationToken
+	)
+	{
+		try
+		{
+			await using var context = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+			var currentStamp = await context.Set<ImmediateJobEntity>()
+				.AsNoTracking()
+				.Where(job => job.Id == candidate.Id)
+				.Select(static job => (Guid?)job.ConcurrencyStamp)
+				.SingleOrDefaultAsync(cancellationToken)
+				.ConfigureAwait(false);
+			return currentStamp != candidate.ConcurrencyStamp;
+		}
+		catch (Exception exception) when (exception is DbException or InvalidOperationException)
+		{
+			return false;
+		}
+	}
+
 	/// <inheritdoc />
 	public ValueTask SetExecutionTelemetryAsync(
 		string jobId,
+		int executionNumber,
 		string workerId,
 		string? traceId,
 		string? spanId,
 		DateTimeOffset startedAt,
 		CancellationToken cancellationToken = default
-	) => MutateOwnedAsync(jobId, workerId, job =>
+	) => MutateOwnedAsync(jobId, executionNumber, workerId, (job, execution) =>
 	{
 		job.ExecutionTraceId = traceId;
 		job.ExecutionSpanId = spanId;
 		job.ExecutionStartedAt = startedAt;
+		execution.ExecutionTraceId = traceId;
+		execution.ExecutionSpanId = spanId;
+		execution.ExecutionStartedAt = startedAt;
 	}, cancellationToken);
 
 	/// <inheritdoc />
-	public ValueTask RenewLeaseAsync(string jobId, string workerId, TimeSpan lease, CancellationToken cancellationToken = default)
+	public ValueTask RenewLeaseAsync(
+		string jobId,
+		int executionNumber,
+		string workerId,
+		TimeSpan lease,
+		CancellationToken cancellationToken = default
+	)
 	{
 		ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(lease, TimeSpan.Zero);
-		return MutateOwnedAsync(jobId, workerId, job => job.LeaseExpiresAt = _timeProvider.GetUtcNow() + lease, cancellationToken);
+		return MutateOwnedAsync(
+			jobId,
+			executionNumber,
+			workerId,
+			(job, _) => job.LeaseExpiresAt = _timeProvider.GetUtcNow() + lease,
+			cancellationToken
+		);
 	}
 
 	/// <inheritdoc />
-	public ValueTask CompleteAsync(string jobId, string workerId, CancellationToken cancellationToken = default) =>
-		CompleteWithContinuationsAsync(jobId, workerId, [], cancellationToken);
+	public ValueTask CompleteAsync(
+		string jobId,
+		int executionNumber,
+		string workerId,
+		CancellationToken cancellationToken = default
+	) => CompleteWithContinuationsAsync(jobId, executionNumber, workerId, [], cancellationToken);
 
 	/// <inheritdoc />
 	public ValueTask CompleteWithContinuationsAsync(
 		string jobId,
+		int executionNumber,
 		string workerId,
 		IReadOnlyList<JobContinuationAddition> additions,
 		CancellationToken cancellationToken = default
@@ -733,6 +780,7 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 		ArgumentNullException.ThrowIfNull(additions);
 		return MutateOwnedWithDependenciesAsync(
 			jobId,
+			executionNumber,
 			workerId,
 			error: null,
 			nextRetryAt: null,
@@ -745,6 +793,7 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 	/// <inheritdoc />
 	public ValueTask AddBatchJobAsync(
 		string currentJobId,
+		int executionNumber,
 		JobRecord job,
 		ContinuationOptions options,
 		CancellationToken cancellationToken = default
@@ -756,6 +805,7 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 		return RetryConcurrencyAsync(
 			operationCancellationToken => AddBatchJobCoreAsync(
 				currentJobId,
+				executionNumber,
 				job,
 				options,
 				operationCancellationToken
@@ -767,11 +817,21 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 	/// <inheritdoc />
 	public ValueTask FailAsync(
 		string jobId,
+		int executionNumber,
 		string workerId,
 		string error,
 		DateTimeOffset? nextRetryAt,
 		CancellationToken cancellationToken = default
-	) => MutateOwnedWithDependenciesAsync(jobId, workerId, error, nextRetryAt, succeeded: false, [], cancellationToken);
+	) => MutateOwnedWithDependenciesAsync(
+		jobId,
+		executionNumber,
+		workerId,
+		error,
+		nextRetryAt,
+		succeeded: false,
+		[],
+		cancellationToken
+	);
 
 	/// <inheritdoc />
 	public async ValueTask UpsertRecurringAsync(RecurringJobSchedule schedule, CancellationToken cancellationToken = default)
@@ -1001,6 +1061,62 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 	}
 
 	/// <inheritdoc />
+	public async ValueTask<IReadOnlyList<JobExecutionRecord>> QueryJobExecutionsAsync(
+		JobExecutionQuery query,
+		CancellationToken cancellationToken = default
+	)
+	{
+		ArgumentNullException.ThrowIfNull(query);
+		query.Validate();
+		await using var context = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+		var job = await context.Set<ImmediateJobEntity>()
+			.AsNoTracking()
+			.SingleOrDefaultAsync(item => item.Id == query.JobId, cancellationToken)
+			.ConfigureAwait(false);
+		if (job is null)
+			return [];
+
+		var executions = context.Set<ImmediateJobExecutionEntity>()
+			.AsNoTracking()
+			.Where(execution => execution.JobId == query.JobId);
+		if (query.Attempt is { } attempt)
+			executions = executions.Where(execution => execution.Attempt == attempt);
+
+		var synthetic = JobExecutionRecord.CreateSynthetic(ToRecord(job));
+		var syntheticMissing = synthetic is not null
+			&& (query.Attempt is null || query.Attempt == synthetic.Attempt)
+			&& !await executions.AnyAsync(
+				execution => execution.Attempt == synthetic.Attempt,
+				cancellationToken
+			).ConfigureAwait(false);
+		var skip = query.Skip;
+		var take = Math.Min(query.Take, JobExecutionQuery.MaximumTake);
+		var result = new List<JobExecutionRecord>(take);
+		if (syntheticMissing && skip == 0 && take != 0)
+		{
+			result.Add(synthetic!);
+			take--;
+		}
+		else if (syntheticMissing)
+		{
+			skip--;
+		}
+
+		if (take != 0 && skip >= 0)
+		{
+			var persisted = await executions
+				.OrderByDescending(execution => execution.Attempt)
+				.Skip(skip)
+				.Take(take)
+				.ToListAsync(cancellationToken)
+				.ConfigureAwait(false);
+			result.AddRange(persisted.Select(ToRecord));
+		}
+
+		return result;
+	}
+
+	/// <inheritdoc />
 	public async ValueTask<BatchStatus?> GetBatchStatusAsync(
 		string batchId,
 		CancellationToken cancellationToken = default
@@ -1175,7 +1291,7 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 	public ValueTask CancelBatchAsync(string batchId, CancellationToken cancellationToken = default)
 	{
 		ArgumentException.ThrowIfNullOrWhiteSpace(batchId);
-		return ExecuteWithStrategyAsync(
+		return RetryConcurrencyAsync(
 			operationCancellationToken => CancelBatchCoreAsync(batchId, operationCancellationToken),
 			cancellationToken
 		);
@@ -1200,6 +1316,15 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 		var jobsToCancel = jobs.Where(job => !IsTerminal(job.State)).ToArray();
 		foreach (var job in jobsToCancel)
 		{
+			if (job.State == JobState.Active)
+			{
+				var execution = await GetOrMaterializeExecutionAsync(context, job, cancellationToken).ConfigureAwait(false)
+					?? throw new ImmediateJobException($"Active job '{job.Id}' has no execution ordinal.");
+				execution.State = JobExecutionState.Cancelled;
+				execution.CompletedAt = now;
+				execution.Error = null;
+			}
+
 			job.State = JobState.Cancelled;
 			job.CompletedAt = now;
 			job.WorkerId = null;
@@ -1263,7 +1388,7 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 	public ValueTask RetryAsync(string jobId, CancellationToken cancellationToken = default)
 	{
 		ArgumentException.ThrowIfNullOrWhiteSpace(jobId);
-		return ExecuteWithStrategyAsync(
+		return RetryConcurrencyAsync(
 			operationCancellationToken => RetryCoreAsync(jobId, operationCancellationToken),
 			cancellationToken
 		);
@@ -1290,6 +1415,7 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 		}
 
 		var wasFailed = job.State == JobState.Failed;
+		_ = await GetOrMaterializeExecutionAsync(context, job, cancellationToken).ConfigureAwait(false);
 		if (wasFailed && job.BatchId is { } batchId)
 		{
 			var batch = await context.Set<ImmediateJobBatchEntity>()
@@ -1545,6 +1671,7 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 
 	private ValueTask MutateOwnedWithDependenciesAsync(
 		string jobId,
+		int executionNumber,
 		string workerId,
 		string? error,
 		DateTimeOffset? nextRetryAt,
@@ -1554,6 +1681,7 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 	) => RetryConcurrencyAsync(
 		operationCancellationToken => MutateOwnedCoreAsync(
 			jobId,
+			executionNumber,
 			workerId,
 			error,
 			nextRetryAt,
@@ -1569,16 +1697,23 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 		CancellationToken cancellationToken
 	)
 	{
-		for (var attempt = 0; attempt < MaxConcurrencyAttempts; attempt++)
+		var concurrencyAttempt = 0;
+		while (true)
 		{
 			try
 			{
 				await ExecuteWithStrategyAsync(operation, cancellationToken).ConfigureAwait(false);
 				return;
 			}
-			catch (DbUpdateConcurrencyException) when (attempt + 1 < MaxConcurrencyAttempts)
+			catch (DbUpdateConcurrencyException) when (++concurrencyAttempt < MaxConcurrencyAttempts)
 			{
 				// The transaction rolled back, so the next attempt re-evaluates the graph from durable state.
+			}
+			catch (DbUpdateException exception) when (++concurrencyAttempt < MaxConcurrencyAttempts)
+			{
+				if (!await IsSyntheticExecutionInsertRaceAsync(exception, cancellationToken).ConfigureAwait(false))
+					throw;
+				// The failed context is disposed by the operation; retry with the execution inserted by the winner.
 			}
 		}
 	}
@@ -1593,33 +1728,96 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 		await strategy.ExecuteAsync(operation, cancellationToken).ConfigureAwait(false);
 	}
 
-	private async ValueTask MutateOwnedAsync(
+	private async ValueTask<bool> IsSyntheticExecutionInsertRaceAsync(
+		DbUpdateException exception,
+		CancellationToken cancellationToken
+	)
+	{
+		var syntheticExecutions = exception.Entries
+			.Select(static entry => entry.Entity)
+			.OfType<ImmediateJobExecutionEntity>()
+			.Where(static execution => execution.IsSynthetic)
+			.DistinctBy(static execution => (execution.JobId, execution.Attempt))
+			.ToArray();
+		if (syntheticExecutions.Length == 0)
+			return false;
+
+		try
+		{
+			await using var context = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+			foreach (var execution in syntheticExecutions)
+			{
+				if (!await context.Set<ImmediateJobExecutionEntity>()
+					.AsNoTracking()
+					.AnyAsync(
+						item => item.JobId == execution.JobId && item.Attempt == execution.Attempt,
+						cancellationToken
+					)
+					.ConfigureAwait(false))
+				{
+					return false;
+				}
+			}
+
+			return true;
+		}
+		catch (Exception verificationException) when (
+			verificationException is DbException or InvalidOperationException
+		)
+		{
+			return false;
+		}
+	}
+
+	private ValueTask MutateOwnedAsync(
 		string jobId,
+		int executionNumber,
 		string workerId,
-		Action<ImmediateJobEntity> mutate,
+		Action<ImmediateJobEntity, ImmediateJobExecutionEntity> mutate,
+		CancellationToken cancellationToken
+	) => RetryConcurrencyAsync(
+		operationCancellationToken => MutateOwnedOnceAsync(
+			jobId,
+			executionNumber,
+			workerId,
+			mutate,
+			operationCancellationToken
+		),
+		cancellationToken
+	);
+
+	private async Task MutateOwnedOnceAsync(
+		string jobId,
+		int executionNumber,
+		string workerId,
+		Action<ImmediateJobEntity, ImmediateJobExecutionEntity> mutate,
 		CancellationToken cancellationToken
 	)
 	{
 		await using var context = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
 		var job = await context.Set<ImmediateJobEntity>()
-			.SingleOrDefaultAsync(item => item.Id == jobId && item.State == JobState.Active && item.WorkerId == workerId, cancellationToken)
-			.ConfigureAwait(false);
-		if (job is null)
-			return;
-		mutate(job);
+			.SingleOrDefaultAsync(item => item.Id == jobId && item.Attempt == executionNumber && item.State == JobState.Active && item.WorkerId == workerId, cancellationToken)
+			.ConfigureAwait(false) ?? throw new ImmediateJobException($"Worker '{workerId}' does not own active job '{jobId}'.");
+		var execution = await GetOrMaterializeExecutionAsync(context, job, cancellationToken).ConfigureAwait(false)
+			?? throw new ImmediateJobException($"Active job '{job.Id}' has no execution ordinal.");
+		mutate(job, execution);
 		job.ConcurrencyStamp = Guid.NewGuid();
 		try
 		{
 			_ = await context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 		}
-		catch (DbUpdateConcurrencyException)
+		catch (DbUpdateConcurrencyException exception)
 		{
-			// A stale worker must not update a lease that has been reclaimed.
+			throw new ImmediateJobException(
+				$"Worker '{workerId}' does not own active job '{jobId}'.",
+				exception
+			);
 		}
 	}
 
 	private async Task MutateOwnedCoreAsync(
 		string jobId,
+		int executionNumber,
 		string workerId,
 		string? error,
 		DateTimeOffset? nextRetryAt,
@@ -1631,12 +1829,14 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 		await using var context = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
 		await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
 		var job = await context.Set<ImmediateJobEntity>()
-			.SingleOrDefaultAsync(item => item.Id == jobId && item.State == JobState.Active && item.WorkerId == workerId, cancellationToken)
-			.ConfigureAwait(false);
-		if (job is null)
-			throw new ImmediateJobException($"Worker '{workerId}' does not own active job '{jobId}'.");
-
+			.SingleOrDefaultAsync(item => item.Id == jobId && item.Attempt == executionNumber && item.State == JobState.Active && item.WorkerId == workerId, cancellationToken)
+			.ConfigureAwait(false) ?? throw new ImmediateJobException($"Worker '{workerId}' does not own active job '{jobId}'.");
 		var now = _timeProvider.GetUtcNow();
+		var execution = await GetOrMaterializeExecutionAsync(context, job, cancellationToken).ConfigureAwait(false)
+			?? throw new ImmediateJobException($"Active job '{job.Id}' has no execution ordinal.");
+		execution.State = succeeded ? JobExecutionState.Succeeded : JobExecutionState.Failed;
+		execution.CompletedAt = now;
+		execution.Error = error;
 		job.WorkerId = null;
 		job.LeaseExpiresAt = null;
 		job.LastError = error;
@@ -1728,6 +1928,7 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 
 	private async Task AddBatchJobCoreAsync(
 		string currentJobId,
+		int executionNumber,
 		JobRecord record,
 		ContinuationOptions options,
 		CancellationToken cancellationToken
@@ -1736,7 +1937,7 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 		await using var context = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
 		await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
 		var current = await context.Set<ImmediateJobEntity>()
-			.SingleOrDefaultAsync(job => job.Id == currentJobId && job.State == JobState.Active, cancellationToken)
+			.SingleOrDefaultAsync(job => job.Id == currentJobId && job.Attempt == executionNumber && job.State == JobState.Active, cancellationToken)
 			.ConfigureAwait(false)
 			?? throw new ImmediateJobException($"The current active job '{currentJobId}' was not found.");
 		if (current.BatchId is not { } batchId)
@@ -1965,7 +2166,10 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 		{
 			if (edge.Trigger == ContinuationTrigger.Success
 				&& edge.ParentOutcome != ContinuationParentOutcome.Succeeded)
+			{
 				return true;
+			}
+
 			requiresFailure |= edge.Trigger == ContinuationTrigger.Failure;
 			anyFailed |= edge.ParentOutcome == ContinuationParentOutcome.Failed;
 		}
@@ -2216,9 +2420,7 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 	{
 		ArgumentException.ThrowIfNullOrWhiteSpace(name);
 		await using var context = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
-		var schedule = await context.Set<ImmediateRecurringJobEntity>().FindAsync([name], cancellationToken).ConfigureAwait(false);
-		if (schedule is null)
-			throw new KeyNotFoundException($"Recurring schedule '{name}' was not found.");
+		var schedule = await context.Set<ImmediateRecurringJobEntity>().FindAsync([name], cancellationToken).ConfigureAwait(false) ?? throw new KeyNotFoundException($"Recurring schedule '{name}' was not found.");
 		mutate(schedule);
 		schedule.ConcurrencyStamp = Guid.NewGuid();
 		_ = await context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
@@ -2283,6 +2485,87 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 		RemainingDependencies = job.RemainingDependencies,
 		FailedDependencies = job.FailedDependencies,
 		ConcurrencyStamp = Guid.NewGuid(),
+	};
+
+	private static async Task PrepareAcquisitionExecutionsAsync(
+		TContext context,
+		ImmediateJobEntity candidate,
+		string workerId,
+		DateTimeOffset acquiredAt,
+		CancellationToken cancellationToken
+	)
+	{
+		var previous = await GetOrMaterializeExecutionAsync(context, candidate, cancellationToken).ConfigureAwait(false);
+		if (candidate.State == JobState.Active && previous is not null)
+		{
+			previous.State = JobExecutionState.Interrupted;
+			previous.CompletedAt = candidate.LeaseExpiresAt;
+			previous.Error = null;
+		}
+
+		_ = context.Add(new ImmediateJobExecutionEntity
+		{
+			JobId = candidate.Id,
+			Attempt = candidate.Attempt + 1,
+			State = JobExecutionState.Active,
+			WorkerId = workerId,
+			AcquiredAt = acquiredAt,
+		});
+	}
+
+	private static async Task<ImmediateJobExecutionEntity?> GetOrMaterializeExecutionAsync(
+		TContext context,
+		ImmediateJobEntity job,
+		CancellationToken cancellationToken
+	)
+	{
+		if (job.Attempt <= 0)
+			return null;
+		var execution = await context.Set<ImmediateJobExecutionEntity>()
+			.SingleOrDefaultAsync(
+				item => item.JobId == job.Id && item.Attempt == job.Attempt,
+				cancellationToken
+			)
+			.ConfigureAwait(false);
+		if (execution is not null)
+			return execution;
+
+		var synthetic = JobExecutionRecord.CreateSynthetic(ToRecord(job));
+		if (synthetic is null)
+			return null;
+		execution = ToEntity(synthetic);
+		_ = context.Add(execution);
+		return execution;
+	}
+
+	private static ImmediateJobExecutionEntity ToEntity(JobExecutionRecord execution) => new()
+	{
+		JobId = execution.JobId,
+		Attempt = execution.Attempt,
+		State = execution.State,
+		WorkerId = execution.WorkerId,
+		AcquiredAt = execution.AcquiredAt,
+		ExecutionStartedAt = execution.ExecutionStartedAt,
+		CompletedAt = execution.CompletedAt,
+		ExecutionTraceId = execution.ExecutionTraceId,
+		ExecutionSpanId = execution.ExecutionSpanId,
+		Error = execution.Error,
+		IsSynthetic = execution.IsSynthetic,
+	};
+
+	private static JobExecutionRecord ToRecord(ImmediateJobExecutionEntity execution) => new()
+	{
+		JobId = execution.JobId,
+		Attempt = execution.Attempt,
+		State = execution.State,
+		WorkerId = execution.WorkerId,
+		AcquiredAt = execution.AcquiredAt,
+		ExecutionStartedAt = execution.ExecutionStartedAt,
+		CompletedAt = execution.CompletedAt,
+		ExecutionTraceId = execution.ExecutionTraceId,
+		ExecutionSpanId = execution.ExecutionSpanId,
+		Error = execution.Error,
+		IsSynthetic = execution.IsSynthetic,
 	};
 
 	private static ImmediateJobContinuationEntity ToEntity(JobContinuationEdge edge)

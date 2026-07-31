@@ -345,6 +345,11 @@ adapter package deliberately carries none of them. Named schemas are supported o
 SQL Server. SQLite has no server schemas and is normally embedded/file-backed, including in the
 storage conformance tests.
 
+Upgrading either relational adapter for retained execution history requires the
+`immediate_job_executions` table. Apply the corresponding application migration before deploying the
+new binaries. During a mixed-version rollout, history remains best effort until all scheduler nodes
+have been upgraded.
+
 Queue-aware dispatch changes the provider acquisition seam to `AcquireDueJobsAsync(JobAcquisitionRequest, ...)`. Custom providers must honor the request's queue order, queue capacities, and per-job capacities when upgrading.
 
 ## Monitoring API
@@ -364,16 +369,24 @@ app.MapImmediateJobsDashboard("/jobs", options =>
 {
 	_ = options.RequireAuthorization("operations");
 	_ = options.AddTelemetryLink(
-		"View latest trace",
+		"View execution trace",
 		JobTelemetryLinkKind.Trace,
-		context => context.Job.ExecutionTraceId is { } traceId
+		context => context.Execution?.ExecutionTraceId is { } traceId
 			? new(traceExplorer, $"trace/{traceId}")
+			: null);
+	_ = options.AddTelemetryLink(
+		"View execution logs",
+		JobTelemetryLinkKind.Logs,
+		context => context.Execution is { } execution
+			? new(logExplorer,
+				$"search?jobId={Uri.EscapeDataString(context.Job.Id)}&attempt={execution.Attempt}")
 			: null);
 	_ = options.AddTelemetryLink(
 		"View all retry logs",
 		JobTelemetryLinkKind.Logs,
-		context => new(logExplorer,
-			$"search?jobId={Uri.EscapeDataString(context.Job.Id)}"));
+		context => context.Execution is null
+			? new(logExplorer, $"search?jobId={Uri.EscapeDataString(context.Job.Id)}")
+			: null);
 });
 ```
 
@@ -385,12 +398,15 @@ are paged on the server in groups of 50; batch members show a link to their work
 
 Telemetry destinations are application-defined because Aspire, Jaeger, Grafana, Seq, Azure Monitor,
 and other systems use different query URLs. Each execution attempt creates a distinct `Activity`
-linked to the enqueue context; the persisted trace and span identify the latest attempt. A job-ID log
-query covers every retry because the structured logging scope includes
-`{JobName, JobId, Attempt}` on every attempt. Immediate.Jobs currently stores the attempt count and
-latest failure rather than a separate row per attempt, so it cannot offer individual links for older
-attempt spans. `AddTelemetryLink` may return `null` when a destination does not apply, and accepts
-HTTP(S) or dashboard-relative URLs.
+linked to the enqueue context. Every acquired execution is retained with its outcome, worker, timing,
+trace/span identifiers, and full failure text until its owning job or batch is deleted. The job-detail
+timeline is newest first and supplies the exact execution to telemetry-link callbacks; job-level
+callbacks receive `Execution = null`, which supports a stable-job-ID log query across every retry.
+For compatibility, exact-execution callbacks also see that execution's attempt, trace ID, span ID,
+and start time in the corresponding `context.Job` latest-execution fields.
+`JobRecord.ExecutionTraceId`, `ExecutionSpanId`, and `ExecutionStartedAt` remain the latest-execution
+compatibility projection. `AddTelemetryLink` may return `null` when a destination does not apply, and
+accepts HTTP(S) or dashboard-relative URLs.
 
 ## Testing
 
@@ -475,6 +491,7 @@ dotnet run --project benchmarks/Immediate.Jobs.Benchmarks -c Release -- --filter
 - Attempts: 3 total, exponential backoff with jitter from 5 seconds.
 - Successful history: 24 hours.
 - Failed history: 7 days.
+- Execution history: the same lifetime as its owning job or batch.
 - Graceful worker drain: 30 seconds.
 
 These values are configurable globally or, where applicable, on `[Job]`.

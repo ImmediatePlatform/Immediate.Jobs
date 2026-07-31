@@ -99,6 +99,33 @@ internal sealed class ImmediateJobEntity
 	public Guid ConcurrencyStamp { get; set; }
 }
 
+[Table(Name = "immediate_job_executions")]
+internal sealed class ImmediateJobExecutionEntity
+{
+	[PrimaryKey(1), Column(Length = 256, CanBeNull = false)]
+	public string JobId { get; set; } = null!;
+	[PrimaryKey(2), Column]
+	public int Attempt { get; set; }
+	[Column(DataType = DataType.Int16)]
+	public JobExecutionState State { get; set; }
+	[Column(Length = 256, CanBeNull = true)]
+	public string? WorkerId { get; set; }
+	[Column(DataType = DataType.Int64, CanBeNull = true)]
+	public long? AcquiredAt { get; set; }
+	[Column(DataType = DataType.Int64, CanBeNull = true)]
+	public long? ExecutionStartedAt { get; set; }
+	[Column(DataType = DataType.Int64, CanBeNull = true)]
+	public long? CompletedAt { get; set; }
+	[Column(Length = 32, CanBeNull = true)]
+	public string? ExecutionTraceId { get; set; }
+	[Column(Length = 16, CanBeNull = true)]
+	public string? ExecutionSpanId { get; set; }
+	[Column(DataType = DataType.Text, CanBeNull = true)]
+	public string? Error { get; set; }
+	[Column]
+	public bool IsSynthetic { get; set; }
+}
+
 [Table(Name = "immediate_fair_queue_groups")]
 internal sealed class ImmediateFairQueueGroupEntity
 {

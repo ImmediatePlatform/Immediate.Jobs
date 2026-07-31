@@ -109,11 +109,18 @@ public static class ImmediateJobsDashboardEndpointRouteBuilderExtensions
 		});
 
 		_ = api.MapGet("/jobs/{jobId}", GetJobAsync);
+		_ = api.MapGet("/jobs/{jobId}/executions", GetJobExecutionsAsync);
 		_ = api.MapGet("/jobs/{jobId}/telemetry-links", (
 			string jobId,
 			IJobStorage storage,
 			CancellationToken cancellationToken
-		) => GetJobTelemetryLinksAsync(jobId, storage, options, cancellationToken));
+		) => GetJobTelemetryLinksAsync(jobId, executionNumber: null, storage, options, cancellationToken));
+		_ = api.MapGet("/jobs/{jobId}/executions/{executionNumber:int}/telemetry-links", (
+			string jobId,
+			int executionNumber,
+			IJobStorage storage,
+			CancellationToken cancellationToken
+		) => GetJobTelemetryLinksAsync(jobId, executionNumber, storage, options, cancellationToken));
 		_ = api.MapGet("/batches", async (
 			IJobStorage storage,
 			BatchState? state,
@@ -246,8 +253,38 @@ public static class ImmediateJobsDashboardEndpointRouteBuilderExtensions
 			: Results.Json(job, DashboardJsonSerializerContext.Default.JobRecord);
 	}
 
+	private static async Task<IResult> GetJobExecutionsAsync(
+		string jobId,
+		int? skip,
+		int? take,
+		IJobStorage storage,
+		CancellationToken cancellationToken
+	)
+	{
+		var pageStart = Math.Max(0, skip ?? 0);
+		var pageSize = Math.Clamp(take ?? 50, 1, 200);
+
+		var jobs = await storage.QueryJobsAsync(new() { Id = jobId, Take = 1 }, cancellationToken).ConfigureAwait(false);
+		if (jobs.Count == 0)
+			return Results.NotFound();
+		var executions = await storage.QueryJobExecutionsAsync(new()
+		{
+			JobId = jobId,
+			Skip = pageStart,
+			Take = pageSize + 1,
+		}, cancellationToken).ConfigureAwait(false);
+		var page = new DashboardJobExecutionPage(
+			[.. executions.Take(pageSize)],
+			pageStart,
+			pageSize,
+			executions.Count > pageSize
+		);
+		return Results.Json(page, DashboardJsonSerializerContext.Default.DashboardJobExecutionPage);
+	}
+
 	private static async Task<IResult> GetJobTelemetryLinksAsync(
 		string jobId,
+		int? executionNumber,
 		IJobStorage storage,
 		ImmediateJobsDashboardOptions options,
 		CancellationToken cancellationToken
@@ -257,10 +294,33 @@ public static class ImmediateJobsDashboardEndpointRouteBuilderExtensions
 		var job = jobs.SingleOrDefault();
 		if (job is null)
 			return Results.NotFound();
+		JobExecutionRecord? execution = null;
+		if (executionNumber is { } attempt)
+		{
+			if (attempt <= 0)
+				return Results.BadRequest();
+			var executions = await storage.QueryJobExecutionsAsync(
+				new() { JobId = jobId, Attempt = attempt, Take = 1 },
+				cancellationToken
+			).ConfigureAwait(false);
+			execution = executions.SingleOrDefault();
+			if (execution is null)
+				return Results.NotFound();
+		}
+
 		if (options.TelemetryLinks.Count == 0)
 			return Results.Json([], DashboardJsonSerializerContext.Default.JobTelemetryLinkArray);
 
-		var context = new JobTelemetryLinkContext(job);
+		var contextJob = execution is null
+			? job
+			: job with
+			{
+				Attempt = execution.Attempt,
+				ExecutionTraceId = execution.ExecutionTraceId,
+				ExecutionSpanId = execution.ExecutionSpanId,
+				ExecutionStartedAt = execution.ExecutionStartedAt,
+			};
+		var context = new JobTelemetryLinkContext(contextJob) { Execution = execution };
 		var links = new List<JobTelemetryLink>(options.TelemetryLinks.Count);
 		foreach (var registration in options.TelemetryLinks)
 		{

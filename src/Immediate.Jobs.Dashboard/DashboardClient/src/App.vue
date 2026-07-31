@@ -60,6 +60,7 @@ const connectionLabel = computed(() => {
 
 function navigationIsActive(name: string): boolean {
 	return route.name === name
+		|| (name === 'jobs' && route.name === 'job-detail')
 		|| (name === 'batches' && (route.name === 'batch-detail' || route.name === 'batch-job'));
 }
 </script>

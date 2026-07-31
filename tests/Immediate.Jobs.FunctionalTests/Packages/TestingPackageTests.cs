@@ -199,7 +199,7 @@ public sealed class TestingPackageTests
 				},
 			],
 		}, cancellationToken));
-		await graphStorage.FailAsync(parent.Id, "worker", "broken", nextRetryAt: null, cancellationToken);
+		await graphStorage.FailAsync(parent.Id, 1, "worker", "broken", nextRetryAt: null, cancellationToken);
 
 		var exception = await Assert.ThrowsAsync<JobTestAssertionException>(
 			() => harness.AssertContinuationReleasedAfterAsync(new(parent.Id), new(child.Id), cancellationToken).AsTask()

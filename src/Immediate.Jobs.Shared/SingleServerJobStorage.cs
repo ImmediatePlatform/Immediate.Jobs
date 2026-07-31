@@ -119,8 +119,9 @@ public sealed class SingleServerJobStorage :
 			request.Lease,
 			cancellationToken
 		).ConfigureAwait(false);
+		var replicatedExecutions = replicated.ToDictionary(static job => job.Id, static job => job.Attempt, StringComparer.Ordinal);
 		if (acquired.Count != replicated.Count ||
-			!acquired.Select(x => x.Id).ToHashSet(StringComparer.Ordinal).SetEquals(replicated.Select(x => x.Id)))
+			acquired.Any(job => !replicatedExecutions.TryGetValue(job.Id, out var attempt) || attempt != job.Attempt))
 		{
 			throw new ImmediateJobException(
 				"The durable job replica has drifted from the authoritative in-memory queue. " +
@@ -134,6 +135,7 @@ public sealed class SingleServerJobStorage :
 	/// <inheritdoc />
 	public async ValueTask SetExecutionTelemetryAsync(
 		string jobId,
+		int executionNumber,
 		string workerId,
 		string? traceId,
 		string? spanId,
@@ -144,6 +146,7 @@ public sealed class SingleServerJobStorage :
 		await EnsureInitializedAsync(cancellationToken).ConfigureAwait(false);
 		await DurableStorage.SetExecutionTelemetryAsync(
 			jobId,
+			executionNumber,
 			workerId,
 			traceId,
 			spanId,
@@ -152,6 +155,7 @@ public sealed class SingleServerJobStorage :
 		).ConfigureAwait(false);
 		await _primary.SetExecutionTelemetryAsync(
 			jobId,
+			executionNumber,
 			workerId,
 			traceId,
 			spanId,
@@ -163,55 +167,64 @@ public sealed class SingleServerJobStorage :
 	/// <inheritdoc />
 	public async ValueTask RenewLeaseAsync(
 		string jobId,
+		int executionNumber,
 		string workerId,
 		TimeSpan lease,
 		CancellationToken cancellationToken = default
 	)
 	{
 		await EnsureInitializedAsync(cancellationToken).ConfigureAwait(false);
-		await DurableStorage.RenewLeaseAsync(jobId, workerId, lease, cancellationToken).ConfigureAwait(false);
-		await _primary.RenewLeaseAsync(jobId, workerId, lease, cancellationToken).ConfigureAwait(false);
+		await DurableStorage.RenewLeaseAsync(jobId, executionNumber, workerId, lease, cancellationToken).ConfigureAwait(false);
+		await _primary.RenewLeaseAsync(jobId, executionNumber, workerId, lease, cancellationToken).ConfigureAwait(false);
 	}
 
 	/// <inheritdoc />
-	public async ValueTask CompleteAsync(string jobId, string workerId, CancellationToken cancellationToken = default)
+	public async ValueTask CompleteAsync(
+		string jobId,
+		int executionNumber,
+		string workerId,
+		CancellationToken cancellationToken = default
+	)
 	{
 		await EnsureInitializedAsync(cancellationToken).ConfigureAwait(false);
-		await DurableStorage.CompleteAsync(jobId, workerId, cancellationToken).ConfigureAwait(false);
-		await _primary.CompleteAsync(jobId, workerId, cancellationToken).ConfigureAwait(false);
+		await DurableStorage.CompleteAsync(jobId, executionNumber, workerId, cancellationToken).ConfigureAwait(false);
+		await _primary.CompleteAsync(jobId, executionNumber, workerId, cancellationToken).ConfigureAwait(false);
 	}
 
 	/// <inheritdoc />
 	public async ValueTask CompleteWithContinuationsAsync(
 		string jobId,
+		int executionNumber,
 		string workerId,
 		IReadOnlyList<JobContinuationAddition> additions,
 		CancellationToken cancellationToken = default
 	)
 	{
 		await EnsureInitializedAsync(cancellationToken).ConfigureAwait(false);
-		await _graphDurableStorage.CompleteWithContinuationsAsync(jobId, workerId, additions, cancellationToken)
+		await _graphDurableStorage.CompleteWithContinuationsAsync(jobId, executionNumber, workerId, additions, cancellationToken)
 			.ConfigureAwait(false);
-		await _primary.CompleteWithContinuationsAsync(jobId, workerId, additions, cancellationToken)
+		await _primary.CompleteWithContinuationsAsync(jobId, executionNumber, workerId, additions, cancellationToken)
 			.ConfigureAwait(false);
 	}
 
 	/// <inheritdoc />
 	public async ValueTask AddBatchJobAsync(
 		string currentJobId,
+		int executionNumber,
 		JobRecord job,
 		ContinuationOptions options,
 		CancellationToken cancellationToken = default
 	)
 	{
 		await EnsureInitializedAsync(cancellationToken).ConfigureAwait(false);
-		await _graphDurableStorage.AddBatchJobAsync(currentJobId, job, options, cancellationToken).ConfigureAwait(false);
-		await _primary.AddBatchJobAsync(currentJobId, job, options, cancellationToken).ConfigureAwait(false);
+		await _graphDurableStorage.AddBatchJobAsync(currentJobId, executionNumber, job, options, cancellationToken).ConfigureAwait(false);
+		await _primary.AddBatchJobAsync(currentJobId, executionNumber, job, options, cancellationToken).ConfigureAwait(false);
 	}
 
 	/// <inheritdoc />
 	public async ValueTask FailAsync(
 		string jobId,
+		int executionNumber,
 		string workerId,
 		string error,
 		DateTimeOffset? nextRetryAt,
@@ -219,8 +232,8 @@ public sealed class SingleServerJobStorage :
 	)
 	{
 		await EnsureInitializedAsync(cancellationToken).ConfigureAwait(false);
-		await DurableStorage.FailAsync(jobId, workerId, error, nextRetryAt, cancellationToken).ConfigureAwait(false);
-		await _primary.FailAsync(jobId, workerId, error, nextRetryAt, cancellationToken).ConfigureAwait(false);
+		await DurableStorage.FailAsync(jobId, executionNumber, workerId, error, nextRetryAt, cancellationToken).ConfigureAwait(false);
+		await _primary.FailAsync(jobId, executionNumber, workerId, error, nextRetryAt, cancellationToken).ConfigureAwait(false);
 	}
 
 	/// <inheritdoc />
@@ -307,6 +320,17 @@ public sealed class SingleServerJobStorage :
 	{
 		await EnsureInitializedAsync(cancellationToken).ConfigureAwait(false);
 		return await _primary.QueryJobsAsync(query, cancellationToken).ConfigureAwait(false);
+	}
+
+	/// <inheritdoc />
+	public async ValueTask<IReadOnlyList<JobExecutionRecord>> QueryJobExecutionsAsync(
+		JobExecutionQuery query,
+		CancellationToken cancellationToken = default
+	)
+	{
+		await EnsureInitializedAsync(cancellationToken).ConfigureAwait(false);
+		// Recovery restores current jobs and related state into the primary, but not retained executions.
+		return await DurableStorage.QueryJobExecutionsAsync(query, cancellationToken).ConfigureAwait(false);
 	}
 
 	/// <inheritdoc />

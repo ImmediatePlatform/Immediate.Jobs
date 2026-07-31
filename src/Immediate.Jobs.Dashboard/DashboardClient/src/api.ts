@@ -3,6 +3,7 @@ import type {
 	BatchState,
 	BatchStatus,
 	DashboardJobPage,
+	DashboardJobExecutionPage,
 	JobFilters,
 	JobMonitoringSnapshot,
 	JobRecord,
@@ -89,6 +90,27 @@ export function getJob(jobId: string, signal?: AbortSignal): Promise<JobRecord> 
 
 export function getJobTelemetryLinks(jobId: string, signal?: AbortSignal): Promise<JobTelemetryLink[]> {
 	return request(`jobs/${encodeURIComponent(jobId)}/telemetry-links`, { signal });
+}
+
+export function getJobExecutions(
+	jobId: string,
+	skip = 0,
+	take = 20,
+	signal?: AbortSignal,
+): Promise<DashboardJobExecutionPage> {
+	const parameters = new URLSearchParams({ skip: String(skip), take: String(take) });
+	return request(`jobs/${encodeURIComponent(jobId)}/executions?${parameters}`, { signal });
+}
+
+export function getJobExecutionTelemetryLinks(
+	jobId: string,
+	executionNumber: number,
+	signal?: AbortSignal,
+): Promise<JobTelemetryLink[]> {
+	return request(
+		`jobs/${encodeURIComponent(jobId)}/executions/${executionNumber}/telemetry-links`,
+		{ signal },
+	);
 }
 
 export function getBatches(signal?: AbortSignal): Promise<BatchStatus[]> {

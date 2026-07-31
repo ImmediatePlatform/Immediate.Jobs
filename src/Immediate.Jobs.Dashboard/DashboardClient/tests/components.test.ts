@@ -2,8 +2,9 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 import { flushPromises, mount } from '@vue/test-utils';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { getJobExecutions, getJobExecutionTelemetryLinks } from '@/api';
 import BatchTable from '@/components/BatchTable.vue';
 import HistoryChart from '@/components/HistoryChart.vue';
 import JobDetail from '@/components/JobDetail.vue';
@@ -15,7 +16,21 @@ import { completedJob, executingBatch, workflowGraph } from './fixtures';
 
 const dashboardStyles = readFileSync(resolve(process.cwd(), 'src/styles.css'), 'utf8');
 
+vi.mock('@/api', async importOriginal => ({
+	...await importOriginal<typeof import('@/api')>(),
+	getJobExecutions: vi.fn(),
+	getJobExecutionTelemetryLinks: vi.fn(),
+}));
+
+const getJobExecutionsMock = vi.mocked(getJobExecutions);
+const getJobExecutionTelemetryLinksMock = vi.mocked(getJobExecutionTelemetryLinks);
+
 describe('dashboard components', () => {
+	beforeEach(() => {
+		getJobExecutionsMock.mockReset().mockResolvedValue({ items: [], skip: 0, take: 20, hasNext: false });
+		getJobExecutionTelemetryLinksMock.mockReset().mockResolvedValue([]);
+	});
+
 	it('renders multi-word metric labels as readable text', () => {
 		const wrapper = mount(MetricCard, {
 			props: { label: 'AwaitingContinuation', value: 3 },
@@ -25,13 +40,36 @@ describe('dashboard components', () => {
 		expect(dashboardStyles).not.toMatch(/\.metric-label\s*\{[^}]*text-transform:\s*uppercase/s);
 	});
 
-	it('renders job rows and complete payload/context details', () => {
+	it('renders job rows, retained executions, and complete payload/context details', async () => {
+		const attemptTraceId = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+		const attemptSpanId = 'bbbbbbbbbbbbbbbb';
 		const table = mount(JobTable, { props: { rows: [completedJob] } });
 		expect(table.text()).toContain('SendGreeting');
 		expect(table.text()).toContain('Succeeded');
 		expect(table.text()).toContain('batch-42');
 		expect(table.text()).toContain('tenant-a');
 
+		getJobExecutionsMock.mockResolvedValue({
+			items: [{
+				jobId: completedJob.id,
+				attempt: completedJob.attempt,
+				state: 'Succeeded',
+				workerId: 'worker-1',
+				acquiredAt: '2026-07-21T12:01:00Z',
+				executionStartedAt: completedJob.executionStartedAt,
+				completedAt: completedJob.completedAt,
+				executionTraceId: attemptTraceId,
+				executionSpanId: attemptSpanId,
+				error: null,
+				isSynthetic: false,
+			}],
+			skip: 0,
+			take: 20,
+			hasNext: false,
+		});
+		getJobExecutionTelemetryLinksMock.mockResolvedValue([
+			{ label: 'View execution trace', kind: 'Trace', url: `https://telemetry.example/traces/${attemptTraceId}` },
+		]);
 		const detail = mount(JobDetail, {
 			props: {
 				job: completedJob,
@@ -41,6 +79,7 @@ describe('dashboard components', () => {
 				],
 			},
 		});
+		await flushPromises();
 		expect(detail.attributes('aria-label')).toBe('Details for SendGreeting');
 		expect(detail.text()).toContain('Payload');
 		expect(detail.text()).toContain('Duke');
@@ -48,15 +87,163 @@ describe('dashboard components', () => {
 		expect(detail.text()).toContain('curl/8.7.1');
 		expect(detail.text()).toContain('Group');
 		expect(detail.text()).toContain('tenant-a');
-		expect(detail.text()).toContain('4bf92f3577b34da6a3ce929d0e0e4736');
+		expect(detail.text()).toContain('Trace ID');
+		expect(detail.text()).toContain(attemptTraceId);
+		expect(detail.text()).toContain('Span ID');
+		expect(detail.text()).toContain(attemptSpanId);
+		expect(detail.text()).not.toContain(completedJob.executionTraceId);
+		expect(getJobExecutionTelemetryLinksMock).toHaveBeenCalledWith(completedJob.id, completedJob.attempt, expect.any(AbortSignal));
 		expect(detail.get('a[href="https://telemetry.example/traces/4bf92f"]').attributes('target')).toBe('_blank');
-		expect(detail.get('a[aria-label="View all retry logs"]').text()).toContain('Logs');
+		expect(detail.get(`a[href="https://telemetry.example/traces/${attemptTraceId}"]`).attributes('target')).toBe('_blank');
+		expect(detail.get('a[aria-label="View all retry logs"]').text()).toContain('retry logs');
 		expect(detail.text()).not.toContain('Observability');
 	});
 
-	it('does not clip inline job details', () => {
-		expect(dashboardStyles).toMatch(/\.job-detail-row > td\s*\{[^}]*max-width:\s*0/s);
-		expect(dashboardStyles).toMatch(/\.inline-job-detail \.inspector\s*\{[^}]*overflow:\s*visible/s);
+	it('copies an execution trace ID from the property grid', async () => {
+		const traceId = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+		const writeText = vi.fn().mockResolvedValue(undefined);
+		getJobExecutionsMock.mockResolvedValue({
+			items: [{
+				jobId: completedJob.id,
+				attempt: 3,
+				state: 'Succeeded',
+				workerId: 'worker-1',
+				acquiredAt: '2026-07-21T12:01:00Z',
+				executionStartedAt: '2026-07-21T12:01:01Z',
+				completedAt: '2026-07-21T12:01:02Z',
+				executionTraceId: traceId,
+				executionSpanId: 'bbbbbbbbbbbbbbbb',
+				error: null,
+				isSynthetic: false,
+			}],
+			skip: 0,
+			take: 20,
+			hasNext: false,
+		});
+
+		const detail = mount(JobDetail, { props: { job: completedJob } });
+		await flushPromises();
+		vi.stubGlobal('navigator', { clipboard: { writeText } });
+		const copyTrace = detail.get('button[aria-label="Copy trace ID for attempt 3"]');
+
+		await copyTrace.trigger('click');
+		await flushPromises();
+
+		expect(writeText).toHaveBeenCalledWith(traceId);
+		expect(copyTrace.attributes('aria-label')).toBe('Copied trace ID for attempt 3');
+	});
+
+	it('expands the newest execution and collapses older executions by default', async () => {
+		const execution = {
+			jobId: completedJob.id,
+			state: 'Failed' as const,
+			workerId: 'worker-1',
+			acquiredAt: '2026-07-21T12:01:00Z',
+			executionStartedAt: '2026-07-21T12:01:01Z',
+			completedAt: '2026-07-21T12:01:02Z',
+			executionTraceId: null,
+			executionSpanId: null,
+			error: 'failed',
+			isSynthetic: false,
+		};
+		getJobExecutionsMock.mockResolvedValue({
+			items: [
+				{ ...execution, attempt: 3, state: 'Succeeded', error: null },
+				{ ...execution, attempt: 2 },
+				{ ...execution, attempt: 1 },
+			],
+			skip: 0,
+			take: 20,
+			hasNext: false,
+		});
+
+		const detail = mount(JobDetail, { props: { job: completedJob } });
+		await flushPromises();
+		const cards = detail.findAll('details.execution-card');
+
+		expect(cards).toHaveLength(3);
+		expect(cards[0]?.attributes('open')).toBeDefined();
+		expect(cards[1]?.attributes('open')).toBeUndefined();
+		expect(cards[2]?.attributes('open')).toBeUndefined();
+		expect(cards[1]?.get('summary').text()).toContain('Attempt 2');
+		expect(cards[1]?.get('summary').text()).toContain('Failed');
+	});
+
+	it('preserves loaded executions when the cached job object is replaced', async () => {
+		const execution = {
+			jobId: completedJob.id,
+			state: 'Succeeded' as const,
+			workerId: 'worker-1',
+			acquiredAt: '2026-07-21T12:01:00Z',
+			executionStartedAt: '2026-07-21T12:01:01Z',
+			completedAt: '2026-07-21T12:01:02Z',
+			executionTraceId: null,
+			executionSpanId: null,
+			error: null,
+			isSynthetic: false,
+		};
+		getJobExecutionsMock
+			.mockResolvedValueOnce({
+				items: [{ ...execution, attempt: 3 }],
+				skip: 0,
+				take: 20,
+				hasNext: true,
+			})
+			.mockResolvedValueOnce({
+				items: [{ ...execution, attempt: 2 }],
+				skip: 1,
+				take: 20,
+				hasNext: false,
+			})
+			.mockResolvedValueOnce({
+				items: [{ ...execution, attempt: 4 }],
+				skip: 0,
+				take: 20,
+				hasNext: false,
+			});
+
+		const detail = mount(JobDetail, { props: { job: completedJob } });
+		await flushPromises();
+		await detail.get('.execution-history > button').trigger('click');
+		await flushPromises();
+
+		await detail.setProps({ job: { ...completedJob, lastError: 'cache refresh' } });
+		await flushPromises();
+		expect(getJobExecutionsMock).toHaveBeenCalledTimes(2);
+		expect(detail.findAll('details.execution-card')).toHaveLength(2);
+
+		await detail.setProps({ job: { ...completedJob, attempt: completedJob.attempt + 1 } });
+		await flushPromises();
+		expect(getJobExecutionsMock).toHaveBeenCalledTimes(3);
+		expect(detail.findAll('details.execution-card')).toHaveLength(1);
+	});
+
+	it('keeps execution history visible when a telemetry link fails', async () => {
+		getJobExecutionsMock.mockResolvedValue({
+			items: [{
+				jobId: completedJob.id,
+				attempt: completedJob.attempt,
+				state: 'Succeeded',
+				workerId: 'worker-1',
+				acquiredAt: '2026-07-21T12:01:00Z',
+				executionStartedAt: completedJob.executionStartedAt,
+				completedAt: completedJob.completedAt,
+				executionTraceId: null,
+				executionSpanId: null,
+				error: null,
+				isSynthetic: false,
+			}],
+			skip: 0,
+			take: 20,
+			hasNext: false,
+		});
+		getJobExecutionTelemetryLinksMock.mockRejectedValue(new Error('telemetry unavailable'));
+
+		const detail = mount(JobDetail, { props: { job: completedJob } });
+		await flushPromises();
+
+		expect(detail.text()).toContain(`Attempt ${completedJob.attempt}`);
+		expect(detail.text()).not.toContain('telemetry unavailable');
 	});
 
 	it('can fast-forward scheduled jobs', async () => {
@@ -115,30 +302,14 @@ describe('dashboard components', () => {
 		expect(groupCell.find('.text-muted').exists()).toBe(!rendersGroup);
 	});
 
-	it('expands selected job details immediately below its row and scrolls the row into view', async () => {
-		const scrollIntoView = vi.spyOn(HTMLElement.prototype, 'scrollIntoView');
-		const wrapper = mount(JobTable, {
-			props: { rows: [completedJob], selectedId: completedJob.id },
-			slots: { details: '<div data-testid="inline-details">Selected details</div>' },
-		});
-		await flushPromises();
+	it('keeps one table row per job and emits navigation without inserting details', async () => {
+		const wrapper = mount(JobTable, { props: { rows: [completedJob] } });
 
-		const bodyRows = wrapper.findAll('tbody tr');
-		expect(bodyRows).toHaveLength(2);
-		expect(bodyRows[0]?.attributes('data-job-id')).toBe(completedJob.id);
-		expect(bodyRows[1]?.classes()).toContain('job-detail-row');
-		expect(bodyRows[1]?.find('[data-testid="inline-details"]').exists()).toBe(true);
-		expect(wrapper.get(`button[aria-controls="job-details-${completedJob.id}"]`).attributes('aria-expanded')).toBe('true');
-		expect(scrollIntoView).toHaveBeenCalledWith({ behavior: 'smooth', block: 'start', inline: 'nearest' });
-	});
+		await wrapper.get('button[aria-label="View SendGreeting"]').trigger('click');
 
-	it('keeps deep-linked details visible when the selected job is outside the current page', () => {
-		const wrapper = mount(JobTable, {
-			props: { rows: [], selectedId: 'job-on-another-page' },
-			slots: { details: '<div data-testid="inline-details">Deep-linked details</div>' },
-		});
-
-		expect(wrapper.find('.job-detail-row [data-testid="inline-details"]').exists()).toBe(true);
+		expect(wrapper.findAll('tbody tr')).toHaveLength(1);
+		expect(wrapper.find('.job-detail-row').exists()).toBe(false);
+		expect(wrapper.emitted('select')?.[0]).toEqual([completedJob]);
 	});
 
 	it('renders segmented batch progress and lifecycle actions', () => {
