@@ -1709,7 +1709,7 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 			{
 				// The transaction rolled back, so the next attempt re-evaluates the graph from durable state.
 			}
-			catch (DbUpdateException exception)
+			catch (DbUpdateException exception) when (++concurrencyAttempt < MaxConcurrencyAttempts)
 			{
 				if (!await IsSyntheticExecutionInsertRaceAsync(exception, cancellationToken).ConfigureAwait(false))
 					throw;

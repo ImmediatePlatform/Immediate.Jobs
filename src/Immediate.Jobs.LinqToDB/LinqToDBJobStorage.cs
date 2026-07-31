@@ -2348,7 +2348,7 @@ public sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorage,
 				await connection.CommitTransactionAsync(cancellationToken).ConfigureAwait(false);
 				return;
 			}
-			catch (SyntheticExecutionInsertFailedException exception)
+			catch (SyntheticExecutionInsertFailedException exception) when (++concurrencyAttempt < maxAttempts)
 			{
 				await connection.RollbackTransactionAsync(cancellationToken).ConfigureAwait(false);
 				if (!await SyntheticExecutionExistsAsync(exception.JobId, exception.Attempt, cancellationToken)
@@ -2357,11 +2357,34 @@ public sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorage,
 					throw exception.DatabaseException;
 				}
 				// Retry in a new transaction and re-read the execution inserted by the winner.
+				await DelayConcurrencyRetryAsync(cancellationToken).ConfigureAwait(false);
 			}
 			catch (LostRaceException) when (++concurrencyAttempt < maxAttempts)
 			{
 				await connection.RollbackTransactionAsync(cancellationToken).ConfigureAwait(false);
 				await DelayConcurrencyRetryAsync(cancellationToken).ConfigureAwait(false);
+			}
+			catch (SyntheticExecutionInsertFailedException exception)
+			{
+				await connection.RollbackTransactionAsync(cancellationToken).ConfigureAwait(false);
+				if (!await SyntheticExecutionExistsAsync(exception.JobId, exception.Attempt, cancellationToken)
+					.ConfigureAwait(false))
+				{
+					throw exception.DatabaseException;
+				}
+
+				throw new ImmediateJobException(
+					"The job operation could not be completed after repeated concurrency conflicts.",
+					exception.DatabaseException
+				);
+			}
+			catch (LostRaceException exception)
+			{
+				await connection.RollbackTransactionAsync(cancellationToken).ConfigureAwait(false);
+				throw new ImmediateJobException(
+					"The job operation could not be completed after repeated concurrency conflicts.",
+					exception
+				);
 			}
 			catch
 			{
