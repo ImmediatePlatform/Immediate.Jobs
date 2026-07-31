@@ -61,10 +61,10 @@
   <ItemGroup>
 	<PackageReference Include="Cronos" />
 	<PackageReference Include="Immediate.Handlers" />
-	<PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
-	<PackageReference Include="Microsoft.Extensions.Diagnostics.HealthChecks" />
-	<PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" />
-	<PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+	<PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" NoWarn="NU5104" />
+	<PackageReference Include="Microsoft.Extensions.Diagnostics.HealthChecks" NoWarn="NU5104" />
+	<PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" NoWarn="NU5104" />
+	<PackageReference Include="Microsoft.Extensions.Logging.Abstractions" NoWarn="NU5104" />
 	<PackageReference Include="Scriban" PrivateAssets="all" GeneratePathProperty="true" />
   </ItemGroup>
 
