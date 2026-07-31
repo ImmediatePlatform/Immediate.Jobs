@@ -244,6 +244,42 @@ public sealed class ImmediateJobsGeneratorTests
 		_ = await Utility.VerifyIgnoreImmediateHandlers(result);
 	}
 
+	[Theory]
+	[InlineData("init")]
+	[InlineData("set")]
+	public void RequiredPropertyBackedPayloadGeneratesCompilableMetadata(string setterKeyword)
+	{
+		var result = GeneratorTestHelper.RunGenerator(
+			$$"""
+			using Immediate.Jobs.Shared;
+			using Immediate.Handlers.Shared;
+			using System.Threading;
+			using System.Threading.Tasks;
+
+			[Handler, Job]
+			public sealed partial class PropertyBackedPayloadJob
+			{
+				public sealed record Payload
+				{
+					public required int Value { get; {{setterKeyword}}; }
+				}
+
+				private ValueTask HandleAsync(Payload payload, CancellationToken cancellationToken) =>
+					ValueTask.CompletedTask;
+			}
+			"""
+		);
+
+		var generated = Assert.Single(result.GeneratedTrees.Where(tree =>
+			tree.FilePath.EndsWith("IJ..PropertyBackedPayloadJob.g.cs", StringComparison.Ordinal)
+		));
+		Assert.Contains(
+			"Value = (int)args[0]",
+			generated.GetText(TestContext.Current.CancellationToken).ToString(),
+			StringComparison.Ordinal
+		);
+	}
+
 	[Fact]
 	public async Task ContextExtractorsGenerateOrderedCaptureRestoreMetadataAndScopedRegistrations()
 	{

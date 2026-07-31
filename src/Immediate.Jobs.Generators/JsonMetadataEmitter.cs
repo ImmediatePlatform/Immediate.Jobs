@@ -105,19 +105,49 @@ internal static class JsonMetadataEmitter
 		var members = GetMembers(type);
 		var constructor = GetConstructor(type, members);
 		var constructorParameters = constructor?.Parameters ?? ImmutableArray<IParameterSymbol>.Empty;
+		var initializerMembers = constructor is null
+			? []
+			: members
+				.Where(member => !ConstructorContains(constructor, member.Name) && CanInitialize(member))
+				.ToList();
+		var constructorParameterModels = constructorParameters
+			.Select((parameter, index) => new JsonConstructorParameterRenderModel
+			{
+				Index = index,
+				NameLiteral = Literal(parameter.Name),
+				TypeName = parameter.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
+				HasDefaultValueLiteral = parameter.HasExplicitDefaultValue ? "true" : "false",
+			})
+			.ToEquatableReadOnlyList();
+		var creationParameters = constructorParameterModels
+			.Concat(initializerMembers.Select((member, index) => new JsonConstructorParameterRenderModel
+			{
+				Index = constructorParameters.Length + index,
+				NameLiteral = Literal(member.Name),
+				TypeName = GetMemberType(member).ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
+				HasDefaultValueLiteral = member is IPropertySymbol { IsRequired: true } ? "false" : "true",
+			}))
+			.ToEquatableReadOnlyList();
+		var initializerMemberNames = new HashSet<string>(
+			initializerMembers.Select(static member => member.Name),
+			StringComparer.OrdinalIgnoreCase
+		);
 
 		return new()
 		{
-			HasParameterlessCreator = constructor is { Parameters: [] },
-			HasParameterizedCreator = constructor is { Parameters.Length: > 0 },
+			HasParameterlessCreator = constructor is { Parameters: [] } && initializerMembers.Count == 0,
+			HasParameterizedCreator = constructor is not null
+				&& (constructor.Parameters.Length > 0 || initializerMembers.Count > 0),
 
-			ConstructorParameters = constructorParameters
-				.Select((parameter, index) => new JsonConstructorParameterRenderModel
+			ConstructorParameters = constructorParameterModels,
+			CreationParameters = creationParameters,
+
+			InitializerMembers = initializerMembers
+				.Select((member, index) => new JsonInitializerMemberRenderModel
 				{
-					Index = index,
-					NameLiteral = Literal(parameter.Name),
-					TypeName = parameter.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
-					HasDefaultValueLiteral = parameter.HasExplicitDefaultValue ? "true" : "false",
+					Index = constructorParameters.Length + index,
+					Name = Escape(member.Name),
+					TypeName = GetMemberType(member).ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
 				})
 				.ToEquatableReadOnlyList(),
 
@@ -132,7 +162,8 @@ internal static class JsonMetadataEmitter
 						TypeName = memberType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
 						IsPropertyLiteral = member is IPropertySymbol ? "true" : "false",
 						CanSet = CanSet(member),
-						IsConstructorBound = constructor is not null && ConstructorContains(constructor, member.Name),
+						IsConstructorBound = constructor is not null
+							&& (ConstructorContains(constructor, member.Name) || initializerMemberNames.Contains(member.Name)),
 					};
 				})
 				.ToEquatableReadOnlyList(),
@@ -214,6 +245,13 @@ internal static class JsonMetadataEmitter
 		IFieldSymbol field => !field.IsReadOnly && !field.IsConst,
 		_ => false,
 	};
+
+	private static bool CanInitialize(ISymbol member) =>
+		member is IPropertySymbol
+		{
+			SetMethod: { DeclaredAccessibility: Accessibility.Public } setter,
+		} property
+		&& (setter.IsInitOnly || property.IsRequired);
 
 	private static string? GetConverter(ITypeSymbol type)
 	{
@@ -298,6 +336,8 @@ internal sealed record JsonObjectRenderModel
 	public required bool HasParameterlessCreator { get; init; }
 	public required bool HasParameterizedCreator { get; init; }
 	public required EquatableReadOnlyList<JsonConstructorParameterRenderModel> ConstructorParameters { get; init; }
+	public required EquatableReadOnlyList<JsonConstructorParameterRenderModel> CreationParameters { get; init; }
+	public required EquatableReadOnlyList<JsonInitializerMemberRenderModel> InitializerMembers { get; init; }
 	public required EquatableReadOnlyList<JsonMemberRenderModel> Members { get; init; }
 }
 
@@ -307,6 +347,13 @@ internal sealed record JsonConstructorParameterRenderModel
 	public required string NameLiteral { get; init; }
 	public required string TypeName { get; init; }
 	public required string HasDefaultValueLiteral { get; init; }
+}
+
+internal sealed record JsonInitializerMemberRenderModel
+{
+	public required int Index { get; init; }
+	public required string Name { get; init; }
+	public required string TypeName { get; init; }
 }
 
 internal sealed record JsonMemberRenderModel

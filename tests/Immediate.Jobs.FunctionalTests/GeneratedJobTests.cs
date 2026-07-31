@@ -109,6 +109,35 @@ public sealed class GeneratedJobTests
 	}
 
 	[Fact]
+	public async Task GeneratedMetadataRoundTripsPropertyBackedPayloads()
+	{
+		var cancellationToken = TestContext.Current.CancellationToken;
+		var state = new PropertyBackedPayloadState();
+		await using var harness = new JobTestHarness(services =>
+		{
+			_ = services.AddSingleton(state);
+			_ = services.AddSingleton(new ExecutionState());
+			_ = services.AddSingleton(new ContextProbe());
+			_ = services.AddScoped<PropagationScopeState>();
+			_ = services.AddImmediateJobsFunctionalTestsHandlers();
+			_ = services.AddImmediateJobsFunctionalTestsBehaviors();
+			_ = services.AddImmediateJobsFunctionalTestsJobs();
+		});
+		await using var scope = harness.Services.CreateAsyncScope();
+		var optionalScheduler = scope.ServiceProvider.GetRequiredService<PropertyBackedPayloadJob.Scheduler>();
+		var requiredScheduler = scope.ServiceProvider.GetRequiredService<RequiredPropertyBackedPayloadJob.Scheduler>();
+
+		var optionalHandle = await optionalScheduler.EnqueueAsync(new() { Value = 42 }, cancellationToken);
+		var requiredHandle = await requiredScheduler.EnqueueAsync(new() { Value = 43 }, cancellationToken);
+		await harness.DrainAsync(cancellationToken);
+
+		Assert.Equal(42, state.OptionalValue);
+		Assert.Equal(43, state.RequiredValue);
+		Assert.Equal(JobState.Succeeded, (await harness.GetJobAsync(optionalHandle, cancellationToken)).State);
+		Assert.Equal(JobState.Succeeded, (await harness.GetJobAsync(requiredHandle, cancellationToken)).State);
+	}
+
+	[Fact]
 	public async Task FailedJobRetriesAfterGeneratedBackoff()
 	{
 		var cancellationToken = TestContext.Current.CancellationToken;
@@ -270,6 +299,12 @@ public sealed class CollectionExecutionState
 	public CollectionPayloadJob.Payload? Payload { get; set; }
 }
 
+public sealed class PropertyBackedPayloadState
+{
+	public int OptionalValue { get; set; }
+	public int RequiredValue { get; set; }
+}
+
 public sealed record CollectionItem(int Value);
 
 public sealed class JobCountingBehavior<TRequest, TResponse>(ExecutionState state)
@@ -396,6 +431,40 @@ public sealed partial class CollectionPayloadJob(CollectionExecutionState? state
 	}
 }
 #pragma warning restore CA1002, CA1819, MA0016
+
+[Handler, Job(Name = "property-backed-payload")]
+public sealed partial class PropertyBackedPayloadJob(PropertyBackedPayloadState? state = null)
+{
+	public sealed record Payload
+	{
+		public int Value { get; init; }
+	}
+
+	private ValueTask HandleAsync(Payload payload, CancellationToken cancellationToken)
+	{
+		_ = cancellationToken;
+		if (state is not null)
+			state.OptionalValue = payload.Value;
+		return ValueTask.CompletedTask;
+	}
+}
+
+[Handler, Job(Name = "required-property-backed-payload")]
+public sealed partial class RequiredPropertyBackedPayloadJob(PropertyBackedPayloadState? state = null)
+{
+	public sealed record Payload
+	{
+		public required int Value { get; set; }
+	}
+
+	private ValueTask HandleAsync(Payload payload, CancellationToken cancellationToken)
+	{
+		_ = cancellationToken;
+		if (state is not null)
+			state.RequiredValue = payload.Value;
+		return ValueTask.CompletedTask;
+	}
+}
 
 [Handler]
 public sealed partial class OrdinaryHandler(ExecutionState state)
