@@ -1,8 +1,21 @@
 # Immediate.Jobs
 
-Immediate.Jobs is a reflection-free background job scheduler for .NET 8+ built on Immediate.Handlers. A job is an `[Handler]` whose request can also be durably enqueued; a Roslyn source generator emits its typed scheduler, payload metadata, and dependency-injection registrations at compile time.
+[![NuGet](https://img.shields.io/nuget/v/Immediate.Jobs.svg?style=plastic)](https://www.nuget.org/packages/Immediate.Jobs/)
+[![GitHub release](https://img.shields.io/github/release/ImmediatePlatform/Immediate.Jobs.svg)](https://GitHub.com/ImmediatePlatform/Immediate.Jobs/releases/)
+[![GitHub license](https://img.shields.io/github/license/ImmediatePlatform/Immediate.Jobs.svg)](https://github.com/ImmediatePlatform/Immediate.Jobs/blob/master/license.txt) 
+[![GitHub issues](https://img.shields.io/github/issues/ImmediatePlatform/Immediate.Jobs.svg)](https://GitHub.com/ImmediatePlatform/Immediate.Jobs/issues/) 
+[![GitHub issues-closed](https://img.shields.io/github/issues-closed/ImmediatePlatform/Immediate.Jobs.svg)](https://GitHub.com/ImmediatePlatform/Immediate.Jobs/issues?q=is%3Aissue+is%3Aclosed) 
+[![GitHub Actions](https://github.com/ImmediatePlatform/Immediate.Jobs/actions/workflows/build.yml/badge.svg)](https://github.com/ImmediatePlatform/Immediate.Jobs/actions)
+[![Coverage Status](https://coveralls.io/repos/github/ImmediatePlatform/Immediate.Jobs/badge.svg)](https://coveralls.io/github/ImmediatePlatform/Immediate.Jobs)
+---
 
-> Immediate.Jobs provides **at-least-once delivery**. Every handler that performs externally visible work must be idempotent. The in-memory provider is single-node, non-durable, and intended only for development, tests, and non-critical work.
+Immediate.Jobs is a reflection-free background job scheduler for .NET 8+ built on Immediate.Handlers. A job is an
+`[Handler]` whose request can also be durably enqueued; a Roslyn source generator emits its typed scheduler, payload
+metadata, and dependency-injection registrations at compile time.
+
+> Immediate.Jobs provides **at-least-once delivery**. Every handler that performs externally visible work must be
+idempotent. The in-memory provider is single-node, non-durable, and intended only for development, tests, and
+non-critical work.
 
 ## Define and enqueue a job
 
