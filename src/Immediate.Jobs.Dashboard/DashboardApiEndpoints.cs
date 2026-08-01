@@ -33,7 +33,7 @@ internal static partial class GetDashboardOverview
 		CancellationToken cancellationToken
 	)
 	{
-		var snapshot = await storage.GetMonitoringSnapshotAsync(cancellationToken).ConfigureAwait(false);
+		var snapshot = await storage.GetMonitoringSnapshotAsync(cancellationToken);
 		snapshot = snapshot with { Capabilities = storage.GetCapabilities() };
 		return snapshot;
 	}
@@ -76,7 +76,7 @@ internal static partial class GetDashboardJobs
 			Search = query.Search,
 			Skip = pageStart,
 			Take = pageSize + 1,
-		}, cancellationToken).ConfigureAwait(false);
+		}, cancellationToken);
 		return new(
 			[.. jobs.Take(pageSize)],
 			pageStart,
@@ -112,7 +112,7 @@ internal static partial class GetDashboardJob
 		var jobs = await storage.QueryJobsAsync(
 			new() { Id = query.JobId, Take = 1 },
 			cancellationToken
-		).ConfigureAwait(false);
+		);
 		return jobs.SingleOrDefault();
 	}
 }
@@ -152,7 +152,7 @@ internal static partial class GetDashboardJobExecutions
 		var jobs = await storage.QueryJobsAsync(
 			new() { Id = query.JobId, Take = 1 },
 			cancellationToken
-		).ConfigureAwait(false);
+		);
 		if (jobs.Count == 0)
 			return null;
 
@@ -161,7 +161,7 @@ internal static partial class GetDashboardJobExecutions
 			JobId = query.JobId,
 			Skip = pageStart,
 			Take = pageSize + 1,
-		}, cancellationToken).ConfigureAwait(false);
+		}, cancellationToken);
 		return new(
 			[.. executions.Take(pageSize)],
 			pageStart,
@@ -270,7 +270,7 @@ internal static partial class GetDashboardBatches
 			State = query.State,
 			Skip = query.Skip ?? 0,
 			Take = Math.Min(query.Take ?? 100, 500),
-		}, cancellationToken).ConfigureAwait(false);
+		}, cancellationToken);
 		return [.. batches];
 	}
 }
@@ -301,7 +301,7 @@ internal static partial class GetDashboardBatch
 		if (storage is not IJobGraphStorage graphStorage)
 			return null;
 
-		return await graphStorage.GetBatchStatusAsync(query.BatchId, cancellationToken).ConfigureAwait(false);
+		return await graphStorage.GetBatchStatusAsync(query.BatchId, cancellationToken);
 	}
 }
 
@@ -344,7 +344,7 @@ internal static partial class GetDashboardBatchMembers
 			State = query.State,
 			Skip = query.Skip ?? 0,
 			Take = Math.Min(query.Take ?? 100, 500),
-		}, cancellationToken).ConfigureAwait(false);
+		}, cancellationToken);
 		return [.. members];
 	}
 }
@@ -375,7 +375,7 @@ internal static partial class GetDashboardBatchGraph
 		if (storage is not IJobGraphStorage graphStorage)
 			return null;
 
-		return await graphStorage.GetBatchGraphAsync(query.BatchId, cancellationToken).ConfigureAwait(false);
+		return await graphStorage.GetBatchGraphAsync(query.BatchId, cancellationToken);
 	}
 }
 
@@ -407,7 +407,7 @@ internal static partial class StreamDashboardBatch
 			storage,
 			options.UpdateInterval,
 			cancellationToken
-		).ConfigureAwait(false);
+		);
 	}
 }
 
@@ -482,7 +482,7 @@ internal static partial class GetDashboardRecurringJobs
 		CancellationToken cancellationToken
 	)
 	{
-		var snapshot = await storage.GetMonitoringSnapshotAsync(cancellationToken).ConfigureAwait(false);
+		var snapshot = await storage.GetMonitoringSnapshotAsync(cancellationToken);
 		return [.. snapshot.Recurring];
 	}
 }
@@ -503,7 +503,7 @@ internal static partial class GetDashboardServers
 		CancellationToken cancellationToken
 	)
 	{
-		var snapshot = await storage.GetMonitoringSnapshotAsync(cancellationToken).ConfigureAwait(false);
+		var snapshot = await storage.GetMonitoringSnapshotAsync(cancellationToken);
 		return [.. snapshot.Servers];
 	}
 }
@@ -585,7 +585,7 @@ internal static partial class TriggerDashboardRecurringJob
 		CancellationToken cancellationToken
 	)
 	{
-		var snapshot = await storage.GetMonitoringSnapshotAsync(cancellationToken).ConfigureAwait(false);
+		var snapshot = await storage.GetMonitoringSnapshotAsync(cancellationToken);
 		var schedule = snapshot.Recurring.FirstOrDefault(candidate =>
 			string.Equals(candidate.Name, command.Name, StringComparison.Ordinal));
 		if (schedule is null)
@@ -612,7 +612,7 @@ internal static partial class TriggerDashboardRecurringJob
 			DueAt = now,
 			CreatedAt = now,
 		};
-		await storage.EnqueueAsync(job, cancellationToken).ConfigureAwait(false);
+		await storage.EnqueueAsync(job, cancellationToken);
 		return DashboardMutationResult.Accepted;
 	}
 }
@@ -695,7 +695,7 @@ internal static partial class StreamDashboardEvents
 			storage,
 			options.UpdateInterval,
 			cancellationToken
-		).ConfigureAwait(false);
+		);
 	}
 }
 
@@ -768,7 +768,7 @@ internal static class DashboardApiEndpointOperations
 		var jobs = await storage.QueryJobsAsync(
 			new() { Id = jobId, Take = 1 },
 			cancellationToken
-		).ConfigureAwait(false);
+		);
 		var job = jobs.SingleOrDefault();
 		if (job is null)
 			return null;
@@ -779,7 +779,7 @@ internal static class DashboardApiEndpointOperations
 			var executions = await storage.QueryJobExecutionsAsync(
 				new() { JobId = jobId, Attempt = attempt, Take = 1 },
 				cancellationToken
-			).ConfigureAwait(false);
+			);
 			execution = executions.SingleOrDefault();
 			if (execution is null)
 				return null;
@@ -841,7 +841,7 @@ internal static class DashboardApiEndpointOperations
 	{
 		try
 		{
-			await operation().ConfigureAwait(false);
+			await operation();
 			return DashboardMutationResult.NoContent;
 		}
 		catch (KeyNotFoundException)
@@ -868,28 +868,26 @@ internal static class DashboardApiEndpointOperations
 
 		try
 		{
-			await context.Response.WriteAsync("retry: 3000\n\n", cancellationToken).ConfigureAwait(false);
-			await context.Response.Body.FlushAsync(cancellationToken).ConfigureAwait(false);
+			await context.Response.WriteAsync("retry: 3000\n\n", cancellationToken);
+			await context.Response.Body.FlushAsync(cancellationToken);
 
 			while (!cancellationToken.IsCancellationRequested)
 			{
-				var snapshot = await storage.GetMonitoringSnapshotAsync(cancellationToken).ConfigureAwait(false);
+				var snapshot = await storage.GetMonitoringSnapshotAsync(cancellationToken);
 				snapshot = snapshot with { Capabilities = storage.GetCapabilities() };
-				var jobs = await storage.QueryJobsAsync(new() { Take = 100 }, cancellationToken).ConfigureAwait(false);
+				var jobs = await storage.QueryJobsAsync(new() { Take = 100 }, cancellationToken);
 				var batches = storage is IJobGraphStorage graphStorage
 					? await graphStorage.QueryBatchesAsync(new() { Take = 100 }, cancellationToken)
-						.ConfigureAwait(false)
 					: [];
 				var state = new DashboardState(snapshot, [.. jobs], [.. batches]);
 				var json = JsonSerializer.Serialize(state, DashboardJsonSerializerContext.Default.DashboardState);
 				await context.Response.WriteAsync(
 					"id: " + snapshot.CapturedAt.ToUnixTimeMilliseconds().ToString(CultureInfo.InvariantCulture) + "\n",
 					cancellationToken
-				).ConfigureAwait(false);
-				await context.Response.WriteAsync("event: state\ndata: " + json + "\n\n", cancellationToken)
-					.ConfigureAwait(false);
-				await context.Response.Body.FlushAsync(cancellationToken).ConfigureAwait(false);
-				await Task.Delay(interval, cancellationToken).ConfigureAwait(false);
+				);
+				await context.Response.WriteAsync("event: state\ndata: " + json + "\n\n", cancellationToken);
+				await context.Response.Body.FlushAsync(cancellationToken);
+				await Task.Delay(interval, cancellationToken);
 			}
 		}
 		catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -911,7 +909,7 @@ internal static class DashboardApiEndpointOperations
 			return;
 		}
 
-		var status = await graphStorage.GetBatchStatusAsync(batchId, cancellationToken).ConfigureAwait(false);
+		var status = await graphStorage.GetBatchStatusAsync(batchId, cancellationToken);
 		if (status is null)
 		{
 			context.Response.StatusCode = StatusCodes.Status404NotFound;
@@ -926,13 +924,13 @@ internal static class DashboardApiEndpointOperations
 
 		try
 		{
-			await context.Response.WriteAsync("retry: 3000\n\n", cancellationToken).ConfigureAwait(false);
-			await context.Response.Body.FlushAsync(cancellationToken).ConfigureAwait(false);
+			await context.Response.WriteAsync("retry: 3000\n\n", cancellationToken);
+			await context.Response.Body.FlushAsync(cancellationToken);
 
 			while (!cancellationToken.IsCancellationRequested)
 			{
-				status = await graphStorage.GetBatchStatusAsync(batchId, cancellationToken).ConfigureAwait(false);
-				var graph = await graphStorage.GetBatchGraphAsync(batchId, cancellationToken).ConfigureAwait(false);
+				status = await graphStorage.GetBatchStatusAsync(batchId, cancellationToken);
+				var graph = await graphStorage.GetBatchGraphAsync(batchId, cancellationToken);
 				if (status is null || graph is null)
 					break;
 
@@ -943,17 +941,14 @@ internal static class DashboardApiEndpointOperations
 				{
 					var eventId = TimeProvider.System.GetUtcNow().ToUnixTimeMilliseconds()
 						.ToString(CultureInfo.InvariantCulture);
-					await context.Response.WriteAsync("id: " + eventId + "\n", cancellationToken)
-						.ConfigureAwait(false);
-					await context.Response.WriteAsync("event: status\ndata: " + statusJson + "\n\n", cancellationToken)
-						.ConfigureAwait(false);
-					await context.Response.WriteAsync("event: graph\ndata: " + graphJson + "\n\n", cancellationToken)
-						.ConfigureAwait(false);
-					await context.Response.Body.FlushAsync(cancellationToken).ConfigureAwait(false);
+					await context.Response.WriteAsync("id: " + eventId + "\n", cancellationToken);
+					await context.Response.WriteAsync("event: status\ndata: " + statusJson + "\n\n", cancellationToken);
+					await context.Response.WriteAsync("event: graph\ndata: " + graphJson + "\n\n", cancellationToken);
+					await context.Response.Body.FlushAsync(cancellationToken);
 					previousState = currentState;
 				}
 
-				await Task.Delay(interval, cancellationToken).ConfigureAwait(false);
+				await Task.Delay(interval, cancellationToken);
 			}
 		}
 		catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)

@@ -19,7 +19,7 @@ internal static class DashboardAssets
 			return Results.NotFound();
 
 		using var reader = new StreamReader(stream, Encoding.UTF8);
-		var template = await reader.ReadToEndAsync(context.RequestAborted).ConfigureAwait(false);
+		var template = await reader.ReadToEndAsync(context.RequestAborted);
 		var dashboardBase = HtmlEncoder.Default.Encode(context.Request.PathBase + prefix + "/");
 		var html = template.Replace(
 			BaseElement,
@@ -37,7 +37,7 @@ internal static class DashboardAssets
 			return Results.NotFound();
 
 		using var memory = new MemoryStream();
-		await stream.CopyToAsync(memory).ConfigureAwait(false);
+		await stream.CopyToAsync(memory);
 		return Results.Bytes(memory.ToArray(), GetContentType(name));
 	}
 
