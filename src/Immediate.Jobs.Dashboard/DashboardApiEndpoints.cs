@@ -4,6 +4,7 @@ using Immediate.Apis.Shared;
 using Immediate.Handlers.Shared;
 using Immediate.Validations.Shared;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -23,7 +24,10 @@ internal static partial class GetDashboardOverview
 {
 	internal sealed record Query;
 
-	private static async ValueTask<IResult> HandleAsync(
+	internal static JsonHttpResult<JobMonitoringSnapshot> TransformResult(JobMonitoringSnapshot result) =>
+		TypedResults.Json(result, DashboardJsonSerializerContext.Default.JobMonitoringSnapshot);
+
+	private static async ValueTask<JobMonitoringSnapshot> HandleAsync(
 		Query _,
 		IJobStorage storage,
 		CancellationToken cancellationToken
@@ -31,7 +35,7 @@ internal static partial class GetDashboardOverview
 	{
 		var snapshot = await storage.GetMonitoringSnapshotAsync(cancellationToken).ConfigureAwait(false);
 		snapshot = snapshot with { Capabilities = storage.GetCapabilities() };
-		return Results.Json(snapshot, DashboardJsonSerializerContext.Default.JobMonitoringSnapshot);
+		return snapshot;
 	}
 }
 
@@ -54,7 +58,10 @@ internal static partial class GetDashboardJobs
 		public int? Take { get; init; }
 	}
 
-	private static async ValueTask<IResult> HandleAsync(
+	internal static JsonHttpResult<DashboardJobPage> TransformResult(DashboardJobPage result) =>
+		TypedResults.Json(result, DashboardJsonSerializerContext.Default.DashboardJobPage);
+
+	private static async ValueTask<DashboardJobPage> HandleAsync(
 		Query query,
 		IJobStorage storage,
 		CancellationToken cancellationToken
@@ -70,13 +77,12 @@ internal static partial class GetDashboardJobs
 			Skip = pageStart,
 			Take = pageSize + 1,
 		}, cancellationToken).ConfigureAwait(false);
-		var page = new DashboardJobPage(
+		return new(
 			[.. jobs.Take(pageSize)],
 			pageStart,
 			pageSize,
 			jobs.Count > pageSize
 		);
-		return Results.Json(page, DashboardJsonSerializerContext.Default.DashboardJobPage);
 	}
 }
 
@@ -92,7 +98,12 @@ internal static partial class GetDashboardJob
 		public required string JobId { get; init; }
 	}
 
-	private static async ValueTask<IResult> HandleAsync(
+	internal static Results<JsonHttpResult<JobRecord>, NotFound> TransformResult(JobRecord? result) =>
+		result is null
+			? TypedResults.NotFound()
+			: TypedResults.Json(result, DashboardJsonSerializerContext.Default.JobRecord);
+
+	private static async ValueTask<JobRecord?> HandleAsync(
 		Query query,
 		IJobStorage storage,
 		CancellationToken cancellationToken
@@ -102,9 +113,7 @@ internal static partial class GetDashboardJob
 			new() { Id = query.JobId, Take = 1 },
 			cancellationToken
 		).ConfigureAwait(false);
-		return jobs.SingleOrDefault() is { } job
-			? Results.Json(job, DashboardJsonSerializerContext.Default.JobRecord)
-			: Results.NotFound();
+		return jobs.SingleOrDefault();
 	}
 }
 
@@ -126,7 +135,13 @@ internal static partial class GetDashboardJobExecutions
 		public int? Take { get; init; }
 	}
 
-	private static async ValueTask<IResult> HandleAsync(
+	internal static Results<JsonHttpResult<DashboardJobExecutionPage>, NotFound> TransformResult(
+		DashboardJobExecutionPage? result
+	) => result is null
+		? TypedResults.NotFound()
+		: TypedResults.Json(result, DashboardJsonSerializerContext.Default.DashboardJobExecutionPage);
+
+	private static async ValueTask<DashboardJobExecutionPage?> HandleAsync(
 		Query query,
 		IJobStorage storage,
 		CancellationToken cancellationToken
@@ -139,7 +154,7 @@ internal static partial class GetDashboardJobExecutions
 			cancellationToken
 		).ConfigureAwait(false);
 		if (jobs.Count == 0)
-			return Results.NotFound();
+			return null;
 
 		var executions = await storage.QueryJobExecutionsAsync(new()
 		{
@@ -147,13 +162,12 @@ internal static partial class GetDashboardJobExecutions
 			Skip = pageStart,
 			Take = pageSize + 1,
 		}, cancellationToken).ConfigureAwait(false);
-		var page = new DashboardJobExecutionPage(
+		return new(
 			[.. executions.Take(pageSize)],
 			pageStart,
 			pageSize,
 			executions.Count > pageSize
 		);
-		return Results.Json(page, DashboardJsonSerializerContext.Default.DashboardJobExecutionPage);
 	}
 }
 
@@ -169,7 +183,11 @@ internal static partial class GetDashboardJobTelemetryLinks
 		public required string JobId { get; init; }
 	}
 
-	private static ValueTask<IResult> HandleAsync(
+	internal static Results<JsonHttpResult<JobTelemetryLink[]>, NotFound> TransformResult(
+		JobTelemetryLink[]? result
+	) => DashboardApiEndpointOperations.TransformTelemetryLinksResult(result);
+
+	private static ValueTask<JobTelemetryLink[]?> HandleAsync(
 		Query query,
 		IJobStorage storage,
 		ImmediateJobsDashboardOptions options,
@@ -198,7 +216,11 @@ internal static partial class GetDashboardJobExecutionTelemetryLinks
 		public required int ExecutionNumber { get; init; }
 	}
 
-	private static ValueTask<IResult> HandleAsync(
+	internal static Results<JsonHttpResult<JobTelemetryLink[]>, NotFound> TransformResult(
+		JobTelemetryLink[]? result
+	) => DashboardApiEndpointOperations.TransformTelemetryLinksResult(result);
+
+	private static ValueTask<JobTelemetryLink[]?> HandleAsync(
 		Query query,
 		IJobStorage storage,
 		ImmediateJobsDashboardOptions options,
@@ -229,14 +251,19 @@ internal static partial class GetDashboardBatches
 		public int? Take { get; init; }
 	}
 
-	private static async ValueTask<IResult> HandleAsync(
+	internal static Results<JsonHttpResult<BatchStatus[]>, NotFound> TransformResult(BatchStatus[]? result) =>
+		result is null
+			? TypedResults.NotFound()
+			: TypedResults.Json(result, DashboardJsonSerializerContext.Default.BatchStatusArray);
+
+	private static async ValueTask<BatchStatus[]?> HandleAsync(
 		Query query,
 		IJobStorage storage,
 		CancellationToken cancellationToken
 	)
 	{
 		if (storage is not IJobGraphStorage graphStorage)
-			return Results.NotFound();
+			return null;
 
 		var batches = await graphStorage.QueryBatchesAsync(new()
 		{
@@ -244,10 +271,7 @@ internal static partial class GetDashboardBatches
 			Skip = query.Skip ?? 0,
 			Take = Math.Min(query.Take ?? 100, 500),
 		}, cancellationToken).ConfigureAwait(false);
-		return Results.Json(
-			[.. batches],
-			DashboardJsonSerializerContext.Default.BatchStatusArray
-		);
+		return [.. batches];
 	}
 }
 
@@ -263,18 +287,21 @@ internal static partial class GetDashboardBatch
 		public required string BatchId { get; init; }
 	}
 
-	private static async ValueTask<IResult> HandleAsync(
+	internal static Results<JsonHttpResult<BatchStatus>, NotFound> TransformResult(BatchStatus? result) =>
+		result is null
+			? TypedResults.NotFound()
+			: TypedResults.Json(result, DashboardJsonSerializerContext.Default.BatchStatus);
+
+	private static async ValueTask<BatchStatus?> HandleAsync(
 		Query query,
 		IJobStorage storage,
 		CancellationToken cancellationToken
 	)
 	{
 		if (storage is not IJobGraphStorage graphStorage)
-			return Results.NotFound();
+			return null;
 
-		return await graphStorage.GetBatchStatusAsync(query.BatchId, cancellationToken).ConfigureAwait(false) is { } status
-			? Results.Json(status, DashboardJsonSerializerContext.Default.BatchStatus)
-			: Results.NotFound();
+		return await graphStorage.GetBatchStatusAsync(query.BatchId, cancellationToken).ConfigureAwait(false);
 	}
 }
 
@@ -297,14 +324,20 @@ internal static partial class GetDashboardBatchMembers
 		public int? Take { get; init; }
 	}
 
-	private static async ValueTask<IResult> HandleAsync(
+	internal static Results<JsonHttpResult<BatchMemberStatus[]>, NotFound> TransformResult(
+		BatchMemberStatus[]? result
+	) => result is null
+		? TypedResults.NotFound()
+		: TypedResults.Json(result, DashboardJsonSerializerContext.Default.BatchMemberStatusArray);
+
+	private static async ValueTask<BatchMemberStatus[]?> HandleAsync(
 		Query query,
 		IJobStorage storage,
 		CancellationToken cancellationToken
 	)
 	{
 		if (storage is not IJobGraphStorage graphStorage)
-			return Results.NotFound();
+			return null;
 
 		var members = await graphStorage.QueryBatchMembersAsync(query.BatchId, new()
 		{
@@ -312,10 +345,7 @@ internal static partial class GetDashboardBatchMembers
 			Skip = query.Skip ?? 0,
 			Take = Math.Min(query.Take ?? 100, 500),
 		}, cancellationToken).ConfigureAwait(false);
-		return Results.Json(
-			[.. members],
-			DashboardJsonSerializerContext.Default.BatchMemberStatusArray
-		);
+		return [.. members];
 	}
 }
 
@@ -331,18 +361,21 @@ internal static partial class GetDashboardBatchGraph
 		public required string BatchId { get; init; }
 	}
 
-	private static async ValueTask<IResult> HandleAsync(
+	internal static Results<JsonHttpResult<BatchGraph>, NotFound> TransformResult(BatchGraph? result) =>
+		result is null
+			? TypedResults.NotFound()
+			: TypedResults.Json(result, DashboardJsonSerializerContext.Default.BatchGraph);
+
+	private static async ValueTask<BatchGraph?> HandleAsync(
 		Query query,
 		IJobStorage storage,
 		CancellationToken cancellationToken
 	)
 	{
 		if (storage is not IJobGraphStorage graphStorage)
-			return Results.NotFound();
+			return null;
 
-		return await graphStorage.GetBatchGraphAsync(query.BatchId, cancellationToken).ConfigureAwait(false) is { } graph
-			? Results.Json(graph, DashboardJsonSerializerContext.Default.BatchGraph)
-			: Results.NotFound();
+		return await graphStorage.GetBatchGraphAsync(query.BatchId, cancellationToken).ConfigureAwait(false);
 	}
 }
 
@@ -358,7 +391,9 @@ internal static partial class StreamDashboardBatch
 		public required string BatchId { get; init; }
 	}
 
-	private static async ValueTask<IResult> HandleAsync(
+	internal static EmptyHttpResult TransformResult() => TypedResults.Empty;
+
+	private static async ValueTask HandleAsync(
 		Query query,
 		IHttpContextAccessor httpContextAccessor,
 		IJobStorage storage,
@@ -373,7 +408,6 @@ internal static partial class StreamDashboardBatch
 			options.UpdateInterval,
 			cancellationToken
 		).ConfigureAwait(false);
-		return Results.Empty;
 	}
 }
 
@@ -390,7 +424,11 @@ internal static partial class CancelDashboardBatch
 		public required string BatchId { get; init; }
 	}
 
-	private static ValueTask<IResult> HandleAsync(
+	internal static Results<NoContent, NotFound, ProblemHttpResult> TransformResult(
+		DashboardMutationResult result
+	) => DashboardApiEndpointOperations.TransformMutationResult(result);
+
+	private static ValueTask<DashboardMutationResult> HandleAsync(
 		Command command,
 		IJobStorage storage,
 		CancellationToken cancellationToken
@@ -398,7 +436,7 @@ internal static partial class CancelDashboardBatch
 		? DashboardApiEndpointOperations.MutateBatchAsync(
 			() => graphStorage.CancelBatchAsync(command.BatchId, cancellationToken)
 		)
-		: ValueTask.FromResult<IResult>(Results.NotFound());
+		: ValueTask.FromResult(DashboardMutationResult.NotFound);
 }
 
 [Handler]
@@ -413,7 +451,11 @@ internal static partial class DeleteDashboardBatch
 		public required string BatchId { get; init; }
 	}
 
-	private static ValueTask<IResult> HandleAsync(
+	internal static Results<NoContent, NotFound, ProblemHttpResult> TransformResult(
+		DashboardMutationResult result
+	) => DashboardApiEndpointOperations.TransformMutationResult(result);
+
+	private static ValueTask<DashboardMutationResult> HandleAsync(
 		Command command,
 		IJobStorage storage,
 		CancellationToken cancellationToken
@@ -421,7 +463,7 @@ internal static partial class DeleteDashboardBatch
 		? DashboardApiEndpointOperations.MutateBatchAsync(
 			() => graphStorage.DeleteBatchAsync(command.BatchId, cancellationToken)
 		)
-		: ValueTask.FromResult<IResult>(Results.NotFound());
+		: ValueTask.FromResult(DashboardMutationResult.NotFound);
 }
 
 [Handler]
@@ -431,17 +473,17 @@ internal static partial class GetDashboardRecurringJobs
 {
 	internal sealed record Query;
 
-	private static async ValueTask<IResult> HandleAsync(
+	internal static JsonHttpResult<RecurringJobSchedule[]> TransformResult(RecurringJobSchedule[] result) =>
+		TypedResults.Json(result, DashboardJsonSerializerContext.Default.RecurringJobScheduleArray);
+
+	private static async ValueTask<RecurringJobSchedule[]> HandleAsync(
 		Query _,
 		IJobStorage storage,
 		CancellationToken cancellationToken
 	)
 	{
 		var snapshot = await storage.GetMonitoringSnapshotAsync(cancellationToken).ConfigureAwait(false);
-		return Results.Json(
-			[.. snapshot.Recurring],
-			DashboardJsonSerializerContext.Default.RecurringJobScheduleArray
-		);
+		return [.. snapshot.Recurring];
 	}
 }
 
@@ -452,17 +494,17 @@ internal static partial class GetDashboardServers
 {
 	internal sealed record Query;
 
-	private static async ValueTask<IResult> HandleAsync(
+	internal static JsonHttpResult<JobServerSnapshot[]> TransformResult(JobServerSnapshot[] result) =>
+		TypedResults.Json(result, DashboardJsonSerializerContext.Default.JobServerSnapshotArray);
+
+	private static async ValueTask<JobServerSnapshot[]> HandleAsync(
 		Query _,
 		IJobStorage storage,
 		CancellationToken cancellationToken
 	)
 	{
 		var snapshot = await storage.GetMonitoringSnapshotAsync(cancellationToken).ConfigureAwait(false);
-		return Results.Json(
-			[.. snapshot.Servers],
-			DashboardJsonSerializerContext.Default.JobServerSnapshotArray
-		);
+		return [.. snapshot.Servers];
 	}
 }
 
@@ -479,7 +521,11 @@ internal static partial class RetryDashboardJob
 		public required string JobId { get; init; }
 	}
 
-	private static ValueTask<IResult> HandleAsync(
+	internal static Results<NoContent, NotFound, ProblemHttpResult> TransformResult(
+		DashboardMutationResult result
+	) => DashboardApiEndpointOperations.TransformMutationResult(result);
+
+	private static ValueTask<DashboardMutationResult> HandleAsync(
 		Command command,
 		IJobStorage storage,
 		CancellationToken cancellationToken
@@ -501,7 +547,11 @@ internal static partial class CancelDashboardJob
 		public required string JobId { get; init; }
 	}
 
-	private static ValueTask<IResult> HandleAsync(
+	internal static Results<NoContent, NotFound, ProblemHttpResult> TransformResult(
+		DashboardMutationResult result
+	) => DashboardApiEndpointOperations.TransformMutationResult(result);
+
+	private static ValueTask<DashboardMutationResult> HandleAsync(
 		Command command,
 		IJobStorage storage,
 		CancellationToken cancellationToken
@@ -523,7 +573,11 @@ internal static partial class TriggerDashboardRecurringJob
 		public required string Name { get; init; }
 	}
 
-	private static async ValueTask<IResult> HandleAsync(
+	internal static Results<StatusCodeHttpResult, NotFound, ProblemHttpResult> TransformResult(
+		DashboardMutationResult result
+	) => DashboardApiEndpointOperations.TransformTriggerResult(result);
+
+	private static async ValueTask<DashboardMutationResult> HandleAsync(
 		Command command,
 		IServiceProvider serviceProvider,
 		IJobStorage storage,
@@ -535,15 +589,14 @@ internal static partial class TriggerDashboardRecurringJob
 		var schedule = snapshot.Recurring.FirstOrDefault(candidate =>
 			string.Equals(candidate.Name, command.Name, StringComparison.Ordinal));
 		if (schedule is null)
-			return Results.NotFound();
+			return DashboardMutationResult.NotFound;
 
 		var definition = definitions.FirstOrDefault(candidate =>
 			string.Equals(candidate.Name, schedule.JobName, StringComparison.Ordinal));
 		if (definition is null)
 		{
-			return Results.Problem(
-				detail: $"No generated job definition exists for '{schedule.JobName}'.",
-				statusCode: StatusCodes.Status409Conflict
+			return DashboardMutationResult.Conflict(
+				$"No generated job definition exists for '{schedule.JobName}'."
 			);
 		}
 
@@ -560,7 +613,7 @@ internal static partial class TriggerDashboardRecurringJob
 			CreatedAt = now,
 		};
 		await storage.EnqueueAsync(job, cancellationToken).ConfigureAwait(false);
-		return Results.Accepted();
+		return DashboardMutationResult.Accepted;
 	}
 }
 
@@ -577,7 +630,11 @@ internal static partial class PauseDashboardRecurringJob
 		public required string Name { get; init; }
 	}
 
-	private static ValueTask<IResult> HandleAsync(
+	internal static Results<NoContent, NotFound, ProblemHttpResult> TransformResult(
+		DashboardMutationResult result
+	) => DashboardApiEndpointOperations.TransformMutationResult(result);
+
+	private static ValueTask<DashboardMutationResult> HandleAsync(
 		Command command,
 		IJobStorage storage,
 		CancellationToken cancellationToken
@@ -585,7 +642,7 @@ internal static partial class PauseDashboardRecurringJob
 		? DashboardApiEndpointOperations.MutateRecurringAsync(
 			() => recurringStorage.PauseRecurringAsync(command.Name, cancellationToken)
 		)
-		: ValueTask.FromResult<IResult>(Results.NotFound());
+		: ValueTask.FromResult(DashboardMutationResult.NotFound);
 }
 
 [Handler]
@@ -601,7 +658,11 @@ internal static partial class ResumeDashboardRecurringJob
 		public required string Name { get; init; }
 	}
 
-	private static ValueTask<IResult> HandleAsync(
+	internal static Results<NoContent, NotFound, ProblemHttpResult> TransformResult(
+		DashboardMutationResult result
+	) => DashboardApiEndpointOperations.TransformMutationResult(result);
+
+	private static ValueTask<DashboardMutationResult> HandleAsync(
 		Command command,
 		IJobStorage storage,
 		CancellationToken cancellationToken
@@ -609,7 +670,7 @@ internal static partial class ResumeDashboardRecurringJob
 		? DashboardApiEndpointOperations.MutateRecurringAsync(
 			() => recurringStorage.ResumeRecurringAsync(command.Name, cancellationToken)
 		)
-		: ValueTask.FromResult<IResult>(Results.NotFound());
+		: ValueTask.FromResult(DashboardMutationResult.NotFound);
 }
 
 [Handler]
@@ -619,7 +680,9 @@ internal static partial class StreamDashboardEvents
 {
 	internal sealed record Query;
 
-	private static async ValueTask<IResult> HandleAsync(
+	internal static EmptyHttpResult TransformResult() => TypedResults.Empty;
+
+	private static async ValueTask HandleAsync(
 		Query _,
 		IHttpContextAccessor httpContextAccessor,
 		IJobStorage storage,
@@ -633,13 +696,68 @@ internal static partial class StreamDashboardEvents
 			options.UpdateInterval,
 			cancellationToken
 		).ConfigureAwait(false);
-		return Results.Empty;
 	}
+}
+
+internal enum DashboardMutationStatus
+{
+	NoContent,
+	Accepted,
+	NotFound,
+	Conflict,
+}
+
+internal sealed record DashboardMutationResult(DashboardMutationStatus Status, string? Detail = null)
+{
+	internal static DashboardMutationResult NoContent { get; } = new(DashboardMutationStatus.NoContent);
+	internal static DashboardMutationResult Accepted { get; } = new(DashboardMutationStatus.Accepted);
+	internal static DashboardMutationResult NotFound { get; } = new(DashboardMutationStatus.NotFound);
+
+	internal static DashboardMutationResult Conflict(string detail) =>
+		new(DashboardMutationStatus.Conflict, detail);
 }
 
 internal static class DashboardApiEndpointOperations
 {
-	internal static async ValueTask<IResult> GetJobTelemetryLinksAsync(
+	internal static Results<JsonHttpResult<JobTelemetryLink[]>, NotFound> TransformTelemetryLinksResult(
+		JobTelemetryLink[]? result
+	) => result is null
+		? TypedResults.NotFound()
+		: TypedResults.Json(result, DashboardJsonSerializerContext.Default.JobTelemetryLinkArray);
+
+	internal static Results<NoContent, NotFound, ProblemHttpResult> TransformMutationResult(
+		DashboardMutationResult result
+	) => result.Status switch
+	{
+		DashboardMutationStatus.NoContent => TypedResults.NoContent(),
+		DashboardMutationStatus.NotFound => TypedResults.NotFound(),
+		DashboardMutationStatus.Conflict => TypedResults.Problem(
+			detail: result.Detail,
+			statusCode: StatusCodes.Status409Conflict
+		),
+		DashboardMutationStatus.Accepted => throw new InvalidOperationException(
+			"An accepted result cannot be transformed as a standard mutation."
+		),
+		_ => throw new InvalidOperationException($"Unsupported mutation status '{result.Status}'."),
+	};
+
+	internal static Results<StatusCodeHttpResult, NotFound, ProblemHttpResult> TransformTriggerResult(
+		DashboardMutationResult result
+	) => result.Status switch
+	{
+		DashboardMutationStatus.Accepted => TypedResults.StatusCode(StatusCodes.Status202Accepted),
+		DashboardMutationStatus.NotFound => TypedResults.NotFound(),
+		DashboardMutationStatus.Conflict => TypedResults.Problem(
+			detail: result.Detail,
+			statusCode: StatusCodes.Status409Conflict
+		),
+		DashboardMutationStatus.NoContent => throw new InvalidOperationException(
+			"A no-content result cannot be transformed as a recurring-job trigger."
+		),
+		_ => throw new InvalidOperationException($"Unsupported trigger status '{result.Status}'."),
+	};
+
+	internal static async ValueTask<JobTelemetryLink[]?> GetJobTelemetryLinksAsync(
 		string jobId,
 		int? executionNumber,
 		IJobStorage storage,
@@ -653,7 +771,7 @@ internal static class DashboardApiEndpointOperations
 		).ConfigureAwait(false);
 		var job = jobs.SingleOrDefault();
 		if (job is null)
-			return Results.NotFound();
+			return null;
 
 		JobExecutionRecord? execution = null;
 		if (executionNumber is { } attempt)
@@ -664,11 +782,11 @@ internal static class DashboardApiEndpointOperations
 			).ConfigureAwait(false);
 			execution = executions.SingleOrDefault();
 			if (execution is null)
-				return Results.NotFound();
+				return null;
 		}
 
 		if (options.TelemetryLinks.Count == 0)
-			return Results.Json([], DashboardJsonSerializerContext.Default.JobTelemetryLinkArray);
+			return [];
 
 		var contextJob = execution is null
 			? job
@@ -698,25 +816,25 @@ internal static class DashboardApiEndpointOperations
 			links.Add(new(registration.Label, registration.Kind, url));
 		}
 
-		return Results.Json([.. links], DashboardJsonSerializerContext.Default.JobTelemetryLinkArray);
+		return [.. links];
 	}
 
-	internal static ValueTask<IResult> MutateJobAsync(Func<ValueTask> operation) => MutateAsync(
+	internal static ValueTask<DashboardMutationResult> MutateJobAsync(Func<ValueTask> operation) => MutateAsync(
 		operation,
 		includeConflict: true
 	);
 
-	internal static ValueTask<IResult> MutateBatchAsync(Func<ValueTask> operation) => MutateAsync(
+	internal static ValueTask<DashboardMutationResult> MutateBatchAsync(Func<ValueTask> operation) => MutateAsync(
 		operation,
 		includeConflict: true
 	);
 
-	internal static ValueTask<IResult> MutateRecurringAsync(Func<ValueTask> operation) => MutateAsync(
+	internal static ValueTask<DashboardMutationResult> MutateRecurringAsync(Func<ValueTask> operation) => MutateAsync(
 		operation,
 		includeConflict: false
 	);
 
-	private static async ValueTask<IResult> MutateAsync(
+	private static async ValueTask<DashboardMutationResult> MutateAsync(
 		Func<ValueTask> operation,
 		bool includeConflict
 	)
@@ -724,18 +842,15 @@ internal static class DashboardApiEndpointOperations
 		try
 		{
 			await operation().ConfigureAwait(false);
-			return Results.NoContent();
+			return DashboardMutationResult.NoContent;
 		}
 		catch (KeyNotFoundException)
 		{
-			return Results.NotFound();
+			return DashboardMutationResult.NotFound;
 		}
 		catch (ImmediateJobException exception) when (includeConflict)
 		{
-			return Results.Problem(
-				detail: exception.Message,
-				statusCode: StatusCodes.Status409Conflict
-			);
+			return DashboardMutationResult.Conflict(exception.Message);
 		}
 	}
 
