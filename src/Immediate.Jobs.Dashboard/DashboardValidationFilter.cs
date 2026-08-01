@@ -12,7 +12,7 @@ internal sealed class DashboardValidationFilter : IEndpointFilter
 	{
 		try
 		{
-			return await next(context).ConfigureAwait(false);
+			return await next(context);
 		}
 		catch (ValidationException exception)
 		{
