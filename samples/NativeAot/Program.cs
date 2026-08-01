@@ -2,6 +2,7 @@ using Immediate.Jobs.Shared;
 using Immediate.Handlers.Shared;
 using Microsoft.Extensions.DependencyInjection;
 using NativeAot;
+using Immediate.Jobs.Shared.Internals;
 
 var services = new ServiceCollection();
 services.AddLogging();
@@ -21,7 +22,7 @@ await using (var scope = provider.CreateAsyncScope())
 	_ = await scheduler.EnqueueAsync(new("Native AOT", ExpectedContext));
 }
 
-await provider.GetRequiredService<JobSchedulerService>().DrainAsync();
+await provider.GetRequiredService<JobSchedulingService>().DrainAsync();
 
 namespace NativeAot
 {

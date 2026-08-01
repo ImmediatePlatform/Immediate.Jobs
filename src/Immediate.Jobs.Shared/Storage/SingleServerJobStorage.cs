@@ -1,4 +1,6 @@
-namespace Immediate.Jobs.Shared;
+using Immediate.Jobs.Shared.Apis;
+
+namespace Immediate.Jobs.Shared.Storage;
 
 /// <summary>
 /// A single-server storage topology that executes against an authoritative in-process store while
@@ -23,10 +25,18 @@ public sealed class SingleServerJobStorage :
 	private Task? _disposeTask;
 	private int _disposeStarted;
 
-	/// <summary>Creates a memory-primary store backed by the supplied durable replica.</summary>
-	/// <param name="durableStorage">The durable write-through replica.</param>
-	/// <param name="timeProvider">The clock used by the in-process primary store.</param>
-	/// <remarks>The wrapper takes ownership of <paramref name="durableStorage"/> and disposes it with the primary store.</remarks>
+	/// <summary>
+	/// 	Creates a memory-primary store backed by the supplied durable replica.
+	/// </summary>
+	/// <param name="durableStorage">
+	/// 	The durable write-through replica.
+	/// </param>
+	/// <param name="timeProvider">
+	/// 	The clock used by the in-process primary store.
+	/// </param>
+	/// <remarks>
+	/// 	The wrapper takes ownership of <paramref name="durableStorage"/> and disposes it with the primary store.
+	/// </remarks>
 	public SingleServerJobStorage(IJobStorage durableStorage, TimeProvider timeProvider)
 	{
 		ArgumentNullException.ThrowIfNull(durableStorage);
@@ -47,12 +57,20 @@ public sealed class SingleServerJobStorage :
 		_primary = new(timeProvider);
 	}
 
-	/// <summary>The in-process authoritative store.</summary>
-	/// <value>The in-process primary storage provider.</value>
+	/// <summary>
+	/// 	The in-process authoritative store.
+	/// </summary>
+	/// <value>
+	/// 	The in-process primary storage provider.
+	/// </value>
 	public IJobStorage PrimaryStorage => _primary;
 
-	/// <summary>The durable write-through replica.</summary>
-	/// <value>The durable storage provider replicated by this wrapper.</value>
+	/// <summary>
+	/// 	The durable write-through replica.
+	/// </summary>
+	/// <value>
+	/// 	The durable storage provider replicated by this wrapper.
+	/// </value>
 	public IJobStorage DurableStorage { get; }
 
 	/// <inheritdoc />
@@ -90,7 +108,7 @@ public sealed class SingleServerJobStorage :
 
 	/// <inheritdoc />
 	public async ValueTask EnqueueBatchAsync(
-		JobBatchRecord batch,
+		BatchRecord batch,
 		IReadOnlyList<JobRecord> jobs,
 		IReadOnlyList<JobContinuationEdge> edges,
 		CancellationToken cancellationToken = default
@@ -345,7 +363,7 @@ public sealed class SingleServerJobStorage :
 
 	/// <inheritdoc />
 	public async ValueTask<IReadOnlyList<BatchStatus>> QueryBatchesAsync(
-		JobBatchQuery query,
+		BatchQuery query,
 		CancellationToken cancellationToken = default
 	)
 	{
@@ -744,7 +762,7 @@ public sealed class SingleServerJobStorage :
 	private InMemoryJobStorage CreatePrimaryStorage() => new(_timeProvider);
 
 	private sealed record RecoveredBatch(
-		JobBatchRecord Record,
+		BatchRecord Record,
 		IReadOnlyList<JobRecord> Jobs,
 		IReadOnlyList<JobContinuationEdge> Edges
 	);

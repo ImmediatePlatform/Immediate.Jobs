@@ -1,4 +1,8 @@
 using System.Diagnostics.CodeAnalysis;
+using Immediate.Jobs.Shared.Apis;
+using Immediate.Jobs.Shared.Interfaces;
+using Immediate.Jobs.Shared.Internals;
+using Immediate.Jobs.Shared.Storage;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
@@ -6,13 +10,23 @@ using Microsoft.Extensions.Hosting;
 
 namespace Immediate.Jobs.Shared;
 
-/// <summary>Runtime registration methods used by generated application extensions.</summary>
+/// <summary>
+/// 	Runtime registration methods used by generated application extensions.
+/// </summary>
 public static class ImmediateJobsRuntimeServiceCollectionExtensions
 {
-	/// <summary>Adds the scheduler runtime. Application code normally calls generated AddImmediateJobs instead.</summary>
-	/// <param name="services">The service collection to which the runtime is added.</param>
-	/// <param name="configure">An optional callback that configures the runtime.</param>
-	/// <returns>A builder for selecting storage and adding runtime integrations.</returns>
+	/// <summary>
+	/// 	Adds the scheduler runtime. Application code normally calls generated AddImmediateJobs instead.
+	/// </summary>
+	/// <param name="services">
+	/// 	The service collection to which the runtime is added.
+	/// </param>
+	/// <param name="configure">
+	/// 	An optional callback that configures the runtime.
+	/// </param>
+	/// <returns>
+	/// 	A builder for selecting storage and adding runtime integrations.
+	/// </returns>
 	public static ImmediateJobsBuilder AddImmediateJobsCore(
 		this IServiceCollection services,
 		Action<ImmediateJobsOptions>? configure = null
@@ -43,13 +57,13 @@ public static class ImmediateJobsRuntimeServiceCollectionExtensions
 		services.TryAddSingleton(static sp =>
 			sp.GetRequiredService<IJobStorage>() as IJobGraphStorage
 				?? null!);
-		services.TryAddScoped<JobBatchScheduler>();
-		services.TryAddScoped<IJobBatchScheduler>(static sp =>
+		services.TryAddScoped<BatchScheduler>();
+		services.TryAddScoped<IBatchScheduler>(static sp =>
 			sp.GetService<IJobGraphStorage>() is null
 				? null!
-				: sp.GetRequiredService<JobBatchScheduler>());
+				: sp.GetRequiredService<BatchScheduler>());
 		services.TryAddScoped<JobMonitor>();
-		services.TryAddScoped<IJobBatchMonitor>(static sp =>
+		services.TryAddScoped<IBatchMonitor>(static sp =>
 			sp.GetService<IJobGraphStorage>() is null
 				? null!
 				: sp.GetRequiredService<JobMonitor>());
@@ -57,19 +71,29 @@ public static class ImmediateJobsRuntimeServiceCollectionExtensions
 			sp.GetRequiredService<JobMonitor>());
 		_ = services.AddSingleton(JobQueueDefinition.Default);
 		services.TryAddSingleton<JobSchedulerState>();
-		services.TryAddSingleton<JobSchedulerService>();
+		services.TryAddSingleton<JobSchedulingService>();
 
 		services.TryAddEnumerable(
-			ServiceDescriptor.Singleton<IHostedService, JobSchedulerService>(sp => sp.GetRequiredService<JobSchedulerService>())
+			ServiceDescriptor.Singleton<IHostedService, JobSchedulingService>(
+				ServiceProviderServiceExtensions.GetRequiredService<JobSchedulingService>
+			)
 		);
 
 		return new(services);
 	}
 
-	/// <summary>Replaces the default GUID job and batch identifier generator.</summary>
-	/// <typeparam name="TGenerator">The identifier generator implementation.</typeparam>
-	/// <param name="builder">The Immediate.Jobs builder.</param>
-	/// <returns>The supplied builder.</returns>
+	/// <summary>
+	/// 	Replaces the default GUID job and batch identifier generator.
+	/// </summary>
+	/// <typeparam name="TGenerator">
+	/// 	The identifier generator implementation.
+	/// </typeparam>
+	/// <param name="builder">
+	/// 	The Immediate.Jobs builder.
+	/// </param>
+	/// <returns>
+	/// 	The supplied builder.
+	/// </returns>
 	public static ImmediateJobsBuilder UseIdGenerator<
 		[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TGenerator
 	>(
@@ -82,12 +106,24 @@ public static class ImmediateJobsRuntimeServiceCollectionExtensions
 		return builder;
 	}
 
-	/// <summary>Adds scheduler liveness and storage connectivity to the health-check system.</summary>
-	/// <param name="builder">The Immediate.Jobs builder.</param>
-	/// <param name="name">The registered health-check name.</param>
-	/// <param name="failureStatus">The status reported when the check fails.</param>
-	/// <param name="tags">The tags associated with the health check.</param>
-	/// <returns>The supplied builder.</returns>
+	/// <summary>
+	/// 	Adds scheduler liveness and storage connectivity to the health-check system.
+	/// </summary>
+	/// <param name="builder">
+	/// 	The Immediate.Jobs builder.
+	/// </param>
+	/// <param name="name">
+	/// 	The registered health-check name.
+	/// </param>
+	/// <param name="failureStatus">
+	/// 	The status reported when the check fails.
+	/// </param>
+	/// <param name="tags">
+	/// 	The tags associated with the health check.
+	/// </param>
+	/// <returns>
+	/// 	The supplied builder.
+	/// </returns>
 	public static ImmediateJobsBuilder AddHealthCheck(
 		this ImmediateJobsBuilder builder,
 		string name = "immediate-jobs",

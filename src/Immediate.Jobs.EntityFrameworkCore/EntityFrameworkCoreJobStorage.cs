@@ -1,4 +1,6 @@
 using System.Data.Common;
+using Immediate.Jobs.Shared.Apis;
+using Immediate.Jobs.Shared.Storage;
 using Microsoft.EntityFrameworkCore;
 
 // TODO: remove and fix diagnostics
@@ -81,7 +83,7 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 
 	/// <inheritdoc />
 	public async ValueTask EnqueueBatchAsync(
-		JobBatchRecord batch,
+		BatchRecord batch,
 		IReadOnlyList<JobRecord> jobs,
 		IReadOnlyList<JobContinuationEdge> edges,
 		CancellationToken cancellationToken = default
@@ -96,7 +98,7 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 	}
 
 	private ValueTask ExecuteGraphInsertAsync(
-		JobBatchRecord? batch,
+		BatchRecord? batch,
 		IReadOnlyList<JobRecord> jobs,
 		IReadOnlyList<JobContinuationEdge> edges,
 		CancellationToken cancellationToken
@@ -106,7 +108,7 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 	);
 
 	private async Task InsertGraphCoreAsync(
-		JobBatchRecord? batch,
+		BatchRecord? batch,
 		IReadOnlyList<JobRecord> jobs,
 		IReadOnlyList<JobContinuationEdge> edges,
 		CancellationToken cancellationToken
@@ -1158,7 +1160,7 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 
 	/// <inheritdoc />
 	public async ValueTask<IReadOnlyList<BatchStatus>> QueryBatchesAsync(
-		JobBatchQuery query,
+		BatchQuery query,
 		CancellationToken cancellationToken = default
 	)
 	{

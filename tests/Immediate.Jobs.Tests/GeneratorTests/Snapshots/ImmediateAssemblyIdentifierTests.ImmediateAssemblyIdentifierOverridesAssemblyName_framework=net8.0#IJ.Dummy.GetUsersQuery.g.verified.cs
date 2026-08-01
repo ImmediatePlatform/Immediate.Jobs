@@ -11,10 +11,10 @@ namespace Dummy;
 partial class GetUsersQuery
 {
 	public sealed class Scheduler(
-		global::Immediate.Jobs.Shared.IJobStorage storage,
-		global::Immediate.Jobs.Shared.IJobSerializer serializer,
+		global::Immediate.Jobs.Shared.Storage.IJobStorage storage,
+		global::Immediate.Jobs.Shared.Interfaces.IJobSerializer serializer,
 		global::System.TimeProvider timeProvider,
-		global::Immediate.Jobs.Shared.IIdGenerator idGenerator
+		global::Immediate.Jobs.Shared.Interfaces.IIdGenerator idGenerator
 	) : global::Immediate.Jobs.Shared.JobScheduler<global::Dummy.GetUsersQuery.Query>(
 		storage,
 		serializer,
@@ -28,7 +28,7 @@ partial class GetUsersQuery
 	}
 
 	[global::System.ComponentModel.EditorBrowsable(global::System.ComponentModel.EditorBrowsableState.Never)]
-	internal sealed class Invoker(global::Immediate.Jobs.Shared.IJobSerializer serializer) : global::Immediate.Jobs.Shared.IJobInvoker
+	internal sealed class Invoker(global::Immediate.Jobs.Shared.Interfaces.IJobSerializer serializer) : global::Immediate.Jobs.Shared.Interfaces.IJobInvoker
 	{
 		public async global::System.Threading.Tasks.ValueTask InvokeAsync(global::System.IServiceProvider scopedServices, global::Immediate.Jobs.Shared.JobExecution execution)
 		{
@@ -40,26 +40,27 @@ partial class GetUsersQuery
 		}
 	}
 
-	internal sealed record JobDefinition : global::Immediate.Jobs.Shared.JobDefinition;
+	internal sealed record JobDefinition : global::Immediate.Jobs.Shared.Internals.JobDefinition;
 
-	internal static JobDefinition CreateJobDefinition(global::System.IServiceProvider services) => new()
-	{
-		Name = "get-users-query",
-		Queue = new global::Immediate.Jobs.Shared.JobQueueDefinition
-		{
-			Name = "default",
-			Priority = 0,
-			Concurrency = 0,
-		},
-		Invoker = global::Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetRequiredService<Invoker>(services),
-		JobType = typeof(global::Dummy.GetUsersQuery),
-		TimeZone = "UTC",
-		MaxAttempts = 3,
-		MaxConcurrency = 0,
-		OverlapPolicy = global::Immediate.Jobs.Shared.OverlapPolicy.Skip,
-		Backoff = global::Immediate.Jobs.Shared.BackoffStrategy.ExponentialJitter,
-		BackoffBase = global::System.TimeSpan.Parse("00:00:05", global::System.Globalization.CultureInfo.InvariantCulture),
-	};
+	internal static GetUsersQuery.JobDefinition CreateJobDefinition(global::System.IServiceProvider services) =>
+		new()
+    	{
+    		Name = "get-users-query",
+			Queue = new global::Immediate.Jobs.Shared.Internals.JobQueueDefinition
+    		{
+    			Name = "default",
+    			Priority = 0,
+    			Concurrency = 0,
+    		},
+    		Invoker = global::Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetRequiredService<Invoker>(services),
+    		JobType = typeof(global::Dummy.GetUsersQuery),
+    		TimeZone = "UTC",
+    		MaxAttempts = 3,
+    		MaxConcurrency = 0,
+    		OverlapPolicy = global::Immediate.Jobs.Shared.OverlapPolicy.Skip,
+    		Backoff = global::Immediate.Jobs.Shared.BackoffStrategy.ExponentialJitter,
+    		BackoffBase = global::System.TimeSpan.Parse("00:00:05", global::System.Globalization.CultureInfo.InvariantCulture),
+    	};
 
 	internal sealed class PayloadJsonContext : global::System.Text.Json.Serialization.JsonSerializerContext, global::System.Text.Json.Serialization.Metadata.IJsonTypeInfoResolver
 	{
@@ -106,8 +107,8 @@ partial class GetUsersQuery
 		global::Microsoft.Extensions.DependencyInjection.Extensions.ServiceCollectionDescriptorExtensions.TryAddEnumerable(
 			services,
 			global::Microsoft.Extensions.DependencyInjection.ServiceDescriptor.Singleton<
-				global::Immediate.Jobs.Shared.JobDefinition,
-				JobDefinition
+				global::Immediate.Jobs.Shared.Internals.JobDefinition,
+				GetUsersQuery.JobDefinition
 			>(GetUsersQuery.CreateJobDefinition)
 		);
 
@@ -116,7 +117,7 @@ partial class GetUsersQuery
 		global::Microsoft.Extensions.DependencyInjection.Extensions.ServiceCollectionDescriptorExtensions.TryAddEnumerable(
 			services,
 			global::Microsoft.Extensions.DependencyInjection.ServiceDescriptor.Scoped<
-				global::Immediate.Jobs.Shared.IJobScheduler<global::Dummy.GetUsersQuery.Query>,
+				global::Immediate.Jobs.Shared.Interfaces.IJobScheduler<global::Dummy.GetUsersQuery.Query>,
 				GetUsersQuery.Scheduler
 			>(global::Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetRequiredService<GetUsersQuery.Scheduler>)
 		);

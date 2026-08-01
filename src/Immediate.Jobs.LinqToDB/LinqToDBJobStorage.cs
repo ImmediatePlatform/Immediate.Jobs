@@ -1,4 +1,6 @@
 using System.Data.Common;
+using Immediate.Jobs.Shared.Apis;
+using Immediate.Jobs.Shared.Storage;
 using LinqToDB;
 using LinqToDB.Async;
 using LinqToDB.Data;
@@ -94,7 +96,7 @@ public sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorage,
 
 	/// <inheritdoc />
 	public ValueTask EnqueueBatchAsync(
-		JobBatchRecord batch,
+		BatchRecord batch,
 		IReadOnlyList<JobRecord> jobs,
 		IReadOnlyList<JobContinuationEdge> edges,
 		CancellationToken cancellationToken = default
@@ -109,7 +111,7 @@ public sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorage,
 	}
 
 	private ValueTask ExecuteGraphInsertAsync(
-		JobBatchRecord? batch,
+		BatchRecord? batch,
 		IReadOnlyList<JobRecord> jobs,
 		IReadOnlyList<JobContinuationEdge> edges,
 		CancellationToken cancellationToken
@@ -120,7 +122,7 @@ public sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorage,
 
 	private async Task InsertGraphCoreAsync(
 		DataConnection connection,
-		JobBatchRecord? batch,
+		BatchRecord? batch,
 		IReadOnlyList<JobRecord> jobs,
 		IReadOnlyList<JobContinuationEdge> edges,
 		CancellationToken cancellationToken
@@ -1215,7 +1217,7 @@ public sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorage,
 
 	/// <inheritdoc />
 	public async ValueTask<IReadOnlyList<BatchStatus>> QueryBatchesAsync(
-		JobBatchQuery query,
+		BatchQuery query,
 		CancellationToken cancellationToken = default
 	)
 	{

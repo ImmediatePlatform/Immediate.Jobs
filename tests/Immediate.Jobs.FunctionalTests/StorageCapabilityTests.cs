@@ -1,11 +1,14 @@
 using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
+using Immediate.Jobs.Shared.Apis;
+using Immediate.Jobs.Shared.Interfaces;
+using Immediate.Jobs.Shared.Internals;
+using Immediate.Jobs.Shared.Storage;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Immediate.Jobs.FunctionalTests;
 
-#pragma warning disable CS1591
 public sealed class StorageCapabilityTests
 {
 	[Fact]
@@ -18,13 +21,13 @@ public sealed class StorageCapabilityTests
 			_ = options.UseStorage(_ => queueStorage).UseDistributed());
 
 		await using var provider = services.BuildServiceProvider();
-		using var scope = provider.CreateScope();
+		await using var scope = provider.CreateAsyncScope();
 
 		Assert.Equal(StorageCapabilities.Queue, provider.GetRequiredService<IJobStorage>().GetCapabilities());
 		Assert.Null(provider.GetService<IRecurringJobStorage>());
 		Assert.Null(provider.GetService<IJobGraphStorage>());
-		Assert.Null(scope.ServiceProvider.GetService<IJobBatchScheduler>());
-		Assert.Null(scope.ServiceProvider.GetService<IJobBatchMonitor>());
+		Assert.Null(scope.ServiceProvider.GetService<IBatchScheduler>());
+		Assert.Null(scope.ServiceProvider.GetService<IBatchMonitor>());
 		_ = Assert.IsType<JobMonitor>(scope.ServiceProvider.GetRequiredService<IJobMonitor>());
 	}
 
@@ -58,7 +61,7 @@ public sealed class StorageCapabilityTests
 			TimeProvider.System,
 			idGenerator
 		);
-		var batchScheduler = new JobBatchScheduler(
+		var batchScheduler = new BatchScheduler(
 			storage,
 			TimeProvider.System,
 			idGenerator
@@ -108,7 +111,7 @@ public sealed class StorageCapabilityTests
 			CreatedAt = DateTimeOffset.MinValue,
 		}, cancellationToken);
 
-		await provider.GetRequiredService<JobSchedulerService>().DrainAsync(cancellationToken);
+		await provider.GetRequiredService<JobSchedulingService>().DrainAsync(cancellationToken);
 
 		Assert.Equal(1, storage.CompleteCalls);
 		Assert.Equal(JobState.Succeeded, (await storage.GetJobStatusAsync("queue-only-job", cancellationToken))!.State);

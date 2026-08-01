@@ -1,3 +1,5 @@
+using Immediate.Jobs.Shared.Interfaces;
+
 namespace Immediate.Jobs.Testing;
 
 /// <summary>

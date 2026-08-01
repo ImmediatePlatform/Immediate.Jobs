@@ -1,12 +1,23 @@
+using Immediate.Jobs.Shared.Storage;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 
-namespace Immediate.Jobs.Shared;
+namespace Immediate.Jobs.Shared.Internals;
 
-/// <summary>Reports scheduler-loop liveness and provider connectivity.</summary>
-/// <param name="storage">The storage provider whose connectivity is checked.</param>
-/// <param name="state">The scheduler state used to evaluate liveness.</param>
-/// <param name="options">The scheduler options used to determine the allowed heartbeat silence.</param>
-/// <param name="timeProvider">The time provider used to evaluate heartbeat freshness.</param>
+/// <summary>
+/// 	Reports scheduler-loop liveness and provider connectivity.
+/// </summary>
+/// <param name="storage">
+/// 	The storage provider whose connectivity is checked.
+/// </param>
+/// <param name="state">
+/// 	The scheduler state used to evaluate liveness.
+/// </param>
+/// <param name="options">
+/// 	The scheduler options used to determine the allowed heartbeat silence.
+/// </param>
+/// <param name="timeProvider">
+/// 	The time provider used to evaluate heartbeat freshness.
+/// </param>
 public sealed class ImmediateJobsHealthCheck(
 	IJobStorage storage,
 	JobSchedulerState state,

@@ -1,4 +1,8 @@
 using System.Globalization;
+using Immediate.Jobs.Shared.Apis;
+using Immediate.Jobs.Shared.Interfaces;
+using Immediate.Jobs.Shared.Internals;
+using Immediate.Jobs.Shared.Storage;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -60,12 +64,12 @@ public sealed class JobTestHarness : IAsyncDisposable, IDisposable
 				"Batches & continuations require a graph-capable storage provider (a SQL database). " +
 				"The configured provider implements the queue capability only."
 			);
-		Batches = new JobBatchScheduler(
+		Batches = new BatchScheduler(
 			Storage,
 			TimeProvider,
 			_serviceProvider.GetRequiredService<IIdGenerator>()
 		);
-		Scheduler = _serviceProvider.GetRequiredService<JobSchedulerService>();
+		Scheduler = _serviceProvider.GetRequiredService<JobSchedulingService>();
 	}
 
 	/// <summary>The controllable clock used by schedulers, storage, retries, and cron materialization.</summary>
@@ -82,11 +86,11 @@ public sealed class JobTestHarness : IAsyncDisposable, IDisposable
 
 	/// <summary>Builds atomic batches against the harness storage and fake clock.</summary>
 	/// <value>The batch scheduler configured for the harness.</value>
-	public IJobBatchScheduler Batches { get; }
+	public IBatchScheduler Batches { get; }
 
 	/// <summary>The production scheduler runner hosted by the harness.</summary>
 	/// <value>The scheduler service configured for the harness.</value>
-	public JobSchedulerService Scheduler { get; }
+	public JobSchedulingService Scheduler { get; }
 
 	/// <summary>Runs every invocation currently due and returns when the due queue is empty.</summary>
 	/// <param name="cancellationToken">A token that can cancel draining.</param>

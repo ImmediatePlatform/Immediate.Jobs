@@ -1,6 +1,9 @@
 using System.Collections.Concurrent;
 using System.Globalization;
 using Immediate.Handlers.Shared;
+using Immediate.Jobs.Shared.Apis;
+using Immediate.Jobs.Shared.Interfaces;
+using Immediate.Jobs.Shared.Storage;
 using Immediate.Jobs.Testing;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -35,7 +38,7 @@ public sealed class BatchesAndContinuationsTests
 		var cancellationToken = TestContext.Current.CancellationToken;
 		await using var harness = CreateHarness();
 		await using var scope = harness.Services.CreateAsyncScope();
-		var batches = scope.ServiceProvider.GetRequiredService<IJobBatchScheduler>();
+		var batches = scope.ServiceProvider.GetRequiredService<BatchScheduler>();
 		var scheduler = scope.ServiceProvider.GetRequiredService<BatchWorkflowJob.Scheduler>();
 		var jobHandle = await scheduler.EnqueueAsync(new("cancel-job"), cancellationToken);
 
@@ -61,7 +64,7 @@ public sealed class BatchesAndContinuationsTests
 		var cancellationToken = TestContext.Current.CancellationToken;
 		await using var harness = CreateHarness();
 		await using var scope = harness.Services.CreateAsyncScope();
-		var batches = scope.ServiceProvider.GetRequiredService<IJobBatchScheduler>();
+		var batches = scope.ServiceProvider.GetRequiredService<BatchScheduler>();
 		var scheduler = scope.ServiceProvider.GetRequiredService<BatchWorkflowJob.Scheduler>();
 
 		JobHandle rolledBack;
@@ -100,7 +103,7 @@ public sealed class BatchesAndContinuationsTests
 		var cancellationToken = TestContext.Current.CancellationToken;
 		await using var harness = CreateHarness();
 		await using var scope = harness.Services.CreateAsyncScope();
-		var batches = scope.ServiceProvider.GetRequiredService<IJobBatchScheduler>();
+		var batches = scope.ServiceProvider.GetRequiredService<BatchScheduler>();
 		var scheduler = scope.ServiceProvider.GetRequiredService<BatchWorkflowJob.Scheduler>();
 		await using var batch = batches.Begin();
 		var handles = new ConcurrentBag<JobHandle>();
@@ -134,7 +137,7 @@ public sealed class BatchesAndContinuationsTests
 		_ = services.AddImmediateJobsFunctionalTestsHandlers();
 		_ = services.AddImmediateJobsFunctionalTestsJobs();
 		await using var provider = services.BuildServiceProvider();
-		var batches = provider.GetRequiredService<IJobBatchScheduler>();
+		var batches = provider.GetRequiredService<BatchScheduler>();
 		var scheduler = provider.GetRequiredService<BatchWorkflowJob.Scheduler>();
 		await using var batch = batches.Begin();
 		_ = scheduler.AddToBatch(batch, new("seed"));
@@ -162,7 +165,7 @@ public sealed class BatchesAndContinuationsTests
 		var cancellationToken = TestContext.Current.CancellationToken;
 		await using var harness = CreateHarness();
 		await using var scope = harness.Services.CreateAsyncScope();
-		var batches = scope.ServiceProvider.GetRequiredService<IJobBatchScheduler>();
+		var batches = scope.ServiceProvider.GetRequiredService<BatchScheduler>();
 		var scheduler = scope.ServiceProvider.GetRequiredService<BatchWorkflowJob.Scheduler>();
 		await using var batch = batches.Begin();
 
@@ -185,7 +188,7 @@ public sealed class BatchesAndContinuationsTests
 		var state = new BatchWorkflowState();
 		await using var harness = CreateHarness(state);
 		await using var scope = harness.Services.CreateAsyncScope();
-		var batches = scope.ServiceProvider.GetRequiredService<IJobBatchScheduler>();
+		var batches = scope.ServiceProvider.GetRequiredService<BatchScheduler>();
 		var scheduler = scope.ServiceProvider.GetRequiredService<BatchWorkflowJob.Scheduler>();
 		await using var batch = batches.Begin();
 
@@ -223,8 +226,8 @@ public sealed class BatchesAndContinuationsTests
 		var cancellationToken = TestContext.Current.CancellationToken;
 		await using var harness = CreateHarness();
 		await using var scope = harness.Services.CreateAsyncScope();
-		var batches = scope.ServiceProvider.GetRequiredService<IJobBatchScheduler>();
-		var monitor = scope.ServiceProvider.GetRequiredService<IJobBatchMonitor>();
+		var batches = scope.ServiceProvider.GetRequiredService<BatchScheduler>();
+		var monitor = scope.ServiceProvider.GetRequiredService<IBatchMonitor>();
 		var scheduler = scope.ServiceProvider.GetRequiredService<BatchWorkflowJob.Scheduler>();
 
 		await using var parentBatch = batches.Begin();
@@ -256,8 +259,8 @@ public sealed class BatchesAndContinuationsTests
 		var state = new BatchWorkflowState();
 		await using var harness = CreateHarness(state);
 		await using var scope = harness.Services.CreateAsyncScope();
-		var batches = scope.ServiceProvider.GetRequiredService<IJobBatchScheduler>();
-		var monitor = scope.ServiceProvider.GetRequiredService<IJobBatchMonitor>();
+		var batches = scope.ServiceProvider.GetRequiredService<BatchScheduler>();
+		var monitor = scope.ServiceProvider.GetRequiredService<IBatchMonitor>();
 		var scheduler = scope.ServiceProvider.GetRequiredService<BatchWorkflowJob.Scheduler>();
 		await using var batch = batches.Begin();
 
@@ -289,7 +292,7 @@ public sealed class BatchesAndContinuationsTests
 		var state = new BatchWorkflowState();
 		await using var harness = CreateHarness(state);
 		await using var scope = harness.Services.CreateAsyncScope();
-		var batches = scope.ServiceProvider.GetRequiredService<IJobBatchScheduler>();
+		var batches = scope.ServiceProvider.GetRequiredService<BatchScheduler>();
 		var scheduler = scope.ServiceProvider.GetRequiredService<BatchWorkflowJob.Scheduler>();
 		await using var batch = batches.Begin();
 
@@ -328,7 +331,7 @@ public sealed class BatchesAndContinuationsTests
 		var state = new BatchWorkflowState();
 		await using var harness = CreateHarness(state);
 		await using var scope = harness.Services.CreateAsyncScope();
-		var batches = scope.ServiceProvider.GetRequiredService<IJobBatchScheduler>();
+		var batches = scope.ServiceProvider.GetRequiredService<BatchScheduler>();
 		var scheduler = scope.ServiceProvider.GetRequiredService<BatchWorkflowJob.Scheduler>();
 		await using var batch = batches.Begin();
 		_ = scheduler.AddToBatch(
@@ -393,7 +396,7 @@ public sealed class BatchesAndContinuationsTests
 		var cancellationToken = TestContext.Current.CancellationToken;
 		await using var harness = CreateHarness();
 		await using var scope = harness.Services.CreateAsyncScope();
-		var batches = scope.ServiceProvider.GetRequiredService<IJobBatchScheduler>();
+		var batches = scope.ServiceProvider.GetRequiredService<BatchScheduler>();
 		var scheduler = scope.ServiceProvider.GetRequiredService<BatchWorkflowJob.Scheduler>();
 		var standalone = await scheduler.EnqueueAsync(new("standalone"), cancellationToken);
 		await using var batch = batches.Begin();
@@ -426,8 +429,8 @@ public sealed class BatchesAndContinuationsTests
 		var cancellationToken = TestContext.Current.CancellationToken;
 		await using var harness = CreateHarness();
 		await using var scope = harness.Services.CreateAsyncScope();
-		var batches = scope.ServiceProvider.GetRequiredService<IJobBatchScheduler>();
-		var monitor = scope.ServiceProvider.GetRequiredService<IJobBatchMonitor>();
+		var batches = scope.ServiceProvider.GetRequiredService<BatchScheduler>();
+		var monitor = scope.ServiceProvider.GetRequiredService<IBatchMonitor>();
 		var jobMonitor = scope.ServiceProvider.GetRequiredService<IJobMonitor>();
 		var scheduler = scope.ServiceProvider.GetRequiredService<BatchWorkflowJob.Scheduler>();
 		await using var batch = batches.Begin();
@@ -503,7 +506,7 @@ public sealed class BatchesAndContinuationsTests
 		var expansion = new DynamicExpansionState { FailuresRemaining = 1 };
 		await using var harness = CreateHarness(workflow, expansion);
 		await using var scope = harness.Services.CreateAsyncScope();
-		var batches = scope.ServiceProvider.GetRequiredService<IJobBatchScheduler>();
+		var batches = scope.ServiceProvider.GetRequiredService<BatchScheduler>();
 		var expanding = scope.ServiceProvider.GetRequiredService<DynamicExpansionJob.Scheduler>();
 		var workflowScheduler = scope.ServiceProvider.GetRequiredService<BatchWorkflowJob.Scheduler>();
 		await using var batch = batches.Begin();
@@ -542,7 +545,7 @@ public sealed class BatchesAndContinuationsTests
 		var workflow = new BatchWorkflowState();
 		await using var harness = CreateHarness(workflow);
 		await using var scope = harness.Services.CreateAsyncScope();
-		var batches = scope.ServiceProvider.GetRequiredService<IJobBatchScheduler>();
+		var batches = scope.ServiceProvider.GetRequiredService<BatchScheduler>();
 		var expanding = scope.ServiceProvider.GetRequiredService<ConcurrentExpansionJob.Scheduler>();
 		var workflowScheduler = scope.ServiceProvider.GetRequiredService<BatchWorkflowJob.Scheduler>();
 		await using var batch = batches.Begin();
@@ -597,14 +600,14 @@ public sealed class BatchesAndContinuationsTests
 		await using var provider = services.BuildServiceProvider(new ServiceProviderOptions { ValidateScopes = true });
 
 		await using var firstScope = provider.CreateAsyncScope();
-		var scheduler = firstScope.ServiceProvider.GetRequiredService<IJobBatchScheduler>();
-		var batchMonitor = firstScope.ServiceProvider.GetRequiredService<IJobBatchMonitor>();
+		var scheduler = firstScope.ServiceProvider.GetRequiredService<BatchScheduler>();
+		var batchMonitor = firstScope.ServiceProvider.GetRequiredService<IBatchMonitor>();
 		var jobMonitor = firstScope.ServiceProvider.GetRequiredService<IJobMonitor>();
 		await using var secondScope = provider.CreateAsyncScope();
 
-		_ = Assert.IsType<JobBatchScheduler>(scheduler);
+		_ = Assert.IsType<BatchScheduler>(scheduler);
 		Assert.Same(batchMonitor, jobMonitor);
-		Assert.NotSame(scheduler, secondScope.ServiceProvider.GetRequiredService<IJobBatchScheduler>());
+		Assert.NotSame(scheduler, secondScope.ServiceProvider.GetRequiredService<BatchScheduler>());
 	}
 
 	private static JobTestHarness CreateHarness(

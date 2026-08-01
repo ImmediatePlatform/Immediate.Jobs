@@ -1,5 +1,5 @@
 using Immediate.Jobs.Dashboard;
-using Immediate.Jobs.Shared;
+using Immediate.Jobs.Shared.Apis;
 
 namespace Immediate.Jobs.Aspire.Api.Telemetry;
 

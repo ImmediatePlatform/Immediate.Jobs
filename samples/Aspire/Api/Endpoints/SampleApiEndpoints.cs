@@ -88,7 +88,7 @@ public static class SampleApiEndpoints
 
 	private static async ValueTask<IResult> EnqueueFairQueueDemoAsync(
 		FairQueueDemoJob.Scheduler scheduler,
-		IJobBatchScheduler batches,
+		BatchScheduler batches,
 		CancellationToken cancellationToken
 	)
 	{
@@ -141,7 +141,7 @@ public static class SampleApiEndpoints
 
 	private static async ValueTask<IResult> CreateContinuationBranchDemoAsync(
 		bool failRoot,
-		IJobBatchScheduler batches,
+		BatchScheduler batches,
 		ContinuationBranchRootJob.Scheduler rootScheduler,
 		ContinuationBranchSuccessJob.Scheduler successScheduler,
 		ContinuationBranchFailureJob.Scheduler failureScheduler,

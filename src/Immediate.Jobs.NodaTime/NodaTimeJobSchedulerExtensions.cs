@@ -1,3 +1,4 @@
+using Immediate.Jobs.Shared.Interfaces;
 using NodaTime;
 
 namespace Immediate.Jobs.NodaTime;
@@ -90,7 +91,7 @@ public static class NodaTimeJobSchedulerExtensions
 	/// <returns>A handle that identifies the job added to the batch.</returns>
 	public static JobHandle AddToBatch<TPayload>(
 		this JobScheduler<TPayload> scheduler,
-		JobBatch batch,
+		Batch batch,
 		TPayload payload,
 		Duration? delay = null
 	)
@@ -108,7 +109,7 @@ public static class NodaTimeJobSchedulerExtensions
 	/// <returns>A handle that identifies the job added to the batch.</returns>
 	public static JobHandle AddToBatchAt<TPayload>(
 		this JobScheduler<TPayload> scheduler,
-		JobBatch batch,
+		Batch batch,
 		TPayload payload,
 		Instant runAt
 	)

@@ -8,10 +8,10 @@
 partial class ContextualJob
 {
 	public sealed class Scheduler(
-		global::Immediate.Jobs.Shared.IJobStorage storage,
-		global::Immediate.Jobs.Shared.IJobSerializer serializer,
+		global::Immediate.Jobs.Shared.Storage.IJobStorage storage,
+		global::Immediate.Jobs.Shared.Interfaces.IJobSerializer serializer,
 		global::System.TimeProvider timeProvider,
-		global::Immediate.Jobs.Shared.IIdGenerator idGenerator
+		global::Immediate.Jobs.Shared.Interfaces.IIdGenerator idGenerator
 		, global::CorrelationExtractor contextExtractor0
 		, global::UsageContextExtractor contextExtractor1
 	) : global::Immediate.Jobs.Shared.JobScheduler<global::ContextualJob.Payload>(
@@ -34,7 +34,7 @@ partial class ContextualJob
 			var context0 = contextExtractor0.Capture();
 			if (context0 is not null)
 			{
-				global::Immediate.Jobs.Shared.JobContextEnvelope.AddSlice(
+				global::Immediate.Jobs.Shared.Internals.JobContextEnvelope.AddSlice(
 					slices,
 					contextExtractor0.Key,
 					Serializer.Serialize(context0, static options => new PayloadJsonContext(options).Context0)
@@ -46,25 +46,25 @@ partial class ContextualJob
 			var context1 = contextExtractor1.Capture();
 			if (context1 is not null)
 			{
-				global::Immediate.Jobs.Shared.JobContextEnvelope.AddSlice(
+				global::Immediate.Jobs.Shared.Internals.JobContextEnvelope.AddSlice(
 					slices,
 					contextExtractor1.Key,
 					Serializer.Serialize(context1, static options => new PayloadJsonContext(options).Context1)
 				);
 			}
-			return global::Immediate.Jobs.Shared.JobContextEnvelope.Create(slices);
+			return global::Immediate.Jobs.Shared.Internals.JobContextEnvelope.Create(slices);
 		}
 
 	}
 
 	[global::System.ComponentModel.EditorBrowsable(global::System.ComponentModel.EditorBrowsableState.Never)]
-	internal sealed class Invoker(global::Immediate.Jobs.Shared.IJobSerializer serializer) : global::Immediate.Jobs.Shared.IJobInvoker, global::Immediate.Jobs.Shared.IJobContextAwareInvoker
+	internal sealed class Invoker(global::Immediate.Jobs.Shared.Interfaces.IJobSerializer serializer) : global::Immediate.Jobs.Shared.Interfaces.IJobInvoker
 	{
 		public async global::System.Threading.Tasks.ValueTask InvokeAsync(global::System.IServiceProvider scopedServices, global::Immediate.Jobs.Shared.JobExecution execution)
 		{
 			if (execution.Record.Context is { } envelope)
 			{
-				var contextSlices = global::Immediate.Jobs.Shared.JobContextEnvelope.Read(envelope);
+				var contextSlices = global::Immediate.Jobs.Shared.Internals.JobContextEnvelope.Read(envelope);
 
 				var contextExtractor0 = global::Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetRequiredService<global::CorrelationExtractor>(scopedServices);
 				if (contextSlices.Remove(contextExtractor0.Key, out var serializedContext0))
@@ -80,22 +80,14 @@ partial class ContextualJob
 					contextExtractor1.Restore(context1);
 				}
 
-				global::Immediate.Jobs.Shared.JobContextEnvelope.LogOrphanedSlices(scopedServices, execution.Record, contextSlices.Keys);
+				global::Immediate.Jobs.Shared.Internals.JobContextEnvelope.LogOrphanedSlices(scopedServices, execution.Record, contextSlices.Keys);
 			}
 
 			var payload = serializer.Deserialize(execution.Record.Payload, static options => new PayloadJsonContext(options).Payload);
 
 			SetJobDetails(
 				ref payload,
-				new global::Immediate.Jobs.Shared.JobDetails(
-					execution.Record.Id,
-					execution.Record.JobName,
-					execution.Record.QueueName,
-					execution.Record.Attempt,
-					execution.Record.CreatedAt,
-					execution.Record.DueAt,
-					execution.Record.BatchId
-				) { Buffer = execution.Buffer }
+				new global::Immediate.Jobs.Shared.JobDetails(execution)
 			);
 
 			var handler = global::Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetRequiredService<global::ContextualJob.Handler>(scopedServices);
@@ -110,26 +102,27 @@ partial class ContextualJob
 			where TRequest : global::Immediate.Jobs.Shared.IJobRequest => request.JobDetails = details;
 	}
 
-	internal sealed record JobDefinition : global::Immediate.Jobs.Shared.JobDefinition;
+	internal sealed record JobDefinition : global::Immediate.Jobs.Shared.Internals.JobDefinition;
 
-	internal static JobDefinition CreateJobDefinition(global::System.IServiceProvider services) => new()
-	{
-		Name = "contextual",
-		Queue = new global::Immediate.Jobs.Shared.JobQueueDefinition
-		{
-			Name = "default",
-			Priority = 0,
-			Concurrency = 0,
-		},
-		Invoker = global::Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetRequiredService<Invoker>(services),
-		JobType = typeof(global::ContextualJob),
-		TimeZone = "UTC",
-		MaxAttempts = 3,
-		MaxConcurrency = 0,
-		OverlapPolicy = global::Immediate.Jobs.Shared.OverlapPolicy.Skip,
-		Backoff = global::Immediate.Jobs.Shared.BackoffStrategy.ExponentialJitter,
-		BackoffBase = global::System.TimeSpan.Parse("00:00:05", global::System.Globalization.CultureInfo.InvariantCulture),
-	};
+	internal static ContextualJob.JobDefinition CreateJobDefinition(global::System.IServiceProvider services) =>
+		new()
+    	{
+    		Name = "contextual",
+			Queue = new global::Immediate.Jobs.Shared.Internals.JobQueueDefinition
+    		{
+    			Name = "default",
+    			Priority = 0,
+    			Concurrency = 0,
+    		},
+    		Invoker = global::Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetRequiredService<Invoker>(services),
+    		JobType = typeof(global::ContextualJob),
+    		TimeZone = "UTC",
+    		MaxAttempts = 3,
+    		MaxConcurrency = 0,
+    		OverlapPolicy = global::Immediate.Jobs.Shared.OverlapPolicy.Skip,
+    		Backoff = global::Immediate.Jobs.Shared.BackoffStrategy.ExponentialJitter,
+    		BackoffBase = global::System.TimeSpan.Parse("00:00:05", global::System.Globalization.CultureInfo.InvariantCulture),
+    	};
 
 	internal sealed class PayloadJsonContext : global::System.Text.Json.Serialization.JsonSerializerContext, global::System.Text.Json.Serialization.Metadata.IJsonTypeInfoResolver
 	{
@@ -303,8 +296,8 @@ partial class ContextualJob
 		global::Microsoft.Extensions.DependencyInjection.Extensions.ServiceCollectionDescriptorExtensions.TryAddEnumerable(
 			services,
 			global::Microsoft.Extensions.DependencyInjection.ServiceDescriptor.Singleton<
-				global::Immediate.Jobs.Shared.JobDefinition,
-				JobDefinition
+				global::Immediate.Jobs.Shared.Internals.JobDefinition,
+				ContextualJob.JobDefinition
 			>(ContextualJob.CreateJobDefinition)
 		);
 
@@ -313,7 +306,7 @@ partial class ContextualJob
 		global::Microsoft.Extensions.DependencyInjection.Extensions.ServiceCollectionDescriptorExtensions.TryAddEnumerable(
 			services,
 			global::Microsoft.Extensions.DependencyInjection.ServiceDescriptor.Scoped<
-				global::Immediate.Jobs.Shared.IJobScheduler<global::ContextualJob.Payload>,
+				global::Immediate.Jobs.Shared.Interfaces.IJobScheduler<global::ContextualJob.Payload>,
 				ContextualJob.Scheduler
 			>(global::Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetRequiredService<ContextualJob.Scheduler>)
 		);

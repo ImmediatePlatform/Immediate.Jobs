@@ -22,7 +22,7 @@ public static class ImmediateJobsGeneratedServiceCollectionExtensions
 
 		global::Microsoft.Extensions.DependencyInjection.Extensions.ServiceCollectionDescriptorExtensions.TryAddSingleton(
 			services,
-			new global::Immediate.Jobs.Shared.JobQueueDefinition
+			new global::Immediate.Jobs.Shared.Internals.JobQueueDefinition
 			{
 				Name = "critical-queue",
 				Priority = 10,
@@ -76,7 +76,7 @@ public sealed class RecurringJobs
 	> _jobsByName;
 
 	private async global::System.Threading.Tasks.ValueTask TriggerCore<T>(global::System.Threading.CancellationToken token)
-		where T : global::Immediate.Jobs.Shared.IRecurringJobTrigger
+		where T : global::Immediate.Jobs.Shared.Interfaces.IRecurringJobTrigger
 	{
 		await using var scope = global::Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.CreateAsyncScope(_serviceProvider);
 

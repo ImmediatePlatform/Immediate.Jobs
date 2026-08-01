@@ -1,5 +1,7 @@
 using Immediate.Jobs.EntityFrameworkCore;
 using Immediate.Jobs.LinqToDB;
+using Immediate.Jobs.Shared.Apis;
+using Immediate.Jobs.Shared.Storage;
 using LinqToDB;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;

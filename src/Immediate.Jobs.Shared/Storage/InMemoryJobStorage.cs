@@ -1,14 +1,18 @@
 using System.Globalization;
+using Immediate.Jobs.Shared.Apis;
 
-namespace Immediate.Jobs.Shared;
+namespace Immediate.Jobs.Shared.Storage;
 
 // TODO: remove and fix diagnostics
 #pragma warning disable MA0015 // Specify the parameter name in ArgumentException
 
 /// <summary>
 /// A best-effort, non-durable, single-node provider intended for development and tests.
+/// 
 /// </summary>
-/// <param name="timeProvider">The clock used for scheduling, leases, and timestamps.</param>
+/// <param name="timeProvider">
+/// 	The clock used for scheduling, leases, and timestamps.
+/// </param>
 public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 	IRecurringJobStorage,
 	IJobGraphStorage,
@@ -17,7 +21,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 	private readonly Lock _gate = new();
 	private readonly Dictionary<string, JobRecord> _jobs = new(StringComparer.Ordinal);
 	private readonly Dictionary<string, SortedDictionary<int, JobExecutionRecord>> _executions = new(StringComparer.Ordinal);
-	private readonly Dictionary<string, JobBatchRecord> _batches = new(StringComparer.Ordinal);
+	private readonly Dictionary<string, BatchRecord> _batches = new(StringComparer.Ordinal);
 	private readonly List<JobContinuationEdge> _edges = [];
 	private readonly HashSet<JobContinuationEdge> _settledEdges = [];
 	private readonly Dictionary<string, RecurringJobSchedule> _recurring = new(StringComparer.Ordinal);
@@ -103,7 +107,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 
 	/// <inheritdoc />
 	public ValueTask EnqueueBatchAsync(
-		JobBatchRecord batch,
+		BatchRecord batch,
 		IReadOnlyList<JobRecord> jobs,
 		IReadOnlyList<JobContinuationEdge> edges,
 		CancellationToken cancellationToken = default
@@ -867,7 +871,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 
 	/// <inheritdoc />
 	public async ValueTask<IReadOnlyList<BatchStatus>> QueryBatchesAsync(
-		JobBatchQuery query,
+		BatchQuery query,
 		CancellationToken cancellationToken = default
 	)
 	{
@@ -1232,7 +1236,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 	}
 
 	private void ValidateBatch(
-		JobBatchRecord batch,
+		BatchRecord batch,
 		IReadOnlyList<JobRecord> jobs,
 		IReadOnlyList<JobContinuationEdge> edges
 	)
@@ -1366,7 +1370,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 	};
 
 	private bool IsRecoveredBatch(
-		JobBatchRecord batch,
+		BatchRecord batch,
 		IReadOnlyList<JobRecord> jobs,
 		IReadOnlyList<JobContinuationEdge> edges
 	)
@@ -1682,7 +1686,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 
 	private static bool IsTerminal(BatchState state) => state is not BatchState.Executing;
 
-	private static BatchStatus ToStatus(JobBatchRecord batch) => new(
+	private static BatchStatus ToStatus(BatchRecord batch) => new(
 		batch.Id,
 		batch.State,
 		batch.TotalJobs,

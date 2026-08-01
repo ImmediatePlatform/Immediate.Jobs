@@ -1,6 +1,8 @@
 using System.Diagnostics;
 using System.Globalization;
 using Immediate.Handlers.Shared;
+using Immediate.Jobs.Shared.Interfaces;
+using Immediate.Jobs.Shared.Internals;
 using Immediate.Jobs.Testing;
 using Immediate.Validations.Shared;
 using Microsoft.Extensions.DependencyInjection;
@@ -286,6 +288,7 @@ public sealed class GeneratedJobTests
 
 		Assert.Collection(
 			services,
+
 			d => Assert.Equal(typeof(JobDefinition), d.ServiceType),
 			d => Assert.Equal(typeof(PlainRequestJob.Scheduler), d.ServiceType),
 			d => Assert.Equal(typeof(IJobScheduler<PlainRequestJob.Payload>), d.ServiceType),
@@ -296,10 +299,12 @@ public sealed class GeneratedJobTests
 
 		Assert.Collection(
 			services,
+
 			d => Assert.Equal(typeof(JobDefinition), d.ServiceType),
 			d => Assert.Equal(typeof(PlainRequestJob.Scheduler), d.ServiceType),
 			d => Assert.Equal(typeof(IJobScheduler<PlainRequestJob.Payload>), d.ServiceType),
 			d => Assert.Equal(typeof(PlainRequestJob.Invoker), d.ServiceType),
+
 			d => Assert.Equal(typeof(JobDefinition), d.ServiceType),
 			d => Assert.Equal(typeof(RecordMessageJob.Scheduler), d.ServiceType),
 			d => Assert.Equal(typeof(IJobScheduler<RecordMessageJob.Payload>), d.ServiceType),
@@ -311,10 +316,12 @@ public sealed class GeneratedJobTests
 		// verify no items were duplicates
 		Assert.Collection(
 			services,
+
 			d => Assert.Equal(typeof(JobDefinition), d.ServiceType),
 			d => Assert.Equal(typeof(PlainRequestJob.Scheduler), d.ServiceType),
 			d => Assert.Equal(typeof(IJobScheduler<PlainRequestJob.Payload>), d.ServiceType),
 			d => Assert.Equal(typeof(PlainRequestJob.Invoker), d.ServiceType),
+
 			d => Assert.Equal(typeof(JobDefinition), d.ServiceType),
 			d => Assert.Equal(typeof(RecordMessageJob.Scheduler), d.ServiceType),
 			d => Assert.Equal(typeof(IJobScheduler<RecordMessageJob.Payload>), d.ServiceType),

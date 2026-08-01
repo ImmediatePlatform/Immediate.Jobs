@@ -8,10 +8,10 @@
 partial class TenantCleanupJob
 {
 	public sealed class Scheduler(
-		global::Immediate.Jobs.Shared.IJobStorage storage,
-		global::Immediate.Jobs.Shared.IJobSerializer serializer,
+		global::Immediate.Jobs.Shared.Storage.IJobStorage storage,
+		global::Immediate.Jobs.Shared.Interfaces.IJobSerializer serializer,
 		global::System.TimeProvider timeProvider,
-		global::Immediate.Jobs.Shared.IIdGenerator idGenerator
+		global::Immediate.Jobs.Shared.Interfaces.IIdGenerator idGenerator
 	) : global::Immediate.Jobs.Shared.JobScheduler<global::Immediate.Jobs.Shared.EmptyJobRequest>(
 		storage,
 		serializer,
@@ -21,7 +21,7 @@ partial class TenantCleanupJob
 		"default",
 		static options => new PayloadJsonContext(options).Payload
 	)
-		, global::Immediate.Jobs.Shared.IRecurringJobScheduler
+		, global::Immediate.Jobs.Shared.Interfaces.IRecurringJobScheduler
 	{
 
 		public global::System.Threading.Tasks.ValueTask<global::Immediate.Jobs.Shared.JobHandle> TriggerNowAsync(global::System.Threading.CancellationToken cancellationToken = default) =>
@@ -35,7 +35,7 @@ partial class TenantCleanupJob
 	}
 
 	[global::System.ComponentModel.EditorBrowsable(global::System.ComponentModel.EditorBrowsableState.Never)]
-	internal sealed class Invoker : global::Immediate.Jobs.Shared.IJobInvoker
+	internal sealed class Invoker : global::Immediate.Jobs.Shared.Interfaces.IJobInvoker
 	{
 		public async global::System.Threading.Tasks.ValueTask InvokeAsync(global::System.IServiceProvider scopedServices, global::Immediate.Jobs.Shared.JobExecution execution)
 		{
@@ -44,15 +44,7 @@ partial class TenantCleanupJob
 
 			SetJobDetails(
 				ref payload,
-				new global::Immediate.Jobs.Shared.JobDetails(
-					execution.Record.Id,
-					execution.Record.JobName,
-					execution.Record.QueueName,
-					execution.Record.Attempt,
-					execution.Record.CreatedAt,
-					execution.Record.DueAt,
-					execution.Record.BatchId
-				) { Buffer = execution.Buffer }
+				new global::Immediate.Jobs.Shared.JobDetails(execution)
 			);
 
 			var handler = global::Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetRequiredService<global::TenantCleanupJob.Handler>(scopedServices);
@@ -67,26 +59,27 @@ partial class TenantCleanupJob
 			where TRequest : global::Immediate.Jobs.Shared.IJobRequest => request.JobDetails = details;
 	}
 
-	internal sealed record JobDefinition : global::Immediate.Jobs.Shared.JobDefinition;
+	internal sealed record JobDefinition : global::Immediate.Jobs.Shared.Internals.JobDefinition;
 
-	internal static JobDefinition CreateJobDefinition(global::System.IServiceProvider services) => new()
-	{
-		Name = "tenant-cleanup",
-		Queue = new global::Immediate.Jobs.Shared.JobQueueDefinition
-		{
-			Name = "default",
-			Priority = 0,
-			Concurrency = 0,
-		},
-		Invoker = global::Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetRequiredService<Invoker>(services),
-		JobType = typeof(global::TenantCleanupJob),
-		TimeZone = "UTC",
-		MaxAttempts = 3,
-		MaxConcurrency = 0,
-		OverlapPolicy = global::Immediate.Jobs.Shared.OverlapPolicy.Skip,
-		Backoff = global::Immediate.Jobs.Shared.BackoffStrategy.ExponentialJitter,
-		BackoffBase = global::System.TimeSpan.Parse("00:00:05", global::System.Globalization.CultureInfo.InvariantCulture),
-	};
+	internal static TenantCleanupJob.JobDefinition CreateJobDefinition(global::System.IServiceProvider services) =>
+		new()
+    	{
+    		Name = "tenant-cleanup",
+			Queue = new global::Immediate.Jobs.Shared.Internals.JobQueueDefinition
+    		{
+    			Name = "default",
+    			Priority = 0,
+    			Concurrency = 0,
+    		},
+    		Invoker = global::Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetRequiredService<Invoker>(services),
+    		JobType = typeof(global::TenantCleanupJob),
+    		TimeZone = "UTC",
+    		MaxAttempts = 3,
+    		MaxConcurrency = 0,
+    		OverlapPolicy = global::Immediate.Jobs.Shared.OverlapPolicy.Skip,
+    		Backoff = global::Immediate.Jobs.Shared.BackoffStrategy.ExponentialJitter,
+    		BackoffBase = global::System.TimeSpan.Parse("00:00:05", global::System.Globalization.CultureInfo.InvariantCulture),
+    	};
 
 	internal sealed class PayloadJsonContext : global::System.Text.Json.Serialization.JsonSerializerContext, global::System.Text.Json.Serialization.Metadata.IJsonTypeInfoResolver
 	{
@@ -133,8 +126,8 @@ partial class TenantCleanupJob
 		global::Microsoft.Extensions.DependencyInjection.Extensions.ServiceCollectionDescriptorExtensions.TryAddEnumerable(
 			services,
 			global::Microsoft.Extensions.DependencyInjection.ServiceDescriptor.Singleton<
-				global::Immediate.Jobs.Shared.JobDefinition,
-				JobDefinition
+				global::Immediate.Jobs.Shared.Internals.JobDefinition,
+				TenantCleanupJob.JobDefinition
 			>(TenantCleanupJob.CreateJobDefinition)
 		);
 

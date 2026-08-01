@@ -4,7 +4,7 @@ using Immediate.Jobs.Shared;
 namespace Immediate.Jobs.Aspire.Api.Workflows;
 
 public sealed class GameReleaseWorkflow(
-	IJobBatchScheduler batches,
+	BatchScheduler batches,
 	ApproveGameReleaseJob.Scheduler approveRelease,
 	BuildGameClientJob.Scheduler buildClient,
 	ProvisionGameServicesJob.Scheduler provisionServices,

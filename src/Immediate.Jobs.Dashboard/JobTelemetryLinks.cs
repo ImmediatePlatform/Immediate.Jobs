@@ -1,3 +1,5 @@
+using Immediate.Jobs.Shared.Apis;
+
 namespace Immediate.Jobs.Dashboard;
 
 /// <summary>The external telemetry view represented by a dashboard link.</summary>

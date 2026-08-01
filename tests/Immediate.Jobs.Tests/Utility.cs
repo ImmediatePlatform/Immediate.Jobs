@@ -58,6 +58,6 @@ internal static partial class Utility
 			.IgnoreGeneratedResult(gsr => ImmediateHandlersHintName().IsMatch(Path.GetFileName(gsr.HintName)))
 			.IgnoreGeneratedResult(gsr => Path.GetFileName(gsr.HintName) is "IJ.ServiceCollectionExtensions.g.cs");
 
-	[GeneratedRegex(@"IH\..*\.g\.cs", RegexOptions.ExplicitCapture, matchTimeoutMilliseconds: 100)]
+	[GeneratedRegex(@"IH\..*\.g\.cs", RegexOptions.ExplicitCapture, matchTimeoutMilliseconds: 1_000)]
 	private static partial Regex ImmediateHandlersHintName();
 }

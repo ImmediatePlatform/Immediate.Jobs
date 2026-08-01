@@ -2,6 +2,8 @@ using System.Globalization;
 using System.Net;
 using System.Text.Json;
 using Immediate.Jobs.Dashboard;
+using Immediate.Jobs.Shared.Internals;
+using Immediate.Jobs.Shared.Storage;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;

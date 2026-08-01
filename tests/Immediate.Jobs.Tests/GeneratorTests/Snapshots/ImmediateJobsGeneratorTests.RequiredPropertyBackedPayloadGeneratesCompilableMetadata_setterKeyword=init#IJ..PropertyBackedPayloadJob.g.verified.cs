@@ -8,10 +8,10 @@
 partial class PropertyBackedPayloadJob
 {
 	public sealed class Scheduler(
-		global::Immediate.Jobs.Shared.IJobStorage storage,
-		global::Immediate.Jobs.Shared.IJobSerializer serializer,
+		global::Immediate.Jobs.Shared.Storage.IJobStorage storage,
+		global::Immediate.Jobs.Shared.Interfaces.IJobSerializer serializer,
 		global::System.TimeProvider timeProvider,
-		global::Immediate.Jobs.Shared.IIdGenerator idGenerator
+		global::Immediate.Jobs.Shared.Interfaces.IIdGenerator idGenerator
 	) : global::Immediate.Jobs.Shared.JobScheduler<global::PropertyBackedPayloadJob.Payload>(
 		storage,
 		serializer,
@@ -25,7 +25,7 @@ partial class PropertyBackedPayloadJob
 	}
 
 	[global::System.ComponentModel.EditorBrowsable(global::System.ComponentModel.EditorBrowsableState.Never)]
-	internal sealed class Invoker(global::Immediate.Jobs.Shared.IJobSerializer serializer) : global::Immediate.Jobs.Shared.IJobInvoker
+	internal sealed class Invoker(global::Immediate.Jobs.Shared.Interfaces.IJobSerializer serializer) : global::Immediate.Jobs.Shared.Interfaces.IJobInvoker
 	{
 		public async global::System.Threading.Tasks.ValueTask InvokeAsync(global::System.IServiceProvider scopedServices, global::Immediate.Jobs.Shared.JobExecution execution)
 		{
@@ -37,26 +37,27 @@ partial class PropertyBackedPayloadJob
 		}
 	}
 
-	internal sealed record JobDefinition : global::Immediate.Jobs.Shared.JobDefinition;
+	internal sealed record JobDefinition : global::Immediate.Jobs.Shared.Internals.JobDefinition;
 
-	internal static JobDefinition CreateJobDefinition(global::System.IServiceProvider services) => new()
-	{
-		Name = "property-backed-payload",
-		Queue = new global::Immediate.Jobs.Shared.JobQueueDefinition
-		{
-			Name = "default",
-			Priority = 0,
-			Concurrency = 0,
-		},
-		Invoker = global::Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetRequiredService<Invoker>(services),
-		JobType = typeof(global::PropertyBackedPayloadJob),
-		TimeZone = "UTC",
-		MaxAttempts = 3,
-		MaxConcurrency = 0,
-		OverlapPolicy = global::Immediate.Jobs.Shared.OverlapPolicy.Skip,
-		Backoff = global::Immediate.Jobs.Shared.BackoffStrategy.ExponentialJitter,
-		BackoffBase = global::System.TimeSpan.Parse("00:00:05", global::System.Globalization.CultureInfo.InvariantCulture),
-	};
+	internal static PropertyBackedPayloadJob.JobDefinition CreateJobDefinition(global::System.IServiceProvider services) =>
+		new()
+    	{
+    		Name = "property-backed-payload",
+			Queue = new global::Immediate.Jobs.Shared.Internals.JobQueueDefinition
+    		{
+    			Name = "default",
+    			Priority = 0,
+    			Concurrency = 0,
+    		},
+    		Invoker = global::Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetRequiredService<Invoker>(services),
+    		JobType = typeof(global::PropertyBackedPayloadJob),
+    		TimeZone = "UTC",
+    		MaxAttempts = 3,
+    		MaxConcurrency = 0,
+    		OverlapPolicy = global::Immediate.Jobs.Shared.OverlapPolicy.Skip,
+    		Backoff = global::Immediate.Jobs.Shared.BackoffStrategy.ExponentialJitter,
+    		BackoffBase = global::System.TimeSpan.Parse("00:00:05", global::System.Globalization.CultureInfo.InvariantCulture),
+    	};
 
 	internal sealed class PayloadJsonContext : global::System.Text.Json.Serialization.JsonSerializerContext, global::System.Text.Json.Serialization.Metadata.IJsonTypeInfoResolver
 	{
@@ -130,8 +131,8 @@ partial class PropertyBackedPayloadJob
 		global::Microsoft.Extensions.DependencyInjection.Extensions.ServiceCollectionDescriptorExtensions.TryAddEnumerable(
 			services,
 			global::Microsoft.Extensions.DependencyInjection.ServiceDescriptor.Singleton<
-				global::Immediate.Jobs.Shared.JobDefinition,
-				JobDefinition
+				global::Immediate.Jobs.Shared.Internals.JobDefinition,
+				PropertyBackedPayloadJob.JobDefinition
 			>(PropertyBackedPayloadJob.CreateJobDefinition)
 		);
 
@@ -140,7 +141,7 @@ partial class PropertyBackedPayloadJob
 		global::Microsoft.Extensions.DependencyInjection.Extensions.ServiceCollectionDescriptorExtensions.TryAddEnumerable(
 			services,
 			global::Microsoft.Extensions.DependencyInjection.ServiceDescriptor.Scoped<
-				global::Immediate.Jobs.Shared.IJobScheduler<global::PropertyBackedPayloadJob.Payload>,
+				global::Immediate.Jobs.Shared.Interfaces.IJobScheduler<global::PropertyBackedPayloadJob.Payload>,
 				PropertyBackedPayloadJob.Scheduler
 			>(global::Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetRequiredService<PropertyBackedPayloadJob.Scheduler>)
 		);

@@ -73,7 +73,7 @@ However, this name can be overridden using `[assembly: ImmediateAssemblyIdentifi
 
 ## Batches and continuations
 
-Inject `IJobBatchScheduler` to create an atomic group. Generated schedulers inherit strongly typed
+Inject `JobBatchScheduler` to create an atomic group. Generated schedulers inherit strongly typed
 batch methods and return handles that can be connected into chains, fan-out branches, and fan-in
 joins. Storage receives the entire batch in one transaction; disposing without committing writes
 nothing.

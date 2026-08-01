@@ -2,14 +2,19 @@ using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Globalization;
 using System.Threading.Channels;
+using Immediate.Jobs.Shared.Apis;
+using Immediate.Jobs.Shared.Interfaces;
+using Immediate.Jobs.Shared.Storage;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
-namespace Immediate.Jobs.Shared;
+namespace Immediate.Jobs.Shared.Internals;
 
-/// <summary>Coordinates recurring schedules, durable leases, and the bounded worker pool.</summary>
-public sealed partial class JobSchedulerService : BackgroundService
+/// <summary>
+/// 	Coordinates recurring schedules, durable leases, and the bounded worker pool.
+/// </summary>
+public sealed partial class JobSchedulingService : BackgroundService
 {
 	private readonly IServiceScopeFactory _scopeFactory;
 	private readonly IJobStorage _storage;
@@ -19,7 +24,7 @@ public sealed partial class JobSchedulerService : BackgroundService
 	private readonly FairQueuePolicy? _fairQueuePolicy;
 	private readonly TimeProvider _timeProvider;
 	private readonly IIdGenerator _idGenerator;
-	private readonly ILogger<JobSchedulerService> _logger;
+	private readonly ILogger<JobSchedulingService> _logger;
 	private readonly JobSchedulerState _state;
 	private readonly IReadOnlyDictionary<string, JobDefinition> _definitions;
 	private readonly IReadOnlyDictionary<string, JobQueueDefinition> _queues;
@@ -34,17 +39,37 @@ public sealed partial class JobSchedulerService : BackgroundService
 	private int _fairQueuesDisabledWarningLogged;
 	private long _nextPurgeTimestamp;
 
-	/// <summary>Creates the hosted scheduler from generated definitions.</summary>
-	/// <param name="scopeFactory">The factory used to create a dependency injection scope for each execution.</param>
-	/// <param name="storage">The durable job storage provider.</param>
-	/// <param name="definitions">The generated job definitions available to the scheduler.</param>
-	/// <param name="queueDefinitions">The configured queue definitions.</param>
-	/// <param name="options">The scheduler runtime options.</param>
-	/// <param name="timeProvider">The clock used for scheduling, leases, and timestamps.</param>
-	/// <param name="idGenerator">The generator used to create job identifiers.</param>
-	/// <param name="logger">The scheduler logger.</param>
-	/// <param name="state">The service that tracks scheduler runtime state.</param>
-	public JobSchedulerService(
+	/// <summary>
+	/// 	Creates the hosted scheduler from generated definitions.
+	/// </summary>
+	/// <param name="scopeFactory">
+	/// 	The factory used to create a dependency injection scope for each execution.
+	/// </param>
+	/// <param name="storage">
+	/// 	The durable job storage provider.
+	/// </param>
+	/// <param name="definitions">
+	/// 	The generated job definitions available to the scheduler.
+	/// </param>
+	/// <param name="queueDefinitions">
+	/// 	The configured queue definitions.
+	/// </param>
+	/// <param name="options">
+	/// 	The scheduler runtime options.
+	/// </param>
+	/// <param name="timeProvider">
+	/// 	The clock used for scheduling, leases, and timestamps.
+	/// </param>
+	/// <param name="idGenerator">
+	/// 	The generator used to create job identifiers.
+	/// </param>
+	/// <param name="logger">
+	/// 	The scheduler logger.
+	/// </param>
+	/// <param name="state">
+	/// 	The service that tracks scheduler runtime state.
+	/// </param>
+	public JobSchedulingService(
 		IServiceScopeFactory scopeFactory,
 		IJobStorage storage,
 		IEnumerable<JobDefinition> definitions,
@@ -52,7 +77,7 @@ public sealed partial class JobSchedulerService : BackgroundService
 		ImmediateJobsOptions options,
 		TimeProvider timeProvider,
 		IIdGenerator idGenerator,
-		ILogger<JobSchedulerService> logger,
+		ILogger<JobSchedulingService> logger,
 		JobSchedulerState state
 	)
 	{
@@ -154,10 +179,18 @@ public sealed partial class JobSchedulerService : BackgroundService
 		}
 	}
 
-	/// <summary>Executes one already-acquired record. Intended for deterministic test harnesses.</summary>
-	/// <param name="record">The acquired job record to execute.</param>
-	/// <param name="cancellationToken">A token that can cancel execution.</param>
-	/// <returns>A task that completes when the job attempt finishes.</returns>
+	/// <summary>
+	/// 	Executes one already-acquired record. Intended for deterministic test harnesses.
+	/// </summary>
+	/// <param name="record">
+	/// 	The acquired job record to execute.
+	/// </param>
+	/// <param name="cancellationToken">
+	/// 	A token that can cancel execution.
+	/// </param>
+	/// <returns>
+	/// 	A task that completes when the job attempt finishes.
+	/// </returns>
 	public ValueTask ExecuteSingleAsync(JobRecord record, CancellationToken cancellationToken = default)
 	{
 		ArgumentNullException.ThrowIfNull(record);
@@ -167,9 +200,14 @@ public sealed partial class JobSchedulerService : BackgroundService
 	/// <summary>
 	/// Materializes and executes all work currently due, returning when the due queue is empty.
 	/// Delayed work is left in storage. This method is intended for deterministic test harnesses.
+	/// 
 	/// </summary>
-	/// <param name="cancellationToken">A token that can cancel draining.</param>
-	/// <returns>A task that completes when no currently due work remains.</returns>
+	/// <param name="cancellationToken">
+	/// 	A token that can cancel draining.
+	/// </param>
+	/// <returns>
+	/// 	A task that completes when no currently due work remains.
+	/// </returns>
 	public async ValueTask DrainAsync(CancellationToken cancellationToken = default)
 	{
 		await _storage.InitializeAsync(cancellationToken).ConfigureAwait(false);
@@ -370,11 +408,6 @@ public sealed partial class JobSchedulerService : BackgroundService
 			}
 
 			await using var scope = _scopeFactory.CreateAsyncScope();
-			if (record.Context is { } orphanedEnvelope && definition.Invoker is not IJobContextAwareInvoker)
-			{
-				var orphanedSlices = JobContextEnvelope.Read(orphanedEnvelope);
-				JobContextEnvelope.LogOrphanedSlices(scope.ServiceProvider, record, orphanedSlices.Keys);
-			}
 
 			var executionBuffer = new JobExecutionBuffer();
 			await definition.Invoker.InvokeAsync(
@@ -808,30 +841,4 @@ public sealed partial class JobSchedulerService : BackgroundService
 		Exception exception,
 		string scheduleName
 	);
-}
-
-/// <summary>Scheduler liveness state shared with health checks and monitoring.</summary>
-public sealed class JobSchedulerState
-{
-	private long _activeWorkers;
-
-	/// <summary>UTC time at which the scheduler initialized.</summary>
-	/// <value>The initialization timestamp, or <see langword="null"/> before the scheduler starts.</value>
-	public DateTimeOffset? StartedAt { get; private set; }
-
-	/// <summary>UTC time of the latest successful scheduler iteration.</summary>
-	/// <value>The latest heartbeat timestamp, or <see langword="null"/> before the first heartbeat.</value>
-	public DateTimeOffset? LastHeartbeat { get; private set; }
-
-	/// <summary>Number of invocations currently executing.</summary>
-	/// <value>The current number of active workers.</value>
-	public int ActiveWorkers => checked((int)Interlocked.Read(ref _activeWorkers));
-
-	internal bool CodeSchedulesAsserted { get; private set; }
-
-	internal void MarkStarted(DateTimeOffset timestamp) => StartedAt = timestamp;
-	internal void MarkHeartbeat(DateTimeOffset timestamp) => LastHeartbeat = timestamp;
-	internal void MarkCodeSchedulesAsserted() => CodeSchedulesAsserted = true;
-	internal void IncrementActive() => Interlocked.Increment(ref _activeWorkers);
-	internal void DecrementActive() => Interlocked.Decrement(ref _activeWorkers);
 }

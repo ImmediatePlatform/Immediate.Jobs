@@ -1,4 +1,7 @@
 using System.Collections.Concurrent;
+using Immediate.Jobs.Shared.Interfaces;
+using Immediate.Jobs.Shared.Internals;
+using Immediate.Jobs.Shared.Storage;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 
@@ -22,7 +25,7 @@ public sealed class QueueSchedulerTests
 		Assert.Collection(
 			hostedServices,
 			sd => Assert.IsType<OtherHostedService>(sd),
-			sd => Assert.IsType<JobSchedulerService>(sd)
+			sd => Assert.IsType<JobSchedulingService>(sd)
 		);
 	}
 
