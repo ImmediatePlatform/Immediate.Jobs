@@ -96,23 +96,23 @@ partial class WorkJob
 
 	internal static WorkJob.JobDefinition CreateJobDefinition(global::System.IServiceProvider services) =>
 		new()
-    	{
-    		Name = "work",
+		{
+			Name = "work",
 			Queue = new global::Immediate.Jobs.Shared.Internals.JobQueueDefinition
-    		{
-    			Name = "critical-queue",
-    			Priority = 10,
-    			Concurrency = 1,
-    		},
-    		Invoker = global::Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetRequiredService<Invoker>(services),
-    		JobType = typeof(global::WorkJob),
-    		TimeZone = "UTC",
-    		MaxAttempts = 3,
-    		MaxConcurrency = 0,
-    		OverlapPolicy = global::Immediate.Jobs.Shared.OverlapPolicy.Skip,
-    		Backoff = global::Immediate.Jobs.Shared.BackoffStrategy.ExponentialJitter,
-    		BackoffBase = global::System.TimeSpan.Parse("00:00:05", global::System.Globalization.CultureInfo.InvariantCulture),
-    	};
+			{
+				Name = "critical-queue",
+				Priority = 10,
+				Concurrency = 1,
+			},
+			Invoker = global::Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetRequiredService<Invoker>(services),
+			JobType = typeof(global::WorkJob),
+			TimeZone = "UTC",
+			MaxAttempts = 3,
+			MaxConcurrency = 0,
+			OverlapPolicy = global::Immediate.Jobs.Shared.OverlapPolicy.Skip,
+			Backoff = global::Immediate.Jobs.Shared.BackoffStrategy.ExponentialJitter,
+			BackoffBase = global::System.TimeSpan.Parse("00:00:05", global::System.Globalization.CultureInfo.InvariantCulture),
+		};
 
 	internal sealed class PayloadJsonContext : global::System.Text.Json.Serialization.JsonSerializerContext, global::System.Text.Json.Serialization.Metadata.IJsonTypeInfoResolver
 	{

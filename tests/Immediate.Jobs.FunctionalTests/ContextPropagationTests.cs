@@ -134,32 +134,31 @@ public sealed class ContextPropagationTests
 		Assert.Contains(probe.Events, item => item.Contains("removed-extractor", StringComparison.Ordinal));
 	}
 
-	// TODO: Fix no-longer valid test
-	//[Fact]
-	//public async Task OrphanedEnvelopeOnJobWithoutExtractorsIsSkipped()
-	//{
-	//	var cancellationToken = TestContext.Current.CancellationToken;
-	//	var probe = new ContextProbe();
-	//	await using var harness = CreateHarness(probe, captureLogs: true);
-	//	var now = harness.TimeProvider.GetUtcNow();
-	//	var record = new JobRecord
-	//	{
-	//		Id = Guid.NewGuid().ToString("N"),
-	//		JobName = "record-message",
-	//		QueueName = "messages",
-	//		Payload = "{\"message\":\"orphan\"}",
-	//		State = JobState.Pending,
-	//		DueAt = now,
-	//		CreatedAt = now,
-	//		Context = "{\"removed-extractor\":{\"value\":\"legacy\"}}",
-	//	};
-	//	await harness.Storage.EnqueueAsync(record, cancellationToken);
+	[Fact]
+	public async Task OrphanedEnvelopeOnJobWithoutExtractorsIsSkipped()
+	{
+		var cancellationToken = TestContext.Current.CancellationToken;
+		var probe = new ContextProbe();
+		await using var harness = CreateHarness(probe, captureLogs: true);
+		var now = harness.TimeProvider.GetUtcNow();
+		var record = new JobRecord
+		{
+			Id = Guid.NewGuid().ToString("N"),
+			JobName = "record-message",
+			QueueName = "messages",
+			Payload = "{\"message\":\"orphan\"}",
+			State = JobState.Pending,
+			DueAt = now,
+			CreatedAt = now,
+			Context = "{\"removed-extractor\":{\"value\":\"legacy\"}}",
+		};
+		await harness.Storage.EnqueueAsync(record, cancellationToken);
 
-	//	await harness.DrainAsync(cancellationToken);
+		await harness.DrainAsync(cancellationToken);
 
-	//	Assert.Equal(JobState.Succeeded, (await harness.GetJobAsync(record.Id, cancellationToken)).State);
-	//	Assert.Contains(probe.Events, item => item.Contains("removed-extractor", StringComparison.Ordinal));
-	//}
+		Assert.Equal(JobState.Succeeded, (await harness.GetJobAsync(record.Id, cancellationToken)).State);
+		Assert.Contains(probe.Events, item => item.Contains("removed-extractor", StringComparison.Ordinal));
+	}
 
 	[Fact]
 	public async Task StableKeysRestoreRecordsCreatedBeforeExtractorRename()

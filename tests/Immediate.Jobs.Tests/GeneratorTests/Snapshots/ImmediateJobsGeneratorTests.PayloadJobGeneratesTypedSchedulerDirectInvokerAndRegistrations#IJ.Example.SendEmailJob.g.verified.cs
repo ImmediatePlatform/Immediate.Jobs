@@ -32,6 +32,12 @@ partial class SendEmailJob
 	{
 		public async global::System.Threading.Tasks.ValueTask InvokeAsync(global::System.IServiceProvider scopedServices, global::Immediate.Jobs.Shared.JobExecution execution)
 		{
+			if (execution.Record.Context is { } envelope)
+			{
+				var contextSlices = global::Immediate.Jobs.Shared.Internals.JobContextEnvelope.Read(envelope);
+
+				global::Immediate.Jobs.Shared.Internals.JobContextEnvelope.LogOrphanedSlices(scopedServices, execution.Record, contextSlices.Keys);
+			}
 
 			var payload = serializer.Deserialize(execution.Record.Payload, static options => new PayloadJsonContext(options).Payload);
 
@@ -56,24 +62,24 @@ partial class SendEmailJob
 
 	internal static SendEmailJob.JobDefinition CreateJobDefinition(global::System.IServiceProvider services) =>
 		new()
-    	{
-    		Name = "send-email",
+		{
+			Name = "send-email",
 			Queue = new global::Immediate.Jobs.Shared.Internals.JobQueueDefinition
-    		{
-    			Name = "default",
-    			Priority = 0,
-    			Concurrency = 0,
-    		},
-    		Invoker = global::Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetRequiredService<Invoker>(services),
-    		JobType = typeof(global::Example.SendEmailJob),
-    		TimeZone = "UTC",
-    		MaxAttempts = 5,
-    		Timeout = global::System.TimeSpan.Parse("00:02:00", global::System.Globalization.CultureInfo.InvariantCulture),
-    		MaxConcurrency = 0,
-    		OverlapPolicy = global::Immediate.Jobs.Shared.OverlapPolicy.Skip,
-    		Backoff = global::Immediate.Jobs.Shared.BackoffStrategy.ExponentialJitter,
-    		BackoffBase = global::System.TimeSpan.Parse("00:00:05", global::System.Globalization.CultureInfo.InvariantCulture),
-    	};
+			{
+				Name = "default",
+				Priority = 0,
+				Concurrency = 0,
+			},
+			Invoker = global::Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetRequiredService<Invoker>(services),
+			JobType = typeof(global::Example.SendEmailJob),
+			TimeZone = "UTC",
+			MaxAttempts = 5,
+			Timeout = global::System.TimeSpan.Parse("00:02:00", global::System.Globalization.CultureInfo.InvariantCulture),
+			MaxConcurrency = 0,
+			OverlapPolicy = global::Immediate.Jobs.Shared.OverlapPolicy.Skip,
+			Backoff = global::Immediate.Jobs.Shared.BackoffStrategy.ExponentialJitter,
+			BackoffBase = global::System.TimeSpan.Parse("00:00:05", global::System.Globalization.CultureInfo.InvariantCulture),
+		};
 
 	internal sealed class PayloadJsonContext : global::System.Text.Json.Serialization.JsonSerializerContext, global::System.Text.Json.Serialization.Metadata.IJsonTypeInfoResolver
 	{

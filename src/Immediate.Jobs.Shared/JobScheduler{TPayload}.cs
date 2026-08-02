@@ -95,13 +95,6 @@ public abstract class JobScheduler<TPayload>(
 	public string QueueName { get; } = queueName;
 
 	/// <inheritdoc />
-	public ValueTask CancelAsync(JobHandle handle, CancellationToken cancellationToken = default)
-	{
-		ArgumentException.ThrowIfNullOrWhiteSpace(handle.Id, nameof(handle));
-		return Storage.CancelAsync(handle.Id, cancellationToken);
-	}
-
-	/// <inheritdoc />
 	public ValueTask<JobHandle> EnqueueAsync(TPayload payload, CancellationToken cancellationToken = default) =>
 		ScheduleAtAsync(payload, TimeProvider.GetUtcNow(), cancellationToken);
 

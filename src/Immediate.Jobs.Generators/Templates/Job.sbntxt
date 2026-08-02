@@ -79,7 +79,6 @@ partial class {{ class_name }}
 	{
 		public async global::System.Threading.Tasks.ValueTask InvokeAsync(global::System.IServiceProvider scopedServices, global::Immediate.Jobs.Shared.JobExecution execution)
 		{
-			{{~ if contexts.count > 0 ~}}
 			if (execution.Record.Context is { } envelope)
 			{
 				var contextSlices = global::Immediate.Jobs.Shared.Internals.JobContextEnvelope.Read(envelope);
@@ -95,7 +94,6 @@ partial class {{ class_name }}
 				{{~ end ~}}
 				global::Immediate.Jobs.Shared.Internals.JobContextEnvelope.LogOrphanedSlices(scopedServices, execution.Record, contextSlices.Keys);
 			}
-			{{~ end ~}}
 
 			{{~ if has_payload ~}}
 			var payload = serializer.Deserialize(execution.Record.Payload, static options => new PayloadJsonContext(options).Payload);
@@ -130,29 +128,29 @@ partial class {{ class_name }}
 	[global::System.CodeDom.Compiler.GeneratedCodeAttribute("Immediate.Jobs", "{{ version }}")]
 	internal static {{ class_name }}.JobDefinition CreateJobDefinition(global::System.IServiceProvider services) =>
 		new()
-    	{
-    		Name = {{ job_name_literal }},
+		{
+			Name = {{ job_name_literal }},
 			Queue = new global::Immediate.Jobs.Shared.Internals.JobQueueDefinition
-    		{
-    			Name = {{ queue_name_literal }},
-    			Priority = {{ queue_priority }},
-    			Concurrency = {{ queue_concurrency }},
-    		},
-    		Invoker = global::Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetRequiredService<Invoker>(services),
-    		JobType = typeof({{ type_name }}),
-    		{{~ if cron_literal != null ~}}
-    		Cron = {{ cron_literal }},
-    		{{~ end ~}}
-    		TimeZone = {{ time_zone_literal }},
-    		MaxAttempts = {{ max_attempts }},
-    		{{~ if timeout_literal != null ~}}
-    		Timeout = global::System.TimeSpan.Parse({{ timeout_literal }}, global::System.Globalization.CultureInfo.InvariantCulture),
-    		{{~ end ~}}
-    		MaxConcurrency = {{ max_concurrency }},
-    		OverlapPolicy = global::Immediate.Jobs.Shared.OverlapPolicy.{{ overlap_policy }},
-    		Backoff = global::Immediate.Jobs.Shared.BackoffStrategy.{{ backoff }},
-    		BackoffBase = global::System.TimeSpan.Parse({{ backoff_base_literal }}, global::System.Globalization.CultureInfo.InvariantCulture),
-    	};
+			{
+				Name = {{ queue_name_literal }},
+				Priority = {{ queue_priority }},
+				Concurrency = {{ queue_concurrency }},
+			},
+			Invoker = global::Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetRequiredService<Invoker>(services),
+			JobType = typeof({{ type_name }}),
+			{{~ if cron_literal != null ~}}
+			Cron = {{ cron_literal }},
+			{{~ end ~}}
+			TimeZone = {{ time_zone_literal }},
+			MaxAttempts = {{ max_attempts }},
+			{{~ if timeout_literal != null ~}}
+			Timeout = global::System.TimeSpan.Parse({{ timeout_literal }}, global::System.Globalization.CultureInfo.InvariantCulture),
+			{{~ end ~}}
+			MaxConcurrency = {{ max_concurrency }},
+			OverlapPolicy = global::Immediate.Jobs.Shared.OverlapPolicy.{{ overlap_policy }},
+			Backoff = global::Immediate.Jobs.Shared.BackoffStrategy.{{ backoff }},
+			BackoffBase = global::System.TimeSpan.Parse({{ backoff_base_literal }}, global::System.Globalization.CultureInfo.InvariantCulture),
+		};
 
 	[global::System.CodeDom.Compiler.GeneratedCodeAttribute("Immediate.Jobs", "{{ version }}")]
 	internal sealed class PayloadJsonContext : global::System.Text.Json.Serialization.JsonSerializerContext, global::System.Text.Json.Serialization.Metadata.IJsonTypeInfoResolver
