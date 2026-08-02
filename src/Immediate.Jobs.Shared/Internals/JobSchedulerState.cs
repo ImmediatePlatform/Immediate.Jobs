@@ -6,22 +6,30 @@ namespace Immediate.Jobs.Shared.Internals;
 public sealed class JobSchedulerState
 {
 	private long _activeWorkers;
+	private long _startedAtTicks = -1;
+	private long _lastHeartbeatTicks = -1;
 
 	/// <summary>
-	/// 	UTC time at which the scheduler initialized.
+	/// 	Timestamp at which the scheduler initialized.
 	/// </summary>
 	/// <value>
 	/// 	The initialization timestamp, or <see langword="null"/> before the scheduler starts.
 	/// </value>
-	public DateTimeOffset? StartedAt { get; private set; }
+	public DateTimeOffset? StartedAt =>
+		Interlocked.Read(ref _startedAtTicks) is var ticks && ticks >= 0
+		   ? new DateTimeOffset(ticks, TimeSpan.Zero)
+		   : null;
 
 	/// <summary>
-	/// 	UTC time of the latest successful scheduler iteration.
+	/// 	Timestamp of the latest successful scheduler iteration.
 	/// </summary>
 	/// <value>
 	/// 	The latest heartbeat timestamp, or <see langword="null"/> before the first heartbeat.
 	/// </value>
-	public DateTimeOffset? LastHeartbeat { get; private set; }
+	public DateTimeOffset? LastHeartbeat =>
+		Interlocked.Read(ref _lastHeartbeatTicks) is var ticks && ticks >= 0
+		   ? new DateTimeOffset(ticks, TimeSpan.Zero)
+		   : null;
 
 	/// <summary>
 	/// 	Number of invocations currently executing.
@@ -33,8 +41,12 @@ public sealed class JobSchedulerState
 
 	internal bool CodeSchedulesAsserted { get; private set; }
 
-	internal void MarkStarted(DateTimeOffset timestamp) => StartedAt = timestamp;
-	internal void MarkHeartbeat(DateTimeOffset timestamp) => LastHeartbeat = timestamp;
+	internal void MarkStarted(DateTimeOffset timestamp) =>
+		Interlocked.Exchange(ref _startedAtTicks, timestamp.UtcTicks);
+
+	internal void MarkHeartbeat(DateTimeOffset timestamp) =>
+		Interlocked.Exchange(ref _lastHeartbeatTicks, timestamp.UtcTicks);
+
 	internal void MarkCodeSchedulesAsserted() => CodeSchedulesAsserted = true;
 	internal void IncrementActive() => Interlocked.Increment(ref _activeWorkers);
 	internal void DecrementActive() => Interlocked.Decrement(ref _activeWorkers);

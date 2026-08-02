@@ -45,6 +45,13 @@ public abstract class JobScheduler<TPayload>(
 	Func<System.Text.Json.JsonSerializerOptions, JsonTypeInfo<TPayload>> payloadTypeInfoFactory
 ) : IJobScheduler<TPayload>
 {
+	/// <inheritdoc />
+	public ValueTask CancelAsync(JobHandle handle, CancellationToken cancellationToken = default)
+	{
+		ArgumentException.ThrowIfNullOrWhiteSpace(handle.Id, nameof(handle));
+		return Storage.CancelAsync(handle.Id, cancellationToken);
+	}
+
 	/// <summary>
 	/// 	Captures the context envelope persisted with a new invocation.
 	/// </summary>
