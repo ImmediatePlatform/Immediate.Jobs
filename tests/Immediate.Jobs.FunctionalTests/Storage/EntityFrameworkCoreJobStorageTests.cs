@@ -243,7 +243,7 @@ public sealed class EntityFrameworkCoreJobStorageTests
 		var request = CreateFairRequest(
 			"fair-worker",
 			1,
-			new(ConcurrencyShareThreshold: 0.50, MinInflightForNoisy: 2, GroupRoundRobin: true)
+			new FairQueuePolicy { ConcurrencyShareThreshold = 0.50, MinInflightForNoisy = 2, GroupRoundRobin = true }
 		);
 
 		var acquired = Assert.Single(await storage.AcquireDueJobsAsync(request, cancellationToken));
@@ -283,7 +283,7 @@ public sealed class EntityFrameworkCoreJobStorageTests
 		var withoutRoundRobin = CreateFairRequest(
 			"fair-worker",
 			1,
-			new(ConcurrencyShareThreshold: 1, MinInflightForNoisy: 30, GroupRoundRobin: false)
+			new FairQueuePolicy { ConcurrencyShareThreshold = 1, MinInflightForNoisy = 30, GroupRoundRobin = false }
 		);
 
 		var second = Assert.Single(await storage.AcquireDueJobsAsync(withoutRoundRobin, cancellationToken));
@@ -305,7 +305,7 @@ public sealed class EntityFrameworkCoreJobStorageTests
 		var request = CreateFairRequest(
 			"fair-worker",
 			1,
-			new(ConcurrencyShareThreshold: 0.10, MinInflightForNoisy: 1, GroupRoundRobin: false)
+			new FairQueuePolicy { ConcurrencyShareThreshold = 0.10, MinInflightForNoisy = 1, GroupRoundRobin = false }
 		);
 
 		var acquired = Assert.Single(await storage.AcquireDueJobsAsync(request, cancellationToken));
@@ -1070,11 +1070,12 @@ public sealed class EntityFrameworkCoreJobStorageTests
 		FairQueuePolicy? policy = null
 	) => CreateRequest(workerId, batchSize) with
 	{
-		FairQueues = policy ?? new(
-			ConcurrencyShareThreshold: 0.10,
-			MinInflightForNoisy: 30,
-			GroupRoundRobin: true
-		),
+		FairQueues = policy ?? new FairQueuePolicy
+		{
+			ConcurrencyShareThreshold = 0.10,
+			MinInflightForNoisy = 30,
+			GroupRoundRobin = true,
+		},
 	};
 
 	private static JobRecord CreateJob(DateTimeOffset now, int index) => new()

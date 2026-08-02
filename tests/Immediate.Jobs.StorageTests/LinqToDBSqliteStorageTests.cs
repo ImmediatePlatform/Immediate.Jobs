@@ -301,7 +301,7 @@ public sealed class LinqToDBSqliteStorageTests
 		await Enqueue(storage, now, "quiet-waiting", 3, "quiet", cancellationToken);
 
 		var acquired = Assert.Single(await storage.AcquireDueJobsAsync(
-			CreateFairRequest("worker", 1, new(0.50, 2, GroupRoundRobin: true)),
+			CreateFairRequest("worker", 1, new FairQueuePolicy { ConcurrencyShareThreshold = 0.50, MinInflightForNoisy = 2, GroupRoundRobin = true }),
 			cancellationToken
 		));
 
@@ -328,7 +328,7 @@ public sealed class LinqToDBSqliteStorageTests
 		fixture.TimeProvider.Advance(TimeSpan.FromSeconds(2));
 
 		var acquired = Assert.Single(await storage.AcquireDueJobsAsync(
-			CreateFairRequest("worker", 1, new(0.50, 2, GroupRoundRobin: true)),
+			CreateFairRequest("worker", 1, new FairQueuePolicy { ConcurrencyShareThreshold = 0.50, MinInflightForNoisy = 2, GroupRoundRobin = true }),
 			cancellationToken
 		));
 
@@ -352,7 +352,7 @@ public sealed class LinqToDBSqliteStorageTests
 		await storage.CompleteAsync(first.Id, 1, "worker-a", cancellationToken);
 
 		var second = Assert.Single(await storage.AcquireDueJobsAsync(
-			CreateFairRequest("worker-b", 1, new(0.10, 30, GroupRoundRobin: false)),
+			CreateFairRequest("worker-b", 1, new FairQueuePolicy { ConcurrencyShareThreshold = 0.10, MinInflightForNoisy = 30, GroupRoundRobin = false }),
 			cancellationToken
 		));
 
@@ -825,7 +825,7 @@ public sealed class LinqToDBSqliteStorageTests
 	) =>
 		CreateRequest(workerId, batchSize) with
 		{
-			FairQueues = policy ?? new(0.10, 30, GroupRoundRobin: true),
+			FairQueues = policy ?? new FairQueuePolicy { ConcurrencyShareThreshold = 0.10, MinInflightForNoisy = 30, GroupRoundRobin = true },
 		};
 
 	private static ValueTask Enqueue(

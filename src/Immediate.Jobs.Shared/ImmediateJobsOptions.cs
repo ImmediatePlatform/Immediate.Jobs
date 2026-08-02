@@ -67,11 +67,12 @@ public sealed class FairQueueOptions
 			throw new ImmediateJobException("Fair queue MinInflightForNoisy must be greater than zero.");
 	}
 
-	internal FairQueuePolicy ToPolicy() => new(
-		ConcurrencyShareThreshold,
-		MinInflightForNoisy,
-		GroupRoundRobin
-	);
+	internal FairQueuePolicy ToPolicy() => new()
+	{
+		ConcurrencyShareThreshold = ConcurrencyShareThreshold,
+		MinInflightForNoisy = MinInflightForNoisy,
+		GroupRoundRobin = GroupRoundRobin,
+	};
 }
 
 /// <summary>

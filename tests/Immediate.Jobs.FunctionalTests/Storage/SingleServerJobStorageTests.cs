@@ -510,12 +510,13 @@ public sealed class SingleServerJobStorageTests
 		var timeProvider = new FakeTimeProvider(DateTimeOffset.UnixEpoch);
 		await using var durable = new InMemoryJobStorage(timeProvider);
 		await using var storage = new SingleServerJobStorage(durable, timeProvider);
-		var server = new JobServerSnapshot(
-			"single-server",
-			timeProvider.GetUtcNow(),
-			ActiveWorkers: 2,
-			MaxWorkers: 4
-		);
+		var server = new JobServerSnapshot
+		{
+			WorkerId = "single-server",
+			LastHeartbeat = timeProvider.GetUtcNow(),
+			ActiveWorkers = 2,
+			MaxWorkers = 4,
+		};
 
 		await storage.HeartbeatAsync(server, cancellationToken);
 

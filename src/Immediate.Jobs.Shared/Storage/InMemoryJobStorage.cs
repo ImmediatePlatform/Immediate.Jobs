@@ -786,8 +786,12 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 			var counts = Enum.GetValues<JobState>().ToDictionary(state => state, state => _jobs.Values.LongCount(x => x.State == state));
 			var cutoff = timeProvider.GetUtcNow() - TimeSpan.FromMinutes(2);
 			IReadOnlyList<JobServerSnapshot> servers = [.. _servers.Values.Where(x => x.LastHeartbeat >= cutoff)];
-			return new(timeProvider.GetUtcNow(), counts, [.. _recurring.Values], servers)
+			return new JobMonitoringSnapshot
 			{
+				CapturedAt = timeProvider.GetUtcNow(),
+				Counts = counts,
+				Recurring = [.. _recurring.Values],
+				Servers = servers,
 				Capabilities = this.GetCapabilities(),
 			};
 		}
@@ -925,16 +929,17 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 					.ThenBy(job => job.Id, StringComparer.Ordinal)
 					.Skip(query.Skip)
 					.Take(query.Take)
-					.Select(static job => new BatchMemberStatus(
-						job.Id,
-						job.JobName,
-						job.QueueName,
-						job.State,
-						job.Attempt,
-						job.CreatedAt,
-						job.CompletedAt,
-						job.LastError
-					)),
+					.Select(static job => new BatchMemberStatus
+					{
+						JobId = job.Id,
+						JobName = job.JobName,
+						QueueName = job.QueueName,
+						State = job.State,
+						Attempt = job.Attempt,
+						CreatedAt = job.CreatedAt,
+						CompletedAt = job.CompletedAt,
+						LastError = job.LastError,
+					}),
 			];
 		}
 	}
@@ -958,11 +963,12 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 				.ThenBy(job => job.Id, StringComparer.Ordinal)
 				.ToArray();
 			var memberIds = members.Select(static job => job.Id).ToHashSet(StringComparer.Ordinal);
-			return new(
-				batchId,
-				[.. members.Select(static job => new BatchGraphNode(job.Id, job.JobName, job.State))],
-				[.. _edges.Where(edge => memberIds.Contains(edge.ChildJobId)).Select(ToGraphEdge)]
-			);
+			return new BatchGraph
+			{
+				BatchId = batchId,
+				Nodes = [.. members.Select(static job => new BatchGraphNode { JobId = job.Id, JobName = job.JobName, State = job.State })],
+				Edges = [.. _edges.Where(edge => memberIds.Contains(edge.ChildJobId)).Select(ToGraphEdge)],
+			};
 		}
 	}
 
@@ -979,20 +985,21 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 			if (!_jobs.TryGetValue(jobId, out var job))
 				return null;
 
-			return new(
-				job.Id,
-				job.JobName,
-				job.QueueName,
-				job.State,
-				job.Attempt,
-				MaxAttempts: null,
-				job.CreatedAt,
-				job.DueAt,
-				job.CompletedAt,
-				job.LastError,
-				job.BatchId,
-				[.. _edges.Where(edge => string.Equals(edge.ChildJobId, jobId, StringComparison.Ordinal)).Select(ToGraphEdge)]
-			);
+			return new JobStatus
+			{
+				JobId = job.Id,
+				JobName = job.JobName,
+				QueueName = job.QueueName,
+				State = job.State,
+				Attempt = job.Attempt,
+				MaxAttempts = null,
+				CreatedAt = job.CreatedAt,
+				DueAt = job.DueAt,
+				CompletedAt = job.CompletedAt,
+				LastError = job.LastError,
+				BatchId = job.BatchId,
+				DependsOn = [.. _edges.Where(edge => string.Equals(edge.ChildJobId, jobId, StringComparison.Ordinal)).Select(ToGraphEdge)],
+			};
 		}
 	}
 
@@ -1686,27 +1693,29 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 
 	private static bool IsTerminal(BatchState state) => state is not BatchState.Executing;
 
-	private static BatchStatus ToStatus(BatchRecord batch) => new(
-		batch.Id,
-		batch.State,
-		batch.TotalJobs,
-		batch.SucceededCount,
-		batch.FailedCount,
-		batch.CancelledCount,
-		batch.SkippedCount,
-		batch.PendingCount,
-		batch.CreatedAt,
-		batch.StartedAt,
-		batch.CompletedAt,
-		BatchStatus.CalculateFractionSettled(batch.TotalJobs, batch.PendingCount)
-	);
+	private static BatchStatus ToStatus(BatchRecord batch) => new()
+	{
+		Id = batch.Id,
+		State = batch.State,
+		Total = batch.TotalJobs,
+		Succeeded = batch.SucceededCount,
+		Failed = batch.FailedCount,
+		Cancelled = batch.CancelledCount,
+		Skipped = batch.SkippedCount,
+		Remaining = batch.PendingCount,
+		CreatedAt = batch.CreatedAt,
+		StartedAt = batch.StartedAt,
+		CompletedAt = batch.CompletedAt,
+		FractionSettled = BatchStatus.CalculateFractionSettled(batch.TotalJobs, batch.PendingCount),
+	};
 
-	private static BatchGraphEdge ToGraphEdge(JobContinuationEdge edge) => new(
-		edge.ChildJobId,
-		edge.ParentJobId,
-		edge.ParentBatchId,
-		edge.Trigger
-	);
+	private static BatchGraphEdge ToGraphEdge(JobContinuationEdge edge) => new()
+	{
+		ChildJobId = edge.ChildJobId,
+		ParentJobId = edge.ParentJobId,
+		ParentBatchId = edge.ParentBatchId,
+		Trigger = edge.Trigger,
+	};
 
 	private void RemoveEdgesForJobs(
 		HashSet<string> jobIds,

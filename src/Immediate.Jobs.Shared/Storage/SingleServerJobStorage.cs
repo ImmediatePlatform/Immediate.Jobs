@@ -595,8 +595,9 @@ public sealed class SingleServerJobStorage :
 					?? throw new ImmediateJobException($"Batch '{batchId}' has members but no durable batch header.");
 				var graph = await _graphDurableStorage.GetBatchGraphAsync(batchId, cancellationToken).ConfigureAwait(false)
 					?? throw new ImmediateJobException($"Batch '{batchId}' has members but no durable dependency graph.");
-				recoveredBatches.Add(batchId, new(
-					new()
+				recoveredBatches.Add(batchId, new RecoveredBatch
+				{
+					Record = new()
 					{
 						Id = status.Id,
 						CreatedAt = status.CreatedAt,
@@ -610,9 +611,9 @@ public sealed class SingleServerJobStorage :
 						CompletedAt = status.CompletedAt,
 						State = status.State,
 					},
-					[.. recoveredJobs.Where(job => string.Equals(job.BatchId, batchId, StringComparison.Ordinal))],
-					[.. graph.Edges.Select(ToContinuationEdge)]
-				));
+					Jobs = [.. recoveredJobs.Where(job => string.Equals(job.BatchId, batchId, StringComparison.Ordinal))],
+					Edges = [.. graph.Edges.Select(ToContinuationEdge)],
+				});
 			}
 
 			var restoredBatchIds = new HashSet<string>(StringComparer.Ordinal);
@@ -761,9 +762,10 @@ public sealed class SingleServerJobStorage :
 
 	private InMemoryJobStorage CreatePrimaryStorage() => new(_timeProvider);
 
-	private sealed record RecoveredBatch(
-		BatchRecord Record,
-		IReadOnlyList<JobRecord> Jobs,
-		IReadOnlyList<JobContinuationEdge> Edges
-	);
+	private sealed record RecoveredBatch
+	{
+		public required BatchRecord Record { get; init; }
+		public required IReadOnlyList<JobRecord> Jobs { get; init; }
+		public required IReadOnlyList<JobContinuationEdge> Edges { get; init; }
+	}
 }

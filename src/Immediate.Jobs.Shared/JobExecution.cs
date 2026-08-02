@@ -6,21 +6,25 @@ namespace Immediate.Jobs.Shared;
 /// <summary>
 /// 	Untyped execution metadata passed into a generated invoker.
 /// </summary>
-/// <param name="Record">
-/// 	The durable invocation record.
-/// </param>
-/// <param name="Definition">
-/// 	The generated job definition.
-/// </param>
-/// <param name="CancellationToken">
-/// 	The token that is cancelled when execution should stop.
-/// </param>
-/// <param name="Buffer">
-/// 	The continuation buffer for the current attempt, if enabled.
-/// </param>
-public sealed record JobExecution(
-	JobRecord Record,
-	JobDefinition Definition,
-	CancellationToken CancellationToken,
-	JobExecutionBuffer? Buffer = null
-);
+public sealed record JobExecution
+{
+	/// <summary>
+	/// 	The durable invocation record.
+	/// </summary>
+	public required JobRecord Record { get; init; }
+
+	/// <summary>
+	/// 	The generated job definition.
+	/// </summary>
+	public required JobDefinition Definition { get; init; }
+
+	/// <summary>
+	/// 	The token that is cancelled when execution should stop.
+	/// </summary>
+	public required CancellationToken CancellationToken { get; init; }
+
+	/// <summary>
+	/// 	The continuation buffer for the current attempt, if enabled.
+	/// </summary>
+	public JobExecutionBuffer? Buffer { get; init; }
+}

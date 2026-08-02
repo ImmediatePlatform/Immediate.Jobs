@@ -7,7 +7,7 @@ namespace Immediate.Jobs.FunctionalTests.Storage;
 #pragma warning disable CS1591
 public sealed class InMemoryFairQueueTests
 {
-	private static readonly FairQueuePolicy DefaultPolicy = new(0.10, 30, GroupRoundRobin: true);
+	private static readonly FairQueuePolicy DefaultPolicy = new() { ConcurrencyShareThreshold = 0.10, MinInflightForNoisy = 30, GroupRoundRobin = true };
 
 	[Fact]
 	public async Task CapacityOneRotatesAcrossGroupsBetweenAcquisitions()
@@ -97,7 +97,7 @@ public sealed class InMemoryFairQueueTests
 		await Enqueue(storage, clock, "quiet-waiting", 3, "quiet", cancellationToken);
 
 		var acquired = Assert.Single(await storage.AcquireDueJobsAsync(
-			CreateRequest("worker", capacity: 1, new(0.50, 2, GroupRoundRobin: true)),
+			CreateRequest("worker", capacity: 1, new FairQueuePolicy { ConcurrencyShareThreshold = 0.50, MinInflightForNoisy = 2, GroupRoundRobin = true }),
 			cancellationToken
 		));
 
@@ -123,7 +123,7 @@ public sealed class InMemoryFairQueueTests
 		clock.Advance(TimeSpan.FromSeconds(2));
 
 		var acquired = Assert.Single(await storage.AcquireDueJobsAsync(
-			CreateRequest("worker", capacity: 1, new(0.50, 2, GroupRoundRobin: true)),
+			CreateRequest("worker", capacity: 1, new FairQueuePolicy { ConcurrencyShareThreshold = 0.50, MinInflightForNoisy = 2, GroupRoundRobin = true }),
 			cancellationToken
 		));
 
@@ -146,7 +146,7 @@ public sealed class InMemoryFairQueueTests
 		));
 		await storage.CompleteAsync(first.Id, 1, "worker-1", cancellationToken);
 		var second = Assert.Single(await storage.AcquireDueJobsAsync(
-			CreateRequest("worker-2", capacity: 1, new(0.10, 30, GroupRoundRobin: false)),
+			CreateRequest("worker-2", capacity: 1, new FairQueuePolicy { ConcurrencyShareThreshold = 0.10, MinInflightForNoisy = 30, GroupRoundRobin = false }),
 			cancellationToken
 		));
 

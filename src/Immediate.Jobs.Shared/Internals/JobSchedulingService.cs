@@ -237,7 +237,7 @@ public sealed partial class JobSchedulingService : BackgroundService
 		// look dead to ImmediateJobsHealthCheck.
 		var now = _timeProvider.GetUtcNow();
 		await _storage.HeartbeatAsync(
-			new(_workerId, now, _state.ActiveWorkers, _options.MaxParallelJobs),
+			new JobServerSnapshot { WorkerId = _workerId, LastHeartbeat = now, ActiveWorkers = _state.ActiveWorkers, MaxWorkers = _options.MaxParallelJobs },
 			cancellationToken
 		).ConfigureAwait(false);
 		_state.MarkHeartbeat(now);
@@ -412,7 +412,7 @@ public sealed partial class JobSchedulingService : BackgroundService
 			var executionBuffer = new JobExecutionBuffer();
 			await definition.Invoker.InvokeAsync(
 				scope.ServiceProvider,
-				new(record, definition, timeout.Token, executionBuffer)
+				new JobExecution { Record = record, Definition = definition, CancellationToken = timeout.Token, Buffer = executionBuffer }
 			).ConfigureAwait(false);
 			if (_graphStorage is not null)
 			{

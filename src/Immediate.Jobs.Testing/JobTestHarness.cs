@@ -311,7 +311,7 @@ public sealed class JobTestHarness : IAsyncDisposable, IDisposable
 		await using var scope = _serviceProvider.CreateAsyncScope();
 		await definition.Invoker.InvokeAsync(
 			scope.ServiceProvider,
-			new(record, definition, cancellationToken)
+			new JobExecution { Record = record, Definition = definition, CancellationToken = cancellationToken }
 		).ConfigureAwait(false);
 	}
 
