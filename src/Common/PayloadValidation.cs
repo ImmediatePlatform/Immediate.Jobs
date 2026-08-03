@@ -22,6 +22,13 @@ internal static class PayloadValidation
 
 			case INamedTypeSymbol
 			{
+				OriginalDefinition.SpecialType: SpecialType.System_Nullable_T,
+				TypeArguments: [{ } underlyingType],
+			}:
+				return Visit(underlyingType, location, reportError, visited);
+
+			case INamedTypeSymbol
+			{
 				Name: "List" or "IList" or "IReadOnlyList" or "IEnumerable",
 				Arity: 1,
 				ContainingNamespace.IsSystemCollectionsGeneric: true,

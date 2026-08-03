@@ -22,12 +22,13 @@ internal static class JsonMetadataEmitter
 	private static JsonTypeRenderModel CreateTypeModel(ITypeSymbol type, int index)
 	{
 		var converterName = GetConverter(type);
+		var nullableUnderlyingType = GetNullableUnderlyingType(type);
 		var isEnum = type.TypeKind == TypeKind.Enum;
 		var usesConfiguredConverter = string.Equals(type.RootNamespace, "NodaTime", StringComparison.Ordinal);
 		var collectionInfo = converterName is null ? CreateCollectionModel(type) : null;
 
 		JsonObjectRenderModel? objectInfo = null;
-		if (converterName is null && !isEnum && !usesConfiguredConverter && collectionInfo is null
+		if (converterName is null && nullableUnderlyingType is null && !isEnum && !usesConfiguredConverter && collectionInfo is null
 			&& type is INamedTypeSymbol namedType)
 		{
 			objectInfo = CreateObjectModel(namedType);
@@ -39,6 +40,7 @@ internal static class JsonMetadataEmitter
 			TypeName = type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
 			IsValueType = type.IsValueType,
 			ConverterName = converterName,
+			NullableUnderlyingTypeName = nullableUnderlyingType?.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
 			IsEnum = isEnum,
 			UsesConfiguredConverter = usesConfiguredConverter,
 			CollectionInfo = collectionInfo,
@@ -178,6 +180,12 @@ internal static class JsonMetadataEmitter
 			if (!visited.Add(type))
 				return;
 
+			if (GetNullableUnderlyingType(type) is { } underlyingType)
+			{
+				Visit(underlyingType);
+				return;
+			}
+
 			if (CreateCollectionModel(type) is not null)
 			{
 				if (type is IArrayTypeSymbol array)
@@ -205,6 +213,15 @@ internal static class JsonMetadataEmitter
 
 		return visited;
 	}
+
+	private static ITypeSymbol? GetNullableUnderlyingType(ITypeSymbol type) =>
+		type is INamedTypeSymbol
+		{
+			OriginalDefinition.SpecialType: SpecialType.System_Nullable_T,
+			TypeArguments: [{ } underlyingType],
+		}
+			? underlyingType
+			: null;
 
 	private static List<ISymbol> GetMembers(INamedTypeSymbol type)
 	{
@@ -318,6 +335,7 @@ internal sealed record JsonTypeRenderModel
 	public required string TypeName { get; init; }
 	public required bool IsValueType { get; init; }
 	public required string? ConverterName { get; init; }
+	public required string? NullableUnderlyingTypeName { get; init; }
 	public required bool IsEnum { get; init; }
 	public required bool UsesConfiguredConverter { get; init; }
 	public required JsonCollectionRenderModel? CollectionInfo { get; init; }

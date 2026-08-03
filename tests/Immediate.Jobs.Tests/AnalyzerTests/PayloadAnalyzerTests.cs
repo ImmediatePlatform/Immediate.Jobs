@@ -47,6 +47,7 @@ public sealed class PayloadAnalyzerTests
 			{
 				public sealed record Payload(
 					string Message,
+					long? MaxNodeOption,
 					int[] Array,
 					List<int> List,
 					Dictionary<Guid, int> Dictionary
