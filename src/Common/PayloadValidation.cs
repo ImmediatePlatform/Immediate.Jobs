@@ -20,11 +20,7 @@ internal static class PayloadValidation
 			case IArrayTypeSymbol { ElementType: { } elementType }:
 				return Visit(elementType, location, reportError, visited);
 
-			case INamedTypeSymbol
-			{
-				OriginalDefinition.SpecialType: SpecialType.System_Nullable_T,
-				TypeArguments: [{ } underlyingType],
-			}:
+			case { NullableUnderlyingType: { } underlyingType }:
 				return Visit(underlyingType, location, reportError, visited);
 
 			case INamedTypeSymbol

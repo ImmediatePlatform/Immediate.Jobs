@@ -22,7 +22,7 @@ internal static class JsonMetadataEmitter
 	private static JsonTypeRenderModel CreateTypeModel(ITypeSymbol type, int index)
 	{
 		var converterName = GetConverter(type);
-		var nullableUnderlyingType = GetNullableUnderlyingType(type);
+		var nullableUnderlyingType = type.NullableUnderlyingType;
 		var isEnum = type.TypeKind == TypeKind.Enum;
 		var usesConfiguredConverter = string.Equals(type.RootNamespace, "NodaTime", StringComparison.Ordinal);
 		var collectionInfo = converterName is null ? CreateCollectionModel(type) : null;
@@ -180,7 +180,7 @@ internal static class JsonMetadataEmitter
 			if (!visited.Add(type))
 				return;
 
-			if (GetNullableUnderlyingType(type) is { } underlyingType)
+			if (type.NullableUnderlyingType is { } underlyingType)
 			{
 				Visit(underlyingType);
 				return;
@@ -213,15 +213,6 @@ internal static class JsonMetadataEmitter
 
 		return visited;
 	}
-
-	private static ITypeSymbol? GetNullableUnderlyingType(ITypeSymbol type) =>
-		type is INamedTypeSymbol
-		{
-			OriginalDefinition.SpecialType: SpecialType.System_Nullable_T,
-			TypeArguments: [{ } underlyingType],
-		}
-			? underlyingType
-			: null;
 
 	private static List<ISymbol> GetMembers(INamedTypeSymbol type)
 	{

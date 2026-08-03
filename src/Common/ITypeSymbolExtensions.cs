@@ -111,6 +111,13 @@ internal static class ITypeSymbolExtensions
 				ContainingNamespace.IsSystemThreadingTasks: true,
 			};
 
+		public INamedTypeSymbol? NullableUnderlyingType =>
+			typeSymbol is INamedTypeSymbol
+			{
+				OriginalDefinition.SpecialType: SpecialType.System_Nullable_T,
+				TypeArguments: [INamedTypeSymbol underlyingType],
+			} ? underlyingType : null;
+
 		public bool IsSupportedJsonDictionaryKey => typeSymbol switch
 		{
 			{ TypeKind: TypeKind.Enum } => true,
