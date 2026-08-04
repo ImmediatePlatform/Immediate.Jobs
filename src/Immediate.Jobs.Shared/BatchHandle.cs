@@ -6,19 +6,10 @@ namespace Immediate.Jobs.Shared;
 public sealed record BatchHandle
 {
 	/// <summary>
-	/// 	Creates a handle for an existing batch identifier.
+	/// 	The batch identifier.
 	/// </summary>
-	/// <param name="id">
-	/// 	The opaque batch identifier.
-	/// </param>
-	public BatchHandle(string id)
+	public required string BatchId
 	{
-		ArgumentException.ThrowIfNullOrWhiteSpace(id);
-		Id = id;
+		get; init { ArgumentException.ThrowIfNullOrWhiteSpace(value); field = value; }
 	}
-
-	/// <summary>
-	/// 	The opaque batch identifier.
-	/// </summary>
-	public string Id { get; }
 }

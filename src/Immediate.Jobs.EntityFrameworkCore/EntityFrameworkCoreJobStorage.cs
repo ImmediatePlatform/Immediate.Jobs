@@ -114,7 +114,7 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 		CancellationToken cancellationToken
 	)
 	{
-		var jobIds = jobs.Select(static job => job.Id).ToHashSet(StringComparer.Ordinal);
+		var jobIds = jobs.Select(static job => job.JobId).ToHashSet(StringComparer.Ordinal);
 		if (jobIds.Count != jobs.Count)
 			throw new ImmediateJobException("A batch or continuation insert contains duplicate job identifiers.");
 		if (batch is not null && jobs.Any(job => !string.Equals(job.BatchId, batch.Id, StringComparison.Ordinal)))
@@ -2002,7 +2002,7 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 		if (!string.Equals(record.BatchId, batchId, StringComparison.Ordinal))
 			throw new ImmediateJobException("The new job must belong to the current job's batch.");
 		if (record.State is JobState.Active or JobState.AwaitingContinuation || IsTerminal(record.State))
-			throw new ImmediateJobException($"Concurrent batch member '{record.Id}' has invalid state '{record.State}'.");
+			throw new ImmediateJobException($"Concurrent batch member '{record.JobId}' has invalid state '{record.State}'.");
 
 		var batch = await context.Set<ImmediateJobBatchEntity>()
 			.SingleAsync(item => item.Id == batchId && item.State == BatchState.Executing, cancellationToken)
@@ -2047,12 +2047,12 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 		{
 			ArgumentNullException.ThrowIfNull(addition);
 			ArgumentNullException.ThrowIfNull(addition.Job);
-			if (!ids.Add(addition.Job.Id))
+			if (!ids.Add(addition.Job.JobId))
 				throw new ImmediateJobException("Buffered continuations contain duplicate job identifiers.");
 			if (!Enum.IsDefined(addition.Trigger))
 				throw new ArgumentOutOfRangeException(nameof(additions), "Unknown continuation trigger.");
 			if (addition.Job.State is not (JobState.Pending or JobState.Scheduled))
-				throw new ImmediateJobException($"Dynamic continuation '{addition.Job.Id}' has invalid state '{addition.Job.State}'.");
+				throw new ImmediateJobException($"Dynamic continuation '{addition.Job.JobId}' has invalid state '{addition.Job.State}'.");
 
 			if (addition.Options == ContinuationOptions.Detached)
 			{
@@ -2516,7 +2516,7 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 
 	private static ImmediateJobEntity ToEntity(JobRecord job) => new()
 	{
-		Id = job.Id,
+		Id = job.JobId,
 		QueueName = job.QueueName,
 		JobName = job.JobName,
 		GroupId = job.GroupId,
@@ -2668,7 +2668,7 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 
 	private static JobRecord ToRecord(ImmediateJobEntity job) => new()
 	{
-		Id = job.Id,
+		JobId = job.Id,
 		QueueName = job.QueueName,
 		JobName = job.JobName,
 		GroupId = job.GroupId,

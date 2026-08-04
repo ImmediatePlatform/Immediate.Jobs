@@ -58,7 +58,7 @@ public sealed class EntityFrameworkCoreJobStorageTests
 		var claims = await Task.WhenAll(firstClaim, secondClaim);
 		var claimed = claims.SelectMany(static claim => claim).ToArray();
 		Assert.Equal(64, claimed.Length);
-		Assert.Equal(64, claimed.Select(job => job.Id).Distinct().Count());
+		Assert.Equal(64, claimed.Select(job => job.JobId).Distinct().Count());
 	}
 
 	[Fact]
@@ -69,15 +69,15 @@ public sealed class EntityFrameworkCoreJobStorageTests
 		var first = fixture.CreateStorage();
 		var second = fixture.CreateStorage();
 		var now = fixture.TimeProvider.GetUtcNow();
-		await first.EnqueueAsync(CreateJob(now, 1) with { Id = "group-a-job", GroupId = "group-a" }, cancellationToken);
-		await first.EnqueueAsync(CreateJob(now, 2) with { Id = "group-b-job", GroupId = "group-b" }, cancellationToken);
+		await first.EnqueueAsync(CreateJob(now, 1) with { JobId = "group-a-job", GroupId = "group-a" }, cancellationToken);
+		await first.EnqueueAsync(CreateJob(now, 2) with { JobId = "group-b-job", GroupId = "group-b" }, cancellationToken);
 
 		var firstClaim = first.AcquireDueJobsAsync(CreateFairRequest("node-a", 1), cancellationToken).AsTask();
 		var secondClaim = second.AcquireDueJobsAsync(CreateFairRequest("node-b", 1), cancellationToken).AsTask();
 		var claimed = (await Task.WhenAll(firstClaim, secondClaim)).SelectMany(static jobs => jobs).ToArray();
 
 		Assert.Equal(2, claimed.Length);
-		Assert.Equal(2, claimed.Select(static job => job.Id).Distinct(StringComparer.Ordinal).Count());
+		Assert.Equal(2, claimed.Select(static job => job.JobId).Distinct(StringComparer.Ordinal).Count());
 	}
 
 	[Fact]
@@ -96,7 +96,7 @@ public sealed class EntityFrameworkCoreJobStorageTests
 		var recovered = Assert.Single(
 			await second.AcquireDueJobsAsync(CreateRequest("node-b", 1), cancellationToken)
 		);
-		Assert.Equal(job.Id, recovered.Id);
+		Assert.Equal(job.JobId, recovered.JobId);
 		Assert.Equal(2, recovered.Attempt);
 		Assert.Equal("node-b", recovered.WorkerId);
 	}
@@ -111,13 +111,13 @@ public sealed class EntityFrameworkCoreJobStorageTests
 			interceptor: interceptor
 		);
 		var storage = fixture.CreateStorage();
-		var job = CreateJob(fixture.TimeProvider.GetUtcNow(), 1) with { Id = "cancel-contention" };
+		var job = CreateJob(fixture.TimeProvider.GetUtcNow(), 1) with { JobId = "cancel-contention" };
 		await storage.EnqueueAsync(job, cancellationToken);
 
-		await storage.CancelAsync(job.Id, cancellationToken);
+		await storage.CancelAsync(job.JobId, cancellationToken);
 
 		Assert.Equal(1, interceptor.Conflicts);
-		Assert.Equal(JobState.Cancelled, (await storage.GetJobStatusAsync(job.Id, cancellationToken))!.State);
+		Assert.Equal(JobState.Cancelled, (await storage.GetJobStatusAsync(job.JobId, cancellationToken))!.State);
 	}
 
 	[Fact]
@@ -127,20 +127,20 @@ public sealed class EntityFrameworkCoreJobStorageTests
 		await using var fixture = await StorageFixture.CreateAsync(cancellationToken);
 		var storage = fixture.CreateStorage();
 		var now = fixture.TimeProvider.GetUtcNow();
-		var firstA = CreateJob(now, 1) with { Id = "a-first", GroupId = "group-a" };
-		var secondA = CreateJob(now, 2) with { Id = "a-second", GroupId = "group-a" };
-		var firstB = CreateJob(now, 3) with { Id = "b-first", GroupId = "group-b" };
+		var firstA = CreateJob(now, 1) with { JobId = "a-first", GroupId = "group-a" };
+		var secondA = CreateJob(now, 2) with { JobId = "a-second", GroupId = "group-a" };
+		var firstB = CreateJob(now, 3) with { JobId = "b-first", GroupId = "group-b" };
 		await storage.EnqueueAsync(firstA, cancellationToken);
 		await storage.EnqueueAsync(secondA, cancellationToken);
 		await storage.EnqueueAsync(firstB, cancellationToken);
 
 		var request = CreateFairRequest("fair-worker", 1);
 		var first = Assert.Single(await storage.AcquireDueJobsAsync(request, cancellationToken));
-		Assert.Equal(firstA.Id, first.Id);
-		await storage.CompleteAsync(first.Id, 1, "fair-worker", cancellationToken);
+		Assert.Equal(firstA.JobId, first.JobId);
+		await storage.CompleteAsync(first.JobId, 1, "fair-worker", cancellationToken);
 
 		var second = Assert.Single(await storage.AcquireDueJobsAsync(request, cancellationToken));
-		Assert.Equal(firstB.Id, second.Id);
+		Assert.Equal(firstB.JobId, second.JobId);
 	}
 
 	[Fact]
@@ -151,19 +151,19 @@ public sealed class EntityFrameworkCoreJobStorageTests
 		var storage = fixture.CreateStorage();
 		var now = fixture.TimeProvider.GetUtcNow();
 		await storage.EnqueueAsync(
-			CreateJob(now, 1) with { Id = "a-first", GroupId = "group-a" },
+			CreateJob(now, 1) with { JobId = "a-first", GroupId = "group-a" },
 			cancellationToken
 		);
 		await storage.EnqueueAsync(
-			CreateJob(now, 2) with { Id = "a-second", GroupId = "group-a" },
+			CreateJob(now, 2) with { JobId = "a-second", GroupId = "group-a" },
 			cancellationToken
 		);
 		await storage.EnqueueAsync(
-			CreateJob(now, 3) with { Id = "b-first", GroupId = "group-b" },
+			CreateJob(now, 3) with { JobId = "b-first", GroupId = "group-b" },
 			cancellationToken
 		);
 		await storage.EnqueueAsync(
-			CreateJob(now, 4) with { Id = "b-second", GroupId = "group-b" },
+			CreateJob(now, 4) with { JobId = "b-second", GroupId = "group-b" },
 			cancellationToken
 		);
 
@@ -174,7 +174,7 @@ public sealed class EntityFrameworkCoreJobStorageTests
 
 		Assert.Equal(
 			["a-first", "b-first", "a-second", "b-second"],
-			acquired.Select(static job => job.Id)
+			acquired.Select(static job => job.JobId)
 		);
 	}
 
@@ -190,7 +190,7 @@ public sealed class EntityFrameworkCoreJobStorageTests
 			await storage.EnqueueAsync(
 				CreateJob(now, index) with
 				{
-					Id = string.Create(CultureInfo.InvariantCulture, $"a-{index:D3}"),
+					JobId = string.Create(CultureInfo.InvariantCulture, $"a-{index:D3}"),
 					GroupId = "group-a",
 				},
 				cancellationToken
@@ -200,12 +200,12 @@ public sealed class EntityFrameworkCoreJobStorageTests
 		var request = CreateFairRequest("fair-worker", 1);
 
 		var first = Assert.Single(await storage.AcquireDueJobsAsync(request, cancellationToken));
-		Assert.Equal("a-000", first.Id);
-		await storage.CompleteAsync(first.Id, 1, "fair-worker", cancellationToken);
-		await storage.EnqueueAsync(CreateJob(now, 128) with { Id = "b-new", GroupId = "group-b" }, cancellationToken);
+		Assert.Equal("a-000", first.JobId);
+		await storage.CompleteAsync(first.JobId, 1, "fair-worker", cancellationToken);
+		await storage.EnqueueAsync(CreateJob(now, 128) with { JobId = "b-new", GroupId = "group-b" }, cancellationToken);
 
 		var second = Assert.Single(await storage.AcquireDueJobsAsync(request, cancellationToken));
-		Assert.Equal("b-new", second.Id);
+		Assert.Equal("b-new", second.JobId);
 	}
 
 	[Fact]
@@ -215,16 +215,16 @@ public sealed class EntityFrameworkCoreJobStorageTests
 		await using var fixture = await StorageFixture.CreateAsync(cancellationToken);
 		var storage = fixture.CreateStorage();
 		var now = fixture.TimeProvider.GetUtcNow();
-		await storage.EnqueueAsync(CreateJob(now, 1) with { Id = "a-first", GroupId = "group-a" }, cancellationToken);
-		await storage.EnqueueAsync(CreateJob(now, 2) with { Id = "a-second", GroupId = "group-a" }, cancellationToken);
-		await storage.EnqueueAsync(CreateJob(now, 3) with { Id = "b-first", GroupId = "group-b" }, cancellationToken);
+		await storage.EnqueueAsync(CreateJob(now, 1) with { JobId = "a-first", GroupId = "group-a" }, cancellationToken);
+		await storage.EnqueueAsync(CreateJob(now, 2) with { JobId = "a-second", GroupId = "group-a" }, cancellationToken);
+		await storage.EnqueueAsync(CreateJob(now, 3) with { JobId = "b-first", GroupId = "group-b" }, cancellationToken);
 
 		var first = Assert.Single(await storage.AcquireDueJobsAsync(CreateRequest("legacy-worker", 1), cancellationToken));
-		Assert.Equal("a-first", first.Id);
-		await storage.CompleteAsync(first.Id, 1, "legacy-worker", cancellationToken);
+		Assert.Equal("a-first", first.JobId);
+		await storage.CompleteAsync(first.JobId, 1, "legacy-worker", cancellationToken);
 
 		var second = Assert.Single(await storage.AcquireDueJobsAsync(CreateRequest("legacy-worker", 1), cancellationToken));
-		Assert.Equal("a-second", second.Id);
+		Assert.Equal("a-second", second.JobId);
 	}
 
 	[Fact]
@@ -234,12 +234,12 @@ public sealed class EntityFrameworkCoreJobStorageTests
 		await using var fixture = await StorageFixture.CreateAsync(cancellationToken);
 		var storage = fixture.CreateStorage();
 		var now = fixture.TimeProvider.GetUtcNow();
-		await storage.EnqueueAsync(CreateJob(now, 1) with { Id = "active-a-1", GroupId = "group-a" }, cancellationToken);
-		await storage.EnqueueAsync(CreateJob(now, 2) with { Id = "active-a-2", GroupId = "group-a" }, cancellationToken);
+		await storage.EnqueueAsync(CreateJob(now, 1) with { JobId = "active-a-1", GroupId = "group-a" }, cancellationToken);
+		await storage.EnqueueAsync(CreateJob(now, 2) with { JobId = "active-a-2", GroupId = "group-a" }, cancellationToken);
 		Assert.Equal(2, (await storage.AcquireDueJobsAsync(CreateRequest("active-worker", 2), cancellationToken)).Count);
 
-		await storage.EnqueueAsync(CreateJob(now, 3) with { Id = "waiting-a", GroupId = "group-a" }, cancellationToken);
-		await storage.EnqueueAsync(CreateJob(now, 4) with { Id = "waiting-b", GroupId = "group-b" }, cancellationToken);
+		await storage.EnqueueAsync(CreateJob(now, 3) with { JobId = "waiting-a", GroupId = "group-a" }, cancellationToken);
+		await storage.EnqueueAsync(CreateJob(now, 4) with { JobId = "waiting-b", GroupId = "group-b" }, cancellationToken);
 		var request = CreateFairRequest(
 			"fair-worker",
 			1,
@@ -247,7 +247,7 @@ public sealed class EntityFrameworkCoreJobStorageTests
 		);
 
 		var acquired = Assert.Single(await storage.AcquireDueJobsAsync(request, cancellationToken));
-		Assert.Equal("waiting-b", acquired.Id);
+		Assert.Equal("waiting-b", acquired.JobId);
 	}
 
 	[Fact]
@@ -257,13 +257,13 @@ public sealed class EntityFrameworkCoreJobStorageTests
 		await using var fixture = await StorageFixture.CreateAsync(cancellationToken);
 		var storage = fixture.CreateStorage();
 		var now = fixture.TimeProvider.GetUtcNow();
-		await storage.EnqueueAsync(CreateJob(now, 3) with { Id = "ungrouped-third" }, cancellationToken);
-		await storage.EnqueueAsync(CreateJob(now, 1) with { Id = "ungrouped-first" }, cancellationToken);
-		await storage.EnqueueAsync(CreateJob(now, 2) with { Id = "ungrouped-second" }, cancellationToken);
+		await storage.EnqueueAsync(CreateJob(now, 3) with { JobId = "ungrouped-third" }, cancellationToken);
+		await storage.EnqueueAsync(CreateJob(now, 1) with { JobId = "ungrouped-first" }, cancellationToken);
+		await storage.EnqueueAsync(CreateJob(now, 2) with { JobId = "ungrouped-second" }, cancellationToken);
 
 		var acquired = await storage.AcquireDueJobsAsync(CreateFairRequest("fair-worker", 3), cancellationToken);
 
-		Assert.Equal(["ungrouped-first", "ungrouped-second", "ungrouped-third"], acquired.Select(static job => job.Id));
+		Assert.Equal(["ungrouped-first", "ungrouped-second", "ungrouped-third"], acquired.Select(static job => job.JobId));
 	}
 
 	[Fact]
@@ -273,13 +273,13 @@ public sealed class EntityFrameworkCoreJobStorageTests
 		await using var fixture = await StorageFixture.CreateAsync(cancellationToken);
 		var storage = fixture.CreateStorage();
 		var now = fixture.TimeProvider.GetUtcNow();
-		await storage.EnqueueAsync(CreateJob(now, 1) with { Id = "a-first", GroupId = "group-a" }, cancellationToken);
-		await storage.EnqueueAsync(CreateJob(now, 2) with { Id = "a-second", GroupId = "group-a" }, cancellationToken);
-		await storage.EnqueueAsync(CreateJob(now, 3) with { Id = "b-first", GroupId = "group-b" }, cancellationToken);
+		await storage.EnqueueAsync(CreateJob(now, 1) with { JobId = "a-first", GroupId = "group-a" }, cancellationToken);
+		await storage.EnqueueAsync(CreateJob(now, 2) with { JobId = "a-second", GroupId = "group-a" }, cancellationToken);
+		await storage.EnqueueAsync(CreateJob(now, 3) with { JobId = "b-first", GroupId = "group-b" }, cancellationToken);
 
 		var first = Assert.Single(await storage.AcquireDueJobsAsync(CreateFairRequest("fair-worker", 1), cancellationToken));
-		Assert.Equal("a-first", first.Id);
-		await storage.CompleteAsync(first.Id, 1, "fair-worker", cancellationToken);
+		Assert.Equal("a-first", first.JobId);
+		await storage.CompleteAsync(first.JobId, 1, "fair-worker", cancellationToken);
 		var withoutRoundRobin = CreateFairRequest(
 			"fair-worker",
 			1,
@@ -287,7 +287,7 @@ public sealed class EntityFrameworkCoreJobStorageTests
 		);
 
 		var second = Assert.Single(await storage.AcquireDueJobsAsync(withoutRoundRobin, cancellationToken));
-		Assert.Equal("a-second", second.Id);
+		Assert.Equal("a-second", second.JobId);
 	}
 
 	[Fact]
@@ -297,11 +297,11 @@ public sealed class EntityFrameworkCoreJobStorageTests
 		await using var fixture = await StorageFixture.CreateAsync(cancellationToken);
 		var storage = fixture.CreateStorage();
 		var now = fixture.TimeProvider.GetUtcNow();
-		await storage.EnqueueAsync(CreateJob(now, 1) with { Id = "expired-a-1", GroupId = "group-a" }, cancellationToken);
-		await storage.EnqueueAsync(CreateJob(now, 2) with { Id = "expired-a-2", GroupId = "group-a" }, cancellationToken);
+		await storage.EnqueueAsync(CreateJob(now, 1) with { JobId = "expired-a-1", GroupId = "group-a" }, cancellationToken);
+		await storage.EnqueueAsync(CreateJob(now, 2) with { JobId = "expired-a-2", GroupId = "group-a" }, cancellationToken);
 		Assert.Equal(2, (await storage.AcquireDueJobsAsync(CreateRequest("expired-worker", 2), cancellationToken)).Count);
 		fixture.TimeProvider.Advance(TimeSpan.FromMinutes(1));
-		await storage.EnqueueAsync(CreateJob(now, 3) with { Id = "waiting-b", GroupId = "group-b" }, cancellationToken);
+		await storage.EnqueueAsync(CreateJob(now, 3) with { JobId = "waiting-b", GroupId = "group-b" }, cancellationToken);
 		var request = CreateFairRequest(
 			"fair-worker",
 			1,
@@ -310,7 +310,7 @@ public sealed class EntityFrameworkCoreJobStorageTests
 
 		var acquired = Assert.Single(await storage.AcquireDueJobsAsync(request, cancellationToken));
 
-		Assert.Equal("expired-a-1", acquired.Id);
+		Assert.Equal("expired-a-1", acquired.JobId);
 	}
 
 	[Fact]
@@ -320,22 +320,22 @@ public sealed class EntityFrameworkCoreJobStorageTests
 		await using var fixture = await StorageFixture.CreateAsync(cancellationToken);
 		var storage = fixture.CreateStorage();
 		var now = fixture.TimeProvider.GetUtcNow();
-		await storage.EnqueueAsync(CreateJob(now, 1) with { Id = "a-first", GroupId = "group-a" }, cancellationToken);
-		await storage.EnqueueAsync(CreateJob(now, 2) with { Id = "a-second", GroupId = "group-a" }, cancellationToken);
-		await storage.EnqueueAsync(CreateJob(now, 3) with { Id = "b-first", GroupId = "group-b" }, cancellationToken);
+		await storage.EnqueueAsync(CreateJob(now, 1) with { JobId = "a-first", GroupId = "group-a" }, cancellationToken);
+		await storage.EnqueueAsync(CreateJob(now, 2) with { JobId = "a-second", GroupId = "group-a" }, cancellationToken);
+		await storage.EnqueueAsync(CreateJob(now, 3) with { JobId = "b-first", GroupId = "group-b" }, cancellationToken);
 		var request = CreateFairRequest("fair-worker", 1);
 
 		var first = Assert.Single(await storage.AcquireDueJobsAsync(request, cancellationToken));
-		Assert.Equal("a-first", first.Id);
-		await storage.CompleteAsync(first.Id, 1, "fair-worker", cancellationToken);
+		Assert.Equal("a-first", first.JobId);
+		await storage.CompleteAsync(first.JobId, 1, "fair-worker", cancellationToken);
 		var second = Assert.Single(await storage.AcquireDueJobsAsync(request, cancellationToken));
-		Assert.Equal("b-first", second.Id);
-		await storage.CompleteAsync(second.Id, 1, "fair-worker", cancellationToken);
+		Assert.Equal("b-first", second.JobId);
+		await storage.CompleteAsync(second.JobId, 1, "fair-worker", cancellationToken);
 
-		await storage.EnqueueAsync(CreateJob(now, 4) with { Id = "b-returned", GroupId = "group-b" }, cancellationToken);
+		await storage.EnqueueAsync(CreateJob(now, 4) with { JobId = "b-returned", GroupId = "group-b" }, cancellationToken);
 		var returned = Assert.Single(await storage.AcquireDueJobsAsync(request, cancellationToken));
 
-		Assert.Equal("b-returned", returned.Id);
+		Assert.Equal("b-returned", returned.JobId);
 	}
 
 	[Fact]
@@ -345,10 +345,10 @@ public sealed class EntityFrameworkCoreJobStorageTests
 		await using var fixture = await StorageFixture.CreateAsync(cancellationToken);
 		var storage = fixture.CreateStorage();
 		var now = fixture.TimeProvider.GetUtcNow();
-		var original = CreateJob(now, 1) with { Id = "returning-original", GroupId = "returning-group" };
+		var original = CreateJob(now, 1) with { JobId = "returning-original", GroupId = "returning-group" };
 		await storage.EnqueueAsync(original, cancellationToken);
 		_ = Assert.Single(await storage.AcquireDueJobsAsync(CreateFairRequest("cursor-worker", 1), cancellationToken));
-		await storage.CompleteAsync(original.Id, 1, "cursor-worker", cancellationToken);
+		await storage.CompleteAsync(original.JobId, 1, "cursor-worker", cancellationToken);
 		await fixture.InsertCursorAsync("returning-group", 42, cancellationToken);
 
 		_ = await Assert.ThrowsAsync<DbUpdateException>(() =>
@@ -357,19 +357,19 @@ public sealed class EntityFrameworkCoreJobStorageTests
 
 		Assert.Equal(42, await fixture.GetCursorAsync("returning-group", cancellationToken));
 		await storage.EnqueueAsync(
-			CreateJob(now, 2) with { Id = "returning-new", GroupId = "returning-group" },
+			CreateJob(now, 2) with { JobId = "returning-new", GroupId = "returning-group" },
 			cancellationToken
 		);
 		Assert.Null(await fixture.GetCursorAsync("returning-group", cancellationToken));
 
 		await fixture.InsertCursorAsync("live-group", 73, cancellationToken);
 		await storage.EnqueueAsync(
-			CreateJob(now, 3) with { Id = "live-first", GroupId = "live-group" },
+			CreateJob(now, 3) with { JobId = "live-first", GroupId = "live-group" },
 			cancellationToken
 		);
 		await fixture.InsertCursorAsync("live-group", 73, cancellationToken, replace: true);
 		await storage.EnqueueAsync(
-			CreateJob(now, 4) with { Id = "live-second", GroupId = "live-group" },
+			CreateJob(now, 4) with { JobId = "live-second", GroupId = "live-group" },
 			cancellationToken
 		);
 		Assert.Equal(73, await fixture.GetCursorAsync("live-group", cancellationToken));
@@ -383,7 +383,7 @@ public sealed class EntityFrameworkCoreJobStorageTests
 		await using var fixture = await StorageFixture.CreateAsync(cancellationToken, interceptor: interceptor);
 		var storage = fixture.CreateStorage();
 		await storage.EnqueueAsync(
-			CreateJob(fixture.TimeProvider.GetUtcNow(), 1) with { Id = "vanished", GroupId = "race-group" },
+			CreateJob(fixture.TimeProvider.GetUtcNow(), 1) with { JobId = "vanished", GroupId = "race-group" },
 			cancellationToken
 		);
 
@@ -401,8 +401,8 @@ public sealed class EntityFrameworkCoreJobStorageTests
 		await using var fixture = await StorageFixture.CreateAsync(cancellationToken, interceptor: interceptor);
 		var storage = fixture.CreateStorage();
 		var now = fixture.TimeProvider.GetUtcNow();
-		await storage.EnqueueAsync(CreateJob(now, 1) with { Id = "active", GroupId = "loss-group" }, cancellationToken);
-		await storage.EnqueueAsync(CreateJob(now, 2) with { Id = "pending", GroupId = "loss-group" }, cancellationToken);
+		await storage.EnqueueAsync(CreateJob(now, 1) with { JobId = "active", GroupId = "loss-group" }, cancellationToken);
+		await storage.EnqueueAsync(CreateJob(now, 2) with { JobId = "pending", GroupId = "loss-group" }, cancellationToken);
 		interceptor.Enabled = false;
 		_ = Assert.Single(await storage.AcquireDueJobsAsync(CreateFairRequest("seed-worker", 1), cancellationToken));
 		interceptor.Enabled = true;
@@ -455,10 +455,10 @@ public sealed class EntityFrameworkCoreJobStorageTests
 		await using var restartedProcess = new SingleServerJobStorage(fixture.CreateStorage(), fixture.TimeProvider);
 		await restartedProcess.InitializeAsync(cancellationToken);
 
-		Assert.Equal(job.Id, Assert.Single(await restartedProcess.QueryJobsAsync(new(), cancellationToken)).Id);
+		Assert.Equal(job.JobId, Assert.Single(await restartedProcess.QueryJobsAsync(new(), cancellationToken)).JobId);
 		Assert.Equal(
-			job.Id,
-			Assert.Single(await restartedProcess.AcquireDueJobsAsync(CreateRequest("restarted", 1), cancellationToken)).Id
+			job.JobId,
+			Assert.Single(await restartedProcess.AcquireDueJobsAsync(CreateRequest("restarted", 1), cancellationToken)).JobId
 		);
 	}
 
@@ -474,27 +474,27 @@ public sealed class EntityFrameworkCoreJobStorageTests
 		))
 		{
 			await firstProcess.EnqueueAsync(
-				CreateJob(now, 1) with { Id = "a-first", GroupId = "group-a" },
+				CreateJob(now, 1) with { JobId = "a-first", GroupId = "group-a" },
 				cancellationToken
 			);
 			await firstProcess.EnqueueAsync(
-				CreateJob(now, 2) with { Id = "a-second", GroupId = "group-a" },
+				CreateJob(now, 2) with { JobId = "a-second", GroupId = "group-a" },
 				cancellationToken
 			);
 			var request = CreateFairRequest("single-server", 1);
 			var first = Assert.Single(await firstProcess.AcquireDueJobsAsync(request, cancellationToken));
-			Assert.Equal("a-first", first.Id);
-			await firstProcess.CompleteAsync(first.Id, 1, "single-server", cancellationToken);
+			Assert.Equal("a-first", first.JobId);
+			await firstProcess.CompleteAsync(first.JobId, 1, "single-server", cancellationToken);
 			await firstProcess.EnqueueAsync(
-				CreateJob(now, 3) with { Id = "b-first", GroupId = "group-b" },
+				CreateJob(now, 3) with { JobId = "b-first", GroupId = "group-b" },
 				cancellationToken
 			);
 
 			var second = Assert.Single(await firstProcess.AcquireDueJobsAsync(request, cancellationToken));
-			Assert.Equal("b-first", second.Id);
+			Assert.Equal("b-first", second.JobId);
 			Assert.Equal("group-b", second.GroupId);
 			var durableSecond = Assert.Single(await firstProcess.DurableStorage.QueryJobsAsync(
-				new() { Id = second.Id },
+				new() { Id = second.JobId },
 				cancellationToken
 			));
 			Assert.Equal(JobState.Active, durableSecond.State);
@@ -507,8 +507,8 @@ public sealed class EntityFrameworkCoreJobStorageTests
 		);
 		await restartedProcess.InitializeAsync(cancellationToken);
 		var restored = await restartedProcess.QueryJobsAsync(new(), cancellationToken);
-		Assert.Contains(restored, static job => string.Equals(job.Id, "a-second", StringComparison.Ordinal) && string.Equals(job.GroupId, "group-a", StringComparison.Ordinal));
-		Assert.Contains(restored, static job => string.Equals(job.Id, "b-first", StringComparison.Ordinal) && string.Equals(job.GroupId, "group-b", StringComparison.Ordinal));
+		Assert.Contains(restored, static job => string.Equals(job.JobId, "a-second", StringComparison.Ordinal) && string.Equals(job.GroupId, "group-a", StringComparison.Ordinal));
+		Assert.Contains(restored, static job => string.Equals(job.JobId, "b-first", StringComparison.Ordinal) && string.Equals(job.GroupId, "group-b", StringComparison.Ordinal));
 	}
 
 	[Fact]
@@ -521,17 +521,17 @@ public sealed class EntityFrameworkCoreJobStorageTests
 		);
 		var storage = fixture.CreateStorage();
 		var now = fixture.TimeProvider.GetUtcNow();
-		await storage.EnqueueAsync(CreateJob(now, 1) with { Id = "a-first", GroupId = "group-a" }, cancellationToken);
-		await storage.EnqueueAsync(CreateJob(now, 2) with { Id = "a-second", GroupId = "group-a" }, cancellationToken);
-		await storage.EnqueueAsync(CreateJob(now, 3) with { Id = "b-first", GroupId = "group-b" }, cancellationToken);
+		await storage.EnqueueAsync(CreateJob(now, 1) with { JobId = "a-first", GroupId = "group-a" }, cancellationToken);
+		await storage.EnqueueAsync(CreateJob(now, 2) with { JobId = "a-second", GroupId = "group-a" }, cancellationToken);
+		await storage.EnqueueAsync(CreateJob(now, 3) with { JobId = "b-first", GroupId = "group-b" }, cancellationToken);
 		var request = CreateFairRequest("fair-worker", 1);
 
 		var first = Assert.Single(await storage.AcquireDueJobsAsync(request, cancellationToken));
-		Assert.Equal("a-first", first.Id);
-		await storage.CompleteAsync(first.Id, 1, "fair-worker", cancellationToken);
+		Assert.Equal("a-first", first.JobId);
+		await storage.CompleteAsync(first.JobId, 1, "fair-worker", cancellationToken);
 
 		var second = Assert.Single(await storage.AcquireDueJobsAsync(request, cancellationToken));
-		Assert.Equal("b-first", second.Id);
+		Assert.Equal("b-first", second.JobId);
 	}
 
 	[Fact]
@@ -568,7 +568,7 @@ public sealed class EntityFrameworkCoreJobStorageTests
 		);
 
 		Assert.True(materialized);
-		Assert.Equal(job.Id, Assert.Single(await storage.QueryJobsAsync(new(), cancellationToken)).Id);
+		Assert.Equal(job.JobId, Assert.Single(await storage.QueryJobsAsync(new(), cancellationToken)).JobId);
 		var storedSchedule = Assert.Single((await storage.GetMonitoringSnapshotAsync(cancellationToken)).Recurring);
 		Assert.Equal(now, storedSchedule.LastRunAt);
 		Assert.Equal(nextRunAt, storedSchedule.NextRunAt);
@@ -640,7 +640,7 @@ public sealed class EntityFrameworkCoreJobStorageTests
 		var cancellationToken = TestContext.Current.CancellationToken;
 		await using var fixture = await StorageFixture.CreateAsync(cancellationToken);
 		var storage = fixture.CreateStorage();
-		var pending = CreateJob(fixture.TimeProvider.GetUtcNow(), 1) with { Id = "dashboard-pending" };
+		var pending = CreateJob(fixture.TimeProvider.GetUtcNow(), 1) with { JobId = "dashboard-pending" };
 		await storage.EnqueueAsync(pending, cancellationToken);
 		var codeDefined = CreateSchedule("dashboard-code", isCodeDefined: true, fixture.TimeProvider);
 		var dynamic = CreateSchedule("dashboard-dynamic", isCodeDefined: false, fixture.TimeProvider);
@@ -650,8 +650,8 @@ public sealed class EntityFrameworkCoreJobStorageTests
 		_ = await Assert.ThrowsAsync<KeyNotFoundException>(() => storage.RetryAsync("missing-job", cancellationToken).AsTask());
 		_ = await Assert.ThrowsAsync<KeyNotFoundException>(() => storage.DeleteAsync("missing-job", cancellationToken).AsTask());
 		_ = await Assert.ThrowsAsync<KeyNotFoundException>(() => storage.RemoveRecurringAsync("missing-schedule", cancellationToken).AsTask());
-		_ = await Assert.ThrowsAsync<ImmediateJobException>(() => storage.RetryAsync(pending.Id, cancellationToken).AsTask());
-		_ = await Assert.ThrowsAsync<ImmediateJobException>(() => storage.DeleteAsync(pending.Id, cancellationToken).AsTask());
+		_ = await Assert.ThrowsAsync<ImmediateJobException>(() => storage.RetryAsync(pending.JobId, cancellationToken).AsTask());
+		_ = await Assert.ThrowsAsync<ImmediateJobException>(() => storage.DeleteAsync(pending.JobId, cancellationToken).AsTask());
 		_ = await Assert.ThrowsAsync<ImmediateJobException>(() => storage.RemoveRecurringAsync(codeDefined.Name, cancellationToken).AsTask());
 
 		await storage.RemoveRecurringAsync(dynamic.Name, cancellationToken);
@@ -665,10 +665,10 @@ public sealed class EntityFrameworkCoreJobStorageTests
 		await using var fixture = await StorageFixture.CreateAsync(cancellationToken);
 		var storage = fixture.CreateStorage();
 		var now = fixture.TimeProvider.GetUtcNow();
-		var parent = CreateJob(now, 1) with { Id = "batch-parent", BatchId = "batch-one" };
+		var parent = CreateJob(now, 1) with { JobId = "batch-parent", BatchId = "batch-one" };
 		var child = CreateJob(now, 2) with
 		{
-			Id = "batch-child",
+			JobId = "batch-child",
 			BatchId = "batch-one",
 			State = JobState.AwaitingContinuation,
 			RemainingDependencies = 1,
@@ -683,22 +683,22 @@ public sealed class EntityFrameworkCoreJobStorageTests
 				State = BatchState.Executing,
 			},
 			[parent, child],
-			[new() { ChildJobId = child.Id, ParentJobId = parent.Id }],
+			[new() { ChildJobId = child.JobId, ParentJobId = parent.JobId }],
 			cancellationToken
 		);
 
 		Assert.Equal(2, (await storage.GetBatchStatusAsync("batch-one", cancellationToken))!.Total);
 		var acquiredParent = Assert.Single(await storage.AcquireDueJobsAsync(CreateRequest("ef-worker", 1), cancellationToken));
-		Assert.Equal(parent.Id, acquiredParent.Id);
-		await storage.CompleteAsync(parent.Id, 1, "ef-worker", cancellationToken);
+		Assert.Equal(parent.JobId, acquiredParent.JobId);
+		await storage.CompleteAsync(parent.JobId, 1, "ef-worker", cancellationToken);
 		Assert.Equal(
 			JobState.Pending,
-			(await storage.GetJobStatusAsync(child.Id, cancellationToken))!.State
+			(await storage.GetJobStatusAsync(child.JobId, cancellationToken))!.State
 		);
 
 		var acquiredChild = Assert.Single(await storage.AcquireDueJobsAsync(CreateRequest("ef-worker", 1), cancellationToken));
-		Assert.Equal(child.Id, acquiredChild.Id);
-		await storage.CompleteAsync(child.Id, 1, "ef-worker", cancellationToken);
+		Assert.Equal(child.JobId, acquiredChild.JobId);
+		await storage.CompleteAsync(child.JobId, 1, "ef-worker", cancellationToken);
 		var status = await storage.GetBatchStatusAsync("batch-one", cancellationToken);
 		Assert.Equal(BatchState.Succeeded, status!.State);
 		Assert.Equal(2, status.Succeeded);
@@ -717,10 +717,10 @@ public sealed class EntityFrameworkCoreJobStorageTests
 		await using var fixture = await StorageFixture.CreateAsync(cancellationToken);
 		var storage = fixture.CreateStorage();
 		var now = fixture.TimeProvider.GetUtcNow();
-		var parent = CreateJob(now, 1) with { Id = "failure-trigger-parent" };
+		var parent = CreateJob(now, 1) with { JobId = "failure-trigger-parent" };
 		var child = CreateJob(now, 2) with
 		{
-			Id = "failure-trigger-child",
+			JobId = "failure-trigger-child",
 			State = JobState.AwaitingContinuation,
 			RemainingDependencies = 1,
 		};
@@ -729,8 +729,8 @@ public sealed class EntityFrameworkCoreJobStorageTests
 			child,
 			[new()
 			{
-				ChildJobId = child.Id,
-				ParentJobId = parent.Id,
+				ChildJobId = child.JobId,
+				ParentJobId = parent.JobId,
 				Trigger = ContinuationTrigger.Failure,
 			}],
 			cancellationToken
@@ -738,11 +738,11 @@ public sealed class EntityFrameworkCoreJobStorageTests
 		_ = Assert.Single(await storage.AcquireDueJobsAsync(CreateRequest("failure-worker", 1), cancellationToken));
 
 		if (parentFails)
-			await storage.FailAsync(parent.Id, 1, "failure-worker", "expected", nextRetryAt: null, cancellationToken);
+			await storage.FailAsync(parent.JobId, 1, "failure-worker", "expected", nextRetryAt: null, cancellationToken);
 		else
-			await storage.CompleteAsync(parent.Id, 1, "failure-worker", cancellationToken);
+			await storage.CompleteAsync(parent.JobId, 1, "failure-worker", cancellationToken);
 
-		Assert.Equal(expectedState, (await storage.GetJobStatusAsync(child.Id, cancellationToken))!.State);
+		Assert.Equal(expectedState, (await storage.GetJobStatusAsync(child.JobId, cancellationToken))!.State);
 	}
 
 	[Fact]
@@ -752,9 +752,9 @@ public sealed class EntityFrameworkCoreJobStorageTests
 		await using var fixture = await StorageFixture.CreateAsync(cancellationToken);
 		var storage = fixture.CreateStorage();
 		var now = fixture.TimeProvider.GetUtcNow();
-		var jobParent = CreateJob(now, 1) with { Id = "incoming-parent" };
-		var batchParent = CreateJob(now, 2) with { Id = "incoming-batch-parent", BatchId = "incoming-batch" };
-		var child = CreateJob(now, 3) with { Id = "incoming-child" };
+		var jobParent = CreateJob(now, 1) with { JobId = "incoming-parent" };
+		var batchParent = CreateJob(now, 2) with { JobId = "incoming-batch-parent", BatchId = "incoming-batch" };
+		var child = CreateJob(now, 3) with { JobId = "incoming-child" };
 		await storage.EnqueueAsync(jobParent, cancellationToken);
 		await storage.EnqueueBatchAsync(
 			new()
@@ -772,14 +772,14 @@ public sealed class EntityFrameworkCoreJobStorageTests
 		await storage.EnqueueContinuationAsync(
 			child,
 			[
-				new() { ChildJobId = child.Id, ParentJobId = jobParent.Id, Trigger = ContinuationTrigger.Failure },
-				new() { ChildJobId = child.Id, ParentBatchId = "incoming-batch", Trigger = ContinuationTrigger.Complete },
+				new() { ChildJobId = child.JobId, ParentJobId = jobParent.JobId, Trigger = ContinuationTrigger.Failure },
+				new() { ChildJobId = child.JobId, ParentBatchId = "incoming-batch", Trigger = ContinuationTrigger.Complete },
 			],
 			cancellationToken
 		);
 
 		var edges = await storage.GetIncomingEdgesAsync(
-			[child.Id, child.Id, "missing-child"],
+			[child.JobId, child.JobId, "missing-child"],
 			cancellationToken
 		);
 
@@ -787,14 +787,14 @@ public sealed class EntityFrameworkCoreJobStorageTests
 			edges,
 			edge =>
 			{
-				Assert.Equal(child.Id, edge.ChildJobId);
-				Assert.Equal(jobParent.Id, edge.ParentJobId);
+				Assert.Equal(child.JobId, edge.ChildJobId);
+				Assert.Equal(jobParent.JobId, edge.ParentJobId);
 				Assert.Null(edge.ParentBatchId);
 				Assert.Equal(ContinuationTrigger.Failure, edge.Trigger);
 			},
 			edge =>
 			{
-				Assert.Equal(child.Id, edge.ChildJobId);
+				Assert.Equal(child.JobId, edge.ChildJobId);
 				Assert.Null(edge.ParentJobId);
 				Assert.Equal("incoming-batch", edge.ParentBatchId);
 				Assert.Equal(ContinuationTrigger.Complete, edge.Trigger);
@@ -815,28 +815,28 @@ public sealed class EntityFrameworkCoreJobStorageTests
 		await using var fixture = await StorageFixture.CreateAsync(cancellationToken);
 		var storage = fixture.CreateStorage();
 		var now = fixture.TimeProvider.GetUtcNow();
-		var successParent = CreateJob(now, 1) with { Id = "mixed-success-parent" };
-		var failureParent = CreateJob(now, 2) with { Id = "mixed-failure-parent" };
-		var child = CreateJob(now, 3) with { Id = "mixed-child" };
+		var successParent = CreateJob(now, 1) with { JobId = "mixed-success-parent" };
+		var failureParent = CreateJob(now, 2) with { JobId = "mixed-failure-parent" };
+		var child = CreateJob(now, 3) with { JobId = "mixed-child" };
 		await storage.EnqueueAsync(successParent, cancellationToken);
 		await storage.EnqueueAsync(failureParent, cancellationToken);
 		await storage.EnqueueContinuationAsync(
 			child,
 			[
-				new() { ChildJobId = child.Id, ParentJobId = successParent.Id, Trigger = ContinuationTrigger.Success },
-				new() { ChildJobId = child.Id, ParentJobId = failureParent.Id, Trigger = ContinuationTrigger.Failure },
+				new() { ChildJobId = child.JobId, ParentJobId = successParent.JobId, Trigger = ContinuationTrigger.Success },
+				new() { ChildJobId = child.JobId, ParentJobId = failureParent.JobId, Trigger = ContinuationTrigger.Failure },
 			],
 			cancellationToken
 		);
 		Assert.Equal(2, (await storage.AcquireDueJobsAsync(CreateRequest("mixed-worker", 2), cancellationToken)).Count);
 
-		var first = failureEdgeSettlesLast ? successParent.Id : failureParent.Id;
-		var second = failureEdgeSettlesLast ? failureParent.Id : successParent.Id;
+		var first = failureEdgeSettlesLast ? successParent.JobId : failureParent.JobId;
+		var second = failureEdgeSettlesLast ? failureParent.JobId : successParent.JobId;
 		await storage.CompleteAsync(first, 1, "mixed-worker", cancellationToken);
-		Assert.Equal(JobState.AwaitingContinuation, (await storage.GetJobStatusAsync(child.Id, cancellationToken))!.State);
+		Assert.Equal(JobState.AwaitingContinuation, (await storage.GetJobStatusAsync(child.JobId, cancellationToken))!.State);
 		await storage.CompleteAsync(second, 1, "mixed-worker", cancellationToken);
 
-		Assert.Equal(JobState.Skipped, (await storage.GetJobStatusAsync(child.Id, cancellationToken))!.State);
+		Assert.Equal(JobState.Skipped, (await storage.GetJobStatusAsync(child.JobId, cancellationToken))!.State);
 	}
 
 	[Theory]
@@ -851,7 +851,7 @@ public sealed class EntityFrameworkCoreJobStorageTests
 		await using var fixture = await StorageFixture.CreateAsync(cancellationToken);
 		var storage = fixture.CreateStorage();
 		var now = fixture.TimeProvider.GetUtcNow();
-		var current = CreateJob(now, 1) with { Id = "validation-current", BatchId = "validation-batch" };
+		var current = CreateJob(now, 1) with { JobId = "validation-current", BatchId = "validation-batch" };
 		await storage.EnqueueBatchAsync(
 			new()
 			{
@@ -868,25 +868,25 @@ public sealed class EntityFrameworkCoreJobStorageTests
 		_ = Assert.Single(await storage.AcquireDueJobsAsync(CreateRequest("validation-worker", 1), cancellationToken));
 
 		_ = await Assert.ThrowsAsync<ImmediateJobException>(() => storage.CompleteWithContinuationsAsync(
-			current.Id,
+			current.JobId,
 			1, "validation-worker",
 			[new()
 			{
-				Job = CreateJob(now, 2) with { Id = "validation-child", BatchId = invalidBatchId },
+				Job = CreateJob(now, 2) with { JobId = "validation-child", BatchId = invalidBatchId },
 				Options = options,
 			}],
 			cancellationToken
 		).AsTask());
 
-		Assert.Equal(JobState.Active, (await storage.GetJobStatusAsync(current.Id, cancellationToken))!.State);
+		Assert.Equal(JobState.Active, (await storage.GetJobStatusAsync(current.JobId, cancellationToken))!.State);
 		Assert.Null(await storage.GetJobStatusAsync("validation-child", cancellationToken));
 		var batch = Assert.IsType<BatchStatus>(await storage.GetBatchStatusAsync("validation-batch", cancellationToken));
 		Assert.Equal(1, batch.Total);
 		Assert.Equal(1, batch.Remaining);
 		_ = await Assert.ThrowsAsync<ImmediateJobException>(() => storage.AddBatchJobAsync(
-			current.Id,
+			current.JobId,
 			1,
-			CreateJob(now, 3) with { Id = "validation-added", BatchId = "wrong-batch" },
+			CreateJob(now, 3) with { JobId = "validation-added", BatchId = "wrong-batch" },
 			ContinuationOptions.BesideContinuations,
 			cancellationToken
 		).AsTask());
@@ -903,33 +903,33 @@ public sealed class EntityFrameworkCoreJobStorageTests
 		await using var fixture = await StorageFixture.CreateAsync(cancellationToken);
 		var storage = fixture.CreateStorage();
 		var now = fixture.TimeProvider.GetUtcNow();
-		var current = CreateJob(now, 1) with { Id = "enum-current" };
+		var current = CreateJob(now, 1) with { JobId = "enum-current" };
 		await storage.EnqueueAsync(current, cancellationToken);
 		_ = Assert.Single(await storage.AcquireDueJobsAsync(CreateRequest("enum-worker", 1), cancellationToken));
 
 		_ = await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => storage.CompleteWithContinuationsAsync(
-			current.Id,
+			current.JobId,
 			1, "enum-worker",
 			[new()
 			{
-				Job = CreateJob(now, 2) with { Id = "unknown-trigger" },
+				Job = CreateJob(now, 2) with { JobId = "unknown-trigger" },
 				Options = ContinuationOptions.Detached,
 				Trigger = (ContinuationTrigger)int.MaxValue,
 			}],
 			cancellationToken
 		).AsTask());
 		_ = await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => storage.CompleteWithContinuationsAsync(
-			current.Id,
+			current.JobId,
 			1, "enum-worker",
 			[new()
 			{
-				Job = CreateJob(now, 3) with { Id = "unknown-option" },
+				Job = CreateJob(now, 3) with { JobId = "unknown-option" },
 				Options = (ContinuationOptions)int.MaxValue,
 			}],
 			cancellationToken
 		).AsTask());
 
-		Assert.Equal(JobState.Active, (await storage.GetJobStatusAsync(current.Id, cancellationToken))!.State);
+		Assert.Equal(JobState.Active, (await storage.GetJobStatusAsync(current.JobId, cancellationToken))!.State);
 		Assert.Null(await storage.GetJobStatusAsync("unknown-trigger", cancellationToken));
 		Assert.Null(await storage.GetJobStatusAsync("unknown-option", cancellationToken));
 	}
@@ -942,12 +942,12 @@ public sealed class EntityFrameworkCoreJobStorageTests
 		var storage = fixture.CreateStorage();
 		var now = fixture.TimeProvider.GetUtcNow();
 		await fixture.InsertEmptyBatchAsync("empty-batch", now, cancellationToken);
-		var job = CreateJob(now, 1) with { Id = "unknown-retry-limit" };
+		var job = CreateJob(now, 1) with { JobId = "unknown-retry-limit" };
 		await storage.EnqueueAsync(job, cancellationToken);
 
 		var batch = Assert.IsType<BatchStatus>(await storage.GetBatchStatusAsync("empty-batch", cancellationToken));
 		Assert.Equal(1d, batch.FractionSettled);
-		Assert.Null((await storage.GetJobStatusAsync(job.Id, cancellationToken))!.MaxAttempts);
+		Assert.Null((await storage.GetJobStatusAsync(job.JobId, cancellationToken))!.MaxAttempts);
 	}
 
 	[Fact]
@@ -959,7 +959,7 @@ public sealed class EntityFrameworkCoreJobStorageTests
 		var now = fixture.TimeProvider.GetUtcNow();
 		var child = CreateJob(now, 1) with
 		{
-			Id = "invalid-child",
+			JobId = "invalid-child",
 			BatchId = "invalid-batch",
 			State = JobState.AwaitingContinuation,
 			RemainingDependencies = 1,
@@ -975,7 +975,7 @@ public sealed class EntityFrameworkCoreJobStorageTests
 				State = BatchState.Executing,
 			},
 			[child],
-			[new() { ChildJobId = child.Id, ParentJobId = "missing-parent" }],
+			[new() { ChildJobId = child.JobId, ParentJobId = "missing-parent" }],
 			cancellationToken
 		).AsTask());
 
@@ -1015,10 +1015,10 @@ public sealed class EntityFrameworkCoreJobStorageTests
 		);
 		var storage = fixture.CreateStorage();
 		var now = fixture.TimeProvider.GetUtcNow();
-		var parent = CreateJob(now, 1) with { Id = "cancel-parent", BatchId = "cancel-batch" };
+		var parent = CreateJob(now, 1) with { JobId = "cancel-parent", BatchId = "cancel-batch" };
 		var child = CreateJob(now, 2) with
 		{
-			Id = "cancel-child",
+			JobId = "cancel-child",
 			BatchId = "cancel-batch",
 			State = JobState.AwaitingContinuation,
 			RemainingDependencies = 1,
@@ -1033,7 +1033,7 @@ public sealed class EntityFrameworkCoreJobStorageTests
 				State = BatchState.Executing,
 			},
 			[parent, child],
-			[new() { ChildJobId = child.Id, ParentJobId = parent.Id }],
+			[new() { ChildJobId = child.JobId, ParentJobId = parent.JobId }],
 			cancellationToken
 		);
 
@@ -1080,7 +1080,7 @@ public sealed class EntityFrameworkCoreJobStorageTests
 
 	private static JobRecord CreateJob(DateTimeOffset now, int index) => new()
 	{
-		Id = "job-" + Guid.NewGuid().ToString("N"),
+		JobId = "job-" + Guid.NewGuid().ToString("N"),
 		JobName = "ef-test",
 		Payload = string.Create(CultureInfo.InvariantCulture, $"{{\"index\":{index}}}"),
 		State = JobState.Pending,

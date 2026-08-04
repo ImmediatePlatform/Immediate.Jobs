@@ -80,7 +80,7 @@ public sealed class DashboardPackageTests
 		await using var storage = new InMemoryJobStorage(TimeProvider.System);
 		await storage.EnqueueAsync(new()
 		{
-			Id = JobId,
+			JobId = JobId,
 			JobName = "SendGreeting",
 			Payload = "{}",
 			State = JobState.Succeeded,
@@ -112,7 +112,7 @@ public sealed class DashboardPackageTests
 				context => context.Execution is { } execution
 					? new(string.Create(
 						CultureInfo.InvariantCulture,
-						$"https://logs.example/search?jobId={Uri.EscapeDataString(context.Job.Id)}&attempt={execution.Attempt}"
+						$"https://logs.example/search?jobId={Uri.EscapeDataString(context.Job.JobId)}&attempt={execution.Attempt}"
 					))
 					: null
 			);
@@ -120,7 +120,7 @@ public sealed class DashboardPackageTests
 				"View all retry logs",
 				JobTelemetryLinkKind.Logs,
 				context => context.Execution is null
-					? new($"https://logs.example/search?jobId={Uri.EscapeDataString(context.Job.Id)}")
+					? new($"https://logs.example/search?jobId={Uri.EscapeDataString(context.Job.JobId)}")
 					: null
 			);
 		});
@@ -186,7 +186,7 @@ public sealed class DashboardPackageTests
 		await using var storage = new InMemoryJobStorage(TimeProvider.System);
 		await storage.EnqueueAsync(new()
 		{
-			Id = JobId,
+			JobId = JobId,
 			JobName = "SendGreeting",
 			Payload = "{}",
 			State = JobState.Pending,
@@ -292,7 +292,7 @@ public sealed class DashboardPackageTests
 		await using var storage = new InMemoryJobStorage(TimeProvider.System);
 		await storage.EnqueueAsync(new()
 		{
-			Id = "job",
+			JobId = "job",
 			JobName = "validation",
 			Payload = "{}",
 			State = JobState.Pending,
@@ -396,7 +396,7 @@ public sealed class DashboardPackageTests
 		var now = TimeProvider.System.GetUtcNow();
 		await storage.EnqueueAsync(new()
 		{
-			Id = "dashboard-cancel",
+			JobId = "dashboard-cancel",
 			JobName = "cancel-test",
 			Payload = "{}",
 			State = JobState.Pending,
@@ -548,7 +548,7 @@ public sealed class DashboardPackageTests
 		await using var storage = new InMemoryJobStorage(TimeProvider.System);
 		await storage.EnqueueAsync(new()
 		{
-			Id = "86bf8c31-d8e6-415b-8e92-45587a09fc52",
+			JobId = "86bf8c31-d8e6-415b-8e92-45587a09fc52",
 			JobName = "SendGreeting",
 			Payload = "{}",
 			State = JobState.Succeeded,
@@ -605,7 +605,7 @@ public sealed class DashboardPackageTests
 		await using var storage = new InMemoryJobStorage(TimeProvider.System);
 		await storage.EnqueueAsync(new()
 		{
-			Id = JobId,
+			JobId = JobId,
 			JobName = "SendGreeting",
 			GroupId = "tenant-a",
 			Payload = "{}",

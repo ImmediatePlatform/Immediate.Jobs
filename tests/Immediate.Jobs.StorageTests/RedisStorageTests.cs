@@ -47,7 +47,7 @@ public sealed class RedisStorageTests(RedisStorageFixture fixture)
 
 		var claimed = claims.SelectMany(static claim => claim).ToArray();
 		Assert.Equal(24, claimed.Length);
-		Assert.Equal(24, claimed.Select(static job => job.Id).Distinct(StringComparer.Ordinal).Count());
+		Assert.Equal(24, claimed.Select(static job => job.JobId).Distinct(StringComparer.Ordinal).Count());
 		Assert.All(claimed, static job => Assert.Equal(JobState.Active, job.State));
 	}
 
@@ -151,7 +151,7 @@ public sealed class RedisStorageTests(RedisStorageFixture fixture)
 			CreateRequest("node-b", 1, "secondary"),
 			cancellationToken
 		));
-		Assert.Equal("secondary", recovered.Id);
+		Assert.Equal("secondary", recovered.JobId);
 		Assert.Equal(2, recovered.Attempt);
 	}
 
@@ -175,7 +175,7 @@ public sealed class RedisStorageTests(RedisStorageFixture fixture)
 
 		var jobs = await storage.QueryJobsAsync(new() { Skip = 1, Take = 1 }, cancellationToken);
 
-		Assert.Equal("window-1", Assert.Single(jobs).Id);
+		Assert.Equal("window-1", Assert.Single(jobs).JobId);
 	}
 
 	[Fact]
@@ -196,7 +196,7 @@ public sealed class RedisStorageTests(RedisStorageFixture fixture)
 
 		var jobs = await storage.QueryJobsAsync(new() { Id = "target", Take = 1 }, cancellationToken);
 
-		Assert.Equal("target", Assert.Single(jobs).Id);
+		Assert.Equal("target", Assert.Single(jobs).JobId);
 	}
 
 	[Fact]
@@ -237,7 +237,7 @@ public sealed class RedisStorageTests(RedisStorageFixture fixture)
 			Take = 1,
 		}, cancellationToken);
 
-		Assert.Equal("filtered-250", Assert.Single(jobs).Id);
+		Assert.Equal("filtered-250", Assert.Single(jobs).JobId);
 	}
 
 	[Fact]
@@ -256,18 +256,18 @@ public sealed class RedisStorageTests(RedisStorageFixture fixture)
 		};
 		await storage.EnqueueAsync(job, cancellationToken);
 
-		await storage.RetryAsync(job.Id, cancellationToken);
+		await storage.RetryAsync(job.JobId, cancellationToken);
 
-		var retried = Assert.Single(await storage.QueryJobsAsync(new() { Id = job.Id }, cancellationToken));
+		var retried = Assert.Single(await storage.QueryJobsAsync(new() { Id = job.JobId }, cancellationToken));
 		Assert.Equal(JobState.Pending, retried.State);
 		Assert.Equal(timeProvider.GetUtcNow(), retried.DueAt);
 		Assert.Equal(1, retried.Attempt);
 		Assert.Equal(job.LastError, retried.LastError);
 
-		var firstRun = job with { Id = "scheduled-first-run", Attempt = 0, LastError = null };
+		var firstRun = job with { JobId = "scheduled-first-run", Attempt = 0, LastError = null };
 		await storage.EnqueueAsync(firstRun, cancellationToken);
-		await storage.RetryAsync(firstRun.Id, cancellationToken);
-		var fastForwarded = Assert.Single(await storage.QueryJobsAsync(new() { Id = firstRun.Id }, cancellationToken));
+		await storage.RetryAsync(firstRun.JobId, cancellationToken);
+		var fastForwarded = Assert.Single(await storage.QueryJobsAsync(new() { Id = firstRun.JobId }, cancellationToken));
 		Assert.Equal(JobState.Pending, fastForwarded.State);
 		Assert.Equal(timeProvider.GetUtcNow(), fastForwarded.DueAt);
 		Assert.Equal(0, fastForwarded.Attempt);
@@ -284,21 +284,21 @@ public sealed class RedisStorageTests(RedisStorageFixture fixture)
 		await storage.EnqueueAsync(job, cancellationToken);
 		var active = Assert.Single(await storage.AcquireDueJobsAsync(CreateRequest("worker", 1), cancellationToken));
 
-		await storage.CancelAsync(job.Id, cancellationToken);
+		await storage.CancelAsync(job.JobId, cancellationToken);
 
-		Assert.Equal(JobState.Cancelled, (await storage.GetJobStatusAsync(job.Id, cancellationToken))!.State);
-		var execution = Assert.Single(await storage.QueryJobExecutionsAsync(new() { JobId = job.Id }, cancellationToken));
+		Assert.Equal(JobState.Cancelled, (await storage.GetJobStatusAsync(job.JobId, cancellationToken))!.State);
+		var execution = Assert.Single(await storage.QueryJobExecutionsAsync(new() { JobId = job.JobId }, cancellationToken));
 		Assert.Equal(JobExecutionState.Cancelled, execution.State);
 		_ = await Assert.ThrowsAsync<ImmediateJobException>(
-			() => storage.CompleteAsync(job.Id, active.Attempt, "worker", cancellationToken).AsTask()
+			() => storage.CompleteAsync(job.JobId, active.Attempt, "worker", cancellationToken).AsTask()
 		);
 		_ = await Assert.ThrowsAsync<ImmediateJobException>(
-			() => storage.CancelAsync(job.Id, cancellationToken).AsTask()
+			() => storage.CancelAsync(job.JobId, cancellationToken).AsTask()
 		);
 
 		var pending = CreateJob("cancel-pending", timeProvider.GetUtcNow());
 		await storage.EnqueueAsync(pending, cancellationToken);
-		await storage.CancelAsync(pending.Id, cancellationToken);
+		await storage.CancelAsync(pending.JobId, cancellationToken);
 		Assert.Empty(await storage.AcquireDueJobsAsync(CreateRequest("worker", 1), cancellationToken));
 	}
 
@@ -826,7 +826,7 @@ public sealed class RedisStorageTests(RedisStorageFixture fixture)
 
 	private static JobRecord CreateJob(string id, DateTimeOffset now) => new()
 	{
-		Id = id,
+		JobId = id,
 		JobName = "test-job",
 		Payload = "{}",
 		State = JobState.Pending,

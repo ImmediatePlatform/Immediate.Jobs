@@ -88,7 +88,7 @@ public sealed class QueueSchedulerTests
 
 		ValueTask Enqueue(string queueName, string jobName, int order) => storage.EnqueueAsync(new()
 		{
-			Id = Guid.NewGuid().ToString("N"),
+			JobId = Guid.NewGuid().ToString("N"),
 			QueueName = queueName,
 			JobName = jobName,
 			Payload = "{}",

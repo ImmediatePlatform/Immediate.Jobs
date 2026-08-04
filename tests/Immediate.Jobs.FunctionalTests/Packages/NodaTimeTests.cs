@@ -85,7 +85,7 @@ public sealed class NodaTimeTests
 		);
 
 		var jobs = (await harness.QueryJobsAsync(cancellationToken: cancellationToken))
-			.ToDictionary(static job => job.Id, StringComparer.Ordinal);
+			.ToDictionary(static job => job.JobId, StringComparer.Ordinal);
 		Assert.Equal(start + Duration.FromMinutes(5), Instant.FromDateTimeOffset(jobs[delayedBatchMember.Id].DueAt));
 		Assert.Equal(start + Duration.FromHours(2), Instant.FromDateTimeOffset(jobs[absoluteBatchMember.Id].DueAt));
 		Assert.Equal(start + Duration.FromMinutes(10), Instant.FromDateTimeOffset(jobs[jobContinuation.Id].DueAt));
