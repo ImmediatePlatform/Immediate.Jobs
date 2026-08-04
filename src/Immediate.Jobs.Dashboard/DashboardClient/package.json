@@ -12,7 +12,7 @@
 		"size": "node scripts/check-bundle-size.mjs"
 	},
 	"dependencies": {
-		"@lucide/vue": "^1.27.0",
+		"@lucide/vue": "^1.28.0",
 		"@tanstack/vue-query": "^5.101.4",
 		"@vueuse/core": "^14.4.0",
 		"@vueuse/router": "^14.4.0",
