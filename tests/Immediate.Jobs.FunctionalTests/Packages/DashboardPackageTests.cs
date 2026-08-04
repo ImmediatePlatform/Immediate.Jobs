@@ -35,6 +35,40 @@ public sealed class DashboardPackageTests
 		));
 	}
 
+	[Theory]
+	[InlineData("Development", false, HttpStatusCode.Redirect)]
+	[InlineData("Local", false, HttpStatusCode.Forbidden)]
+	[InlineData("Local", true, HttpStatusCode.Redirect)]
+	public async Task DashboardEnvironmentRestrictionIsConfigurable(
+		string environmentName,
+		bool allowInAnyEnvironment,
+		HttpStatusCode expectedStatus
+	)
+	{
+		var builder = WebApplication.CreateBuilder(new WebApplicationOptions
+		{
+			EnvironmentName = environmentName,
+		});
+		_ = builder.WebHost.UseTestServer();
+		_ = builder.Services.AddImmediateJobsDashboard(options =>
+		{
+			if (allowInAnyEnvironment)
+				_ = options.AllowInAnyEnvironment();
+		});
+		_ = builder.Services.AddSingleton<IJobStorage>(static _ => new InMemoryJobStorage(TimeProvider.System));
+
+		await using var app = builder.Build();
+		_ = app.MapImmediateJobsDashboard();
+		await app.StartAsync(TestContext.Current.CancellationToken);
+
+		using var response = await app.GetTestClient().GetAsync(
+			new Uri("/jobs", UriKind.Relative),
+			TestContext.Current.CancellationToken
+		);
+
+		Assert.Equal(expectedStatus, response.StatusCode);
+	}
+
 	[Fact]
 	public async Task JobAndExecutionTelemetryApisSupplyTheExpectedCallbackContext()
 	{

@@ -413,6 +413,8 @@ app.MapImmediateJobsDashboard("/jobs");
 The package serves an embedded SPA plus Immediate.Apis-generated JSON and Server-Sent Events endpoints.
 Immediate.Validations returns `application/problem+json` for invalid route and paging inputs.
 Without an authorization policy, dashboard access is allowed only in the `Development` environment.
+Call `AllowInAnyEnvironment()` to explicitly disable this restriction for custom development
+environments; prefer `RequireAuthorization(...)` whenever the dashboard is exposed outside a trusted environment.
 The dashboard includes batch progress and a live dependency-graph viewer alongside filtered jobs,
 recurring schedule actions, retry, cancellation, and atomic batch deletion. Job search and filters
 are paged on the server in groups of 50; batch members show a link to their workflow.

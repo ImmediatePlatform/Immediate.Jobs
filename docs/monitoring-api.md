@@ -46,4 +46,4 @@ trace and `JobId + Attempt` log links alongside a stable-job-ID log query across
 
 The global event stream emits `state` events whose `data` contains a `snapshot`, the latest jobs, and the latest batches; the event id is the snapshot's Unix timestamp in milliseconds. Batch streams emit `status` and `graph` events whenever either representation changes. Clients should reconnect or fall back to the corresponding JSON endpoints when SSE is unavailable.
 
-Endpoints use the ASP.NET Core authorization metadata configured on `ImmediateJobsDashboardOptions`. If no policy is supplied, middleware rejects requests outside the `Development` environment.
+Endpoints use the ASP.NET Core authorization metadata configured on `ImmediateJobsDashboardOptions`. If no policy is supplied, middleware rejects requests outside the `Development` environment by default. Call `AllowInAnyEnvironment()` to explicitly disable this environment restriction; prefer `RequireAuthorization(...)` when exposing the dashboard outside a trusted development environment.
