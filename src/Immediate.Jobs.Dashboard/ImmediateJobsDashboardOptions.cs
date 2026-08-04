@@ -9,8 +9,21 @@ public sealed class ImmediateJobsDashboardOptions
 	/// <value>The interval between consecutive dashboard updates.</value>
 	public TimeSpan UpdateInterval { get; set; } = TimeSpan.FromSeconds(2);
 
+	internal bool RestrictToDevelopmentEnvironment { get; private set; } = true;
 	internal string? AuthorizationPolicy { get; private set; }
 	internal IReadOnlyList<JobTelemetryLinkRegistration> TelemetryLinks => _telemetryLinks;
+
+	/// <summary>Allows dashboard access without an authorization policy in any hosting environment.</summary>
+	/// <remarks>
+	/// This disables the default development-environment restriction. Prefer <see cref="RequireAuthorization"/>
+	/// when exposing the dashboard outside a trusted development environment.
+	/// </remarks>
+	/// <returns>This options instance.</returns>
+	public ImmediateJobsDashboardOptions AllowInAnyEnvironment()
+	{
+		RestrictToDevelopmentEnvironment = false;
+		return this;
+	}
 
 	/// <summary>Requires the named ASP.NET Core authorization policy on every dashboard endpoint.</summary>
 	/// <param name="policy">The registered authorization policy name.</param>
