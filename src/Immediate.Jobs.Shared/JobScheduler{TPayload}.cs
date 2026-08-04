@@ -45,21 +45,6 @@ public abstract class JobScheduler<TPayload>(
 	Func<System.Text.Json.JsonSerializerOptions, JsonTypeInfo<TPayload>> payloadTypeInfoFactory
 ) : IJobScheduler<TPayload>
 {
-	/// <inheritdoc />
-	public ValueTask CancelAsync(JobHandle handle, CancellationToken cancellationToken = default)
-	{
-		ArgumentException.ThrowIfNullOrWhiteSpace(handle.Id, nameof(handle));
-		return Storage.CancelAsync(handle.Id, cancellationToken);
-	}
-
-	/// <summary>
-	/// 	Captures the context envelope persisted with a new invocation.
-	/// </summary>
-	/// <returns>
-	/// 	The serialized context envelope, or <see langword="null"/> when there is no context.
-	/// </returns>
-	protected virtual string? CaptureContext() => null;
-
 	/// <summary>
 	/// 	The storage provider.
 	/// </summary>
@@ -94,356 +79,231 @@ public abstract class JobScheduler<TPayload>(
 	/// </summary>
 	public string QueueName { get; } = queueName;
 
+	/// <summary>
+	/// 	Captures the context envelope persisted with a new invocation.
+	/// </summary>
+	/// <returns>
+	/// 	The serialized context envelope, or <see langword="null"/> when there is no context.
+	/// </returns>
+	protected virtual string? CaptureContext() => null;
+
 	/// <inheritdoc />
 	public ValueTask<JobHandle> EnqueueAsync(TPayload payload, CancellationToken cancellationToken = default) =>
-		ScheduleAtAsync(payload, TimeProvider.GetUtcNow(), cancellationToken);
+		throw new NotImplementedException();
 
 	/// <inheritdoc />
-	public ValueTask<JobHandle> EnqueueAsync(
-		TPayload payload,
-		string? groupId,
-		CancellationToken cancellationToken = default
-	) => ScheduleAtAsync(payload, TimeProvider.GetUtcNow(), groupId, cancellationToken);
+	public ValueTask<JobHandle> EnqueueAsync(TPayload payload, string groupId, CancellationToken cancellationToken = default) =>
+		throw new NotImplementedException();
 
 	/// <inheritdoc />
-	public ValueTask<JobHandle> ScheduleAsync(TPayload payload, TimeSpan delay, CancellationToken cancellationToken = default)
-	{
-		if (delay < TimeSpan.Zero)
-			throw new ArgumentOutOfRangeException(nameof(delay), "A job delay cannot be negative.");
-
-		return ScheduleAtAsync(payload, TimeProvider.GetUtcNow() + delay, cancellationToken);
-	}
+	public ValueTask<JobHandle> ScheduleAsync(TPayload payload, TimeSpan delay, CancellationToken cancellationToken = default) =>
+		throw new NotImplementedException();
 
 	/// <inheritdoc />
 	public ValueTask<JobHandle> ScheduleAsync(
 		TPayload payload,
 		TimeSpan delay,
-		string? groupId,
+		string groupId,
 		CancellationToken cancellationToken = default
-	)
-	{
-		if (delay < TimeSpan.Zero)
-			throw new ArgumentOutOfRangeException(nameof(delay), "A job delay cannot be negative.");
-
-		return ScheduleAtAsync(payload, TimeProvider.GetUtcNow() + delay, groupId, cancellationToken);
-	}
+	) => throw new NotImplementedException();
 
 	/// <inheritdoc />
-	public ValueTask<JobHandle> ScheduleAtAsync(
-		TPayload payload,
-		DateTimeOffset runAt,
-		CancellationToken cancellationToken = default
-	)
-		=> ScheduleAtAsync(payload, runAt, groupId: null, cancellationToken: cancellationToken);
+	public ValueTask<JobHandle> ScheduleAsync(TPayload payload, DateTimeOffset at, CancellationToken cancellationToken = default) =>
+		throw new NotImplementedException();
 
 	/// <inheritdoc />
-	public async ValueTask<JobHandle> ScheduleAtAsync(
+	public ValueTask<JobHandle> ScheduleAsync(
 		TPayload payload,
-		DateTimeOffset runAt,
-		string? groupId,
+		DateTimeOffset at,
+		string groupId,
 		CancellationToken cancellationToken = default
-	)
-	{
-		var record = CreateRecord(payload, runAt, groupId);
-		await Storage.EnqueueAsync(record, cancellationToken).ConfigureAwait(false);
-		JobTelemetry.Enqueued(JobName, QueueName);
-		return new(record.Id);
-	}
+	) => throw new NotImplementedException();
 
-	/// <summary>
-	/// 	Adds work to an atomic batch for immediate execution after commit.
-	/// </summary>
-	/// <param name="batch">
-	/// 	The open batch to which the invocation is added.
-	/// </param>
-	/// <param name="payload">
-	/// 	The payload for the invocation.
-	/// </param>
-	/// <param name="delay">
-	/// 	The optional delay before the invocation becomes due.
-	/// </param>
-	/// <returns>
-	/// 	A handle for the buffered invocation.
-	/// </returns>
-	public JobHandle AddToBatch(
-		Batch batch,
-		TPayload payload,
-		TimeSpan? delay = null
-	) => AddToBatchInGroup(batch, payload, groupId: null, delay);
+	/// <inheritdoc />
+	public ValueTask<JobHandle> ScheduleAfterAsync(TPayload payload, JobHandle job, CancellationToken cancellationToken = default) =>
+		throw new NotImplementedException();
 
-	/// <summary>
-	/// 	Adds grouped work to an atomic batch for immediate execution after commit.
-	/// </summary>
-	/// <param name="batch">
-	/// 	The open batch to which the invocation is added.
-	/// </param>
-	/// <param name="payload">
-	/// 	The payload for the invocation.
-	/// </param>
-	/// <param name="groupId">
-	/// 	The optional fair queue group identifier.
-	/// </param>
-	/// <param name="delay">
-	/// 	The optional delay before the invocation becomes due.
-	/// </param>
-	/// <returns>
-	/// 	A handle for the buffered invocation.
-	/// </returns>
-	public JobHandle AddToBatchInGroup(
-		Batch batch,
-		TPayload payload,
-		string? groupId,
-		TimeSpan? delay = null
-	)
-	{
-		ArgumentNullException.ThrowIfNull(batch);
-		if (delay < TimeSpan.Zero)
-			throw new ArgumentOutOfRangeException(nameof(delay), "A job delay cannot be negative.");
-		return AddToBatchAt(batch, payload, TimeProvider.GetUtcNow() + (delay ?? TimeSpan.Zero), groupId);
-	}
+	/// <inheritdoc />
+	public ValueTask<JobHandle> ScheduleAfterAsync(TPayload payload, JobHandle job, string groupId, CancellationToken cancellationToken = default) =>
+		throw new NotImplementedException();
 
-	/// <summary>
-	/// 	Adds absolute-time work to an atomic batch.
-	/// </summary>
-	/// <param name="batch">
-	/// 	The open batch to which the invocation is added.
-	/// </param>
-	/// <param name="payload">
-	/// 	The payload for the invocation.
-	/// </param>
-	/// <param name="runAt">
-	/// 	The absolute time at which the invocation becomes due.
-	/// </param>
-	/// <returns>
-	/// 	A handle for the buffered invocation.
-	/// </returns>
-	public JobHandle AddToBatchAt(
-		Batch batch,
-		TPayload payload,
-		DateTimeOffset runAt
-	) => AddToBatchAt(batch, payload, runAt, groupId: null);
+	/// <inheritdoc />
+	public ValueTask<JobHandle> ScheduleAfterAsync(TPayload payload, JobHandle job, TimeSpan delay, CancellationToken cancellationToken = default) =>
+		throw new NotImplementedException();
 
-	/// <summary>
-	/// 	Adds grouped absolute-time work to an atomic batch.
-	/// </summary>
-	/// <param name="batch">
-	/// 	The open batch to which the invocation is added.
-	/// </param>
-	/// <param name="payload">
-	/// 	The payload for the invocation.
-	/// </param>
-	/// <param name="runAt">
-	/// 	The absolute time at which the invocation becomes due.
-	/// </param>
-	/// <param name="groupId">
-	/// 	The optional fair queue group identifier.
-	/// </param>
-	/// <returns>
-	/// 	A handle for the buffered invocation.
-	/// </returns>
-	public JobHandle AddToBatchAt(
-		Batch batch,
-		TPayload payload,
-		DateTimeOffset runAt,
-		string? groupId
-	)
-	{
-		ArgumentNullException.ThrowIfNull(batch);
-		_ = JobStorageCapabilityGuards.RequireGraph(Storage);
-		var record = CreateRecord(payload, runAt, groupId);
-		return batch.Add(record, [], ContinuationTrigger.Success);
-	}
-
-	/// <summary>
-	/// 	Schedules work after one parent job.
-	/// </summary>
-	/// <param name="parent">
-	/// 	The invocation that must finish before this work is released.
-	/// </param>
-	/// <param name="payload">
-	/// 	The payload for the continuation.
-	/// </param>
-	/// <param name="on">
-	/// 	The parent outcome that releases the continuation.
-	/// </param>
-	/// <param name="delay">
-	/// 	The optional delay applied when the continuation is released.
-	/// </param>
-	/// <param name="cancellationToken">
-	/// 	A token that can cancel the scheduling operation.
-	/// </param>
-	/// <returns>
-	/// 	A handle for the scheduled continuation.
-	/// </returns>
+	/// <inheritdoc />
 	public ValueTask<JobHandle> ScheduleAfterAsync(
-		JobHandle parent,
 		TPayload payload,
-		ContinuationTrigger on = ContinuationTrigger.Success,
-		TimeSpan? delay = null,
+		JobHandle job,
+		TimeSpan delay,
+		string groupId,
 		CancellationToken cancellationToken = default
-	) => ScheduleAfterAsync([parent], payload, on, delay, cancellationToken);
+	) => throw new NotImplementedException();
 
-	/// <summary>
-	/// 	Schedules work after every supplied parent job.
-	/// </summary>
-	/// <param name="parents">
-	/// 	The invocations that must finish before this work is released.
-	/// </param>
-	/// <param name="payload">
-	/// 	The payload for the continuation.
-	/// </param>
-	/// <param name="on">
-	/// 	The parent outcomes that release the continuation.
-	/// </param>
-	/// <param name="delay">
-	/// 	The optional delay applied when the continuation is released.
-	/// </param>
-	/// <param name="cancellationToken">
-	/// 	A token that can cancel the scheduling operation.
-	/// </param>
-	/// <returns>
-	/// 	A handle for the scheduled continuation.
-	/// </returns>
+	/// <inheritdoc />
+	public ValueTask<JobHandle> ScheduleAfterAsync(TPayload payload, IReadOnlyList<JobHandle> jobs, CancellationToken cancellationToken = default) =>
+		throw new NotImplementedException();
+
+	/// <inheritdoc />
+	public ValueTask<JobHandle> ScheduleAfterAsync(TPayload payload, IReadOnlyList<JobHandle> jobs, string groupId, CancellationToken cancellationToken = default) =>
+		throw new NotImplementedException();
+
+	/// <inheritdoc />
+	public ValueTask<JobHandle> ScheduleAfterAsync(TPayload payload, IReadOnlyList<JobHandle> jobs, TimeSpan delay, CancellationToken cancellationToken = default) =>
+		throw new NotImplementedException();
+
+	/// <inheritdoc />
 	public ValueTask<JobHandle> ScheduleAfterAsync(
-		ReadOnlySpan<JobHandle> parents,
 		TPayload payload,
-		ContinuationTrigger on = ContinuationTrigger.Success,
-		TimeSpan? delay = null,
+		IReadOnlyList<JobHandle> jobs,
+		TimeSpan delay,
+		string groupId,
 		CancellationToken cancellationToken = default
-	)
-	{
-		if (delay < TimeSpan.Zero)
-			throw new ArgumentOutOfRangeException(nameof(delay), "A job delay cannot be negative.");
-		if (parents.IsEmpty)
-			throw new ArgumentException("At least one continuation parent is required.", nameof(parents));
-		return ScheduleAfterCoreAsync(parents.ToArray(), payload, on, delay, cancellationToken);
-	}
+	) => throw new NotImplementedException();
 
-	/// <summary>
-	/// 	Schedules work after a whole batch reaches a terminal state.
-	/// </summary>
-	/// <param name="parent">
-	/// 	The batch that must finish before this work is released.
-	/// </param>
-	/// <param name="payload">
-	/// 	The payload for the continuation.
-	/// </param>
-	/// <param name="on">
-	/// 	The parent-batch outcome that releases the continuation.
-	/// </param>
-	/// <param name="delay">
-	/// 	The optional delay applied when the continuation is released.
-	/// </param>
-	/// <param name="cancellationToken">
-	/// 	A token that can cancel the scheduling operation.
-	/// </param>
-	/// <returns>
-	/// 	A handle for the scheduled continuation.
-	/// </returns>
-	public async ValueTask<JobHandle> ScheduleAfterAsync(
-		BatchHandle parent,
+	/// <inheritdoc />
+	public ValueTask<JobHandle> ScheduleAfterAsync(TPayload payload, BatchHandle batch, CancellationToken cancellationToken = default) =>
+		throw new NotImplementedException();
+
+	/// <inheritdoc />
+	public ValueTask<JobHandle> ScheduleAfterAsync(TPayload payload, BatchHandle batch, string groupId, CancellationToken cancellationToken = default) =>
+		throw new NotImplementedException();
+
+	/// <inheritdoc />
+	public ValueTask<JobHandle> ScheduleAfterAsync(TPayload payload, BatchHandle batch, TimeSpan delay, CancellationToken cancellationToken = default) =>
+		throw new NotImplementedException();
+
+	/// <inheritdoc />
+	public ValueTask<JobHandle> ScheduleAfterAsync(
 		TPayload payload,
-		ContinuationTrigger on = ContinuationTrigger.Success,
-		TimeSpan? delay = null,
+		BatchHandle batch,
+		TimeSpan delay,
+		string groupId,
 		CancellationToken cancellationToken = default
-	)
-	{
-		ArgumentNullException.ThrowIfNull(parent);
-		if (delay < TimeSpan.Zero)
-			throw new ArgumentOutOfRangeException(nameof(delay), "A job delay cannot be negative.");
-		var graphStorage = JobStorageCapabilityGuards.RequireGraph(Storage);
-		var record = CreateRecord(payload, TimeProvider.GetUtcNow() + (delay ?? TimeSpan.Zero));
-		var waiting = record with { State = JobState.AwaitingContinuation, RemainingDependencies = 1 };
-		await graphStorage.EnqueueContinuationAsync(
-			waiting,
-			[new() { ChildJobId = record.Id, ParentBatchId = parent.Id, Trigger = on }],
-			cancellationToken
-		).ConfigureAwait(false);
-		JobTelemetry.Enqueued(JobName, QueueName);
-		return new(record.Id);
-	}
+	) => throw new NotImplementedException();
 
-	/// <summary>
-	/// 	Buffers work relative to the running job and persists it only if the attempt succeeds.
-	/// </summary>
-	/// <param name="current">
-	/// 	Details of the currently running invocation.
-	/// </param>
-	/// <param name="payload">
-	/// 	The payload for the new invocation.
-	/// </param>
-	/// <param name="options">
-	/// 	The new invocation's relationship to existing continuations.
-	/// </param>
-	/// <returns>
-	/// 	A handle for the buffered invocation.
-	/// </returns>
+	/// <inheritdoc />
+	public ValueTask<JobHandle> ScheduleAfterAsync(TPayload payload, IReadOnlyList<BatchHandle> batches, CancellationToken cancellationToken = default) =>
+		throw new NotImplementedException();
+
+	/// <inheritdoc />
+	public ValueTask<JobHandle> ScheduleAfterAsync(TPayload payload, IReadOnlyList<BatchHandle> batches, string groupId, CancellationToken cancellationToken = default) =>
+		throw new NotImplementedException();
+
+	/// <inheritdoc />
+	public ValueTask<JobHandle> ScheduleAfterAsync(TPayload payload, IReadOnlyList<BatchHandle> batches, TimeSpan delay, CancellationToken cancellationToken = default) =>
+		throw new NotImplementedException();
+
+	/// <inheritdoc />
+	public ValueTask<JobHandle> ScheduleAfterAsync(
+		TPayload payload,
+		IReadOnlyList<BatchHandle> batches,
+		TimeSpan delay,
+		string groupId,
+		CancellationToken cancellationToken = default
+	) => throw new NotImplementedException();
+
+	/// <inheritdoc />
 	public JobHandle ScheduleAfter(
-		JobDetails current,
 		TPayload payload,
+		JobDetails currentJob,
 		ContinuationOptions options = ContinuationOptions.BeforeContinuations
-	)
-	{
-		ArgumentNullException.ThrowIfNull(current);
-		_ = JobStorageCapabilityGuards.RequireGraph(Storage);
-		var buffer = current.Buffer
-			?? throw new ImmediateJobException("JobDetails can schedule work only during its active execution attempt.");
-		if (options != ContinuationOptions.Detached && current.BatchId is null)
-			throw new ImmediateJobException("The current job does not belong to a batch; only Detached scheduling is valid.");
+	) => throw new NotImplementedException();
 
-		var record = CreateRecord(payload, TimeProvider.GetUtcNow());
-		if (options != ContinuationOptions.Detached)
-			record = record with { BatchId = current.BatchId };
-		buffer.Add(new() { Job = record, Options = options });
-		return new(record.Id);
-	}
-
-	/// <summary>
-	/// 	Immediately adds concurrent work to the running job's batch.
-	/// </summary>
-	/// <param name="current">
-	/// 	Details of the currently running invocation.
-	/// </param>
-	/// <param name="payload">
-	/// 	The payload for the new batch member.
-	/// </param>
-	/// <param name="options">
-	/// 	The new member's relationship to existing continuations.
-	/// </param>
-	/// <param name="cancellationToken">
-	/// 	A token that can cancel the add operation.
-	/// </param>
-	/// <returns>
-	/// 	A handle for the added batch member.
-	/// </returns>
-	public async ValueTask<JobHandle> AddToBatchAsync(
-		JobDetails current,
+	/// <inheritdoc />
+	public JobHandle ScheduleAfter(
 		TPayload payload,
-		ContinuationOptions options = ContinuationOptions.BeforeContinuations,
-		CancellationToken cancellationToken = default
-	)
-	{
-		ArgumentNullException.ThrowIfNull(current);
-		var graphStorage = JobStorageCapabilityGuards.RequireGraph(Storage);
-		if (options == ContinuationOptions.Detached)
-			throw new ImmediateJobException("AddToBatchAsync(JobDetails, ...) cannot create detached work.");
-		if (current.Buffer is null)
-			throw new ImmediateJobException("JobDetails can add work only during its active execution attempt.");
-		if (current.BatchId is null)
-			throw new ImmediateJobException("The current job does not belong to a batch.");
+		JobDetails currentJob,
+		string groupId,
+		ContinuationOptions options = ContinuationOptions.BeforeContinuations
+	) => throw new NotImplementedException();
 
-		var record = CreateRecord(payload, TimeProvider.GetUtcNow());
-		record = record with { BatchId = current.BatchId };
-		await graphStorage.AddBatchJobAsync(
-			current.JobId,
-			current.Attempt,
-			record,
-			options,
-			cancellationToken
-		).ConfigureAwait(false);
-		JobTelemetry.Enqueued(JobName, QueueName);
-		return new(record.Id);
-	}
+	/// <inheritdoc />
+	public JobHandle ScheduleAfter(
+		TPayload payload,
+		JobDetails currentJob,
+		TimeSpan delay,
+		ContinuationOptions options = ContinuationOptions.BeforeContinuations
+	) => throw new NotImplementedException();
+
+	/// <inheritdoc />
+	public JobHandle ScheduleAfter(
+		TPayload payload,
+		JobDetails currentJob,
+		TimeSpan delay,
+		string groupId,
+		ContinuationOptions options = ContinuationOptions.BeforeContinuations
+	) => throw new NotImplementedException();
+
+	/// <inheritdoc />
+	public BatchJobHandle Enqueue(TPayload payload, Batch batch) =>
+		throw new NotImplementedException();
+
+	/// <inheritdoc />
+	public BatchJobHandle Enqueue(TPayload payload, Batch batch, string groupId) =>
+		throw new NotImplementedException();
+
+	/// <inheritdoc />
+	public BatchJobHandle Schedule(TPayload payload, Batch batch, TimeSpan delay) =>
+		throw new NotImplementedException();
+
+	/// <inheritdoc />
+	public BatchJobHandle Schedule(TPayload payload, Batch batch, TimeSpan delay, string groupId) =>
+		throw new NotImplementedException();
+
+	/// <inheritdoc />
+	public BatchJobHandle Schedule(TPayload payload, Batch batch, DateTimeOffset at) =>
+		throw new NotImplementedException();
+
+	/// <inheritdoc />
+	public BatchJobHandle Schedule(TPayload payload, Batch batch, DateTimeOffset at, string groupId) =>
+		throw new NotImplementedException();
+
+	/// <inheritdoc />
+	public BatchJobHandle ScheduleAfter(TPayload payload, BatchJobHandle job, CancellationToken cancellationToken = default) =>
+		throw new NotImplementedException();
+
+	/// <inheritdoc />
+	public BatchJobHandle ScheduleAfter(TPayload payload, BatchJobHandle job, string groupId, CancellationToken cancellationToken = default) =>
+		throw new NotImplementedException();
+
+	/// <inheritdoc />
+	public BatchJobHandle ScheduleAfter(TPayload payload, BatchJobHandle job, TimeSpan delay, CancellationToken cancellationToken = default) =>
+		throw new NotImplementedException();
+
+	/// <inheritdoc />
+	public BatchJobHandle ScheduleAfter(
+		TPayload payload,
+		BatchJobHandle job,
+		TimeSpan delay,
+		string groupId,
+		CancellationToken cancellationToken = default
+	) => throw new NotImplementedException();
+
+	/// <inheritdoc />
+	public BatchJobHandle ScheduleAfter(TPayload payload, IReadOnlyList<BatchJobHandle> jobs, CancellationToken cancellationToken = default) =>
+		throw new NotImplementedException();
+
+	/// <inheritdoc />
+	public BatchJobHandle ScheduleAfter(TPayload payload, IReadOnlyList<BatchJobHandle> jobs, string groupId, CancellationToken cancellationToken = default) =>
+		throw new NotImplementedException();
+
+	/// <inheritdoc />
+	public BatchJobHandle ScheduleAfter(TPayload payload, IReadOnlyList<BatchJobHandle> jobs, TimeSpan delay, CancellationToken cancellationToken = default) =>
+		throw new NotImplementedException();
+
+	/// <inheritdoc />
+	public BatchJobHandle ScheduleAfter(
+		TPayload payload,
+		IReadOnlyList<BatchJobHandle> jobs,
+		TimeSpan delay,
+		string groupId,
+		CancellationToken cancellationToken = default
+	) => throw new NotImplementedException();
+
+	/// <inheritdoc />
+	public ValueTask CancelAsync(JobHandle job, CancellationToken cancellationToken = default) =>
+		throw new NotImplementedException();
 
 	private async ValueTask<JobHandle> ScheduleAfterCoreAsync(
 		JobHandle[] parents,
