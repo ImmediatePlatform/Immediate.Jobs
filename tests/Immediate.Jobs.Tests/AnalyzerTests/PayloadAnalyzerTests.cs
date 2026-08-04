@@ -58,6 +58,32 @@ public sealed class PayloadAnalyzerTests
 		).RunAsync(TestContext.Current.CancellationToken);
 
 	[Fact]
+	public async Task NullableUnsupportedValueTypeShouldTrigger() =>
+		await AnalyzerTestHelpers.CreateAnalyzerTest<PayloadAnalyzer>(
+			"""
+			#nullable enable
+			using Immediate.Jobs.Shared;
+			using Immediate.Handlers.Shared;
+			using System.Threading;
+			using System.Threading.Tasks;
+
+			public unsafe readonly struct UnsupportedValue
+			{
+				public int* {|IJOB0013:Pointer|} { get; }
+			}
+
+			[Handler, Job]
+			public sealed partial class NullableUnsupportedPayloadJob
+			{
+				public sealed record Payload(UnsupportedValue? Value);
+
+				private ValueTask HandleAsync(Payload payload, CancellationToken cancellationToken) =>
+					ValueTask.CompletedTask;
+			}
+			"""
+		).RunAsync(TestContext.Current.CancellationToken);
+
+	[Fact]
 	public async Task PointerJobPayloadAndContextPayloadShouldTrigger() =>
 		await AnalyzerTestHelpers.CreateAnalyzerTest<PayloadAnalyzer>(
 			"""
