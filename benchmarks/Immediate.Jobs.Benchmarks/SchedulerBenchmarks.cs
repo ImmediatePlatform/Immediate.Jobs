@@ -183,13 +183,20 @@ public class DispatchBenchmarks
 			CreatedAt = DateTimeOffset.UtcNow,
 			Attempt = 1,
 		};
+
 		var definition = new JobDefinition
 		{
 			Name = record.JobName,
 			Invoker = _immediateInvoker,
 			JobType = typeof(BenchmarkInvoker),
 		};
-		_execution = new(record, definition, CancellationToken.None);
+
+		_execution = new JobExecution
+		{
+			Record = record,
+			Definition = definition,
+			CancellationToken = CancellationToken.None,
+		};
 	}
 
 	[Benchmark(Baseline = true)]
