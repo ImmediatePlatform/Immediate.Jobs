@@ -20,6 +20,9 @@ internal static class PayloadValidation
 			case IArrayTypeSymbol { ElementType: { } elementType }:
 				return Visit(elementType, location, reportError, visited);
 
+			case { NullableUnderlyingType: { } underlyingType }:
+				return Visit(underlyingType, location, reportError, visited);
+
 			case INamedTypeSymbol
 			{
 				Name: "List" or "IList" or "IReadOnlyList" or "IEnumerable",

@@ -193,6 +193,8 @@ partial class {{ class_name }}
 		{
 			{{~ if type.converter_name != null ~}}
 			var info = global::System.Text.Json.Serialization.Metadata.JsonMetadataServices.CreateValueInfo<{{ type.type_name }}>(options, global::System.Text.Json.Serialization.Metadata.JsonMetadataServices.{{ type.converter_name }});
+			{{~ else if type.nullable_underlying_type_name != null ~}}
+			var info = global::System.Text.Json.Serialization.Metadata.JsonMetadataServices.CreateValueInfo<{{ type.type_name }}>(options, global::System.Text.Json.Serialization.Metadata.JsonMetadataServices.GetNullableConverter<{{ type.nullable_underlying_type_name }}>(options));
 			{{~ else if type.is_enum ~}}
 			var info = global::System.Text.Json.Serialization.Metadata.JsonMetadataServices.CreateValueInfo<{{ type.type_name }}>(options, global::System.Text.Json.Serialization.Metadata.JsonMetadataServices.GetEnumConverter<{{ type.type_name }}>(options));
 			{{~ else if type.uses_configured_converter ~}}
