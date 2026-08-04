@@ -92,7 +92,7 @@ public sealed class BatchesAndContinuationsTests
 		Assert.True(Guid.TryParseExact(batchHandle.Id, "N", out _));
 		Assert.NotEqual(rolledBack.Id, committed.Id);
 		var job = Assert.Single(await harness.QueryJobsAsync(cancellationToken: cancellationToken));
-		Assert.Equal(committed.Id, job.Id);
+		Assert.Equal(committed.Id, job.JobId);
 		Assert.Equal(batchHandle.Id, job.BatchId);
 		Assert.Equal(JobState.Pending, job.State);
 	}
@@ -486,7 +486,7 @@ public sealed class BatchesAndContinuationsTests
 		await harness.Storage.EnqueueAsync(
 			new()
 			{
-				Id = "unknown-definition",
+				JobId = "unknown-definition",
 				JobName = "unknown-definition",
 				Payload = "{}",
 				State = JobState.Pending,

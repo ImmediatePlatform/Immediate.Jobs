@@ -114,7 +114,7 @@ internal sealed class LinqToDBJobStorage<T>(
 		CancellationToken cancellationToken
 	)
 	{
-		var jobIds = jobs.Select(static job => job.Id).ToHashSet(StringComparer.Ordinal);
+		var jobIds = jobs.Select(static job => job.JobId).ToHashSet(StringComparer.Ordinal);
 		if (jobIds.Count != jobs.Count)
 			throw new ImmediateJobException("A batch or continuation insert contains duplicate job identifiers.");
 		if (batch is not null && jobs.Any(job => !string.Equals(job.BatchId, batch.Id, StringComparison.Ordinal)))
@@ -674,7 +674,7 @@ internal sealed class LinqToDBJobStorage<T>(
 	private static void ValidateDynamicJob(JobRecord job, string description)
 	{
 		if (job.State is not (JobState.Pending or JobState.Scheduled))
-			throw new ImmediateJobException($"{description} '{job.Id}' has invalid state '{job.State}'.");
+			throw new ImmediateJobException($"{description} '{job.JobId}' has invalid state '{job.State}'.");
 	}
 
 	private sealed record FairQueueCandidateState(
@@ -2042,8 +2042,8 @@ internal sealed class LinqToDBJobStorage<T>(
 		foreach (var addition in additions)
 		{
 			ValidateDynamicJob(addition.Job, "Dynamic continuation");
-			if (!ids.Add(addition.Job.Id))
-				throw new ImmediateJobException($"Job '{addition.Job.Id}' occurs more than once in the completion buffer.");
+			if (!ids.Add(addition.Job.JobId))
+				throw new ImmediateJobException($"Job '{addition.Job.JobId}' occurs more than once in the completion buffer.");
 			if (!Enum.IsDefined(addition.Trigger))
 				throw new ArgumentOutOfRangeException(nameof(additions), "Unknown continuation trigger.");
 
@@ -2741,7 +2741,7 @@ internal sealed class LinqToDBJobStorage<T>(
 
 	private static ImmediateJobEntity ToEntity(JobRecord job) => new()
 	{
-		Id = job.Id,
+		Id = job.JobId,
 		QueueName = job.QueueName,
 		JobName = job.JobName,
 		Payload = job.Payload,
@@ -2780,7 +2780,7 @@ internal sealed class LinqToDBJobStorage<T>(
 		if (previous.State == JobState.Active && priorExecution is not null)
 		{
 			_ = await Executions(connection)
-				.Where(execution => execution.JobId == previous.Id && execution.Attempt == previous.Attempt)
+				.Where(execution => execution.JobId == previous.JobId && execution.Attempt == previous.Attempt)
 				.Set(execution => execution.State, JobExecutionState.Interrupted)
 				.Set(execution => execution.CompletedAt, Ticks(previous.LeaseExpiresAt))
 				.Set(execution => execution.Error, (string?)null)
@@ -2790,7 +2790,7 @@ internal sealed class LinqToDBJobStorage<T>(
 
 		_ = await InsertAsync(connection, new ImmediateJobExecutionEntity
 		{
-			JobId = previous.Id,
+			JobId = previous.JobId,
 			Attempt = previous.Attempt + 1,
 			State = JobExecutionState.Active,
 			WorkerId = workerId,
@@ -2878,7 +2878,7 @@ internal sealed class LinqToDBJobStorage<T>(
 
 	private static JobRecord ToRecord(ImmediateJobEntity job) => new()
 	{
-		Id = job.Id,
+		JobId = job.Id,
 		QueueName = job.QueueName,
 		JobName = job.JobName,
 		Payload = job.Payload,

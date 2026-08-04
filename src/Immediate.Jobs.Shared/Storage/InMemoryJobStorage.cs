@@ -43,8 +43,8 @@ internal sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 		cancellationToken.ThrowIfCancellationRequested();
 		lock (_gate)
 		{
-			if (!_jobs.TryAdd(job.Id, job))
-				throw new ImmediateJobException($"Job '{job.Id}' already exists.");
+			if (!_jobs.TryAdd(job.JobId, job))
+				throw new ImmediateJobException($"Job '{job.JobId}' already exists.");
 		}
 
 		return ValueTask.CompletedTask;
@@ -67,7 +67,7 @@ internal sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 
 			var restoreExistingState = HasTerminalParent(edges) &&
 				(job.State != JobState.AwaitingContinuation || job.RemainingDependencies < edges.Count);
-			_jobs.Add(job.Id, restoreExistingState ? job : NormalizeWaitingJob(job, edges.Count));
+			_jobs.Add(job.JobId, restoreExistingState ? job : NormalizeWaitingJob(job, edges.Count));
 			_edges.AddRange(edges);
 			if (restoreExistingState)
 				MarkTerminalParentEdgesSettled(edges);
@@ -102,10 +102,10 @@ internal sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 			foreach (var job in jobs)
 			{
 				_jobs.Add(
-					job.Id,
+					job.JobId,
 					restoreExistingState
 						? job
-						: incomingCounts.TryGetValue(job.Id, out var dependencyCount)
+						: incomingCounts.TryGetValue(job.JobId, out var dependencyCount)
 						? NormalizeWaitingJob(job, dependencyCount)
 						: job with { BatchId = batch.Id, RemainingDependencies = 0, FailedDependencies = 0 }
 				);
@@ -139,7 +139,7 @@ internal sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 			foreach (var expired in _jobs.Values.Where(x => x.State == JobState.Active && x.LeaseExpiresAt <= now).ToArray())
 			{
 				InterruptExecution(expired);
-				_jobs[expired.Id] = expired with
+				_jobs[expired.JobId] = expired with
 				{
 					State = JobState.Pending,
 					WorkerId = null,
@@ -224,7 +224,7 @@ internal sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 				job.DueAt <= now)
 			.OrderBy(job => job.DueAt)
 			.ThenBy(job => job.CreatedAt)
-			.ThenBy(job => job.Id, StringComparer.Ordinal))
+			.ThenBy(job => job.JobId, StringComparer.Ordinal))
 		{
 			if (queueCapacity == 0)
 				break;
@@ -287,13 +287,13 @@ internal sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 				.Select(static group => group
 					.OrderBy(static job => job.DueAt)
 					.ThenBy(static job => job.CreatedAt)
-					.ThenBy(static job => job.Id, StringComparer.Ordinal)
+					.ThenBy(static job => job.JobId, StringComparer.Ordinal)
 					.First());
 			var ungroupedHead = eligible
 				.Where(static job => job.GroupId is null)
 				.OrderBy(static job => job.DueAt)
 				.ThenBy(static job => job.CreatedAt)
-				.ThenBy(static job => job.Id, StringComparer.Ordinal)
+				.ThenBy(static job => job.JobId, StringComparer.Ordinal)
 				.Take(1);
 			var candidates = groupedHeads.Concat(ungroupedHead);
 
@@ -303,7 +303,7 @@ internal sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 				.ThenBy(job => policy.GroupRoundRobin ? GetLastServed(queueName, job.GroupId) : 0)
 				.ThenBy(static job => job.DueAt)
 				.ThenBy(static job => job.CreatedAt)
-				.ThenBy(static job => job.Id, StringComparer.Ordinal)
+				.ThenBy(static job => job.JobId, StringComparer.Ordinal)
 				.First();
 
 			var job = Acquire(candidate, request, now);
@@ -360,7 +360,7 @@ internal sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 			ExecutionSpanId = null,
 			ExecutionStartedAt = null,
 		};
-		_jobs[job.Id] = job;
+		_jobs[job.JobId] = job;
 		CreateExecution(job, now);
 		MarkBatchStarted(job.BatchId, now);
 		return job;
@@ -505,10 +505,10 @@ internal sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 			foreach (var addition in additions)
 			{
 				ValidateNewJob(addition.Job);
-				if (!newJobIds.Add(addition.Job.Id))
-					throw new ImmediateJobException($"Job '{addition.Job.Id}' occurs more than once in the completion buffer.");
+				if (!newJobIds.Add(addition.Job.JobId))
+					throw new ImmediateJobException($"Job '{addition.Job.JobId}' occurs more than once in the completion buffer.");
 				if (addition.Job.State is not (JobState.Pending or JobState.Scheduled))
-					throw new ImmediateJobException($"Dynamic continuation '{addition.Job.Id}' has invalid state '{addition.Job.State}'.");
+					throw new ImmediateJobException($"Dynamic continuation '{addition.Job.JobId}' has invalid state '{addition.Job.State}'.");
 				if (!Enum.IsDefined(addition.Trigger))
 					throw new ArgumentOutOfRangeException(nameof(additions), "Unknown continuation trigger.");
 
@@ -530,7 +530,7 @@ internal sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 
 				dependencyEdges.Add(new()
 				{
-					ChildJobId = addition.Job.Id,
+					ChildJobId = addition.Job.JobId,
 					ParentJobId = jobId,
 					Trigger = addition.Trigger,
 				});
@@ -543,9 +543,9 @@ internal sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 			IncrementBatchMembers(current.BatchId, trackedAdditions);
 			foreach (var addition in additions)
 			{
-				_jobs.Add(addition.Job.Id, NormalizeWaitingJob(addition.Job, dependencyCount: 1));
+				_jobs.Add(addition.Job.JobId, NormalizeWaitingJob(addition.Job, dependencyCount: 1));
 				if (addition.Options == ContinuationOptions.BeforeContinuations)
-					SpliceBeforeWaiters(addition.Job.Id, existingWaiters);
+					SpliceBeforeWaiters(addition.Job.JobId, existingWaiters);
 			}
 
 			_edges.AddRange(dependencyEdges);
@@ -590,16 +590,16 @@ internal sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 			if (!string.Equals(job.BatchId, current.BatchId, StringComparison.Ordinal))
 				throw new ImmediateJobException("The new job must belong to the current job's batch.");
 			if (job.State is JobState.Active or JobState.AwaitingContinuation || IsTerminal(job.State))
-				throw new ImmediateJobException($"Concurrent batch member '{job.Id}' has invalid state '{job.State}'.");
+				throw new ImmediateJobException($"Concurrent batch member '{job.JobId}' has invalid state '{job.State}'.");
 
 			var existingWaiters = options == ContinuationOptions.BeforeContinuations
 				? GetUnsettledWaiters(currentJobId)
 				: [];
 			ValidateSplice(existingWaiters, options == ContinuationOptions.BeforeContinuations ? 1 : 0);
 			IncrementBatchMembers(current.BatchId, 1);
-			_jobs.Add(job.Id, job with { RemainingDependencies = 0 });
+			_jobs.Add(job.JobId, job with { RemainingDependencies = 0 });
 			if (options == ContinuationOptions.BeforeContinuations)
-				SpliceBeforeWaiters(job.Id, existingWaiters);
+				SpliceBeforeWaiters(job.JobId, existingWaiters);
 		}
 
 		return ValueTask.CompletedTask;
@@ -748,7 +748,7 @@ internal sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 
 			var inserted = job.RecurringKey is null || _recurringKeys.Add(job.RecurringKey);
 			if (inserted)
-				_jobs[job.Id] = job;
+				_jobs[job.JobId] = job;
 			_recurring[schedule.Name] = current with { LastRunAt = schedule.NextRunAt, NextRunAt = nextRunAt };
 			return inserted;
 		}
@@ -784,7 +784,7 @@ internal sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 		{
 			var jobs = _jobs.Values.AsEnumerable();
 			if (query.Id is { } id)
-				jobs = jobs.Where(x => string.Equals(x.Id, id, StringComparison.Ordinal));
+				jobs = jobs.Where(x => string.Equals(x.JobId, id, StringComparison.Ordinal));
 			if (query.State is { } state)
 				jobs = jobs.Where(x => x.State == state);
 			if (!string.IsNullOrWhiteSpace(query.QueueName))
@@ -798,7 +798,7 @@ internal sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 			return
 			[
 				.. jobs.OrderByDescending(x => x.CreatedAt)
-					.ThenBy(x => x.Id, StringComparer.Ordinal)
+					.ThenBy(x => x.JobId, StringComparer.Ordinal)
 					.Skip(Math.Max(0, query.Skip))
 					.Take(Math.Clamp(query.Take, 1, 1000)),
 			];
@@ -904,12 +904,12 @@ internal sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 			[
 				.. members
 					.OrderBy(job => job.CreatedAt)
-					.ThenBy(job => job.Id, StringComparer.Ordinal)
+					.ThenBy(job => job.JobId, StringComparer.Ordinal)
 					.Skip(query.Skip)
 					.Take(query.Take)
 					.Select(static job => new BatchMemberStatus
 					{
-						JobId = job.Id,
+						JobId = job.JobId,
 						JobName = job.JobName,
 						QueueName = job.QueueName,
 						State = job.State,
@@ -938,13 +938,13 @@ internal sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 			var members = _jobs.Values
 				.Where(job => string.Equals(job.BatchId, batchId, StringComparison.Ordinal))
 				.OrderBy(job => job.CreatedAt)
-				.ThenBy(job => job.Id, StringComparer.Ordinal)
+				.ThenBy(job => job.JobId, StringComparer.Ordinal)
 				.ToArray();
-			var memberIds = members.Select(static job => job.Id).ToHashSet(StringComparer.Ordinal);
+			var memberIds = members.Select(static job => job.JobId).ToHashSet(StringComparer.Ordinal);
 			return new BatchGraph
 			{
 				BatchId = batchId,
-				Nodes = [.. members.Select(static job => new BatchGraphNode { JobId = job.Id, JobName = job.JobName, State = job.State })],
+				Nodes = [.. members.Select(static job => new BatchGraphNode { JobId = job.JobId, JobName = job.JobName, State = job.State })],
 				Edges = [.. _edges.Where(edge => memberIds.Contains(edge.ChildJobId)).Select(ToGraphEdge)],
 			};
 		}
@@ -965,7 +965,7 @@ internal sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 
 			return new JobStatus
 			{
-				JobId = job.Id,
+				JobId = job.JobId,
 				JobName = job.JobName,
 				QueueName = job.QueueName,
 				State = job.State,
@@ -996,7 +996,7 @@ internal sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 			var now = timeProvider.GetUtcNow();
 			var jobIds = _jobs.Values
 				.Where(job => string.Equals(job.BatchId, batchId, StringComparison.Ordinal) && !IsTerminal(job.State))
-				.Select(static job => job.Id)
+				.Select(static job => job.JobId)
 				.ToArray();
 			foreach (var jobId in jobIds)
 			{
@@ -1026,7 +1026,7 @@ internal sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 
 			var jobIds = _jobs.Values
 				.Where(job => string.Equals(job.BatchId, batchId, StringComparison.Ordinal))
-				.Select(static job => job.Id)
+				.Select(static job => job.JobId)
 				.ToHashSet(StringComparer.Ordinal);
 			foreach (var jobId in jobIds)
 			{
@@ -1141,7 +1141,7 @@ internal sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 							|| (x.State is JobState.Failed or JobState.Cancelled or JobState.Skipped && completed < now - failedRetention)
 						)
 				)
-				.Select(static job => job.Id)
+				.Select(static job => job.JobId)
 				.ToHashSet(StringComparer.Ordinal);
 
 			foreach (var id in standaloneJobIds)
@@ -1183,7 +1183,7 @@ internal sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 
 			var batchJobIds = _jobs.Values
 				.Where(job => job.BatchId is { } batchId && batchIds.Contains(batchId))
-				.Select(static job => job.Id)
+				.Select(static job => job.JobId)
 				.ToHashSet(StringComparer.Ordinal);
 			foreach (var id in batchJobIds)
 			{
@@ -1218,8 +1218,8 @@ internal sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 
 	private void ValidateNewJob(JobRecord job)
 	{
-		if (_jobs.ContainsKey(job.Id))
-			throw new ImmediateJobException($"Job '{job.Id}' already exists.");
+		if (_jobs.ContainsKey(job.JobId))
+			throw new ImmediateJobException($"Job '{job.JobId}' already exists.");
 	}
 
 	private void ValidateBatch(
@@ -1265,10 +1265,10 @@ internal sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 		foreach (var job in jobs)
 		{
 			ValidateNewJob(job);
-			if (!jobIds.Add(job.Id))
-				throw new ImmediateJobException($"Job '{job.Id}' occurs more than once in the batch.");
+			if (!jobIds.Add(job.JobId))
+				throw new ImmediateJobException($"Job '{job.JobId}' occurs more than once in the batch.");
 			if (!string.Equals(job.BatchId, batch.Id, StringComparison.Ordinal))
-				throw new ImmediateJobException($"Job '{job.Id}' does not belong to batch '{batch.Id}'.");
+				throw new ImmediateJobException($"Job '{job.JobId}' does not belong to batch '{batch.Id}'.");
 		}
 
 		ValidateEdges(jobs, edges, batch.Id);
@@ -1283,7 +1283,7 @@ internal sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 		if (batchId is null && edges.Count == 0)
 			throw new ImmediateJobException("A continuation must have at least one parent.");
 
-		var newJobIds = newJobs.Select(static job => job.Id).ToHashSet(StringComparer.Ordinal);
+		var newJobIds = newJobs.Select(static job => job.JobId).ToHashSet(StringComparer.Ordinal);
 		var logicalEdges = new HashSet<(string Child, string ParentKind, string Parent)>(
 			EqualityComparer<(string Child, string ParentKind, string Parent)>.Default
 		);
@@ -1377,7 +1377,7 @@ internal sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 		var incomingCounts = edges
 			.GroupBy(static edge => edge.ChildJobId, StringComparer.Ordinal)
 			.ToDictionary(static group => group.Key, static group => group.Count(), StringComparer.Ordinal);
-		return jobs.Any(job => incomingCounts.TryGetValue(job.Id, out var incoming) &&
+		return jobs.Any(job => incomingCounts.TryGetValue(job.JobId, out var incoming) &&
 			(job.State != JobState.AwaitingContinuation || job.RemainingDependencies < incoming));
 	}
 
@@ -1538,7 +1538,7 @@ internal sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 		var remaining = Math.Max(0, child.RemainingDependencies - 1);
 		if (remaining != 0)
 		{
-			_jobs[child.Id] = child with
+			_jobs[child.JobId] = child with
 			{
 				RemainingDependencies = remaining,
 				FailedDependencies = child.FailedDependencies + (parentFailed ? 1 : 0),
@@ -1546,8 +1546,8 @@ internal sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 			return;
 		}
 
-		var (triggersSatisfied, failedDependencies) = EvaluateIncomingTriggers(child.Id);
-		_jobs[child.Id] = child with
+		var (triggersSatisfied, failedDependencies) = EvaluateIncomingTriggers(child.JobId);
+		_jobs[child.JobId] = child with
 		{
 			State = triggersSatisfied && child.State == JobState.AwaitingContinuation
 				? GetReadyState(child)
@@ -1556,7 +1556,7 @@ internal sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 			FailedDependencies = failedDependencies,
 		};
 		if (!triggersSatisfied)
-			TransitionToTerminal(child.Id, JobState.Skipped, error: null, timeProvider.GetUtcNow());
+			TransitionToTerminal(child.JobId, JobState.Skipped, error: null, timeProvider.GetUtcNow());
 	}
 
 	private (bool Satisfied, int FailedDependencies) EvaluateIncomingTriggers(string childJobId)
@@ -1616,14 +1616,14 @@ internal sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 			if (!_jobs.TryGetValue(existingEdge.ChildJobId, out var child) || IsTerminal(child.State))
 				continue;
 
-			_jobs[child.Id] = child with
+			_jobs[child.JobId] = child with
 			{
 				State = JobState.AwaitingContinuation,
 				RemainingDependencies = child.RemainingDependencies + 1,
 			};
 			_edges.Add(new()
 			{
-				ChildJobId = child.Id,
+				ChildJobId = child.JobId,
 				ParentJobId = newParentJobId,
 				Trigger = existingEdge.Trigger,
 			});
@@ -1639,7 +1639,7 @@ internal sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 			if (_jobs.TryGetValue(existingEdge.ChildJobId, out var child) &&
 				child.RemainingDependencies > int.MaxValue - additions)
 			{
-				throw new ImmediateJobException($"Continuation dependency count overflow for job '{child.Id}'.");
+				throw new ImmediateJobException($"Continuation dependency count overflow for job '{child.JobId}'.");
 			}
 		}
 	}
@@ -1721,11 +1721,11 @@ internal sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 
 	private void CreateExecution(JobRecord job, DateTimeOffset acquiredAt)
 	{
-		if (!_executions.TryGetValue(job.Id, out var executions))
-			_executions.Add(job.Id, executions = []);
+		if (!_executions.TryGetValue(job.JobId, out var executions))
+			_executions.Add(job.JobId, executions = []);
 		if (!executions.TryAdd(job.Attempt, new()
 		{
-			JobId = job.Id,
+			JobId = job.JobId,
 			Attempt = job.Attempt,
 			State = JobExecutionState.Active,
 			WorkerId = job.WorkerId,
@@ -1734,7 +1734,7 @@ internal sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 		{
 			throw new ImmediateJobException(string.Create(
 				CultureInfo.InvariantCulture,
-				$"Execution {job.Attempt} for job '{job.Id}' already exists."
+				$"Execution {job.Attempt} for job '{job.JobId}' already exists."
 			));
 		}
 	}
@@ -1744,8 +1744,8 @@ internal sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 		var synthetic = JobExecutionRecords.CreateSynthetic(job);
 		if (synthetic is null)
 			return;
-		if (!_executions.TryGetValue(job.Id, out var executions))
-			_executions.Add(job.Id, executions = []);
+		if (!_executions.TryGetValue(job.JobId, out var executions))
+			_executions.Add(job.JobId, executions = []);
 		_ = executions.TryAdd(synthetic.Attempt, synthetic);
 	}
 
@@ -1765,7 +1765,7 @@ internal sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 			return;
 
 		MaterializeSyntheticExecution(job);
-		UpdateExecution(job.Id, job.Attempt, execution => execution with
+		UpdateExecution(job.JobId, job.Attempt, execution => execution with
 		{
 			State = state,
 			CompletedAt = completedAt,

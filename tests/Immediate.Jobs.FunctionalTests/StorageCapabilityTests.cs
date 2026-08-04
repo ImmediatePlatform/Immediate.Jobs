@@ -93,7 +93,7 @@ public sealed class StorageCapabilityTests
 		await using var provider = services.BuildServiceProvider();
 		await storage.EnqueueAsync(new()
 		{
-			Id = "queue-only-job",
+			JobId = "queue-only-job",
 			JobName = "queue-only",
 			Payload = "{}",
 			State = JobState.Pending,

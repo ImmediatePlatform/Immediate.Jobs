@@ -128,14 +128,14 @@ internal sealed class SingleServerJobStorage :
 
 		var replica = (IJobStorageReplica)DurableStorage;
 		var replicated = await replica.AcquireJobsAsync(
-			[.. acquired.Select(x => x.Id)],
+			[.. acquired.Select(x => x.JobId)],
 			request.WorkerId,
 			request.Lease,
 			cancellationToken
 		).ConfigureAwait(false);
-		var replicatedExecutions = replicated.ToDictionary(static job => job.Id, static job => job.Attempt, StringComparer.Ordinal);
+		var replicatedExecutions = replicated.ToDictionary(static job => job.JobId, static job => job.Attempt, StringComparer.Ordinal);
 		if (acquired.Count != replicated.Count ||
-			acquired.Any(job => !replicatedExecutions.TryGetValue(job.Id, out var attempt) || attempt != job.Attempt))
+			acquired.Any(job => !replicatedExecutions.TryGetValue(job.JobId, out var attempt) || attempt != job.Attempt))
 		{
 			throw new ImmediateJobException(
 				"The durable job replica has drifted from the authoritative in-memory queue. " +
@@ -580,7 +580,7 @@ internal sealed class SingleServerJobStorage :
 					recoveredJobs.AddRange(jobs);
 					var standaloneIds = jobs
 						.Where(static job => job.BatchId is null)
-						.Select(static job => job.Id)
+						.Select(static job => job.JobId)
 						.ToArray();
 					if (standaloneIds.Length != 0)
 					{
@@ -676,31 +676,31 @@ internal sealed class SingleServerJobStorage :
 
 			var restoredJobIds = recoveredJobs
 				.Where(static job => job.BatchId is not null)
-				.Select(static job => job.Id)
+				.Select(static job => job.JobId)
 				.ToHashSet(StringComparer.Ordinal);
-			var allRecoveredJobIds = recoveredJobs.Select(static job => job.Id).ToHashSet(StringComparer.Ordinal);
+			var allRecoveredJobIds = recoveredJobs.Select(static job => job.JobId).ToHashSet(StringComparer.Ordinal);
 			var standaloneContinuations = new Dictionary<string, JobRecord>(StringComparer.Ordinal);
 			foreach (var job in recoveredJobs.Where(static job => job.BatchId is null))
 			{
-				if (!recoveredIncomingEdges.TryGetValue(job.Id, out var incomingEdges))
+				if (!recoveredIncomingEdges.TryGetValue(job.JobId, out var incomingEdges))
 				{
 					if (job.State == JobState.AwaitingContinuation || job.RemainingDependencies != 0)
 					{
 						throw new ImmediateJobException(
-							$"Job '{job.Id}' has continuation dependencies but no durable dependency graph."
+							$"Job '{job.JobId}' has continuation dependencies but no durable dependency graph."
 						);
 					}
 
 					await recoveredPrimary.EnqueueAsync(job, cancellationToken).ConfigureAwait(false);
-					_ = restoredJobIds.Add(job.Id);
+					_ = restoredJobIds.Add(job.JobId);
 				}
 				else
 				{
-					standaloneContinuations.Add(job.Id, job);
+					standaloneContinuations.Add(job.JobId, job);
 				}
 			}
 
-			bool AreContinuationParentsRestored(JobRecord job) => recoveredIncomingEdges[job.Id].All(edge =>
+			bool AreContinuationParentsRestored(JobRecord job) => recoveredIncomingEdges[job.JobId].All(edge =>
 				(edge.ParentJobId is null || restoredJobIds.Contains(edge.ParentJobId))
 				&& (edge.ParentBatchId is null || restoredBatchIds.Contains(edge.ParentBatchId))
 			);
@@ -710,19 +710,19 @@ internal sealed class SingleServerJobStorage :
 				var ready = standaloneContinuations.Values
 					.Where(AreContinuationParentsRestored)
 					.OrderBy(static job => job.CreatedAt)
-					.ThenBy(static job => job.Id, StringComparer.Ordinal)
+					.ThenBy(static job => job.JobId, StringComparer.Ordinal)
 					.ToArray();
 				if (ready.Length == 0)
 				{
 					var missingParents = standaloneContinuations.Values
-						.SelectMany(job => recoveredIncomingEdges[job.Id])
+						.SelectMany(job => recoveredIncomingEdges[job.JobId])
 						.Where(edge => edge.ParentJobId is { } parentId && !allRecoveredJobIds.Contains(parentId))
 						.Select(static edge => edge.ParentJobId!)
 						.Distinct(StringComparer.Ordinal)
 						.Order(StringComparer.Ordinal)
 						.ToArray();
 					var missingParentBatches = standaloneContinuations.Values
-						.SelectMany(job => recoveredIncomingEdges[job.Id])
+						.SelectMany(job => recoveredIncomingEdges[job.JobId])
 						.Where(edge => edge.ParentBatchId is { } parentId && !restoredBatchIds.Contains(parentId))
 						.Select(static edge => edge.ParentBatchId!)
 						.Distinct(StringComparer.Ordinal)
@@ -750,11 +750,11 @@ internal sealed class SingleServerJobStorage :
 				{
 					await recoveredPrimary.EnqueueContinuationAsync(
 						job,
-						recoveredIncomingEdges[job.Id],
+						recoveredIncomingEdges[job.JobId],
 						cancellationToken
 					).ConfigureAwait(false);
-					_ = standaloneContinuations.Remove(job.Id);
-					_ = restoredJobIds.Add(job.Id);
+					_ = standaloneContinuations.Remove(job.JobId);
+					_ = restoredJobIds.Add(job.JobId);
 				}
 			}
 

@@ -38,56 +38,67 @@ public sealed class Batch : IAsyncDisposable
 		_timeProvider = timeProvider;
 		_after = after;
 		_trigger = trigger;
-		Id = idGenerator.CreateId(IdKind.Batch);
+		BatchId = new() { BatchId = idGenerator.CreateId(IdKind.Batch) };
 	}
 
 	/// <summary>
-	/// 	The client-generated batch identifier.
-	/// </summary>
-	/// <value>
 	/// 	The identifier assigned to the batch.
-	/// </value>
-	public string Id { get; }
+	/// </summary>
+	public BatchHandle BatchId { get; }
 
-	internal JobHandle Add(JobRecord record, ReadOnlySpan<JobHandle> parents, ContinuationTrigger on)
+	internal BatchJobHandle Add(JobRecord record)
 	{
 		lock (_gate)
 		{
 			EnsureOpenCore();
-			if (parents.IsEmpty)
-			{
-				_jobs.Add(record with { BatchId = Id });
-				return new(record.Id) { Batch = this };
-			}
+			_jobs.Add(record with { BatchId = BatchId });
 
-			var parentIds = new HashSet<string>(StringComparer.Ordinal);
+			return new BatchJobHandle
+			{
+				Batch = this,
+				Job = record.JobId,
+			};
+		}
+	}
+
+	internal BatchJobHandle Add(JobRecord record, IReadOnlyList<BatchJobHandle> parents, ContinuationTrigger on, TimeSpan delay)
+	{
+		lock (_gate)
+		{
+			EnsureOpenCore();
+
+			var parentIds = new HashSet<JobHandle>();
 			foreach (var parent in parents)
 			{
-				if (string.IsNullOrWhiteSpace(parent.Id))
-					throw new ImmediateJobException("Continuation parent handles must have a non-empty identifier.");
 				if (!ReferenceEquals(parent.Batch, this))
 					throw new ImmediateJobException("Continuation handles must belong to the same open batch.");
-				if (!parentIds.Add(parent.Id))
-					throw new ImmediateJobException($"Duplicate continuation parent '{parent.Id}'.");
+				if (!parentIds.Add(parent.Job))
+					throw new ImmediateJobException($"Duplicate continuation parent '{parent.Job.JobId}'.");
 			}
 
 			_jobs.Add(record with
 			{
-				BatchId = Id,
+				BatchId = BatchId,
 				State = JobState.AwaitingContinuation,
 				RemainingDependencies = parentIds.Count,
 			});
+
 			foreach (var parentId in parentIds)
 			{
 				_edges.Add(new()
 				{
-					ChildJobId = record.Id,
-					ParentJobId = parentId,
+					ChildJob = record.JobId,
+					ParentJob = parentId,
 					Trigger = on,
+					Delay = delay,
 				});
 			}
 
-			return new(record.Id) { Batch = this };
+			return new BatchJobHandle
+			{
+				Batch = this,
+				Job = record.JobId,
+			};
 		}
 	}
 
@@ -113,13 +124,13 @@ public sealed class Batch : IAsyncDisposable
 
 			if (_after is { } parentBatch)
 			{
-				var children = _jobs.Select(static job => job.Id).ToHashSet(StringComparer.Ordinal);
+				var children = _jobs.Select(static job => job.JobId).ToHashSet(StringComparer.Ordinal);
 				foreach (var edge in _edges)
 					_ = children.Remove(edge.ChildJobId);
 
 				foreach (var childId in children)
 				{
-					var index = _jobs.FindIndex(job => string.Equals(job.Id, childId, StringComparison.Ordinal));
+					var index = _jobs.FindIndex(job => string.Equals(job.JobId, childId, StringComparison.Ordinal));
 					var job = _jobs[index];
 					_jobs[index] = job with
 					{
@@ -137,7 +148,7 @@ public sealed class Batch : IAsyncDisposable
 
 			record = new BatchRecord
 			{
-				Id = Id,
+				Id = BatchId,
 				CreatedAt = _timeProvider.GetUtcNow(),
 				TotalJobs = _jobs.Count,
 				PendingCount = _jobs.Count,
@@ -151,7 +162,7 @@ public sealed class Batch : IAsyncDisposable
 		try
 		{
 			await _storage.EnqueueBatchAsync(record, jobs, edges, cancellationToken).ConfigureAwait(false);
-			return new(Id);
+			return new(BatchId);
 		}
 		finally
 		{
@@ -176,12 +187,6 @@ public sealed class Batch : IAsyncDisposable
 		}
 
 		return ValueTask.CompletedTask;
-	}
-
-	internal void EnsureOpen()
-	{
-		lock (_gate)
-			EnsureOpenCore();
 	}
 
 	private void EnsureOpenCore()

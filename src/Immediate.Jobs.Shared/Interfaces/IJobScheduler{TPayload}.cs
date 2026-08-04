@@ -132,13 +132,21 @@ public interface IJobScheduler<TPayload>
 	/// <param name="job">
 	/// 	The job that must complete before this work is released.
 	/// </param>
+	/// <param name="on">
+	/// 	The parent-job outcome that releases the continuation.
+	/// </param>
 	/// <param name="cancellationToken">
 	/// 	A token that can cancel the scheduling operation.
 	/// </param>
 	/// <returns>
 	/// 	A handle for the scheduled continuation.
 	/// </returns>
-	ValueTask<JobHandle> ScheduleAfterAsync(TPayload payload, JobHandle job, CancellationToken cancellationToken = default);
+	ValueTask<JobHandle> ScheduleAfterAsync(
+		TPayload payload,
+		JobHandle job,
+		ContinuationTrigger on = ContinuationTrigger.Success,
+		CancellationToken cancellationToken = default
+	);
 
 	/// <summary>
 	/// 	Schedules grouped work to run after a single job completes and returns its opaque invocation identifier.
@@ -152,13 +160,22 @@ public interface IJobScheduler<TPayload>
 	/// <param name="groupId">
 	/// 	The fair queue group identifier.
 	/// </param>
+	/// <param name="on">
+	/// 	The parent-job outcome that releases the continuation.
+	/// </param>
 	/// <param name="cancellationToken">
 	/// 	A token that can cancel the scheduling operation.
 	/// </param>
 	/// <returns>
 	/// 	A handle for the scheduled continuation.
 	/// </returns>
-	ValueTask<JobHandle> ScheduleAfterAsync(TPayload payload, JobHandle job, string groupId, CancellationToken cancellationToken = default);
+	ValueTask<JobHandle> ScheduleAfterAsync(
+		TPayload payload,
+		JobHandle job,
+		string groupId,
+		ContinuationTrigger on = ContinuationTrigger.Success,
+		CancellationToken cancellationToken = default
+	);
 
 	/// <summary>
 	/// 	Schedules work to run after a single job completes with an optional delay and returns its opaque invocation identifier.
@@ -172,13 +189,22 @@ public interface IJobScheduler<TPayload>
 	/// <param name="delay">
 	/// 	The delay applied when the continuation is released.
 	/// </param>
+	/// <param name="on">
+	/// 	The parent-job outcome that releases the continuation.
+	/// </param>
 	/// <param name="cancellationToken">
 	/// 	A token that can cancel the scheduling operation.
 	/// </param>
 	/// <returns>
 	/// 	A handle for the scheduled continuation.
 	/// </returns>
-	ValueTask<JobHandle> ScheduleAfterAsync(TPayload payload, JobHandle job, TimeSpan delay, CancellationToken cancellationToken = default);
+	ValueTask<JobHandle> ScheduleAfterAsync(
+		TPayload payload,
+		JobHandle job,
+		TimeSpan delay,
+		ContinuationTrigger on = ContinuationTrigger.Success,
+		CancellationToken cancellationToken = default
+	);
 
 	/// <summary>
 	/// 	Schedules grouped work to run after a single job completes with an optional delay and returns its opaque invocation identifier.
@@ -195,6 +221,9 @@ public interface IJobScheduler<TPayload>
 	/// <param name="groupId">
 	/// 	The fair queue group identifier.
 	/// </param>
+	/// <param name="on">
+	/// 	The parent-job outcome that releases the continuation.
+	/// </param>
 	/// <param name="cancellationToken">
 	/// 	A token that can cancel the scheduling operation.
 	/// </param>
@@ -206,6 +235,7 @@ public interface IJobScheduler<TPayload>
 		JobHandle job,
 		TimeSpan delay,
 		string groupId,
+		ContinuationTrigger on = ContinuationTrigger.Success,
 		CancellationToken cancellationToken = default
 	);
 
@@ -218,13 +248,21 @@ public interface IJobScheduler<TPayload>
 	/// <param name="jobs">
 	/// 	The jobs that must all complete before this work is released.
 	/// </param>
+	/// <param name="on">
+	/// 	The parent-jobs outcome that releases the continuation.
+	/// </param>
 	/// <param name="cancellationToken">
 	/// 	A token that can cancel the scheduling operation.
 	/// </param>
 	/// <returns>
 	/// 	A handle for the scheduled continuation.
 	/// </returns>
-	ValueTask<JobHandle> ScheduleAfterAsync(TPayload payload, IReadOnlyList<JobHandle> jobs, CancellationToken cancellationToken = default);
+	ValueTask<JobHandle> ScheduleAfterAsync(
+		TPayload payload,
+		IReadOnlyList<JobHandle> jobs,
+		ContinuationTrigger on = ContinuationTrigger.Success,
+		CancellationToken cancellationToken = default
+	);
 
 	/// <summary>
 	/// 	Schedules grouped work to run after all supplied jobs complete and returns its opaque invocation identifier.
@@ -238,13 +276,22 @@ public interface IJobScheduler<TPayload>
 	/// <param name="groupId">
 	/// 	The fair queue group identifier.
 	/// </param>
+	/// <param name="on">
+	/// 	The parent-jobs outcome that releases the continuation.
+	/// </param>
 	/// <param name="cancellationToken">
 	/// 	A token that can cancel the scheduling operation.
 	/// </param>
 	/// <returns>
 	/// 	A handle for the scheduled continuation.
 	/// </returns>
-	ValueTask<JobHandle> ScheduleAfterAsync(TPayload payload, IReadOnlyList<JobHandle> jobs, string groupId, CancellationToken cancellationToken = default);
+	ValueTask<JobHandle> ScheduleAfterAsync(
+		TPayload payload,
+		IReadOnlyList<JobHandle> jobs,
+		string groupId,
+		ContinuationTrigger on = ContinuationTrigger.Success,
+		CancellationToken cancellationToken = default
+	);
 
 	/// <summary>
 	/// 	Schedules work to run after all supplied jobs complete with a delay and returns its opaque invocation identifier.
@@ -258,13 +305,22 @@ public interface IJobScheduler<TPayload>
 	/// <param name="delay">
 	/// 	The delay applied when the continuation is released.
 	/// </param>
+	/// <param name="on">
+	/// 	The parent-jobs outcome that releases the continuation.
+	/// </param>
 	/// <param name="cancellationToken">
 	/// 	A token that can cancel the scheduling operation.
 	/// </param>
 	/// <returns>
 	/// 	A handle for the scheduled continuation.
 	/// </returns>
-	ValueTask<JobHandle> ScheduleAfterAsync(TPayload payload, IReadOnlyList<JobHandle> jobs, TimeSpan delay, CancellationToken cancellationToken = default);
+	ValueTask<JobHandle> ScheduleAfterAsync(
+		TPayload payload,
+		IReadOnlyList<JobHandle> jobs,
+		TimeSpan delay,
+		ContinuationTrigger on = ContinuationTrigger.Success,
+		CancellationToken cancellationToken = default
+	);
 
 	/// <summary>
 	/// 	Schedules grouped work to run after all supplied jobs complete with a delay and returns its opaque invocation identifier.
@@ -281,6 +337,9 @@ public interface IJobScheduler<TPayload>
 	/// <param name="groupId">
 	/// 	The fair queue group identifier.
 	/// </param>
+	/// <param name="on">
+	/// 	The parent-jobs outcome that releases the continuation.
+	/// </param>
 	/// <param name="cancellationToken">
 	/// 	A token that can cancel the scheduling operation.
 	/// </param>
@@ -292,6 +351,7 @@ public interface IJobScheduler<TPayload>
 		IReadOnlyList<JobHandle> jobs,
 		TimeSpan delay,
 		string groupId,
+		ContinuationTrigger on = ContinuationTrigger.Success,
 		CancellationToken cancellationToken = default
 	);
 
@@ -304,13 +364,21 @@ public interface IJobScheduler<TPayload>
 	/// <param name="batch">
 	/// 	The batch that must complete before this work is released.
 	/// </param>
+	/// <param name="on">
+	/// 	The parent-batch outcome that releases the continuation.
+	/// </param>
 	/// <param name="cancellationToken">
 	/// 	A token that can cancel the scheduling operation.
 	/// </param>
 	/// <returns>
 	/// 	A handle for the scheduled continuation.
 	/// </returns>
-	ValueTask<JobHandle> ScheduleAfterAsync(TPayload payload, BatchHandle batch, CancellationToken cancellationToken = default);
+	ValueTask<JobHandle> ScheduleAfterAsync(
+		TPayload payload,
+		BatchHandle batch,
+		ContinuationTrigger on = ContinuationTrigger.Success,
+		CancellationToken cancellationToken = default
+	);
 
 	/// <summary>
 	/// 	Schedules grouped work to run after a batch completes and returns its opaque invocation identifier.
@@ -324,13 +392,22 @@ public interface IJobScheduler<TPayload>
 	/// <param name="groupId">
 	/// 	The fair queue group identifier.
 	/// </param>
+	/// <param name="on">
+	/// 	The parent-batch outcome that releases the continuation.
+	/// </param>
 	/// <param name="cancellationToken">
 	/// 	A token that can cancel the scheduling operation.
 	/// </param>
 	/// <returns>
 	/// 	A handle for the scheduled continuation.
 	/// </returns>
-	ValueTask<JobHandle> ScheduleAfterAsync(TPayload payload, BatchHandle batch, string groupId, CancellationToken cancellationToken = default);
+	ValueTask<JobHandle> ScheduleAfterAsync(
+		TPayload payload,
+		BatchHandle batch,
+		string groupId,
+		ContinuationTrigger on = ContinuationTrigger.Success,
+		CancellationToken cancellationToken = default
+	);
 
 	/// <summary>
 	/// 	Schedules work to run after a batch completes with a delay and returns its opaque invocation identifier.
@@ -344,13 +421,22 @@ public interface IJobScheduler<TPayload>
 	/// <param name="delay">
 	/// 	The delay applied when the continuation is released.
 	/// </param>
+	/// <param name="on">
+	/// 	The parent-batch outcome that releases the continuation.
+	/// </param>
 	/// <param name="cancellationToken">
 	/// 	A token that can cancel the scheduling operation.
 	/// </param>
 	/// <returns>
 	/// 	A handle for the scheduled continuation.
 	/// </returns>
-	ValueTask<JobHandle> ScheduleAfterAsync(TPayload payload, BatchHandle batch, TimeSpan delay, CancellationToken cancellationToken = default);
+	ValueTask<JobHandle> ScheduleAfterAsync(
+		TPayload payload,
+		BatchHandle batch,
+		TimeSpan delay,
+		ContinuationTrigger on = ContinuationTrigger.Success,
+		CancellationToken cancellationToken = default
+	);
 
 	/// <summary>
 	/// 	Schedules grouped work to run after a batch completes with a delay and returns its opaque invocation identifier.
@@ -367,6 +453,9 @@ public interface IJobScheduler<TPayload>
 	/// <param name="groupId">
 	/// 	The fair queue group identifier.
 	/// </param>
+	/// <param name="on">
+	/// 	The parent-batch outcome that releases the continuation.
+	/// </param>
 	/// <param name="cancellationToken">
 	/// 	A token that can cancel the scheduling operation.
 	/// </param>
@@ -378,6 +467,7 @@ public interface IJobScheduler<TPayload>
 		BatchHandle batch,
 		TimeSpan delay,
 		string groupId,
+		ContinuationTrigger on = ContinuationTrigger.Success,
 		CancellationToken cancellationToken = default
 	);
 
@@ -390,13 +480,21 @@ public interface IJobScheduler<TPayload>
 	/// <param name="batches">
 	/// 	The batches that must all complete before this work is released.
 	/// </param>
+	/// <param name="on">
+	/// 	The parent-batch outcome that releases the continuation.
+	/// </param>
 	/// <param name="cancellationToken">
 	/// 	A token that can cancel the scheduling operation.
 	/// </param>
 	/// <returns>
 	/// 	A handle for the scheduled continuation.
 	/// </returns>
-	ValueTask<JobHandle> ScheduleAfterAsync(TPayload payload, IReadOnlyList<BatchHandle> batches, CancellationToken cancellationToken = default);
+	ValueTask<JobHandle> ScheduleAfterAsync(
+		TPayload payload,
+		IReadOnlyList<BatchHandle> batches,
+		ContinuationTrigger on = ContinuationTrigger.Success,
+		CancellationToken cancellationToken = default
+	);
 
 	/// <summary>
 	/// 	Schedules grouped work to run after all supplied batches complete and returns its opaque invocation identifier.
@@ -410,13 +508,22 @@ public interface IJobScheduler<TPayload>
 	/// <param name="groupId">
 	/// 	The fair queue group identifier.
 	/// </param>
+	/// <param name="on">
+	/// 	The parent-batch outcome that releases the continuation.
+	/// </param>
 	/// <param name="cancellationToken">
 	/// 	A token that can cancel the scheduling operation.
 	/// </param>
 	/// <returns>
 	/// 	A handle for the scheduled continuation.
 	/// </returns>
-	ValueTask<JobHandle> ScheduleAfterAsync(TPayload payload, IReadOnlyList<BatchHandle> batches, string groupId, CancellationToken cancellationToken = default);
+	ValueTask<JobHandle> ScheduleAfterAsync(
+		TPayload payload,
+		IReadOnlyList<BatchHandle> batches,
+		string groupId,
+		ContinuationTrigger on = ContinuationTrigger.Success,
+		CancellationToken cancellationToken = default
+	);
 
 	/// <summary>
 	/// 	Schedules work to run after all supplied batches complete with a delay and returns its opaque invocation identifier.
@@ -430,13 +537,22 @@ public interface IJobScheduler<TPayload>
 	/// <param name="delay">
 	/// 	The delay applied when the continuation is released.
 	/// </param>
+	/// <param name="on">
+	/// 	The parent-batch outcome that releases the continuation.
+	/// </param>
 	/// <param name="cancellationToken">
 	/// 	A token that can cancel the scheduling operation.
 	/// </param>
 	/// <returns>
 	/// 	A handle for the scheduled continuation.
 	/// </returns>
-	ValueTask<JobHandle> ScheduleAfterAsync(TPayload payload, IReadOnlyList<BatchHandle> batches, TimeSpan delay, CancellationToken cancellationToken = default);
+	ValueTask<JobHandle> ScheduleAfterAsync(
+		TPayload payload,
+		IReadOnlyList<BatchHandle> batches,
+		TimeSpan delay,
+		ContinuationTrigger on = ContinuationTrigger.Success,
+		CancellationToken cancellationToken = default
+	);
 
 	/// <summary>
 	/// 	Schedules grouped work to run after all supplied batches complete with a delay and returns its opaque invocation identifier.
@@ -453,6 +569,9 @@ public interface IJobScheduler<TPayload>
 	/// <param name="groupId">
 	/// 	The fair queue group identifier.
 	/// </param>
+	/// <param name="on">
+	/// 	The parent-batch outcome that releases the continuation.
+	/// </param>
 	/// <param name="cancellationToken">
 	/// 	A token that can cancel the scheduling operation.
 	/// </param>
@@ -464,6 +583,7 @@ public interface IJobScheduler<TPayload>
 		IReadOnlyList<BatchHandle> batches,
 		TimeSpan delay,
 		string groupId,
+		ContinuationTrigger on = ContinuationTrigger.Success,
 		CancellationToken cancellationToken = default
 	);
 
@@ -681,13 +801,17 @@ public interface IJobScheduler<TPayload>
 	/// <param name="job">
 	/// 	The batch job that must complete before this work is released.
 	/// </param>
-	/// <param name="cancellationToken">
-	/// 	A token that can cancel the scheduling operation.
+	/// <param name="on">
+	/// 	The parent-job outcome that releases the continuation.
 	/// </param>
 	/// <returns>
 	/// 	A handle for the buffered batch invocation.
 	/// </returns>
-	BatchJobHandle ScheduleAfter(TPayload payload, BatchJobHandle job, CancellationToken cancellationToken = default);
+	BatchJobHandle ScheduleAfter(
+		TPayload payload,
+		BatchJobHandle job,
+		ContinuationTrigger on = ContinuationTrigger.Success
+	);
 
 	/// <summary>
 	/// 	Adds grouped work to a batch that runs after a single batch job completes and returns its handle.
@@ -701,13 +825,18 @@ public interface IJobScheduler<TPayload>
 	/// <param name="groupId">
 	/// 	The fair queue group identifier.
 	/// </param>
-	/// <param name="cancellationToken">
-	/// 	A token that can cancel the scheduling operation.
+	/// <param name="on">
+	/// 	The parent-job outcome that releases the continuation.
 	/// </param>
 	/// <returns>
 	/// 	A handle for the buffered batch invocation.
 	/// </returns>
-	BatchJobHandle ScheduleAfter(TPayload payload, BatchJobHandle job, string groupId, CancellationToken cancellationToken = default);
+	BatchJobHandle ScheduleAfter(
+		TPayload payload,
+		BatchJobHandle job,
+		string groupId,
+		ContinuationTrigger on = ContinuationTrigger.Success
+	);
 
 	/// <summary>
 	/// 	Adds work with a delay to a batch that runs after a single batch job completes and returns its handle.
@@ -721,13 +850,18 @@ public interface IJobScheduler<TPayload>
 	/// <param name="delay">
 	/// 	The delay applied when the continuation is released.
 	/// </param>
-	/// <param name="cancellationToken">
-	/// 	A token that can cancel the scheduling operation.
+	/// <param name="on">
+	/// 	The parent-job outcome that releases the continuation.
 	/// </param>
 	/// <returns>
 	/// 	A handle for the buffered batch invocation.
 	/// </returns>
-	BatchJobHandle ScheduleAfter(TPayload payload, BatchJobHandle job, TimeSpan delay, CancellationToken cancellationToken = default);
+	BatchJobHandle ScheduleAfter(
+		TPayload payload,
+		BatchJobHandle job,
+		TimeSpan delay,
+		ContinuationTrigger on = ContinuationTrigger.Success
+	);
 
 	/// <summary>
 	/// 	Adds grouped work with a delay to a batch that runs after a single batch job completes and returns its handle.
@@ -744,8 +878,8 @@ public interface IJobScheduler<TPayload>
 	/// <param name="groupId">
 	/// 	The fair queue group identifier.
 	/// </param>
-	/// <param name="cancellationToken">
-	/// 	A token that can cancel the scheduling operation.
+	/// <param name="on">
+	/// 	The parent-job outcome that releases the continuation.
 	/// </param>
 	/// <returns>
 	/// 	A handle for the buffered batch invocation.
@@ -755,7 +889,7 @@ public interface IJobScheduler<TPayload>
 		BatchJobHandle job,
 		TimeSpan delay,
 		string groupId,
-		CancellationToken cancellationToken = default
+		ContinuationTrigger on = ContinuationTrigger.Success
 	);
 
 	/// <summary>
@@ -767,13 +901,17 @@ public interface IJobScheduler<TPayload>
 	/// <param name="jobs">
 	/// 	The batch jobs that must all complete before this work is released.
 	/// </param>
-	/// <param name="cancellationToken">
-	/// 	A token that can cancel the scheduling operation.
+	/// <param name="on">
+	/// 	The parent-jobs outcome that releases the continuation.
 	/// </param>
 	/// <returns>
 	/// 	A handle for the buffered batch invocation.
 	/// </returns>
-	BatchJobHandle ScheduleAfter(TPayload payload, IReadOnlyList<BatchJobHandle> jobs, CancellationToken cancellationToken = default);
+	BatchJobHandle ScheduleAfter(
+		TPayload payload,
+		IReadOnlyList<BatchJobHandle> jobs,
+		ContinuationTrigger on = ContinuationTrigger.Success
+	);
 
 	/// <summary>
 	/// 	Adds grouped work to a batch that runs after all supplied batch jobs complete and returns its handle.
@@ -787,13 +925,18 @@ public interface IJobScheduler<TPayload>
 	/// <param name="groupId">
 	/// 	The fair queue group identifier.
 	/// </param>
-	/// <param name="cancellationToken">
-	/// 	A token that can cancel the scheduling operation.
+	/// <param name="on">
+	/// 	The parent-jobs outcome that releases the continuation.
 	/// </param>
 	/// <returns>
 	/// 	A handle for the buffered batch invocation.
 	/// </returns>
-	BatchJobHandle ScheduleAfter(TPayload payload, IReadOnlyList<BatchJobHandle> jobs, string groupId, CancellationToken cancellationToken = default);
+	BatchJobHandle ScheduleAfter(
+		TPayload payload,
+		IReadOnlyList<BatchJobHandle> jobs,
+		string groupId,
+		ContinuationTrigger on = ContinuationTrigger.Success
+	);
 
 	/// <summary>
 	/// 	Adds work with a delay to a batch that runs after all supplied batch jobs complete and returns its handle.
@@ -807,13 +950,18 @@ public interface IJobScheduler<TPayload>
 	/// <param name="delay">
 	/// 	The delay applied when the continuation is released.
 	/// </param>
-	/// <param name="cancellationToken">
-	/// 	A token that can cancel the scheduling operation.
+	/// <param name="on">
+	/// 	The parent-jobs outcome that releases the continuation.
 	/// </param>
 	/// <returns>
 	/// 	A handle for the buffered batch invocation.
 	/// </returns>
-	BatchJobHandle ScheduleAfter(TPayload payload, IReadOnlyList<BatchJobHandle> jobs, TimeSpan delay, CancellationToken cancellationToken = default);
+	BatchJobHandle ScheduleAfter(
+		TPayload payload,
+		IReadOnlyList<BatchJobHandle> jobs,
+		TimeSpan delay,
+		ContinuationTrigger on = ContinuationTrigger.Success
+	);
 
 	/// <summary>
 	/// 	Adds grouped work with a delay to a batch that runs after all supplied batch jobs complete and returns its handle.
@@ -830,8 +978,8 @@ public interface IJobScheduler<TPayload>
 	/// <param name="groupId">
 	/// 	The fair queue group identifier.
 	/// </param>
-	/// <param name="cancellationToken">
-	/// 	A token that can cancel the scheduling operation.
+	/// <param name="on">
+	/// 	The parent-jobs outcome that releases the continuation.
 	/// </param>
 	/// <returns>
 	/// 	A handle for the buffered batch invocation.
@@ -841,7 +989,7 @@ public interface IJobScheduler<TPayload>
 		IReadOnlyList<BatchJobHandle> jobs,
 		TimeSpan delay,
 		string groupId,
-		CancellationToken cancellationToken = default
+		ContinuationTrigger on = ContinuationTrigger.Success
 	);
 
 	/// <summary>

@@ -157,7 +157,7 @@ public sealed class TestingPackageTests
 		await graphStorage.EnqueueAsync(parent, cancellationToken);
 		await graphStorage.EnqueueContinuationAsync(
 			child,
-			[new() { ChildJobId = child.Id, ParentJobId = parent.Id }],
+			[new() { ChildJobId = child.JobId, ParentJobId = parent.JobId }],
 			cancellationToken
 		);
 		_ = Assert.Single(await graphStorage.AcquireDueJobsAsync(new()
@@ -175,10 +175,10 @@ public sealed class TestingPackageTests
 				},
 			],
 		}, cancellationToken));
-		await graphStorage.FailAsync(parent.Id, 1, "worker", "broken", nextRetryAt: null, cancellationToken);
+		await graphStorage.FailAsync(parent.JobId, 1, "worker", "broken", nextRetryAt: null, cancellationToken);
 
 		var exception = await Assert.ThrowsAsync<JobTestAssertionException>(
-			() => harness.AssertContinuationReleasedAfterAsync(new(parent.Id), new(child.Id), cancellationToken).AsTask()
+			() => harness.AssertContinuationReleasedAfterAsync(new(parent.JobId), new(child.JobId), cancellationToken).AsTask()
 		);
 		Assert.Contains("Skipped", exception.Message, StringComparison.Ordinal);
 	}
@@ -192,7 +192,7 @@ public sealed class TestingPackageTests
 
 	private static JobRecord CreateRawJob(string id) => new()
 	{
-		Id = id,
+		JobId = id,
 		JobName = "raw-job",
 		Payload = "{}",
 		State = JobState.Pending,

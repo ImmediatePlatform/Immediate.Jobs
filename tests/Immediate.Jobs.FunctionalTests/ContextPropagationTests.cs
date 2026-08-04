@@ -129,7 +129,7 @@ public sealed class ContextPropagationTests
 
 		await harness.DrainAsync(cancellationToken);
 
-		Assert.Equal(JobState.Succeeded, (await harness.GetJobAsync(record.Id, cancellationToken)).State);
+		Assert.Equal(JobState.Succeeded, (await harness.GetJobAsync(record.JobId, cancellationToken)).State);
 		Assert.Contains(probe.Events, item => item.Contains("removed-extractor", StringComparison.Ordinal));
 	}
 
@@ -142,7 +142,7 @@ public sealed class ContextPropagationTests
 		var now = harness.TimeProvider.GetUtcNow();
 		var record = new JobRecord
 		{
-			Id = Guid.NewGuid().ToString("N"),
+			JobId = Guid.NewGuid().ToString("N"),
 			JobName = "record-message",
 			QueueName = "messages",
 			Payload = "{\"message\":\"orphan\"}",
@@ -155,7 +155,7 @@ public sealed class ContextPropagationTests
 
 		await harness.DrainAsync(cancellationToken);
 
-		Assert.Equal(JobState.Succeeded, (await harness.GetJobAsync(record.Id, cancellationToken)).State);
+		Assert.Equal(JobState.Succeeded, (await harness.GetJobAsync(record.JobId, cancellationToken)).State);
 		Assert.Contains(probe.Events, item => item.Contains("removed-extractor", StringComparison.Ordinal));
 	}
 
@@ -174,7 +174,7 @@ public sealed class ContextPropagationTests
 		await harness.DrainAsync(cancellationToken);
 
 		Assert.Contains("handler:legacy-tenant/legacy-correlation:legacy", probe.Events);
-		Assert.Equal(JobState.Succeeded, (await harness.GetJobAsync(record.Id, cancellationToken)).State);
+		Assert.Equal(JobState.Succeeded, (await harness.GetJobAsync(record.JobId, cancellationToken)).State);
 	}
 
 	[Fact]
@@ -261,7 +261,7 @@ public sealed class ContextPropagationTests
 		Assert.StartsWith("job_", job.Id, StringComparison.Ordinal);
 		Assert.StartsWith("job_", batchJob.Id, StringComparison.Ordinal);
 		Assert.StartsWith("batch_", batchHandle.Id, StringComparison.Ordinal);
-		Assert.StartsWith("job_", recurring.Id, StringComparison.Ordinal);
+		Assert.StartsWith("job_", recurring.JobId, StringComparison.Ordinal);
 	}
 
 	[Fact]
@@ -326,7 +326,7 @@ public sealed class ContextPropagationTests
 
 	private static JobRecord CreateContextRecord(JobTestHarness harness, [StringSyntax("json")] string context) => new()
 	{
-		Id = Guid.NewGuid().ToString("N"),
+		JobId = Guid.NewGuid().ToString("N"),
 		JobName = "context-round-trip",
 		Payload = "{\"message\":\"legacy\"}",
 		State = JobState.Pending,
