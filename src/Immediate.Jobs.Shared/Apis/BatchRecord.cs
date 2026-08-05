@@ -11,7 +11,7 @@ public sealed record BatchRecord
 	/// <value>
 	/// 	The opaque batch identifier.
 	/// </value>
-	public required string Id { get; init; }
+	public required BatchHandle BatchId { get; init; }
 	/// <summary>
 	/// 	UTC time at which the batch was created.
 	/// </summary>

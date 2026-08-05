@@ -936,7 +936,7 @@ public abstract class JobScheduler<TPayload>(
 		foreach (var parent in parents)
 		{
 			if (!parentIds.Add(parent))
-				throw new ImmediateJobException($"Duplicate continuation parent '{parent}'.");
+				ImmediateJobException.Throw($"Duplicate continuation parent '{parent}'.");
 		}
 
 		var waiting = jobRecord with { RemainingDependencies = parents.Count };
@@ -966,7 +966,7 @@ public abstract class JobScheduler<TPayload>(
 		foreach (var parent in parents)
 		{
 			if (!parentIds.Add(parent))
-				throw new ImmediateJobException($"Duplicate continuation parent '{parent}'.");
+				ImmediateJobException.Throw($"Duplicate continuation parent '{parent}'.");
 		}
 
 		var waiting = jobRecord with { RemainingDependencies = parents.Count };

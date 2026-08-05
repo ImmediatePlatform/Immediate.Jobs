@@ -31,7 +31,7 @@ public interface IBatchScheduler
 	/// <summary>
 	/// 	Begins a follow-up batch whose root members wait for a prior batch.
 	/// </summary>
-	/// <param name="after">
+	/// <param name="batch">
 	/// 	The batch that must reach a terminal state before the follow-up roots are released.
 	/// </param>
 	/// <param name="on">
@@ -40,7 +40,21 @@ public interface IBatchScheduler
 	/// <returns>
 	/// 	The new follow-up batch buffer.
 	/// </returns>
-	Batch Begin(BatchHandle after, ContinuationTrigger on = ContinuationTrigger.Success);
+	Batch Begin(BatchHandle batch, ContinuationTrigger on = ContinuationTrigger.Success);
+
+	/// <summary>
+	/// 	Begins a follow-up batch whose root members wait for a prior batch.
+	/// </summary>
+	/// <param name="batches">
+	/// 	The batches that must reach a terminal state before the follow-up roots are released.
+	/// </param>
+	/// <param name="on">
+	/// 	The parent-batch outcome that releases the follow-up roots.
+	/// </param>
+	/// <returns>
+	/// 	The new follow-up batch buffer.
+	/// </returns>
+	Batch Begin(IReadOnlyList<BatchHandle> batches, ContinuationTrigger on = ContinuationTrigger.Success);
 
 	/// <summary>
 	/// 	Runs a batch body and commits it when the body succeeds.

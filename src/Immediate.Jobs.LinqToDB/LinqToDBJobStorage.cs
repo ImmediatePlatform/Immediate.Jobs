@@ -117,7 +117,7 @@ internal sealed class LinqToDBJobStorage<T>(
 		var jobIds = jobs.Select(static job => job.JobId).ToHashSet(StringComparer.Ordinal);
 		if (jobIds.Count != jobs.Count)
 			throw new ImmediateJobException("A batch or continuation insert contains duplicate job identifiers.");
-		if (batch is not null && jobs.Any(job => !string.Equals(job.BatchId, batch.Id, StringComparison.Ordinal)))
+		if (batch is not null && jobs.Any(job => !string.Equals(job.BatchId, batch.BatchId, StringComparison.Ordinal)))
 			throw new ImmediateJobException("Every atomic batch member must carry the committed batch identifier.");
 
 		var edgeEntities = edges.Select(ToEntity).ToArray();
@@ -146,7 +146,7 @@ internal sealed class LinqToDBJobStorage<T>(
 			var skipped = terminal.Count(static job => job.State == JobState.Skipped);
 			_ = await InsertAsync(connection, new ImmediateJobBatchEntity
 			{
-				Id = batch.Id,
+				Id = batch.BatchId,
 				CreatedAt = batch.CreatedAt.UtcTicks,
 				TotalJobs = jobEntities.Count,
 				PendingCount = pending,
