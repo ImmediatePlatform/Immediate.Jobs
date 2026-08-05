@@ -70,7 +70,7 @@ public sealed class LinqToDBSqliteStorageTests
 		};
 		await storage.EnqueueBatchAsync(new()
 		{
-			Id = "parent-batch",
+			BatchId = "parent-batch",
 			CreatedAt = now,
 			TotalJobs = 1,
 			PendingCount = 0,
@@ -649,7 +649,7 @@ public sealed class LinqToDBSqliteStorageTests
 		var current = CreateJob(now, 0) with { JobId = "current", BatchId = "batch" };
 		await storage.EnqueueBatchAsync(new()
 		{
-			Id = "batch",
+			BatchId = "batch",
 			CreatedAt = now,
 			TotalJobs = 1,
 			PendingCount = 1,
@@ -738,7 +738,7 @@ public sealed class LinqToDBSqliteStorageTests
 		var current = CreateJob(now, 0) with { JobId = "current", BatchId = "batch" };
 		await storage.EnqueueBatchAsync(new()
 		{
-			Id = "batch",
+			BatchId = "batch",
 			CreatedAt = now,
 			TotalJobs = 1,
 			PendingCount = 1,
@@ -787,7 +787,7 @@ public sealed class LinqToDBSqliteStorageTests
 		};
 		await storage.EnqueueBatchAsync(new()
 		{
-			Id = "batch",
+			BatchId = "batch",
 			CreatedAt = now,
 			TotalJobs = 2,
 			PendingCount = 2,

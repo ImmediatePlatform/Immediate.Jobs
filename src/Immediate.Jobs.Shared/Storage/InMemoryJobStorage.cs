@@ -122,7 +122,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 			ValidateBatch(batch, jobs, edges);
 
 			var restoreExistingState = IsRecoveredBatch(batch, jobs, edges);
-			_batches.Add(batch.Id, batch);
+			_batches.Add(batch.BatchId, batch);
 			var incomingCounts = edges
 				.GroupBy(static edge => edge.ChildJobId, StringComparer.Ordinal)
 				.ToDictionary(static group => group.Key, static group => group.Count(), StringComparer.Ordinal);
@@ -134,7 +134,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 						? job
 						: incomingCounts.TryGetValue(job.JobId, out var dependencyCount)
 						? NormalizeWaitingJob(job, dependencyCount)
-						: job with { BatchId = batch.Id, RemainingDependencies = 0, FailedDependencies = 0 }
+						: job with { BatchId = batch.BatchId, RemainingDependencies = 0, FailedDependencies = 0 }
 				);
 			}
 
@@ -892,7 +892,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 			return
 			[
 				.. batches.OrderByDescending(static batch => batch.CreatedAt)
-					.ThenBy(static batch => batch.Id, StringComparer.Ordinal)
+					.ThenBy(static batch => batch.BatchId, StringComparer.Ordinal)
 					.Skip(query.Skip)
 					.Take(query.Take)
 					.Select(ToStatus),
@@ -1196,7 +1196,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 							|| (batch.State is BatchState.Failed or BatchState.Cancelled && completed < now - batchFailedRetention)
 						)
 				)
-				.Select(static batch => batch.Id)
+				.Select(static batch => batch.BatchId)
 				.ToHashSet(StringComparer.Ordinal);
 
 			var batchJobIds = _jobs.Values
@@ -1248,9 +1248,9 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 		IReadOnlyList<JobContinuationEdge> edges
 	)
 	{
-		ArgumentException.ThrowIfNullOrWhiteSpace(batch.Id);
-		if (_batches.ContainsKey(batch.Id))
-			throw new ImmediateJobException($"Batch '{batch.Id}' already exists.");
+		ArgumentException.ThrowIfNullOrWhiteSpace(batch.BatchId);
+		if (_batches.ContainsKey(batch.BatchId))
+			throw new ImmediateJobException($"Batch '{batch.BatchId}' already exists.");
 		if (jobs.Count == 0)
 			throw new ImmediateJobException("An atomic batch cannot be empty.");
 
@@ -1288,11 +1288,11 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 			ValidateNewJob(job);
 			if (!jobIds.Add(job.JobId))
 				throw new ImmediateJobException($"Job '{job.JobId}' occurs more than once in the batch.");
-			if (!string.Equals(job.BatchId, batch.Id, StringComparison.Ordinal))
-				throw new ImmediateJobException($"Job '{job.JobId}' does not belong to batch '{batch.Id}'.");
+			if (!string.Equals(job.BatchId, batch.BatchId, StringComparison.Ordinal))
+				throw new ImmediateJobException($"Job '{job.JobId}' does not belong to batch '{batch.BatchId}'.");
 		}
 
-		ValidateEdges(jobs, edges, batch.Id);
+		ValidateEdges(jobs, edges, batch.BatchId);
 	}
 
 	private void ValidateEdges(
@@ -1695,7 +1695,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 
 	private static BatchStatus ToStatus(BatchRecord batch) => new()
 	{
-		Id = batch.Id,
+		Id = batch.BatchId,
 		State = batch.State,
 		Total = batch.TotalJobs,
 		Succeeded = batch.SucceededCount,

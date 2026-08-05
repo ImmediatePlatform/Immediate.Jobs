@@ -58,7 +58,7 @@ public sealed class RelationalStorageMatrixTests(StorageContainers containers)
 		};
 		await storage.EnqueueBatchAsync(new()
 		{
-			Id = "batch",
+			BatchId = "batch",
 			CreatedAt = now,
 			TotalJobs = 2,
 			PendingCount = 2,
@@ -134,7 +134,7 @@ public sealed class RelationalStorageMatrixTests(StorageContainers containers)
 		};
 		await storage.EnqueueBatchAsync(new()
 		{
-			Id = "batch",
+			BatchId = "batch",
 			CreatedAt = now,
 			TotalJobs = 2,
 			PendingCount = 2,
@@ -341,7 +341,7 @@ public sealed class RelationalStorageMatrixTests(StorageContainers containers)
 			.ToArray();
 		await storage.EnqueueBatchAsync(new()
 		{
-			Id = "contended-batch",
+			BatchId = "contended-batch",
 			CreatedAt = now,
 			TotalJobs = JobCount,
 			PendingCount = JobCount,
@@ -630,7 +630,7 @@ public sealed class RelationalStorageMatrixTests(StorageContainers containers)
 		};
 		await storage.EnqueueBatchAsync(new()
 		{
-			Id = "parent-batch",
+			BatchId = "parent-batch",
 			CreatedAt = now,
 			TotalJobs = 1,
 			PendingCount = 0,
@@ -931,7 +931,7 @@ public sealed class RelationalStorageMatrixTests(StorageContainers containers)
 		var current = CreateJob("dynamic-current", now) with { BatchId = "dynamic-batch" };
 		await storage.EnqueueBatchAsync(new()
 		{
-			Id = "dynamic-batch",
+			BatchId = "dynamic-batch",
 			CreatedAt = now,
 			TotalJobs = 1,
 			PendingCount = 1,
@@ -1089,7 +1089,7 @@ public sealed class RelationalStorageMatrixTests(StorageContainers containers)
 		};
 		await storage.EnqueueBatchAsync(new()
 		{
-			Id = "cancel-member-batch",
+			BatchId = "cancel-member-batch",
 			CreatedAt = now,
 			TotalJobs = 3,
 			PendingCount = 3,
@@ -1142,7 +1142,7 @@ public sealed class RelationalStorageMatrixTests(StorageContainers containers)
 		};
 		await storage.EnqueueBatchAsync(new()
 		{
-			Id = "skipped-branch-batch",
+			BatchId = "skipped-branch-batch",
 			CreatedAt = now,
 			TotalJobs = 2,
 			PendingCount = 2,
@@ -1408,7 +1408,7 @@ public sealed class RelationalStorageMatrixTests(StorageContainers containers)
 			};
 			await storage.EnqueueBatchAsync(new()
 			{
-				Id = batchId,
+				BatchId = batchId,
 				CreatedAt = now,
 				TotalJobs = 1,
 				PendingCount = 0,

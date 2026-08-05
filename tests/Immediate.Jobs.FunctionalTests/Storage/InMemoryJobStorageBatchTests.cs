@@ -479,7 +479,7 @@ public sealed class InMemoryJobStorageBatchTests
 
 	private static BatchRecord CreateBatch(string id, int count) => new()
 	{
-		Id = id,
+		BatchId = id,
 		CreatedAt = DateTimeOffset.UnixEpoch,
 		TotalJobs = count,
 		PendingCount = count,

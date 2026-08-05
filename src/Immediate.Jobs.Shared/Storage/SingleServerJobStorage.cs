@@ -599,7 +599,7 @@ public sealed class SingleServerJobStorage :
 				{
 					Record = new()
 					{
-						Id = status.Id,
+						BatchId = status.Id,
 						CreatedAt = status.CreatedAt,
 						TotalJobs = status.Total,
 						PendingCount = status.Remaining,

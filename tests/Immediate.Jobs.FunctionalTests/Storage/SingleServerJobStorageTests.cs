@@ -342,7 +342,7 @@ public sealed class SingleServerJobStorageTests
 		await durable.EnqueueBatchAsync(
 			new()
 			{
-				Id = "parent-batch",
+				BatchId = "parent-batch",
 				CreatedAt = timeProvider.GetUtcNow(),
 				TotalJobs = 1,
 				PendingCount = 0,
@@ -365,7 +365,7 @@ public sealed class SingleServerJobStorageTests
 		await durable.EnqueueBatchAsync(
 			new()
 			{
-				Id = "child-batch",
+				BatchId = "child-batch",
 				CreatedAt = timeProvider.GetUtcNow().AddTicks(1),
 				TotalJobs = 1,
 				PendingCount = 1,

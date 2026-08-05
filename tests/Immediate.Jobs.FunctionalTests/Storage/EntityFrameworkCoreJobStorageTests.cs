@@ -676,7 +676,7 @@ public sealed class EntityFrameworkCoreJobStorageTests
 		await storage.EnqueueBatchAsync(
 			new()
 			{
-				Id = "batch-one",
+				BatchId = "batch-one",
 				CreatedAt = now,
 				TotalJobs = 2,
 				PendingCount = 2,
@@ -759,7 +759,7 @@ public sealed class EntityFrameworkCoreJobStorageTests
 		await storage.EnqueueBatchAsync(
 			new()
 			{
-				Id = "incoming-batch",
+				BatchId = "incoming-batch",
 				CreatedAt = now,
 				TotalJobs = 1,
 				PendingCount = 1,
@@ -855,7 +855,7 @@ public sealed class EntityFrameworkCoreJobStorageTests
 		await storage.EnqueueBatchAsync(
 			new()
 			{
-				Id = "validation-batch",
+				BatchId = "validation-batch",
 				CreatedAt = now,
 				TotalJobs = 1,
 				PendingCount = 1,
@@ -968,7 +968,7 @@ public sealed class EntityFrameworkCoreJobStorageTests
 		_ = await Assert.ThrowsAnyAsync<Exception>(() => storage.EnqueueBatchAsync(
 			new()
 			{
-				Id = "invalid-batch",
+				BatchId = "invalid-batch",
 				CreatedAt = now,
 				TotalJobs = 1,
 				PendingCount = 1,
@@ -1026,7 +1026,7 @@ public sealed class EntityFrameworkCoreJobStorageTests
 		await storage.EnqueueBatchAsync(
 			new()
 			{
-				Id = "cancel-batch",
+				BatchId = "cancel-batch",
 				CreatedAt = now,
 				TotalJobs = 2,
 				PendingCount = 2,
