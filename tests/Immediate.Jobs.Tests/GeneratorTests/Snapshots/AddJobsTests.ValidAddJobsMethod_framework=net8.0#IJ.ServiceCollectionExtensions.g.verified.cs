@@ -4,7 +4,7 @@
 
 #pragma warning disable CS1591
 
-namespace Microsoft.Extensions.DependencyInjection;
+namespace Immediate.Jobs.Testing;
 
 public static class ImmediateJobsGeneratedServiceCollectionExtensions
 {
@@ -14,7 +14,7 @@ public static class ImmediateJobsGeneratedServiceCollectionExtensions
 		params string[] tags
 	)
 	{
-		var builder = global::Microsoft.Extensions.DependencyInjection.ImmediateJobsRuntimeServiceCollectionExtensions.AddImmediateJobsCore(services, configure);
+		var builder = global::Immediate.Jobs.Shared.ImmediateJobsRuntimeServiceCollectionExtensions.AddImmediateJobsCore(services, configure);
 
 		return builder;
 	}

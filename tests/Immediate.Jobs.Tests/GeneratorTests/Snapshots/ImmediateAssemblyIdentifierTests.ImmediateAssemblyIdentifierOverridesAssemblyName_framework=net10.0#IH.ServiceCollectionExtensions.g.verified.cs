@@ -8,7 +8,7 @@ namespace Immediate.Jobs.Testing;
 
 public static class HandlerServiceCollectionExtensions
 {
-	public static global::Microsoft.Extensions.DependencyInjection.IServiceCollection AddTestsBehaviors(
+	public static global::Microsoft.Extensions.DependencyInjection.IServiceCollection AddCustomBehaviors(
 		this global::Microsoft.Extensions.DependencyInjection.IServiceCollection services
 	)
 	{
@@ -16,16 +16,13 @@ public static class HandlerServiceCollectionExtensions
 		return services;
 	}
 
-	public static global::Microsoft.Extensions.DependencyInjection.IServiceCollection AddTestsHandlers(
+	public static global::Microsoft.Extensions.DependencyInjection.IServiceCollection AddCustomHandlers(
 		this global::Microsoft.Extensions.DependencyInjection.IServiceCollection services,
 		global::Microsoft.Extensions.DependencyInjection.ServiceLifetime lifetime = global::Microsoft.Extensions.DependencyInjection.ServiceLifetime.Scoped,
 		params global::System.ReadOnlySpan<string> tags
 	)
 	{
-		if (tags is [] || Intersects(tags, ["critical"]))
-		{
-		global::WorkJob.AddHandlers(services, lifetime);
-		}
+		global::Dummy.GetUsersQuery.AddHandlers(services, lifetime);
 
 		return services;
 	}

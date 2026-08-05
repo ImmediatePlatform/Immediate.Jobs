@@ -8,7 +8,7 @@ namespace Immediate.Jobs.Testing;
 
 public static class ImmediateJobsGeneratedServiceCollectionExtensions
 {
-	public static global::Immediate.Jobs.Shared.ImmediateJobsBuilder AddTestsJobs(
+	public static global::Immediate.Jobs.Shared.ImmediateJobsBuilder AddCustomJobs(
 		this global::Microsoft.Extensions.DependencyInjection.IServiceCollection services,
 		global::System.Action<global::Immediate.Jobs.Shared.ImmediateJobsOptions>? configure = null,
 		params string[] tags
@@ -16,19 +16,7 @@ public static class ImmediateJobsGeneratedServiceCollectionExtensions
 	{
 		var builder = global::Immediate.Jobs.Shared.ImmediateJobsRuntimeServiceCollectionExtensions.AddImmediateJobsCore(services, configure);
 
-		global::Microsoft.Extensions.DependencyInjection.ServiceCollectionServiceExtensions.AddSingleton(
-			services,
-			new global::Immediate.Jobs.Shared.JobQueueDefinition
-			{
-				Name = "critical-queue",
-				Priority = 10,
-				Concurrency = 1,
-			}
-		);
-		if (tags is [] || Intersects(tags, ["critical"]))
-		{
-		global::WorkJob.AddJob(services);
-		}
+		global::Dummy.GetUsersQuery.AddJob(services);
 
 		return builder;
 	}

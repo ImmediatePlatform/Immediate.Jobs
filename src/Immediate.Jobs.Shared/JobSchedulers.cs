@@ -28,11 +28,8 @@ public interface IJobScheduler<TPayload>
 	ValueTask<JobHandle> EnqueueAsync(
 		TPayload payload,
 		string? groupId,
-		CancellationToken cancellationToken
-	) =>
-		string.IsNullOrWhiteSpace(groupId)
-			? EnqueueAsync(payload, cancellationToken)
-			: throw new NotSupportedException("This scheduler does not support fair queue group ids.");
+		CancellationToken cancellationToken = default
+	);
 
 	/// <summary>Schedules work after a delay and returns its opaque invocation identifier.</summary>
 	/// <param name="payload">The payload to schedule.</param>
@@ -51,11 +48,8 @@ public interface IJobScheduler<TPayload>
 		TPayload payload,
 		TimeSpan delay,
 		string? groupId,
-		CancellationToken cancellationToken
-	) =>
-		string.IsNullOrWhiteSpace(groupId)
-			? ScheduleAsync(payload, delay, cancellationToken)
-			: throw new NotSupportedException("This scheduler does not support fair queue group ids.");
+		CancellationToken cancellationToken = default
+	);
 
 	/// <summary>Schedules work at an absolute time and returns its opaque invocation identifier.</summary>
 	/// <param name="payload">The payload to schedule.</param>
@@ -74,11 +68,8 @@ public interface IJobScheduler<TPayload>
 		TPayload payload,
 		DateTimeOffset runAt,
 		string? groupId,
-		CancellationToken cancellationToken
-	) =>
-		string.IsNullOrWhiteSpace(groupId)
-			? ScheduleAtAsync(payload, runAt, cancellationToken)
-			: throw new NotSupportedException("This scheduler does not support fair queue group ids.");
+		CancellationToken cancellationToken = default
+	);
 }
 
 /// <summary>Triggers a payloadless job immediately.</summary>
@@ -166,7 +157,7 @@ public abstract class JobScheduler<TPayload>(
 	public ValueTask<JobHandle> EnqueueAsync(
 		TPayload payload,
 		string? groupId,
-		CancellationToken cancellationToken
+		CancellationToken cancellationToken = default
 	) => ScheduleAtAsync(payload, TimeProvider.GetUtcNow(), groupId, cancellationToken);
 
 	/// <inheritdoc />
@@ -183,7 +174,7 @@ public abstract class JobScheduler<TPayload>(
 		TPayload payload,
 		TimeSpan delay,
 		string? groupId,
-		CancellationToken cancellationToken
+		CancellationToken cancellationToken = default
 	)
 	{
 		if (delay < TimeSpan.Zero)
@@ -205,7 +196,7 @@ public abstract class JobScheduler<TPayload>(
 		TPayload payload,
 		DateTimeOffset runAt,
 		string? groupId,
-		CancellationToken cancellationToken
+		CancellationToken cancellationToken = default
 	)
 	{
 		var record = CreateRecord(payload, runAt, groupId);

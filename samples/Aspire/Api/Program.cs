@@ -7,6 +7,7 @@ using Immediate.Jobs.Aspire.Api.Telemetry;
 using Immediate.Jobs.Aspire.Api.Workflows;
 using Immediate.Jobs.Dashboard;
 using Immediate.Jobs.EntityFrameworkCore;
+using Immediate.Jobs.Shared;
 using Microsoft.EntityFrameworkCore;
 using Scalar.AspNetCore;
 

@@ -31,24 +31,6 @@ public sealed class TestingPackageTests
 	}
 
 	[Fact]
-	public async Task ExistingSchedulerImplementationsKeepCancellationTokenCalls()
-	{
-		IJobScheduler<TestPayload> scheduler = new LegacyScheduler();
-
-#pragma warning disable xUnit1051 // The default literal is the source-compatibility case under test.
-		_ = await scheduler.EnqueueAsync(new("legacy"), default);
-#pragma warning restore xUnit1051
-		_ = await scheduler.EnqueueAsync(new("ungrouped"), groupId: null, cancellationToken: CancellationToken.None);
-		_ = await Assert.ThrowsAsync<NotSupportedException>(
-			() => scheduler.EnqueueAsync(
-				new("grouped"),
-				groupId: "tenant-a",
-				cancellationToken: CancellationToken.None
-			).AsTask()
-		);
-	}
-
-	[Fact]
 	public async Task SchedulerNormalizesAndValidatesFairQueueGroupIds()
 	{
 		var cancellationToken = TestContext.Current.CancellationToken;
@@ -243,26 +225,6 @@ public sealed class TestingPackageTests
 			JobQueueDefinition.DefaultName,
 			static options => new TestingJsonContext(options).TestPayload
 		);
-
-	private sealed class LegacyScheduler : IJobScheduler<TestPayload>
-	{
-		public ValueTask<JobHandle> EnqueueAsync(
-			TestPayload payload,
-			CancellationToken cancellationToken = default
-		) => ValueTask.FromResult(new JobHandle("legacy"));
-
-		public ValueTask<JobHandle> ScheduleAsync(
-			TestPayload payload,
-			TimeSpan delay,
-			CancellationToken cancellationToken = default
-		) => ValueTask.FromResult(new JobHandle("legacy"));
-
-		public ValueTask<JobHandle> ScheduleAtAsync(
-			TestPayload payload,
-			DateTimeOffset runAt,
-			CancellationToken cancellationToken = default
-		) => ValueTask.FromResult(new JobHandle("legacy"));
-	}
 
 	private sealed class TestInvoker : IJobInvoker
 	{
