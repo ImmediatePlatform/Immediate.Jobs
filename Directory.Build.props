@@ -35,6 +35,7 @@
 	<Polyfill>$(Polyfill)|T:System.Runtime.CompilerServices.SkipLocalsInitAttribute</Polyfill>
 	<Polyfill>$(Polyfill)|T:System.Threading.Lock</Polyfill>
 	<Polyfill>$(Polyfill)|M:System.ArgumentNullException.ThrowIfNull</Polyfill>
+	<Polyfill>$(Polyfill)|M:System.Linq.Enumerable.ToHashSet``1(System.Collections.Generic.IEnumerable{``0},System.Collections.Generic.IEqualityComparer{``0})</Polyfill>
 	<Polyfill>$(Polyfill)|M:System.String.CopyTo(System.Span{System.Char})</Polyfill>
 	<Polyfill>$(Polyfill)|M:System.String.Create(System.IFormatProvider,System.Runtime.CompilerServices.DefaultInterpolatedStringHandler@)</Polyfill>
 	<Polyfill>$(Polyfill)|M:System.String.Replace(System.String,System.String,System.StringComparison)</Polyfill>

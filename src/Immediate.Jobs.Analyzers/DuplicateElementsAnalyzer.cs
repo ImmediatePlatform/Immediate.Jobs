@@ -31,17 +31,31 @@ public sealed class DuplicateElementsAnalyzer : DiagnosticAnalyzer
 			customTags: [WellKnownDiagnosticTags.CompilationEnd, WellKnownDiagnosticTags.NotConfigurable]
 		);
 
+	public static readonly DiagnosticDescriptor UnusedQueueDefinition =
+		new(
+			id: DiagnosticIds.IJOB0016UnusedQueueDefinition,
+			title: "Queue definition is not used",
+			messageFormat: "Queue `{0}` is defined but no jobs currently use it",
+			category: "ImmediateJobs",
+			defaultSeverity: DiagnosticSeverity.Warning,
+			isEnabledByDefault: true,
+			description: "Queue definitions with no jobs attached may indicate unused configuration.",
+			customTags: [WellKnownDiagnosticTags.CompilationEnd]
+		);
+
 	public override ImmutableArray<DiagnosticDescriptor> SupportedDiagnostics { get; } =
 		ImmutableArray.Create(
 		[
 			DuplicateJobName,
 			DuplicateQueueName,
+			UnusedQueueDefinition,
 		]);
 
 	private sealed record Job
 	{
 		public required string ClassName { get; init; }
 		public required string JobName { get; init; }
+		public required string QueueName { get; init; }
 		public required Location? Location { get; init; }
 	}
 
@@ -71,35 +85,8 @@ public sealed class DuplicateElementsAnalyzer : DiagnosticAnalyzer
 				{
 					var attributes = context.Symbol.GetAttributes();
 
-					if (attributes.JobAttribute is { } jobAttribute)
-					{
-						lock (@lock)
-						{
-							jobs.Add(
-								new()
-								{
-									ClassName = context.Symbol.ToDisplayString(SymbolDisplayFormat.CSharpErrorMessageFormat),
-									JobName = jobAttribute.GetJobName(className: context.Symbol.Name),
-									Location = context.Symbol.Locations.FirstOrDefault(),
-								}
-							);
-						}
-					}
-
-					if (attributes.QueueDefinitionAttribute is { } queueAttribute)
-					{
-						lock (@lock)
-						{
-							queues.Add(
-								new()
-								{
-									ClassName = context.Symbol.ToDisplayString(SymbolDisplayFormat.CSharpErrorMessageFormat),
-									QueueName = queueAttribute.GetQueueName(className: context.Symbol.Name),
-									Location = context.Symbol.Locations.FirstOrDefault(),
-								}
-							);
-						}
-					}
+					GatherJobDefinition(context, attributes, jobs, @lock);
+					GatherQueueDefinition(context, attributes, queues, @lock);
 				},
 				SymbolKind.NamedType
 			);
@@ -107,41 +94,123 @@ public sealed class DuplicateElementsAnalyzer : DiagnosticAnalyzer
 			context.RegisterCompilationEndAction(
 				context =>
 				{
-					foreach (var jobGroup in jobs.GroupBy(x => x.JobName, StringComparer.Ordinal).Where(g => g.Skip(1).Any()))
-					{
-						var classes = string.Join(", ", jobGroup.Select(l => l.ClassName));
-
-						foreach (var location in jobGroup)
-						{
-							context.ReportDiagnostic(
-								Diagnostic.Create(
-									DuplicateJobName,
-									location.Location,
-									jobGroup.Key,
-									classes
-								)
-							);
-						}
-					}
-
-					foreach (var queueGroup in queues.GroupBy(x => x.QueueName, StringComparer.Ordinal).Where(g => g.Skip(1).Any()))
-					{
-						var classes = string.Join(", ", queueGroup.Select(l => l.ClassName));
-
-						foreach (var location in queueGroup)
-						{
-							context.ReportDiagnostic(
-								Diagnostic.Create(
-									DuplicateQueueName,
-									location.Location,
-									queueGroup.Key,
-									classes
-								)
-							);
-						}
-					}
+					AnalyzeDuplicateJobNames(context, jobs);
+					AnalyzeDuplicateQueueNames(context, queues);
+					AnalyzeUnusedQueues(context, jobs, queues);
 				}
 			);
 		});
+	}
+
+	private static void GatherJobDefinition(
+		SymbolAnalysisContext context,
+		ImmutableArray<AttributeData> attributes,
+		List<Job> jobs,
+		Lock @lock
+	)
+	{
+		if (attributes.JobAttribute is { } jobAttribute)
+		{
+			lock (@lock)
+			{
+				jobs.Add(
+					new()
+					{
+						ClassName = context.Symbol.ToDisplayString(SymbolDisplayFormat.CSharpErrorMessageFormat),
+						JobName = jobAttribute.GetJobName(className: context.Symbol.Name),
+						QueueName = context.Symbol.GetAttributes() switch
+						{
+							{ UsesQueueAttribute.AttributeClass.TypeArguments: [{ } queueType] }
+								when queueType.GetAttributes() is { QueueDefinitionAttribute: { } queueAttribute } =>
+								queueAttribute.GetQueueName(queueType.Name),
+							_ => "default",
+						},
+						Location = context.Symbol.Locations.FirstOrDefault(),
+					}
+				);
+			}
+		}
+	}
+
+	private static void GatherQueueDefinition(
+		SymbolAnalysisContext context,
+		ImmutableArray<AttributeData> attributes,
+		List<Queue> queues,
+		Lock @lock
+	)
+	{
+		if (attributes.QueueDefinitionAttribute is { } queueAttribute)
+		{
+			lock (@lock)
+			{
+				queues.Add(
+					new()
+					{
+						ClassName = context.Symbol.ToDisplayString(SymbolDisplayFormat.CSharpErrorMessageFormat),
+						QueueName = queueAttribute.GetQueueName(className: context.Symbol.Name),
+						Location = context.Symbol.Locations.FirstOrDefault(),
+					}
+				);
+			}
+		}
+	}
+
+	private static void AnalyzeDuplicateJobNames(CompilationAnalysisContext context, List<Job> jobs)
+	{
+		foreach (var jobGroup in jobs.GroupBy(x => x.JobName, StringComparer.Ordinal).Where(g => g.Skip(1).Any()))
+		{
+			var classes = string.Join(", ", jobGroup.Select(l => l.ClassName));
+
+			foreach (var location in jobGroup)
+			{
+				context.ReportDiagnostic(
+					Diagnostic.Create(
+						DuplicateJobName,
+						location.Location,
+						jobGroup.Key,
+						classes
+					)
+				);
+			}
+		}
+	}
+
+	private static void AnalyzeDuplicateQueueNames(CompilationAnalysisContext context, List<Queue> queues)
+	{
+		foreach (var queueGroup in queues.GroupBy(x => x.QueueName, StringComparer.Ordinal).Where(g => g.Skip(1).Any()))
+		{
+			var classes = string.Join(", ", queueGroup.Select(l => l.ClassName));
+
+			foreach (var location in queueGroup)
+			{
+				context.ReportDiagnostic(
+					Diagnostic.Create(
+						DuplicateQueueName,
+						location.Location,
+						queueGroup.Key,
+						classes
+					)
+				);
+			}
+		}
+	}
+
+	private static void AnalyzeUnusedQueues(CompilationAnalysisContext context, List<Job> jobs, List<Queue> queues)
+	{
+		var usedQueues = jobs.Select(j => j.QueueName).ToHashSet(StringComparer.Ordinal);
+
+		foreach (var queue in queues)
+		{
+			if (usedQueues.Contains(queue.QueueName))
+				continue;
+
+			context.ReportDiagnostic(
+				Diagnostic.Create(
+					UnusedQueueDefinition,
+					queue.Location,
+					queue.ClassName
+				)
+			);
+		}
 	}
 }
