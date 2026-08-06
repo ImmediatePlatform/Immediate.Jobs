@@ -91,10 +91,10 @@ public sealed class DuplicateElementsAnalyzerTests
 			namespace Dummy;
 			
 			[QueueDefinition(Name = "my-name")]
-			public sealed partial class {|IJOB0003:QueueOne|};
+			public sealed partial class {|IJOB0003:{|IJOB0016:QueueOne|}|};
 			
 			[QueueDefinition(Name = "my-name")]
-			public sealed partial class {|IJOB0003:QueueTwo|};
+			public sealed partial class {|IJOB0003:{|IJOB0016:QueueTwo|}|};
 			"""
 		).RunAsync(TestContext.Current.CancellationToken);
 
@@ -110,10 +110,10 @@ public sealed class DuplicateElementsAnalyzerTests
 			namespace Dummy;
 			
 			[QueueDefinition(Name = "my-name-queue")]
-			public sealed partial class {|IJOB0003:QueueOne|};
+			public sealed partial class {|IJOB0003:{|IJOB0016:QueueOne|}|};
 
 			[QueueDefinition]
-			public sealed partial class {|IJOB0003:MyNameQueue|};
+			public sealed partial class {|IJOB0003:{|IJOB0016:MyNameQueue|}|};
 			"""
 		).RunAsync(TestContext.Current.CancellationToken);
 
@@ -133,6 +133,31 @@ public sealed class DuplicateElementsAnalyzerTests
 			
 			[QueueDefinition]
 			public sealed partial class QueueTwo;
+			
+			[Handler, Job, UsesQueue<QueueOne>]
+			public sealed partial class JobOne
+			{
+				private async ValueTask Handle(EmptyJobRequest _, CancellationToken token) { }
+			}
+			
+			[Handler, Job, UsesQueue<QueueTwo>]
+			public sealed partial class JobTwo
+			{
+				private async ValueTask Handle(EmptyJobRequest _, CancellationToken token) { }
+			}
+			"""
+		).RunAsync(TestContext.Current.CancellationToken);
+
+	[Fact]
+	public async Task QueueDefinitionWithoutJobsShouldWarn() =>
+		await AnalyzerTestHelpers.CreateAnalyzerTest<DuplicateElementsAnalyzer>(
+			"""
+			using Immediate.Jobs.Shared;
+
+			namespace Dummy;
+
+			[QueueDefinition]
+			public sealed class {|IJOB0016:UnusedQueue|};
 			"""
 		).RunAsync(TestContext.Current.CancellationToken);
 }

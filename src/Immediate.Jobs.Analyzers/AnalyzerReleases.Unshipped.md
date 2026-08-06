@@ -17,3 +17,4 @@ IJOB0012 | ImmediateJobs | Error | JobClassAnalyzer
 IJOB0013 | ImmediateJobs | Error | PayloadAnalyzer
 IJOB0014 | ImmediateJobs | Error | PayloadAnalyzer
 IJOB0015 | ImmediateJobs | Warning | DetachedJobCannotBeAddedToBatch
+IJOB0016 | ImmediateJobs | Warning | DuplicateElementsAnalyzer
