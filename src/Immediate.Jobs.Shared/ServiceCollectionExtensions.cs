@@ -58,9 +58,11 @@ public static class ImmediateJobsRuntimeServiceCollectionExtensions
 		_ = services.AddSingleton(JobQueueDefinition.Default);
 		services.TryAddSingleton<JobSchedulerState>();
 		services.TryAddSingleton<JobSchedulerService>();
-		_ = services.AddSingleton<IHostedService>(
-			static sp => sp.GetRequiredService<JobSchedulerService>()
+
+		services.TryAddEnumerable(
+			ServiceDescriptor.Singleton<IHostedService, JobSchedulerService>(sp => sp.GetRequiredService<JobSchedulerService>())
 		);
+
 		return new(services);
 	}
 

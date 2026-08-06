@@ -8,6 +8,25 @@ namespace Immediate.Jobs.FunctionalTests;
 public sealed class QueueSchedulerTests
 {
 	[Fact]
+	public async Task RepeatedRuntimeRegistrationPreservesOtherHostedServicesAndAddsOneScheduler()
+	{
+		var services = new ServiceCollection();
+		_ = services.AddLogging();
+		_ = services.AddHostedService<OtherHostedService>();
+		_ = services.AddImmediateJobsCore();
+		_ = services.AddImmediateJobsCore();
+
+		await using var provider = services.BuildServiceProvider();
+		var hostedServices = provider.GetServices<IHostedService>().ToArray();
+
+		Assert.Collection(
+			hostedServices,
+			sd => Assert.IsType<OtherHostedService>(sd),
+			sd => Assert.IsType<JobSchedulerService>(sd)
+		);
+	}
+
+	[Fact]
 	public async Task SchedulerAppliesQueueAndJobLimitsBeforeDispatch()
 	{
 		var cancellationToken = TestContext.Current.CancellationToken;
@@ -107,6 +126,13 @@ public sealed class QueueSchedulerTests
 				_ = _activeByJob.AddOrUpdate(record.JobName, 0, static (_, count) => count - 1);
 			}
 		}
+	}
+
+	private sealed class OtherHostedService : IHostedService
+	{
+		public Task StartAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+
+		public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 	}
 }
 #pragma warning restore CS1591
