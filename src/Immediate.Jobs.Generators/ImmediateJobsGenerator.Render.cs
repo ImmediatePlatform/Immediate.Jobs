@@ -21,19 +21,19 @@ public sealed partial class ImmediateJobsGenerator
 			job.PayloadTypeName,
 			job.HasPayload,
 			job.HasJobDetails,
-			JobNameLiteral = Literal(job.Name),
-			QueueNameLiteral = Literal(job.QueueName),
+			JobNameLiteral = job.Name.AsCSharpLiteral(),
+			QueueNameLiteral = job.QueueName.AsCSharpLiteral(),
 			QueuePriority = job.QueuePriority.ToString(CultureInfo.InvariantCulture),
 			QueueConcurrency = job.QueueConcurrency.ToString(CultureInfo.InvariantCulture),
 			RecurringSchedulerInterface = job.Cron is null ? "IRecurringJobScheduler" : "IRecurringJobTrigger",
-			CronLiteral = job.Cron is null ? null : Literal(job.Cron),
-			TimeZoneLiteral = Literal(job.TimeZone),
+			CronLiteral = job.Cron?.AsCSharpLiteral(),
+			TimeZoneLiteral = job.TimeZone.AsCSharpLiteral(),
 			MaxAttempts = job.MaxAttempts.ToString(CultureInfo.InvariantCulture),
-			TimeoutLiteral = job.Timeout is null ? null : Literal(job.Timeout),
+			TimeoutLiteral = job.Timeout?.AsCSharpLiteral(),
 			MaxConcurrency = job.MaxConcurrency.ToString(CultureInfo.InvariantCulture),
 			job.OverlapPolicy,
 			job.Backoff,
-			BackoffBaseLiteral = Literal(job.BackoffBase),
+			BackoffBaseLiteral = job.BackoffBase.AsCSharpLiteral(),
 			job.Contexts,
 			job.Json,
 			Version = ThisAssembly.InformationalVersion,
@@ -88,7 +88,7 @@ public sealed partial class ImmediateJobsGenerator
 				.OrderBy(static queue => queue.Name, StringComparer.Ordinal)
 				.Select(queue => new
 				{
-					NameLiteral = Literal(queue.Name),
+					NameLiteral = queue.Name.AsCSharpLiteral(),
 					Priority = queue.Priority.ToString(CultureInfo.InvariantCulture),
 					Concurrency = queue.Concurrency.ToString(CultureInfo.InvariantCulture),
 				})
@@ -117,7 +117,4 @@ public sealed partial class ImmediateJobsGenerator
 		using var reader = new StreamReader(stream);
 		return Template.Parse(reader.ReadToEnd());
 	}
-
-	private static string Literal(string value) =>
-		Microsoft.CodeAnalysis.CSharp.SymbolDisplay.FormatLiteral(value, quote: true);
 }
