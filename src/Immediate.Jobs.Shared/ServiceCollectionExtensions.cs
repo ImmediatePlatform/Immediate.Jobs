@@ -58,9 +58,7 @@ public static class ImmediateJobsRuntimeServiceCollectionExtensions
 		_ = services.AddSingleton(JobQueueDefinition.Default);
 		services.TryAddSingleton<JobSchedulerState>();
 		services.TryAddSingleton<JobSchedulerService>();
-		_ = services.AddSingleton<IHostedService>(
-			static sp => sp.GetRequiredService<JobSchedulerService>()
-		);
+		services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, JobSchedulerHostedService>());
 		return new(services);
 	}
 
@@ -97,4 +95,12 @@ public static class ImmediateJobsRuntimeServiceCollectionExtensions
 		_ = builder.Services.AddHealthChecks().AddCheck<ImmediateJobsHealthCheck>(name, failureStatus, tags ?? []);
 		return builder;
 	}
+}
+
+[SuppressMessage("Performance", "CA1812", Justification = "Activated by dependency injection.")]
+internal sealed class JobSchedulerHostedService(JobSchedulerService scheduler) : IHostedService
+{
+	public Task StartAsync(CancellationToken cancellationToken) => scheduler.StartAsync(cancellationToken);
+
+	public Task StopAsync(CancellationToken cancellationToken) => scheduler.StopAsync(cancellationToken);
 }

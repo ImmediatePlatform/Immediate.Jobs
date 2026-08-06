@@ -8,6 +8,19 @@ namespace Immediate.Jobs.FunctionalTests;
 public sealed class QueueSchedulerTests
 {
 	[Fact]
+	public async Task RepeatedRuntimeRegistrationAddsOneHostedScheduler()
+	{
+		var services = new ServiceCollection();
+		_ = services.AddLogging();
+		_ = services.AddImmediateJobsCore();
+		_ = services.AddImmediateJobsCore();
+
+		await using var provider = services.BuildServiceProvider();
+
+		_ = Assert.Single(provider.GetServices<IHostedService>());
+	}
+
+	[Fact]
 	public async Task SchedulerAppliesQueueAndJobLimitsBeforeDispatch()
 	{
 		var cancellationToken = TestContext.Current.CancellationToken;
