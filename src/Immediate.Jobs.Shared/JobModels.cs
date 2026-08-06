@@ -162,7 +162,8 @@ public sealed record RecurringJobSchedule
 }
 
 /// <summary>Immutable generated execution settings.</summary>
-public sealed record JobDefinition
+[SuppressMessage("Design", "MA0053", Justification = "Inherited by each job to ensure idempotency in registrations")]
+public record JobDefinition
 {
 	/// <summary>The queue used by newly-created invocations.</summary>
 	/// <value>The queue definition used by new invocations.</value>

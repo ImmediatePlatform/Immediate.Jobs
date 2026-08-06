@@ -57,19 +57,6 @@ public sealed partial class ImmediateJobsGenerator
 		var cancellationToken = context.CancellationToken;
 		cancellationToken.ThrowIfCancellationRequested();
 
-		// Two jobs resolving to the same name would collide at runtime; drop them from
-		// generation and let the analyzer surface the duplicate as a diagnostic instead.
-		var duplicateNames = jobs
-			.GroupBy(job => job.Name, StringComparer.Ordinal)
-			.Where(group => group.Count() > 1)
-			.Select(group => group.Key)
-			.ToImmutableHashSet(StringComparer.Ordinal);
-
-		var models = jobs
-			.Where(job => !duplicateNames.Contains(job.Name))
-			.OrderBy(job => job.TypeName, StringComparer.Ordinal)
-			.ToImmutableArray();
-
 		var model = new
 		{
 			assemblyDefaults.AssemblyName,
@@ -77,14 +64,7 @@ public sealed partial class ImmediateJobsGenerator
 			Namespace = @namespace,
 
 			Queues = queues
-				.Concat(models.Select(job => new QueueModel
-				{
-					Name = job.QueueName,
-					Priority = job.QueuePriority,
-					Concurrency = job.QueueConcurrency,
-				}))
 				.Where(static queue => !string.Equals(queue.Name, "default", StringComparison.Ordinal))
-				.Distinct()
 				.OrderBy(static queue => queue.Name, StringComparer.Ordinal)
 				.Select(queue => new
 				{
@@ -92,9 +72,19 @@ public sealed partial class ImmediateJobsGenerator
 					Priority = queue.Priority.ToString(CultureInfo.InvariantCulture),
 					Concurrency = queue.Concurrency.ToString(CultureInfo.InvariantCulture),
 				})
-				.ToArray(),
+				.ToList(),
 
-			JobsByTag = models.GroupBy(job => job.Tags, StringComparer.Ordinal),
+			Jobs = jobs
+				.Where(job => !job.HasPayload)
+				.Select(job => new
+				{
+					job.TypeName,
+					JobNameLiteral = job.Name.AsCSharpLiteral(),
+				})
+				.ToList(),
+
+			JobsByTag = jobs.GroupBy(job => job.Tags, StringComparer.Ordinal),
+
 			Version = ThisAssembly.InformationalVersion,
 		};
 

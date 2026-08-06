@@ -67,8 +67,9 @@ partial class PlainJob
 			where TRequest : global::Immediate.Jobs.Shared.IJobRequest => request.JobDetails = details;
 	}
 
-	[global::System.ComponentModel.EditorBrowsable(global::System.ComponentModel.EditorBrowsableState.Never)]
-	internal static global::Immediate.Jobs.Shared.JobDefinition CreateJobDefinition(global::System.IServiceProvider services) => new()
+	internal sealed record JobDefinition : global::Immediate.Jobs.Shared.JobDefinition;
+
+	internal static JobDefinition CreateJobDefinition(global::System.IServiceProvider services) => new()
 	{
 		Name = "plain",
 		Queue = new global::Immediate.Jobs.Shared.JobQueueDefinition
@@ -129,16 +130,17 @@ partial class PlainJob
 		global::Microsoft.Extensions.DependencyInjection.IServiceCollection services
 	)
 	{
-		services.Add(
-			new global::Microsoft.Extensions.DependencyInjection.ServiceDescriptor(
-				typeof(global::Immediate.Jobs.Shared.JobDefinition),
-				PlainJob.CreateJobDefinition,
-				global::Microsoft.Extensions.DependencyInjection.ServiceLifetime.Singleton
-			)
+		global::Microsoft.Extensions.DependencyInjection.Extensions.ServiceCollectionDescriptorExtensions.TryAddEnumerable(
+			services,
+			global::Microsoft.Extensions.DependencyInjection.ServiceDescriptor.Singleton<
+				global::Immediate.Jobs.Shared.JobDefinition,
+				JobDefinition
+			>(PlainJob.CreateJobDefinition)
 		);
 
-		global::Microsoft.Extensions.DependencyInjection.Extensions.ServiceCollectionDescriptorExtensions.TryAddScoped(services, typeof(PlainJob.Scheduler));
-		global::Microsoft.Extensions.DependencyInjection.Extensions.ServiceCollectionDescriptorExtensions.TryAddSingleton(services, typeof(PlainJob.Invoker));
+		global::Microsoft.Extensions.DependencyInjection.Extensions.ServiceCollectionDescriptorExtensions.TryAddScoped<PlainJob.Scheduler>(services);
+
+		global::Microsoft.Extensions.DependencyInjection.Extensions.ServiceCollectionDescriptorExtensions.TryAddSingleton<PlainJob.Invoker>(services);
 
 
 		return services;
