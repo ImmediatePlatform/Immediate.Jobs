@@ -284,6 +284,51 @@ public sealed class GeneratedJobTests
 		Assert.Empty(state.Details);
 		Assert.Equal(JobState.Succeeded, (await harness.GetJobAsync(id, cancellationToken)).State);
 	}
+
+	[Fact]
+	public async Task RepeatedRegistrationsOfJobAreIdempotent()
+	{
+		var services = new ServiceCollection();
+
+		_ = PlainRequestJob.AddJob(services);
+
+		Assert.Collection(
+			services,
+			d => Assert.Equal(typeof(JobDefinition), d.ServiceType),
+			d => Assert.Equal(typeof(PlainRequestJob.Scheduler), d.ServiceType),
+			d => Assert.Equal(typeof(IJobScheduler<PlainRequestJob.Payload>), d.ServiceType),
+			d => Assert.Equal(typeof(PlainRequestJob.Invoker), d.ServiceType)
+		);
+
+		_ = RecordMessageJob.AddJob(services);
+
+		Assert.Collection(
+			services,
+			d => Assert.Equal(typeof(JobDefinition), d.ServiceType),
+			d => Assert.Equal(typeof(PlainRequestJob.Scheduler), d.ServiceType),
+			d => Assert.Equal(typeof(IJobScheduler<PlainRequestJob.Payload>), d.ServiceType),
+			d => Assert.Equal(typeof(PlainRequestJob.Invoker), d.ServiceType),
+			d => Assert.Equal(typeof(JobDefinition), d.ServiceType),
+			d => Assert.Equal(typeof(RecordMessageJob.Scheduler), d.ServiceType),
+			d => Assert.Equal(typeof(IJobScheduler<RecordMessageJob.Payload>), d.ServiceType),
+			d => Assert.Equal(typeof(RecordMessageJob.Invoker), d.ServiceType)
+		);
+
+		_ = PlainRequestJob.AddJob(services);
+
+		// verify no items were duplicates
+		Assert.Collection(
+			services,
+			d => Assert.Equal(typeof(JobDefinition), d.ServiceType),
+			d => Assert.Equal(typeof(PlainRequestJob.Scheduler), d.ServiceType),
+			d => Assert.Equal(typeof(IJobScheduler<PlainRequestJob.Payload>), d.ServiceType),
+			d => Assert.Equal(typeof(PlainRequestJob.Invoker), d.ServiceType),
+			d => Assert.Equal(typeof(JobDefinition), d.ServiceType),
+			d => Assert.Equal(typeof(RecordMessageJob.Scheduler), d.ServiceType),
+			d => Assert.Equal(typeof(IJobScheduler<RecordMessageJob.Payload>), d.ServiceType),
+			d => Assert.Equal(typeof(RecordMessageJob.Invoker), d.ServiceType)
+		);
+	}
 }
 
 public sealed class ExecutionState
