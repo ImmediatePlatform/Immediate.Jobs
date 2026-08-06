@@ -24,6 +24,20 @@ internal static class JsonMetadataEmitter
 
 		return type switch
 		{
+			{ ConverterTypeName: { } converterName } =>
+				new JsonTypeRenderModel
+				{
+					Index = index,
+					TypeName = typeFullName,
+					IsValueType = type.IsValueType,
+					ConverterName = converterName,
+					NullableUnderlyingTypeName = null,
+					IsEnum = false,
+					UsesConfiguredConverter = false,
+					CollectionInfo = null,
+					ObjectInfo = null,
+				},
+
 			{ TypeKind: TypeKind.Enum } =>
 				new JsonTypeRenderModel
 				{
@@ -62,20 +76,6 @@ internal static class JsonMetadataEmitter
 					NullableUnderlyingTypeName = null,
 					IsEnum = false,
 					UsesConfiguredConverter = true,
-					CollectionInfo = null,
-					ObjectInfo = null,
-				},
-
-			{ ConverterTypeName: { } converterName } =>
-				new JsonTypeRenderModel
-				{
-					Index = index,
-					TypeName = typeFullName,
-					IsValueType = type.IsValueType,
-					ConverterName = converterName,
-					NullableUnderlyingTypeName = null,
-					IsEnum = false,
-					UsesConfiguredConverter = false,
 					CollectionInfo = null,
 					ObjectInfo = null,
 				},
@@ -344,6 +344,15 @@ internal static class JsonMetadataEmitter
 		if (!visited.Add(type))
 			return;
 
+		if (type.ConverterTypeName is { })
+			return;
+
+		if (type.RootNamespace is "NodaTime")
+			return;
+
+		if (type.TypeKind is TypeKind.Enum)
+			return;
+
 		if (type.NullableUnderlyingType is { } underlyingType)
 		{
 			VisitTypeCollector(underlyingType, visited);
@@ -365,12 +374,7 @@ internal static class JsonMetadataEmitter
 			return;
 		}
 
-		if (type is INamedTypeSymbol
-			{
-				TypeKind: not TypeKind.Enum,
-				RootNamespace: not "NodaTime",
-				ConverterTypeName: null,
-			} named)
+		if (type is INamedTypeSymbol named)
 		{
 			foreach (var member in GetMembers(named))
 				VisitTypeCollector(member.Type, visited);
