@@ -19,8 +19,11 @@ public sealed class QueueSchedulerTests
 		await using var provider = services.BuildServiceProvider();
 		var hostedServices = provider.GetServices<IHostedService>().ToArray();
 
-		Assert.Equal(2, hostedServices.Length);
-		_ = Assert.Single(hostedServices.OfType<OtherHostedService>());
+		Assert.Collection(
+			hostedServices,
+			sd => Assert.IsType<OtherHostedService>(sd),
+			sd => Assert.IsType<JobSchedulerService>(sd)
+		);
 	}
 
 	[Fact]
