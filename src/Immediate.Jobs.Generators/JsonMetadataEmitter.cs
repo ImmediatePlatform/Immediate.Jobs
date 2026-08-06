@@ -175,43 +175,44 @@ internal static class JsonMetadataEmitter
 	private static HashSet<ITypeSymbol> CollectTypes(IEnumerable<ITypeSymbol> roots)
 	{
 		var visited = new HashSet<ITypeSymbol>(SymbolEqualityComparer.Default);
-		void Visit(ITypeSymbol type)
-		{
-			if (!visited.Add(type))
-				return;
-
-			if (type.NullableUnderlyingType is { } underlyingType)
-			{
-				Visit(underlyingType);
-				return;
-			}
-
-			if (CreateCollectionModel(type) is not null)
-			{
-				if (type is IArrayTypeSymbol array)
-				{
-					Visit(array.ElementType);
-				}
-				else if (type is INamedTypeSymbol namedCollection)
-				{
-					foreach (var argument in namedCollection.TypeArguments)
-						Visit(argument);
-				}
-
-				return;
-			}
-
-			if (type is INamedTypeSymbol { TypeKind: not TypeKind.Enum, RootNamespace: not "NodaTime" } named && GetConverter(named) is null)
-			{
-				foreach (var member in GetMembers(named))
-					Visit(GetMemberType(member));
-			}
-		}
 
 		foreach (var root in roots)
-			Visit(root);
+			VisitTypeCollector(root, visited);
 
 		return visited;
+	}
+
+	private static void VisitTypeCollector(ITypeSymbol type, HashSet<ITypeSymbol> visited)
+	{
+		if (!visited.Add(type))
+			return;
+
+		if (type.NullableUnderlyingType is { } underlyingType)
+		{
+			VisitTypeCollector(underlyingType, visited);
+			return;
+		}
+
+		if (CreateCollectionModel(type) is not null)
+		{
+			if (type is IArrayTypeSymbol array)
+			{
+				VisitTypeCollector(array.ElementType, visited);
+			}
+			else if (type is INamedTypeSymbol namedCollection)
+			{
+				foreach (var argument in namedCollection.TypeArguments)
+					VisitTypeCollector(argument, visited);
+			}
+
+			return;
+		}
+
+		if (type is INamedTypeSymbol { TypeKind: not TypeKind.Enum, RootNamespace: not "NodaTime" } named && GetConverter(named) is null)
+		{
+			foreach (var member in GetMembers(named))
+				VisitTypeCollector(GetMemberType(member), visited);
+		}
 	}
 
 	private static List<ISymbol> GetMembers(INamedTypeSymbol type)
