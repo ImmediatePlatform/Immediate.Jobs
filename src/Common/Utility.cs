@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text;
+using Microsoft.CodeAnalysis.CSharp;
 
 namespace Immediate.Jobs;
 
@@ -26,6 +27,16 @@ internal static class Utility
 
 			return false;
 		}
+
+		public string AsCSharpLiteral() =>
+			SymbolDisplay.FormatLiteral(str, quote: true);
+
+		public string EscapeIdentifier() =>
+			SyntaxFacts.GetKeywordKind(str) == SyntaxKind.None
+			&& SyntaxFacts.GetContextualKeywordKind(str) == SyntaxKind.None
+				? str
+				: "@" + str;
+
 	}
 
 	extension(ReadOnlySpan<char> str)

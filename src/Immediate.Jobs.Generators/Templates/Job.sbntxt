@@ -247,7 +247,7 @@ partial class {{ class_name }}
 					{{~ for member in type.object_info.members ~}}
 					global::System.Text.Json.Serialization.Metadata.JsonMetadataServices.CreatePropertyInfo<{{ member.type_name }}>(options, new()
 					{
-						IsProperty = {{ member.is_property_literal }},
+						IsProperty = true,
 						IsPublic = true,
 						DeclaringType = typeof({{ type.type_name }}),
 						PropertyTypeInfo = (global::System.Text.Json.Serialization.Metadata.JsonTypeInfo<{{ member.type_name }}>)options.GetTypeInfo(typeof({{ member.type_name }})),
