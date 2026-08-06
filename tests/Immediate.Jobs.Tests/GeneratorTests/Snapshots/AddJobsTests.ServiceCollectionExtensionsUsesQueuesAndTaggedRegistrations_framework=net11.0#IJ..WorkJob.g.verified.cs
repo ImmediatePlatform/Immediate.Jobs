@@ -62,14 +62,14 @@ partial class WorkJob
 			if (execution.Record.Context is { } envelope)
 			{
 				var contextSlices = global::Immediate.Jobs.Shared.JobContextEnvelope.Read(envelope);
-				
-								var contextExtractor0 = global::Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetRequiredService<global::WorkContextExtractor>(scopedServices);
-								if (contextSlices.Remove(contextExtractor0.Key, out var serializedContext0))
-								{
-									var context0 = serializer.Deserialize(serializedContext0, static options => new PayloadJsonContext(options).Context0);
-									contextExtractor0.Restore(context0);
-								}
-								
+
+				var contextExtractor0 = global::Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetRequiredService<global::WorkContextExtractor>(scopedServices);
+				if (contextSlices.Remove(contextExtractor0.Key, out var serializedContext0))
+				{
+					var context0 = serializer.Deserialize(serializedContext0, static options => new PayloadJsonContext(options).Context0);
+					contextExtractor0.Restore(context0);
+				}
+
 				global::Immediate.Jobs.Shared.JobContextEnvelope.LogOrphanedSlices(scopedServices, execution.Record, contextSlices.Keys);
 			}
 
@@ -100,8 +100,9 @@ partial class WorkJob
 			where TRequest : global::Immediate.Jobs.Shared.IJobRequest => request.JobDetails = details;
 	}
 
-	[global::System.ComponentModel.EditorBrowsable(global::System.ComponentModel.EditorBrowsableState.Never)]
-	internal static global::Immediate.Jobs.Shared.JobDefinition CreateJobDefinition(global::System.IServiceProvider services) => new()
+	internal sealed record JobDefinition : global::Immediate.Jobs.Shared.JobDefinition;
+
+	internal static JobDefinition CreateJobDefinition(global::System.IServiceProvider services) => new()
 	{
 		Name = "work",
 		Queue = new global::Immediate.Jobs.Shared.JobQueueDefinition
@@ -177,18 +178,19 @@ partial class WorkJob
 		global::Microsoft.Extensions.DependencyInjection.IServiceCollection services
 	)
 	{
-		services.Add(
-			new global::Microsoft.Extensions.DependencyInjection.ServiceDescriptor(
-				typeof(global::Immediate.Jobs.Shared.JobDefinition),
-				WorkJob.CreateJobDefinition,
-				global::Microsoft.Extensions.DependencyInjection.ServiceLifetime.Singleton
-			)
+		global::Microsoft.Extensions.DependencyInjection.Extensions.ServiceCollectionDescriptorExtensions.TryAddEnumerable(
+			services,
+			global::Microsoft.Extensions.DependencyInjection.ServiceDescriptor.Singleton<
+				global::Immediate.Jobs.Shared.JobDefinition,
+				JobDefinition
+			>(WorkJob.CreateJobDefinition)
 		);
 
-		global::Microsoft.Extensions.DependencyInjection.Extensions.ServiceCollectionDescriptorExtensions.TryAddScoped(services, typeof(WorkJob.Scheduler));
-		global::Microsoft.Extensions.DependencyInjection.Extensions.ServiceCollectionDescriptorExtensions.TryAddSingleton(services, typeof(WorkJob.Invoker));
+		global::Microsoft.Extensions.DependencyInjection.Extensions.ServiceCollectionDescriptorExtensions.TryAddScoped<WorkJob.Scheduler>(services);
 
-		global::Microsoft.Extensions.DependencyInjection.Extensions.ServiceCollectionDescriptorExtensions.TryAddScoped(services, typeof(global::WorkContextExtractor));
+		global::Microsoft.Extensions.DependencyInjection.Extensions.ServiceCollectionDescriptorExtensions.TryAddSingleton<WorkJob.Invoker>(services);
+
+		global::Microsoft.Extensions.DependencyInjection.Extensions.ServiceCollectionDescriptorExtensions.TryAddScoped<global::WorkContextExtractor>(services);
 
 		return services;
 	}

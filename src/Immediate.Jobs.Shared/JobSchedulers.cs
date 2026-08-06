@@ -135,12 +135,10 @@ public abstract class JobScheduler<TPayload>(
 	protected TimeProvider TimeProvider { get; } = timeProvider;
 
 	/// <summary>The stable generated name.</summary>
-	/// <value>The generated job name.</value>
-	protected string JobName { get; } = jobName;
+	public string JobName { get; } = jobName;
 
 	/// <summary>The stable queue used for new invocations.</summary>
-	/// <value>The queue name.</value>
-	protected string QueueName { get; } = queueName;
+	public string QueueName { get; } = queueName;
 
 	/// <inheritdoc />
 	public ValueTask CancelAsync(JobHandle handle, CancellationToken cancellationToken = default)

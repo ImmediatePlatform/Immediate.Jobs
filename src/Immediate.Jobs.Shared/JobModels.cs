@@ -162,7 +162,7 @@ public sealed record RecurringJobSchedule
 }
 
 /// <summary>Immutable generated execution settings.</summary>
-public sealed record JobDefinition
+public record JobDefinition
 {
 	/// <summary>The queue used by newly-created invocations.</summary>
 	/// <value>The queue definition used by new invocations.</value>

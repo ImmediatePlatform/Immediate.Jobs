@@ -57,8 +57,9 @@ partial class StructJob
 			where TRequest : global::Immediate.Jobs.Shared.IJobRequest => request.JobDetails = details;
 	}
 
-	[global::System.ComponentModel.EditorBrowsable(global::System.ComponentModel.EditorBrowsableState.Never)]
-	internal static global::Immediate.Jobs.Shared.JobDefinition CreateJobDefinition(global::System.IServiceProvider services) => new()
+	internal sealed record JobDefinition : global::Immediate.Jobs.Shared.JobDefinition;
+
+	internal static JobDefinition CreateJobDefinition(global::System.IServiceProvider services) => new()
 	{
 		Name = "struct",
 		Queue = new global::Immediate.Jobs.Shared.JobQueueDefinition
@@ -143,16 +144,25 @@ partial class StructJob
 		global::Microsoft.Extensions.DependencyInjection.IServiceCollection services
 	)
 	{
-		services.Add(
-			new global::Microsoft.Extensions.DependencyInjection.ServiceDescriptor(
-				typeof(global::Immediate.Jobs.Shared.JobDefinition),
-				StructJob.CreateJobDefinition,
-				global::Microsoft.Extensions.DependencyInjection.ServiceLifetime.Singleton
-			)
+		global::Microsoft.Extensions.DependencyInjection.Extensions.ServiceCollectionDescriptorExtensions.TryAddEnumerable(
+			services,
+			global::Microsoft.Extensions.DependencyInjection.ServiceDescriptor.Singleton<
+				global::Immediate.Jobs.Shared.JobDefinition,
+				JobDefinition
+			>(StructJob.CreateJobDefinition)
 		);
 
-		global::Microsoft.Extensions.DependencyInjection.Extensions.ServiceCollectionDescriptorExtensions.TryAddScoped(services, typeof(StructJob.Scheduler));
-		global::Microsoft.Extensions.DependencyInjection.Extensions.ServiceCollectionDescriptorExtensions.TryAddSingleton(services, typeof(StructJob.Invoker));
+		global::Microsoft.Extensions.DependencyInjection.Extensions.ServiceCollectionDescriptorExtensions.TryAddScoped<StructJob.Scheduler>(services);
+
+		global::Microsoft.Extensions.DependencyInjection.Extensions.ServiceCollectionDescriptorExtensions.TryAddEnumerable(
+			services,
+			global::Microsoft.Extensions.DependencyInjection.ServiceDescriptor.Scoped<
+				global::Immediate.Jobs.Shared.IJobScheduler<global::StructPayload>,
+				StructJob.Scheduler
+			>(global::Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetRequiredService<StructJob.Scheduler>)
+		);
+
+		global::Microsoft.Extensions.DependencyInjection.Extensions.ServiceCollectionDescriptorExtensions.TryAddSingleton<StructJob.Invoker>(services);
 
 
 		return services;
