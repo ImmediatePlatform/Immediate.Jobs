@@ -130,6 +130,6 @@ public static class JobContextEnvelope
 
 		var logger = loggerFactory.CreateLogger("Immediate.Jobs.ContextPropagation");
 		foreach (var key in keys)
-			LogOrphanedSlice(logger, key, record.Id, null);
+			LogOrphanedSlice(logger, key, record.JobId, null);
 	}
 }

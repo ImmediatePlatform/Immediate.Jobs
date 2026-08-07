@@ -137,7 +137,7 @@ internal static class JobExecutionRecords
 
 		return new()
 		{
-			JobId = job.Id,
+			JobId = job.JobId,
 			Attempt = job.Attempt,
 			State = state,
 			WorkerId = job.State == JobState.Active ? job.WorkerId : null,

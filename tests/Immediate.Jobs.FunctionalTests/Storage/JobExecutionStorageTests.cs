@@ -20,7 +20,7 @@ public sealed class JobExecutionStorageTests
 		Assert.Equal(1, first.Attempt);
 		var firstStartedAt = clock.GetUtcNow().AddSeconds(1);
 		await storage.SetExecutionTelemetryAsync(
-			first.Id,
+			first.JobId,
 			first.Attempt,
 			"worker",
 			"11111111111111111111111111111111",
@@ -31,7 +31,7 @@ public sealed class JobExecutionStorageTests
 		clock.Advance(TimeSpan.FromSeconds(2));
 		const string FirstError = "System.InvalidOperationException: first execution failed\n   at Test.Handler()";
 		await storage.FailAsync(
-			first.Id,
+			first.JobId,
 			first.Attempt,
 			"worker",
 			FirstError,
@@ -43,7 +43,7 @@ public sealed class JobExecutionStorageTests
 		Assert.Equal(2, second.Attempt);
 		var secondStartedAt = clock.GetUtcNow().AddSeconds(1);
 		await storage.SetExecutionTelemetryAsync(
-			second.Id,
+			second.JobId,
 			second.Attempt,
 			"worker",
 			"22222222222222222222222222222222",
@@ -54,7 +54,7 @@ public sealed class JobExecutionStorageTests
 
 		_ = await Assert.ThrowsAsync<ImmediateJobException>(
 			() => storage.RenewLeaseAsync(
-				second.Id,
+				second.JobId,
 				first.Attempt,
 				"worker",
 				TimeSpan.FromMinutes(1),
@@ -62,7 +62,7 @@ public sealed class JobExecutionStorageTests
 			).AsTask()
 		);
 		_ = await Assert.ThrowsAsync<ImmediateJobException>(() => storage.SetExecutionTelemetryAsync(
-			second.Id,
+			second.JobId,
 			first.Attempt,
 			"worker",
 			"stale",
@@ -71,12 +71,12 @@ public sealed class JobExecutionStorageTests
 			cancellationToken
 		).AsTask());
 		var staleCompletion = await Assert.ThrowsAsync<ImmediateJobException>(
-			() => storage.CompleteAsync(second.Id, first.Attempt, "worker", cancellationToken).AsTask()
+			() => storage.CompleteAsync(second.JobId, first.Attempt, "worker", cancellationToken).AsTask()
 		);
 		Assert.Contains("Execution 1", staleCompletion.Message, StringComparison.Ordinal);
 		Assert.Contains("active execution is 2", staleCompletion.Message, StringComparison.Ordinal);
 		_ = await Assert.ThrowsAsync<ImmediateJobException>(() => storage.FailAsync(
-			second.Id,
+			second.JobId,
 			first.Attempt,
 			"worker",
 			"stale",
@@ -85,9 +85,9 @@ public sealed class JobExecutionStorageTests
 		).AsTask());
 
 		clock.Advance(TimeSpan.FromSeconds(2));
-		await storage.CompleteAsync(second.Id, second.Attempt, "worker", cancellationToken);
+		await storage.CompleteAsync(second.JobId, second.Attempt, "worker", cancellationToken);
 
-		var executions = await storage.QueryJobExecutionsAsync(new() { JobId = second.Id }, cancellationToken);
+		var executions = await storage.QueryJobExecutionsAsync(new() { JobId = second.JobId }, cancellationToken);
 		Assert.Collection(
 			executions,
 			execution =>
@@ -126,7 +126,7 @@ public sealed class JobExecutionStorageTests
 		clock.Advance(TimeSpan.FromMinutes(2));
 		var second = Assert.Single(await storage.AcquireDueJobsAsync(CreateRequest("worker"), cancellationToken));
 
-		var executions = await storage.QueryJobExecutionsAsync(new() { JobId = first.Id }, cancellationToken);
+		var executions = await storage.QueryJobExecutionsAsync(new() { JobId = first.JobId }, cancellationToken);
 		Assert.Equal(2, second.Attempt);
 		Assert.Collection(
 			executions,
@@ -153,27 +153,27 @@ public sealed class JobExecutionStorageTests
 		await storage.EnqueueAsync(CreateJob("manual-retry", clock.GetUtcNow()), cancellationToken);
 
 		var first = Assert.Single(await storage.AcquireDueJobsAsync(CreateRequest("worker"), cancellationToken));
-		await storage.FailAsync(first.Id, first.Attempt, "worker", "failed", nextRetryAt: null, cancellationToken);
-		await storage.RetryAsync(first.Id, cancellationToken);
-		var beforeAcquisition = await storage.QueryJobExecutionsAsync(new() { JobId = first.Id }, cancellationToken);
+		await storage.FailAsync(first.JobId, first.Attempt, "worker", "failed", nextRetryAt: null, cancellationToken);
+		await storage.RetryAsync(first.JobId, cancellationToken);
+		var beforeAcquisition = await storage.QueryJobExecutionsAsync(new() { JobId = first.JobId }, cancellationToken);
 		Assert.Equal(JobExecutionState.Failed, Assert.Single(beforeAcquisition).State);
 
 		var second = Assert.Single(await storage.AcquireDueJobsAsync(CreateRequest("worker"), cancellationToken));
-		await storage.CompleteAsync(second.Id, second.Attempt, "worker", cancellationToken);
+		await storage.CompleteAsync(second.JobId, second.Attempt, "worker", cancellationToken);
 		var newestPage = await storage.QueryJobExecutionsAsync(new()
 		{
-			JobId = first.Id,
+			JobId = first.JobId,
 			Take = 1,
 		}, cancellationToken);
 		var olderPage = await storage.QueryJobExecutionsAsync(new()
 		{
-			JobId = first.Id,
+			JobId = first.JobId,
 			Skip = 1,
 			Take = 1,
 		}, cancellationToken);
 		var exact = await storage.QueryJobExecutionsAsync(new()
 		{
-			JobId = first.Id,
+			JobId = first.JobId,
 			Attempt = 1,
 		}, cancellationToken);
 
@@ -234,7 +234,7 @@ public sealed class JobExecutionStorageTests
 
 	private static JobRecord CreateJob(string id, DateTimeOffset now) => new()
 	{
-		Id = id,
+		JobId = id,
 		JobName = "execution-test",
 		Payload = "{}",
 		State = JobState.Pending,

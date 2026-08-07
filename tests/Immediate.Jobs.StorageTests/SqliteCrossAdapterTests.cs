@@ -36,22 +36,22 @@ public sealed class SqliteCrossAdapterTests
 		var now = fixture.TimeProvider.GetUtcNow();
 		var efJob = CreateJob("from-ef", now);
 		await fixture.EntityFrameworkCore.EnqueueAsync(efJob, cancellationToken);
-		Assert.Equal(efJob.Id, Assert.Single(await fixture.LinqToDB.QueryJobsAsync(
-			new() { Id = efJob.Id },
+		Assert.Equal(efJob.JobId, Assert.Single(await fixture.LinqToDB.QueryJobsAsync(
+			new() { Id = efJob.JobId },
 			cancellationToken
-		)).Id);
+		)).JobId);
 
 		var linqJob = CreateJob("from-linq2db", now.AddTicks(1));
 		await fixture.LinqToDB.EnqueueAsync(linqJob, cancellationToken);
-		Assert.Equal(linqJob.Id, Assert.Single(await fixture.EntityFrameworkCore.QueryJobsAsync(
-			new() { Id = linqJob.Id },
+		Assert.Equal(linqJob.JobId, Assert.Single(await fixture.EntityFrameworkCore.QueryJobsAsync(
+			new() { Id = linqJob.JobId },
 			cancellationToken
-		)).Id);
+		)).JobId);
 	}
 
 	private static JobRecord CreateJob(string id, DateTimeOffset now) => new()
 	{
-		Id = id,
+		JobId = id,
 		JobName = "cross-adapter",
 		Payload = "{}",
 		Context = "{\"tenant\":\"shared\"}",

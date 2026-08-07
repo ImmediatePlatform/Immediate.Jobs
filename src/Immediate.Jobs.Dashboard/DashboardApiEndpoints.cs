@@ -608,7 +608,7 @@ internal static partial class TriggerDashboardRecurringJob
 		var now = serviceProvider.GetService<TimeProvider>()?.GetUtcNow() ?? TimeProvider.System.GetUtcNow();
 		var job = new JobRecord
 		{
-			Id = idGenerator.CreateId(IdKind.Job),
+			JobId = idGenerator.CreateId(IdKind.Job),
 			JobName = schedule.JobName,
 			QueueName = definition.Queue.Name,
 			Payload = "{}",

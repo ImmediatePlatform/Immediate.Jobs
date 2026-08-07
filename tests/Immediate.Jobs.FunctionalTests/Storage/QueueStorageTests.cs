@@ -18,7 +18,7 @@ public sealed class QueueStorageTests
 		await using var storage = new InMemoryJobStorage(clock);
 		var job = new JobRecord
 		{
-			Id = Guid.NewGuid().ToString("N"),
+			JobId = Guid.NewGuid().ToString("N"),
 			JobName = "context-test",
 			Payload = "{}",
 			Context = context,
@@ -57,7 +57,7 @@ public sealed class QueueStorageTests
 		await using var storage = new InMemoryJobStorage(clock);
 		var job = new JobRecord
 		{
-			Id = "scheduled-retry",
+			JobId = "scheduled-retry",
 			JobName = "retry-test",
 			Payload = "{}",
 			State = JobState.Scheduled,
@@ -68,18 +68,18 @@ public sealed class QueueStorageTests
 		};
 		await storage.EnqueueAsync(job, cancellationToken);
 
-		await storage.RetryAsync(job.Id, cancellationToken);
+		await storage.RetryAsync(job.JobId, cancellationToken);
 
-		var retried = Assert.Single(await storage.QueryJobsAsync(new() { Id = job.Id }, cancellationToken));
+		var retried = Assert.Single(await storage.QueryJobsAsync(new() { Id = job.JobId }, cancellationToken));
 		Assert.Equal(JobState.Pending, retried.State);
 		Assert.Equal(clock.GetUtcNow(), retried.DueAt);
 		Assert.Equal(1, retried.Attempt);
 		Assert.Equal(job.LastError, retried.LastError);
 
-		var firstRun = job with { Id = "scheduled-first-run", Attempt = 0, LastError = null };
+		var firstRun = job with { JobId = "scheduled-first-run", Attempt = 0, LastError = null };
 		await storage.EnqueueAsync(firstRun, cancellationToken);
-		await storage.RetryAsync(firstRun.Id, cancellationToken);
-		var fastForwarded = Assert.Single(await storage.QueryJobsAsync(new() { Id = firstRun.Id }, cancellationToken));
+		await storage.RetryAsync(firstRun.JobId, cancellationToken);
+		var fastForwarded = Assert.Single(await storage.QueryJobsAsync(new() { Id = firstRun.JobId }, cancellationToken));
 		Assert.Equal(JobState.Pending, fastForwarded.State);
 		Assert.Equal(clock.GetUtcNow(), fastForwarded.DueAt);
 		Assert.Equal(0, fastForwarded.Attempt);
@@ -93,7 +93,7 @@ public sealed class QueueStorageTests
 		await using var storage = new InMemoryJobStorage(clock);
 		var job = new JobRecord
 		{
-			Id = "cancel-active",
+			JobId = "cancel-active",
 			JobName = "cancel-test",
 			Payload = "{}",
 			State = JobState.Pending,
@@ -117,16 +117,16 @@ public sealed class QueueStorageTests
 			],
 		}, cancellationToken));
 
-		await storage.CancelAsync(job.Id, cancellationToken);
+		await storage.CancelAsync(job.JobId, cancellationToken);
 
-		Assert.Equal(JobState.Cancelled, (await storage.GetJobStatusAsync(job.Id, cancellationToken))!.State);
-		var execution = Assert.Single(await storage.QueryJobExecutionsAsync(new() { JobId = job.Id }, cancellationToken));
+		Assert.Equal(JobState.Cancelled, (await storage.GetJobStatusAsync(job.JobId, cancellationToken))!.State);
+		var execution = Assert.Single(await storage.QueryJobExecutionsAsync(new() { JobId = job.JobId }, cancellationToken));
 		Assert.Equal(JobExecutionState.Cancelled, execution.State);
 		_ = await Assert.ThrowsAsync<ImmediateJobException>(
-			() => storage.CompleteAsync(job.Id, active.Attempt, "worker", cancellationToken).AsTask()
+			() => storage.CompleteAsync(job.JobId, active.Attempt, "worker", cancellationToken).AsTask()
 		);
 		_ = await Assert.ThrowsAsync<ImmediateJobException>(
-			() => storage.CancelAsync(job.Id, cancellationToken).AsTask()
+			() => storage.CancelAsync(job.JobId, cancellationToken).AsTask()
 		);
 	}
 
@@ -173,7 +173,7 @@ public sealed class QueueStorageTests
 
 		ValueTask Enqueue(string queueName, string jobName, int order) => storage.EnqueueAsync(new()
 		{
-			Id = Guid.NewGuid().ToString("N"),
+			JobId = Guid.NewGuid().ToString("N"),
 			QueueName = queueName,
 			JobName = jobName,
 			Payload = "{}",

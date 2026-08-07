@@ -111,7 +111,7 @@ public sealed class SingleServerJobStorageTests
 		for (var index = 0; index < 1001; index++)
 		{
 			await inner.EnqueueAsync(
-				CreateJob(timeProvider.GetUtcNow()) with { Id = string.Create(CultureInfo.InvariantCulture, $"recovered-{index:D4}") },
+				CreateJob(timeProvider.GetUtcNow()) with { JobId = string.Create(CultureInfo.InvariantCulture, $"recovered-{index:D4}") },
 				cancellationToken
 			);
 		}
@@ -134,26 +134,26 @@ public sealed class SingleServerJobStorageTests
 		var cancellationToken = TestContext.Current.CancellationToken;
 		var timeProvider = new FakeTimeProvider(DateTimeOffset.UnixEpoch);
 		await using var durable = new InMemoryJobStorage(timeProvider);
-		var parent = CreateJob(timeProvider.GetUtcNow()) with { Id = "standalone-parent" };
+		var parent = CreateJob(timeProvider.GetUtcNow()) with { JobId = "standalone-parent" };
 		var child = CreateJob(timeProvider.GetUtcNow().AddTicks(1)) with
 		{
-			Id = "standalone-child",
+			JobId = "standalone-child",
 			State = JobState.AwaitingContinuation,
 			RemainingDependencies = 1,
 		};
 		await durable.EnqueueAsync(parent, cancellationToken);
 		await durable.EnqueueContinuationAsync(child, [new()
 		{
-			ChildJobId = child.Id,
-			ParentJobId = parent.Id,
+			ChildJobId = child.JobId,
+			ParentJobId = parent.JobId,
 			Trigger = ContinuationTrigger.Success,
 		}], cancellationToken);
 		await using var storage = new SingleServerJobStorage(durable, timeProvider);
 
 		await storage.InitializeAsync(cancellationToken);
 
-		Assert.Equal(JobState.Pending, (await storage.GetJobStatusAsync(parent.Id, cancellationToken))!.State);
-		var childStatus = Assert.IsType<JobStatus>(await storage.GetJobStatusAsync(child.Id, cancellationToken));
+		Assert.Equal(JobState.Pending, (await storage.GetJobStatusAsync(parent.JobId, cancellationToken))!.State);
+		var childStatus = Assert.IsType<JobStatus>(await storage.GetJobStatusAsync(child.JobId, cancellationToken));
 		Assert.Equal(JobState.AwaitingContinuation, childStatus.State);
 		_ = Assert.Single(childStatus.DependsOn);
 	}
@@ -207,7 +207,7 @@ public sealed class SingleServerJobStorageTests
 		await service.ExecuteSingleAsync(
 			new()
 			{
-				Id = "unknown-job",
+				JobId = "unknown-job",
 				JobName = "unknown-definition",
 				Payload = "{}",
 				State = JobState.Active,
@@ -276,7 +276,7 @@ public sealed class SingleServerJobStorageTests
 		await firstProcess.EnqueueAsync(job, cancellationToken);
 		await firstProcess.UpsertRecurringAsync(schedule, cancellationToken);
 
-		Assert.Equal(job.Id, Assert.Single(await durable.QueryJobsAsync(new(), cancellationToken)).Id);
+		Assert.Equal(job.JobId, Assert.Single(await durable.QueryJobsAsync(new(), cancellationToken)).JobId);
 		Assert.Equal(schedule.Name, Assert.Single((await durable.GetMonitoringSnapshotAsync(cancellationToken)).Recurring).Name);
 
 		await using var restartedProcess = new SingleServerJobStorage(durable, timeProvider);
@@ -301,7 +301,7 @@ public sealed class SingleServerJobStorageTests
 
 		var startedAt = timeProvider.GetUtcNow();
 		await storage.SetExecutionTelemetryAsync(
-			job.Id,
+			job.JobId,
 			1, "worker",
 			"4bf92f3577b34da6a3ce929d0e0e4736",
 			"00f067aa0ba902b7",
@@ -309,17 +309,17 @@ public sealed class SingleServerJobStorageTests
 			cancellationToken
 		);
 
-		var primaryJob = Assert.Single(await storage.QueryJobsAsync(new() { Id = job.Id }, cancellationToken));
-		var durableJob = Assert.Single(await durable.QueryJobsAsync(new() { Id = job.Id }, cancellationToken));
+		var primaryJob = Assert.Single(await storage.QueryJobsAsync(new() { Id = job.JobId }, cancellationToken));
+		var durableJob = Assert.Single(await durable.QueryJobsAsync(new() { Id = job.JobId }, cancellationToken));
 		Assert.Equal(primaryJob.ExecutionTraceId, durableJob.ExecutionTraceId);
 		Assert.Equal(primaryJob.ExecutionSpanId, durableJob.ExecutionSpanId);
 		Assert.Equal(primaryJob.ExecutionStartedAt, durableJob.ExecutionStartedAt);
 		var primaryExecution = Assert.Single(await storage.PrimaryStorage.QueryJobExecutionsAsync(
-			new() { JobId = job.Id },
+			new() { JobId = job.JobId },
 			cancellationToken
 		));
 		var durableExecution = Assert.Single(await durable.QueryJobExecutionsAsync(
-			new() { JobId = job.Id },
+			new() { JobId = job.JobId },
 			cancellationToken
 		));
 		Assert.Equal(primaryExecution, durableExecution);
@@ -334,7 +334,7 @@ public sealed class SingleServerJobStorageTests
 		await using var durable = new InMemoryJobStorage(timeProvider);
 		var parentJob = CreateJob(timeProvider.GetUtcNow()) with
 		{
-			Id = "parent-job",
+			JobId = "parent-job",
 			BatchId = "parent-batch",
 			State = JobState.Succeeded,
 			CompletedAt = timeProvider.GetUtcNow(),
@@ -342,7 +342,7 @@ public sealed class SingleServerJobStorageTests
 		await durable.EnqueueBatchAsync(
 			new()
 			{
-				Id = "parent-batch",
+				BatchId = "parent-batch",
 				CreatedAt = timeProvider.GetUtcNow(),
 				TotalJobs = 1,
 				PendingCount = 0,
@@ -357,7 +357,7 @@ public sealed class SingleServerJobStorageTests
 
 		var childJob = CreateJob(timeProvider.GetUtcNow()) with
 		{
-			Id = "child-job",
+			JobId = "child-job",
 			BatchId = "child-batch",
 			State = JobState.AwaitingContinuation,
 			RemainingDependencies = 1,
@@ -365,7 +365,7 @@ public sealed class SingleServerJobStorageTests
 		await durable.EnqueueBatchAsync(
 			new()
 			{
-				Id = "child-batch",
+				BatchId = "child-batch",
 				CreatedAt = timeProvider.GetUtcNow().AddTicks(1),
 				TotalJobs = 1,
 				PendingCount = 1,
@@ -374,7 +374,7 @@ public sealed class SingleServerJobStorageTests
 			[childJob],
 			[new()
 			{
-				ChildJobId = childJob.Id,
+				ChildJobId = childJob.JobId,
 				ParentBatchId = "parent-batch",
 			}],
 			cancellationToken
@@ -388,8 +388,8 @@ public sealed class SingleServerJobStorageTests
 		);
 		Assert.Equal("parent-batch", Assert.Single(graph.Edges).ParentBatchId);
 		Assert.Equal(
-			childJob.Id,
-			Assert.Single(await restartedProcess.AcquireDueJobsAsync(CreateRequest("restarted"), cancellationToken)).Id
+			childJob.JobId,
+			Assert.Single(await restartedProcess.AcquireDueJobsAsync(CreateRequest("restarted"), cancellationToken)).JobId
 		);
 	}
 
@@ -477,7 +477,7 @@ public sealed class SingleServerJobStorageTests
 			await restartedProcess.AcquireDueJobsAsync(CreateRequest("second"), cancellationToken)
 		);
 
-		Assert.Equal(job.Id, recovered.Id);
+		Assert.Equal(job.JobId, recovered.JobId);
 		Assert.Equal(2, recovered.Attempt);
 		Assert.Equal("second", recovered.WorkerId);
 		var durableRecord = Assert.Single(await durable.QueryJobsAsync(new(), cancellationToken));
@@ -485,7 +485,7 @@ public sealed class SingleServerJobStorageTests
 		Assert.Equal(recovered.Attempt, durableRecord.Attempt);
 		Assert.Equal(recovered.WorkerId, durableRecord.WorkerId);
 		var executions = await restartedProcess.QueryJobExecutionsAsync(
-			new() { JobId = job.Id },
+			new() { JobId = job.JobId },
 			cancellationToken
 		);
 		Assert.Collection(
@@ -536,7 +536,7 @@ public sealed class SingleServerJobStorageTests
 
 	private static JobRecord CreateJob(DateTimeOffset dueAt) => new()
 	{
-		Id = Guid.NewGuid().ToString("N"),
+		JobId = Guid.NewGuid().ToString("N"),
 		JobName = "example",
 		Payload = "{}",
 		State = dueAt <= DateTimeOffset.UnixEpoch ? JobState.Pending : JobState.Scheduled,

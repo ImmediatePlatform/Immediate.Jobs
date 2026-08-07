@@ -63,42 +63,42 @@ public sealed class LinqToDBSqliteStorageTests
 		var now = fixture.TimeProvider.GetUtcNow();
 		var batchParent = CreateJob(now, 0) with
 		{
-			Id = "batch-parent-member",
+			JobId = "batch-parent-member",
 			BatchId = "parent-batch",
 			State = JobState.Succeeded,
 			CompletedAt = now,
 		};
 		await storage.EnqueueBatchAsync(new()
 		{
-			Id = "parent-batch",
+			BatchId = "parent-batch",
 			CreatedAt = now,
 			TotalJobs = 1,
 			PendingCount = 0,
 			SucceededCount = 1,
 			State = BatchState.Succeeded,
 		}, [batchParent], [], cancellationToken);
-		var jobParent = CreateJob(now, 1) with { Id = "job-parent" };
+		var jobParent = CreateJob(now, 1) with { JobId = "job-parent" };
 		await storage.EnqueueAsync(jobParent, cancellationToken);
-		var child = CreateJob(now, 2) with { Id = "child" };
+		var child = CreateJob(now, 2) with { JobId = "child" };
 		await storage.EnqueueContinuationAsync(child,
 		[
-			new() { ChildJobId = child.Id, ParentJobId = jobParent.Id, Trigger = ContinuationTrigger.Success },
-			new() { ChildJobId = child.Id, ParentBatchId = "parent-batch", Trigger = ContinuationTrigger.Complete },
+			new() { ChildJobId = child.JobId, ParentJobId = jobParent.JobId, Trigger = ContinuationTrigger.Success },
+			new() { ChildJobId = child.JobId, ParentBatchId = "parent-batch", Trigger = ContinuationTrigger.Complete },
 		], cancellationToken);
 
-		var edges = await storage.GetIncomingEdgesAsync([child.Id, child.Id, "missing"], cancellationToken);
+		var edges = await storage.GetIncomingEdgesAsync([child.JobId, child.JobId, "missing"], cancellationToken);
 
 		Assert.Collection(edges,
 			edge =>
 			{
-				Assert.Equal(child.Id, edge.ChildJobId);
-				Assert.Equal(jobParent.Id, edge.ParentJobId);
+				Assert.Equal(child.JobId, edge.ChildJobId);
+				Assert.Equal(jobParent.JobId, edge.ParentJobId);
 				Assert.Null(edge.ParentBatchId);
 				Assert.Equal(ContinuationTrigger.Success, edge.Trigger);
 			},
 			edge =>
 			{
-				Assert.Equal(child.Id, edge.ChildJobId);
+				Assert.Equal(child.JobId, edge.ChildJobId);
 				Assert.Null(edge.ParentJobId);
 				Assert.Equal("parent-batch", edge.ParentBatchId);
 				Assert.Equal(ContinuationTrigger.Complete, edge.Trigger);
@@ -121,7 +121,7 @@ public sealed class LinqToDBSqliteStorageTests
 		var job = CreateJob(fixture.TimeProvider.GetUtcNow(), 0);
 		await storage.EnqueueAsync(job, cancellationToken);
 
-		var status = Assert.IsType<JobStatus>(await storage.GetJobStatusAsync(job.Id, cancellationToken));
+		var status = Assert.IsType<JobStatus>(await storage.GetJobStatusAsync(job.JobId, cancellationToken));
 
 		Assert.Null(status.MaxAttempts);
 	}
@@ -151,7 +151,7 @@ public sealed class LinqToDBSqliteStorageTests
 		await using var fixture = await StorageFixture.CreateAsync(cancellationToken);
 		var storage = fixture.CreateStorage();
 		var now = fixture.TimeProvider.GetUtcNow();
-		await storage.EnqueueAsync(CreateJob(now, 0) with { Id = "pending" }, cancellationToken);
+		await storage.EnqueueAsync(CreateJob(now, 0) with { JobId = "pending" }, cancellationToken);
 		await storage.UpsertRecurringAsync(new()
 		{
 			Name = "code-defined",
@@ -204,12 +204,12 @@ public sealed class LinqToDBSqliteStorageTests
 		var now = fixture.TimeProvider.GetUtcNow();
 		await storage.EnqueueAsync(CreateJob(now, 1) with
 		{
-			Id = "group-a-first",
+			JobId = "group-a-first",
 			GroupId = "group-a",
 		}, cancellationToken);
 		await storage.EnqueueAsync(CreateJob(now, 2) with
 		{
-			Id = "group-a-second",
+			JobId = "group-a-second",
 			GroupId = "group-a",
 		}, cancellationToken);
 
@@ -217,10 +217,10 @@ public sealed class LinqToDBSqliteStorageTests
 			CreateFairRequest("worker-a", 1),
 			cancellationToken
 		));
-		await storage.CompleteAsync(first.Id, 1, "worker-a", cancellationToken);
+		await storage.CompleteAsync(first.JobId, 1, "worker-a", cancellationToken);
 		await storage.EnqueueAsync(CreateJob(now, 3) with
 		{
-			Id = "group-b-first",
+			JobId = "group-b-first",
 			GroupId = "group-b",
 		}, cancellationToken);
 
@@ -229,8 +229,8 @@ public sealed class LinqToDBSqliteStorageTests
 			cancellationToken
 		));
 
-		Assert.Equal("group-a-first", first.Id);
-		Assert.Equal("group-b-first", second.Id);
+		Assert.Equal("group-a-first", first.JobId);
+		Assert.Equal("group-b-first", second.JobId);
 	}
 
 	[Fact]
@@ -247,7 +247,7 @@ public sealed class LinqToDBSqliteStorageTests
 
 		var acquired = await storage.AcquireDueJobsAsync(CreateFairRequest("worker", 4), cancellationToken);
 
-		Assert.Equal(["a-1", "b-1", "a-2", "b-2"], acquired.Select(static job => job.Id));
+		Assert.Equal(["a-1", "b-1", "a-2", "b-2"], acquired.Select(static job => job.JobId));
 	}
 
 	[Fact]
@@ -263,7 +263,7 @@ public sealed class LinqToDBSqliteStorageTests
 
 		var acquired = await storage.AcquireDueJobsAsync(CreateRequest("worker", 2), cancellationToken);
 
-		Assert.Equal(["a-1", "a-2"], acquired.Select(static job => job.Id));
+		Assert.Equal(["a-1", "a-2"], acquired.Select(static job => job.JobId));
 	}
 
 	[Fact]
@@ -279,7 +279,7 @@ public sealed class LinqToDBSqliteStorageTests
 
 		var acquired = await storage.AcquireDueJobsAsync(CreateFairRequest("worker", 3), cancellationToken);
 
-		Assert.Equal(["oldest", "middle", "newer"], acquired.Select(static job => job.Id));
+		Assert.Equal(["oldest", "middle", "newer"], acquired.Select(static job => job.JobId));
 	}
 
 	[Fact]
@@ -305,7 +305,7 @@ public sealed class LinqToDBSqliteStorageTests
 			cancellationToken
 		));
 
-		Assert.Equal("quiet-waiting", acquired.Id);
+		Assert.Equal("quiet-waiting", acquired.JobId);
 	}
 
 	[Fact]
@@ -332,7 +332,7 @@ public sealed class LinqToDBSqliteStorageTests
 			cancellationToken
 		));
 
-		Assert.Equal("formerly-noisy", acquired.Id);
+		Assert.Equal("formerly-noisy", acquired.JobId);
 	}
 
 	[Fact]
@@ -349,14 +349,14 @@ public sealed class LinqToDBSqliteStorageTests
 			CreateFairRequest("worker-a", 1),
 			cancellationToken
 		));
-		await storage.CompleteAsync(first.Id, 1, "worker-a", cancellationToken);
+		await storage.CompleteAsync(first.JobId, 1, "worker-a", cancellationToken);
 
 		var second = Assert.Single(await storage.AcquireDueJobsAsync(
 			CreateFairRequest("worker-b", 1, new FairQueuePolicy { ConcurrencyShareThreshold = 0.10, MinInflightForNoisy = 30, GroupRoundRobin = false }),
 			cancellationToken
 		));
 
-		Assert.Equal("a-2", second.Id);
+		Assert.Equal("a-2", second.JobId);
 	}
 
 	[Fact]
@@ -385,7 +385,7 @@ public sealed class LinqToDBSqliteStorageTests
 
 		var acquired = await storage.AcquireDueJobsAsync(request, cancellationToken);
 
-		Assert.Equal(["ungrouped-limited", "grouped-other-1"], acquired.Select(static job => job.Id));
+		Assert.Equal(["ungrouped-limited", "grouped-other-1"], acquired.Select(static job => job.JobId));
 	}
 
 	[Fact]
@@ -408,12 +408,12 @@ public sealed class LinqToDBSqliteStorageTests
 			CreateFairRequest("worker-2", 1),
 			cancellationToken
 		));
-		await storage.CompleteAsync(first.Id, 1, "worker-1", cancellationToken);
+		await storage.CompleteAsync(first.JobId, 1, "worker-1", cancellationToken);
 		var third = Assert.Single(await storage.AcquireDueJobsAsync(
 			CreateFairRequest("worker-3", 1),
 			cancellationToken
 		));
-		await storage.CompleteAsync(third.Id, 1, "worker-3", cancellationToken);
+		await storage.CompleteAsync(third.JobId, 1, "worker-3", cancellationToken);
 		await Enqueue(storage, now, "a-returned", 4, "a", cancellationToken);
 
 		var afterReset = Assert.Single(await storage.AcquireDueJobsAsync(
@@ -421,10 +421,10 @@ public sealed class LinqToDBSqliteStorageTests
 			cancellationToken
 		));
 
-		Assert.Equal("a-first", first.Id);
-		Assert.Equal("b-active", second.Id);
-		Assert.Equal("a-second", third.Id);
-		Assert.Equal("a-returned", afterReset.Id);
+		Assert.Equal("a-first", first.JobId);
+		Assert.Equal("b-active", second.JobId);
+		Assert.Equal("a-second", third.JobId);
+		Assert.Equal("a-returned", afterReset.JobId);
 	}
 
 	[Fact]
@@ -450,7 +450,7 @@ public sealed class LinqToDBSqliteStorageTests
 		var storage = fixture.CreateStorage();
 		var duplicate = CreateJob(fixture.TimeProvider.GetUtcNow(), 0) with
 		{
-			Id = "duplicate",
+			JobId = "duplicate",
 			GroupId = "other",
 		};
 		await storage.EnqueueAsync(duplicate, cancellationToken);
@@ -481,7 +481,7 @@ public sealed class LinqToDBSqliteStorageTests
 		var acquired = claims.SelectMany(static jobs => jobs).ToArray();
 
 		Assert.Equal(12, acquired.Length);
-		Assert.Equal(12, acquired.Select(static job => job.Id).Distinct(StringComparer.Ordinal).Count());
+		Assert.Equal(12, acquired.Select(static job => job.JobId).Distinct(StringComparer.Ordinal).Count());
 	}
 
 	[Fact]
@@ -497,9 +497,9 @@ public sealed class LinqToDBSqliteStorageTests
 		await Enqueue(storage, now, "b-next", 3, "b", cancellationToken);
 
 		var firstPass = await storage.AcquireDueJobsAsync(CreateFairRequest("worker-1", 2), cancellationToken);
-		Assert.Equal(["a-first", "b-first"], firstPass.Select(static job => job.Id));
+		Assert.Equal(["a-first", "b-first"], firstPass.Select(static job => job.JobId));
 		foreach (var job in firstPass)
-			await storage.CompleteAsync(job.Id, 1, "worker-1", cancellationToken);
+			await storage.CompleteAsync(job.JobId, 1, "worker-1", cancellationToken);
 
 		await using (var connection = new DataConnection(fixture.Options))
 		{
@@ -518,7 +518,7 @@ public sealed class LinqToDBSqliteStorageTests
 
 		var secondPass = await storage.AcquireDueJobsAsync(CreateFairRequest("worker-2", 3), cancellationToken);
 
-		Assert.Equal(["c-first", "a-next", "b-next"], secondPass.Select(static job => job.Id));
+		Assert.Equal(["c-first", "a-next", "b-next"], secondPass.Select(static job => job.JobId));
 	}
 
 	[Fact]
@@ -537,9 +537,9 @@ public sealed class LinqToDBSqliteStorageTests
 		await using (var connection = new DataConnection(fixture.Options))
 			_ = await connection.ExecuteAsync("DROP TABLE \"immediate_fair_queue_groups\"", cancellationToken);
 
-		await storage.CompleteAsync(acquired.Id, 1, "worker", cancellationToken);
+		await storage.CompleteAsync(acquired.JobId, 1, "worker", cancellationToken);
 
-		var completed = Assert.Single(await storage.QueryJobsAsync(new() { Id = acquired.Id }, cancellationToken));
+		var completed = Assert.Single(await storage.QueryJobsAsync(new() { Id = acquired.JobId }, cancellationToken));
 		Assert.Equal(JobState.Succeeded, completed.State);
 	}
 
@@ -560,26 +560,26 @@ public sealed class LinqToDBSqliteStorageTests
 		await using var fixture = await StorageFixture.CreateAsync(cancellationToken);
 		var storage = fixture.CreateStorage();
 		var now = fixture.TimeProvider.GetUtcNow();
-		var parent = CreateJob(now, 1) with { Id = "parent" };
+		var parent = CreateJob(now, 1) with { JobId = "parent" };
 		var child = CreateJob(now, 2) with
 		{
-			Id = "child",
+			JobId = "child",
 			State = JobState.AwaitingContinuation,
 			RemainingDependencies = 1,
 		};
 		await storage.EnqueueAsync(parent, cancellationToken);
 		await storage.EnqueueContinuationAsync(child, [new()
 		{
-			ChildJobId = child.Id,
-			ParentJobId = parent.Id,
+			ChildJobId = child.JobId,
+			ParentJobId = parent.JobId,
 			Trigger = trigger,
 		}], cancellationToken);
 		_ = Assert.Single(await storage.AcquireDueJobsAsync(CreateRequest("worker", 1), cancellationToken));
 		if (parentSucceeds)
-			await storage.CompleteAsync(parent.Id, 1, "worker", cancellationToken);
+			await storage.CompleteAsync(parent.JobId, 1, "worker", cancellationToken);
 		else
-			await storage.FailAsync(parent.Id, 1, "worker", "expected", nextRetryAt: null, cancellationToken);
-		Assert.Equal(expectedState, (await storage.GetJobStatusAsync(child.Id, cancellationToken))!.State);
+			await storage.FailAsync(parent.JobId, 1, "worker", "expected", nextRetryAt: null, cancellationToken);
+		Assert.Equal(expectedState, (await storage.GetJobStatusAsync(child.JobId, cancellationToken))!.State);
 	}
 
 	[Theory]
@@ -597,46 +597,46 @@ public sealed class LinqToDBSqliteStorageTests
 		await using var fixture = await StorageFixture.CreateAsync(cancellationToken);
 		var storage = fixture.CreateStorage();
 		var now = fixture.TimeProvider.GetUtcNow();
-		var successParent = CreateJob(now, 0) with { Id = "success-parent" };
-		var failureParent = CreateJob(now, 1) with { Id = "failure-parent" };
-		var child = CreateJob(now, 2) with { Id = "child" };
+		var successParent = CreateJob(now, 0) with { JobId = "success-parent" };
+		var failureParent = CreateJob(now, 1) with { JobId = "failure-parent" };
+		var child = CreateJob(now, 2) with { JobId = "child" };
 		await storage.EnqueueAsync(successParent, cancellationToken);
 		await storage.EnqueueAsync(failureParent, cancellationToken);
 		await storage.EnqueueContinuationAsync(child,
 		[
-			new() { ChildJobId = child.Id, ParentJobId = successParent.Id, Trigger = ContinuationTrigger.Success },
-			new() { ChildJobId = child.Id, ParentJobId = failureParent.Id, Trigger = ContinuationTrigger.Failure },
+			new() { ChildJobId = child.JobId, ParentJobId = successParent.JobId, Trigger = ContinuationTrigger.Success },
+			new() { ChildJobId = child.JobId, ParentJobId = failureParent.JobId, Trigger = ContinuationTrigger.Failure },
 		], cancellationToken);
 		Assert.Equal(2, (await storage.AcquireJobsAsync(
-			[successParent.Id, failureParent.Id],
+			[successParent.JobId, failureParent.JobId],
 			"worker",
 			TimeSpan.FromMinutes(1),
 			cancellationToken
 		)).Count);
 
-		async Task SettleSuccessParent() => await storage.CompleteAsync(successParent.Id, 1, "worker", cancellationToken);
+		async Task SettleSuccessParent() => await storage.CompleteAsync(successParent.JobId, 1, "worker", cancellationToken);
 		async Task SettleFailureParent()
 		{
 			if (failureParentFails)
-				await storage.FailAsync(failureParent.Id, 1, "worker", "expected", nextRetryAt: null, cancellationToken);
+				await storage.FailAsync(failureParent.JobId, 1, "worker", "expected", nextRetryAt: null, cancellationToken);
 			else
-				await storage.CompleteAsync(failureParent.Id, 1, "worker", cancellationToken);
+				await storage.CompleteAsync(failureParent.JobId, 1, "worker", cancellationToken);
 		}
 
 		if (failureParentSettlesFirst)
 		{
 			await SettleFailureParent();
-			Assert.Equal(JobState.AwaitingContinuation, (await storage.GetJobStatusAsync(child.Id, cancellationToken))!.State);
+			Assert.Equal(JobState.AwaitingContinuation, (await storage.GetJobStatusAsync(child.JobId, cancellationToken))!.State);
 			await SettleSuccessParent();
 		}
 		else
 		{
 			await SettleSuccessParent();
-			Assert.Equal(JobState.AwaitingContinuation, (await storage.GetJobStatusAsync(child.Id, cancellationToken))!.State);
+			Assert.Equal(JobState.AwaitingContinuation, (await storage.GetJobStatusAsync(child.JobId, cancellationToken))!.State);
 			await SettleFailureParent();
 		}
 
-		Assert.Equal(expectedState, (await storage.GetJobStatusAsync(child.Id, cancellationToken))!.State);
+		Assert.Equal(expectedState, (await storage.GetJobStatusAsync(child.JobId, cancellationToken))!.State);
 	}
 
 	[Fact]
@@ -646,35 +646,35 @@ public sealed class LinqToDBSqliteStorageTests
 		await using var fixture = await StorageFixture.CreateAsync(cancellationToken);
 		var storage = fixture.CreateStorage();
 		var now = fixture.TimeProvider.GetUtcNow();
-		var current = CreateJob(now, 0) with { Id = "current", BatchId = "batch" };
+		var current = CreateJob(now, 0) with { JobId = "current", BatchId = "batch" };
 		await storage.EnqueueBatchAsync(new()
 		{
-			Id = "batch",
+			BatchId = "batch",
 			CreatedAt = now,
 			TotalJobs = 1,
 			PendingCount = 1,
 			State = BatchState.Executing,
 		}, [current], [], cancellationToken);
 		_ = Assert.Single(await storage.AcquireJobsAsync(
-			[current.Id], "worker", TimeSpan.FromMinutes(1), cancellationToken
+			[current.JobId], "worker", TimeSpan.FromMinutes(1), cancellationToken
 		));
 
 		_ = await Assert.ThrowsAsync<ImmediateJobException>(() => storage.CompleteWithContinuationsAsync(
-			current.Id,
+			current.JobId,
 			1, "worker",
 			[new()
 			{
-				Job = CreateJob(now, 1) with { Id = "detached", BatchId = "batch" },
+				Job = CreateJob(now, 1) with { JobId = "detached", BatchId = "batch" },
 				Options = ContinuationOptions.Detached,
 			}],
 			cancellationToken
 		).AsTask());
 		_ = await Assert.ThrowsAsync<ImmediateJobException>(() => storage.CompleteWithContinuationsAsync(
-			current.Id,
+			current.JobId,
 			1, "worker",
 			[new()
 			{
-				Job = CreateJob(now, 2) with { Id = "wrong-batch", BatchId = "other" },
+				Job = CreateJob(now, 2) with { JobId = "wrong-batch", BatchId = "other" },
 				Options = ContinuationOptions.BesideContinuations,
 			}],
 			cancellationToken
@@ -683,7 +683,7 @@ public sealed class LinqToDBSqliteStorageTests
 		var batch = Assert.IsType<BatchStatus>(await storage.GetBatchStatusAsync("batch", cancellationToken));
 		Assert.Equal(1, batch.Total);
 		Assert.Equal(1, batch.Remaining);
-		Assert.Equal(JobState.Active, (await storage.GetJobStatusAsync(current.Id, cancellationToken))!.State);
+		Assert.Equal(JobState.Active, (await storage.GetJobStatusAsync(current.JobId, cancellationToken))!.State);
 		Assert.Empty(await storage.QueryJobsAsync(new() { Id = "detached" }, cancellationToken));
 		Assert.Empty(await storage.QueryJobsAsync(new() { Id = "wrong-batch" }, cancellationToken));
 	}
@@ -695,35 +695,35 @@ public sealed class LinqToDBSqliteStorageTests
 		await using var fixture = await StorageFixture.CreateAsync(cancellationToken);
 		var storage = fixture.CreateStorage();
 		var now = fixture.TimeProvider.GetUtcNow();
-		var current = CreateJob(now, 0) with { Id = "current" };
+		var current = CreateJob(now, 0) with { JobId = "current" };
 		await storage.EnqueueAsync(current, cancellationToken);
 		_ = Assert.Single(await storage.AcquireJobsAsync(
-			[current.Id], "worker", TimeSpan.FromMinutes(1), cancellationToken
+			[current.JobId], "worker", TimeSpan.FromMinutes(1), cancellationToken
 		));
 
 		_ = await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => storage.CompleteWithContinuationsAsync(
-			current.Id,
+			current.JobId,
 			1, "worker",
 			[new()
 			{
-				Job = CreateJob(now, 1) with { Id = "unknown-option" },
+				Job = CreateJob(now, 1) with { JobId = "unknown-option" },
 				Options = (ContinuationOptions)42,
 			}],
 			cancellationToken
 		).AsTask());
 		_ = await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => storage.CompleteWithContinuationsAsync(
-			current.Id,
+			current.JobId,
 			1, "worker",
 			[new()
 			{
-				Job = CreateJob(now, 2) with { Id = "unknown-trigger" },
+				Job = CreateJob(now, 2) with { JobId = "unknown-trigger" },
 				Options = ContinuationOptions.Detached,
 				Trigger = (ContinuationTrigger)42,
 			}],
 			cancellationToken
 		).AsTask());
 
-		Assert.Equal(JobState.Active, (await storage.GetJobStatusAsync(current.Id, cancellationToken))!.State);
+		Assert.Equal(JobState.Active, (await storage.GetJobStatusAsync(current.JobId, cancellationToken))!.State);
 		Assert.Empty(await storage.QueryJobsAsync(new() { Id = "unknown-option" }, cancellationToken));
 		Assert.Empty(await storage.QueryJobsAsync(new() { Id = "unknown-trigger" }, cancellationToken));
 	}
@@ -735,30 +735,30 @@ public sealed class LinqToDBSqliteStorageTests
 		await using var fixture = await StorageFixture.CreateAsync(cancellationToken);
 		var storage = fixture.CreateStorage();
 		var now = fixture.TimeProvider.GetUtcNow();
-		var current = CreateJob(now, 0) with { Id = "current", BatchId = "batch" };
+		var current = CreateJob(now, 0) with { JobId = "current", BatchId = "batch" };
 		await storage.EnqueueBatchAsync(new()
 		{
-			Id = "batch",
+			BatchId = "batch",
 			CreatedAt = now,
 			TotalJobs = 1,
 			PendingCount = 1,
 			State = BatchState.Executing,
 		}, [current], [], cancellationToken);
 		_ = Assert.Single(await storage.AcquireJobsAsync(
-			[current.Id], "worker", TimeSpan.FromMinutes(1), cancellationToken
+			[current.JobId], "worker", TimeSpan.FromMinutes(1), cancellationToken
 		));
 
 		_ = await Assert.ThrowsAsync<ImmediateJobException>(() => storage.AddBatchJobAsync(
-			current.Id,
+			current.JobId,
 			1,
-			CreateJob(now, 1) with { Id = "wrong-batch", BatchId = "other" },
+			CreateJob(now, 1) with { JobId = "wrong-batch", BatchId = "other" },
 			ContinuationOptions.BesideContinuations,
 			cancellationToken
 		).AsTask());
 		_ = await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => storage.AddBatchJobAsync(
-			current.Id,
+			current.JobId,
 			1,
-			CreateJob(now, 2) with { Id = "unknown-option", BatchId = "batch" },
+			CreateJob(now, 2) with { JobId = "unknown-option", BatchId = "batch" },
 			(ContinuationOptions)42,
 			cancellationToken
 		).AsTask());
@@ -777,26 +777,26 @@ public sealed class LinqToDBSqliteStorageTests
 		await using var fixture = await StorageFixture.CreateAsync(cancellationToken);
 		var storage = fixture.CreateStorage();
 		var now = fixture.TimeProvider.GetUtcNow();
-		var parent = CreateJob(now, 1) with { Id = "batch-parent", BatchId = "batch" };
+		var parent = CreateJob(now, 1) with { JobId = "batch-parent", BatchId = "batch" };
 		var child = CreateJob(now, 2) with
 		{
-			Id = "batch-child",
+			JobId = "batch-child",
 			BatchId = "batch",
 			State = JobState.AwaitingContinuation,
 			RemainingDependencies = 1,
 		};
 		await storage.EnqueueBatchAsync(new()
 		{
-			Id = "batch",
+			BatchId = "batch",
 			CreatedAt = now,
 			TotalJobs = 2,
 			PendingCount = 2,
 			State = BatchState.Executing,
-		}, [parent, child], [new() { ChildJobId = child.Id, ParentJobId = parent.Id }], cancellationToken);
+		}, [parent, child], [new() { ChildJobId = child.JobId, ParentJobId = parent.JobId }], cancellationToken);
 
 		_ = Assert.Single(await storage.AcquireDueJobsAsync(CreateRequest("worker", 1), cancellationToken));
-		await storage.CompleteAsync(parent.Id, 1, "worker", cancellationToken);
-		Assert.Equal(JobState.Pending, (await storage.GetJobStatusAsync(child.Id, cancellationToken))!.State);
+		await storage.CompleteAsync(parent.JobId, 1, "worker", cancellationToken);
+		Assert.Equal(JobState.Pending, (await storage.GetJobStatusAsync(child.JobId, cancellationToken))!.State);
 		await storage.CancelBatchAsync("batch", cancellationToken);
 		var batch = Assert.IsType<BatchStatus>(await storage.GetBatchStatusAsync("batch", cancellationToken));
 		Assert.Equal(BatchState.Cancelled, batch.State);
@@ -838,7 +838,7 @@ public sealed class LinqToDBSqliteStorageTests
 		string jobName = "storage-test"
 	) => storage.EnqueueAsync(CreateJob(now, order) with
 	{
-		Id = id,
+		JobId = id,
 		JobName = jobName,
 		GroupId = groupId,
 	}, cancellationToken);
@@ -878,7 +878,7 @@ public sealed class LinqToDBSqliteStorageTests
 
 	private static JobRecord CreateJob(DateTimeOffset now, int index) => new()
 	{
-		Id = "job-" + Guid.NewGuid().ToString("N"),
+		JobId = "job-" + Guid.NewGuid().ToString("N"),
 		JobName = "storage-test",
 		Payload = string.Create(CultureInfo.InvariantCulture, $"{{\"index\":{index}}}"),
 		State = JobState.Pending,

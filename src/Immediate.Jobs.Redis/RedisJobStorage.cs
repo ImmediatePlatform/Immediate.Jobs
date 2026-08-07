@@ -99,12 +99,12 @@ public sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 		ValidateQueueJob(job);
 		var result = await EvaluateInt64Async(
 			RedisScripts.Enqueue,
-			[JobKey(job.Id), AllJobsKey, StateKey(job.State), DueKey(job.QueueName)],
+			[JobKey(job.JobId), AllJobsKey, StateKey(job.State), DueKey(job.QueueName)],
 			CreateEnqueueArguments(job),
 			cancellationToken
 		).ConfigureAwait(false);
 		if (result == 0)
-			throw new ImmediateJobException($"Job '{job.Id}' already exists.");
+			throw new ImmediateJobException($"Job '{job.JobId}' already exists.");
 	}
 
 	/// <inheritdoc />
@@ -436,7 +436,7 @@ public sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 			? null
 			: new JobStatus
 			{
-				JobId = job.Id,
+				JobId = job.JobId,
 				JobName = job.JobName,
 				QueueName = job.QueueName,
 				State = job.State,
@@ -698,7 +698,7 @@ public sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 			[
 				RecurringKey(schedule.Name),
 				RecurringDedupeKey,
-				JobKey(job.Id),
+				JobKey(job.JobId),
 				AllJobsKey,
 				StateKey(job.State),
 				DueKey(job.QueueName),
@@ -709,7 +709,7 @@ public sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 			cancellationToken
 		).ConfigureAwait(false);
 		if (result < 0)
-			throw new ImmediateJobException($"Job '{job.Id}' already exists.");
+			throw new ImmediateJobException($"Job '{job.JobId}' already exists.");
 		return result == 1;
 	}
 
@@ -1010,7 +1010,7 @@ public sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 		job.QueueName,
 		job.JobName,
 		Score(job.CreatedAt),
-		job.Id,
+		job.JobId,
 		Score(job.DueAt),
 		Ticks(job.CreatedAt),
 		DueMember(job),
@@ -1025,7 +1025,7 @@ public sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 	[
 		Ticks(schedule.NextRunAt),
 		job.RecurringKey ?? "",
-		job.Id,
+		job.JobId,
 		JsonSerializer.Serialize(job, RedisJsonSerializerContext.Default.JobRecord),
 		(int)job.State,
 		Ticks(job.DueAt),
@@ -1052,7 +1052,7 @@ public sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 	private static void ValidateQueueJob(JobRecord job)
 	{
 		ArgumentNullException.ThrowIfNull(job);
-		ArgumentException.ThrowIfNullOrWhiteSpace(job.Id);
+		ArgumentException.ThrowIfNullOrWhiteSpace(job.JobId);
 		ArgumentException.ThrowIfNullOrWhiteSpace(job.JobName);
 		ArgumentException.ThrowIfNullOrWhiteSpace(job.QueueName);
 		if (job.BatchId is not null || job.RemainingDependencies != 0 || job.FailedDependencies != 0)
@@ -1063,13 +1063,13 @@ public sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 		}
 
 		if (job.State is not (JobState.Pending or JobState.Scheduled))
-			throw new ImmediateJobException($"Queue job '{job.Id}' has invalid state '{job.State}'.");
+			throw new ImmediateJobException($"Queue job '{job.JobId}' has invalid state '{job.State}'.");
 	}
 
 	private static void ValidateMaterializedJob(JobRecord job)
 	{
 		ArgumentNullException.ThrowIfNull(job);
-		ArgumentException.ThrowIfNullOrWhiteSpace(job.Id);
+		ArgumentException.ThrowIfNullOrWhiteSpace(job.JobId);
 		ArgumentException.ThrowIfNullOrWhiteSpace(job.JobName);
 		ArgumentException.ThrowIfNullOrWhiteSpace(job.QueueName);
 		if (job.BatchId is not null || job.RemainingDependencies != 0 || job.FailedDependencies != 0)
@@ -1080,9 +1080,9 @@ public sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 		}
 
 		if (job.State is not (JobState.Pending or JobState.Scheduled or JobState.Cancelled or JobState.Skipped))
-			throw new ImmediateJobException($"Recurring job '{job.Id}' has invalid state '{job.State}'.");
+			throw new ImmediateJobException($"Recurring job '{job.JobId}' has invalid state '{job.State}'.");
 		if (job.CompletedAt is null && (job.State == JobState.Cancelled || job.State == JobState.Skipped))
-			throw new ImmediateJobException($"Terminal recurring job '{job.Id}' must have a completion time.");
+			throw new ImmediateJobException($"Terminal recurring job '{job.JobId}' must have a completion time.");
 	}
 
 	private static void ValidateRecurring(RecurringJobSchedule schedule)
@@ -1117,7 +1117,7 @@ public sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 
 	private static long Score(DateTimeOffset value) => value.ToUnixTimeMilliseconds();
 	private static string Ticks(DateTimeOffset value) => value.UtcTicks.ToString("D19", CultureInfo.InvariantCulture);
-	private static string DueMember(JobRecord job) => $"{Ticks(job.DueAt)}|{Ticks(job.CreatedAt)}|{job.Id}";
+	private static string DueMember(JobRecord job) => $"{Ticks(job.DueAt)}|{Ticks(job.CreatedAt)}|{job.JobId}";
 	private static string RecurringDueMember(DateTimeOffset nextRunAt, string name) => $"{Ticks(nextRunAt)}|{name}";
 	private static string NullableTicks(DateTimeOffset? value) => value is { } actual ? Ticks(actual) : "";
 	private static RedisValue ExecutionField(int executionNumber, string name) =>

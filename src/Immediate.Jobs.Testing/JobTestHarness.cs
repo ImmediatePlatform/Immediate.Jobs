@@ -145,7 +145,7 @@ public sealed class JobTestHarness : IAsyncDisposable, IDisposable
 	public async ValueTask<JobRecord> GetJobAsync(string jobId, CancellationToken cancellationToken = default)
 	{
 		var jobs = await Storage.QueryJobsAsync(new() { Take = 1000 }, cancellationToken).ConfigureAwait(false);
-		return jobs.FirstOrDefault(job => string.Equals(job.Id, jobId, StringComparison.Ordinal))
+		return jobs.FirstOrDefault(job => string.Equals(job.JobId, jobId, StringComparison.Ordinal))
 			?? throw new JobTestAssertionException($"Expected job '{jobId}' to have been enqueued, but it was not found.");
 	}
 
@@ -299,7 +299,7 @@ public sealed class JobTestHarness : IAsyncDisposable, IDisposable
 		var now = TimeProvider.GetUtcNow();
 		var record = new JobRecord
 		{
-			Id = _serviceProvider.GetRequiredService<IIdGenerator>().CreateId(IdKind.Job),
+			JobId = _serviceProvider.GetRequiredService<IIdGenerator>().CreateId(IdKind.Job),
 			JobName = definition.Name,
 			QueueName = definition.Queue.Name,
 			Payload = _serviceProvider.GetRequiredService<IJobSerializer>().Serialize(payload),

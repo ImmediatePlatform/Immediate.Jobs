@@ -22,15 +22,15 @@ public sealed class InMemoryFairQueueTests
 			CreateRequest("worker-1", capacity: 1, DefaultPolicy),
 			cancellationToken
 		));
-		await storage.CompleteAsync(first.Id, 1, "worker-1", cancellationToken);
+		await storage.CompleteAsync(first.JobId, 1, "worker-1", cancellationToken);
 		await Enqueue(storage, clock, "group-2-first", 2, "group-2", cancellationToken);
 		var second = Assert.Single(await storage.AcquireDueJobsAsync(
 			CreateRequest("worker-2", capacity: 1, DefaultPolicy),
 			cancellationToken
 		));
 
-		Assert.Equal("group-1-first", first.Id);
-		Assert.Equal("group-2-first", second.Id);
+		Assert.Equal("group-1-first", first.JobId);
+		Assert.Equal("group-2-first", second.JobId);
 	}
 
 	[Fact]
@@ -47,14 +47,14 @@ public sealed class InMemoryFairQueueTests
 			CreateRequest("worker-1", capacity: 1, policy: null),
 			cancellationToken
 		));
-		await storage.CompleteAsync(first.Id, 1, "worker-1", cancellationToken);
+		await storage.CompleteAsync(first.JobId, 1, "worker-1", cancellationToken);
 		var second = Assert.Single(await storage.AcquireDueJobsAsync(
 			CreateRequest("worker-2", capacity: 1, policy: null),
 			cancellationToken
 		));
 
-		Assert.Equal("group-1-first", first.Id);
-		Assert.Equal("group-1-second", second.Id);
+		Assert.Equal("group-1-first", first.JobId);
+		Assert.Equal("group-1-second", second.JobId);
 	}
 
 	[Fact]
@@ -75,7 +75,7 @@ public sealed class InMemoryFairQueueTests
 
 		Assert.Equal(
 			["group-1-first", "group-2-first", "group-1-second", "group-2-second"],
-			acquired.Select(static job => job.Id)
+			acquired.Select(static job => job.JobId)
 		);
 	}
 
@@ -101,7 +101,7 @@ public sealed class InMemoryFairQueueTests
 			cancellationToken
 		));
 
-		Assert.Equal("quiet-waiting", acquired.Id);
+		Assert.Equal("quiet-waiting", acquired.JobId);
 	}
 
 	[Fact]
@@ -127,7 +127,7 @@ public sealed class InMemoryFairQueueTests
 			cancellationToken
 		));
 
-		Assert.Equal("formerly-noisy", acquired.Id);
+		Assert.Equal("formerly-noisy", acquired.JobId);
 	}
 
 	[Fact]
@@ -144,13 +144,13 @@ public sealed class InMemoryFairQueueTests
 			CreateRequest("worker-1", capacity: 1, DefaultPolicy),
 			cancellationToken
 		));
-		await storage.CompleteAsync(first.Id, 1, "worker-1", cancellationToken);
+		await storage.CompleteAsync(first.JobId, 1, "worker-1", cancellationToken);
 		var second = Assert.Single(await storage.AcquireDueJobsAsync(
 			CreateRequest("worker-2", capacity: 1, new FairQueuePolicy { ConcurrencyShareThreshold = 0.10, MinInflightForNoisy = 30, GroupRoundRobin = false }),
 			cancellationToken
 		));
 
-		Assert.Equal("group-1-second", second.Id);
+		Assert.Equal("group-1-second", second.JobId);
 	}
 
 	[Fact]
@@ -181,7 +181,7 @@ public sealed class InMemoryFairQueueTests
 			],
 		}, cancellationToken);
 
-		Assert.Equal(["ungrouped-limited", "grouped-other-1"], acquired.Select(static job => job.Id));
+		Assert.Equal(["ungrouped-limited", "grouped-other-1"], acquired.Select(static job => job.JobId));
 	}
 
 	[Fact]
@@ -199,7 +199,7 @@ public sealed class InMemoryFairQueueTests
 			cancellationToken
 		);
 
-		Assert.Equal(["oldest", "middle", "newer"], acquired.Select(static job => job.Id));
+		Assert.Equal(["oldest", "middle", "newer"], acquired.Select(static job => job.JobId));
 	}
 
 	[Fact]
@@ -221,12 +221,12 @@ public sealed class InMemoryFairQueueTests
 			CreateRequest("worker-2", capacity: 1, DefaultPolicy),
 			cancellationToken
 		));
-		await storage.CompleteAsync(first.Id, 1, "worker-1", cancellationToken);
+		await storage.CompleteAsync(first.JobId, 1, "worker-1", cancellationToken);
 		var third = Assert.Single(await storage.AcquireDueJobsAsync(
 			CreateRequest("worker-3", capacity: 1, DefaultPolicy),
 			cancellationToken
 		));
-		await storage.CompleteAsync(third.Id, 1, "worker-3", cancellationToken);
+		await storage.CompleteAsync(third.JobId, 1, "worker-3", cancellationToken);
 		await Enqueue(storage, clock, "group-1-returned", 4, "group-1", cancellationToken);
 
 		var afterReset = Assert.Single(await storage.AcquireDueJobsAsync(
@@ -234,10 +234,10 @@ public sealed class InMemoryFairQueueTests
 			cancellationToken
 		));
 
-		Assert.Equal("group-1-first", first.Id);
-		Assert.Equal("group-2-active", second.Id);
-		Assert.Equal("group-1-second", third.Id);
-		Assert.Equal("group-1-returned", afterReset.Id);
+		Assert.Equal("group-1-first", first.JobId);
+		Assert.Equal("group-2-active", second.JobId);
+		Assert.Equal("group-1-second", third.JobId);
+		Assert.Equal("group-1-returned", afterReset.JobId);
 	}
 
 	private static JobAcquisitionRequest CreateRequest(
@@ -271,7 +271,7 @@ public sealed class InMemoryFairQueueTests
 		string jobName = "job"
 	) => storage.EnqueueAsync(new()
 	{
-		Id = id,
+		JobId = id,
 		JobName = jobName,
 		Payload = "{}",
 		GroupId = groupId,

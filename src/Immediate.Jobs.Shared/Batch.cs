@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using Immediate.Jobs.Shared.Apis;
 using Immediate.Jobs.Shared.Interfaces;
 using Immediate.Jobs.Shared.Storage;
@@ -17,12 +18,12 @@ public sealed class Batch : IAsyncDisposable
 		Disposed,
 	}
 
-	private readonly Lock _gate = new();
 	private readonly List<JobRecord> _jobs = [];
+	private readonly List<JobRecord> _rootJobs = [];
 	private readonly List<JobContinuationEdge> _edges = [];
 	private readonly IJobGraphStorage _storage;
 	private readonly TimeProvider _timeProvider;
-	private readonly BatchHandle? _after;
+	private readonly IReadOnlyList<BatchHandle>? _parents;
 	private readonly ContinuationTrigger _trigger;
 	private Lifecycle _lifecycle;
 
@@ -30,65 +31,72 @@ public sealed class Batch : IAsyncDisposable
 		IJobGraphStorage storage,
 		TimeProvider timeProvider,
 		IIdGenerator idGenerator,
-		BatchHandle? after,
+		IReadOnlyList<BatchHandle>? parents,
 		ContinuationTrigger trigger
 	)
 	{
 		_storage = storage;
 		_timeProvider = timeProvider;
-		_after = after;
+		_parents = parents;
 		_trigger = trigger;
-		Id = idGenerator.CreateId(IdKind.Batch);
+		BatchId = new() { BatchId = idGenerator.CreateId(IdKind.Batch) };
 	}
 
 	/// <summary>
-	/// 	The client-generated batch identifier.
-	/// </summary>
-	/// <value>
 	/// 	The identifier assigned to the batch.
-	/// </value>
-	public string Id { get; }
+	/// </summary>
+	public BatchHandle BatchId { get; }
 
-	internal JobHandle Add(JobRecord record, ReadOnlySpan<JobHandle> parents, ContinuationTrigger on)
+	internal BatchJobHandle Add(JobRecord record)
 	{
-		lock (_gate)
+		EnsureOpenCore();
+
+		_jobs.Add(record with { BatchId = BatchId });
+		_rootJobs.Add(_jobs[^1]);
+
+		return new BatchJobHandle
 		{
-			EnsureOpenCore();
-			if (parents.IsEmpty)
-			{
-				_jobs.Add(record with { BatchId = Id });
-				return new(record.Id) { Batch = this };
-			}
+			Batch = this,
+			Job = record.JobId,
+		};
+	}
 
-			var parentIds = new HashSet<string>(StringComparer.Ordinal);
-			foreach (var parent in parents)
-			{
-				if (string.IsNullOrWhiteSpace(parent.Id))
-					throw new ImmediateJobException("Continuation parent handles must have a non-empty identifier.");
-				if (!ReferenceEquals(parent.Batch, this))
-					throw new ImmediateJobException("Continuation handles must belong to the same open batch.");
-				if (!parentIds.Add(parent.Id))
-					throw new ImmediateJobException($"Duplicate continuation parent '{parent.Id}'.");
-			}
+	internal BatchJobHandle Add(JobRecord record, IReadOnlyList<BatchJobHandle> parents, ContinuationTrigger on, TimeSpan delay)
+	{
+		EnsureOpenCore();
 
-			_jobs.Add(record with
-			{
-				BatchId = Id,
-				State = JobState.AwaitingContinuation,
-				RemainingDependencies = parentIds.Count,
-			});
-			foreach (var parentId in parentIds)
-			{
-				_edges.Add(new()
-				{
-					ChildJobId = record.Id,
-					ParentJobId = parentId,
-					Trigger = on,
-				});
-			}
-
-			return new(record.Id) { Batch = this };
+		var parentIds = new HashSet<JobHandle>();
+		foreach (var parent in parents)
+		{
+			if (!ReferenceEquals(parent.Batch, this))
+				throw new ImmediateJobException("Continuation handles must belong to the same open batch.");
+			if (!parentIds.Add(parent.Job))
+				throw new ImmediateJobException($"Duplicate continuation parent '{parent.Job.JobId}'.");
 		}
+
+		_jobs.Add(record with
+		{
+			BatchId = BatchId,
+			State = JobState.AwaitingContinuation,
+			RemainingDependencies = parentIds.Count,
+		});
+
+		foreach (var parent in parents)
+		{
+			_edges.Add(new()
+			{
+				ChildJob = record.JobId,
+				ParentJob = parent.Job,
+				Trigger = on,
+				Delay = delay,
+			});
+		}
+
+		return new BatchJobHandle
+		{
+			Batch = this,
+			Job = record.JobId,
+		};
 	}
 
 	/// <summary>
@@ -102,91 +110,66 @@ public sealed class Batch : IAsyncDisposable
 	/// </returns>
 	public async ValueTask<BatchHandle> CommitAsync(CancellationToken cancellationToken = default)
 	{
-		BatchRecord record;
-		IReadOnlyList<JobRecord> jobs;
-		IReadOnlyList<JobContinuationEdge> edges;
-		lock (_gate)
+		EnsureOpenCore();
+
+		if (_jobs.Count == 0)
+			throw new ImmediateJobException("An atomic batch cannot be committed without jobs.");
+
+		if (_parents is { } parentBatches)
 		{
-			EnsureOpenCore();
-			if (_jobs.Count == 0)
-				throw new ImmediateJobException("An atomic batch cannot be committed without jobs.");
-
-			if (_after is { } parentBatch)
+			foreach (var parentBatch in parentBatches)
 			{
-				var children = _jobs.Select(static job => job.Id).ToHashSet(StringComparer.Ordinal);
-				foreach (var edge in _edges)
-					_ = children.Remove(edge.ChildJobId);
-
-				foreach (var childId in children)
+				foreach (ref var job in CollectionsMarshal.AsSpan(_rootJobs))
 				{
-					var index = _jobs.FindIndex(job => string.Equals(job.Id, childId, StringComparison.Ordinal));
-					var job = _jobs[index];
-					_jobs[index] = job with
+					job = job with
 					{
 						State = JobState.AwaitingContinuation,
 						RemainingDependencies = job.RemainingDependencies + 1,
 					};
-					_edges.Add(new()
+
+					_edges.Add(new JobContinuationEdge
 					{
-						ChildJobId = childId,
-						ParentBatchId = parentBatch.Id,
+						ChildJob = job.JobId,
+						ParentBatch = parentBatch,
 						Trigger = _trigger,
+						Delay = TimeSpan.Zero,
 					});
 				}
 			}
-
-			record = new BatchRecord
-			{
-				Id = Id,
-				CreatedAt = _timeProvider.GetUtcNow(),
-				TotalJobs = _jobs.Count,
-				PendingCount = _jobs.Count,
-				State = BatchState.Executing,
-			};
-			jobs = Array.AsReadOnly(_jobs.ToArray());
-			edges = Array.AsReadOnly(_edges.ToArray());
-			_lifecycle = Lifecycle.Committing;
 		}
+
+		var record = new BatchRecord
+		{
+			BatchId = BatchId,
+			CreatedAt = _timeProvider.GetUtcNow(),
+			TotalJobs = _jobs.Count,
+			PendingCount = _jobs.Count,
+			State = BatchState.Executing,
+		};
+
+		_lifecycle = Lifecycle.Committing;
 
 		try
 		{
-			await _storage.EnqueueBatchAsync(record, jobs, edges, cancellationToken).ConfigureAwait(false);
-			return new(Id);
+			await _storage.EnqueueBatchAsync(record, _jobs, _edges, cancellationToken).ConfigureAwait(false);
+			return BatchId;
 		}
 		finally
 		{
-			lock (_gate)
-			{
-				if (_lifecycle == Lifecycle.Committing)
-					_lifecycle = Lifecycle.Finished;
-			}
+			if (_lifecycle == Lifecycle.Committing)
+				_lifecycle = Lifecycle.Finished;
 		}
 	}
 
 	/// <inheritdoc />
-	public ValueTask DisposeAsync()
+	public async ValueTask DisposeAsync()
 	{
-		lock (_gate)
-		{
-			if (_lifecycle == Lifecycle.Disposed)
-				return ValueTask.CompletedTask;
-			_lifecycle = Lifecycle.Disposed;
-			_jobs.Clear();
-			_edges.Clear();
-		}
-
-		return ValueTask.CompletedTask;
-	}
-
-	internal void EnsureOpen()
-	{
-		lock (_gate)
-			EnsureOpenCore();
+		_lifecycle = Lifecycle.Disposed;
 	}
 
 	private void EnsureOpenCore()
 	{
 		if (_lifecycle != Lifecycle.Open)
-			throw new ImmediateJobException("A batch or one of its handles was used after commit or disposal.");
+			ImmediateJobException.Throw("A batch or one of its handles was used after commit or disposal.");
 	}
 }
