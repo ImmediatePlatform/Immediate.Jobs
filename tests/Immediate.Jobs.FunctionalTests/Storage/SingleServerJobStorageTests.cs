@@ -171,7 +171,6 @@ public sealed class SingleServerJobStorageTests
 		_ = services.AddSingleton(new ExecutionBufferProbeState());
 		_ = services.AddImmediateJobsCore();
 		_ = services.AddImmediateJobsFunctionalTestsHandlers();
-		_ = services.AddImmediateJobsFunctionalTestsBehaviors();
 		_ = services.AddImmediateJobsFunctionalTestsJobs();
 		await using var provider = services.BuildServiceProvider();
 		var scheduler = provider.GetRequiredService<BatchWorkflowJob.Scheduler>();
@@ -237,7 +236,6 @@ public sealed class SingleServerJobStorageTests
 		_ = services.AddSingleton(new ExecutionBufferProbeState());
 		_ = services.AddImmediateJobsCore();
 		_ = services.AddImmediateJobsFunctionalTestsHandlers();
-		_ = services.AddImmediateJobsFunctionalTestsBehaviors();
 		_ = services.AddImmediateJobsFunctionalTestsJobs();
 		await using var provider = services.BuildServiceProvider();
 		var scheduler = provider.GetRequiredService<BatchWorkflowJob.Scheduler>();

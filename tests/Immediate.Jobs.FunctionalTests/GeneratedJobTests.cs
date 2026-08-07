@@ -21,7 +21,6 @@ public sealed class GeneratedJobTests
 		var state = new ExecutionState();
 		var services = new ServiceCollection();
 		_ = services.AddSingleton(state);
-		_ = services.AddImmediateJobsFunctionalTestsBehaviors();
 		_ = OrdinaryHandler.AddHandlers(services);
 		await using var provider = services.BuildServiceProvider();
 
@@ -44,7 +43,6 @@ public sealed class GeneratedJobTests
 			_ = services.AddSingleton(new ContextProbe());
 			_ = services.AddScoped<PropagationScopeState>();
 			_ = services.AddImmediateJobsFunctionalTestsHandlers();
-			_ = services.AddImmediateJobsFunctionalTestsBehaviors();
 			_ = services.AddImmediateJobsFunctionalTestsJobs();
 		});
 		await using var enqueueScope = harness.Services.CreateAsyncScope();
@@ -86,7 +84,6 @@ public sealed class GeneratedJobTests
 			_ = services.AddSingleton(new ContextProbe());
 			_ = services.AddScoped<PropagationScopeState>();
 			_ = services.AddImmediateJobsFunctionalTestsHandlers();
-			_ = services.AddImmediateJobsFunctionalTestsBehaviors();
 			_ = services.AddImmediateJobsFunctionalTestsJobs();
 		});
 		await using var scope = harness.Services.CreateAsyncScope();
@@ -124,7 +121,6 @@ public sealed class GeneratedJobTests
 			_ = services.AddSingleton(new ContextProbe());
 			_ = services.AddScoped<PropagationScopeState>();
 			_ = services.AddImmediateJobsFunctionalTestsHandlers();
-			_ = services.AddImmediateJobsFunctionalTestsBehaviors();
 			_ = services.AddImmediateJobsFunctionalTestsJobs();
 		});
 		await using var scope = harness.Services.CreateAsyncScope();
@@ -153,7 +149,6 @@ public sealed class GeneratedJobTests
 			_ = services.AddSingleton(new ContextProbe());
 			_ = services.AddScoped<PropagationScopeState>();
 			_ = services.AddImmediateJobsFunctionalTestsHandlers();
-			_ = services.AddImmediateJobsFunctionalTestsBehaviors();
 			_ = services.AddImmediateJobsFunctionalTestsJobs();
 		});
 		await using var enqueueScope = harness.Services.CreateAsyncScope();
@@ -190,7 +185,6 @@ public sealed class GeneratedJobTests
 			_ = services.AddSingleton(new ContextProbe());
 			_ = services.AddScoped<PropagationScopeState>();
 			_ = services.AddImmediateJobsFunctionalTestsHandlers();
-			_ = services.AddImmediateJobsFunctionalTestsBehaviors();
 			_ = services.AddImmediateJobsFunctionalTestsJobs();
 		});
 		await using var scope = harness.Services.CreateAsyncScope();
@@ -244,7 +238,6 @@ public sealed class GeneratedJobTests
 			_ = services.AddSingleton(new ContextProbe());
 			_ = services.AddScoped<PropagationScopeState>();
 			_ = services.AddImmediateJobsFunctionalTestsHandlers();
-			_ = services.AddImmediateJobsFunctionalTestsBehaviors();
 			_ = services.AddImmediateJobsFunctionalTestsJobs();
 		});
 		await using var scope = harness.Services.CreateAsyncScope();
@@ -268,7 +261,6 @@ public sealed class GeneratedJobTests
 			_ = services.AddSingleton(new ContextProbe());
 			_ = services.AddScoped<PropagationScopeState>();
 			_ = services.AddImmediateJobsFunctionalTestsHandlers();
-			_ = services.AddImmediateJobsFunctionalTestsBehaviors();
 			_ = services.AddImmediateJobsFunctionalTestsJobs();
 		});
 		await using var scope = harness.Services.CreateAsyncScope();
