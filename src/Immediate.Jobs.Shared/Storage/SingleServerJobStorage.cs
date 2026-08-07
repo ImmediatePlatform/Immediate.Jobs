@@ -9,13 +9,15 @@ namespace Immediate.Jobs.Shared.Storage;
 internal sealed class SingleServerJobStorage :
 	IRecurringJobStorage,
 	IJobGraphStorage,
+	IFairQueueStorage,
 	IAsyncDisposable,
 	IDisposable
 {
 	private const int RecoveryBatchSize = 1000;
 	private readonly TimeProvider _timeProvider;
-#pragma warning disable CA2213 // Kept alive so callers already waiting during disposal can safely leave the semaphore.
+#pragma warning disable CA2213 // Kept alive so callers already waiting during disposal can safely leave the semaphores.
 	private readonly SemaphoreSlim _initialization = new(1, 1);
+	private readonly SemaphoreSlim _recurringMaterialization = new(1, 1);
 #pragma warning restore CA2213
 	private readonly IRecurringJobStorage _recurringDurableStorage;
 	private readonly IJobGraphStorage _graphDurableStorage;
@@ -318,16 +320,39 @@ internal sealed class SingleServerJobStorage :
 	)
 	{
 		await EnsureInitializedAsync(cancellationToken).ConfigureAwait(false);
-		if (!await _recurringDurableStorage.MaterializeRecurringAsync(schedule, job, nextRunAt, cancellationToken).ConfigureAwait(false))
-			return false;
-		return await _primary.MaterializeRecurringAsync(schedule, job, nextRunAt, cancellationToken).ConfigureAwait(false);
+		await _recurringMaterialization.WaitAsync(cancellationToken).ConfigureAwait(false);
+		try
+		{
+			ThrowIfDisposed();
+			var durableResult = await _recurringDurableStorage.MaterializeRecurringAsync(
+				schedule,
+				job,
+				nextRunAt,
+				cancellationToken
+			).ConfigureAwait(false);
+			var primaryResult = await _primary.MaterializeRecurringAsync(schedule, job, nextRunAt, cancellationToken)
+				.ConfigureAwait(false);
+			if (primaryResult != durableResult)
+			{
+				throw new ImmediateJobException(
+					"The durable recurring-job replica has drifted from the authoritative in-memory schedule."
+				);
+			}
+
+			return primaryResult;
+		}
+		finally
+		{
+			_ = _recurringMaterialization.Release();
+		}
 	}
 
 	/// <inheritdoc />
 	public async ValueTask<JobMonitoringSnapshot> GetMonitoringSnapshotAsync(CancellationToken cancellationToken = default)
 	{
 		await EnsureInitializedAsync(cancellationToken).ConfigureAwait(false);
-		return await _primary.GetMonitoringSnapshotAsync(cancellationToken).ConfigureAwait(false);
+		var snapshot = await _primary.GetMonitoringSnapshotAsync(cancellationToken).ConfigureAwait(false);
+		return snapshot with { Capabilities = this.GetCapabilities() };
 	}
 
 	/// <inheritdoc />
@@ -512,8 +537,16 @@ internal sealed class SingleServerJobStorage :
 		await _initialization.WaitAsync(CancellationToken.None).ConfigureAwait(false);
 		try
 		{
-			await _primary.DisposeAsync().ConfigureAwait(false);
-			await DurableStorage.DisposeAsync().ConfigureAwait(false);
+			await _recurringMaterialization.WaitAsync(CancellationToken.None).ConfigureAwait(false);
+			try
+			{
+				await _primary.DisposeAsync().ConfigureAwait(false);
+				await DurableStorage.DisposeAsync().ConfigureAwait(false);
+			}
+			finally
+			{
+				_ = _recurringMaterialization.Release();
+			}
 		}
 		finally
 		{

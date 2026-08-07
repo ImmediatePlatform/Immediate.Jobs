@@ -15,7 +15,7 @@ namespace Immediate.Jobs.EntityFrameworkCore;
 internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 	IDbContextFactory<TContext> contextFactory,
 	TimeProvider? timeProvider = null
-) : IRecurringJobStorage, IJobGraphStorage, IJobStorageReplica
+) : IRecurringJobStorage, IJobGraphStorage, IFairQueueStorage, IJobStorageReplica
 	where TContext : DbContext
 {
 	private const int MaxConcurrencyAttempts = 5;
@@ -980,8 +980,47 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 		catch (DbUpdateException)
 		{
 			await transaction.RollbackAsync(cancellationToken).ConfigureAwait(false);
+			if (job.RecurringKey is not null)
+			{
+				await AdvanceRecurringAfterDedupeAsync(
+					schedule,
+					job.RecurringKey,
+					nextRunAt,
+					cancellationToken
+				).ConfigureAwait(false);
+			}
+
 			return false;
 		}
+	}
+
+	private async Task AdvanceRecurringAfterDedupeAsync(
+		RecurringJobSchedule schedule,
+		string recurringKey,
+		DateTimeOffset nextRunAt,
+		CancellationToken cancellationToken
+	)
+	{
+		await using var context = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+		if (!await context.Set<ImmediateJobEntity>()
+			.AnyAsync(job => job.RecurringKey == recurringKey, cancellationToken)
+			.ConfigureAwait(false))
+		{
+			return;
+		}
+
+		var concurrencyStamp = Guid.NewGuid();
+		_ = await context.Set<ImmediateRecurringJobEntity>()
+			.Where(entity =>
+				entity.Name == schedule.Name &&
+				!entity.IsPaused &&
+				entity.NextRunAt == schedule.NextRunAt)
+			.ExecuteUpdateAsync(setters => setters
+				.SetProperty(entity => entity.LastRunAt, schedule.NextRunAt)
+				.SetProperty(entity => entity.NextRunAt, nextRunAt)
+				.SetProperty(entity => entity.ConcurrencyStamp, concurrencyStamp),
+				cancellationToken)
+			.ConfigureAwait(false);
 	}
 
 	/// <inheritdoc />
