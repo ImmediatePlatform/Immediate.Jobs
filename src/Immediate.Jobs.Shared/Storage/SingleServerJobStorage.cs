@@ -6,7 +6,7 @@ namespace Immediate.Jobs.Shared.Storage;
 /// A single-server storage topology that executes against an authoritative in-process store while
 /// synchronously replicating changes to durable storage and restoring them when the process starts.
 /// </summary>
-public sealed class SingleServerJobStorage :
+internal sealed class SingleServerJobStorage :
 	IRecurringJobStorage,
 	IJobGraphStorage,
 	IAsyncDisposable,

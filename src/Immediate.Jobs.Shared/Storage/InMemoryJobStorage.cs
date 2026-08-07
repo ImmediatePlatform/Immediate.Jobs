@@ -13,7 +13,7 @@ namespace Immediate.Jobs.Shared.Storage;
 /// <param name="timeProvider">
 /// 	The clock used for scheduling, leases, and timestamps.
 /// </param>
-public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
+internal sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 	IRecurringJobStorage,
 	IJobGraphStorage,
 	IJobStorageReplica
