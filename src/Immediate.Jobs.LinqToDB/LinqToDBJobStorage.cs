@@ -1,4 +1,6 @@
 using System.Data.Common;
+using Immediate.Jobs.Shared.Apis;
+using Immediate.Jobs.Shared.Storage;
 using LinqToDB;
 using LinqToDB.Async;
 using LinqToDB.Data;
@@ -94,7 +96,7 @@ public sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorage,
 
 	/// <inheritdoc />
 	public ValueTask EnqueueBatchAsync(
-		JobBatchRecord batch,
+		BatchRecord batch,
 		IReadOnlyList<JobRecord> jobs,
 		IReadOnlyList<JobContinuationEdge> edges,
 		CancellationToken cancellationToken = default
@@ -109,7 +111,7 @@ public sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorage,
 	}
 
 	private ValueTask ExecuteGraphInsertAsync(
-		JobBatchRecord? batch,
+		BatchRecord? batch,
 		IReadOnlyList<JobRecord> jobs,
 		IReadOnlyList<JobContinuationEdge> edges,
 		CancellationToken cancellationToken
@@ -120,7 +122,7 @@ public sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorage,
 
 	private async Task InsertGraphCoreAsync(
 		DataConnection connection,
-		JobBatchRecord? batch,
+		BatchRecord? batch,
 		IReadOnlyList<JobRecord> jobs,
 		IReadOnlyList<JobContinuationEdge> edges,
 		CancellationToken cancellationToken
@@ -1094,18 +1096,18 @@ public sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorage,
 			.OrderBy(server => server.WorkerId)
 			.ToListAsync(cancellationToken)
 			.ConfigureAwait(false);
-		return new(
-			_timeProvider.GetUtcNow(),
-			counts,
-			[.. recurringEntities.Select(ToRecord)],
-			[.. serverEntities.Select(server => new JobServerSnapshot(
-				server.WorkerId,
-				FromTicks(server.LastHeartbeat),
-				server.ActiveWorkers,
-				server.MaxWorkers
-			))]
-		)
+		return new JobMonitoringSnapshot
 		{
+			CapturedAt = _timeProvider.GetUtcNow(),
+			Counts = counts,
+			Recurring = [.. recurringEntities.Select(ToRecord)],
+			Servers = [.. serverEntities.Select(server => new JobServerSnapshot
+			{
+				WorkerId = server.WorkerId,
+				LastHeartbeat = FromTicks(server.LastHeartbeat),
+				ActiveWorkers = server.ActiveWorkers,
+				MaxWorkers = server.MaxWorkers,
+			})],
 			Capabilities = this.GetCapabilities(),
 		};
 	}
@@ -1215,7 +1217,7 @@ public sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorage,
 
 	/// <inheritdoc />
 	public async ValueTask<IReadOnlyList<BatchStatus>> QueryBatchesAsync(
-		JobBatchQuery query,
+		BatchQuery query,
 		CancellationToken cancellationToken = default
 	)
 	{
@@ -1256,16 +1258,17 @@ public sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorage,
 			.Take(query.Take)
 			.ToListAsync(cancellationToken)
 			.ConfigureAwait(false);
-		return [.. entities.Select(job => new BatchMemberStatus(
-			job.Id,
-			job.JobName,
-			job.QueueName,
-			job.State,
-			job.Attempt,
-			FromTicks(job.CreatedAt),
-			FromTicks(job.CompletedAt),
-			job.LastError
-		))];
+		return [.. entities.Select(job => new BatchMemberStatus
+		{
+			JobId = job.Id,
+			JobName = job.JobName,
+			QueueName = job.QueueName,
+			State = job.State,
+			Attempt = job.Attempt,
+			CreatedAt = FromTicks(job.CreatedAt),
+			CompletedAt = FromTicks(job.CompletedAt),
+			LastError = job.LastError,
+		})];
 	}
 
 	/// <inheritdoc />
@@ -1284,7 +1287,7 @@ public sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorage,
 			.ThenBy(job => job.Id)
 			.ToListAsync(cancellationToken)
 			.ConfigureAwait(false);
-		var jobs = entities.Select(job => new BatchGraphNode(job.Id, job.JobName, job.State)).ToArray();
+		var jobs = entities.Select(job => new BatchGraphNode { JobId = job.Id, JobName = job.JobName, State = job.State }).ToArray();
 		var ids = jobs.Select(static job => job.JobId).ToArray();
 		var edges = ids.Length == 0
 			? []
@@ -1295,7 +1298,7 @@ public sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorage,
 				.ThenBy(edge => edge.ParentId)
 				.ToListAsync(cancellationToken)
 				.ConfigureAwait(false);
-		return new(batchId, jobs, [.. edges.Select(ToGraphEdge)]);
+		return new BatchGraph { BatchId = batchId, Nodes = jobs, Edges = [.. edges.Select(ToGraphEdge)] };
 	}
 
 	/// <inheritdoc />
@@ -1316,20 +1319,21 @@ public sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorage,
 			.ThenBy(edge => edge.ParentId)
 			.ToListAsync(cancellationToken)
 			.ConfigureAwait(false);
-		return new(
-			job.Id,
-			job.JobName,
-			job.QueueName,
-			job.State,
-			job.Attempt,
-			MaxAttempts: null,
-			FromTicks(job.CreatedAt),
-			FromTicks(job.DueAt),
-			FromTicks(job.CompletedAt),
-			job.LastError,
-			job.BatchId,
-			[.. edges.Select(ToGraphEdge)]
-		);
+		return new JobStatus
+		{
+			JobId = job.Id,
+			JobName = job.JobName,
+			QueueName = job.QueueName,
+			State = job.State,
+			Attempt = job.Attempt,
+			MaxAttempts = null,
+			CreatedAt = FromTicks(job.CreatedAt),
+			DueAt = FromTicks(job.DueAt),
+			CompletedAt = FromTicks(job.CompletedAt),
+			LastError = job.LastError,
+			BatchId = job.BatchId,
+			DependsOn = [.. edges.Select(ToGraphEdge)],
+		};
 	}
 
 	/// <inheritdoc />
@@ -2836,20 +2840,21 @@ public sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorage,
 		LastRunAt = FromTicks(schedule.LastRunAt),
 	};
 
-	private static BatchStatus ToStatus(ImmediateJobBatchEntity batch) => new(
-		batch.Id,
-		batch.State,
-		batch.TotalJobs,
-		batch.SucceededCount,
-		batch.FailedCount,
-		batch.CancelledCount,
-		batch.SkippedCount,
-		batch.PendingCount,
-		FromTicks(batch.CreatedAt),
-		FromTicks(batch.StartedAt),
-		FromTicks(batch.CompletedAt),
-		BatchStatus.CalculateFractionSettled(batch.TotalJobs, batch.PendingCount)
-	);
+	private static BatchStatus ToStatus(ImmediateJobBatchEntity batch) => new()
+	{
+		Id = batch.Id,
+		State = batch.State,
+		Total = batch.TotalJobs,
+		Succeeded = batch.SucceededCount,
+		Failed = batch.FailedCount,
+		Cancelled = batch.CancelledCount,
+		Skipped = batch.SkippedCount,
+		Remaining = batch.PendingCount,
+		CreatedAt = FromTicks(batch.CreatedAt),
+		StartedAt = FromTicks(batch.StartedAt),
+		CompletedAt = FromTicks(batch.CompletedAt),
+		FractionSettled = BatchStatus.CalculateFractionSettled(batch.TotalJobs, batch.PendingCount),
+	};
 
 	private static JobContinuationEdge ToContinuationEdge(ImmediateJobContinuationEntity edge) => new()
 	{
@@ -2859,12 +2864,13 @@ public sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorage,
 		Trigger = edge.Trigger,
 	};
 
-	private static BatchGraphEdge ToGraphEdge(ImmediateJobContinuationEntity edge) => new(
-		edge.ChildJobId,
-		edge.ParentKind == ContinuationParentKind.Job ? edge.ParentId : null,
-		edge.ParentKind == ContinuationParentKind.Batch ? edge.ParentId : null,
-		edge.Trigger
-	);
+	private static BatchGraphEdge ToGraphEdge(ImmediateJobContinuationEntity edge) => new()
+	{
+		ChildJobId = edge.ChildJobId,
+		ParentJobId = edge.ParentKind == ContinuationParentKind.Job ? edge.ParentId : null,
+		ParentBatchId = edge.ParentKind == ContinuationParentKind.Batch ? edge.ParentId : null,
+		Trigger = edge.Trigger,
+	};
 
 #pragma warning disable CA1032, CA1064
 	private sealed class LostRaceException : Exception;

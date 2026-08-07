@@ -2,6 +2,9 @@ using System.Globalization;
 using System.Text.RegularExpressions;
 using Immediate.Jobs.EntityFrameworkCore;
 using Immediate.Jobs.LinqToDB;
+using Immediate.Jobs.Shared.Apis;
+using Immediate.Jobs.Shared.Internals;
+using Immediate.Jobs.Shared.Storage;
 using LinqToDB;
 using LinqToDB.Data;
 using Microsoft.Data.Sqlite;
@@ -486,7 +489,7 @@ public sealed class RelationalStorageMatrixTests(StorageContainers containers)
 
 		var request = CreateRequest("fair-worker", 1) with
 		{
-			FairQueues = new(0.10, 30, GroupRoundRobin: true),
+			FairQueues = new FairQueuePolicy { ConcurrencyShareThreshold = 0.10, MinInflightForNoisy = 30, GroupRoundRobin = true },
 		};
 		var first = Assert.Single(await storage.AcquireDueJobsAsync(request, cancellationToken));
 		Assert.Equal("group-a-first", first.Id);
@@ -531,7 +534,7 @@ public sealed class RelationalStorageMatrixTests(StorageContainers containers)
 		);
 		var request = CreateRequest("fair-worker", 1) with
 		{
-			FairQueues = new(0.10, 30, GroupRoundRobin: true),
+			FairQueues = new FairQueuePolicy { ConcurrencyShareThreshold = 0.10, MinInflightForNoisy = 30, GroupRoundRobin = true },
 		};
 		var first = Assert.Single(await storage.AcquireDueJobsAsync(request, cancellationToken));
 		Assert.Equal("tenant-first", first.Id);
@@ -598,9 +601,9 @@ public sealed class RelationalStorageMatrixTests(StorageContainers containers)
 		await using var fixture = await CreateFixtureAsync(database, adapter, cancellationToken);
 		var storage = fixture.Storage;
 		var now = fixture.TimeProvider.GetUtcNow();
-		await storage.HeartbeatAsync(new("node-a", now, 1, 8), cancellationToken);
+		await storage.HeartbeatAsync(new JobServerSnapshot { WorkerId = "node-a", LastHeartbeat = now, ActiveWorkers = 1, MaxWorkers = 8 }, cancellationToken);
 		fixture.TimeProvider.Advance(TimeSpan.FromMinutes(3));
-		await storage.HeartbeatAsync(new("node-b", fixture.TimeProvider.GetUtcNow(), 2, 8), cancellationToken);
+		await storage.HeartbeatAsync(new JobServerSnapshot { WorkerId = "node-b", LastHeartbeat = fixture.TimeProvider.GetUtcNow(), ActiveWorkers = 2, MaxWorkers = 8 }, cancellationToken);
 
 		var snapshot = await storage.GetMonitoringSnapshotAsync(cancellationToken);
 

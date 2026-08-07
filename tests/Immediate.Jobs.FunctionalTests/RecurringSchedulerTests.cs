@@ -1,3 +1,7 @@
+using Immediate.Jobs.Shared.Apis;
+using Immediate.Jobs.Shared.Interfaces;
+using Immediate.Jobs.Shared.Internals;
+using Immediate.Jobs.Shared.Storage;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Time.Testing;
 
@@ -241,7 +245,7 @@ public sealed class RecurringSchedulerTests
 		RecurringKey = recurringKey,
 	}, cancellationToken);
 
-	private static JobSchedulerService BuildScheduler(
+	private static JobSchedulingService BuildScheduler(
 		InMemoryJobStorage storage,
 		TimeProvider clock,
 		string jobName,
@@ -272,7 +276,7 @@ public sealed class RecurringSchedulerTests
 		});
 
 		var provider = services.BuildServiceProvider();
-		return provider.GetRequiredService<JobSchedulerService>();
+		return provider.GetRequiredService<JobSchedulingService>();
 	}
 
 	private sealed class NoOpInvoker : IJobInvoker

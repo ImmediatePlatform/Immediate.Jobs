@@ -1,5 +1,8 @@
 using System.Globalization;
 using Immediate.Jobs.Redis;
+using Immediate.Jobs.Shared.Apis;
+using Immediate.Jobs.Shared.Internals;
+using Immediate.Jobs.Shared.Storage;
 using Microsoft.Extensions.Time.Testing;
 using StackExchange.Redis;
 using Testcontainers.Redis;
@@ -401,7 +404,7 @@ public sealed class RedisStorageTests(RedisStorageFixture fixture)
 		var timeProvider = CreateTimeProvider();
 		var options = CreateOptions();
 		await using var storage = new RedisJobStorage(connection, options, timeProvider);
-		await storage.HeartbeatAsync(new("node-a", timeProvider.GetUtcNow(), 1, 8), cancellationToken);
+		await storage.HeartbeatAsync(new JobServerSnapshot { WorkerId = "node-a", LastHeartbeat = timeProvider.GetUtcNow(), ActiveWorkers = 1, MaxWorkers = 8 }, cancellationToken);
 
 		var expiry = await connection.GetDatabase(options.Database).KeyTimeToLiveAsync(ServerKey(options, "node-a"));
 
@@ -417,8 +420,8 @@ public sealed class RedisStorageTests(RedisStorageFixture fixture)
 		var options = CreateOptions();
 		await using var storage = new RedisJobStorage(connection, options, timeProvider);
 		var now = timeProvider.GetUtcNow();
-		await storage.HeartbeatAsync(new("node-a", now, 1, 8), cancellationToken);
-		await storage.HeartbeatAsync(new("node-b", now, 2, 8), cancellationToken);
+		await storage.HeartbeatAsync(new JobServerSnapshot { WorkerId = "node-a", LastHeartbeat = now, ActiveWorkers = 1, MaxWorkers = 8 }, cancellationToken);
+		await storage.HeartbeatAsync(new JobServerSnapshot { WorkerId = "node-b", LastHeartbeat = now, ActiveWorkers = 2, MaxWorkers = 8 }, cancellationToken);
 		_ = await connection.GetDatabase(options.Database).KeyDeleteAsync(ServerKey(options, "node-a"));
 
 		var snapshot = await storage.GetMonitoringSnapshotAsync(cancellationToken);
@@ -782,7 +785,7 @@ public sealed class RedisStorageTests(RedisStorageFixture fixture)
 		await using var storage = new RedisJobStorage(connection, CreateOptions(), CreateTimeProvider());
 		var request = CreateRequest("worker", 1) with
 		{
-			FairQueues = new(0.10, 30, GroupRoundRobin: true),
+			FairQueues = new FairQueuePolicy { ConcurrencyShareThreshold = 0.10, MinInflightForNoisy = 30, GroupRoundRobin = true },
 		};
 
 		var exception = await Assert.ThrowsAsync<NotSupportedException>(

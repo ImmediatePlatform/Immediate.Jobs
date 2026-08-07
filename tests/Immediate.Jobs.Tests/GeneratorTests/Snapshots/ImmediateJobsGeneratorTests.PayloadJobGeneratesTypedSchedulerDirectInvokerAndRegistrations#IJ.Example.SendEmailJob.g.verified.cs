@@ -11,10 +11,10 @@ namespace Example;
 partial class SendEmailJob
 {
 	public sealed class Scheduler(
-		global::Immediate.Jobs.Shared.IJobStorage storage,
-		global::Immediate.Jobs.Shared.IJobSerializer serializer,
+		global::Immediate.Jobs.Shared.Storage.IJobStorage storage,
+		global::Immediate.Jobs.Shared.Interfaces.IJobSerializer serializer,
 		global::System.TimeProvider timeProvider,
-		global::Immediate.Jobs.Shared.IIdGenerator idGenerator
+		global::Immediate.Jobs.Shared.Interfaces.IIdGenerator idGenerator
 	) : global::Immediate.Jobs.Shared.JobScheduler<global::Example.SendEmailJob.Payload>(
 		storage,
 		serializer,
@@ -28,24 +28,22 @@ partial class SendEmailJob
 	}
 
 	[global::System.ComponentModel.EditorBrowsable(global::System.ComponentModel.EditorBrowsableState.Never)]
-	internal sealed class Invoker(global::Immediate.Jobs.Shared.IJobSerializer serializer) : global::Immediate.Jobs.Shared.IJobInvoker
+	internal sealed class Invoker(global::Immediate.Jobs.Shared.Interfaces.IJobSerializer serializer) : global::Immediate.Jobs.Shared.Interfaces.IJobInvoker
 	{
 		public async global::System.Threading.Tasks.ValueTask InvokeAsync(global::System.IServiceProvider scopedServices, global::Immediate.Jobs.Shared.JobExecution execution)
 		{
+			if (execution.Record.Context is { } envelope)
+			{
+				var contextSlices = global::Immediate.Jobs.Shared.Internals.JobContextEnvelope.Read(envelope);
+
+				global::Immediate.Jobs.Shared.Internals.JobContextEnvelope.LogOrphanedSlices(scopedServices, execution.Record, contextSlices.Keys);
+			}
 
 			var payload = serializer.Deserialize(execution.Record.Payload, static options => new PayloadJsonContext(options).Payload);
 
 			SetJobDetails(
 				ref payload,
-				new global::Immediate.Jobs.Shared.JobDetails(
-					execution.Record.Id,
-					execution.Record.JobName,
-					execution.Record.QueueName,
-					execution.Record.Attempt,
-					execution.Record.CreatedAt,
-					execution.Record.DueAt,
-					execution.Record.BatchId
-				) { Buffer = execution.Buffer }
+				new global::Immediate.Jobs.Shared.JobDetails(execution)
 			);
 
 			var handler = global::Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetRequiredService<global::Example.SendEmailJob.Handler>(scopedServices);
@@ -60,27 +58,28 @@ partial class SendEmailJob
 			where TRequest : global::Immediate.Jobs.Shared.IJobRequest => request.JobDetails = details;
 	}
 
-	internal sealed record JobDefinition : global::Immediate.Jobs.Shared.JobDefinition;
+	internal sealed record JobDefinition : global::Immediate.Jobs.Shared.Internals.JobDefinition;
 
-	internal static JobDefinition CreateJobDefinition(global::System.IServiceProvider services) => new()
-	{
-		Name = "send-email",
-		Queue = new global::Immediate.Jobs.Shared.JobQueueDefinition
+	internal static SendEmailJob.JobDefinition CreateJobDefinition(global::System.IServiceProvider services) =>
+		new()
 		{
-			Name = "default",
-			Priority = 0,
-			Concurrency = 0,
-		},
-		Invoker = global::Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetRequiredService<Invoker>(services),
-		JobType = typeof(global::Example.SendEmailJob),
-		TimeZone = "UTC",
-		MaxAttempts = 5,
-		Timeout = global::System.TimeSpan.Parse("00:02:00", global::System.Globalization.CultureInfo.InvariantCulture),
-		MaxConcurrency = 0,
-		OverlapPolicy = global::Immediate.Jobs.Shared.OverlapPolicy.Skip,
-		Backoff = global::Immediate.Jobs.Shared.BackoffStrategy.ExponentialJitter,
-		BackoffBase = global::System.TimeSpan.Parse("00:00:05", global::System.Globalization.CultureInfo.InvariantCulture),
-	};
+			Name = "send-email",
+			Queue = new global::Immediate.Jobs.Shared.Internals.JobQueueDefinition
+			{
+				Name = "default",
+				Priority = 0,
+				Concurrency = 0,
+			},
+			Invoker = global::Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetRequiredService<Invoker>(services),
+			JobType = typeof(global::Example.SendEmailJob),
+			TimeZone = "UTC",
+			MaxAttempts = 5,
+			Timeout = global::System.TimeSpan.Parse("00:02:00", global::System.Globalization.CultureInfo.InvariantCulture),
+			MaxConcurrency = 0,
+			OverlapPolicy = global::Immediate.Jobs.Shared.OverlapPolicy.Skip,
+			Backoff = global::Immediate.Jobs.Shared.BackoffStrategy.ExponentialJitter,
+			BackoffBase = global::System.TimeSpan.Parse("00:00:05", global::System.Globalization.CultureInfo.InvariantCulture),
+		};
 
 	internal sealed class PayloadJsonContext : global::System.Text.Json.Serialization.JsonSerializerContext, global::System.Text.Json.Serialization.Metadata.IJsonTypeInfoResolver
 	{
@@ -172,8 +171,8 @@ partial class SendEmailJob
 		global::Microsoft.Extensions.DependencyInjection.Extensions.ServiceCollectionDescriptorExtensions.TryAddEnumerable(
 			services,
 			global::Microsoft.Extensions.DependencyInjection.ServiceDescriptor.Singleton<
-				global::Immediate.Jobs.Shared.JobDefinition,
-				JobDefinition
+				global::Immediate.Jobs.Shared.Internals.JobDefinition,
+				SendEmailJob.JobDefinition
 			>(SendEmailJob.CreateJobDefinition)
 		);
 
@@ -182,7 +181,7 @@ partial class SendEmailJob
 		global::Microsoft.Extensions.DependencyInjection.Extensions.ServiceCollectionDescriptorExtensions.TryAddEnumerable(
 			services,
 			global::Microsoft.Extensions.DependencyInjection.ServiceDescriptor.Scoped<
-				global::Immediate.Jobs.Shared.IJobScheduler<global::Example.SendEmailJob.Payload>,
+				global::Immediate.Jobs.Shared.Interfaces.IJobScheduler<global::Example.SendEmailJob.Payload>,
 				SendEmailJob.Scheduler
 			>(global::Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetRequiredService<SendEmailJob.Scheduler>)
 		);

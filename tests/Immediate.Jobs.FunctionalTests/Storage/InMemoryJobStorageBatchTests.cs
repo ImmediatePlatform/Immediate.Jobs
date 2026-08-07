@@ -1,3 +1,6 @@
+using Immediate.Jobs.Shared.Apis;
+using Immediate.Jobs.Shared.Internals;
+using Immediate.Jobs.Shared.Storage;
 using Microsoft.Extensions.Time.Testing;
 
 namespace Immediate.Jobs.FunctionalTests.Storage;
@@ -474,7 +477,7 @@ public sealed class InMemoryJobStorageBatchTests
 		BatchId = batchId,
 	};
 
-	private static JobBatchRecord CreateBatch(string id, int count) => new()
+	private static BatchRecord CreateBatch(string id, int count) => new()
 	{
 		Id = id,
 		CreatedAt = DateTimeOffset.UnixEpoch,

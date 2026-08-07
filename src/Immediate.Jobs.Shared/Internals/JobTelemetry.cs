@@ -1,15 +1,21 @@
 using System.Diagnostics;
 using System.Diagnostics.Metrics;
 
-namespace Immediate.Jobs.Shared;
+namespace Immediate.Jobs.Shared.Internals;
 
-/// <summary>OpenTelemetry-compatible instrumentation emitted by Immediate.Jobs.</summary>
+/// <summary>
+/// 	OpenTelemetry-compatible instrumentation emitted by Immediate.Jobs.
+/// </summary>
 public static class JobTelemetry
 {
-	/// <summary>The activity source used for enqueue and execution traces.</summary>
+	/// <summary>
+	/// 	The activity source used for enqueue and execution traces.
+	/// </summary>
 	public static readonly ActivitySource ActivitySource = new("Immediate.Jobs");
 
-	/// <summary>The meter used for scheduler metrics.</summary>
+	/// <summary>
+	/// 	The meter used for scheduler metrics.
+	/// </summary>
 	public static readonly Meter Meter = new("Immediate.Jobs");
 
 	private static readonly Counter<long> EnqueuedCounter = Meter.CreateCounter<long>("jobs.enqueued");

@@ -1,5 +1,7 @@
 using System.Globalization;
 using System.Text.Json;
+using Immediate.Jobs.Shared.Apis;
+using Immediate.Jobs.Shared.Storage;
 using StackExchange.Redis;
 
 // TODO: remove and fix diagnostics
@@ -304,8 +306,12 @@ public sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 		var counts = states
 			.Select((state, index) => KeyValuePair.Create(state, countTasks[index].Result))
 			.ToDictionary();
-		return new(_timeProvider.GetUtcNow(), counts, recurring, servers)
+		return new JobMonitoringSnapshot
 		{
+			CapturedAt = _timeProvider.GetUtcNow(),
+			Counts = counts,
+			Recurring = recurring,
+			Servers = servers,
 			Capabilities = this.GetCapabilities(),
 		};
 	}
@@ -428,20 +434,21 @@ public sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 		var job = await ReadJobAsync(jobId, cancellationToken).ConfigureAwait(false);
 		return job is null
 			? null
-			: new(
-				job.Id,
-				job.JobName,
-				job.QueueName,
-				job.State,
-				job.Attempt,
-				MaxAttempts: null,
-				job.CreatedAt,
-				job.DueAt,
-				job.CompletedAt,
-				job.LastError,
-				BatchId: null,
-				DependsOn: []
-			);
+			: new JobStatus
+			{
+				JobId = job.Id,
+				JobName = job.JobName,
+				QueueName = job.QueueName,
+				State = job.State,
+				Attempt = job.Attempt,
+				MaxAttempts = null,
+				CreatedAt = job.CreatedAt,
+				DueAt = job.DueAt,
+				CompletedAt = job.CompletedAt,
+				LastError = job.LastError,
+				BatchId = null,
+				DependsOn = [],
+			};
 	}
 
 	/// <inheritdoc />
@@ -808,12 +815,13 @@ public sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 			.. tasks
 				.Select((task, index) => (Id: (string)ids[index]!, Values: task.Result))
 				.Where(static server => !server.Values[0].IsNullOrEmpty)
-				.Select(static server => new JobServerSnapshot(
-					server.Id,
-					FromTicks(server.Values[0]),
-					ParseInt32(server.Values[1]),
-					ParseInt32(server.Values[2])
-				)),
+				.Select(static server => new JobServerSnapshot
+				{
+					WorkerId = server.Id,
+					LastHeartbeat = FromTicks(server.Values[0]),
+					ActiveWorkers = ParseInt32(server.Values[1]),
+					MaxWorkers = ParseInt32(server.Values[2]),
+				}),
 		];
 	}
 

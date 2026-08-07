@@ -1,4 +1,6 @@
 using System.Data.Common;
+using Immediate.Jobs.Shared.Apis;
+using Immediate.Jobs.Shared.Storage;
 using Microsoft.EntityFrameworkCore;
 
 // TODO: remove and fix diagnostics
@@ -81,7 +83,7 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 
 	/// <inheritdoc />
 	public async ValueTask EnqueueBatchAsync(
-		JobBatchRecord batch,
+		BatchRecord batch,
 		IReadOnlyList<JobRecord> jobs,
 		IReadOnlyList<JobContinuationEdge> edges,
 		CancellationToken cancellationToken = default
@@ -96,7 +98,7 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 	}
 
 	private ValueTask ExecuteGraphInsertAsync(
-		JobBatchRecord? batch,
+		BatchRecord? batch,
 		IReadOnlyList<JobRecord> jobs,
 		IReadOnlyList<JobContinuationEdge> edges,
 		CancellationToken cancellationToken
@@ -106,7 +108,7 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 	);
 
 	private async Task InsertGraphCoreAsync(
-		JobBatchRecord? batch,
+		BatchRecord? batch,
 		IReadOnlyList<JobRecord> jobs,
 		IReadOnlyList<JobContinuationEdge> edges,
 		CancellationToken cancellationToken
@@ -1017,11 +1019,15 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 			.AsNoTracking()
 			.Where(server => server.LastHeartbeat >= cutoff)
 			.OrderBy(server => server.WorkerId)
-			.Select(server => new JobServerSnapshot(server.WorkerId, server.LastHeartbeat, server.ActiveWorkers, server.MaxWorkers))
+			.Select(server => new JobServerSnapshot { WorkerId = server.WorkerId, LastHeartbeat = server.LastHeartbeat, ActiveWorkers = server.ActiveWorkers, MaxWorkers = server.MaxWorkers })
 			.ToListAsync(cancellationToken)
 			.ConfigureAwait(false);
-		return new(_timeProvider.GetUtcNow(), counts, recurring, servers)
+		return new JobMonitoringSnapshot
 		{
+			CapturedAt = _timeProvider.GetUtcNow(),
+			Counts = counts,
+			Recurring = recurring,
+			Servers = servers,
 			Capabilities = this.GetCapabilities(),
 		};
 	}
@@ -1158,7 +1164,7 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 
 	/// <inheritdoc />
 	public async ValueTask<IReadOnlyList<BatchStatus>> QueryBatchesAsync(
-		JobBatchQuery query,
+		BatchQuery query,
 		CancellationToken cancellationToken = default
 	)
 	{
@@ -1199,16 +1205,17 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 			.ThenBy(job => job.Id)
 			.Skip(query.Skip)
 			.Take(query.Take)
-			.Select(job => new BatchMemberStatus(
-				job.Id,
-				job.JobName,
-				job.QueueName,
-				job.State,
-				job.Attempt,
-				job.CreatedAt,
-				job.CompletedAt,
-				job.LastError
-			))
+			.Select(job => new BatchMemberStatus
+			{
+				JobId = job.Id,
+				JobName = job.JobName,
+				QueueName = job.QueueName,
+				State = job.State,
+				Attempt = job.Attempt,
+				CreatedAt = job.CreatedAt,
+				CompletedAt = job.CompletedAt,
+				LastError = job.LastError,
+			})
 			.ToListAsync(cancellationToken)
 			.ConfigureAwait(false);
 	}
@@ -1233,7 +1240,7 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 			.Where(job => job.BatchId == batchId)
 			.OrderBy(job => job.CreatedAt)
 			.ThenBy(job => job.Id)
-			.Select(job => new BatchGraphNode(job.Id, job.JobName, job.State))
+			.Select(job => new BatchGraphNode { JobId = job.Id, JobName = job.JobName, State = job.State })
 			.ToListAsync(cancellationToken)
 			.ConfigureAwait(false);
 		var ids = jobs.Select(static job => job.JobId).ToArray();
@@ -1247,7 +1254,7 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 				.ThenBy(edge => edge.ParentId)
 				.ToListAsync(cancellationToken)
 				.ConfigureAwait(false);
-		return new(batchId, jobs, [.. edges.Select(ToGraphEdge)]);
+		return new BatchGraph { BatchId = batchId, Nodes = jobs, Edges = [.. edges.Select(ToGraphEdge)] };
 	}
 
 	/// <inheritdoc />
@@ -1271,20 +1278,21 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 			.ThenBy(edge => edge.ParentId)
 			.ToListAsync(cancellationToken)
 			.ConfigureAwait(false);
-		return new(
-			job.Id,
-			job.JobName,
-			job.QueueName,
-			job.State,
-			job.Attempt,
-			MaxAttempts: null,
-			job.CreatedAt,
-			job.DueAt,
-			job.CompletedAt,
-			job.LastError,
-			job.BatchId,
-			[.. edges.Select(ToGraphEdge)]
-		);
+		return new JobStatus
+		{
+			JobId = job.Id,
+			JobName = job.JobName,
+			QueueName = job.QueueName,
+			State = job.State,
+			Attempt = job.Attempt,
+			MaxAttempts = null,
+			CreatedAt = job.CreatedAt,
+			DueAt = job.DueAt,
+			CompletedAt = job.CompletedAt,
+			LastError = job.LastError,
+			BatchId = job.BatchId,
+			DependsOn = [.. edges.Select(ToGraphEdge)],
+		};
 	}
 
 	/// <inheritdoc />
@@ -2685,20 +2693,21 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 		FailedDependencies = job.FailedDependencies,
 	};
 
-	private static BatchStatus ToStatus(ImmediateJobBatchEntity batch) => new(
-		batch.Id,
-		batch.State,
-		batch.TotalJobs,
-		batch.SucceededCount,
-		batch.FailedCount,
-		batch.CancelledCount,
-		batch.SkippedCount,
-		batch.PendingCount,
-		batch.CreatedAt,
-		batch.StartedAt,
-		batch.CompletedAt,
-		BatchStatus.CalculateFractionSettled(batch.TotalJobs, batch.PendingCount)
-	);
+	private static BatchStatus ToStatus(ImmediateJobBatchEntity batch) => new()
+	{
+		Id = batch.Id,
+		State = batch.State,
+		Total = batch.TotalJobs,
+		Succeeded = batch.SucceededCount,
+		Failed = batch.FailedCount,
+		Cancelled = batch.CancelledCount,
+		Skipped = batch.SkippedCount,
+		Remaining = batch.PendingCount,
+		CreatedAt = batch.CreatedAt,
+		StartedAt = batch.StartedAt,
+		CompletedAt = batch.CompletedAt,
+		FractionSettled = BatchStatus.CalculateFractionSettled(batch.TotalJobs, batch.PendingCount),
+	};
 
 	private static JobContinuationEdge ToContinuationEdge(ImmediateJobContinuationEntity edge) => new()
 	{
@@ -2708,12 +2717,13 @@ public sealed class EntityFrameworkCoreJobStorage<TContext>(
 		Trigger = edge.Trigger,
 	};
 
-	private static BatchGraphEdge ToGraphEdge(ImmediateJobContinuationEntity edge) => new(
-		edge.ChildJobId,
-		edge.ParentKind == ContinuationParentKind.Job ? edge.ParentId : null,
-		edge.ParentKind == ContinuationParentKind.Batch ? edge.ParentId : null,
-		edge.Trigger
-	);
+	private static BatchGraphEdge ToGraphEdge(ImmediateJobContinuationEntity edge) => new()
+	{
+		ChildJobId = edge.ChildJobId,
+		ParentJobId = edge.ParentKind == ContinuationParentKind.Job ? edge.ParentId : null,
+		ParentBatchId = edge.ParentKind == ContinuationParentKind.Batch ? edge.ParentId : null,
+		Trigger = edge.Trigger,
+	};
 
 	private static ImmediateRecurringJobEntity ToEntity(RecurringJobSchedule schedule) => new()
 	{

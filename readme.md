@@ -73,7 +73,7 @@ However, this name can be overridden using `[assembly: ImmediateAssemblyIdentifi
 
 ## Batches and continuations
 
-Inject `IJobBatchScheduler` to create an atomic group. Generated schedulers inherit strongly typed
+Inject `BatchScheduler` to create an atomic group. Generated schedulers inherit strongly typed
 batch methods and return handles that can be connected into chains, fan-out branches, and fan-in
 joins. Storage receives the entire batch in one transaction; disposing without committing writes
 nothing.
@@ -371,7 +371,7 @@ Queue-aware dispatch changes the provider acquisition seam to `AcquireDueJobsAsy
 
 ## Monitoring API
 
-Use `IJobBatchMonitor` and `IJobMonitor` for status, member, graph, and job reads. See
+Use `IBatchMonitor` and `IJobMonitor` for status, member, graph, and job reads. See
 [Batches & Continuations](docs/batches-and-continuations.md) for the complete API and semantics.
 
 ## Dashboard and Monitoring Web API

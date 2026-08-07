@@ -1,6 +1,9 @@
 using System.Globalization;
 using System.Reflection;
 using System.Runtime.ExceptionServices;
+using Immediate.Jobs.Shared.Apis;
+using Immediate.Jobs.Shared.Internals;
+using Immediate.Jobs.Shared.Storage;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Time.Testing;
 
@@ -174,7 +177,7 @@ public sealed class SingleServerJobStorageTests
 		_ = services.AddImmediateJobsFunctionalTestsJobs();
 		await using var provider = services.BuildServiceProvider();
 		var scheduler = provider.GetRequiredService<BatchWorkflowJob.Scheduler>();
-		var service = provider.GetRequiredService<JobSchedulerService>();
+		var service = provider.GetRequiredService<JobSchedulingService>();
 		var handle = await scheduler.EnqueueAsync(new("telemetry-failure"), cancellationToken);
 
 		await service.DrainAsync(cancellationToken);
@@ -198,7 +201,7 @@ public sealed class SingleServerJobStorageTests
 		_ = services.AddSingleton<IJobStorage>(proxy);
 		_ = services.AddImmediateJobsCore();
 		await using var provider = services.BuildServiceProvider();
-		var service = provider.GetRequiredService<JobSchedulerService>();
+		var service = provider.GetRequiredService<JobSchedulingService>();
 		var now = TimeProvider.System.GetUtcNow();
 
 		await service.ExecuteSingleAsync(
@@ -239,7 +242,7 @@ public sealed class SingleServerJobStorageTests
 		_ = services.AddImmediateJobsFunctionalTestsJobs();
 		await using var provider = services.BuildServiceProvider();
 		var scheduler = provider.GetRequiredService<BatchWorkflowJob.Scheduler>();
-		var service = provider.GetRequiredService<JobSchedulerService>();
+		var service = provider.GetRequiredService<JobSchedulingService>();
 		var handle = await scheduler.EnqueueAsync(new("host-shutdown"), cancellationToken);
 
 		_ = await Assert.ThrowsAnyAsync<OperationCanceledException>(
@@ -507,12 +510,13 @@ public sealed class SingleServerJobStorageTests
 		var timeProvider = new FakeTimeProvider(DateTimeOffset.UnixEpoch);
 		await using var durable = new InMemoryJobStorage(timeProvider);
 		await using var storage = new SingleServerJobStorage(durable, timeProvider);
-		var server = new JobServerSnapshot(
-			"single-server",
-			timeProvider.GetUtcNow(),
-			ActiveWorkers: 2,
-			MaxWorkers: 4
-		);
+		var server = new JobServerSnapshot
+		{
+			WorkerId = "single-server",
+			LastHeartbeat = timeProvider.GetUtcNow(),
+			ActiveWorkers = 2,
+			MaxWorkers = 4,
+		};
 
 		await storage.HeartbeatAsync(server, cancellationToken);
 

@@ -8,10 +8,10 @@
 partial class WorkJob
 {
 	public sealed class Scheduler(
-		global::Immediate.Jobs.Shared.IJobStorage storage,
-		global::Immediate.Jobs.Shared.IJobSerializer serializer,
+		global::Immediate.Jobs.Shared.Storage.IJobStorage storage,
+		global::Immediate.Jobs.Shared.Interfaces.IJobSerializer serializer,
 		global::System.TimeProvider timeProvider,
-		global::Immediate.Jobs.Shared.IIdGenerator idGenerator
+		global::Immediate.Jobs.Shared.Interfaces.IIdGenerator idGenerator
 		, global::WorkContextExtractor contextExtractor0
 	) : global::Immediate.Jobs.Shared.JobScheduler<global::Immediate.Jobs.Shared.EmptyJobRequest>(
 		storage,
@@ -22,7 +22,7 @@ partial class WorkJob
 		"critical-queue",
 		static options => new PayloadJsonContext(options).Payload
 	)
-		, global::Immediate.Jobs.Shared.IRecurringJobScheduler
+		, global::Immediate.Jobs.Shared.Interfaces.IRecurringJobScheduler
 	{
 		protected override string? CaptureContext()
 		{
@@ -34,13 +34,13 @@ partial class WorkJob
 			var context0 = contextExtractor0.Capture();
 			if (context0 is not null)
 			{
-				global::Immediate.Jobs.Shared.JobContextEnvelope.AddSlice(
+				global::Immediate.Jobs.Shared.Internals.JobContextEnvelope.AddSlice(
 					slices,
 					contextExtractor0.Key,
 					Serializer.Serialize(context0, static options => new PayloadJsonContext(options).Context0)
 				);
 			}
-			return global::Immediate.Jobs.Shared.JobContextEnvelope.Create(slices);
+			return global::Immediate.Jobs.Shared.Internals.JobContextEnvelope.Create(slices);
 		}
 
 
@@ -55,13 +55,13 @@ partial class WorkJob
 	}
 
 	[global::System.ComponentModel.EditorBrowsable(global::System.ComponentModel.EditorBrowsableState.Never)]
-	internal sealed class Invoker(global::Immediate.Jobs.Shared.IJobSerializer serializer) : global::Immediate.Jobs.Shared.IJobInvoker, global::Immediate.Jobs.Shared.IJobContextAwareInvoker
+	internal sealed class Invoker(global::Immediate.Jobs.Shared.Interfaces.IJobSerializer serializer) : global::Immediate.Jobs.Shared.Interfaces.IJobInvoker
 	{
 		public async global::System.Threading.Tasks.ValueTask InvokeAsync(global::System.IServiceProvider scopedServices, global::Immediate.Jobs.Shared.JobExecution execution)
 		{
 			if (execution.Record.Context is { } envelope)
 			{
-				var contextSlices = global::Immediate.Jobs.Shared.JobContextEnvelope.Read(envelope);
+				var contextSlices = global::Immediate.Jobs.Shared.Internals.JobContextEnvelope.Read(envelope);
 
 				var contextExtractor0 = global::Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetRequiredService<global::WorkContextExtractor>(scopedServices);
 				if (contextSlices.Remove(contextExtractor0.Key, out var serializedContext0))
@@ -70,22 +70,14 @@ partial class WorkJob
 					contextExtractor0.Restore(context0);
 				}
 
-				global::Immediate.Jobs.Shared.JobContextEnvelope.LogOrphanedSlices(scopedServices, execution.Record, contextSlices.Keys);
+				global::Immediate.Jobs.Shared.Internals.JobContextEnvelope.LogOrphanedSlices(scopedServices, execution.Record, contextSlices.Keys);
 			}
 
 			var payload = new global::Immediate.Jobs.Shared.EmptyJobRequest();
 
 			SetJobDetails(
 				ref payload,
-				new global::Immediate.Jobs.Shared.JobDetails(
-					execution.Record.Id,
-					execution.Record.JobName,
-					execution.Record.QueueName,
-					execution.Record.Attempt,
-					execution.Record.CreatedAt,
-					execution.Record.DueAt,
-					execution.Record.BatchId
-				) { Buffer = execution.Buffer }
+				new global::Immediate.Jobs.Shared.JobDetails(execution)
 			);
 
 			var handler = global::Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetRequiredService<global::WorkJob.Handler>(scopedServices);
@@ -100,26 +92,27 @@ partial class WorkJob
 			where TRequest : global::Immediate.Jobs.Shared.IJobRequest => request.JobDetails = details;
 	}
 
-	internal sealed record JobDefinition : global::Immediate.Jobs.Shared.JobDefinition;
+	internal sealed record JobDefinition : global::Immediate.Jobs.Shared.Internals.JobDefinition;
 
-	internal static JobDefinition CreateJobDefinition(global::System.IServiceProvider services) => new()
-	{
-		Name = "work",
-		Queue = new global::Immediate.Jobs.Shared.JobQueueDefinition
+	internal static WorkJob.JobDefinition CreateJobDefinition(global::System.IServiceProvider services) =>
+		new()
 		{
-			Name = "critical-queue",
-			Priority = 10,
-			Concurrency = 1,
-		},
-		Invoker = global::Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetRequiredService<Invoker>(services),
-		JobType = typeof(global::WorkJob),
-		TimeZone = "UTC",
-		MaxAttempts = 3,
-		MaxConcurrency = 0,
-		OverlapPolicy = global::Immediate.Jobs.Shared.OverlapPolicy.Skip,
-		Backoff = global::Immediate.Jobs.Shared.BackoffStrategy.ExponentialJitter,
-		BackoffBase = global::System.TimeSpan.Parse("00:00:05", global::System.Globalization.CultureInfo.InvariantCulture),
-	};
+			Name = "work",
+			Queue = new global::Immediate.Jobs.Shared.Internals.JobQueueDefinition
+			{
+				Name = "critical-queue",
+				Priority = 10,
+				Concurrency = 1,
+			},
+			Invoker = global::Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetRequiredService<Invoker>(services),
+			JobType = typeof(global::WorkJob),
+			TimeZone = "UTC",
+			MaxAttempts = 3,
+			MaxConcurrency = 0,
+			OverlapPolicy = global::Immediate.Jobs.Shared.OverlapPolicy.Skip,
+			Backoff = global::Immediate.Jobs.Shared.BackoffStrategy.ExponentialJitter,
+			BackoffBase = global::System.TimeSpan.Parse("00:00:05", global::System.Globalization.CultureInfo.InvariantCulture),
+		};
 
 	internal sealed class PayloadJsonContext : global::System.Text.Json.Serialization.JsonSerializerContext, global::System.Text.Json.Serialization.Metadata.IJsonTypeInfoResolver
 	{
@@ -181,8 +174,8 @@ partial class WorkJob
 		global::Microsoft.Extensions.DependencyInjection.Extensions.ServiceCollectionDescriptorExtensions.TryAddEnumerable(
 			services,
 			global::Microsoft.Extensions.DependencyInjection.ServiceDescriptor.Singleton<
-				global::Immediate.Jobs.Shared.JobDefinition,
-				JobDefinition
+				global::Immediate.Jobs.Shared.Internals.JobDefinition,
+				WorkJob.JobDefinition
 			>(WorkJob.CreateJobDefinition)
 		);
 

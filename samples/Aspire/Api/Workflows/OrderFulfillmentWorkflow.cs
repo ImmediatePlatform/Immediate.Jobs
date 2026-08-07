@@ -4,7 +4,7 @@ using Immediate.Jobs.Shared;
 namespace Immediate.Jobs.Aspire.Api.Workflows;
 
 public sealed class OrderFulfillmentWorkflow(
-	IJobBatchScheduler batches,
+	BatchScheduler batches,
 	ReceiveOrderJob.Scheduler receiveOrder,
 	ReserveInventoryJob.Scheduler reserveInventory,
 	FraudCheckJob.Scheduler fraudCheck,

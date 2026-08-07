@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Immediate.Jobs.NodaTime;
+using Immediate.Jobs.Shared.Interfaces;
 using Immediate.Jobs.Testing;
 using Microsoft.Extensions.DependencyInjection;
 using NodaTime;

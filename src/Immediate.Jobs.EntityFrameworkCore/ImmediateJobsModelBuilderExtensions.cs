@@ -1,3 +1,5 @@
+using Immediate.Jobs.Shared.Apis;
+using Immediate.Jobs.Shared.Internals;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 

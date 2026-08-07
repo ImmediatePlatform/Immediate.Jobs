@@ -1,4 +1,8 @@
 using System.Text.Json.Serialization;
+using Immediate.Jobs.Shared.Apis;
+using Immediate.Jobs.Shared.Interfaces;
+using Immediate.Jobs.Shared.Internals;
+using Immediate.Jobs.Shared.Storage;
 using Immediate.Jobs.Testing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -93,7 +97,7 @@ public sealed class TestingPackageTests
 				JobType = typeof(TestingPackageTests),
 				Invoker = new TestInvoker(),
 			});
-			_ = services.AddSingleton<ILogger<JobSchedulerService>>(logger);
+			_ = services.AddSingleton<ILogger<JobSchedulingService>>(logger);
 		});
 		var scheduler = new TestScheduler(
 			harness.Storage,
@@ -235,7 +239,7 @@ public sealed class TestingPackageTests
 		}
 	}
 
-	private sealed class CapturingSchedulerLogger : ILogger<JobSchedulerService>
+	private sealed class CapturingSchedulerLogger : ILogger<JobSchedulingService>
 	{
 		public List<int> EventIds { get; } = [];
 

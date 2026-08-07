@@ -1,6 +1,9 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using Immediate.Handlers.Shared;
+using Immediate.Jobs.Shared.Apis;
+using Immediate.Jobs.Shared.Interfaces;
+using Immediate.Jobs.Shared.Storage;
 using Immediate.Jobs.Testing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -244,7 +247,7 @@ public sealed class ContextPropagationTests
 		_ = Assert.IsType<TestIdGenerator>(harness.Services.GetRequiredService<IIdGenerator>());
 		await using var scope = harness.Services.CreateAsyncScope();
 		var scheduler = scope.ServiceProvider.GetRequiredService<ContextRoundTripJob.Scheduler>();
-		var batches = scope.ServiceProvider.GetRequiredService<IJobBatchScheduler>();
+		var batches = scope.ServiceProvider.GetRequiredService<BatchScheduler>();
 		var job = await scheduler.EnqueueAsync(new("custom-id"), cancellationToken);
 		await using var batch = batches.Begin();
 		var batchJob = scheduler.AddToBatch(batch, new("batch-id"));

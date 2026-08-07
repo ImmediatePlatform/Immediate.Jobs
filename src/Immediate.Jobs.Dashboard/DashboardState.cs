@@ -1,3 +1,5 @@
+using Immediate.Jobs.Shared.Apis;
+
 namespace Immediate.Jobs.Dashboard;
 
 internal sealed record DashboardState(
