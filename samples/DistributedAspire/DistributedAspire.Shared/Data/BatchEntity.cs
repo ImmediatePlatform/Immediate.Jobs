@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
@@ -7,6 +8,7 @@ using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
 namespace Immediate.Jobs.DistributedAspire.Shared.Data;
 
+[DebuggerDisplay($"{{{nameof(GetDebuggerDisplay)}(),nq}}")]
 public sealed class BatchEntity : IEntity
 {
 	public DateTimeOffset CreatedOn { get; set; } = default!;
@@ -37,5 +39,10 @@ public sealed class BatchEntity : IEntity
 			_ = builder
 				.OwnsOne(c => c.ModifiedOn, p => p.HasPostgresDateTimeoffset());
 		}
+	}
+
+	private string GetDebuggerDisplay()
+	{
+		return Id.ToString(CultureInfo.InvariantCulture);
 	}
 }

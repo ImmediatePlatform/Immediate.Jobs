@@ -26,12 +26,12 @@ var jobsApi = builder.AddProject<Projects.Immediate_Jobs_DistributedAspire_Api>(
 	.WithUrlForEndpoint("http", static _ => new()
 	{
 		Url = "/health",
-		DisplayText = "🏥 Health"
+		DisplayText = "🏥 Health",
 	})
 	.WithUrlForEndpoint("http", static _ => new()
 	{
 		Url = "/jobs",
-		DisplayText = "💼 Jobs"
+		DisplayText = "💼 Jobs",
 	});
 
 if (builder.Configuration["ASPNETCORE_URLS"]?

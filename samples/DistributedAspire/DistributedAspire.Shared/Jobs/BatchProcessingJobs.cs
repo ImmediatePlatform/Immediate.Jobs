@@ -19,7 +19,7 @@ public sealed partial class PrepareBatchesJob(
 		/// <summary>
 		/// amount of data to generate and process
 		/// </summary>
-		public required int TotalSize { get; init; }
+		public required int TotalAmount { get; init; }
 
 		/// <summary>
 		/// how many rows to process in a single batch
@@ -44,14 +44,14 @@ public sealed partial class PrepareBatchesJob(
 
 			var now = timeProvider.GetUtcNow();
 			var enumeration = Enumerable
-				.Range(0, payload.TotalSize)
+				.Range(0, payload.TotalAmount)
 				.Select(i => new BatchEntity()
 				{
 					Guid = Guid.NewGuid(),
 					CreatedOn = now,
 					ModifiedOn = null,
 				})
-				.Chunk(2000);
+				.Chunk(payload.BatchSize);
 
 			foreach (var chunk in enumeration)
 			{
@@ -118,10 +118,43 @@ public sealed partial class EnqueueBatchesJob(
 
 			if (nextId is null)
 			{
+				if (await dbContext.BatchableRows
+					.AsNoTracking()
+					.Where(p => p.Id >= currentId)
+					.OrderBy(p => p.Id)
+					.AnyAsync(cancellationToken: cancellationToken))
+				{
+					var nextIdValue = await dbContext.BatchableRows
+						.AsNoTracking()
+						.Where(p => p.Id >= currentId)
+						.OrderBy(p => p.Id)
+						.MaxAsync(p => p.Id, cancellationToken: cancellationToken);
+
+					logger.LogInformation(
+						"Enqueueing from {LowerBound} to {UpperBound}",
+						currentId,
+						nextIdValue
+					);
+
+					batchHandles.Add(processBatch.AddToBatch(batch, new ProcessBatchJob.Payload
+					{
+						LowerBound = currentId,
+						UpperBound = nextIdValue,
+					}));
+
+					currentId = nextIdValue;
+				}
+
 				continueSeek = false;
 			}
 			else
 			{
+				logger.LogInformation(
+					"Enqueueing from {LowerBound} to {UpperBound}",
+					currentId,
+					nextId.Id
+				);
+
 				batchHandles.Add(processBatch.AddToBatch(batch, new ProcessBatchJob.Payload
 				{
 					LowerBound = currentId,
@@ -167,8 +200,10 @@ public sealed partial class ProcessBatchJob(
 
 		var batchableRows = await dbContext.BatchableRows
 			.AsTracking()
-			.Where(p => p.Id >= payload.LowerBound && p.Id <= payload.UpperBound)
+			.Where(p => p.Id >= payload.LowerBound && p.Id < payload.UpperBound)
 			.ToListAsync(cancellationToken: cancellationToken);
+
+		logger.LogInformation("Processing from: {LowerBound} - to: {UpperBound} (Total: {Total})", batchableRows[0].Id, batchableRows[^1].Id, batchableRows.Count);
 
 		foreach (var row in batchableRows)
 		{
@@ -176,6 +211,8 @@ public sealed partial class ProcessBatchJob(
 		}
 
 		await transaction.CommitAsync(cancellationToken);
+
+		logger.LogInformation("Processed: from: {LowerBound} - to: {UpperBound} (Total: {Total})", batchableRows[0].Id, batchableRows[^1].Id, batchableRows.Count);
 	}
 }
 

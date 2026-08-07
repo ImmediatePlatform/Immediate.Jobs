@@ -4,12 +4,12 @@ namespace Immediate.Jobs.DistributedAspire.Shared.Workflows;
 
 public sealed class DistributedBatchWorkflow(PrepareBatchesJob.Scheduler prepareBatches)
 {
-	public async ValueTask StartAsync(int batchSize, int size, CancellationToken cancellationToken = default)
+	public async ValueTask StartAsync(int batchSize, int totalAmount, CancellationToken cancellationToken = default)
 	{
 		_ = await prepareBatches.EnqueueAsync(new PrepareBatchesJob.Payload()
 		{
 			BatchSize = batchSize,
-			TotalSize = size,
+			TotalAmount = totalAmount,
 		}, cancellationToken);
 	}
 }

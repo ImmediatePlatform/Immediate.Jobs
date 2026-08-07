@@ -32,6 +32,6 @@ using var app = builder.Build();
 await using var scope = app.Services.CreateAsyncScope();
 var workflow = scope.ServiceProvider.GetRequiredService<DistributedBatchWorkflow>();
 var logger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
-await workflow.StartAsync(2000, 50_000, CancellationToken.None);
+await workflow.StartAsync(10, 50, CancellationToken.None);
 
 logger.LogInformation("Done!");
