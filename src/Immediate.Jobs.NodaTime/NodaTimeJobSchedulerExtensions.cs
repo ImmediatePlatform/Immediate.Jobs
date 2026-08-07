@@ -161,6 +161,50 @@ public static class NodaTimeJobSchedulerExtensions
 		return scheduler.ScheduleAfterAsync(parents, payload, on, delay?.ToTimeSpan(), cancellationToken);
 	}
 
+	/// <summary>Schedules a payload after every supplied parent batch with an optional NodaTime delay.</summary>
+	/// <typeparam name="TPayload">The type of payload to schedule.</typeparam>
+	/// <param name="scheduler">The typed job scheduler.</param>
+	/// <param name="parents">The parent batches that control the continuation.</param>
+	/// <param name="payload">The payload to schedule.</param>
+	/// <param name="on">The parent outcomes that trigger the continuation.</param>
+	/// <param name="delay">The optional duration to wait after the continuation is triggered.</param>
+	/// <param name="cancellationToken">A token that can cancel the operation.</param>
+	/// <returns>A task whose result identifies the scheduled continuation.</returns>
+	public static ValueTask<JobHandle> ScheduleAfterAsync<TPayload>(
+		this JobScheduler<TPayload> scheduler,
+		ReadOnlySpan<BatchHandle> parents,
+		TPayload payload,
+		ContinuationTrigger on = ContinuationTrigger.Success,
+		Duration? delay = null,
+		CancellationToken cancellationToken = default
+	)
+	{
+		ArgumentNullException.ThrowIfNull(scheduler);
+		return scheduler.ScheduleAfterAsync(parents, payload, on, delay?.ToTimeSpan(), cancellationToken);
+	}
+
+	/// <summary>Schedules a payload after every supplied parent job and batch with an optional NodaTime delay.</summary>
+	/// <typeparam name="TPayload">The type of payload to schedule.</typeparam>
+	/// <param name="scheduler">The typed job scheduler.</param>
+	/// <param name="parents">The parent jobs and batches that control the continuation.</param>
+	/// <param name="payload">The payload to schedule.</param>
+	/// <param name="on">The parent outcomes that trigger the continuation.</param>
+	/// <param name="delay">The optional duration to wait after the continuation is triggered.</param>
+	/// <param name="cancellationToken">A token that can cancel the operation.</param>
+	/// <returns>A task whose result identifies the scheduled continuation.</returns>
+	public static ValueTask<JobHandle> ScheduleAfterAsync<TPayload>(
+		this JobScheduler<TPayload> scheduler,
+		ReadOnlySpan<IContinuationHandle> parents,
+		TPayload payload,
+		ContinuationTrigger on = ContinuationTrigger.Success,
+		Duration? delay = null,
+		CancellationToken cancellationToken = default
+	)
+	{
+		ArgumentNullException.ThrowIfNull(scheduler);
+		return scheduler.ScheduleAfterAsync(parents, payload, on, delay?.ToTimeSpan(), cancellationToken);
+	}
+
 	/// <summary>Schedules a payload after a whole batch with an optional NodaTime delay.</summary>
 	/// <typeparam name="TPayload">The type of payload to schedule.</typeparam>
 	/// <param name="scheduler">The typed job scheduler.</param>

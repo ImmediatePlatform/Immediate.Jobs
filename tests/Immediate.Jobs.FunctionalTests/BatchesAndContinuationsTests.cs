@@ -371,6 +371,49 @@ public sealed class BatchesAndContinuationsTests
 	}
 
 	[Fact]
+	public async Task ContinuationCanWaitForMultipleBatchesAndJobs()
+	{
+		var cancellationToken = TestContext.Current.CancellationToken;
+		var state = new BatchWorkflowState();
+		await using var harness = CreateHarness(state);
+		await using var scope = harness.Services.CreateAsyncScope();
+		var batches = scope.ServiceProvider.GetRequiredService<IJobBatchScheduler>();
+		var scheduler = scope.ServiceProvider.GetRequiredService<BatchWorkflowJob.Scheduler>();
+
+		await using var firstBatch = batches.Begin();
+		_ = scheduler.AddToBatch(firstBatch, new("first-batch"));
+		var firstBatchHandle = await firstBatch.CommitAsync(cancellationToken);
+		await using var secondBatch = batches.Begin();
+		_ = scheduler.AddToBatch(secondBatch, new("second-batch"));
+		var secondBatchHandle = await secondBatch.CommitAsync(cancellationToken);
+		var firstJob = await scheduler.EnqueueAsync(new("first-job"), cancellationToken);
+		var secondJob = await scheduler.EnqueueAsync(new("second-job"), cancellationToken);
+
+		var continuation = await scheduler.ScheduleAfterAsync(
+			[firstBatchHandle, secondBatchHandle, firstJob, secondJob],
+			new("continuation"),
+			cancellationToken: cancellationToken
+		);
+
+		var waiting = await harness.GetJobAsync(continuation, cancellationToken);
+		Assert.Equal(JobState.AwaitingContinuation, waiting.State);
+		Assert.Equal(4, waiting.RemainingDependencies);
+		var graphStorage = Assert.IsAssignableFrom<IJobGraphStorage>(harness.Storage);
+		var edges = await graphStorage.GetIncomingEdgesAsync([continuation.Id], cancellationToken);
+		Assert.Equal(4, edges.Count);
+		Assert.Equal(2, edges.Count(static edge => edge.ParentJobId is not null));
+		Assert.Equal(2, edges.Count(static edge => edge.ParentBatchId is not null));
+
+		await harness.DrainAsync(cancellationToken);
+
+		Assert.Equal(JobState.Succeeded, (await harness.GetJobAsync(continuation, cancellationToken)).State);
+		AssertBefore(state.Events, "first-batch", "continuation");
+		AssertBefore(state.Events, "second-batch", "continuation");
+		AssertBefore(state.Events, "first-job", "continuation");
+		AssertBefore(state.Events, "second-job", "continuation");
+	}
+
+	[Fact]
 	public async Task StandaloneContinuationEvaluatesAlreadyTerminalParentImmediately()
 	{
 		var cancellationToken = TestContext.Current.CancellationToken;

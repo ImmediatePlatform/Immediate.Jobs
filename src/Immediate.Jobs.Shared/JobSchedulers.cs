@@ -300,6 +300,63 @@ public abstract class JobScheduler<TPayload>(
 		return ScheduleAfterCoreAsync(parents.ToArray(), payload, on, delay, cancellationToken);
 	}
 
+	/// <summary>Schedules work after every supplied parent batch.</summary>
+	/// <param name="parents">The batches that must finish before this work is released.</param>
+	/// <param name="payload">The payload for the continuation.</param>
+	/// <param name="on">The parent outcomes that release the continuation.</param>
+	/// <param name="delay">The optional delay applied when the continuation is released.</param>
+	/// <param name="cancellationToken">A token that can cancel the scheduling operation.</param>
+	/// <returns>A handle for the scheduled continuation.</returns>
+	public ValueTask<JobHandle> ScheduleAfterAsync(
+		ReadOnlySpan<BatchHandle> parents,
+		TPayload payload,
+		ContinuationTrigger on = ContinuationTrigger.Success,
+		TimeSpan? delay = null,
+		CancellationToken cancellationToken = default
+	)
+	{
+		if (delay < TimeSpan.Zero)
+			throw new ArgumentOutOfRangeException(nameof(delay), "A job delay cannot be negative.");
+		if (parents.IsEmpty)
+			throw new ArgumentException("At least one continuation parent is required.", nameof(parents));
+		var continuationParents = new IContinuationHandle[parents.Length];
+		for (var index = 0; index < parents.Length; index++)
+			continuationParents[index] = parents[index];
+		return ScheduleAfterCoreAsync(continuationParents, payload, on, delay, cancellationToken);
+	}
+
+	/// <summary>Schedules work after every supplied parent job and batch.</summary>
+	/// <param name="parents">The jobs and batches that must finish before this work is released.</param>
+	/// <param name="payload">The payload for the continuation.</param>
+	/// <param name="on">The parent outcomes that release the continuation.</param>
+	/// <param name="delay">The optional delay applied when the continuation is released.</param>
+	/// <param name="cancellationToken">A token that can cancel the scheduling operation.</param>
+	/// <returns>A handle for the scheduled continuation.</returns>
+	public ValueTask<JobHandle> ScheduleAfterAsync(
+		ReadOnlySpan<IContinuationHandle> parents,
+		TPayload payload,
+		ContinuationTrigger on = ContinuationTrigger.Success,
+		TimeSpan? delay = null,
+		CancellationToken cancellationToken = default
+	)
+	{
+		if (delay < TimeSpan.Zero)
+			throw new ArgumentOutOfRangeException(nameof(delay), "A job delay cannot be negative.");
+		if (parents.IsEmpty)
+			throw new ArgumentException("At least one continuation parent is required.", nameof(parents));
+
+		var continuationParents = parents.ToArray();
+		var jobs = new JobHandle[continuationParents.Length];
+		for (var index = 0; index < continuationParents.Length; index++)
+		{
+			if (continuationParents[index] is not JobHandle job)
+				return ScheduleAfterCoreAsync(continuationParents, payload, on, delay, cancellationToken);
+			jobs[index] = job;
+		}
+
+		return ScheduleAfterCoreAsync(jobs, payload, on, delay, cancellationToken);
+	}
+
 	/// <summary>Schedules work after a whole batch reaches a terminal state.</summary>
 	/// <param name="parent">The batch that must finish before this work is released.</param>
 	/// <param name="payload">The payload for the continuation.</param>
@@ -307,7 +364,7 @@ public abstract class JobScheduler<TPayload>(
 	/// <param name="delay">The optional delay applied when the continuation is released.</param>
 	/// <param name="cancellationToken">A token that can cancel the scheduling operation.</param>
 	/// <returns>A handle for the scheduled continuation.</returns>
-	public async ValueTask<JobHandle> ScheduleAfterAsync(
+	public ValueTask<JobHandle> ScheduleAfterAsync(
 		BatchHandle parent,
 		TPayload payload,
 		ContinuationTrigger on = ContinuationTrigger.Success,
@@ -316,18 +373,7 @@ public abstract class JobScheduler<TPayload>(
 	)
 	{
 		ArgumentNullException.ThrowIfNull(parent);
-		if (delay < TimeSpan.Zero)
-			throw new ArgumentOutOfRangeException(nameof(delay), "A job delay cannot be negative.");
-		var graphStorage = JobStorageCapabilityGuards.RequireGraph(Storage);
-		var record = CreateRecord(payload, TimeProvider.GetUtcNow() + (delay ?? TimeSpan.Zero));
-		var waiting = record with { State = JobState.AwaitingContinuation, RemainingDependencies = 1 };
-		await graphStorage.EnqueueContinuationAsync(
-			waiting,
-			[new() { ChildJobId = record.Id, ParentBatchId = parent.Id, Trigger = on }],
-			cancellationToken
-		).ConfigureAwait(false);
-		JobTelemetry.Enqueued(JobName, QueueName);
-		return new(record.Id);
+		return ScheduleAfterAsync([parent], payload, on, delay, cancellationToken);
 	}
 
 	/// <summary>Buffers work relative to the running job and persists it only if the attempt succeeds.</summary>
@@ -419,6 +465,60 @@ public abstract class JobScheduler<TPayload>(
 		await graphStorage.EnqueueContinuationAsync(waiting, edges, cancellationToken).ConfigureAwait(false);
 		JobTelemetry.Enqueued(JobName, QueueName);
 		return new(record.Id);
+	}
+
+	private async ValueTask<JobHandle> ScheduleAfterCoreAsync(
+		IContinuationHandle[] parents,
+		TPayload payload,
+		ContinuationTrigger on,
+		TimeSpan? delay,
+		CancellationToken cancellationToken
+	)
+	{
+		var graphStorage = JobStorageCapabilityGuards.RequireGraph(Storage);
+		var record = CreateRecord(payload, TimeProvider.GetUtcNow() + (delay ?? TimeSpan.Zero));
+		var edges = ValidateContinuationParents(parents, record.Id, on);
+		var waiting = record with { State = JobState.AwaitingContinuation, RemainingDependencies = edges.Length };
+		await graphStorage.EnqueueContinuationAsync(waiting, edges, cancellationToken).ConfigureAwait(false);
+		JobTelemetry.Enqueued(JobName, QueueName);
+		return new(record.Id);
+	}
+
+	private static JobContinuationEdge[] ValidateContinuationParents(
+		IContinuationHandle[] parents,
+		string childJobId,
+		ContinuationTrigger on
+	)
+	{
+		var jobIds = new HashSet<string>(StringComparer.Ordinal);
+		var batchIds = new HashSet<string>(StringComparer.Ordinal);
+		var edges = new JobContinuationEdge[parents.Length];
+		for (var index = 0; index < parents.Length; index++)
+		{
+			switch (parents[index])
+			{
+				case BatchHandle batch:
+					if (!batchIds.Add(batch.Id))
+						throw new ImmediateJobException($"Duplicate continuation parent batch '{batch.Id}'.");
+					edges[index] = new() { ChildJobId = childJobId, ParentBatchId = batch.Id, Trigger = on };
+					break;
+				case JobHandle job:
+					if (string.IsNullOrWhiteSpace(job.Id))
+						throw new ImmediateJobException("Continuation parent handles must have a non-empty identifier.");
+					if (job.Batch is not null)
+						throw new ImmediateJobException("Jobs from an open batch cannot be mixed with batch continuation parents.");
+					if (!jobIds.Add(job.Id))
+						throw new ImmediateJobException($"Duplicate continuation parent job '{job.Id}'.");
+					edges[index] = new() { ChildJobId = childJobId, ParentJobId = job.Id, Trigger = on };
+					break;
+				case null:
+					throw new ImmediateJobException("Continuation parent handles must not be null.");
+				default:
+					throw new ImmediateJobException($"Unsupported continuation parent handle type '{parents[index].GetType()}'.");
+			}
+		}
+
+		return edges;
 	}
 
 	private static HashSet<string> ValidateContinuationParents(JobHandle[] parents)

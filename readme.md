@@ -96,6 +96,16 @@ await finalize.ScheduleAfterAsync(
 BatchHandle committed = await batch.CommitAsync(cancellationToken);
 ```
 
+Fan-in can also wait for several committed batches, or mix committed batches and standalone jobs:
+
+```csharp
+await finalize.ScheduleAfterAsync(
+	[firstBatch, secondBatch, importedJob, indexedJob],
+	new(importId),
+	cancellationToken: cancellationToken
+);
+```
+
 Cancel every non-terminal member through the same batch scheduler:
 
 ```csharp

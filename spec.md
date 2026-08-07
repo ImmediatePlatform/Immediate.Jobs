@@ -251,9 +251,10 @@ cannot double-enqueue. `RunAsync(body)` is sugar over `Begin → body → Commit
 schedules *its own* job to run after `parent`, returning a new `JobHandle` so chains compose. Passing
 several parents as a collection (`[a, b, c]`) expresses **fan-in**; calling `ScheduleAfterAsync` on the same parent twice
 expresses **fan-out**; diamonds and continuations-of-continuations follow naturally. Parents may be a
-`JobHandle`, a collection of handles, or a committed batch's `BatchHandle` (a job that runs once the
-whole batch completes). Continuations work inside or outside a batch; a standalone continuation whose
-parent is already terminal is evaluated immediately rather than waiting forever.
+`JobHandle`, a committed batch's `BatchHandle`, or a collection that mixes both handle types (a job
+that runs once every parent job and whole parent batch completes). Continuations work inside or
+outside a batch; a standalone continuation whose parent is already terminal is evaluated immediately
+rather than waiting forever.
 
 **Mid-job dynamic expansion.** A running member can expand the workflow at execution time using its
 own `JobDetails` (from `IJobRequest`) as the "I am running inside this job" token:

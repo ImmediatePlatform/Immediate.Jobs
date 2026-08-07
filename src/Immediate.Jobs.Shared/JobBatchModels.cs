@@ -1,7 +1,7 @@
 namespace Immediate.Jobs.Shared;
 
 /// <summary>An opaque reference to a durable job invocation.</summary>
-public readonly struct JobHandle : IEquatable<JobHandle>
+public readonly struct JobHandle : IContinuationHandle, IEquatable<JobHandle>
 {
 	/// <summary>Creates a handle for an existing invocation identifier.</summary>
 	/// <param name="id">The opaque invocation identifier.</param>
@@ -46,7 +46,7 @@ public readonly struct JobHandle : IEquatable<JobHandle>
 }
 
 /// <summary>An opaque reference to a committed atomic batch.</summary>
-public sealed record BatchHandle
+public sealed record BatchHandle : IContinuationHandle
 {
 	/// <summary>Creates a handle for an existing batch identifier.</summary>
 	/// <param name="id">The opaque batch identifier.</param>
@@ -59,6 +59,14 @@ public sealed record BatchHandle
 	/// <summary>The opaque batch identifier.</summary>
 	/// <value>The opaque batch identifier.</value>
 	public string Id { get; }
+}
+
+/// <summary>An opaque reference that can act as a continuation parent.</summary>
+public interface IContinuationHandle
+{
+	/// <summary>The opaque job or batch identifier.</summary>
+	/// <value>The opaque job or batch identifier.</value>
+	string Id { get; }
 }
 
 /// <summary>Determines how a continuation evaluates its parents.</summary>

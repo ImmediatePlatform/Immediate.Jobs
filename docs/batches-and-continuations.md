@@ -706,6 +706,12 @@ for a job with a `Payload` request):
     ValueTask<JobHandle> ScheduleAfterAsync(ReadOnlySpan<JobHandle> parents, Payload payload,   // fan-in
         ContinuationTrigger on = ContinuationTrigger.Success,
         TimeSpan? delay = null, CancellationToken ct = default);
+    ValueTask<JobHandle> ScheduleAfterAsync(ReadOnlySpan<BatchHandle> parentBatches, Payload payload,
+        ContinuationTrigger on = ContinuationTrigger.Success,
+        TimeSpan? delay = null, CancellationToken ct = default);
+    ValueTask<JobHandle> ScheduleAfterAsync(ReadOnlySpan<IContinuationHandle> parents, Payload payload, // mixed fan-in
+        ContinuationTrigger on = ContinuationTrigger.Success,
+        TimeSpan? delay = null, CancellationToken ct = default);
     ValueTask<JobHandle> ScheduleAfterAsync(BatchHandle parentBatch, Payload payload,
         ContinuationTrigger on = ContinuationTrigger.Success,
         TimeSpan? delay = null, CancellationToken ct = default);
@@ -735,12 +741,17 @@ public sealed class JobBatch : IAsyncDisposable
     public ValueTask<BatchHandle> CommitAsync(CancellationToken ct = default);
 }
 
-public readonly struct JobHandle          // carries the job Id (+ owning batch, if any)
+public interface IContinuationHandle
 {
     string Id { get; }
 }
 
-public sealed class BatchHandle           // carries the batch Id
+public readonly struct JobHandle : IContinuationHandle // carries the job Id (+ owning batch, if any)
+{
+    string Id { get; }
+}
+
+public sealed class BatchHandle : IContinuationHandle // carries the batch Id
 {
     string Id { get; }
 }
