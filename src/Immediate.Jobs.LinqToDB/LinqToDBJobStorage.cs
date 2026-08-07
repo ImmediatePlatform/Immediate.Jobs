@@ -11,7 +11,7 @@ using LinqToDB.Data;
 namespace Immediate.Jobs.LinqToDB;
 
 /// <summary>An optimistic-concurrency LinqToDB implementation of <see cref="IJobStorage"/>.</summary>
-public sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorage, IJobStorageReplica
+internal sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorage, IJobStorageReplica
 {
 	private const int MaxContendedCompletionAttempts = 50;
 	private const int MaxConcurrencyAttempts = 5;
