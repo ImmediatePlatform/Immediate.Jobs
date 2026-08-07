@@ -238,7 +238,6 @@ public sealed class ContextPropagationTests
 			_ = services.AddScoped<PropagationScopeState>();
 			_ = services.AddSingleton<IIdGenerator, ReplacedIdGenerator>();
 			_ = services.AddImmediateJobsFunctionalTestsHandlers();
-			_ = services.AddImmediateJobsFunctionalTestsBehaviors();
 			_ = services.AddImmediateJobsFunctionalTestsJobs().UseIdGenerator<TestIdGenerator>();
 		});
 
@@ -320,7 +319,6 @@ public sealed class ContextPropagationTests
 		}
 
 		_ = services.AddImmediateJobsFunctionalTestsHandlers();
-		_ = services.AddImmediateJobsFunctionalTestsBehaviors();
 		_ = services.AddImmediateJobsFunctionalTestsJobs();
 	});
 

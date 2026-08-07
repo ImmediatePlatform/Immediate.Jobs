@@ -132,7 +132,6 @@ public sealed class BatchesAndContinuationsTests
 		_ = services.AddSingleton(new ExecutionBufferProbeState());
 		_ = services.AddImmediateJobsCore();
 		_ = services.AddImmediateJobsFunctionalTestsHandlers();
-		_ = services.AddImmediateJobsFunctionalTestsBehaviors();
 		_ = services.AddImmediateJobsFunctionalTestsJobs();
 		await using var provider = services.BuildServiceProvider();
 		var batches = provider.GetRequiredService<IJobBatchScheduler>();
@@ -621,7 +620,6 @@ public sealed class BatchesAndContinuationsTests
 		_ = services.AddSingleton(new ContextProbe());
 		_ = services.AddScoped<PropagationScopeState>();
 		_ = services.AddImmediateJobsFunctionalTestsHandlers();
-		_ = services.AddImmediateJobsFunctionalTestsBehaviors();
 		_ = services.AddImmediateJobsFunctionalTestsJobs();
 	});
 
