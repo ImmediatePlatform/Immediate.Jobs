@@ -15,6 +15,14 @@
     <File Path=".github/workflows/build.yml" />
     <File Path=".github/workflows/release.yml" />
   </Folder>
+  <Folder Name="/Samples/Distributed/">
+    <Project Path="samples/DistributedAspire/Api/Immediate.Jobs.DistributedAspire.Api.csproj" />
+    <Project Path="samples/DistributedAspire/AppHost/Immediate.Jobs.DistributedAspire.AppHost.csproj" />
+    <Project Path="samples/DistributedAspire/Cli/Immediate.Jobs.DistributedAspire.Cli.csproj" Id="efbeb150-ec7e-46d7-8700-7759a9c9f1f0" />
+    <Project Path="samples/DistributedAspire/DistributedAspire.Shared/Immediate.Jobs.DistributedAspire.Shared.csproj" Id="c83ee94c-5c2a-4aef-91c7-9d02bfb0315f" />
+    <Project Path="samples/DistributedAspire/ServiceDefaults/Immediate.Jobs.DistributedAspire.ServiceDefaults.csproj" />
+    <Project Path="samples/DistributedAspire/Worker/Immediate.Jobs.DistributedAspire.Worker.csproj" />
+  </Folder>
   <Folder Name="/Source.Core/">
     <Project Path="src/Immediate.Jobs.Analyzers/Immediate.Jobs.Analyzers.csproj" />
     <Project Path="src/Immediate.Jobs.Generators/Immediate.Jobs.Generators.csproj" />

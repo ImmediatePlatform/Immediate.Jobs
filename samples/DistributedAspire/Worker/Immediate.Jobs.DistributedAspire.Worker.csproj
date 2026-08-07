@@ -1,0 +1,22 @@
+﻿<Project Sdk="Microsoft.NET.Sdk.Worker">
+
+  <PropertyGroup>
+	<TargetFrameworks>net10.0</TargetFrameworks>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UserSecretsId>dotnet-Worker-187218d3-c2c3-49b0-8b5c-868360c55591</UserSecretsId>
+	<TargetFrameworks>net10.0</TargetFrameworks>
+  </PropertyGroup>
+
+  <ItemGroup>
+	<PackageReference Include="Immediate.Handlers" />
+	<PackageReference Include="Microsoft.Extensions.Hosting" />
+	<PackageReference Include="Microsoft.Extensions.DependencyInjection" />
+	<PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\DistributedAspire.Shared\Immediate.Jobs.DistributedAspire.Shared.csproj" />
+    <ProjectReference Include="..\ServiceDefaults\Immediate.Jobs.DistributedAspire.ServiceDefaults.csproj" />
+  </ItemGroup>
+</Project>
