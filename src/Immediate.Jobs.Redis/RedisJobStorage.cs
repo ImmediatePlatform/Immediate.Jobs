@@ -13,7 +13,7 @@ namespace Immediate.Jobs.Redis;
 /// Distributed Redis storage for ordinary queue jobs and recurring schedules.
 /// Batches and continuations require a graph-capable SQL provider.
 /// </summary>
-public sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
+internal sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 {
 	private const int QueryWindowSize = 256;
 	private const int MaximumQueryTake = 1000;
