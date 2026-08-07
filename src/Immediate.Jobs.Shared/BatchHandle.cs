@@ -3,7 +3,7 @@ namespace Immediate.Jobs.Shared;
 /// <summary>
 /// 	An opaque reference to a committed atomic batch.
 /// </summary>
-public sealed record BatchHandle
+public sealed record BatchHandle : ContinuationHandle
 {
 	/// <summary>
 	/// 	The batch identifier.

@@ -177,18 +177,18 @@ public abstract class JobScheduler<TPayload>(
 	/// <inheritdoc />
 	public async ValueTask<JobHandle> ScheduleAfterAsync(
 		TPayload payload,
-		JobHandle job,
+		ContinuationHandle parent,
 		ContinuationTrigger on = ContinuationTrigger.Success,
 		CancellationToken cancellationToken = default
 	)
 	{
-		ArgumentNullException.ThrowIfNull(job);
+		ArgumentNullException.ThrowIfNull(parent);
 		JobStorageCapabilityGuards.RequireGraph(Storage);
 
 		var now = TimeProvider.GetUtcNow();
 		var record = CreateRecord(payload, JobState.AwaitingContinuation, runAt: now, now, groupId: null);
 
-		await ScheduleAfterCoreAsync(record, [job], on, TimeSpan.Zero, cancellationToken).ConfigureAwait(false);
+		await ScheduleAfterCoreAsync(record, [parent], on, TimeSpan.Zero, cancellationToken).ConfigureAwait(false);
 		JobTelemetry.Enqueued(JobName, QueueName);
 		return record.JobId;
 	}
@@ -196,19 +196,19 @@ public abstract class JobScheduler<TPayload>(
 	/// <inheritdoc />
 	public async ValueTask<JobHandle> ScheduleAfterAsync(
 		TPayload payload,
-		JobHandle job,
+		ContinuationHandle parent,
 		string groupId,
 		ContinuationTrigger on = ContinuationTrigger.Success,
 		CancellationToken cancellationToken = default
 	)
 	{
-		ArgumentNullException.ThrowIfNull(job);
+		ArgumentNullException.ThrowIfNull(parent);
 		JobStorageCapabilityGuards.RequireGraph(Storage);
 
 		var now = TimeProvider.GetUtcNow();
 		var record = CreateRecord(payload, JobState.AwaitingContinuation, runAt: now, now, groupId);
 
-		await ScheduleAfterCoreAsync(record, [job], on, TimeSpan.Zero, cancellationToken).ConfigureAwait(false);
+		await ScheduleAfterCoreAsync(record, [parent], on, TimeSpan.Zero, cancellationToken).ConfigureAwait(false);
 		JobTelemetry.Enqueued(JobName, QueueName);
 		return record.JobId;
 	}
@@ -216,13 +216,13 @@ public abstract class JobScheduler<TPayload>(
 	/// <inheritdoc />
 	public async ValueTask<JobHandle> ScheduleAfterAsync(
 		TPayload payload,
-		JobHandle job,
+		ContinuationHandle parent,
 		TimeSpan delay,
 		ContinuationTrigger on = ContinuationTrigger.Success,
 		CancellationToken cancellationToken = default
 	)
 	{
-		ArgumentNullException.ThrowIfNull(job);
+		ArgumentNullException.ThrowIfNull(parent);
 		if (delay < TimeSpan.Zero)
 			ArgumentOutOfRangeException.Throw(nameof(delay), $"A job delay cannot be negative. (delay: {delay:c})");
 
@@ -231,7 +231,7 @@ public abstract class JobScheduler<TPayload>(
 		var now = TimeProvider.GetUtcNow();
 		var record = CreateRecord(payload, JobState.AwaitingContinuation, runAt: now, now, groupId: null);
 
-		await ScheduleAfterCoreAsync(record, [job], on, delay, cancellationToken).ConfigureAwait(false);
+		await ScheduleAfterCoreAsync(record, [parent], on, delay, cancellationToken).ConfigureAwait(false);
 		JobTelemetry.Enqueued(JobName, QueueName);
 		return record.JobId;
 	}
@@ -239,14 +239,14 @@ public abstract class JobScheduler<TPayload>(
 	/// <inheritdoc />
 	public async ValueTask<JobHandle> ScheduleAfterAsync(
 		TPayload payload,
-		JobHandle job,
+		ContinuationHandle parent,
 		TimeSpan delay,
 		string groupId,
 		ContinuationTrigger on = ContinuationTrigger.Success,
 		CancellationToken cancellationToken = default
 	)
 	{
-		ArgumentNullException.ThrowIfNull(job);
+		ArgumentNullException.ThrowIfNull(parent);
 		if (delay < TimeSpan.Zero)
 			ArgumentOutOfRangeException.Throw(nameof(delay), $"A job delay cannot be negative. (delay: {delay:c})");
 
@@ -255,7 +255,7 @@ public abstract class JobScheduler<TPayload>(
 		var now = TimeProvider.GetUtcNow();
 		var record = CreateRecord(payload, JobState.AwaitingContinuation, runAt: now, now, groupId);
 
-		await ScheduleAfterCoreAsync(record, [job], on, delay, cancellationToken).ConfigureAwait(false);
+		await ScheduleAfterCoreAsync(record, [parent], on, delay, cancellationToken).ConfigureAwait(false);
 		JobTelemetry.Enqueued(JobName, QueueName);
 		return record.JobId;
 	}
@@ -263,21 +263,21 @@ public abstract class JobScheduler<TPayload>(
 	/// <inheritdoc />
 	public async ValueTask<JobHandle> ScheduleAfterAsync(
 		TPayload payload,
-		IReadOnlyList<JobHandle> jobs,
+		IReadOnlyList<ContinuationHandle> parents,
 		ContinuationTrigger on = ContinuationTrigger.Success,
 		CancellationToken cancellationToken = default
 	)
 	{
-		ArgumentNullException.ThrowIfNull(jobs);
-		if (jobs is [])
-			ArgumentException.Throw(nameof(jobs), "No prior jobs were provided");
+		ArgumentNullException.ThrowIfNull(parents);
+		if (parents is [])
+			ArgumentException.Throw(nameof(parents), "No prior jobs or batches were provided");
 
 		JobStorageCapabilityGuards.RequireGraph(Storage);
 
 		var now = TimeProvider.GetUtcNow();
 		var record = CreateRecord(payload, JobState.AwaitingContinuation, runAt: now, now, groupId: null);
 
-		await ScheduleAfterCoreAsync(record, jobs, on, TimeSpan.Zero, cancellationToken).ConfigureAwait(false);
+		await ScheduleAfterCoreAsync(record, parents, on, TimeSpan.Zero, cancellationToken).ConfigureAwait(false);
 		JobTelemetry.Enqueued(JobName, QueueName);
 		return record.JobId;
 	}
@@ -285,22 +285,22 @@ public abstract class JobScheduler<TPayload>(
 	/// <inheritdoc />
 	public async ValueTask<JobHandle> ScheduleAfterAsync(
 		TPayload payload,
-		IReadOnlyList<JobHandle> jobs,
+		IReadOnlyList<ContinuationHandle> parents,
 		string groupId,
 		ContinuationTrigger on = ContinuationTrigger.Success,
 		CancellationToken cancellationToken = default
 	)
 	{
-		ArgumentNullException.ThrowIfNull(jobs);
-		if (jobs is [])
-			ArgumentException.Throw(nameof(jobs), "No prior jobs were provided");
+		ArgumentNullException.ThrowIfNull(parents);
+		if (parents is [])
+			ArgumentException.Throw(nameof(parents), "No prior jobs or batches were provided");
 
 		JobStorageCapabilityGuards.RequireGraph(Storage);
 
 		var now = TimeProvider.GetUtcNow();
 		var record = CreateRecord(payload, JobState.AwaitingContinuation, runAt: now, now, groupId);
 
-		await ScheduleAfterCoreAsync(record, jobs, on, TimeSpan.Zero, cancellationToken).ConfigureAwait(false);
+		await ScheduleAfterCoreAsync(record, parents, on, TimeSpan.Zero, cancellationToken).ConfigureAwait(false);
 		JobTelemetry.Enqueued(JobName, QueueName);
 		return record.JobId;
 	}
@@ -308,199 +308,15 @@ public abstract class JobScheduler<TPayload>(
 	/// <inheritdoc />
 	public async ValueTask<JobHandle> ScheduleAfterAsync(
 		TPayload payload,
-		IReadOnlyList<JobHandle> jobs,
+		IReadOnlyList<ContinuationHandle> parents,
 		TimeSpan delay,
 		ContinuationTrigger on = ContinuationTrigger.Success,
 		CancellationToken cancellationToken = default
 	)
 	{
-		ArgumentNullException.ThrowIfNull(jobs);
-		if (jobs is [])
-			ArgumentException.Throw(nameof(jobs), "No prior jobs were provided");
-
-		if (delay < TimeSpan.Zero)
-			ArgumentOutOfRangeException.Throw(nameof(delay), $"A job delay cannot be negative. (delay: {delay:c})");
-
-		JobStorageCapabilityGuards.RequireGraph(Storage);
-
-		var now = TimeProvider.GetUtcNow();
-		var record = CreateRecord(payload, JobState.AwaitingContinuation, runAt: now, now, groupId: null);
-
-		await ScheduleAfterCoreAsync(record, jobs, on, delay, cancellationToken).ConfigureAwait(false);
-		JobTelemetry.Enqueued(JobName, QueueName);
-		return record.JobId;
-	}
-
-	/// <inheritdoc />
-	public async ValueTask<JobHandle> ScheduleAfterAsync(
-		TPayload payload,
-		IReadOnlyList<JobHandle> jobs,
-		TimeSpan delay,
-		string groupId,
-		ContinuationTrigger on = ContinuationTrigger.Success,
-		CancellationToken cancellationToken = default
-	)
-	{
-		ArgumentNullException.ThrowIfNull(jobs);
-		if (jobs is [])
-			ArgumentException.Throw(nameof(jobs), "No prior jobs were provided");
-
-		if (delay < TimeSpan.Zero)
-			ArgumentOutOfRangeException.Throw(nameof(delay), $"A job delay cannot be negative. (delay: {delay:c})");
-
-		JobStorageCapabilityGuards.RequireGraph(Storage);
-
-		var now = TimeProvider.GetUtcNow();
-		var record = CreateRecord(payload, JobState.AwaitingContinuation, runAt: now, now, groupId);
-
-		await ScheduleAfterCoreAsync(record, jobs, on, delay, cancellationToken).ConfigureAwait(false);
-		JobTelemetry.Enqueued(JobName, QueueName);
-		return record.JobId;
-	}
-
-	/// <inheritdoc />
-	public async ValueTask<JobHandle> ScheduleAfterAsync(
-		TPayload payload,
-		BatchHandle batch,
-		ContinuationTrigger on = ContinuationTrigger.Success,
-		CancellationToken cancellationToken = default
-	)
-	{
-		ArgumentNullException.ThrowIfNull(batch);
-		JobStorageCapabilityGuards.RequireGraph(Storage);
-
-		var now = TimeProvider.GetUtcNow();
-		var record = CreateRecord(payload, JobState.AwaitingContinuation, runAt: now, now, groupId: null);
-
-		await ScheduleAfterCoreAsync(record, [batch], on, TimeSpan.Zero, cancellationToken).ConfigureAwait(false);
-		JobTelemetry.Enqueued(JobName, QueueName);
-		return record.JobId;
-	}
-
-	/// <inheritdoc />
-	public async ValueTask<JobHandle> ScheduleAfterAsync(
-		TPayload payload,
-		BatchHandle batch,
-		string groupId,
-		ContinuationTrigger on = ContinuationTrigger.Success,
-		CancellationToken cancellationToken = default
-	)
-	{
-		ArgumentNullException.ThrowIfNull(batch);
-		JobStorageCapabilityGuards.RequireGraph(Storage);
-
-		var now = TimeProvider.GetUtcNow();
-		var record = CreateRecord(payload, JobState.AwaitingContinuation, runAt: now, now, groupId);
-
-		await ScheduleAfterCoreAsync(record, [batch], on, TimeSpan.Zero, cancellationToken).ConfigureAwait(false);
-		JobTelemetry.Enqueued(JobName, QueueName);
-		return record.JobId;
-	}
-
-	/// <inheritdoc />
-	public async ValueTask<JobHandle> ScheduleAfterAsync(
-		TPayload payload,
-		BatchHandle batch,
-		TimeSpan delay,
-		ContinuationTrigger on = ContinuationTrigger.Success,
-		CancellationToken cancellationToken = default
-	)
-	{
-		ArgumentNullException.ThrowIfNull(batch);
-		if (delay < TimeSpan.Zero)
-			ArgumentOutOfRangeException.Throw(nameof(delay), $"A job delay cannot be negative. (delay: {delay:c})");
-
-		JobStorageCapabilityGuards.RequireGraph(Storage);
-
-		var now = TimeProvider.GetUtcNow();
-		var record = CreateRecord(payload, JobState.AwaitingContinuation, runAt: now, now, groupId: null);
-
-		await ScheduleAfterCoreAsync(record, [batch], on, delay, cancellationToken).ConfigureAwait(false);
-		JobTelemetry.Enqueued(JobName, QueueName);
-		return record.JobId;
-	}
-
-	/// <inheritdoc />
-	public async ValueTask<JobHandle> ScheduleAfterAsync(
-		TPayload payload,
-		BatchHandle batch,
-		TimeSpan delay,
-		string groupId,
-		ContinuationTrigger on = ContinuationTrigger.Success,
-		CancellationToken cancellationToken = default
-	)
-	{
-		ArgumentNullException.ThrowIfNull(batch);
-		if (delay < TimeSpan.Zero)
-			ArgumentOutOfRangeException.Throw(nameof(delay), $"A job delay cannot be negative. (delay: {delay:c})");
-
-		JobStorageCapabilityGuards.RequireGraph(Storage);
-
-		var now = TimeProvider.GetUtcNow();
-		var record = CreateRecord(payload, JobState.AwaitingContinuation, runAt: now, now, groupId);
-
-		await ScheduleAfterCoreAsync(record, [batch], on, delay, cancellationToken).ConfigureAwait(false);
-		JobTelemetry.Enqueued(JobName, QueueName);
-		return record.JobId;
-	}
-
-	/// <inheritdoc />
-	public async ValueTask<JobHandle> ScheduleAfterAsync(
-		TPayload payload,
-		IReadOnlyList<BatchHandle> batches,
-		ContinuationTrigger on = ContinuationTrigger.Success,
-		CancellationToken cancellationToken = default
-	)
-	{
-		ArgumentNullException.ThrowIfNull(batches);
-		if (batches is [])
-			ArgumentException.Throw(nameof(batches), "No prior batches were provided");
-
-		JobStorageCapabilityGuards.RequireGraph(Storage);
-
-		var now = TimeProvider.GetUtcNow();
-		var record = CreateRecord(payload, JobState.AwaitingContinuation, runAt: now, now, groupId: null);
-
-		await ScheduleAfterCoreAsync(record, batches, on, TimeSpan.Zero, cancellationToken).ConfigureAwait(false);
-		JobTelemetry.Enqueued(JobName, QueueName);
-		return record.JobId;
-	}
-
-	/// <inheritdoc />
-	public async ValueTask<JobHandle> ScheduleAfterAsync(
-		TPayload payload,
-		IReadOnlyList<BatchHandle> batches,
-		string groupId,
-		ContinuationTrigger on = ContinuationTrigger.Success,
-		CancellationToken cancellationToken = default
-	)
-	{
-		ArgumentNullException.ThrowIfNull(batches);
-		if (batches is [])
-			ArgumentException.Throw(nameof(batches), "No prior batches were provided");
-
-		JobStorageCapabilityGuards.RequireGraph(Storage);
-
-		var now = TimeProvider.GetUtcNow();
-		var record = CreateRecord(payload, JobState.AwaitingContinuation, runAt: now, now, groupId);
-
-		await ScheduleAfterCoreAsync(record, batches, on, TimeSpan.Zero, cancellationToken).ConfigureAwait(false);
-		JobTelemetry.Enqueued(JobName, QueueName);
-		return record.JobId;
-	}
-
-	/// <inheritdoc />
-	public async ValueTask<JobHandle> ScheduleAfterAsync(
-		TPayload payload,
-		IReadOnlyList<BatchHandle> batches,
-		TimeSpan delay,
-		ContinuationTrigger on = ContinuationTrigger.Success,
-		CancellationToken cancellationToken = default
-	)
-	{
-		ArgumentNullException.ThrowIfNull(batches);
-		if (batches is [])
-			ArgumentException.Throw(nameof(batches), "No prior batches were provided");
+		ArgumentNullException.ThrowIfNull(parents);
+		if (parents is [])
+			ArgumentException.Throw(nameof(parents), "No prior jobs or batches were provided");
 
 		if (delay < TimeSpan.Zero)
 			ArgumentOutOfRangeException.Throw(nameof(delay), $"A job delay cannot be negative. (delay: {delay:c})");
@@ -510,7 +326,7 @@ public abstract class JobScheduler<TPayload>(
 		var now = TimeProvider.GetUtcNow();
 		var record = CreateRecord(payload, JobState.AwaitingContinuation, runAt: now, now, groupId: null);
 
-		await ScheduleAfterCoreAsync(record, batches, on, delay, cancellationToken).ConfigureAwait(false);
+		await ScheduleAfterCoreAsync(record, parents, on, delay, cancellationToken).ConfigureAwait(false);
 		JobTelemetry.Enqueued(JobName, QueueName);
 		return record.JobId;
 	}
@@ -518,16 +334,16 @@ public abstract class JobScheduler<TPayload>(
 	/// <inheritdoc />
 	public async ValueTask<JobHandle> ScheduleAfterAsync(
 		TPayload payload,
-		IReadOnlyList<BatchHandle> batches,
+		IReadOnlyList<ContinuationHandle> parents,
 		TimeSpan delay,
 		string groupId,
 		ContinuationTrigger on = ContinuationTrigger.Success,
 		CancellationToken cancellationToken = default
 	)
 	{
-		ArgumentNullException.ThrowIfNull(batches);
-		if (batches is [])
-			ArgumentException.Throw(nameof(batches), "No prior batches were provided");
+		ArgumentNullException.ThrowIfNull(parents);
+		if (parents is [])
+			ArgumentException.Throw(nameof(parents), "No prior jobs or batches were provided");
 
 		if (delay < TimeSpan.Zero)
 			ArgumentOutOfRangeException.Throw(nameof(delay), $"A job delay cannot be negative. (delay: {delay:c})");
@@ -537,7 +353,7 @@ public abstract class JobScheduler<TPayload>(
 		var now = TimeProvider.GetUtcNow();
 		var record = CreateRecord(payload, JobState.AwaitingContinuation, runAt: now, now, groupId);
 
-		await ScheduleAfterCoreAsync(record, batches, on, delay, cancellationToken).ConfigureAwait(false);
+		await ScheduleAfterCoreAsync(record, parents, on, delay, cancellationToken).ConfigureAwait(false);
 		JobTelemetry.Enqueued(JobName, QueueName);
 		return record.JobId;
 	}
@@ -924,7 +740,7 @@ public abstract class JobScheduler<TPayload>(
 
 	private async ValueTask ScheduleAfterCoreAsync(
 		JobRecord jobRecord,
-		IReadOnlyList<JobHandle> parents,
+		IReadOnlyList<ContinuationHandle> parents,
 		ContinuationTrigger on,
 		TimeSpan delay,
 		CancellationToken cancellationToken
@@ -932,7 +748,7 @@ public abstract class JobScheduler<TPayload>(
 	{
 		var graphStorage = JobStorageCapabilityGuards.RequireGraph(Storage);
 
-		var parentIds = new HashSet<JobHandle>();
+		var parentIds = new HashSet<ContinuationHandle>();
 		foreach (var parent in parents)
 		{
 			if (!parentIds.Add(parent))
@@ -944,37 +760,8 @@ public abstract class JobScheduler<TPayload>(
 			.Select(parent => new JobContinuationEdge
 			{
 				ChildJob = jobRecord.JobId,
-				ParentJob = parent,
-				Trigger = on,
-				Delay = delay,
-			});
-
-		await graphStorage.EnqueueContinuationAsync(waiting, [.. edges], cancellationToken).ConfigureAwait(false);
-	}
-
-	private async ValueTask ScheduleAfterCoreAsync(
-		JobRecord jobRecord,
-		IReadOnlyList<BatchHandle> parents,
-		ContinuationTrigger on,
-		TimeSpan delay,
-		CancellationToken cancellationToken
-	)
-	{
-		var graphStorage = JobStorageCapabilityGuards.RequireGraph(Storage);
-
-		var parentIds = new HashSet<BatchHandle>();
-		foreach (var parent in parents)
-		{
-			if (!parentIds.Add(parent))
-				ImmediateJobException.Throw($"Duplicate continuation parent '{parent}'.");
-		}
-
-		var waiting = jobRecord with { RemainingDependencies = parents.Count };
-		var edges = parents
-			.Select(parent => new JobContinuationEdge
-			{
-				ChildJob = jobRecord.JobId,
-				ParentBatch = parent,
+				ParentJob = parent as JobHandle,
+				ParentBatch = parent as BatchHandle,
 				Trigger = on,
 				Delay = delay,
 			});
