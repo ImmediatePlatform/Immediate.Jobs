@@ -26,5 +26,6 @@
     <ProjectReference Include="../../src/Immediate.Jobs.EntityFrameworkCore/Immediate.Jobs.EntityFrameworkCore.csproj" />
     <ProjectReference Include="../../src/Immediate.Jobs.LinqToDB/Immediate.Jobs.LinqToDB.csproj" />
     <ProjectReference Include="../../src/Immediate.Jobs.Redis/Immediate.Jobs.Redis.csproj" />
+	<ProjectReference Include="../../src/Immediate.Jobs.Testing/Immediate.Jobs.Testing.csproj" />
   </ItemGroup>
 </Project>

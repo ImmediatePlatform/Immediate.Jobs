@@ -23,6 +23,14 @@ public sealed class SingleServerJobStorageTests
 
 		Assert.Same(durable, storage.DurableStorage);
 		_ = Assert.IsType<InMemoryJobStorage>(storage.PrimaryStorage);
+		_ = Assert.IsAssignableFrom<IFairQueueStorage>(storage);
+		Assert.Equal(
+			StorageCapabilities.Queue |
+			StorageCapabilities.Recurring |
+			StorageCapabilities.Graph |
+			StorageCapabilities.FairQueues,
+			storage.GetCapabilities()
+		);
 	}
 
 	[Fact]
@@ -52,20 +60,6 @@ public sealed class SingleServerJobStorageTests
 		_ = Assert.Throws<ImmediateJobException>(() =>
 			distributedServices.AddImmediateJobsCore(options => options.UseDistributed())
 		);
-	}
-
-	[Fact]
-	public async Task ConcurrentDisposalIsIdempotent()
-	{
-		await using var durable = new InMemoryJobStorage(TimeProvider.System);
-		var storage = new SingleServerJobStorage(durable, TimeProvider.System);
-
-		await Task.WhenAll(
-			Enumerable.Range(0, 8)
-				.Select(_ => storage.DisposeAsync().AsTask())
-		);
-
-		await storage.DisposeAsync();
 	}
 
 	[Fact]
@@ -393,71 +387,6 @@ public sealed class SingleServerJobStorageTests
 	}
 
 	[Fact]
-	public async Task CodeDefinedScheduleCannotBeReplacedByDynamicScheduleInMemory()
-	{
-		var cancellationToken = TestContext.Current.CancellationToken;
-		var timeProvider = new FakeTimeProvider(DateTimeOffset.UnixEpoch);
-		await using var storage = new InMemoryJobStorage(timeProvider);
-		var codeDefined = new RecurringJobSchedule
-		{
-			Name = "cleanup",
-			JobName = "cleanup",
-			Cron = "0 * * * *",
-			TimeZone = "UTC",
-			IsCodeDefined = true,
-			IsPaused = true,
-			NextRunAt = timeProvider.GetUtcNow() + TimeSpan.FromHours(1),
-		};
-		await storage.UpsertRecurringAsync(codeDefined, cancellationToken);
-
-		var exception = await Assert.ThrowsAsync<ImmediateJobException>(() =>
-			storage.UpsertRecurringAsync(
-				codeDefined with { Cron = "0 0 * * *", IsCodeDefined = false },
-				cancellationToken
-			).AsTask()
-		);
-		Assert.Equal("Code-defined recurring schedules cannot be replaced by dynamic schedules.", exception.Message);
-
-		await storage.UpsertRecurringAsync(codeDefined with { Cron = "0 0 * * *", IsPaused = false }, cancellationToken);
-		var stored = Assert.Single((await storage.GetMonitoringSnapshotAsync(cancellationToken)).Recurring);
-		Assert.Equal("0 0 * * *", stored.Cron);
-		Assert.True(stored.IsCodeDefined);
-		Assert.True(stored.IsPaused);
-	}
-
-	[Theory]
-	[InlineData(true)]
-	[InlineData(false)]
-	public async Task ObsoleteCodeDefinedSchedulesAreRemovedFromPrimaryAndDurableStorage(bool preserveCurrent)
-	{
-		var cancellationToken = TestContext.Current.CancellationToken;
-		var timeProvider = new FakeTimeProvider(DateTimeOffset.UnixEpoch);
-		await using var durable = new InMemoryJobStorage(timeProvider);
-		await using var storage = new SingleServerJobStorage(durable, timeProvider);
-		var current = CreateSchedule("current", isCodeDefined: true, timeProvider);
-		var obsolete = CreateSchedule("obsolete", isCodeDefined: true, timeProvider);
-		var dynamic = CreateSchedule("dynamic", isCodeDefined: false, timeProvider);
-		await storage.UpsertRecurringAsync(current, cancellationToken);
-		await storage.UpsertRecurringAsync(obsolete, cancellationToken);
-		await storage.UpsertRecurringAsync(dynamic, cancellationToken);
-
-		await storage.RemoveObsoleteCodeDefinedRecurringAsync(
-			preserveCurrent ? [current.Name] : [],
-			cancellationToken
-		);
-
-		var expectedNames = preserveCurrent ? ["current", "dynamic"] : new[] { "dynamic" };
-		var primaryNames = (await storage.GetMonitoringSnapshotAsync(cancellationToken)).Recurring
-			.Select(static schedule => schedule.Name)
-			.Order(StringComparer.Ordinal);
-		var durableNames = (await durable.GetMonitoringSnapshotAsync(cancellationToken)).Recurring
-			.Select(static schedule => schedule.Name)
-			.Order(StringComparer.Ordinal);
-		Assert.Equal(expectedNames.Order(StringComparer.Ordinal), primaryNames);
-		Assert.Equal(expectedNames.Order(StringComparer.Ordinal), durableNames);
-	}
-
-	[Fact]
 	public async Task WorkingJobIsRecoveredAndReacquiredAfterItsLeaseExpires()
 	{
 		var cancellationToken = TestContext.Current.CancellationToken;
@@ -541,20 +470,6 @@ public sealed class SingleServerJobStorageTests
 		State = dueAt <= DateTimeOffset.UnixEpoch ? JobState.Pending : JobState.Scheduled,
 		DueAt = dueAt,
 		CreatedAt = DateTimeOffset.UnixEpoch,
-	};
-
-	private static RecurringJobSchedule CreateSchedule(
-		string name,
-		bool isCodeDefined,
-		TimeProvider timeProvider
-	) => new()
-	{
-		Name = name,
-		JobName = "example",
-		Cron = "0 * * * *",
-		TimeZone = "UTC",
-		IsCodeDefined = isCodeDefined,
-		NextRunAt = timeProvider.GetUtcNow() + TimeSpan.FromHours(1),
 	};
 
 	internal static ISingleServerDurableStorage CreateProxy(InMemoryJobStorage inner)

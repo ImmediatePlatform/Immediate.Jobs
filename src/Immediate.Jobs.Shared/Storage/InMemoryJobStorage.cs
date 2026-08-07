@@ -16,6 +16,7 @@ namespace Immediate.Jobs.Shared.Storage;
 internal sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 	IRecurringJobStorage,
 	IJobGraphStorage,
+	IFairQueueStorage,
 	IJobStorageReplica
 {
 	private readonly Lock _gate = new();
@@ -716,10 +717,13 @@ internal sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 	/// <inheritdoc />
 	public ValueTask RemoveRecurringAsync(string name, CancellationToken cancellationToken = default)
 	{
+		ArgumentException.ThrowIfNullOrWhiteSpace(name);
 		cancellationToken.ThrowIfCancellationRequested();
 		lock (_gate)
 		{
-			if (_recurring.TryGetValue(name, out var schedule) && schedule.IsCodeDefined)
+			if (!_recurring.TryGetValue(name, out var schedule))
+				throw new KeyNotFoundException($"Recurring schedule '{name}' was not found.");
+			if (schedule.IsCodeDefined)
 				throw new ImmediateJobException("Code-defined recurring schedules cannot be deleted.");
 
 			_ = _recurring.Remove(name);
@@ -743,6 +747,7 @@ internal sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 		CancellationToken cancellationToken = default
 	)
 	{
+		ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(batchSize, 0);
 		cancellationToken.ThrowIfCancellationRequested();
 		lock (_gate)
 		{
@@ -1134,6 +1139,8 @@ internal sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 
 			_ = _jobs.Remove(jobId);
 			_ = _executions.Remove(jobId);
+			if (job.RecurringKey is { } recurringKey)
+				_ = _recurringKeys.Remove(recurringKey);
 			RemoveEdgesForJobs(new(StringComparer.Ordinal) { jobId });
 		}
 
@@ -1166,6 +1173,8 @@ internal sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 
 			foreach (var id in standaloneJobIds)
 			{
+				if (_jobs[id].RecurringKey is { } recurringKey)
+					_ = _recurringKeys.Remove(recurringKey);
 				_ = _jobs.Remove(id);
 				_ = _executions.Remove(id);
 			}
@@ -1835,6 +1844,7 @@ internal sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 
 	private ValueTask SetRecurringPausedAsync(string name, bool isPaused, CancellationToken cancellationToken)
 	{
+		ArgumentException.ThrowIfNullOrWhiteSpace(name);
 		cancellationToken.ThrowIfCancellationRequested();
 		lock (_gate)
 		{
