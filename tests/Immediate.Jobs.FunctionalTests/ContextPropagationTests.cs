@@ -10,7 +10,6 @@ using Microsoft.Extensions.Logging;
 
 namespace Immediate.Jobs.FunctionalTests;
 
-#pragma warning disable CS1591, CA1822
 public sealed class ContextPropagationTests
 {
 	[Theory]
@@ -598,4 +597,3 @@ internal sealed class CapturingLoggerProvider(ContextProbe probe) : ILoggerProvi
 		public void Dispose() { }
 	}
 }
-#pragma warning restore CS1591, CA1822

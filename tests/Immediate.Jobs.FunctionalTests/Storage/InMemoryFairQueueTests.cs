@@ -4,7 +4,6 @@ using Microsoft.Extensions.Time.Testing;
 
 namespace Immediate.Jobs.FunctionalTests.Storage;
 
-#pragma warning disable CS1591
 public sealed class InMemoryFairQueueTests
 {
 	private static readonly FairQueuePolicy DefaultPolicy = new() { ConcurrencyShareThreshold = 0.10, MinInflightForNoisy = 30, GroupRoundRobin = true };
@@ -280,4 +279,3 @@ public sealed class InMemoryFairQueueTests
 		CreatedAt = clock.GetUtcNow().AddTicks(order),
 	}, cancellationToken);
 }
-#pragma warning restore CS1591

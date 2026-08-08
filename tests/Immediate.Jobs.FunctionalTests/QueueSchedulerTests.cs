@@ -7,7 +7,6 @@ using Microsoft.Extensions.Hosting;
 
 namespace Immediate.Jobs.FunctionalTests;
 
-#pragma warning disable CS1591
 public sealed class QueueSchedulerTests
 {
 	[Fact]
@@ -138,4 +137,3 @@ public sealed class QueueSchedulerTests
 		public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 	}
 }
-#pragma warning restore CS1591

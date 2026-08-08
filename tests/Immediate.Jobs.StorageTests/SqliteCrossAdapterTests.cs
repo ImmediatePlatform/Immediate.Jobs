@@ -9,7 +9,6 @@ using Microsoft.Extensions.Time.Testing;
 
 namespace Immediate.Jobs.StorageTests;
 
-#pragma warning disable CS1591
 public sealed class SqliteCrossAdapterTests
 {
 	[Fact]
@@ -145,4 +144,3 @@ public sealed class SqliteCrossAdapterTests
 		public TestDbContext CreateDbContext() => new(options);
 	}
 }
-#pragma warning restore CS1591

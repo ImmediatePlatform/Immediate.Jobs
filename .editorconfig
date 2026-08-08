@@ -342,3 +342,8 @@ dotnet_diagnostic.CA1873.severity = none                # CA1873: Evaluation of 
 
 dotnet_diagnostic.MA0002.severity = none                # MA0002: IEqualityComparer<string> or IComparer<string> is missing
 dotnet_diagnostic.MA0053.severity = none
+
+[samples/**.cs]
+
+dotnet_diagnostic.CA1848.severity = none                # CA1848: Use the LoggerMessage delegates
+dotnet_diagnostic.CA1873.severity = none                # CA1873: Avoid potentially expensive logging

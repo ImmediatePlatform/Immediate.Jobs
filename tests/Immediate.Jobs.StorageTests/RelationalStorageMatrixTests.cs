@@ -14,7 +14,6 @@ using Microsoft.Extensions.Time.Testing;
 
 namespace Immediate.Jobs.StorageTests;
 
-#pragma warning disable CS1591
 [Collection(StorageContainerFixtureGroup.Name)]
 public sealed class RelationalStorageMatrixTests(StorageContainers containers)
 {
@@ -1554,4 +1553,3 @@ public sealed class RelationalStorageMatrixTests(StorageContainers containers)
 			(context.GetType(), ((MatrixDbContext)context).Schema, designTime);
 	}
 }
-#pragma warning restore CS1591

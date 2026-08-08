@@ -10,7 +10,6 @@ using Microsoft.Extensions.Time.Testing;
 
 namespace Immediate.Jobs.StorageTests;
 
-#pragma warning disable CS1591
 public sealed class LinqToDBSqliteStorageTests
 {
 	[Fact]
@@ -926,4 +925,3 @@ public sealed class LinqToDBSqliteStorageTests
 		}
 	}
 }
-#pragma warning restore CS1591

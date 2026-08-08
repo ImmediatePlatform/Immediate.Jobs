@@ -14,7 +14,6 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace Immediate.Jobs.FunctionalTests;
 
-#pragma warning disable CS1591
 public sealed class GeneratedJobTests
 {
 	[Fact]
@@ -526,4 +525,3 @@ public sealed partial class OrdinaryHandler(ExecutionState state)
 		return ValueTask.CompletedTask;
 	}
 }
-#pragma warning restore CS1591

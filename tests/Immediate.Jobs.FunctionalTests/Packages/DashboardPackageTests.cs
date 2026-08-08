@@ -11,7 +11,6 @@ using Microsoft.Extensions.Hosting;
 
 namespace Immediate.Jobs.FunctionalTests.Packages;
 
-#pragma warning disable CS1591
 public sealed class DashboardPackageTests
 {
 	[Fact]
@@ -637,4 +636,3 @@ public sealed class DashboardPackageTests
 		Assert.Equal("tenant-a", document.RootElement.GetProperty("groupId").GetString());
 	}
 }
-#pragma warning restore CS1591
