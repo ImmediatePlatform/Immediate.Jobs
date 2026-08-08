@@ -8,7 +8,7 @@ namespace Immediate.Jobs.EntityFrameworkCore;
 /// <summary>Adds the Immediate.Jobs persistence model to an application DbContext.</summary>
 public static class ImmediateJobsModelBuilderExtensions
 {
-	/// <summary>Configures the entities required by <see cref="EntityFrameworkCoreJobStorage{TContext}"/>.</summary>
+	/// <summary>Configures the entities required by the Immediate.Jobs EF Core storage provider.</summary>
 	/// <param name="modelBuilder">The model builder to configure.</param>
 	/// <param name="schema">The database schema for the Immediate.Jobs tables, or <see langword="null"/> for the provider default.</param>
 	/// <returns>The configured model builder.</returns>

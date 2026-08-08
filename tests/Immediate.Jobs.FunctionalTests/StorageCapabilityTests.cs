@@ -44,8 +44,14 @@ public sealed class StorageCapabilityTests
 
 		Assert.Same(storage, provider.GetRequiredService<IRecurringJobStorage>());
 		Assert.Same(storage, provider.GetRequiredService<IJobGraphStorage>());
+		_ = Assert.IsAssignableFrom<IFairQueueStorage>(storage);
+		_ = Assert.IsAssignableFrom<IJobStorageReplica>(storage);
 		Assert.Equal(
-			StorageCapabilities.Queue | StorageCapabilities.Recurring | StorageCapabilities.Graph,
+			StorageCapabilities.Queue |
+			StorageCapabilities.Recurring |
+			StorageCapabilities.Graph |
+			StorageCapabilities.FairQueues |
+			StorageCapabilities.Replica,
 			(await storage.GetMonitoringSnapshotAsync(cancellationToken)).Capabilities
 		);
 	}

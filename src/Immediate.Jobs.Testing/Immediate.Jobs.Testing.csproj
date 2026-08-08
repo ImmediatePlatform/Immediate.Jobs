@@ -4,8 +4,8 @@
 	<IsPackable>true</IsPackable>
 
 	<Title>Immediate.Jobs.Testing</Title>
-	<Description>Deterministic harness, assertions, and scheduler test doubles for Immediate.Jobs.</Description>
-	<PackageTags>background-jobs;scheduler;testing;fake-time</PackageTags>
+	<Description>Deterministic harness, assertions, scheduler test doubles, and storage-provider conformance tests for Immediate.Jobs.</Description>
+	<PackageTags>background-jobs;scheduler;testing;fake-time;storage-conformance</PackageTags>
   </PropertyGroup>
 
   <ItemGroup Label="Nuget">

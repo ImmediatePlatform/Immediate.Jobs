@@ -1,0 +1,615 @@
+using Immediate.Jobs.Shared.Apis;
+using Immediate.Jobs.Shared.Storage;
+
+#pragma warning disable IDE0130 // Public conformance APIs intentionally use the package root namespace.
+namespace Immediate.Jobs.Testing;
+
+internal static class GraphStorageConformance
+{
+	private const string CapabilityName = "Graph.Capability.ResolvesAdvertisedStorage";
+	private const string IncomingEdgesName = "Graph.Edges.PreservesAndNormalizesIncomingLookups";
+	private const string BatchLifecycleName = "Graph.Batches.CommitsProjectsAndDeletesAtomically";
+	private const string InvalidBatchName = "Graph.Batches.RollbackInvalidBatchWithoutPartialWrites";
+	private const string TriggerName = "Graph.Dependencies.ReleasesAndSkipsConditionalBranches";
+	private const string FanInName = "Graph.Dependencies.FanInWaitsForEveryParent";
+	private const string DynamicName = "Graph.Dynamic.SpliceAndOwnershipAreAtomic";
+	private const string CancellationName = "Graph.Maintenance.CancelsUnsettledDependencyChains";
+
+	internal static IReadOnlyList<JobStorageConformanceCaseDefinition> Cases { get; } =
+	[
+		new(CapabilityName, StorageCapabilities.Graph, ResolvesAdvertisedStorage),
+		new(IncomingEdgesName, StorageCapabilities.Graph, IncomingEdgesAsync),
+		new(BatchLifecycleName, StorageCapabilities.Graph, BatchLifecycleAsync),
+		new(InvalidBatchName, StorageCapabilities.Graph, InvalidBatchRollsBackAsync),
+		new(TriggerName, StorageCapabilities.Graph, ConditionalTriggersAsync),
+		new(FanInName, StorageCapabilities.Graph, FanInAsync),
+		new(DynamicName, StorageCapabilities.Graph, DynamicContinuationsAsync),
+		new(CancellationName, StorageCapabilities.Graph, CancelUnsettledChainAsync),
+	];
+
+	private static ValueTask ResolvesAdvertisedStorage(
+		IJobStorage storage,
+		IServiceProvider serviceProvider,
+		CancellationToken cancellationToken
+	)
+	{
+		_ = serviceProvider;
+		cancellationToken.ThrowIfCancellationRequested();
+		_ = GetGraph(storage, CapabilityName);
+		return ValueTask.CompletedTask;
+	}
+
+	private static async ValueTask IncomingEdgesAsync(
+		IJobStorage storage,
+		IServiceProvider serviceProvider,
+		CancellationToken cancellationToken
+	)
+	{
+		_ = serviceProvider;
+		var graph = GetGraph(storage, IncomingEdgesName);
+		var batchParent = CreateJob("edges-batch-parent", batchId: "edges-parent-batch");
+		var jobParent = CreateJob("edges-job-parent");
+		var child = CreateJob("edges-child") with
+		{
+			State = JobState.AwaitingContinuation,
+			RemainingDependencies = 2,
+		};
+		await graph.EnqueueBatchAsync(CreateBatch("edges-parent-batch", 1), [batchParent], [], cancellationToken)
+			.ConfigureAwait(false);
+		await graph.EnqueueAsync(jobParent, cancellationToken).ConfigureAwait(false);
+		await graph.EnqueueContinuationAsync(
+			child,
+			[
+				new()
+				{
+					ChildJobId = child.Id,
+					ParentJobId = jobParent.Id,
+					Trigger = ContinuationTrigger.Failure,
+				},
+				new()
+				{
+					ChildJobId = child.Id,
+					ParentBatchId = "edges-parent-batch",
+					Trigger = ContinuationTrigger.Complete,
+				},
+			],
+			cancellationToken
+		).ConfigureAwait(false);
+
+		ConformanceAssert.Equal(
+			0,
+			(await graph.GetIncomingEdgesAsync([], cancellationToken).ConfigureAwait(false)).Count,
+			IncomingEdgesName,
+			"an empty incoming-edge lookup must return an empty collection"
+		);
+		var edges = await graph.GetIncomingEdgesAsync([child.Id, child.Id, "missing"], cancellationToken)
+			.ConfigureAwait(false);
+		ConformanceAssert.Equal(2, edges.Count, IncomingEdgesName, "duplicate child ids must be normalized");
+		ConformanceAssert.True(
+			edges.Any(edge => string.Equals(edge.ChildJobId, child.Id, StringComparison.Ordinal) &&
+				string.Equals(edge.ParentJobId, jobParent.Id, StringComparison.Ordinal) &&
+				edge.ParentBatchId is null && edge.Trigger == ContinuationTrigger.Failure),
+			IncomingEdgesName,
+			"job-parent edge fields must round-trip"
+		);
+		ConformanceAssert.True(
+			edges.Any(edge => string.Equals(edge.ChildJobId, child.Id, StringComparison.Ordinal) && edge.ParentJobId is null &&
+				string.Equals(edge.ParentBatchId, "edges-parent-batch", StringComparison.Ordinal) &&
+				edge.Trigger == ContinuationTrigger.Complete),
+			IncomingEdgesName,
+			"batch-parent edge fields must round-trip"
+		);
+		_ = await ConformanceAssert.ThrowsAsync<ArgumentNullException>(
+			async () => _ = await graph.GetIncomingEdgesAsync(null!, cancellationToken).ConfigureAwait(false),
+			IncomingEdgesName,
+			"a null child-id collection must be rejected"
+		).ConfigureAwait(false);
+		_ = await ConformanceAssert.ThrowsAsync<ArgumentException>(
+			async () => _ = await graph.GetIncomingEdgesAsync([" "], cancellationToken).ConfigureAwait(false),
+			IncomingEdgesName,
+			"blank child ids must be rejected"
+		).ConfigureAwait(false);
+	}
+
+	private static async ValueTask BatchLifecycleAsync(
+		IJobStorage storage,
+		IServiceProvider serviceProvider,
+		CancellationToken cancellationToken
+	)
+	{
+		_ = serviceProvider;
+		var graph = GetGraph(storage, BatchLifecycleName);
+		var parent = CreateJob("lifecycle-parent", batchId: "lifecycle-batch");
+		var child = CreateJob("lifecycle-child", batchId: "lifecycle-batch") with
+		{
+			State = JobState.AwaitingContinuation,
+			RemainingDependencies = 1,
+		};
+		await graph.EnqueueBatchAsync(
+			CreateBatch("lifecycle-batch", 2),
+			[parent, child],
+			[new() { ChildJobId = child.Id, ParentJobId = parent.Id }],
+			cancellationToken
+		).ConfigureAwait(false);
+
+		var listed = await graph.QueryBatchesAsync(new() { State = BatchState.Executing }, cancellationToken)
+			.ConfigureAwait(false);
+		ConformanceAssert.Equal("lifecycle-batch", ConformanceAssert.NotNull(listed.SingleOrDefault(), BatchLifecycleName,
+			"the inserted batch must be listed").Id, BatchLifecycleName, "batch listing must preserve identity");
+		var members = await graph.QueryBatchMembersAsync("lifecycle-batch", new(), cancellationToken).ConfigureAwait(false);
+		ConformanceAssert.SequenceEqual(
+			new[] { child.Id, parent.Id }.OrderBy(static id => id, StringComparer.Ordinal),
+			members.Select(static member => member.JobId).OrderBy(static id => id, StringComparer.Ordinal),
+			BatchLifecycleName,
+			"batch member projection must include every inserted job"
+		);
+
+		var acquiredParent = ConformanceAssert.NotNull(
+			(await graph.AcquireDueJobsAsync(CreateRequest("lifecycle-worker", parent.JobName), cancellationToken)
+				.ConfigureAwait(false)).SingleOrDefault(),
+			BatchLifecycleName,
+			"the root batch member must be acquirable"
+		);
+		ConformanceAssert.Equal(parent.Id, acquiredParent.Id, BatchLifecycleName, "the dependency root must run first");
+		await graph.CompleteAsync(parent.Id, acquiredParent.Attempt, "lifecycle-worker", cancellationToken).ConfigureAwait(false);
+		var released = ConformanceAssert.NotNull(
+			(await graph.QueryJobsAsync(new() { Id = child.Id }, cancellationToken).ConfigureAwait(false)).SingleOrDefault(),
+			BatchLifecycleName,
+			"the child must remain queryable"
+		);
+		ConformanceAssert.Equal(JobState.Pending, released.State, BatchLifecycleName, "successful parent completion must release the child");
+
+		var acquiredChild = ConformanceAssert.NotNull(
+			(await graph.AcquireDueJobsAsync(CreateRequest("lifecycle-worker", child.JobName), cancellationToken)
+				.ConfigureAwait(false)).SingleOrDefault(),
+			BatchLifecycleName,
+			"the released child must be acquirable"
+		);
+		await graph.CompleteAsync(child.Id, acquiredChild.Attempt, "lifecycle-worker", cancellationToken).ConfigureAwait(false);
+		var status = ConformanceAssert.NotNull(
+			await graph.GetBatchStatusAsync("lifecycle-batch", cancellationToken).ConfigureAwait(false),
+			BatchLifecycleName,
+			"the completed batch must have status"
+		);
+		ConformanceAssert.Equal(BatchState.Succeeded, status.State, BatchLifecycleName, "all-success batch state must be Succeeded");
+		ConformanceAssert.Equal(2, status.Succeeded, BatchLifecycleName, "both members must be counted as successful");
+		ConformanceAssert.Equal(0, status.Remaining, BatchLifecycleName, "a completed batch has no remaining members");
+		var projected = ConformanceAssert.NotNull(
+			await graph.GetBatchGraphAsync("lifecycle-batch", cancellationToken).ConfigureAwait(false),
+			BatchLifecycleName,
+			"the durable graph must be queryable"
+		);
+		ConformanceAssert.Equal(2, projected.Nodes.Count, BatchLifecycleName, "graph projection must contain both nodes");
+		ConformanceAssert.Equal(1, projected.Edges.Count, BatchLifecycleName, "graph projection must contain the dependency");
+
+		await graph.DeleteBatchAsync("lifecycle-batch", cancellationToken).ConfigureAwait(false);
+		ConformanceAssert.Null(
+			await graph.GetBatchStatusAsync("lifecycle-batch", cancellationToken).ConfigureAwait(false),
+			BatchLifecycleName,
+			"deleting a terminal batch must remove its header"
+		);
+		ConformanceAssert.Null(
+			await graph.GetJobStatusAsync(parent.Id, cancellationToken).ConfigureAwait(false),
+			BatchLifecycleName,
+			"deleting a terminal batch must remove its members"
+		);
+		ConformanceAssert.Equal(
+			0,
+			(await graph.QueryJobExecutionsAsync(new() { JobId = parent.Id }, cancellationToken).ConfigureAwait(false)).Count,
+			BatchLifecycleName,
+			"deleting a terminal batch must remove member execution history"
+		);
+	}
+
+	private static async ValueTask InvalidBatchRollsBackAsync(
+		IJobStorage storage,
+		IServiceProvider serviceProvider,
+		CancellationToken cancellationToken
+	)
+	{
+		_ = serviceProvider;
+		var graph = GetGraph(storage, InvalidBatchName);
+		var member = CreateJob("invalid-member", batchId: "invalid-batch") with
+		{
+			State = JobState.AwaitingContinuation,
+			RemainingDependencies = 1,
+		};
+		_ = await ConformanceAssert.ThrowsAnyAsync(
+			() => graph.EnqueueBatchAsync(
+				CreateBatch("invalid-batch", 1),
+				[member],
+				[new() { ChildJobId = member.Id, ParentJobId = "missing-parent" }],
+				cancellationToken
+			),
+			InvalidBatchName,
+			"an edge referencing a missing parent must reject the batch atomically"
+		).ConfigureAwait(false);
+		ConformanceAssert.Null(
+			await graph.GetBatchStatusAsync("invalid-batch", cancellationToken).ConfigureAwait(false),
+			InvalidBatchName,
+			"a rejected batch must not leave a header"
+		);
+		ConformanceAssert.Null(
+			await graph.GetJobStatusAsync(member.Id, cancellationToken).ConfigureAwait(false),
+			InvalidBatchName,
+			"a rejected batch must not leave members"
+		);
+	}
+
+	private static async ValueTask ConditionalTriggersAsync(
+		IJobStorage storage,
+		IServiceProvider serviceProvider,
+		CancellationToken cancellationToken
+	)
+	{
+		_ = serviceProvider;
+		var graph = GetGraph(storage, TriggerName);
+		var parent = CreateJob("trigger-parent");
+		var successChild = CreateWaitingJob("trigger-success", 1);
+		var failureChild = CreateWaitingJob("trigger-failure", 1);
+		var completeChild = CreateWaitingJob("trigger-complete", 1);
+		await graph.EnqueueAsync(parent, cancellationToken).ConfigureAwait(false);
+		await graph.EnqueueContinuationAsync(successChild,
+			[new() { ChildJobId = successChild.Id, ParentJobId = parent.Id }], cancellationToken).ConfigureAwait(false);
+		await graph.EnqueueContinuationAsync(failureChild,
+			[new() { ChildJobId = failureChild.Id, ParentJobId = parent.Id, Trigger = ContinuationTrigger.Failure }],
+			cancellationToken).ConfigureAwait(false);
+		await graph.EnqueueContinuationAsync(completeChild,
+			[new() { ChildJobId = completeChild.Id, ParentJobId = parent.Id, Trigger = ContinuationTrigger.Complete }],
+			cancellationToken).ConfigureAwait(false);
+		var acquired = ConformanceAssert.NotNull(
+			(await graph.AcquireDueJobsAsync(CreateRequest("trigger-worker", parent.JobName), cancellationToken)
+				.ConfigureAwait(false)).SingleOrDefault(), TriggerName, "the trigger parent must be acquirable");
+		await graph.CompleteAsync(parent.Id, acquired.Attempt, "trigger-worker", cancellationToken).ConfigureAwait(false);
+
+		ConformanceAssert.Equal(JobState.Pending,
+			(await GetJobAsync(graph, successChild.Id, TriggerName, cancellationToken).ConfigureAwait(false)).State,
+			TriggerName, "success trigger must release after success");
+		ConformanceAssert.Equal(JobState.Skipped,
+			(await GetJobAsync(graph, failureChild.Id, TriggerName, cancellationToken).ConfigureAwait(false)).State,
+			TriggerName, "failure trigger must skip after success");
+		ConformanceAssert.Equal(JobState.Pending,
+			(await GetJobAsync(graph, completeChild.Id, TriggerName, cancellationToken).ConfigureAwait(false)).State,
+			TriggerName, "complete trigger must release after success");
+
+		var failedParent = CreateJob("trigger-failed-parent");
+		var successAfterFailure = CreateWaitingJob("trigger-success-after-failure", 1);
+		var failureAfterFailure = CreateWaitingJob("trigger-failure-after-failure", 1);
+		var completeAfterFailure = CreateWaitingJob("trigger-complete-after-failure", 1);
+		await graph.EnqueueAsync(failedParent, cancellationToken).ConfigureAwait(false);
+		await graph.EnqueueContinuationAsync(successAfterFailure,
+			[new() { ChildJobId = successAfterFailure.Id, ParentJobId = failedParent.Id }],
+			cancellationToken).ConfigureAwait(false);
+		await graph.EnqueueContinuationAsync(failureAfterFailure,
+			[new()
+			{
+				ChildJobId = failureAfterFailure.Id,
+				ParentJobId = failedParent.Id,
+				Trigger = ContinuationTrigger.Failure,
+			}], cancellationToken).ConfigureAwait(false);
+		await graph.EnqueueContinuationAsync(completeAfterFailure,
+			[new()
+			{
+				ChildJobId = completeAfterFailure.Id,
+				ParentJobId = failedParent.Id,
+				Trigger = ContinuationTrigger.Complete,
+			}], cancellationToken).ConfigureAwait(false);
+		var acquiredFailedParent = ConformanceAssert.NotNull(
+			(await graph.AcquireDueJobsAsync(CreateRequest("trigger-failed-worker", failedParent.JobName), cancellationToken)
+				.ConfigureAwait(false)).SingleOrDefault(), TriggerName, "the failed trigger parent must be acquirable");
+		await graph.FailAsync(
+			failedParent.Id,
+			acquiredFailedParent.Attempt,
+			"trigger-failed-worker",
+			"expected failure",
+			nextRetryAt: null,
+			cancellationToken
+		).ConfigureAwait(false);
+
+		ConformanceAssert.Equal(JobState.Skipped,
+			(await GetJobAsync(graph, successAfterFailure.Id, TriggerName, cancellationToken).ConfigureAwait(false)).State,
+			TriggerName, "success trigger must skip after failure");
+		ConformanceAssert.Equal(JobState.Pending,
+			(await GetJobAsync(graph, failureAfterFailure.Id, TriggerName, cancellationToken).ConfigureAwait(false)).State,
+			TriggerName, "failure trigger must release after failure");
+		ConformanceAssert.Equal(JobState.Pending,
+			(await GetJobAsync(graph, completeAfterFailure.Id, TriggerName, cancellationToken).ConfigureAwait(false)).State,
+			TriggerName, "complete trigger must release after failure");
+
+		foreach (var failureParentFails in new[] { false, true })
+		{
+			foreach (var successParentSettlesFirst in new[] { false, true })
+			{
+				var suffix = $"{(failureParentFails ? "fails" : "succeeds")}-{(successParentSettlesFirst ? "success-first" : "failure-first")}";
+				var mixedSuccessParent = CreateJob($"trigger-mixed-success-parent-{suffix}");
+				var mixedFailureParent = CreateJob($"trigger-mixed-failure-parent-{suffix}");
+				var mixedChild = CreateWaitingJob($"trigger-mixed-child-{suffix}", 2);
+				await graph.EnqueueAsync(mixedSuccessParent, cancellationToken).ConfigureAwait(false);
+				await graph.EnqueueAsync(mixedFailureParent, cancellationToken).ConfigureAwait(false);
+				await graph.EnqueueContinuationAsync(
+					mixedChild,
+					[
+						new()
+						{
+							ChildJobId = mixedChild.Id,
+							ParentJobId = mixedSuccessParent.Id,
+							Trigger = ContinuationTrigger.Success,
+						},
+						new()
+						{
+							ChildJobId = mixedChild.Id,
+							ParentJobId = mixedFailureParent.Id,
+							Trigger = ContinuationTrigger.Failure,
+						},
+					],
+					cancellationToken
+				).ConfigureAwait(false);
+				var mixedParents = await graph.AcquireDueJobsAsync(
+					CreateRequest("trigger-mixed-worker", mixedSuccessParent.JobName, mixedFailureParent.JobName),
+					cancellationToken
+				).ConfigureAwait(false);
+				ConformanceAssert.Equal(2, mixedParents.Count, TriggerName,
+					"both mixed-trigger parents must be acquirable");
+
+				async ValueTask SettleSuccessParentAsync() => await graph.CompleteAsync(
+					mixedSuccessParent.Id,
+					1,
+					"trigger-mixed-worker",
+					cancellationToken
+				).ConfigureAwait(false);
+
+				async ValueTask SettleFailureParentAsync()
+				{
+					if (failureParentFails)
+					{
+						await graph.FailAsync(
+							mixedFailureParent.Id,
+							1,
+							"trigger-mixed-worker",
+							"expected failure",
+							nextRetryAt: null,
+							cancellationToken
+						).ConfigureAwait(false);
+					}
+					else
+					{
+						await graph.CompleteAsync(
+							mixedFailureParent.Id,
+							1,
+							"trigger-mixed-worker",
+							cancellationToken
+						).ConfigureAwait(false);
+					}
+				}
+
+				if (successParentSettlesFirst)
+					await SettleSuccessParentAsync().ConfigureAwait(false);
+				else
+					await SettleFailureParentAsync().ConfigureAwait(false);
+
+				var waitingMixed = await GetJobAsync(graph, mixedChild.Id, TriggerName, cancellationToken)
+					.ConfigureAwait(false);
+				ConformanceAssert.Equal(JobState.AwaitingContinuation, waitingMixed.State, TriggerName,
+					"a mixed-trigger child must wait until both incoming edges settle");
+				ConformanceAssert.Equal(1, waitingMixed.RemainingDependencies, TriggerName,
+					"one mixed-trigger dependency must remain after the first parent settles");
+
+				if (successParentSettlesFirst)
+					await SettleFailureParentAsync().ConfigureAwait(false);
+				else
+					await SettleSuccessParentAsync().ConfigureAwait(false);
+
+				var settledMixed = await GetJobAsync(graph, mixedChild.Id, TriggerName, cancellationToken)
+					.ConfigureAwait(false);
+				ConformanceAssert.Equal(
+					failureParentFails ? JobState.Pending : JobState.Skipped,
+					settledMixed.State,
+					TriggerName,
+					"mixed triggers must evaluate every incoming edge independent of settlement order"
+				);
+				ConformanceAssert.Equal(failureParentFails ? 1 : 0, settledMixed.FailedDependencies, TriggerName,
+					"mixed-trigger failure counts must reflect the final parent outcomes");
+			}
+		}
+	}
+
+	private static async ValueTask FanInAsync(
+		IJobStorage storage,
+		IServiceProvider serviceProvider,
+		CancellationToken cancellationToken
+	)
+	{
+		_ = serviceProvider;
+		var graph = GetGraph(storage, FanInName);
+		var successfulParent = CreateJob("fanin-success-parent");
+		var failedParent = CreateJob("fanin-failed-parent");
+		var child = CreateWaitingJob("fanin-child", 2);
+		await graph.EnqueueAsync(successfulParent, cancellationToken).ConfigureAwait(false);
+		await graph.EnqueueAsync(failedParent, cancellationToken).ConfigureAwait(false);
+		await graph.EnqueueContinuationAsync(
+			child,
+			[
+				new() { ChildJobId = child.Id, ParentJobId = successfulParent.Id, Trigger = ContinuationTrigger.Failure },
+				new() { ChildJobId = child.Id, ParentJobId = failedParent.Id, Trigger = ContinuationTrigger.Failure },
+			],
+			cancellationToken
+		).ConfigureAwait(false);
+		var acquired = await graph.AcquireDueJobsAsync(
+			CreateRequest("fanin-worker", successfulParent.JobName, failedParent.JobName), cancellationToken).ConfigureAwait(false);
+		ConformanceAssert.Equal(2, acquired.Count, FanInName, "both dependency parents must be acquired");
+		await graph.CompleteAsync(successfulParent.Id, 1, "fanin-worker", cancellationToken).ConfigureAwait(false);
+		var waiting = await GetJobAsync(graph, child.Id, FanInName, cancellationToken).ConfigureAwait(false);
+		ConformanceAssert.Equal(JobState.AwaitingContinuation, waiting.State, FanInName,
+			"fan-in child must wait for every parent");
+		ConformanceAssert.Equal(1, waiting.RemainingDependencies, FanInName,
+			"one dependency must remain after the first parent settles");
+		await graph.FailAsync(failedParent.Id, 1, "fanin-worker", "expected failure", nextRetryAt: null, cancellationToken)
+			.ConfigureAwait(false);
+		var released = await GetJobAsync(graph, child.Id, FanInName, cancellationToken).ConfigureAwait(false);
+		ConformanceAssert.Equal(JobState.Pending, released.State, FanInName,
+			"a failure-trigger fan-in must run when any parent fails after all settle");
+		ConformanceAssert.Equal(1, released.FailedDependencies, FanInName,
+			"failed-dependency projection must be preserved");
+	}
+
+	private static async ValueTask DynamicContinuationsAsync(
+		IJobStorage storage,
+		IServiceProvider serviceProvider,
+		CancellationToken cancellationToken
+	)
+	{
+		_ = serviceProvider;
+		var graph = GetGraph(storage, DynamicName);
+		var current = CreateJob("dynamic-current", batchId: "dynamic-batch");
+		var waiter = CreateJob("dynamic-waiter", batchId: "dynamic-batch") with
+		{
+			State = JobState.AwaitingContinuation,
+			RemainingDependencies = 1,
+		};
+		await graph.EnqueueBatchAsync(
+			CreateBatch("dynamic-batch", 2),
+			[current, waiter],
+			[new() { ChildJobId = waiter.Id, ParentJobId = current.Id }],
+			cancellationToken
+		).ConfigureAwait(false);
+		_ = await graph.AcquireDueJobsAsync(CreateRequest("dynamic-worker", current.JobName), cancellationToken)
+			.ConfigureAwait(false);
+		var inserted = CreateJob("dynamic-inserted", batchId: "dynamic-batch");
+		await graph.CompleteWithContinuationsAsync(
+			current.Id,
+			1,
+			"dynamic-worker",
+			[new() { Job = inserted, Options = ContinuationOptions.BeforeContinuations }],
+			cancellationToken
+		).ConfigureAwait(false);
+		ConformanceAssert.Equal(JobState.Pending,
+			(await GetJobAsync(graph, inserted.Id, DynamicName, cancellationToken).ConfigureAwait(false)).State,
+			DynamicName, "a before-continuations addition must become runnable");
+		var stillWaiting = await GetJobAsync(graph, waiter.Id, DynamicName, cancellationToken).ConfigureAwait(false);
+		ConformanceAssert.Equal(JobState.AwaitingContinuation, stillWaiting.State, DynamicName,
+			"existing waiters must be spliced behind the inserted continuation");
+		var projection = ConformanceAssert.NotNull(
+			await graph.GetBatchGraphAsync("dynamic-batch", cancellationToken).ConfigureAwait(false),
+			DynamicName, "dynamic graph must remain queryable");
+		ConformanceAssert.True(
+			projection.Edges.Any(edge => string.Equals(edge.ParentJobId, inserted.Id, StringComparison.Ordinal) &&
+				string.Equals(edge.ChildJobId, waiter.Id, StringComparison.Ordinal)),
+			DynamicName,
+			"splicing must replace the existing waiter dependency atomically"
+		);
+
+		var stale = CreateJob("dynamic-stale", batchId: "dynamic-batch");
+		_ = await ConformanceAssert.ThrowsAsync<ImmediateJobException>(
+			() => graph.AddBatchJobAsync(current.Id, 1, stale, ContinuationOptions.BesideContinuations, cancellationToken),
+			DynamicName,
+			"a completed execution cannot add another batch member"
+		).ConfigureAwait(false);
+		ConformanceAssert.Null(await graph.GetJobStatusAsync(stale.Id, cancellationToken).ConfigureAwait(false),
+			DynamicName, "a rejected dynamic addition must not partially insert its job");
+	}
+
+	private static async ValueTask CancelUnsettledChainAsync(
+		IJobStorage storage,
+		IServiceProvider serviceProvider,
+		CancellationToken cancellationToken
+	)
+	{
+		_ = serviceProvider;
+		var graph = GetGraph(storage, CancellationName);
+		var parent = CreateJob("cancel-parent", batchId: "cancel-batch");
+		var child = CreateJob("cancel-child", batchId: "cancel-batch") with
+		{
+			State = JobState.AwaitingContinuation,
+			RemainingDependencies = 1,
+		};
+		await graph.EnqueueBatchAsync(CreateBatch("cancel-batch", 2), [parent, child],
+			[new() { ChildJobId = child.Id, ParentJobId = parent.Id }], cancellationToken).ConfigureAwait(false);
+		await graph.CancelBatchAsync("cancel-batch", cancellationToken).ConfigureAwait(false);
+		ConformanceAssert.Equal(JobState.Cancelled,
+			ConformanceAssert.NotNull(await graph.GetJobStatusAsync(parent.Id, cancellationToken).ConfigureAwait(false),
+				CancellationName, "cancelled parent must remain observable").State,
+			CancellationName, "batch cancellation must cancel a pending root");
+		ConformanceAssert.Equal(JobState.Cancelled,
+			ConformanceAssert.NotNull(await graph.GetJobStatusAsync(child.Id, cancellationToken).ConfigureAwait(false),
+				CancellationName, "cancelled child must remain observable").State,
+			CancellationName, "batch cancellation must cancel an unresolved child");
+		var status = ConformanceAssert.NotNull(
+			await graph.GetBatchStatusAsync("cancel-batch", cancellationToken).ConfigureAwait(false),
+			CancellationName, "cancelled batch status must remain observable");
+		ConformanceAssert.Equal(BatchState.Cancelled, status.State, CancellationName,
+			"a batch with only explicit cancellations must be Cancelled");
+		ConformanceAssert.Equal(2, status.Cancelled, CancellationName,
+			"every non-terminal member must be included in cancellation counters");
+	}
+
+	private static IJobGraphStorage GetGraph(IJobStorage storage, string caseName) =>
+		ConformanceAssert.IsAssignableFrom<IJobGraphStorage>(
+			storage,
+			caseName,
+			"a storage advertising graph support must implement IJobGraphStorage"
+		);
+
+	private static JobRecord CreateJob(string id, string? batchId = null) => new()
+	{
+		Id = id,
+		JobName = id,
+		Payload = "{}",
+		State = JobState.Pending,
+		DueAt = DateTimeOffset.UnixEpoch,
+		CreatedAt = DateTimeOffset.UnixEpoch,
+		BatchId = batchId,
+	};
+
+	private static JobRecord CreateWaitingJob(string id, int dependencies) => CreateJob(id) with
+	{
+		State = JobState.AwaitingContinuation,
+		RemainingDependencies = dependencies,
+	};
+
+	private static BatchRecord CreateBatch(string id, int count) => new()
+	{
+		Id = id,
+		CreatedAt = DateTimeOffset.UnixEpoch,
+		TotalJobs = count,
+		PendingCount = count,
+		State = BatchState.Executing,
+	};
+
+	private static JobAcquisitionRequest CreateRequest(string workerId, params string[] jobNames) => new()
+	{
+		WorkerId = workerId,
+		Lease = TimeSpan.FromMinutes(1),
+		BatchSize = Math.Max(jobNames.Length, 1),
+		Queues =
+		[
+			new()
+			{
+				QueueName = new JobRecord
+				{
+					Id = "default-queue-probe",
+					JobName = "default-queue-probe",
+					Payload = "{}",
+					State = JobState.Pending,
+					DueAt = DateTimeOffset.UnixEpoch,
+					CreatedAt = DateTimeOffset.UnixEpoch,
+				}.QueueName,
+				Capacity = Math.Max(jobNames.Length, 1),
+				JobCapacities = jobNames.Distinct(StringComparer.Ordinal)
+					.ToDictionary(static name => name, static _ => 1, StringComparer.Ordinal),
+			},
+		],
+	};
+
+	private static async ValueTask<JobRecord> GetJobAsync(
+		IJobStorage storage,
+		string id,
+		string caseName,
+		CancellationToken cancellationToken
+	) => ConformanceAssert.NotNull(
+		(await storage.QueryJobsAsync(new() { Id = id }, cancellationToken).ConfigureAwait(false)).SingleOrDefault(),
+		caseName,
+		"the expected graph job must exist",
+		$"jobId={id}"
+	);
+}
+#pragma warning restore IDE0130

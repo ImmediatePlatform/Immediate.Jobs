@@ -25,6 +25,16 @@ public enum StorageCapabilities
 	/// 	Atomic batches, dependency graphs, and continuations.
 	/// </summary>
 	Graph = 4,
+
+	/// <summary>
+	/// 	Fair acquisition across queue groups.
+	/// </summary>
+	FairQueues = 8,
+
+	/// <summary>
+	/// 	Exact-identifier acquisition for durable replication.
+	/// </summary>
+	Replica = 16,
 }
 
 /// <summary>
@@ -50,6 +60,10 @@ public static class JobStorageCapabilities
 			capabilities |= StorageCapabilities.Recurring;
 		if (storage is IJobGraphStorage)
 			capabilities |= StorageCapabilities.Graph;
+		if (storage is IFairQueueStorage)
+			capabilities |= StorageCapabilities.FairQueues;
+		if (storage is IJobStorageReplica)
+			capabilities |= StorageCapabilities.Replica;
 		return capabilities;
 	}
 }

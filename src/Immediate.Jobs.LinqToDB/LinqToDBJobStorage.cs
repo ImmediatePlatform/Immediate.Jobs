@@ -11,7 +11,7 @@ using LinqToDB.Data;
 namespace Immediate.Jobs.LinqToDB;
 
 /// <summary>An optimistic-concurrency LinqToDB implementation of <see cref="IJobStorage"/>.</summary>
-public sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorage, IJobStorageReplica
+internal sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorage, IFairQueueStorage, IJobStorageReplica
 {
 	private const int MaxContendedCompletionAttempts = 50;
 	private const int MaxConcurrencyAttempts = 5;
@@ -1067,8 +1067,45 @@ public sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorage,
 		catch (Exception exception) when (exception is LostRaceException or DbException)
 		{
 			await connection.RollbackTransactionAsync(cancellationToken).ConfigureAwait(false);
+			if (exception is DbException && job.RecurringKey is not null)
+			{
+				await AdvanceRecurringAfterDedupeAsync(
+					schedule,
+					job.RecurringKey,
+					nextRunAt,
+					cancellationToken
+				).ConfigureAwait(false);
+			}
+
 			return false;
 		}
+	}
+
+	private async ValueTask AdvanceRecurringAfterDedupeAsync(
+		RecurringJobSchedule schedule,
+		string recurringKey,
+		DateTimeOffset nextRunAt,
+		CancellationToken cancellationToken
+	)
+	{
+		await using var connection = CreateConnection();
+		if (!await Jobs(connection)
+			.AnyAsync(job => job.RecurringKey == recurringKey, cancellationToken)
+			.ConfigureAwait(false))
+		{
+			return;
+		}
+
+		_ = await Recurring(connection)
+			.Where(entity =>
+				entity.Name == schedule.Name &&
+				!entity.IsPaused &&
+				entity.NextRunAt == schedule.NextRunAt.UtcTicks)
+			.Set(entity => entity.LastRunAt, schedule.NextRunAt.UtcTicks)
+			.Set(entity => entity.NextRunAt, nextRunAt.UtcTicks)
+			.Set(entity => entity.ConcurrencyStamp, Guid.NewGuid())
+			.UpdateAsync(cancellationToken)
+			.ConfigureAwait(false);
 	}
 
 	/// <inheritdoc />
