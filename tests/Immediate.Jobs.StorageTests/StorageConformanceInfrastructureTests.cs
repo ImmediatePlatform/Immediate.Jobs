@@ -3,7 +3,7 @@ using Immediate.Jobs.Testing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Time.Testing;
 
-namespace Immediate.Jobs.FunctionalTests.Packages;
+namespace Immediate.Jobs.StorageTests;
 
 #pragma warning disable CS1591
 public sealed class StorageConformanceInfrastructureTests

@@ -123,8 +123,8 @@ public sealed class BatchesAndContinuationsTests
 	{
 		var cancellationToken = TestContext.Current.CancellationToken;
 		await using var inner = new InMemoryJobStorage(TimeProvider.System);
-		await using var proxy = Storage.SingleServerJobStorageTests.CreateProxy(inner);
-		var proxyState = (Storage.SingleServerJobStorageTests.DurableStorageProxy)(object)proxy;
+		await using var proxy = ControllableJobStorageProxy.Create(inner);
+		var proxyState = (ControllableJobStorageProxy)(object)proxy;
 		proxyState.BlockBatchEnqueue = true;
 		var services = new ServiceCollection();
 		_ = services.AddLogging();

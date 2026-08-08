@@ -3,7 +3,7 @@ using Immediate.Jobs.Shared.Internals;
 using Immediate.Jobs.Shared.Storage;
 using Microsoft.Extensions.Time.Testing;
 
-namespace Immediate.Jobs.FunctionalTests.Storage;
+namespace Immediate.Jobs.StorageTests;
 
 public sealed class InMemoryJobStorageBatchTests
 {

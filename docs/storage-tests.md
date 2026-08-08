@@ -472,10 +472,17 @@ wrapper-specific tests in `SingleServerJobStorageTests`.
 
 ### 7.4 Test project dependency
 
-Add a project reference from the maintainer storage/functional test projects to
-`Immediate.Jobs.Testing`. Tests must consume the public API exactly as an external package consumer
-would. Provider projects expose public registration methods that register `IJobStorage`; do not add
-`InternalsVisibleTo`, public test-only constructors, or public conformance factories.
+Keep concrete storage, conformance, and provider-specific tests in `Immediate.Jobs.StorageTests`.
+That project targets every supported framework for the portable in-memory conformance and suite
+infrastructure tests, while compiling and running the container-backed provider matrix only on
+.NET 10. `Immediate.Jobs.FunctionalTests` may use storage as a fixture when testing schedulers,
+generated jobs, or dashboard behavior, but it must not own storage-provider contract or
+implementation tests.
+
+Add a project reference from the storage test project to `Immediate.Jobs.Testing`. Conformance tests
+must consume the public API exactly as an external package consumer would. Provider projects expose
+public registration methods that register `IJobStorage`; do not add `InternalsVisibleTo`, public
+test-only constructors, or public conformance factories for conformance execution.
 
 ## 8. Assertion and failure behavior
 

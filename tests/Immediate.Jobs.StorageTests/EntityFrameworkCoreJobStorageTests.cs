@@ -12,7 +12,7 @@ using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Time.Testing;
 
-namespace Immediate.Jobs.FunctionalTests.Storage;
+namespace Immediate.Jobs.StorageTests;
 
 public sealed class EntityFrameworkCoreJobStorageTests
 {

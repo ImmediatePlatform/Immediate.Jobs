@@ -7,7 +7,7 @@ using Immediate.Jobs.Shared.Storage;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Time.Testing;
 
-namespace Immediate.Jobs.FunctionalTests.Storage;
+namespace Immediate.Jobs.StorageTests;
 
 public sealed class SingleServerJobStorageTests
 {
@@ -149,102 +149,6 @@ public sealed class SingleServerJobStorageTests
 		var childStatus = Assert.IsType<JobStatus>(await storage.GetJobStatusAsync(child.Id, cancellationToken));
 		Assert.Equal(JobState.AwaitingContinuation, childStatus.State);
 		_ = Assert.Single(childStatus.DependsOn);
-	}
-
-	[Fact]
-	public async Task TelemetryPersistenceFailureDoesNotConsumeAnAttempt()
-	{
-		var cancellationToken = TestContext.Current.CancellationToken;
-		await using var inner = new InMemoryJobStorage(TimeProvider.System);
-		await using var proxy = CreateProxy(inner);
-		((DurableStorageProxy)(object)proxy).FailTelemetry = true;
-		var state = new BatchWorkflowState();
-		var services = new ServiceCollection();
-		_ = services.AddLogging();
-		_ = services.AddSingleton<IJobStorage>(proxy);
-		_ = services.AddSingleton(state);
-		_ = services.AddSingleton(new DynamicExpansionState());
-		_ = services.AddSingleton(new ExecutionBufferProbeState());
-		_ = services.AddImmediateJobsCore();
-		_ = services.AddImmediateJobsFunctionalTestsHandlers();
-		_ = services.AddImmediateJobsFunctionalTestsJobs();
-		await using var provider = services.BuildServiceProvider();
-		var scheduler = provider.GetRequiredService<BatchWorkflowJob.Scheduler>();
-		var service = provider.GetRequiredService<JobSchedulingService>();
-		var handle = await scheduler.EnqueueAsync(new("telemetry-failure"), cancellationToken);
-
-		await service.DrainAsync(cancellationToken);
-
-		var job = Assert.Single(await inner.QueryJobsAsync(new() { Id = handle.Id }, cancellationToken));
-		Assert.Equal(JobState.Succeeded, job.State);
-		Assert.Equal(1, job.Attempt);
-		Assert.Equal(["telemetry-failure"], state.Events);
-	}
-
-	[Fact]
-	public async Task UnknownAcquiredJobIsFailedWithoutAnInvoker()
-	{
-		var cancellationToken = TestContext.Current.CancellationToken;
-		await using var inner = new InMemoryJobStorage(TimeProvider.System);
-		await using var proxy = CreateProxy(inner);
-		var proxyState = (DurableStorageProxy)(object)proxy;
-		proxyState.CaptureFailures = true;
-		var services = new ServiceCollection();
-		_ = services.AddLogging();
-		_ = services.AddSingleton<IJobStorage>(proxy);
-		_ = services.AddImmediateJobsCore();
-		await using var provider = services.BuildServiceProvider();
-		var service = provider.GetRequiredService<JobSchedulingService>();
-		var now = TimeProvider.System.GetUtcNow();
-
-		await service.ExecuteSingleAsync(
-			new()
-			{
-				Id = "unknown-job",
-				JobName = "unknown-definition",
-				Payload = "{}",
-				State = JobState.Active,
-				DueAt = now,
-				CreatedAt = now,
-			},
-			cancellationToken
-		);
-
-		Assert.Equal("unknown-job", proxyState.CapturedFailedJobId);
-		var failure = Assert.IsType<string>(proxyState.CapturedFailure);
-		Assert.Contains("No generated job definition", failure, StringComparison.Ordinal);
-		Assert.Contains("unknown-definition", failure, StringComparison.Ordinal);
-	}
-
-	[Fact]
-	public async Task HostShutdownDuringTelemetryKeepsCancellationSemantics()
-	{
-		var cancellationToken = TestContext.Current.CancellationToken;
-		await using var inner = new InMemoryJobStorage(TimeProvider.System);
-		await using var proxy = CreateProxy(inner);
-		using var shutdown = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-		((DurableStorageProxy)(object)proxy).CancelTelemetry = shutdown;
-		var services = new ServiceCollection();
-		_ = services.AddLogging();
-		_ = services.AddSingleton<IJobStorage>(proxy);
-		_ = services.AddSingleton(new BatchWorkflowState());
-		_ = services.AddSingleton(new DynamicExpansionState());
-		_ = services.AddSingleton(new ExecutionBufferProbeState());
-		_ = services.AddImmediateJobsCore();
-		_ = services.AddImmediateJobsFunctionalTestsHandlers();
-		_ = services.AddImmediateJobsFunctionalTestsJobs();
-		await using var provider = services.BuildServiceProvider();
-		var scheduler = provider.GetRequiredService<BatchWorkflowJob.Scheduler>();
-		var service = provider.GetRequiredService<JobSchedulingService>();
-		var handle = await scheduler.EnqueueAsync(new("host-shutdown"), cancellationToken);
-
-		_ = await Assert.ThrowsAnyAsync<OperationCanceledException>(
-			() => service.DrainAsync(shutdown.Token).AsTask()
-		);
-
-		var job = Assert.Single(await inner.QueryJobsAsync(new() { Id = handle.Id }, cancellationToken));
-		Assert.Equal(JobState.Active, job.State);
-		Assert.Equal(1, job.Attempt);
 	}
 
 	[Fact]
@@ -472,7 +376,7 @@ public sealed class SingleServerJobStorageTests
 		CreatedAt = DateTimeOffset.UnixEpoch,
 	};
 
-	internal static ISingleServerDurableStorage CreateProxy(InMemoryJobStorage inner)
+	private static ISingleServerDurableStorage CreateProxy(InMemoryJobStorage inner)
 	{
 		var proxy = DispatchProxy.Create<ISingleServerDurableStorage, DurableStorageProxy>();
 		((DurableStorageProxy)(object)proxy).Inner = inner;
@@ -485,20 +389,10 @@ public sealed class SingleServerJobStorageTests
 	{
 		public object Inner { get; set; } = null!;
 		public bool BlockInitialization { get; set; }
-		public bool BlockBatchEnqueue { get; set; }
-		public bool FailTelemetry { get; set; }
-		public bool CaptureFailures { get; set; }
-		public CancellationTokenSource? CancelTelemetry { get; set; }
-		public string? CapturedFailedJobId { get; private set; }
-		public string? CapturedFailure { get; private set; }
 		public int GetIncomingEdgesCalls { get; private set; }
 		public int GetJobStatusCalls { get; private set; }
 		public TaskCompletionSource InitializationEntered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 		public TaskCompletionSource InitializationRelease { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
-		public TaskCompletionSource BatchEnqueueEntered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
-		public TaskCompletionSource BatchEnqueueRelease { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
-		public IReadOnlyList<JobRecord>? CapturedBatchJobs { get; private set; }
-		public IReadOnlyList<JobContinuationEdge>? CapturedBatchEdges { get; private set; }
 
 		protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
 		{
@@ -508,34 +402,6 @@ public sealed class SingleServerJobStorageTests
 			{
 				_ = InitializationEntered.TrySetResult();
 				return new ValueTask(InitializationRelease.Task);
-			}
-
-			if (string.Equals(targetMethod.Name, nameof(IJobStorage.SetExecutionTelemetryAsync), StringComparison.Ordinal) && FailTelemetry)
-#pragma warning disable CA2012 // Reflection proxies must box the ValueTask returned by the intercepted interface method.
-				return ValueTask.FromException(new InvalidOperationException("Expected telemetry persistence failure."));
-#pragma warning restore CA2012
-
-			if (string.Equals(targetMethod.Name, nameof(IJobStorage.SetExecutionTelemetryAsync), StringComparison.Ordinal) && CancelTelemetry is { } cancellation)
-			{
-				cancellation.Cancel();
-#pragma warning disable CA2012 // Reflection proxies must box the ValueTask returned by the intercepted interface method.
-				return ValueTask.FromCanceled((CancellationToken)args[^1]!);
-#pragma warning restore CA2012
-			}
-
-			if (string.Equals(targetMethod.Name, nameof(IJobStorage.FailAsync), StringComparison.Ordinal) && CaptureFailures)
-			{
-				CapturedFailedJobId = (string)args[0]!;
-				CapturedFailure = (string)args[3]!;
-				return ValueTask.CompletedTask;
-			}
-
-			if (string.Equals(targetMethod.Name, nameof(IJobGraphStorage.EnqueueBatchAsync), StringComparison.Ordinal) && BlockBatchEnqueue)
-			{
-				CapturedBatchJobs = (IReadOnlyList<JobRecord>)args[1]!;
-				CapturedBatchEdges = (IReadOnlyList<JobContinuationEdge>)args[2]!;
-				_ = BatchEnqueueEntered.TrySetResult();
-				return new ValueTask(BatchEnqueueRelease.Task);
 			}
 
 			if (string.Equals(targetMethod.Name, nameof(IJobGraphStorage.GetIncomingEdgesAsync), StringComparison.Ordinal))
