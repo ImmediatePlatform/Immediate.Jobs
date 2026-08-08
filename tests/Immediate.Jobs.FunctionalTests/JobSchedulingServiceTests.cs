@@ -4,7 +4,6 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace Immediate.Jobs.FunctionalTests;
 
-#pragma warning disable CS1591
 public sealed class JobSchedulingServiceTests
 {
 	[Fact]
@@ -104,4 +103,3 @@ public sealed class JobSchedulingServiceTests
 	}
 
 }
-#pragma warning restore CS1591

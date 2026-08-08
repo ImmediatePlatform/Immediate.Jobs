@@ -5,7 +5,6 @@ using Immediate.Jobs.Shared.Storage;
 
 namespace Immediate.Jobs.FunctionalTests;
 
-#pragma warning disable CS1591
 public interface IControllableJobStorage : IRecurringJobStorage, IJobGraphStorage, IJobStorageReplica;
 
 public class ControllableJobStorageProxy : DispatchProxy
@@ -77,4 +76,3 @@ public class ControllableJobStorageProxy : DispatchProxy
 		}
 	}
 }
-#pragma warning restore CS1591

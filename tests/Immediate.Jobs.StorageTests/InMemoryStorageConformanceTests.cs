@@ -5,7 +5,6 @@ using Microsoft.Extensions.Time.Testing;
 
 namespace Immediate.Jobs.StorageTests;
 
-#pragma warning disable CS1591
 public sealed class InMemoryStorageConformanceTests
 {
 	private const StorageCapabilities Capabilities =
@@ -33,4 +32,3 @@ public sealed class InMemoryStorageConformanceTests
 		await testCase.RunAsync(provider, TestContext.Current.CancellationToken);
 	}
 }
-#pragma warning restore CS1591

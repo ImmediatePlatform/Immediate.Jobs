@@ -5,7 +5,6 @@ using Microsoft.Extensions.Time.Testing;
 
 namespace Immediate.Jobs.StorageTests;
 
-#pragma warning disable CS1591
 public sealed class StorageConformanceInfrastructureTests
 {
 	private const StorageCapabilities InMemoryCapabilities =

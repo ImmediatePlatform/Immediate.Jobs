@@ -15,7 +15,6 @@ using StackExchange.Redis;
 
 namespace Immediate.Jobs.StorageTests;
 
-#pragma warning disable CS1591
 [Collection(StorageContainerFixtureGroup.Name)]
 public sealed class RelationalStorageConformanceTests(StorageContainers containers)
 {
@@ -371,4 +370,3 @@ internal sealed class ConformanceSchemaModelCacheKeyFactory : IModelCacheKeyFact
 	public object Create(DbContext context, bool designTime) =>
 		(context.GetType(), ((ConformanceDbContext)context).Schema, designTime);
 }
-#pragma warning restore CS1591
