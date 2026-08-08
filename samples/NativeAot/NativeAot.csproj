@@ -4,7 +4,6 @@
     <TargetFrameworks>net8.0</TargetFrameworks>
     <PublishAot>true</PublishAot>
     <InvariantGlobalization>true</InvariantGlobalization>
-	<NoWarn>$(NoWarn);CS1591;CA1050;CA1822</NoWarn>
   </PropertyGroup>
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />

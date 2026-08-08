@@ -5,7 +5,6 @@ using Microsoft.Extensions.Time.Testing;
 
 namespace Immediate.Jobs.FunctionalTests.Storage;
 
-#pragma warning disable CS1591
 public sealed class InMemoryJobStorageBatchTests
 {
 	[Fact]
@@ -515,4 +514,3 @@ public sealed class InMemoryJobStorageBatchTests
 		CancellationToken cancellationToken
 	) => Assert.Single(await storage.QueryJobsAsync(new() { Id = jobId }, cancellationToken));
 }
-#pragma warning restore CS1591

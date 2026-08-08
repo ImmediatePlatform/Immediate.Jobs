@@ -7,7 +7,6 @@ using Microsoft.Extensions.Time.Testing;
 
 namespace Immediate.Jobs.FunctionalTests;
 
-#pragma warning disable CS1591
 public sealed class RecurringSchedulerTests
 {
 	private static readonly DateTimeOffset Start = new(2026, 1, 1, 10, 0, 0, TimeSpan.Zero);
@@ -302,4 +301,3 @@ public sealed class RecurringSchedulerTests
 		}
 	}
 }
-#pragma warning restore CS1591

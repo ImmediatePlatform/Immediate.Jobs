@@ -9,7 +9,6 @@ using Testcontainers.Redis;
 
 namespace Immediate.Jobs.StorageTests;
 
-#pragma warning disable CS1591
 [CollectionDefinition(Name)]
 public sealed class RedisContainerFixtureGroup : ICollectionFixture<RedisStorageFixture>
 {
@@ -857,4 +856,3 @@ public sealed class RedisStorageTests(RedisStorageFixture fixture)
 		],
 	};
 }
-#pragma warning restore CS1591

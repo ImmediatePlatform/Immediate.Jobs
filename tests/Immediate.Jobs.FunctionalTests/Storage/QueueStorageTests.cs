@@ -5,7 +5,6 @@ using Microsoft.Extensions.Time.Testing;
 
 namespace Immediate.Jobs.FunctionalTests.Storage;
 
-#pragma warning disable CS1591
 public sealed class QueueStorageTests
 {
 	[Theory]
@@ -183,4 +182,3 @@ public sealed class QueueStorageTests
 		}, cancellationToken);
 	}
 }
-#pragma warning restore CS1591

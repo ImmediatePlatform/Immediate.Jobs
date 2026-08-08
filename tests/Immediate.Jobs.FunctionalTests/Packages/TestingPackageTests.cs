@@ -9,7 +9,6 @@ using Microsoft.Extensions.Logging;
 
 namespace Immediate.Jobs.FunctionalTests.Packages;
 
-#pragma warning disable CS1591
 public sealed class TestingPackageTests
 {
 	[Fact]
@@ -259,4 +258,3 @@ public sealed class TestingPackageTests
 
 [JsonSerializable(typeof(TestingPackageTests.TestPayload))]
 internal sealed partial class TestingJsonContext : JsonSerializerContext;
-#pragma warning restore CS1591

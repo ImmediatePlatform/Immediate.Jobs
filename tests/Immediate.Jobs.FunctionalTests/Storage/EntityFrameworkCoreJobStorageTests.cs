@@ -14,7 +14,6 @@ using Microsoft.Extensions.Time.Testing;
 
 namespace Immediate.Jobs.FunctionalTests.Storage;
 
-#pragma warning disable CS1591
 public sealed class EntityFrameworkCoreJobStorageTests
 {
 	[Theory]
@@ -1353,4 +1352,3 @@ public sealed class EntityFrameworkCoreJobStorageTests
 		protected override bool ShouldRetryOn(Exception exception) => false;
 	}
 }
-#pragma warning restore CS1591

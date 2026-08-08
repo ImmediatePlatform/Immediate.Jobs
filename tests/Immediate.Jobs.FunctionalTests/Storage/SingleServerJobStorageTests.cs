@@ -9,7 +9,6 @@ using Microsoft.Extensions.Time.Testing;
 
 namespace Immediate.Jobs.FunctionalTests.Storage;
 
-#pragma warning disable CS1591
 public sealed class SingleServerJobStorageTests
 {
 	[Fact]
@@ -641,4 +640,3 @@ public sealed class SingleServerJobStorageTests
 		}
 	}
 }
-#pragma warning restore CS1591

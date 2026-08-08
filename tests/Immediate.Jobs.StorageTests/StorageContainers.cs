@@ -3,7 +3,6 @@ using Testcontainers.PostgreSql;
 
 namespace Immediate.Jobs.StorageTests;
 
-#pragma warning disable CS1591
 [CollectionDefinition(Name)]
 public sealed class StorageContainerFixtureGroup : ICollectionFixture<StorageContainers>
 {
@@ -30,4 +29,3 @@ public sealed class StorageContainers : IAsyncLifetime
 		);
 	}
 }
-#pragma warning restore CS1591

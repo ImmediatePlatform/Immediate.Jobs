@@ -3,7 +3,6 @@
     <OutputType>Exe</OutputType>
     <TargetFrameworks>net10.0</TargetFrameworks>
     <UserSecretsId>e7fd0b27-61fa-4dfd-9787-1e260c52b7bd</UserSecretsId>
-    <NoWarn>$(NoWarn);CS1591</NoWarn>
 	<_AspireUseSdkPickBestRid>false</_AspireUseSdkPickBestRid>
   </PropertyGroup>
   <ItemGroup>

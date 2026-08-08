@@ -8,7 +8,6 @@ using NodaTime;
 
 namespace Immediate.Jobs.FunctionalTests.Packages;
 
-#pragma warning disable CS1591
 public sealed class NodaTimeTests
 {
 	[Fact]
@@ -136,4 +135,3 @@ public sealed class NodaTimeTests
 
 [JsonSerializable(typeof(NodaTimeTests.NodaPayload))]
 internal sealed partial class NodaPayloadJsonContext : JsonSerializerContext;
-#pragma warning restore CS1591

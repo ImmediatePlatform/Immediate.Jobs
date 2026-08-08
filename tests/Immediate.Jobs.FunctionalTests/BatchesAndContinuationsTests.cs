@@ -9,7 +9,6 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace Immediate.Jobs.FunctionalTests;
 
-#pragma warning disable CS1591
 public sealed class BatchesAndContinuationsTests
 {
 	[Fact]
@@ -752,4 +751,3 @@ public sealed partial class ExecutionBufferProbeJob(
 		return ValueTask.CompletedTask;
 	}
 }
-#pragma warning restore CS1591
