@@ -138,23 +138,23 @@ internal sealed class RelationalConformanceFixture : IAsyncDisposable
 	private readonly string _connectionString;
 	private readonly string? _schema;
 	private readonly string? _sqlitePath;
+	private ServiceProvider? _services;
 
 	private RelationalConformanceFixture(
 		ConformanceDatabase database,
 		string connectionString,
 		string? schema,
-		string? sqlitePath,
-		ServiceProvider services
+		string? sqlitePath
 	)
 	{
 		_database = database;
 		_connectionString = connectionString;
 		_schema = schema;
 		_sqlitePath = sqlitePath;
-		Services = services;
 	}
 
-	internal IServiceProvider Services { get; }
+	internal IServiceProvider Services => _services
+		?? throw new InvalidOperationException("The relational conformance fixture has not finished initializing.");
 
 	internal static async ValueTask<RelationalConformanceFixture> CreateAsync(
 		StorageContainers? containers,
@@ -197,46 +197,55 @@ internal sealed class RelationalConformanceFixture : IAsyncDisposable
 
 		_ = contextOptions.ReplaceService<IModelCacheKeyFactory, ConformanceSchemaModelCacheKeyFactory>();
 		var contextFactory = new ConformanceDbContextFactory(contextOptions.Options, schema);
-		if (adapter == ConformanceAdapter.LinqToDB)
+		var fixture = new RelationalConformanceFixture(database, connectionString, schema, sqlitePath);
+		try
 		{
-			await dataOptions.CreateImmediateJobsSchemaAsync(schema, cancellationToken).ConfigureAwait(false);
-		}
-		else
-		{
-			await using var context = contextFactory.CreateDbContext();
-			var script = context.Database.GenerateCreateScript();
-			foreach (var batch in Regex.Split(
-				script,
-				@"^\s*GO\s*$",
-				RegexOptions.Multiline | RegexOptions.IgnoreCase,
-				TimeSpan.FromSeconds(1)
-			))
+			if (adapter == ConformanceAdapter.LinqToDB)
 			{
-				if (!string.IsNullOrWhiteSpace(batch))
-					_ = await context.Database.ExecuteSqlRawAsync(batch, cancellationToken).ConfigureAwait(false);
+				await dataOptions.CreateImmediateJobsSchemaAsync(schema, cancellationToken).ConfigureAwait(false);
 			}
-		}
+			else
+			{
+				await using var context = contextFactory.CreateDbContext();
+				var script = context.Database.GenerateCreateScript();
+				foreach (var batch in Regex.Split(
+					script,
+					@"^\s*GO\s*$",
+					RegexOptions.Multiline | RegexOptions.IgnoreCase,
+					TimeSpan.FromSeconds(1)
+				))
+				{
+					if (!string.IsNullOrWhiteSpace(batch))
+						_ = await context.Database.ExecuteSqlRawAsync(batch, cancellationToken).ConfigureAwait(false);
+				}
+			}
 
-		var clock = new FakeTimeProvider(new DateTimeOffset(2026, 8, 8, 10, 0, 0, TimeSpan.Zero));
-		var serviceCollection = new ServiceCollection();
-		_ = serviceCollection.AddLogging();
-		_ = serviceCollection.AddSingleton<TimeProvider>(clock);
-		_ = serviceCollection.AddSingleton(clock);
-		_ = serviceCollection.AddSingleton<IDbContextFactory<ConformanceDbContext>>(contextFactory);
-		_ = serviceCollection.AddImmediateJobsCore(options =>
+			var clock = new FakeTimeProvider(new DateTimeOffset(2026, 8, 8, 10, 0, 0, TimeSpan.Zero));
+			var serviceCollection = new ServiceCollection();
+			_ = serviceCollection.AddLogging();
+			_ = serviceCollection.AddSingleton<TimeProvider>(clock);
+			_ = serviceCollection.AddSingleton(clock);
+			_ = serviceCollection.AddSingleton<IDbContextFactory<ConformanceDbContext>>(contextFactory);
+			_ = serviceCollection.AddImmediateJobsCore(options =>
+			{
+				_ = adapter == ConformanceAdapter.EntityFrameworkCore
+					? options.UseEntityFrameworkCore<ConformanceDbContext>()
+					: options.UseLinqToDB(dataOptions, schema);
+				if (useDistributedTopology)
+					_ = options.UseDistributed();
+			});
+			fixture._services = serviceCollection.BuildServiceProvider(new ServiceProviderOptions
+			{
+				ValidateOnBuild = true,
+				ValidateScopes = true,
+			});
+			return fixture;
+		}
+		catch
 		{
-			_ = adapter == ConformanceAdapter.EntityFrameworkCore
-				? options.UseEntityFrameworkCore<ConformanceDbContext>()
-				: options.UseLinqToDB(dataOptions, schema);
-			if (useDistributedTopology)
-				_ = options.UseDistributed();
-		});
-		var services = serviceCollection.BuildServiceProvider(new ServiceProviderOptions
-		{
-			ValidateOnBuild = true,
-			ValidateScopes = true,
-		});
-		return new(database, connectionString, schema, sqlitePath, services);
+			await fixture.DisposeAsync().ConfigureAwait(false);
+			throw;
+		}
 	}
 
 	internal static ValueTask<RelationalConformanceFixture> CreateSingleServerAsync(
@@ -254,7 +263,8 @@ internal sealed class RelationalConformanceFixture : IAsyncDisposable
 
 	public async ValueTask DisposeAsync()
 	{
-		await ((ServiceProvider)Services).DisposeAsync().ConfigureAwait(false);
+		if (_services is not null)
+			await _services.DisposeAsync().ConfigureAwait(false);
 		if (_sqlitePath is not null)
 		{
 			SqliteConnection.ClearAllPools();

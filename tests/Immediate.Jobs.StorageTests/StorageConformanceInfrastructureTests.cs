@@ -73,6 +73,27 @@ public sealed class StorageConformanceInfrastructureTests
 	}
 
 	[Fact]
+	public async Task RunAsyncReportsMultipleStorageRegistrationsAsConformanceFailure()
+	{
+		await using var storageServices = CreateInMemoryServices();
+		var storage = storageServices.GetRequiredService<IJobStorage>();
+		await using var services = new ServiceCollection()
+			.AddSingleton(storage)
+			.AddSingleton(storage)
+			.BuildServiceProvider();
+		var testCase = GetCase(InMemoryCapabilities, "Queue.Lifecycle.InitializesIdempotently");
+
+		var exception = await Assert.ThrowsAsync<JobTestAssertionException>(
+			() => testCase.RunAsync(services, TestContext.Current.CancellationToken).AsTask()
+		);
+
+		Assert.Contains(testCase.Name, exception.Message, StringComparison.Ordinal);
+		Assert.Contains("exactly one IJobStorage", exception.Message, StringComparison.Ordinal);
+		var innerException = Assert.IsType<InvalidOperationException>(exception.InnerException);
+		Assert.Contains("found 2", innerException.Message, StringComparison.Ordinal);
+	}
+
+	[Fact]
 	public async Task RunAsyncRejectsMismatchBeforeRunningScenario()
 	{
 		await using var services = CreateInMemoryServices();

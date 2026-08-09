@@ -58,7 +58,15 @@ public sealed class JobStorageConformanceTestCase
 		IJobStorage storage;
 		try
 		{
-			storage = serviceProvider.GetRequiredService<IJobStorage>();
+			var storages = serviceProvider.GetServices<IJobStorage>().ToArray();
+			if (storages.Length != 1)
+			{
+				throw new InvalidOperationException(
+					$"Expected exactly one IJobStorage registration, but found {storages.Length}."
+				);
+			}
+
+			storage = storages[0];
 		}
 		catch (Exception exception)
 		{

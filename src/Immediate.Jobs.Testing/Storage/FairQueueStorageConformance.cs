@@ -377,10 +377,18 @@ internal static class FairQueueStorageConformance
 			storage.AcquireDueJobsAsync(CreateRequest("concurrent-worker-b", 12, DefaultPolicy), cancellationToken).AsTask()
 		).ConfigureAwait(false);
 		var ids = claims.SelectMany(static jobs => jobs).Select(static job => job.Id).ToArray();
-		ConformanceAssert.Equal(12, ids.Length, ConcurrencyName,
-			"concurrent fair acquisitions must collectively claim every eligible job");
-		ConformanceAssert.Equal(12, ids.Distinct(StringComparer.Ordinal).Count(), ConcurrencyName,
+		ConformanceAssert.Equal(ids.Length, ids.Distinct(StringComparer.Ordinal).Count(), ConcurrencyName,
 			"concurrent fair acquisitions must never claim the same job twice");
+
+		var remaining = await storage.AcquireDueJobsAsync(
+			CreateRequest("concurrent-drain-worker", 12, DefaultPolicy),
+			cancellationToken
+		).ConfigureAwait(false);
+		var allIds = ids.Concat(remaining.Select(static job => job.Id)).ToArray();
+		ConformanceAssert.Equal(12, allIds.Length, ConcurrencyName,
+			"every eligible job must remain claimable after concurrent acquisition contention");
+		ConformanceAssert.Equal(12, allIds.Distinct(StringComparer.Ordinal).Count(), ConcurrencyName,
+			"concurrent and follow-up acquisitions must never claim the same job twice");
 	}
 
 	private static IFairQueueStorage GetFairStorage(IJobStorage storage, string caseName) =>
