@@ -65,6 +65,11 @@ The existing type/capability relationship becomes:
 | `IFairQueueStorage` | `FairQueues` | Fair acquisition behavior |
 | `IJobStorageReplica` | `Replica` | Exact-id acquisition required by single-server mode |
 
+`IJobStorageReplica` describes a durable store that can mirror the exact jobs selected by the
+authoritative in-memory primary. `InMemoryJobStorage` does not implement it: in-memory mode uses that
+provider directly, and using another in-memory instance as single-server backing storage would not
+provide durability. The built-in relational providers implement the replica capability.
+
 Add `IFairQueueStorage : IJobStorage` as a marker capability. It means that
 `AcquireDueJobsAsync` honors a non-null `JobAcquisitionRequest.FairQueues`. In-memory, EF Core,
 LinqToDB, and the single-server wrapper implement it. Redis does not.

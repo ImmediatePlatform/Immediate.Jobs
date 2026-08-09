@@ -11,8 +11,7 @@ public sealed class InMemoryStorageConformanceTests
 		StorageCapabilities.Queue |
 		StorageCapabilities.Recurring |
 		StorageCapabilities.Graph |
-		StorageCapabilities.FairQueues |
-		StorageCapabilities.Replica;
+		StorageCapabilities.FairQueues;
 
 	public static TheoryData<JobStorageConformanceTestCase> Cases =>
 		[.. JobStorageConformanceSuite.GetCases(Capabilities)];

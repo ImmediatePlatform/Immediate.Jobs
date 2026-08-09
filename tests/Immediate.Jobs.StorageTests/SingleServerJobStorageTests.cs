@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Reflection;
 using System.Runtime.ExceptionServices;
@@ -14,7 +15,8 @@ public sealed class SingleServerJobStorageTests
 	[Fact]
 	public async Task DurableStorageDefaultsToSingleServerMode()
 	{
-		await using var durable = new InMemoryJobStorage(TimeProvider.System);
+		await using var durableInner = new InMemoryJobStorage(TimeProvider.System);
+		await using var durable = CreateProxy(durableInner);
 		var services = new ServiceCollection();
 		_ = services.AddImmediateJobsCore(options => options.UseStorage(_ => durable));
 
@@ -63,11 +65,13 @@ public sealed class SingleServerJobStorageTests
 	}
 
 	[Fact]
+	[SuppressMessage("Reliability", "CA2000", Justification = "SingleServerJobStorage owns and disposes the durable proxy and its in-memory test store.")]
 	public void SynchronousDisposalIsIdempotent()
 	{
-#pragma warning disable CA2000 // SingleServerJobStorage owns and disposes the durable storage.
-		using var storage = new SingleServerJobStorage(new InMemoryJobStorage(TimeProvider.System), TimeProvider.System);
-#pragma warning restore CA2000
+		using var storage = new SingleServerJobStorage(
+			CreateProxy(new InMemoryJobStorage(TimeProvider.System)),
+			TimeProvider.System
+		);
 
 		storage.Dispose();
 		storage.Dispose();
@@ -126,7 +130,8 @@ public sealed class SingleServerJobStorageTests
 	{
 		var cancellationToken = TestContext.Current.CancellationToken;
 		var timeProvider = new FakeTimeProvider(DateTimeOffset.UnixEpoch);
-		await using var durable = new InMemoryJobStorage(timeProvider);
+		await using var durableInner = new InMemoryJobStorage(timeProvider);
+		await using var durable = CreateProxy(durableInner);
 		var parent = CreateJob(timeProvider.GetUtcNow()) with { Id = "standalone-parent" };
 		var child = CreateJob(timeProvider.GetUtcNow().AddTicks(1)) with
 		{
@@ -156,7 +161,8 @@ public sealed class SingleServerJobStorageTests
 	{
 		var cancellationToken = TestContext.Current.CancellationToken;
 		var timeProvider = new FakeTimeProvider(DateTimeOffset.UnixEpoch);
-		await using var durable = new InMemoryJobStorage(timeProvider);
+		await using var durableInner = new InMemoryJobStorage(timeProvider);
+		await using var durable = CreateProxy(durableInner);
 		await using var firstProcess = new SingleServerJobStorage(durable, timeProvider);
 		var job = CreateJob(timeProvider.GetUtcNow() + TimeSpan.FromHours(1));
 		var schedule = new RecurringJobSchedule
@@ -190,7 +196,8 @@ public sealed class SingleServerJobStorageTests
 	{
 		var cancellationToken = TestContext.Current.CancellationToken;
 		var timeProvider = new FakeTimeProvider(DateTimeOffset.UnixEpoch);
-		await using var durable = new InMemoryJobStorage(timeProvider);
+		await using var durableInner = new InMemoryJobStorage(timeProvider);
+		await using var durable = CreateProxy(durableInner);
 		await using var storage = new SingleServerJobStorage(durable, timeProvider);
 		var job = CreateJob(timeProvider.GetUtcNow());
 		await storage.EnqueueAsync(job, cancellationToken);
@@ -228,7 +235,8 @@ public sealed class SingleServerJobStorageTests
 	{
 		var cancellationToken = TestContext.Current.CancellationToken;
 		var timeProvider = new FakeTimeProvider(DateTimeOffset.UnixEpoch);
-		await using var durable = new InMemoryJobStorage(timeProvider);
+		await using var durableInner = new InMemoryJobStorage(timeProvider);
+		await using var durable = CreateProxy(durableInner);
 		var parentJob = CreateJob(timeProvider.GetUtcNow()) with
 		{
 			Id = "parent-job",
@@ -295,7 +303,8 @@ public sealed class SingleServerJobStorageTests
 	{
 		var cancellationToken = TestContext.Current.CancellationToken;
 		var timeProvider = new FakeTimeProvider(DateTimeOffset.UnixEpoch);
-		await using var durable = new InMemoryJobStorage(timeProvider);
+		await using var durableInner = new InMemoryJobStorage(timeProvider);
+		await using var durable = CreateProxy(durableInner);
 		await using var firstProcess = new SingleServerJobStorage(durable, timeProvider);
 		var job = CreateJob(timeProvider.GetUtcNow());
 		await firstProcess.EnqueueAsync(job, cancellationToken);
@@ -340,7 +349,8 @@ public sealed class SingleServerJobStorageTests
 	{
 		var cancellationToken = TestContext.Current.CancellationToken;
 		var timeProvider = new FakeTimeProvider(DateTimeOffset.UnixEpoch);
-		await using var durable = new InMemoryJobStorage(timeProvider);
+		await using var durableInner = new InMemoryJobStorage(timeProvider);
+		await using var durable = CreateProxy(durableInner);
 		await using var storage = new SingleServerJobStorage(durable, timeProvider);
 		var server = new JobServerSnapshot
 		{
@@ -394,6 +404,7 @@ public sealed class SingleServerJobStorageTests
 		public TaskCompletionSource InitializationEntered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 		public TaskCompletionSource InitializationRelease { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
+		[SuppressMessage("Reliability", "CA2012", Justification = "DispatchProxy must return the boxed ValueTask expected by the interface method.")]
 		protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
 		{
 			ArgumentNullException.ThrowIfNull(targetMethod);
@@ -408,6 +419,15 @@ public sealed class SingleServerJobStorageTests
 				GetIncomingEdgesCalls++;
 			if (string.Equals(targetMethod.Name, nameof(IJobStorage.GetJobStatusAsync), StringComparison.Ordinal))
 				GetJobStatusCalls++;
+			if (string.Equals(targetMethod.Name, nameof(IJobStorageReplica.AcquireJobsAsync), StringComparison.Ordinal))
+			{
+				return ((InMemoryJobStorage)Inner).AcquireJobsAsync(
+					(IReadOnlyCollection<string>)args[0]!,
+					(string)args[1]!,
+					(TimeSpan)args[2]!,
+					(CancellationToken)args[3]!
+				);
+			}
 
 			try
 			{

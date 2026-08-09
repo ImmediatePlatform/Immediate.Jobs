@@ -16,8 +16,7 @@ namespace Immediate.Jobs.Shared.Storage;
 internal sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 	IRecurringJobStorage,
 	IJobGraphStorage,
-	IFairQueueStorage,
-	IJobStorageReplica
+	IFairQueueStorage
 {
 	private readonly Lock _gate = new();
 	private readonly Dictionary<string, JobRecord> _jobs = new(StringComparer.Ordinal);
@@ -394,8 +393,8 @@ internal sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 		return job;
 	}
 
-	/// <inheritdoc />
-	public async ValueTask<IReadOnlyList<JobRecord>> AcquireJobsAsync(
+	// Used by the storage tests' durable-replica proxy. InMemoryJobStorage itself is never a durable replica.
+	internal async ValueTask<IReadOnlyList<JobRecord>> AcquireJobsAsync(
 		IReadOnlyCollection<string> jobIds,
 		string workerId,
 		TimeSpan lease,

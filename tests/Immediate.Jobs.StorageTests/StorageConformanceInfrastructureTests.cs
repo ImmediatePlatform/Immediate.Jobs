@@ -11,7 +11,9 @@ public sealed class StorageConformanceInfrastructureTests
 		StorageCapabilities.Queue |
 		StorageCapabilities.Recurring |
 		StorageCapabilities.Graph |
-		StorageCapabilities.FairQueues |
+		StorageCapabilities.FairQueues;
+	private const StorageCapabilities AllCapabilities =
+		InMemoryCapabilities |
 		StorageCapabilities.Replica;
 
 	[Fact]
@@ -21,7 +23,7 @@ public sealed class StorageConformanceInfrastructureTests
 		var recurringCases = JobStorageConformanceSuite.GetCases(
 			StorageCapabilities.Queue | StorageCapabilities.Recurring
 		);
-		var allCases = JobStorageConformanceSuite.GetCases(InMemoryCapabilities);
+		var allCases = JobStorageConformanceSuite.GetCases(AllCapabilities);
 
 		Assert.Equal(15, queueCases.Count);
 		Assert.All(queueCases, testCase => Assert.Equal(StorageCapabilities.Queue, testCase.RequiredCapabilities));
@@ -46,7 +48,7 @@ public sealed class StorageConformanceInfrastructureTests
 	[Fact]
 	public void CasesHaveUniqueStableNamesUsedByToString()
 	{
-		var cases = JobStorageConformanceSuite.GetCases(InMemoryCapabilities);
+		var cases = JobStorageConformanceSuite.GetCases(AllCapabilities);
 
 		Assert.All(cases, testCase => Assert.Equal(testCase.Name, testCase.ToString()));
 		Assert.Equal(cases.Count, cases.Select(testCase => testCase.Name).Distinct(StringComparer.Ordinal).Count());
@@ -116,7 +118,6 @@ public sealed class StorageConformanceInfrastructureTests
 	[InlineData("Recurring.Capability.ResolvesAdvertisedStorage")]
 	[InlineData("Graph.Capability.ResolvesAdvertisedStorage")]
 	[InlineData("FairQueues.Capability.ResolvesAdvertisedStorage")]
-	[InlineData("Replica.Capability.ResolvesAdvertisedStorage")]
 	public async Task RunAsyncExecutesSelectedCaseAgainstStorageResolvedFromContainer(string caseName)
 	{
 		await using var services = CreateInMemoryServices();

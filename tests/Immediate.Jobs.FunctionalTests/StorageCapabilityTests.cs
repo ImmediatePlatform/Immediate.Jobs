@@ -32,7 +32,7 @@ public sealed class StorageCapabilityTests
 	}
 
 	[Fact]
-	public async Task FullStorageResolvesOneInstanceAndReportsEveryCapability()
+	public async Task InMemoryStorageResolvesOneInstanceAndReportsItsCapabilities()
 	{
 		var cancellationToken = TestContext.Current.CancellationToken;
 		var services = new ServiceCollection();
@@ -45,13 +45,11 @@ public sealed class StorageCapabilityTests
 		Assert.Same(storage, provider.GetRequiredService<IRecurringJobStorage>());
 		Assert.Same(storage, provider.GetRequiredService<IJobGraphStorage>());
 		_ = Assert.IsAssignableFrom<IFairQueueStorage>(storage);
-		_ = Assert.IsAssignableFrom<IJobStorageReplica>(storage);
 		Assert.Equal(
 			StorageCapabilities.Queue |
 			StorageCapabilities.Recurring |
 			StorageCapabilities.Graph |
-			StorageCapabilities.FairQueues |
-			StorageCapabilities.Replica,
+			StorageCapabilities.FairQueues,
 			(await storage.GetMonitoringSnapshotAsync(cancellationToken)).Capabilities
 		);
 	}
