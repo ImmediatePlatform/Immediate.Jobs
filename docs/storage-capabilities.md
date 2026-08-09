@@ -35,6 +35,10 @@ the base type everyone injects. The other two are optional extensions of it.
 | **Graph** | `IJobGraphStorage : IJobStorage` | atomic batch + continuation writes, edge/counter maintenance, gated-completion flush, batch reads/graph, cancel/delete batch, batch history purge | ❌ | ✅ |
 | **Replica** *(exists)* | `IJobStorageReplica` | mirror the exact job set an authoritative in-memory queue selected (single-server mode) | — | ✅ |
 
+The in-memory provider does not implement `IJobStorageReplica`. In-memory mode uses it directly;
+single-server mode requires a durable backing store, so only the built-in relational providers
+advertise replica support.
+
 The optional capabilities **inherit the queue base**, which is also semantically correct: recurring
 schedules materialize into ordinary queue jobs, and batch members are ordinary queue jobs with edges.
 Neither is meaningful without the queue underneath it, so `IRecurringJobStorage` and `IJobGraphStorage`

@@ -30,4 +30,8 @@
     <ProjectReference Include="../Immediate.Jobs/Immediate.Jobs.csproj" ReferenceOutputAssembly="false" />
   </ItemGroup>
 
+  <ItemGroup>
+	<InternalsVisibleTo Include="Immediate.Jobs.StorageTests" />
+  </ItemGroup>
+
 </Project>

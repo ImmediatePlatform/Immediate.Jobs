@@ -240,139 +240,6 @@ public sealed class RedisStorageTests(RedisStorageFixture fixture)
 	}
 
 	[Fact]
-	public async Task RetryFastForwardsScheduledJobs()
-	{
-		var cancellationToken = TestContext.Current.CancellationToken;
-		await using var connection = await ConnectionMultiplexer.ConnectAsync(fixture.Container.GetConnectionString());
-		var timeProvider = CreateTimeProvider();
-		await using var storage = new RedisJobStorage(connection, CreateOptions(), timeProvider);
-		var job = CreateJob("scheduled-retry", timeProvider.GetUtcNow()) with
-		{
-			State = JobState.Scheduled,
-			DueAt = timeProvider.GetUtcNow().AddHours(1),
-			Attempt = 1,
-			LastError = "expected failure",
-		};
-		await storage.EnqueueAsync(job, cancellationToken);
-
-		await storage.RetryAsync(job.Id, cancellationToken);
-
-		var retried = Assert.Single(await storage.QueryJobsAsync(new() { Id = job.Id }, cancellationToken));
-		Assert.Equal(JobState.Pending, retried.State);
-		Assert.Equal(timeProvider.GetUtcNow(), retried.DueAt);
-		Assert.Equal(1, retried.Attempt);
-		Assert.Equal(job.LastError, retried.LastError);
-
-		var firstRun = job with { Id = "scheduled-first-run", Attempt = 0, LastError = null };
-		await storage.EnqueueAsync(firstRun, cancellationToken);
-		await storage.RetryAsync(firstRun.Id, cancellationToken);
-		var fastForwarded = Assert.Single(await storage.QueryJobsAsync(new() { Id = firstRun.Id }, cancellationToken));
-		Assert.Equal(JobState.Pending, fastForwarded.State);
-		Assert.Equal(timeProvider.GetUtcNow(), fastForwarded.DueAt);
-		Assert.Equal(0, fastForwarded.Attempt);
-	}
-
-	[Fact]
-	public async Task CancelActiveJobClosesExecutionAndFencesWorker()
-	{
-		var cancellationToken = TestContext.Current.CancellationToken;
-		await using var connection = await ConnectionMultiplexer.ConnectAsync(fixture.Container.GetConnectionString());
-		var timeProvider = CreateTimeProvider();
-		await using var storage = new RedisJobStorage(connection, CreateOptions(), timeProvider);
-		var job = CreateJob("cancel-active", timeProvider.GetUtcNow());
-		await storage.EnqueueAsync(job, cancellationToken);
-		var active = Assert.Single(await storage.AcquireDueJobsAsync(CreateRequest("worker", 1), cancellationToken));
-
-		await storage.CancelAsync(job.Id, cancellationToken);
-
-		Assert.Equal(JobState.Cancelled, (await storage.GetJobStatusAsync(job.Id, cancellationToken))!.State);
-		var execution = Assert.Single(await storage.QueryJobExecutionsAsync(new() { JobId = job.Id }, cancellationToken));
-		Assert.Equal(JobExecutionState.Cancelled, execution.State);
-		_ = await Assert.ThrowsAsync<ImmediateJobException>(
-			() => storage.CompleteAsync(job.Id, active.Attempt, "worker", cancellationToken).AsTask()
-		);
-		_ = await Assert.ThrowsAsync<ImmediateJobException>(
-			() => storage.CancelAsync(job.Id, cancellationToken).AsTask()
-		);
-
-		var pending = CreateJob("cancel-pending", timeProvider.GetUtcNow());
-		await storage.EnqueueAsync(pending, cancellationToken);
-		await storage.CancelAsync(pending.Id, cancellationToken);
-		Assert.Empty(await storage.AcquireDueJobsAsync(CreateRequest("worker", 1), cancellationToken));
-	}
-
-	[Fact]
-	public async Task MissingDashboardActionsThrowKeyNotFoundException()
-	{
-		var cancellationToken = TestContext.Current.CancellationToken;
-		await using var connection = await ConnectionMultiplexer.ConnectAsync(fixture.Container.GetConnectionString());
-		await using var storage = new RedisJobStorage(connection, CreateOptions(), CreateTimeProvider());
-
-		_ = await Assert.ThrowsAsync<KeyNotFoundException>(
-			() => storage.CancelAsync("missing", cancellationToken).AsTask()
-		);
-		_ = await Assert.ThrowsAsync<KeyNotFoundException>(
-			() => storage.RetryAsync("missing", cancellationToken).AsTask()
-		);
-		_ = await Assert.ThrowsAsync<KeyNotFoundException>(
-			() => storage.DeleteAsync("missing", cancellationToken).AsTask()
-		);
-		_ = await Assert.ThrowsAsync<KeyNotFoundException>(
-			() => storage.RemoveRecurringAsync("missing", cancellationToken).AsTask()
-		);
-		_ = await Assert.ThrowsAsync<KeyNotFoundException>(
-			() => storage.PauseRecurringAsync("missing", cancellationToken).AsTask()
-		);
-		_ = await Assert.ThrowsAsync<KeyNotFoundException>(
-			() => storage.ResumeRecurringAsync("missing", cancellationToken).AsTask()
-		);
-	}
-
-	[Fact]
-	public async Task LowLevelStatusReportsUnknownMaxAttempts()
-	{
-		var cancellationToken = TestContext.Current.CancellationToken;
-		await using var connection = await ConnectionMultiplexer.ConnectAsync(fixture.Container.GetConnectionString());
-		var timeProvider = CreateTimeProvider();
-		await using var storage = new RedisJobStorage(connection, CreateOptions(), timeProvider);
-		await storage.EnqueueAsync(CreateJob("status", timeProvider.GetUtcNow()), cancellationToken);
-
-		var status = await storage.GetJobStatusAsync("status", cancellationToken);
-
-		Assert.NotNull(status);
-		Assert.Null(status.MaxAttempts);
-	}
-
-	[Fact]
-	public async Task ExistingResourcesWithInvalidActionsThrowImmediateJobException()
-	{
-		var cancellationToken = TestContext.Current.CancellationToken;
-		await using var connection = await ConnectionMultiplexer.ConnectAsync(fixture.Container.GetConnectionString());
-		var timeProvider = CreateTimeProvider();
-		await using var storage = new RedisJobStorage(connection, CreateOptions(), timeProvider);
-		await storage.EnqueueAsync(CreateJob("pending", timeProvider.GetUtcNow()), cancellationToken);
-		await storage.UpsertRecurringAsync(new()
-		{
-			Name = "code-defined",
-			JobName = "test-job",
-			Cron = "0 * * * *",
-			TimeZone = "UTC",
-			IsCodeDefined = true,
-			NextRunAt = timeProvider.GetUtcNow(),
-		}, cancellationToken);
-
-		_ = await Assert.ThrowsAsync<ImmediateJobException>(
-			() => storage.RetryAsync("pending", cancellationToken).AsTask()
-		);
-		_ = await Assert.ThrowsAsync<ImmediateJobException>(
-			() => storage.DeleteAsync("pending", cancellationToken).AsTask()
-		);
-		_ = await Assert.ThrowsAsync<ImmediateJobException>(
-			() => storage.RemoveRecurringAsync("code-defined", cancellationToken).AsTask()
-		);
-	}
-
-	[Fact]
 	public async Task PurgeRemovesStaleCompletedMembersWithoutLooping()
 	{
 		var cancellationToken = TestContext.Current.CancellationToken;
@@ -471,8 +338,6 @@ public sealed class RedisStorageTests(RedisStorageFixture fixture)
 		var persisted = Assert.Single((await first.GetMonitoringSnapshotAsync(cancellationToken)).Recurring);
 		Assert.Equal(now, persisted.LastRunAt);
 		Assert.Equal(now.AddHours(1), persisted.NextRunAt);
-		Assert.Equal(StorageCapabilities.Queue | StorageCapabilities.Recurring, first.GetCapabilities());
-		Assert.IsNotAssignableFrom<IJobGraphStorage>(first);
 	}
 
 	[Fact]
@@ -631,47 +496,6 @@ public sealed class RedisStorageTests(RedisStorageFixture fixture)
 	}
 
 	[Fact]
-	public async Task RecurringDedupeHitAdvancesScheduleWithoutDuplicateJob()
-	{
-		var cancellationToken = TestContext.Current.CancellationToken;
-		await using var connection = await ConnectionMultiplexer.ConnectAsync(fixture.Container.GetConnectionString());
-		var timeProvider = CreateTimeProvider();
-		using var storage = new RedisJobStorage(connection, CreateOptions(), timeProvider);
-		var now = timeProvider.GetUtcNow();
-		var schedule = new RecurringJobSchedule
-		{
-			Name = "dedupe-advance",
-			JobName = "test-job",
-			Cron = "0 * * * *",
-			TimeZone = "UTC",
-			IsCodeDefined = true,
-			NextRunAt = now,
-		};
-		var recurringKey = string.Create(CultureInfo.InvariantCulture, $"{schedule.Name}:{now.UtcTicks}");
-		await storage.UpsertRecurringAsync(schedule, cancellationToken);
-		Assert.True(await storage.MaterializeRecurringAsync(
-			schedule,
-			CreateJob("dedupe-original", now) with { RecurringKey = recurringKey },
-			now.AddHours(1),
-			cancellationToken
-		));
-		await storage.UpsertRecurringAsync(schedule, cancellationToken);
-
-		Assert.False(await storage.MaterializeRecurringAsync(
-			schedule,
-			CreateJob("dedupe-duplicate", now) with { RecurringKey = recurringKey },
-			now.AddHours(1),
-			cancellationToken
-		));
-
-		var persisted = Assert.Single((await storage.GetMonitoringSnapshotAsync(cancellationToken)).Recurring);
-		Assert.Equal(now, persisted.LastRunAt);
-		Assert.Equal(now.AddHours(1), persisted.NextRunAt);
-		Assert.Null(await storage.GetJobStatusAsync("dedupe-duplicate", cancellationToken));
-		_ = Assert.Single(await storage.QueryJobsAsync(new() { Search = "test-job" }, cancellationToken));
-	}
-
-	[Fact]
 	public async Task PurgingRecurringJobRemovesItsDedupeEntry()
 	{
 		var cancellationToken = TestContext.Current.CancellationToken;
@@ -715,44 +539,6 @@ public sealed class RedisStorageTests(RedisStorageFixture fixture)
 		Assert.Null(await storage.GetJobStatusAsync("purged-occurrence", cancellationToken));
 		Assert.False(await database.KeyExistsAsync(ExecutionIndexKey(options, "purged-occurrence")));
 		Assert.False(await database.KeyExistsAsync(ExecutionDataKey(options, "purged-occurrence")));
-	}
-
-	[Fact]
-	public async Task RecurringMaterializationPersistsSkippedOccurrenceAsSkipped()
-	{
-		var cancellationToken = TestContext.Current.CancellationToken;
-		await using var connection = await ConnectionMultiplexer.ConnectAsync(fixture.Container.GetConnectionString());
-		var timeProvider = CreateTimeProvider();
-		await using var storage = new RedisJobStorage(connection, CreateOptions(), timeProvider);
-		var now = timeProvider.GetUtcNow();
-		var schedule = new RecurringJobSchedule
-		{
-			Name = "skip-overlap",
-			JobName = "test-job",
-			Cron = "0 * * * *",
-			TimeZone = "UTC",
-			IsCodeDefined = true,
-			NextRunAt = now,
-		};
-		await storage.UpsertRecurringAsync(schedule, cancellationToken);
-
-		Assert.True(await storage.MaterializeRecurringAsync(
-			schedule,
-			CreateJob("skipped", now) with
-			{
-				State = JobState.Skipped,
-				CompletedAt = now,
-				RecurringKey = string.Create(CultureInfo.InvariantCulture, $"{schedule.Name}:{now.UtcTicks}"),
-			},
-			now.AddHours(1),
-			cancellationToken
-		));
-		var skipped = Assert.Single(await storage.QueryJobsAsync(
-			new() { State = JobState.Skipped },
-			cancellationToken
-		));
-		Assert.Equal(now, skipped.CompletedAt);
-		Assert.Empty(await storage.AcquireDueJobsAsync(CreateRequest("node-a", 1), cancellationToken));
 	}
 
 	[Fact]

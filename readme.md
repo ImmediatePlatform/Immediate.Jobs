@@ -435,6 +435,32 @@ accepts HTTP(S) or dashboard-relative URLs.
 
 `Immediate.Jobs.Testing` provides `JobTestHarness`, a fake clock, advance-and-drain helpers, capture-only typed schedulers, enqueue assertions, and a single-job handler-pipeline runner. Delayed work, scheduled occurrences, timeout, and backoff tests do not need wall-clock sleeps.
 
+Storage-provider authors can also run the framework-neutral conformance catalog through their public
+DI registration path. Give the catalog the exact capabilities implemented by the registered
+`IJobStorage`, create a fresh isolated service provider per case, and pass that provider to
+`RunAsync`:
+
+```csharp
+private const StorageCapabilities Capabilities =
+	StorageCapabilities.Queue | StorageCapabilities.Recurring;
+
+public static TheoryData<JobStorageConformanceTestCase> Cases =>
+	[.. JobStorageConformanceSuite.GetCases(Capabilities)];
+
+[Theory]
+[MemberData(nameof(Cases))]
+public async Task StorageConforms(JobStorageConformanceTestCase testCase)
+{
+	await using var services = await AcmeStorageFixture.CreateServiceProviderAsync();
+	await testCase.RunAsync(services);
+}
+```
+
+The fixture should use the provider's normal public registration method, register a
+`FakeTimeProvider` as `TimeProvider`, and isolate its database, schema, or key prefix. See the
+[storage conformance guide](docs/storage-tests.md) for lifecycle requirements, NUnit adaptation,
+the built-in provider matrix, and stable case names.
+
 ## Diagnostics
 
 Compile-time diagnostics:
