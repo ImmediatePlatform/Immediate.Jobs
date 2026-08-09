@@ -12,8 +12,9 @@ public sealed class JobExecutionStorageTests
 		var cancellationToken = TestContext.Current.CancellationToken;
 		var clock = new FakeTimeProvider(DateTimeOffset.UnixEpoch);
 		await using var storage = new InMemoryJobStorage(clock);
-		var completedAt = clock.GetUtcNow().AddMinutes(-1);
-		await storage.EnqueueAsync(CreateJob("legacy", clock.GetUtcNow()) with
+		var now = clock.GetUtcNow();
+		var completedAt = now.AddMinutes(-1);
+		await storage.EnqueueAsync(CreateJob("legacy", now.AddMinutes(-2)) with
 		{
 			State = JobState.Failed,
 			Attempt = 4,
