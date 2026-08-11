@@ -16,7 +16,7 @@
 		"@tanstack/vue-query": "^5.101.4",
 		"@vueuse/core": "^14.4.0",
 		"@vueuse/router": "^14.4.0",
-		"vue": "^3.5.40",
+		"vue": "^3.5.41",
 		"vue-router": "^5.2.0"
 	},
 	"devDependencies": {
