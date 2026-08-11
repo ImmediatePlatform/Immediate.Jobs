@@ -151,7 +151,7 @@ public sealed class StorageConformanceInfrastructureTests
 		var timeProvider = new FakeTimeProvider(DateTimeOffset.UnixEpoch);
 		_ = services.AddSingleton<TimeProvider>(timeProvider);
 		_ = services.AddSingleton(timeProvider);
-		_ = services.AddImmediateJobsCore(options => _ = options.UseInMemory());
+		_ = services.AddImmediateJobsCore().ConfigureStorage(options => _ = options.UseInMemory());
 		return services.BuildServiceProvider(validateScopes: true);
 	}
 }

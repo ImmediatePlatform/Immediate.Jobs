@@ -8,6 +8,7 @@ using Immediate.Jobs.Shared.Storage;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace Immediate.Jobs.Shared.Internals;
 
@@ -21,7 +22,7 @@ public sealed partial class JobSchedulingService : BackgroundService
 	private readonly IRecurringJobStorage? _recurringStorage;
 	private readonly IJobGraphStorage? _graphStorage;
 	private readonly ImmediateJobsOptions _options;
-	private readonly FairQueuePolicy? _fairQueuePolicy;
+	private readonly FairQueueOptions _fairQueueOptions;
 	private readonly TimeProvider _timeProvider;
 	private readonly IIdGenerator _idGenerator;
 	private readonly ILogger<JobSchedulingService> _logger;
@@ -57,6 +58,9 @@ public sealed partial class JobSchedulingService : BackgroundService
 	/// <param name="options">
 	/// 	The scheduler runtime options.
 	/// </param>
+	/// <param name="fairQueueOptions">
+	/// 	The fair queue policy options.
+	/// </param>
 	/// <param name="timeProvider">
 	/// 	The clock used for scheduling, leases, and timestamps.
 	/// </param>
@@ -74,7 +78,8 @@ public sealed partial class JobSchedulingService : BackgroundService
 		IJobStorage storage,
 		IEnumerable<JobDefinition> definitions,
 		IEnumerable<JobQueueDefinition> queueDefinitions,
-		ImmediateJobsOptions options,
+		IOptions<ImmediateJobsOptions> options,
+		IOptions<FairQueueOptions> fairQueueOptions,
 		TimeProvider timeProvider,
 		IIdGenerator idGenerator,
 		ILogger<JobSchedulingService> logger,
@@ -86,6 +91,7 @@ public sealed partial class JobSchedulingService : BackgroundService
 		ArgumentNullException.ThrowIfNull(definitions);
 		ArgumentNullException.ThrowIfNull(queueDefinitions);
 		ArgumentNullException.ThrowIfNull(options);
+		ArgumentNullException.ThrowIfNull(fairQueueOptions);
 		ArgumentNullException.ThrowIfNull(timeProvider);
 		ArgumentNullException.ThrowIfNull(idGenerator);
 		ArgumentNullException.ThrowIfNull(logger);
@@ -95,8 +101,8 @@ public sealed partial class JobSchedulingService : BackgroundService
 		_storage = storage;
 		_recurringStorage = storage as IRecurringJobStorage;
 		_graphStorage = storage as IJobGraphStorage;
-		_options = options;
-		_fairQueuePolicy = options.FairQueues?.ToPolicy();
+		_options = options.Value;
+		_fairQueueOptions = fairQueueOptions.Value;
 		_timeProvider = timeProvider;
 		_idGenerator = idGenerator;
 		_logger = logger;
@@ -119,7 +125,7 @@ public sealed partial class JobSchedulingService : BackgroundService
 		_channel = Channel.CreateUnbounded<JobRecord>(new UnboundedChannelOptions
 		{
 			SingleWriter = true,
-			SingleReader = options.MaxParallelJobs == 1,
+			SingleReader = _options.MaxParallelJobs == 1,
 		});
 	}
 
@@ -528,13 +534,13 @@ public sealed partial class JobSchedulingService : BackgroundService
 
 		return queues.Count == 0
 			? null
-			: new()
+			: new JobAcquisitionRequest()
 			{
 				WorkerId = _workerId,
 				Lease = _options.LeaseDuration,
 				BatchSize = capacity,
 				Queues = queues,
-				FairQueues = _fairQueuePolicy,
+				FairQueues = _fairQueueOptions.ToPolicy(),
 			};
 	}
 
@@ -548,7 +554,7 @@ public sealed partial class JobSchedulingService : BackgroundService
 
 	private void WarnIfGroupedJobsAreInert(IReadOnlyList<JobRecord> acquired)
 	{
-		if (_fairQueuePolicy is not null
+		if (_fairQueueOptions.Enabled
 			|| Volatile.Read(ref _fairQueuesDisabledWarningLogged) != 0
 			|| !acquired.Any(static job => job.GroupId is not null)
 			|| Interlocked.Exchange(ref _fairQueuesDisabledWarningLogged, 1) != 0)

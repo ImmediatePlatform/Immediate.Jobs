@@ -7,7 +7,6 @@ using Immediate.Jobs.Aspire.Api.Telemetry;
 using Immediate.Jobs.Aspire.Api.Workflows;
 using Immediate.Jobs.Dashboard;
 using Immediate.Jobs.EntityFrameworkCore;
-using Immediate.Jobs.Shared;
 using Microsoft.EntityFrameworkCore;
 using Scalar.AspNetCore;
 
@@ -39,14 +38,19 @@ builder.Services.AddImmediateJobsDashboard(options =>
 	if (aspireDashboardUrl is not null)
 		_ = options.AddAspireTelemetryLinks(aspireDashboardUrl);
 });
-builder.Services.AddAspireApiJobs(options =>
-{
-	_ = options.UseEntityFrameworkCore<JobsDbContext>();
-	_ = options.UseSingleServer(); // Explicit; EF storage selects single-server mode implicitly when omitted.
-	_ = options.UseFairQueues();
-	options.MaxParallelJobs = 4;
-	options.PollingInterval = TimeSpan.FromSeconds(5);
-}).AddHealthCheck();
+builder.Services.AddAspireApiJobs()
+	.UseFairQueues()
+	.ConfigureStorage(
+		o => o
+			.UseEntityFrameworkCore<JobsDbContext>()
+			.UseSingleServer()
+	)
+	.Configure(o =>
+	{
+		o.MaxParallelJobs = 4;
+		o.PollingInterval = TimeSpan.FromSeconds(5);
+	})
+	.AddHealthCheck();
 
 var app = builder.Build();
 

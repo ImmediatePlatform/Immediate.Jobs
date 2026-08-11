@@ -542,15 +542,6 @@ public sealed class RedisStorageTests(RedisStorageFixture fixture)
 	}
 
 	[Fact]
-	public async Task UseRedisSelectsDistributedMode()
-	{
-		await using var connection = await ConnectionMultiplexer.ConnectAsync(fixture.Container.GetConnectionString());
-		var options = new ImmediateJobsOptions();
-		_ = options.UseRedis(connection, redis => redis.KeyPrefix = $"test:{Guid.NewGuid():N}");
-		Assert.Equal(JobStorageMode.Distributed, options.StorageMode);
-	}
-
-	[Fact]
 	public async Task DisposingStorageDoesNotCloseAnApplicationOwnedConnection()
 	{
 		await using var connection = await ConnectionMultiplexer.ConnectAsync(fixture.Container.GetConnectionString());

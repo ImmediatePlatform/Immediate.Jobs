@@ -35,7 +35,5 @@ public interface IIdGenerator
 
 internal sealed class GuidIdGenerator : IIdGenerator
 {
-	public static readonly GuidIdGenerator Instance = new();
-
 	public string CreateId(IdKind kind) => Guid.NewGuid().ToString("N");
 }

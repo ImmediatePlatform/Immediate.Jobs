@@ -37,12 +37,14 @@ public sealed class QueueSchedulerTests
 		var lowQueue = new JobQueueDefinition { Name = "low", Priority = 0 };
 		var services = new ServiceCollection();
 		_ = services.AddLogging();
-		_ = services.AddImmediateJobsCore(options =>
-		{
-			_ = options.UseInMemory();
-			options.MaxParallelJobs = 3;
-			options.PollingInterval = TimeSpan.FromMilliseconds(10);
-		});
+		_ = services.AddImmediateJobsCore()
+			.Configure(o =>
+			{
+				o.MaxParallelJobs = 3;
+				o.PollingInterval = TimeSpan.FromMilliseconds(10);
+			})
+			.ConfigureStorage(o => o.UseInMemory());
+
 		_ = services.AddSingleton(new JobDefinition
 		{
 			Name = "high-a",

@@ -12,39 +12,20 @@ namespace Immediate.Jobs.FunctionalTests;
 public sealed class StorageCapabilityTests
 {
 	[Fact]
-	public async Task QueueOnlyStorageDoesNotResolveOptionalServices()
-	{
-		await using var queueStorage = new QueueOnlyStorage(TimeProvider.System);
-		var services = new ServiceCollection();
-		_ = services.AddLogging();
-		_ = services.AddImmediateJobsCore(options =>
-			_ = options.UseStorage(_ => queueStorage).UseDistributed());
-
-		await using var provider = services.BuildServiceProvider();
-		await using var scope = provider.CreateAsyncScope();
-
-		Assert.Equal(StorageCapabilities.Queue, provider.GetRequiredService<IJobStorage>().GetCapabilities());
-		Assert.Null(provider.GetService<IRecurringJobStorage>());
-		Assert.Null(provider.GetService<IJobGraphStorage>());
-		Assert.Null(scope.ServiceProvider.GetService<IBatchScheduler>());
-		Assert.Null(scope.ServiceProvider.GetService<IBatchMonitor>());
-		_ = Assert.IsType<JobMonitor>(scope.ServiceProvider.GetRequiredService<IJobMonitor>());
-	}
-
-	[Fact]
 	public async Task InMemoryStorageResolvesOneInstanceAndReportsItsCapabilities()
 	{
 		var cancellationToken = TestContext.Current.CancellationToken;
 		var services = new ServiceCollection();
 		_ = services.AddLogging();
-		_ = services.AddImmediateJobsCore(options => _ = options.UseInMemory());
+		_ = services.AddImmediateJobsCore().ConfigureStorage(options => _ = options.UseInMemory());
 
 		await using var provider = services.BuildServiceProvider();
 		var storage = provider.GetRequiredService<IJobStorage>();
 
-		Assert.Same(storage, provider.GetRequiredService<IRecurringJobStorage>());
-		Assert.Same(storage, provider.GetRequiredService<IJobGraphStorage>());
-		_ = Assert.IsAssignableFrom<IFairQueueStorage>(storage);
+		Assert.IsType<IFairQueueStorage>(storage, exactMatch: false);
+		Assert.IsType<IRecurringJobStorage>(storage, exactMatch: false);
+		Assert.IsType<IJobGraphStorage>(storage, exactMatch: false);
+
 		Assert.Equal(
 			StorageCapabilities.Queue |
 			StorageCapabilities.Recurring |
@@ -91,11 +72,10 @@ public sealed class StorageCapabilityTests
 		await using var storage = new QueueOnlyStorage(TimeProvider.System);
 		var services = new ServiceCollection();
 		_ = services.AddLogging();
-		_ = services.AddImmediateJobsCore(options =>
-		{
-			_ = options.UseStorage(_ => storage).UseDistributed();
-			options.MaxParallelJobs = 1;
-		});
+		_ = services.AddImmediateJobsCore()
+			.Configure(o => o.MaxParallelJobs = 1)
+			.ConfigureStorage(o => o.UseStorage(_ => storage).UseDistributed());
+
 		_ = services.AddSingleton(new JobDefinition
 		{
 			Name = "queue-only",

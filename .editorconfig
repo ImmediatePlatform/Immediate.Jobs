@@ -308,6 +308,8 @@ dotnet_diagnostic.CA2000.severity = error               # CA2000: Dispose object
 dotnet_diagnostic.CA1515.severity = none                # CA1515: Consider making public types internal
 dotnet_diagnostic.CA1708.severity = none                # CA1708: Identifiers should differ by more than case
 dotnet_diagnostic.CA1716.severity = none                # CA1716: Identifiers should not match keywords
+
+dotnet_diagnostic.IDE0058.severity = none               # IDE0058: Expression value is never used
 dotnet_diagnostic.IDE0301.severity = none               # IDE0301: Collection Initialization can be simplified
 dotnet_diagnostic.IDE0305.severity = none               # IDE0305: Collection Initialization can be simplified
 dotnet_diagnostic.IDE0390.severity = none               # IDE0390: Make method synchronous
