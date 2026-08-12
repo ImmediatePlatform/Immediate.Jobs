@@ -11,7 +11,7 @@ using LinqToDB.Data;
 namespace Immediate.Jobs.LinqToDB;
 
 /// <summary>An optimistic-concurrency LinqToDB implementation of <see cref="IJobStorage"/>.</summary>
-internal sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorage, IFairQueueStorage, IJobStorageReplica
+internal sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorage, IFairQueueStorage, IJobStorageReplica, IJobGraphStorageReplica
 {
 	private const int MaxContendedCompletionAttempts = 50;
 	private const int MaxConcurrencyAttempts = 5;
@@ -60,7 +60,7 @@ internal sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorag
 
 	/// <inheritdoc />
 	public async ValueTask<IReadOnlyList<JobContinuationEdge>> GetIncomingEdgesAsync(
-		IReadOnlyCollection<string> childJobIds,
+		IReadOnlyCollection<JobHandle> childJobIds,
 		CancellationToken cancellationToken = default
 	)
 	{
@@ -70,7 +70,7 @@ internal sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorag
 		if (childJobIds.Count == 0)
 			return [];
 
-		var ids = childJobIds.Distinct(StringComparer.Ordinal).ToArray();
+		var ids = childJobIds.Select(static job => job.Id).Distinct(StringComparer.Ordinal).ToArray();
 		await using var connection = CreateConnection();
 		var edges = await Continuations(connection)
 			.Where(edge => ids.Contains(edge.ChildJobId))
@@ -696,7 +696,7 @@ internal sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorag
 
 	/// <inheritdoc />
 	public async ValueTask<IReadOnlyList<JobRecord>> AcquireJobsAsync(
-		IReadOnlyCollection<string> jobIds,
+		IReadOnlyCollection<JobHandle> jobIds,
 		string workerId,
 		TimeSpan lease,
 		CancellationToken cancellationToken = default
@@ -708,7 +708,7 @@ internal sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorag
 		if (jobIds.Count == 0)
 			return [];
 		var now = _timeProvider.GetUtcNow().UtcTicks;
-		var ids = jobIds.ToArray();
+		var ids = jobIds.Select(static job => job.Id).ToArray();
 		await using var connection = CreateConnection();
 		var candidates = await Jobs(connection)
 			.Where(job => ids.Contains(job.Id) &&
@@ -790,7 +790,7 @@ internal sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorag
 
 	/// <inheritdoc />
 	public async ValueTask SetExecutionTelemetryAsync(
-		string jobId,
+		JobHandle jobId,
 		int executionNumber,
 		string workerId,
 		string? traceId,
@@ -828,7 +828,7 @@ internal sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorag
 
 	/// <inheritdoc />
 	public async ValueTask RenewLeaseAsync(
-		string jobId,
+		JobHandle jobId,
 		int executionNumber,
 		string workerId,
 		TimeSpan lease,
@@ -849,7 +849,7 @@ internal sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorag
 
 	/// <inheritdoc />
 	public ValueTask CompleteAsync(
-		string jobId,
+		JobHandle jobId,
 		int executionNumber,
 		string workerId,
 		CancellationToken cancellationToken = default
@@ -857,7 +857,7 @@ internal sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorag
 
 	/// <inheritdoc />
 	public ValueTask CompleteWithContinuationsAsync(
-		string jobId,
+		JobHandle jobId,
 		int executionNumber,
 		string workerId,
 		IReadOnlyList<JobContinuationAddition> additions,
@@ -879,7 +879,7 @@ internal sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorag
 
 	/// <inheritdoc />
 	public ValueTask AddBatchJobAsync(
-		string currentJobId,
+		JobHandle currentJobId,
 		int executionNumber,
 		JobRecord job,
 		ContinuationOptions options,
@@ -899,7 +899,7 @@ internal sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorag
 
 	/// <inheritdoc />
 	public ValueTask FailAsync(
-		string jobId,
+		JobHandle jobId,
 		int executionNumber,
 		string workerId,
 		string error,
@@ -1241,7 +1241,7 @@ internal sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorag
 
 	/// <inheritdoc />
 	public async ValueTask<BatchStatus?> GetBatchStatusAsync(
-		string batchId,
+		BatchHandle batchId,
 		CancellationToken cancellationToken = default
 	)
 	{
@@ -1276,7 +1276,7 @@ internal sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorag
 
 	/// <inheritdoc />
 	public async ValueTask<IReadOnlyList<BatchMemberStatus>> QueryBatchMembersAsync(
-		string batchId,
+		BatchHandle batchId,
 		BatchMemberQuery query,
 		CancellationToken cancellationToken = default
 	)
@@ -1310,7 +1310,7 @@ internal sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorag
 
 	/// <inheritdoc />
 	public async ValueTask<BatchGraph?> GetBatchGraphAsync(
-		string batchId,
+		BatchHandle batchId,
 		CancellationToken cancellationToken = default
 	)
 	{
@@ -1340,7 +1340,7 @@ internal sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorag
 
 	/// <inheritdoc />
 	public async ValueTask<JobStatus?> GetJobStatusAsync(
-		string jobId,
+		JobHandle jobId,
 		CancellationToken cancellationToken = default
 	)
 	{
@@ -1374,7 +1374,7 @@ internal sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorag
 	}
 
 	/// <inheritdoc />
-	public async ValueTask CancelBatchAsync(string batchId, CancellationToken cancellationToken = default)
+	public async ValueTask CancelBatchAsync(BatchHandle batchId, CancellationToken cancellationToken = default)
 	{
 		ArgumentException.ThrowIfNullOrWhiteSpace(batchId);
 		var terminalGroups = new HashSet<(string QueueName, string GroupId)>();
@@ -1392,7 +1392,7 @@ internal sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorag
 
 	private async Task CancelBatchCoreAsync(
 		DataConnection connection,
-		string batchId,
+		BatchHandle batchId,
 		ISet<(string QueueName, string GroupId)> terminalGroups,
 		CancellationToken cancellationToken
 	)
@@ -1449,7 +1449,7 @@ internal sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorag
 	}
 
 	/// <inheritdoc />
-	public async ValueTask DeleteBatchAsync(string batchId, CancellationToken cancellationToken = default)
+	public async ValueTask DeleteBatchAsync(BatchHandle batchId, CancellationToken cancellationToken = default)
 	{
 		ArgumentException.ThrowIfNullOrWhiteSpace(batchId);
 		await using var connection = CreateConnection();
@@ -1485,7 +1485,7 @@ internal sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorag
 	}
 
 	/// <inheritdoc />
-	public async ValueTask CancelAsync(string jobId, CancellationToken cancellationToken = default)
+	public async ValueTask CancelAsync(JobHandle jobId, CancellationToken cancellationToken = default)
 	{
 		ArgumentException.ThrowIfNullOrWhiteSpace(jobId);
 		var terminalGroups = new HashSet<(string QueueName, string GroupId)>();
@@ -1498,7 +1498,7 @@ internal sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorag
 
 	private async Task CancelCoreAsync(
 		DataConnection connection,
-		string jobId,
+		JobHandle jobId,
 		ISet<(string QueueName, string GroupId)> terminalGroups,
 		CancellationToken cancellationToken
 	)
@@ -1535,7 +1535,7 @@ internal sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorag
 	}
 
 	/// <inheritdoc />
-	public ValueTask RetryAsync(string jobId, CancellationToken cancellationToken = default)
+	public ValueTask RetryAsync(JobHandle jobId, CancellationToken cancellationToken = default)
 	{
 		ArgumentException.ThrowIfNullOrWhiteSpace(jobId);
 		return RetryConcurrencyAsync(
@@ -1544,7 +1544,7 @@ internal sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorag
 		);
 	}
 
-	private async Task RetryCoreAsync(DataConnection connection, string jobId, CancellationToken cancellationToken)
+	private async Task RetryCoreAsync(DataConnection connection, JobHandle jobId, CancellationToken cancellationToken)
 	{
 		var job = await Jobs(connection)
 			.SingleOrDefaultAsync(item => item.Id == jobId &&
@@ -1589,7 +1589,7 @@ internal sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorag
 	}
 
 	/// <inheritdoc />
-	public async ValueTask DeleteAsync(string jobId, CancellationToken cancellationToken = default)
+	public async ValueTask DeleteAsync(JobHandle jobId, CancellationToken cancellationToken = default)
 	{
 		ArgumentException.ThrowIfNullOrWhiteSpace(jobId);
 		await using var connection = CreateConnection();
@@ -1798,7 +1798,7 @@ internal sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorag
 	}
 
 	private async ValueTask MutateOwnedWithDependenciesAsync(
-		string jobId,
+		JobHandle jobId,
 		int executionNumber,
 		string workerId,
 		string? error,
@@ -1867,7 +1867,7 @@ internal sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorag
 
 	private async Task MutateOwnedCoreAsync(
 		DataConnection connection,
-		string jobId,
+		JobHandle jobId,
 		int executionNumber,
 		string workerId,
 		string? error,
@@ -1928,7 +1928,7 @@ internal sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorag
 
 	private async Task AddBatchJobCoreAsync(
 		DataConnection connection,
-		string currentJobId,
+		JobHandle currentJobId,
 		int executionNumber,
 		JobRecord record,
 		ContinuationOptions options,
@@ -2075,7 +2075,7 @@ internal sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorag
 
 	private async Task<List<ImmediateJobEntity>> GetActiveWaitersAsync(
 		DataConnection connection,
-		string currentJobId,
+		JobHandle currentJobId,
 		CancellationToken cancellationToken
 	)
 	{
@@ -2486,7 +2486,7 @@ internal sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorag
 	}
 
 	private async ValueTask<bool> SyntheticExecutionExistsAsync(
-		string jobId,
+		JobHandle jobId,
 		int attempt,
 		CancellationToken cancellationToken
 	)
@@ -2913,7 +2913,7 @@ internal sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorag
 	private sealed class LostRaceException : Exception;
 
 	private sealed class SyntheticExecutionInsertFailedException(
-		string jobId,
+		JobHandle jobId,
 		int attempt,
 		DbException databaseException
 	) : Exception("A synthetic execution insert failed.", databaseException)

@@ -79,7 +79,7 @@ public interface IJobStorage : IAsyncDisposable
 	/// 	A value task that represents the asynchronous update.
 	/// </returns>
 	ValueTask SetExecutionTelemetryAsync(
-		string jobId,
+		JobHandle jobId,
 		int executionNumber,
 		string workerId,
 		string? traceId,
@@ -110,7 +110,7 @@ public interface IJobStorage : IAsyncDisposable
 	/// 	A value task that represents the asynchronous lease renewal.
 	/// </returns>
 	ValueTask RenewLeaseAsync(
-		string jobId,
+		JobHandle jobId,
 		int executionNumber,
 		string workerId,
 		TimeSpan lease,
@@ -136,7 +136,7 @@ public interface IJobStorage : IAsyncDisposable
 	/// 	A value task that represents the asynchronous completion.
 	/// </returns>
 	ValueTask CompleteAsync(
-		string jobId,
+		JobHandle jobId,
 		int executionNumber,
 		string workerId,
 		CancellationToken cancellationToken = default
@@ -167,7 +167,7 @@ public interface IJobStorage : IAsyncDisposable
 	/// 	A value task that represents the asynchronous failure update.
 	/// </returns>
 	ValueTask FailAsync(
-		string jobId,
+		JobHandle jobId,
 		int executionNumber,
 		string workerId,
 		string error,
@@ -229,7 +229,7 @@ public interface IJobStorage : IAsyncDisposable
 	/// <returns>
 	/// 	The job status, or <see langword="null"/> when the invocation does not exist.
 	/// </returns>
-	ValueTask<JobStatus?> GetJobStatusAsync(string jobId, CancellationToken cancellationToken = default);
+	ValueTask<JobStatus?> GetJobStatusAsync(JobHandle jobId, CancellationToken cancellationToken = default);
 
 	/// <summary>
 	///		Moves a non-terminal invocation to the cancelled state.
@@ -243,7 +243,7 @@ public interface IJobStorage : IAsyncDisposable
 	/// <returns>
 	///		A value task that represents the asynchronous cancellation.
 	/// </returns>
-	ValueTask CancelAsync(string jobId, CancellationToken cancellationToken = default);
+	ValueTask CancelAsync(JobHandle jobId, CancellationToken cancellationToken = default);
 
 	/// <summary>
 	/// 	Moves a failed invocation back to pending or fast-forwards a scheduled invocation.
@@ -257,7 +257,7 @@ public interface IJobStorage : IAsyncDisposable
 	/// <returns>
 	/// 	A value task that represents the asynchronous retry operation.
 	/// </returns>
-	ValueTask RetryAsync(string jobId, CancellationToken cancellationToken = default);
+	ValueTask RetryAsync(JobHandle jobId, CancellationToken cancellationToken = default);
 
 	/// <summary>
 	/// 	Deletes a terminal invocation.
@@ -271,7 +271,7 @@ public interface IJobStorage : IAsyncDisposable
 	/// <returns>
 	/// 	A value task that represents the asynchronous deletion.
 	/// </returns>
-	ValueTask DeleteAsync(string jobId, CancellationToken cancellationToken = default);
+	ValueTask DeleteAsync(JobHandle jobId, CancellationToken cancellationToken = default);
 
 	/// <summary>
 	/// 	Deletes terminal job history older than the supplied retention periods.

@@ -61,6 +61,12 @@ public readonly struct JobHandle : IEquatable<JobHandle>
 	/// </returns>
 	public static bool operator !=(JobHandle left, JobHandle right) => !left.Equals(right);
 
+	/// <summary>Creates a handle from an existing invocation identifier.</summary>
+	public static implicit operator JobHandle(string id) => new(id);
+
+	/// <summary>Returns the invocation identifier represented by a handle.</summary>
+	public static implicit operator string(JobHandle handle) => handle.Id;
+
 	/// <inheritdoc />
 	public override string ToString() => Id ?? string.Empty;
 }

@@ -164,7 +164,7 @@ public sealed class StorageCapabilityTests
 		) => _inner.AcquireDueJobsAsync(request, cancellationToken);
 
 		public ValueTask SetExecutionTelemetryAsync(
-			string jobId,
+			JobHandle jobId,
 			int executionNumber,
 			string workerId,
 			string? traceId,
@@ -182,7 +182,7 @@ public sealed class StorageCapabilityTests
 		);
 
 		public ValueTask RenewLeaseAsync(
-			string jobId,
+			JobHandle jobId,
 			int executionNumber,
 			string workerId,
 			TimeSpan lease,
@@ -190,7 +190,7 @@ public sealed class StorageCapabilityTests
 		) => _inner.RenewLeaseAsync(jobId, executionNumber, workerId, lease, cancellationToken);
 
 		public ValueTask CompleteAsync(
-			string jobId,
+			JobHandle jobId,
 			int executionNumber,
 			string workerId,
 			CancellationToken cancellationToken = default
@@ -201,7 +201,7 @@ public sealed class StorageCapabilityTests
 		}
 
 		public ValueTask FailAsync(
-			string jobId,
+			JobHandle jobId,
 			int executionNumber,
 			string workerId,
 			string error,
@@ -232,17 +232,17 @@ public sealed class StorageCapabilityTests
 		) => _inner.QueryJobExecutionsAsync(query, cancellationToken);
 
 		public ValueTask<JobStatus?> GetJobStatusAsync(
-			string jobId,
+			JobHandle jobId,
 			CancellationToken cancellationToken = default
 		) => _inner.GetJobStatusAsync(jobId, cancellationToken);
 
-		public ValueTask CancelAsync(string jobId, CancellationToken cancellationToken = default) =>
+		public ValueTask CancelAsync(JobHandle jobId, CancellationToken cancellationToken = default) =>
 			_inner.CancelAsync(jobId, cancellationToken);
 
-		public ValueTask RetryAsync(string jobId, CancellationToken cancellationToken = default) =>
+		public ValueTask RetryAsync(JobHandle jobId, CancellationToken cancellationToken = default) =>
 			_inner.RetryAsync(jobId, cancellationToken);
 
-		public ValueTask DeleteAsync(string jobId, CancellationToken cancellationToken = default) =>
+		public ValueTask DeleteAsync(JobHandle jobId, CancellationToken cancellationToken = default) =>
 			_inner.DeleteAsync(jobId, cancellationToken);
 
 		public ValueTask PurgeJobsAsync(

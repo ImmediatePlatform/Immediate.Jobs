@@ -21,4 +21,10 @@ public sealed record BatchHandle
 	/// 	The opaque batch identifier.
 	/// </summary>
 	public string Id { get; }
+
+	/// <summary>Creates a handle from an existing batch identifier.</summary>
+	public static implicit operator BatchHandle(string id) => new(id);
+
+	/// <summary>Returns the batch identifier represented by a handle.</summary>
+	public static implicit operator string(BatchHandle handle) => handle.Id;
 }
