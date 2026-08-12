@@ -33,14 +33,9 @@ internal static partial class GetDashboardOverview
 
 	private static async ValueTask<JobMonitoringSnapshot> HandleAsync(
 		Query _,
-		IJobStorage storage,
+		JobMonitor monitor,
 		CancellationToken cancellationToken
-	)
-	{
-		var snapshot = await storage.GetMonitoringSnapshotAsync(cancellationToken);
-		snapshot = snapshot with { Capabilities = storage.GetCapabilities() };
-		return snapshot;
-	}
+	) => await monitor.GetSnapshotAsync(cancellationToken);
 }
 
 [Handler]
@@ -67,13 +62,13 @@ internal static partial class GetDashboardJobs
 
 	private static async ValueTask<DashboardJobPage> HandleAsync(
 		Query query,
-		IJobStorage storage,
+		JobMonitor monitor,
 		CancellationToken cancellationToken
 	)
 	{
 		var pageSize = Math.Min(query.Take ?? 50, 200);
 		var pageStart = query.Skip ?? 0;
-		var jobs = await storage.QueryJobsAsync(new JobQuery
+		var jobs = await monitor.QueryJobsAsync(new JobQuery
 		{
 			State = query.State,
 			QueueName = query.Queue,
@@ -109,11 +104,11 @@ internal static partial class GetDashboardJob
 
 	private static async ValueTask<JobRecord?> HandleAsync(
 		Query query,
-		IJobStorage storage,
+		JobMonitor monitor,
 		CancellationToken cancellationToken
 	)
 	{
-		var jobs = await storage.QueryJobsAsync(
+		var jobs = await monitor.QueryJobsAsync(
 			new() { Id = query.JobId, Take = 1 },
 			cancellationToken
 		);
@@ -147,20 +142,20 @@ internal static partial class GetDashboardJobExecutions
 
 	private static async ValueTask<DashboardJobExecutionPage?> HandleAsync(
 		Query query,
-		IJobStorage storage,
+		JobMonitor monitor,
 		CancellationToken cancellationToken
 	)
 	{
 		var pageStart = query.Skip ?? 0;
 		var pageSize = Math.Min(query.Take ?? 50, 200);
-		var jobs = await storage.QueryJobsAsync(
+		var jobs = await monitor.QueryJobsAsync(
 			new() { Id = query.JobId, Take = 1 },
 			cancellationToken
 		);
 		if (jobs.Count == 0)
 			return null;
 
-		var executions = await storage.QueryJobExecutionsAsync(new()
+		var executions = await monitor.QueryExecutionsAsync(new()
 		{
 			JobId = query.JobId,
 			Skip = pageStart,
@@ -262,14 +257,11 @@ internal static partial class GetDashboardBatches
 
 	private static async ValueTask<BatchStatus[]?> HandleAsync(
 		Query query,
-		IJobStorage storage,
+		JobMonitor monitor,
 		CancellationToken cancellationToken
 	)
 	{
-		if (storage is not IJobGraphStorage graphStorage)
-			return null;
-
-		var batches = await graphStorage.QueryBatchesAsync(new()
+		var batches = await monitor.QueryBatchesAsync(new()
 		{
 			State = query.State,
 			Skip = query.Skip ?? 0,
@@ -298,14 +290,11 @@ internal static partial class GetDashboardBatch
 
 	private static async ValueTask<BatchStatus?> HandleAsync(
 		Query query,
-		IJobStorage storage,
+		JobMonitor monitor,
 		CancellationToken cancellationToken
 	)
 	{
-		if (storage is not IJobGraphStorage graphStorage)
-			return null;
-
-		return await graphStorage.GetBatchStatusAsync(query.BatchId, cancellationToken);
+		return await monitor.GetBatchAsync(query.BatchId, cancellationToken);
 	}
 }
 
@@ -336,14 +325,11 @@ internal static partial class GetDashboardBatchMembers
 
 	private static async ValueTask<BatchMemberStatus[]?> HandleAsync(
 		Query query,
-		IJobStorage storage,
+		JobMonitor monitor,
 		CancellationToken cancellationToken
 	)
 	{
-		if (storage is not IJobGraphStorage graphStorage)
-			return null;
-
-		var members = await graphStorage.QueryBatchMembersAsync(query.BatchId, new()
+		var members = await monitor.QueryBatchMembersAsync(query.BatchId, new()
 		{
 			State = query.State,
 			Skip = query.Skip ?? 0,
@@ -372,14 +358,11 @@ internal static partial class GetDashboardBatchGraph
 
 	private static async ValueTask<BatchGraph?> HandleAsync(
 		Query query,
-		IJobStorage storage,
+		JobMonitor monitor,
 		CancellationToken cancellationToken
 	)
 	{
-		if (storage is not IJobGraphStorage graphStorage)
-			return null;
-
-		return await graphStorage.GetBatchGraphAsync(query.BatchId, cancellationToken);
+		return await monitor.GetBatchGraphAsync(query.BatchId, cancellationToken);
 	}
 }
 
@@ -482,11 +465,11 @@ internal static partial class GetDashboardRecurringJobs
 
 	private static async ValueTask<RecurringJobSchedule[]> HandleAsync(
 		Query _,
-		IJobStorage storage,
+		JobMonitor monitor,
 		CancellationToken cancellationToken
 	)
 	{
-		var snapshot = await storage.GetMonitoringSnapshotAsync(cancellationToken);
+		var snapshot = await monitor.GetSnapshotAsync(cancellationToken);
 		return [.. snapshot.Recurring];
 	}
 }
@@ -503,11 +486,11 @@ internal static partial class GetDashboardServers
 
 	private static async ValueTask<JobServerSnapshot[]> HandleAsync(
 		Query _,
-		IJobStorage storage,
+		JobMonitor monitor,
 		CancellationToken cancellationToken
 	)
 	{
-		var snapshot = await storage.GetMonitoringSnapshotAsync(cancellationToken);
+		var snapshot = await monitor.GetSnapshotAsync(cancellationToken);
 		return [.. snapshot.Servers];
 	}
 }

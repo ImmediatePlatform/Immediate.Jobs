@@ -58,7 +58,6 @@ public static class ImmediateJobsRuntimeServiceCollectionExtensions
 		services.TryAddScoped<IBatchScheduler>(sp => sp.GetRequiredService<BatchScheduler>());
 
 		services.TryAddScoped<JobMonitor>();
-		services.TryAddScoped<IBatchMonitor>(static sp => sp.GetRequiredService<JobMonitor>());
 		services.TryAddScoped<IJobMonitor>(static sp => sp.GetRequiredService<JobMonitor>());
 
 		services.AddSingleton(JobQueueDefinition.Default);

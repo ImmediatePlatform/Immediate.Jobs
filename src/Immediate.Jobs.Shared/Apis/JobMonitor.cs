@@ -1,5 +1,4 @@
 using Immediate.Jobs.Shared.Interfaces;
-using Immediate.Jobs.Shared.Internals;
 using Immediate.Jobs.Shared.Storage;
 
 namespace Immediate.Jobs.Shared.Apis;
@@ -13,22 +12,55 @@ namespace Immediate.Jobs.Shared.Apis;
 /// <param name="definitions">
 /// 	The generated job definitions used to enrich monitoring results.
 /// </param>
-public sealed class JobMonitor(IJobStorage storage, IEnumerable<JobDefinition> definitions) : IBatchMonitor, IJobMonitor
+public sealed class JobMonitor(IJobStorage storage, IEnumerable<JobDefinition> definitions) : IJobMonitor
 {
 	/// <inheritdoc />
-	public ValueTask<BatchStatus?> GetStatusAsync(string batchId, CancellationToken cancellationToken = default) =>
-		JobStorageCapabilityGuards.RequireGraph(storage).GetBatchStatusAsync(batchId, cancellationToken);
+	public async ValueTask<JobMonitoringSnapshot> GetSnapshotAsync(CancellationToken cancellationToken = default)
+	{
+		var snapshot = await storage.GetMonitoringSnapshotAsync(cancellationToken).ConfigureAwait(false);
+		return snapshot with { Capabilities = storage.GetCapabilities() };
+	}
 
 	/// <inheritdoc />
-	public ValueTask<IReadOnlyList<BatchMemberStatus>> QueryMembersAsync(
+	public ValueTask<IReadOnlyList<JobRecord>> QueryJobsAsync(
+		JobQuery query,
+		CancellationToken cancellationToken = default
+	) => storage.QueryJobsAsync(query, cancellationToken);
+
+	/// <inheritdoc />
+	public ValueTask<IReadOnlyList<JobExecutionRecord>> QueryExecutionsAsync(
+		JobExecutionQuery query,
+		CancellationToken cancellationToken = default
+	) => storage.QueryJobExecutionsAsync(query, cancellationToken);
+
+	/// <inheritdoc />
+	public ValueTask<IReadOnlyList<BatchStatus>> QueryBatchesAsync(
+		BatchQuery query,
+		CancellationToken cancellationToken = default
+	) => storage is IJobGraphStorage graphStorage
+		? graphStorage.QueryBatchesAsync(query, cancellationToken)
+		: ValueTask.FromResult<IReadOnlyList<BatchStatus>>([]);
+
+	/// <inheritdoc />
+	public ValueTask<BatchStatus?> GetBatchAsync(string batchId, CancellationToken cancellationToken = default) =>
+		storage is IJobGraphStorage graphStorage
+			? graphStorage.GetBatchStatusAsync(batchId, cancellationToken)
+			: ValueTask.FromResult<BatchStatus?>(null);
+
+	/// <inheritdoc />
+	public ValueTask<IReadOnlyList<BatchMemberStatus>> QueryBatchMembersAsync(
 		string batchId,
 		BatchMemberQuery query,
 		CancellationToken cancellationToken = default
-	) => JobStorageCapabilityGuards.RequireGraph(storage).QueryBatchMembersAsync(batchId, query, cancellationToken);
+	) => storage is IJobGraphStorage graphStorage
+		? graphStorage.QueryBatchMembersAsync(batchId, query, cancellationToken)
+		: ValueTask.FromResult<IReadOnlyList<BatchMemberStatus>>([]);
 
 	/// <inheritdoc />
-	public ValueTask<BatchGraph?> GetGraphAsync(string batchId, CancellationToken cancellationToken = default) =>
-		JobStorageCapabilityGuards.RequireGraph(storage).GetBatchGraphAsync(batchId, cancellationToken);
+	public ValueTask<BatchGraph?> GetBatchGraphAsync(string batchId, CancellationToken cancellationToken = default) =>
+		storage is IJobGraphStorage graphStorage
+			? graphStorage.GetBatchGraphAsync(batchId, cancellationToken)
+			: ValueTask.FromResult<BatchGraph?>(null);
 
 	/// <inheritdoc />
 	public async ValueTask<JobStatus?> GetJobAsync(string jobId, CancellationToken cancellationToken = default)
