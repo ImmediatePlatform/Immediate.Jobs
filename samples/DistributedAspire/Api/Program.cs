@@ -3,6 +3,7 @@ using Immediate.Jobs.DistributedAspire.Api.Telemetry;
 using Immediate.Jobs.DistributedAspire.Shared;
 using Immediate.Jobs.DistributedAspire.Shared.Data;
 using Immediate.Jobs.DistributedAspire.Shared.Workflows;
+using Immediate.Jobs.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 using Scalar.AspNetCore;
 
@@ -31,7 +32,8 @@ builder.Services.AddImmediateJobsDashboard(options =>
 });
 builder.Services.AddDistributedAspireJobs()
 	.UseFairQueues()
-	.ConfigureStorage(o => o.UseSingleServer().UseDistributed())
+	//.ConfigureStorage(o => o.UseEntityFrameworkCore<JobsDbContext>().UseDistributed())
+	.ConfigureStorage(o => o.UseDistributed().UseEntityFrameworkCore<JobsDbContext>())
 	.Configure(o => o.PollingInterval = TimeSpan.FromSeconds(5))
 	.AddHealthCheck();
 

@@ -1,6 +1,7 @@
 using Immediate.Jobs.DistributedAspire.Shared;
 using Immediate.Jobs.DistributedAspire.Shared.Data;
 using Immediate.Jobs.DistributedAspire.Shared.Workflows;
+using Immediate.Jobs.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 
 var builder = Host.CreateApplicationBuilder(args);
@@ -13,7 +14,7 @@ builder.Services
 			.AddDbContextFactory<JobsDbContext>(options => options.UseNpgsql(connectionString))
 			.AddDistributedAspireJobs()
 			.UseFairQueues()
-			.ConfigureStorage(o => o.UseSingleServer().UseDistributed())
+			.ConfigureStorage(o => o.UseEntityFrameworkCore<JobsDbContext>().UseDistributed())
 			.Configure(o => o.PollingInterval = TimeSpan.FromSeconds(5));
 
 builder.AddServiceDefaults();

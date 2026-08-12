@@ -1,6 +1,7 @@
 using Immediate.Jobs.DistributedAspire.Shared;
 using Immediate.Jobs.DistributedAspire.Shared.Data;
 using Immediate.Jobs.DistributedAspire.Shared.Workflows;
+using Immediate.Jobs.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -18,7 +19,7 @@ var builder = Host.CreateDefaultBuilder(args)
 			.AddDbContextFactory<JobsDbContext>(options => options.UseNpgsql(connectionString, npgsql => npgsql.EnableRetryOnFailure()))
 			.AddDistributedAspireJobs()
 			.UseFairQueues()
-			.ConfigureStorage(o => o.UseSingleServer().UseDistributed())
+			.ConfigureStorage(o => o.UseEntityFrameworkCore<JobsDbContext>().UseDistributed())
 			.Configure(o => o.PollingInterval = TimeSpan.FromSeconds(5));
 
 		foreach (var descriptor in services.Where(p => p.ServiceType == typeof(IHostedService)).ToArray())
