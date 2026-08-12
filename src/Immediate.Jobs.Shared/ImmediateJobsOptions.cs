@@ -46,25 +46,25 @@ public sealed partial class ImmediateJobsOptions : IValidationTarget<ImmediateJo
 	/// <summary>
 	/// 	Retention for successful history.
 	/// </summary>
-	[GreaterThan(nameof(TimeSpan.Zero))]
+	[GreaterThanOrEqual(nameof(TimeSpan.Zero))]
 	public TimeSpan SucceededRetention { get; set; } = TimeSpan.FromHours(24);
 
 	/// <summary>
 	/// 	Retention for failed history.
 	/// </summary>
-	[GreaterThan(nameof(TimeSpan.Zero))]
+	[GreaterThanOrEqual(nameof(TimeSpan.Zero))]
 	public TimeSpan FailedRetention { get; set; } = TimeSpan.FromDays(7);
 
 	/// <summary>
 	/// 	Retention for successful batches and all of their members and edges.
 	/// </summary>
-	[GreaterThan(nameof(TimeSpan.Zero))]
+	[GreaterThanOrEqual(nameof(TimeSpan.Zero))]
 	public TimeSpan BatchSucceededRetention { get; set; } = TimeSpan.FromHours(24);
 
 	/// <summary>
 	/// 	Retention for failed or cancelled batches and all of their members and edges.
 	/// </summary>
-	[GreaterThan(nameof(TimeSpan.Zero))]
+	[GreaterThanOrEqual(nameof(TimeSpan.Zero))]
 	public TimeSpan BatchFailedRetention { get; set; } = TimeSpan.FromDays(7);
 
 	/// <summary>

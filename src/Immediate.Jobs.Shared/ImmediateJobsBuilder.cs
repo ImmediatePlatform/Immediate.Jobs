@@ -225,6 +225,11 @@ public sealed class ImmediateJobsBuilder
 	{
 		ArgumentNullException.ThrowIfNull(configure);
 
+		if (Services.Any(s => s.ServiceType == typeof(ImmediateJobsStorageBuilder)))
+			ImmediateJobException.Throw("Cannot configure storage multiple times.");
+
+		Services.AddSingleton<ImmediateJobsStorageBuilder>();
+
 		var builder = new ImmediateJobsStorageBuilder();
 		configure(builder);
 
@@ -259,7 +264,7 @@ public sealed class ImmediateJobsStorageBuilder
 	public ImmediateJobsStorageBuilder UseInMemory()
 	{
 		if (_storageMode is not (JobStorageMode.None or JobStorageMode.InMemory))
-			throw new ImmediateJobException("Cannot select in-memory job storage when other job storage options have been selected.");
+			ImmediateJobException.Throw("Cannot select in-memory job storage when other job storage options have been selected.");
 
 		_storageMode = JobStorageMode.InMemory;
 		return this;
@@ -280,10 +285,10 @@ public sealed class ImmediateJobsStorageBuilder
 		ArgumentNullException.ThrowIfNull(factory);
 
 		if (_storageMode is JobStorageMode.InMemory)
-			throw new ImmediateJobException("Cannot provide a durable storage provider when in-memory job storage has already been selected.");
+			ImmediateJobException.Throw("Cannot provide a durable storage provider when in-memory job storage has already been selected.");
 
 		if (_factory is { })
-			throw new ImmediateJobException("A durable storage provider has already been provided.");
+			ImmediateJobException.Throw("A durable storage provider has already been provided.");
 
 		_factory = factory;
 		return this;
@@ -298,10 +303,10 @@ public sealed class ImmediateJobsStorageBuilder
 	public ImmediateJobsStorageBuilder UseSingleServer()
 	{
 		if (_storageMode is not (JobStorageMode.None or JobStorageMode.SingleServer))
-			throw new ImmediateJobException("Cannot select single-server operation mode when other job storage options have been selected.");
+			ImmediateJobException.Throw("Cannot select single-server operation mode when other job storage options have been selected.");
 
 		if (_factory is null)
-			throw new ImmediateJobException("Cannot select single-server operation mode when no durable storage provider has been provided.");
+			ImmediateJobException.Throw("Cannot select single-server operation mode when no durable storage provider has been provided.");
 
 		_storageMode = JobStorageMode.SingleServer;
 		return this;
@@ -332,17 +337,17 @@ public sealed class ImmediateJobsStorageBuilder
 	public ImmediateJobsStorageBuilder UseDistributed()
 	{
 		if (_storageMode is not (JobStorageMode.None or JobStorageMode.Distributed))
-			throw new ImmediateJobException("Cannot select distributed operation mode when other job storage options have been selected.");
+			ImmediateJobException.Throw("Cannot select distributed operation mode when other job storage options have been selected.");
 
 		if (_factory is null)
-			throw new ImmediateJobException("Cannot select distributed operation mode when no durable storage provider has been provided.");
+			ImmediateJobException.Throw("Cannot select distributed operation mode when no durable storage provider has been provided.");
 
 		_storageMode = JobStorageMode.Distributed;
 		return this;
 	}
 
 	/// <summary>
-	/// 	Selects memory-primary operation with the supplied durable replica.
+	/// 	Selects durable-storage-primary operation for multiple scheduler servers.
 	/// </summary>
 	/// <param name="durableStorageFactory">
 	/// 	The factory that creates the durable storage replica.
@@ -364,7 +369,7 @@ public sealed class ImmediateJobsStorageBuilder
 		{
 			// error should be thrown earlier, but just in case...
 			if (_factory is { })
-				throw new ImmediateJobException("Cannot provide a durable storage provider when in-memory job storage has already been selected.");
+				ImmediateJobException.Throw("Cannot provide a durable storage provider when in-memory job storage has already been selected.");
 
 			return;
 		}
@@ -375,7 +380,7 @@ public sealed class ImmediateJobsStorageBuilder
 			if (_storageMode is JobStorageMode.None)
 				return;
 
-			throw new ImmediateJobException("Durable storage is required, but no durable storage provider has been provided.");
+			ImmediateJobException.Throw("Durable storage is required, but no durable storage provider has been provided.");
 		}
 
 		// only check for explicit distributed

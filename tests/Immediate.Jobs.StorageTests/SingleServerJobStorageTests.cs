@@ -60,7 +60,7 @@ public sealed class SingleServerJobStorageTests
 
 		var distributedServices = new ServiceCollection();
 		_ = Assert.Throws<ImmediateJobException>(() =>
-			singleServerServices.AddImmediateJobsCore().ConfigureStorage(options => options.UseDistributed())
+			distributedServices.AddImmediateJobsCore().ConfigureStorage(options => options.UseDistributed())
 		);
 	}
 
