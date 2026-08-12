@@ -41,7 +41,7 @@ public sealed class ImmediateJobException : Exception
 	}
 
 	/// <summary>
-	/// 	Throws an Immediate.Jobs exception with a message and underlying cause.
+	/// 	Throws an Immediate.Jobs exception with a message.
 	/// </summary>
 	/// <param name="message">
 	/// 	The error message that explains the reason for the exception.
@@ -63,5 +63,5 @@ public sealed class ImmediateJobException : Exception
 	[MethodImpl(MethodImplOptions.NoInlining)]
 	[DoesNotReturn]
 	public static void Throw(string message, Exception innerException) =>
-		throw new ImmediateJobException(message);
+		throw new ImmediateJobException(message, innerException);
 }
