@@ -372,8 +372,6 @@ internal sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 		CancellationToken cancellationToken = default
 	)
 	{
-		ArgumentNullException.ThrowIfNull(query);
-		query.Validate();
 		var job = await ReadJobAsync(query.JobId, cancellationToken).ConfigureAwait(false);
 		if (job is null)
 			return [];

@@ -1191,8 +1191,6 @@ internal sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorag
 		CancellationToken cancellationToken = default
 	)
 	{
-		ArgumentNullException.ThrowIfNull(query);
-		query.Validate();
 		await using var connection = CreateConnection();
 		var job = await Jobs(connection)
 			.SingleOrDefaultAsync(item => item.Id == query.JobId, cancellationToken)
@@ -1213,7 +1211,7 @@ internal sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorag
 				cancellationToken
 			).ConfigureAwait(false);
 		var skip = query.Skip;
-		var take = Math.Min(query.Take, JobExecutionQuery.MaximumTake);
+		var take = query.Take;
 		var result = new List<JobExecutionRecord>(take);
 		if (syntheticMissing && skip == 0)
 		{

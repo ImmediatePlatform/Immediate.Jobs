@@ -813,7 +813,6 @@ internal sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 		CancellationToken cancellationToken = default
 	)
 	{
-		JobExecutionRecords.ValidateQuery(query);
 		cancellationToken.ThrowIfCancellationRequested();
 		lock (_gate)
 		{

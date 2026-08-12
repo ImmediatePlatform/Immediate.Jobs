@@ -1,29 +1,28 @@
+using Immediate.Validations.Shared;
+
 namespace Immediate.Jobs.Shared.Apis;
 
 /// <summary>
 /// 	Filters batches for dashboard presentation.
 /// </summary>
-public sealed record BatchQuery
+[Validate]
+public sealed partial record BatchQuery : IValidationTarget<BatchQuery>
 {
 	/// <summary>
 	/// 	Optional aggregate-state filter.
 	/// </summary>
-	/// <value>
-	/// 	The aggregate state to match, or <see langword="null"/> to match every state.
-	/// </value>
 	public BatchState? State { get; init; }
+
 	/// <summary>
-	/// 	Number of batches to skip.
+	/// 	Number of members to skip.
 	/// </summary>
-	/// <value>
-	/// 	The number of batches to skip.
-	/// </value>
+	[GreaterThanOrEqual(0)]
 	public int Skip { get; init; }
+
 	/// <summary>
-	/// 	Maximum batches to return.
+	/// 	Maximum members to return.
 	/// </summary>
-	/// <value>
-	/// 	The maximum number of batches to return.
-	/// </value>
+	[GreaterThan(0)]
+	[LessThanOrEqual(nameof(Constants.MaximumTake))]
 	public int Take { get; init; } = 100;
 }

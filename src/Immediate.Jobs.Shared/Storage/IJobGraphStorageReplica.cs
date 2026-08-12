@@ -1,5 +1,3 @@
-using Immediate.Jobs.Shared.Apis;
-
 namespace Immediate.Jobs.Shared.Storage;
 
 /// <summary>
@@ -14,7 +12,7 @@ public interface IJobGraphStorageReplica
 	/// <param name="cancellationToken">A token that can cancel the storage operation.</param>
 	/// <returns>The incoming continuation edges for the supplied child invocations.</returns>
 	ValueTask<IReadOnlyList<JobContinuationEdge>> GetIncomingEdgesAsync(
-		IReadOnlyCollection<JobHandle> childJobs,
+		IReadOnlyCollection<string> childJobs,
 		CancellationToken cancellationToken = default
 	);
 }

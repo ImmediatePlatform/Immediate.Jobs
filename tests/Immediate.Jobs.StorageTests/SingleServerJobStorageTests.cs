@@ -424,6 +424,7 @@ public sealed class SingleServerJobStorageTests
 					[.. _edges.Where(edge => requested.Contains(edge.ChildJobId))]
 				);
 			}
+
 			if (string.Equals(targetMethod.Name, nameof(IJobGraphStorage.EnqueueContinuationAsync), StringComparison.Ordinal))
 				_edges.AddRange((IReadOnlyList<JobContinuationEdge>)args[1]!);
 			if (string.Equals(targetMethod.Name, nameof(IJobGraphStorage.EnqueueBatchAsync), StringComparison.Ordinal))

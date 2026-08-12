@@ -1111,8 +1111,6 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 		CancellationToken cancellationToken = default
 	)
 	{
-		ArgumentNullException.ThrowIfNull(query);
-		query.Validate();
 		await using var context = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
 		var job = await context.Set<ImmediateJobEntity>()
 			.AsNoTracking()
@@ -1135,7 +1133,7 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 				cancellationToken
 			).ConfigureAwait(false);
 		var skip = query.Skip;
-		var take = Math.Min(query.Take, JobExecutionQuery.MaximumTake);
+		var take = query.Take;
 		var result = new List<JobExecutionRecord>(take);
 		if (syntheticMissing && skip == 0 && take != 0)
 		{

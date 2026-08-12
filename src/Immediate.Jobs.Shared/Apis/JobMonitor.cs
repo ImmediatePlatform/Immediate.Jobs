@@ -1,5 +1,7 @@
 using Immediate.Jobs.Shared.Interfaces;
+using Immediate.Jobs.Shared.Internals;
 using Immediate.Jobs.Shared.Storage;
+using Immediate.Validations.Shared;
 
 namespace Immediate.Jobs.Shared.Apis;
 
@@ -22,54 +24,96 @@ public sealed class JobMonitor(IJobStorage storage, IEnumerable<JobDefinition> d
 	}
 
 	/// <inheritdoc />
-	public ValueTask<IReadOnlyList<JobRecord>> QueryJobsAsync(
+	public async ValueTask<IReadOnlyList<JobRecord>> QueryJobsAsync(
 		JobQuery query,
 		CancellationToken cancellationToken = default
-	) => storage.QueryJobsAsync(query, cancellationToken);
+	)
+	{
+		ValidationException.ThrowIfInvalid(query, $"Invalid argument \"{nameof(query)}\"");
+
+		return await storage.QueryJobsAsync(query, cancellationToken);
+	}
 
 	/// <inheritdoc />
-	public ValueTask<IReadOnlyList<JobExecutionRecord>> QueryExecutionsAsync(
+	public async ValueTask<IReadOnlyList<JobExecutionRecord>> QueryExecutionsAsync(
 		JobExecutionQuery query,
 		CancellationToken cancellationToken = default
-	) => storage.QueryJobExecutionsAsync(query, cancellationToken);
+	)
+	{
+		ValidationException.ThrowIfInvalid(query, $"Invalid argument \"{nameof(query)}\"");
+
+		return await storage.QueryJobExecutionsAsync(query, cancellationToken);
+	}
 
 	/// <inheritdoc />
-	public ValueTask<IReadOnlyList<BatchStatus>> QueryBatchesAsync(
+	public async ValueTask<IReadOnlyList<BatchStatus>> QueryBatchesAsync(
 		BatchQuery query,
 		CancellationToken cancellationToken = default
-	) => storage is IJobGraphStorage graphStorage
-		? graphStorage.QueryBatchesAsync(query, cancellationToken)
-		: ValueTask.FromResult<IReadOnlyList<BatchStatus>>([]);
+	)
+	{
+		ValidationException.ThrowIfInvalid(query, $"Invalid argument \"{nameof(query)}\"");
+
+		return storage switch
+		{
+			IJobGraphStorage graphStorage => await graphStorage.QueryBatchesAsync(query, cancellationToken),
+			_ => [],
+		};
+	}
 
 	/// <inheritdoc />
-	public ValueTask<BatchStatus?> GetBatchAsync(string batchId, CancellationToken cancellationToken = default) =>
-		storage is IJobGraphStorage graphStorage
-			? graphStorage.GetBatchStatusAsync(batchId, cancellationToken)
-			: ValueTask.FromResult<BatchStatus?>(null);
+	public async ValueTask<BatchStatus?> GetBatchAsync(string batchId, CancellationToken cancellationToken = default)
+	{
+		ArgumentNullException.ThrowIfNull(batchId);
+
+		return storage switch
+		{
+			IJobGraphStorage graphStorage => await graphStorage.GetBatchStatusAsync(batchId, cancellationToken),
+			_ => null,
+		};
+	}
 
 	/// <inheritdoc />
-	public ValueTask<IReadOnlyList<BatchMemberStatus>> QueryBatchMembersAsync(
+	public async ValueTask<IReadOnlyList<BatchMemberStatus>> QueryBatchMembersAsync(
 		string batchId,
 		BatchMemberQuery query,
 		CancellationToken cancellationToken = default
-	) => storage is IJobGraphStorage graphStorage
-		? graphStorage.QueryBatchMembersAsync(batchId, query, cancellationToken)
-		: ValueTask.FromResult<IReadOnlyList<BatchMemberStatus>>([]);
+	)
+	{
+		ArgumentNullException.ThrowIfNull(batchId);
+		ValidationException.ThrowIfInvalid(query, $"Invalid argument \"{nameof(query)}\"");
+
+		return storage switch
+		{
+			IJobGraphStorage graphStorage => await graphStorage.QueryBatchMembersAsync(batchId, query, cancellationToken),
+			_ => [],
+		};
+	}
 
 	/// <inheritdoc />
-	public ValueTask<BatchGraph?> GetBatchGraphAsync(string batchId, CancellationToken cancellationToken = default) =>
-		storage is IJobGraphStorage graphStorage
-			? graphStorage.GetBatchGraphAsync(batchId, cancellationToken)
-			: ValueTask.FromResult<BatchGraph?>(null);
+	public async ValueTask<BatchGraph?> GetBatchGraphAsync(string batchId, CancellationToken cancellationToken = default)
+	{
+		ArgumentNullException.ThrowIfNull(batchId);
+
+		return storage switch
+		{
+			IJobGraphStorage graphStorage => await graphStorage.GetBatchGraphAsync(batchId, cancellationToken),
+			_ => null,
+		};
+	}
 
 	/// <inheritdoc />
 	public async ValueTask<JobStatus?> GetJobAsync(string jobId, CancellationToken cancellationToken = default)
 	{
+		ArgumentNullException.ThrowIfNull(jobId);
+
 		var status = await storage.GetJobStatusAsync(jobId, cancellationToken).ConfigureAwait(false);
 		if (status is null)
 			return null;
+
 		var definition = definitions.FirstOrDefault(candidate =>
-			string.Equals(candidate.Name, status.JobName, StringComparison.Ordinal));
+			string.Equals(candidate.Name, status.JobName, StringComparison.Ordinal)
+		);
+
 		return definition is null ? status : status with { MaxAttempts = definition.MaxAttempts };
 	}
 }
