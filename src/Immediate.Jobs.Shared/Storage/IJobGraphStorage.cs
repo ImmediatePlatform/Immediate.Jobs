@@ -75,7 +75,7 @@ public interface IJobGraphStorage : IJobStorage
 	/// 	A value task that represents the asynchronous completion.
 	/// </returns>
 	ValueTask CompleteWithContinuationsAsync(
-		string jobId,
+		JobHandle jobId,
 		int executionNumber,
 		string workerId,
 		IReadOnlyList<JobContinuationAddition> additions,
@@ -104,7 +104,7 @@ public interface IJobGraphStorage : IJobStorage
 	/// 	A value task that represents the asynchronous addition.
 	/// </returns>
 	ValueTask AddBatchJobAsync(
-		string currentJobId,
+		JobHandle currentJobId,
 		int executionNumber,
 		JobRecord job,
 		ContinuationOptions options,
@@ -123,7 +123,7 @@ public interface IJobGraphStorage : IJobStorage
 	/// <returns>
 	/// 	The aggregate batch status, or <see langword="null"/> when the batch does not exist.
 	/// </returns>
-	ValueTask<BatchStatus?> GetBatchStatusAsync(string batchId, CancellationToken cancellationToken = default);
+	ValueTask<BatchStatus?> GetBatchStatusAsync(BatchHandle batchId, CancellationToken cancellationToken = default);
 
 	/// <summary>
 	/// 	Queries batch headers for dashboard presentation.
@@ -158,7 +158,7 @@ public interface IJobGraphStorage : IJobStorage
 	/// 	The batch members matching the query.
 	/// </returns>
 	ValueTask<IReadOnlyList<BatchMemberStatus>> QueryBatchMembersAsync(
-		string batchId,
+		BatchHandle batchId,
 		BatchMemberQuery query,
 		CancellationToken cancellationToken = default
 	);
@@ -175,7 +175,7 @@ public interface IJobGraphStorage : IJobStorage
 	/// <returns>
 	/// 	The batch dependency graph, or <see langword="null"/> when the batch does not exist.
 	/// </returns>
-	ValueTask<BatchGraph?> GetBatchGraphAsync(string batchId, CancellationToken cancellationToken = default);
+	ValueTask<BatchGraph?> GetBatchGraphAsync(BatchHandle batchId, CancellationToken cancellationToken = default);
 
 	/// <summary>
 	/// 	Cancels every non-terminal member of an executing batch.
@@ -189,7 +189,7 @@ public interface IJobGraphStorage : IJobStorage
 	/// <returns>
 	/// 	A value task that represents the asynchronous cancellation.
 	/// </returns>
-	ValueTask CancelBatchAsync(string batchId, CancellationToken cancellationToken = default);
+	ValueTask CancelBatchAsync(BatchHandle batchId, CancellationToken cancellationToken = default);
 
 	/// <summary>
 	/// 	Deletes a terminal batch, all of its members, and all related edges.
@@ -203,7 +203,7 @@ public interface IJobGraphStorage : IJobStorage
 	/// <returns>
 	/// 	A value task that represents the asynchronous deletion.
 	/// </returns>
-	ValueTask DeleteBatchAsync(string batchId, CancellationToken cancellationToken = default);
+	ValueTask DeleteBatchAsync(BatchHandle batchId, CancellationToken cancellationToken = default);
 
 	/// <summary>
 	/// 	Deletes terminal batch history older than the supplied retention periods.

@@ -184,7 +184,7 @@ public sealed class JobMonitor(
 
 	/// <inheritdoc />
 	public async ValueTask<IReadOnlyList<BatchMemberStatus>?> QueryBatchMembersAsync(
-		string batchId,
+		BatchHandle batch,
 		BatchMemberQuery query,
 		CancellationToken cancellationToken = default
 	)
@@ -212,7 +212,7 @@ public sealed class JobMonitor(
 	}
 
 	/// <inheritdoc />
-	public async ValueTask<JobStatus?> GetJobAsync(string jobId, CancellationToken cancellationToken = default)
+	public async ValueTask<JobStatus?> GetJobAsync(JobHandle job, CancellationToken cancellationToken = default)
 	{
 		ArgumentException.ThrowIfNullOrWhiteSpace(jobId);
 

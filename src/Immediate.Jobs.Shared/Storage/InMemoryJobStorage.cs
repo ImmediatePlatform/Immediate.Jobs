@@ -419,7 +419,7 @@ internal sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 
 	/// <inheritdoc />
 	public ValueTask SetExecutionTelemetryAsync(
-		string jobId,
+		JobHandle jobId,
 		int executionNumber,
 		string workerId,
 		string? traceId,
@@ -452,7 +452,7 @@ internal sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 
 	/// <inheritdoc />
 	public ValueTask RenewLeaseAsync(
-		string jobId,
+		JobHandle jobId,
 		int executionNumber,
 		string workerId,
 		TimeSpan lease,
@@ -471,7 +471,7 @@ internal sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 
 	/// <inheritdoc />
 	public ValueTask CompleteAsync(
-		string jobId,
+		JobHandle jobId,
 		int executionNumber,
 		string workerId,
 		CancellationToken cancellationToken = default
@@ -479,7 +479,7 @@ internal sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 
 	/// <inheritdoc />
 	public ValueTask CompleteWithContinuationsAsync(
-		string jobId,
+		JobHandle jobId,
 		int executionNumber,
 		string workerId,
 		IReadOnlyList<JobContinuationAddition> additions,
@@ -559,7 +559,7 @@ internal sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 
 	/// <inheritdoc />
 	public ValueTask AddBatchJobAsync(
-		string currentJobId,
+		JobHandle currentJobId,
 		int executionNumber,
 		JobRecord job,
 		ContinuationOptions options,
@@ -607,7 +607,7 @@ internal sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 
 	/// <inheritdoc />
 	public ValueTask FailAsync(
-		string jobId,
+		JobHandle jobId,
 		int executionNumber,
 		string workerId,
 		string error,
@@ -836,7 +836,7 @@ internal sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 
 	/// <inheritdoc />
 	public async ValueTask<BatchStatus?> GetBatchStatusAsync(
-		string batchId,
+		BatchHandle batchId,
 		CancellationToken cancellationToken = default
 	)
 	{
@@ -880,7 +880,7 @@ internal sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 
 	/// <inheritdoc />
 	public async ValueTask<IReadOnlyList<BatchMemberStatus>> QueryBatchMembersAsync(
-		string batchId,
+		BatchHandle batchId,
 		BatchMemberQuery query,
 		CancellationToken cancellationToken = default
 	)
@@ -924,7 +924,7 @@ internal sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 
 	/// <inheritdoc />
 	public async ValueTask<BatchGraph?> GetBatchGraphAsync(
-		string batchId,
+		BatchHandle batchId,
 		CancellationToken cancellationToken = default
 	)
 	{
@@ -952,7 +952,7 @@ internal sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 
 	/// <inheritdoc />
 	public async ValueTask<JobStatus?> GetJobStatusAsync(
-		string jobId,
+		JobHandle jobId,
 		CancellationToken cancellationToken = default
 	)
 	{
@@ -982,7 +982,7 @@ internal sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 	}
 
 	/// <inheritdoc />
-	public ValueTask CancelBatchAsync(string batchId, CancellationToken cancellationToken = default)
+	public ValueTask CancelBatchAsync(BatchHandle batchId, CancellationToken cancellationToken = default)
 	{
 		ArgumentException.ThrowIfNullOrWhiteSpace(batchId);
 		cancellationToken.ThrowIfCancellationRequested();
@@ -1013,7 +1013,7 @@ internal sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 	}
 
 	/// <inheritdoc />
-	public ValueTask DeleteBatchAsync(string batchId, CancellationToken cancellationToken = default)
+	public ValueTask DeleteBatchAsync(BatchHandle batchId, CancellationToken cancellationToken = default)
 	{
 		ArgumentException.ThrowIfNullOrWhiteSpace(batchId);
 		cancellationToken.ThrowIfCancellationRequested();
@@ -1042,7 +1042,7 @@ internal sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 	}
 
 	/// <inheritdoc />
-	public ValueTask CancelAsync(string jobId, CancellationToken cancellationToken = default)
+	public ValueTask CancelAsync(JobHandle jobId, CancellationToken cancellationToken = default)
 	{
 		ArgumentException.ThrowIfNullOrWhiteSpace(jobId);
 		cancellationToken.ThrowIfCancellationRequested();
@@ -1063,7 +1063,7 @@ internal sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 	}
 
 	/// <inheritdoc />
-	public ValueTask RetryAsync(string jobId, CancellationToken cancellationToken = default)
+	public ValueTask RetryAsync(JobHandle jobId, CancellationToken cancellationToken = default)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
 		lock (_gate)
@@ -1098,7 +1098,7 @@ internal sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 	}
 
 	/// <inheritdoc />
-	public ValueTask DeleteAsync(string jobId, CancellationToken cancellationToken = default)
+	public ValueTask DeleteAsync(JobHandle jobId, CancellationToken cancellationToken = default)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
 		lock (_gate)
@@ -1432,7 +1432,7 @@ internal sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 	}
 
 	private void TransitionToTerminal(
-		string jobId,
+		JobHandle jobId,
 		JobState terminalState,
 		string? error,
 		DateTimeOffset completedAt,
@@ -1774,7 +1774,7 @@ internal sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 	}
 
 	private void UpdateExecution(
-		string jobId,
+		JobHandle jobId,
 		int executionNumber,
 		Func<JobExecutionRecord, JobExecutionRecord> update
 	)
@@ -1790,7 +1790,7 @@ internal sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 		executions[executionNumber] = update(execution);
 	}
 
-	private JobRecord GetOwnedActive(string jobId, int executionNumber, string workerId)
+	private JobRecord GetOwnedActive(JobHandle jobId, int executionNumber, string workerId)
 	{
 		if (!_jobs.TryGetValue(jobId, out var job) || job.State != JobState.Active)
 		{

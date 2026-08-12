@@ -138,7 +138,7 @@ internal sealed class RedisJobStorage(
 
 	/// <inheritdoc />
 	public async ValueTask SetExecutionTelemetryAsync(
-		string jobId,
+		JobHandle jobId,
 		int executionNumber,
 		string workerId,
 		string? traceId,
@@ -160,7 +160,7 @@ internal sealed class RedisJobStorage(
 
 	/// <inheritdoc />
 	public async ValueTask RenewLeaseAsync(
-		string jobId,
+		JobHandle jobId,
 		int executionNumber,
 		string workerId,
 		TimeSpan lease,
@@ -179,7 +179,7 @@ internal sealed class RedisJobStorage(
 
 	/// <inheritdoc />
 	public async ValueTask CompleteAsync(
-		string jobId,
+		JobHandle jobId,
 		int executionNumber,
 		string workerId,
 		CancellationToken cancellationToken = default
@@ -207,7 +207,7 @@ internal sealed class RedisJobStorage(
 
 	/// <inheritdoc />
 	public async ValueTask FailAsync(
-		string jobId,
+		JobHandle jobId,
 		int executionNumber,
 		string workerId,
 		string error,
@@ -380,7 +380,7 @@ internal sealed class RedisJobStorage(
 
 	/// <inheritdoc />
 	public async ValueTask<JobStatus?> GetJobStatusAsync(
-		string jobId,
+		JobHandle jobId,
 		CancellationToken cancellationToken = default
 	)
 	{
@@ -406,7 +406,7 @@ internal sealed class RedisJobStorage(
 	}
 
 	/// <inheritdoc />
-	public async ValueTask CancelAsync(string jobId, CancellationToken cancellationToken = default)
+	public async ValueTask CancelAsync(JobHandle jobId, CancellationToken cancellationToken = default)
 	{
 		ArgumentException.ThrowIfNullOrWhiteSpace(jobId);
 		var now = _timeProvider.GetUtcNow();
@@ -423,7 +423,7 @@ internal sealed class RedisJobStorage(
 	}
 
 	/// <inheritdoc />
-	public async ValueTask RetryAsync(string jobId, CancellationToken cancellationToken = default)
+	public async ValueTask RetryAsync(JobHandle jobId, CancellationToken cancellationToken = default)
 	{
 		ArgumentException.ThrowIfNullOrWhiteSpace(jobId);
 		var now = _timeProvider.GetUtcNow();
@@ -448,7 +448,7 @@ internal sealed class RedisJobStorage(
 	}
 
 	/// <inheritdoc />
-	public async ValueTask DeleteAsync(string jobId, CancellationToken cancellationToken = default)
+	public async ValueTask DeleteAsync(JobHandle jobId, CancellationToken cancellationToken = default)
 	{
 		ArgumentException.ThrowIfNullOrWhiteSpace(jobId);
 		var result = await EvaluateInt64Async(
@@ -806,7 +806,7 @@ internal sealed class RedisJobStorage(
 	}
 
 	private async Task<IReadOnlyList<JobExecutionRecord>> ReadExecutionsAsync(
-		string jobId,
+		JobHandle jobId,
 		RedisValue[] attempts,
 		CancellationToken cancellationToken
 	)
@@ -1004,7 +1004,7 @@ internal sealed class RedisJobStorage(
 			throw new ImmediateJobException($"Terminal recurring job '{job.JobId}' must have a completion time.");
 	}
 
-	private static void ThrowIfNotOwned(long result, string jobId, string workerId)
+	private static void ThrowIfNotOwned(long result, JobHandle jobId, string workerId)
 	{
 		if (result <= 0)
 			throw new ImmediateJobException($"Worker '{workerId}' does not own active job '{jobId}'.");

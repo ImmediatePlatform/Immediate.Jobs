@@ -148,7 +148,7 @@ internal sealed class SingleServerJobStorage :
 
 	/// <inheritdoc />
 	public async ValueTask SetExecutionTelemetryAsync(
-		string jobId,
+		JobHandle jobId,
 		int executionNumber,
 		string workerId,
 		string? traceId,
@@ -180,7 +180,7 @@ internal sealed class SingleServerJobStorage :
 
 	/// <inheritdoc />
 	public async ValueTask RenewLeaseAsync(
-		string jobId,
+		JobHandle jobId,
 		int executionNumber,
 		string workerId,
 		TimeSpan lease,
@@ -194,7 +194,7 @@ internal sealed class SingleServerJobStorage :
 
 	/// <inheritdoc />
 	public async ValueTask CompleteAsync(
-		string jobId,
+		JobHandle jobId,
 		int executionNumber,
 		string workerId,
 		CancellationToken cancellationToken = default
@@ -207,7 +207,7 @@ internal sealed class SingleServerJobStorage :
 
 	/// <inheritdoc />
 	public async ValueTask CompleteWithContinuationsAsync(
-		string jobId,
+		JobHandle jobId,
 		int executionNumber,
 		string workerId,
 		IReadOnlyList<JobContinuationAddition> additions,
@@ -223,7 +223,7 @@ internal sealed class SingleServerJobStorage :
 
 	/// <inheritdoc />
 	public async ValueTask AddBatchJobAsync(
-		string currentJobId,
+		JobHandle currentJobId,
 		int executionNumber,
 		JobRecord job,
 		ContinuationOptions options,
@@ -237,7 +237,7 @@ internal sealed class SingleServerJobStorage :
 
 	/// <inheritdoc />
 	public async ValueTask FailAsync(
-		string jobId,
+		JobHandle jobId,
 		int executionNumber,
 		string workerId,
 		string error,
@@ -372,7 +372,7 @@ internal sealed class SingleServerJobStorage :
 
 	/// <inheritdoc />
 	public async ValueTask<BatchStatus?> GetBatchStatusAsync(
-		string batchId,
+		BatchHandle batchId,
 		CancellationToken cancellationToken = default
 	)
 	{
@@ -392,7 +392,7 @@ internal sealed class SingleServerJobStorage :
 
 	/// <inheritdoc />
 	public async ValueTask<IReadOnlyList<BatchMemberStatus>> QueryBatchMembersAsync(
-		string batchId,
+		BatchHandle batchId,
 		BatchMemberQuery query,
 		CancellationToken cancellationToken = default
 	)
@@ -403,7 +403,7 @@ internal sealed class SingleServerJobStorage :
 
 	/// <inheritdoc />
 	public async ValueTask<BatchGraph?> GetBatchGraphAsync(
-		string batchId,
+		BatchHandle batchId,
 		CancellationToken cancellationToken = default
 	)
 	{
@@ -413,7 +413,7 @@ internal sealed class SingleServerJobStorage :
 
 	/// <inheritdoc />
 	public async ValueTask<JobStatus?> GetJobStatusAsync(
-		string jobId,
+		JobHandle jobId,
 		CancellationToken cancellationToken = default
 	)
 	{
@@ -422,7 +422,7 @@ internal sealed class SingleServerJobStorage :
 	}
 
 	/// <inheritdoc />
-	public async ValueTask CancelBatchAsync(string batchId, CancellationToken cancellationToken = default)
+	public async ValueTask CancelBatchAsync(BatchHandle batchId, CancellationToken cancellationToken = default)
 	{
 		await EnsureInitializedAsync(cancellationToken).ConfigureAwait(false);
 		await _graphDurableStorage.CancelBatchAsync(batchId, cancellationToken).ConfigureAwait(false);
@@ -430,7 +430,7 @@ internal sealed class SingleServerJobStorage :
 	}
 
 	/// <inheritdoc />
-	public async ValueTask DeleteBatchAsync(string batchId, CancellationToken cancellationToken = default)
+	public async ValueTask DeleteBatchAsync(BatchHandle batchId, CancellationToken cancellationToken = default)
 	{
 		await EnsureInitializedAsync(cancellationToken).ConfigureAwait(false);
 		await _graphDurableStorage.DeleteBatchAsync(batchId, cancellationToken).ConfigureAwait(false);
@@ -438,7 +438,7 @@ internal sealed class SingleServerJobStorage :
 	}
 
 	/// <inheritdoc />
-	public async ValueTask CancelAsync(string jobId, CancellationToken cancellationToken = default)
+	public async ValueTask CancelAsync(JobHandle jobId, CancellationToken cancellationToken = default)
 	{
 		await EnsureInitializedAsync(cancellationToken).ConfigureAwait(false);
 		await DurableStorage.CancelAsync(jobId, cancellationToken).ConfigureAwait(false);
@@ -446,7 +446,7 @@ internal sealed class SingleServerJobStorage :
 	}
 
 	/// <inheritdoc />
-	public async ValueTask RetryAsync(string jobId, CancellationToken cancellationToken = default)
+	public async ValueTask RetryAsync(JobHandle jobId, CancellationToken cancellationToken = default)
 	{
 		await EnsureInitializedAsync(cancellationToken).ConfigureAwait(false);
 		await DurableStorage.RetryAsync(jobId, cancellationToken).ConfigureAwait(false);
@@ -454,7 +454,7 @@ internal sealed class SingleServerJobStorage :
 	}
 
 	/// <inheritdoc />
-	public async ValueTask DeleteAsync(string jobId, CancellationToken cancellationToken = default)
+	public async ValueTask DeleteAsync(JobHandle jobId, CancellationToken cancellationToken = default)
 	{
 		await EnsureInitializedAsync(cancellationToken).ConfigureAwait(false);
 		await DurableStorage.DeleteAsync(jobId, cancellationToken).ConfigureAwait(false);
@@ -578,17 +578,19 @@ internal sealed class SingleServerJobStorage :
 						cancellationToken
 					).ConfigureAwait(false);
 					recoveredJobs.AddRange(jobs);
-					var standaloneIds = jobs
+					var standaloneJobs = jobs
 						.Where(static job => job.BatchId is null)
 						.Select(static job => job.JobId)
 						.ToArray();
-					if (standaloneIds.Length != 0)
+					if (standaloneJobs.Length != 0)
 					{
+						// Standalone continuation edges are not represented by a batch graph, so recovery must
+						// load them explicitly before it can restore dependency-gated jobs into the primary queue.
 						var incomingEdges = await _graphDurableReplica.GetIncomingEdgesAsync(
-							standaloneIds,
+							standaloneJobs,
 							cancellationToken
 						).ConfigureAwait(false);
-						var requestedIds = standaloneIds.ToHashSet(StringComparer.Ordinal);
+						var requestedIds = standaloneJobs.Select(static job => job.Id).ToHashSet(StringComparer.Ordinal);
 						foreach (var edge in incomingEdges)
 						{
 							if (!requestedIds.Contains(edge.ChildJobId))

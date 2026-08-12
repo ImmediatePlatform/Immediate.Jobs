@@ -55,7 +55,7 @@ public interface IJobMonitor
 	/// <summary>
 	/// 	Gets one job and its incoming dependencies.
 	/// </summary>
-	/// <param name="jobId">
+	/// <param name="job">
 	/// 	The invocation identifier.
 	/// </param>
 	/// <param name="cancellationToken">
@@ -64,7 +64,7 @@ public interface IJobMonitor
 	/// <returns>
 	/// 	The job status, or <see langword="null"/> when the invocation does not exist.
 	/// </returns>
-	ValueTask<JobStatus?> GetJobAsync(string jobId, CancellationToken cancellationToken = default);
+	ValueTask<JobStatus?> GetJobAsync(JobHandle job, CancellationToken cancellationToken = default);
 
 	/// <summary>
 	/// 	Returns batches matching a monitoring query.
@@ -86,7 +86,7 @@ public interface IJobMonitor
 	/// <summary>
 	/// 	Gets aggregate progress for one batch.
 	/// </summary>
-	/// <param name="batchId">
+	/// <param name="batch">
 	/// 	The batch identifier.
 	/// </param>
 	/// <param name="cancellationToken">
@@ -95,12 +95,12 @@ public interface IJobMonitor
 	/// <returns>
 	/// 	The aggregate batch status, or <see langword="null"/> when the batch does not exist or the current job storage does not support batches.
 	/// </returns>
-	ValueTask<BatchStatus?> GetBatchAsync(string batchId, CancellationToken cancellationToken = default);
+	ValueTask<BatchStatus?> GetBatchAsync(BatchHandle batch, CancellationToken cancellationToken = default);
 
 	/// <summary>
 	/// 	Queries members of one batch.
 	/// </summary>
-	/// <param name="batchId">
+	/// <param name="batch">
 	/// 	The batch identifier.
 	/// </param>
 	/// <param name="query">
@@ -113,7 +113,7 @@ public interface IJobMonitor
 	/// 	The batch members matching the query, or <see langword="null"/> when the current job storage does not support batches.
 	/// </returns>
 	ValueTask<IReadOnlyList<BatchMemberStatus>?> QueryBatchMembersAsync(
-		string batchId,
+		BatchHandle batch,
 		BatchMemberQuery query,
 		CancellationToken cancellationToken = default
 	);
@@ -121,7 +121,7 @@ public interface IJobMonitor
 	/// <summary>
 	/// 	Gets the persisted dependency graph for one batch.
 	/// </summary>
-	/// <param name="batchId">
+	/// <param name="batch">
 	/// 	The batch identifier.
 	/// </param>
 	/// <param name="cancellationToken">
@@ -131,7 +131,7 @@ public interface IJobMonitor
 	/// 	The batch dependency graph, or <see langword="null"/> when the batch does not exist or the current job storage does not support batches.
 	/// </returns>
 	ValueTask<BatchGraph?> GetBatchGraphAsync(
-		string batchId,
+		BatchHandle batch,
 		CancellationToken cancellationToken = default
 	);
 }
