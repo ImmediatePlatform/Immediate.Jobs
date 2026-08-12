@@ -15,7 +15,7 @@ namespace Immediate.Jobs.EntityFrameworkCore;
 internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 	IDbContextFactory<TContext> contextFactory,
 	TimeProvider? timeProvider = null
-) : IRecurringJobStorage, IJobGraphStorage, IFairQueueStorage, IJobStorageReplica
+) : IRecurringJobStorage, IJobGraphStorage, IFairQueueStorage, IJobStorageReplica, IJobGraphStorageReplica
 	where TContext : DbContext
 {
 	private const int MaxConcurrencyAttempts = 5;

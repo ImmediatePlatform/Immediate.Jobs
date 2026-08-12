@@ -54,30 +54,6 @@ internal sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 	}
 
 	/// <inheritdoc />
-	public async ValueTask<IReadOnlyList<JobContinuationEdge>> GetIncomingEdgesAsync(
-		IReadOnlyCollection<string> childJobIds,
-		CancellationToken cancellationToken = default
-	)
-	{
-		ArgumentNullException.ThrowIfNull(childJobIds);
-		foreach (var childJobId in childJobIds)
-			ArgumentException.ThrowIfNullOrWhiteSpace(childJobId, paramName: nameof(childJobIds));
-
-		cancellationToken.ThrowIfCancellationRequested();
-		lock (_gate)
-		{
-			if (childJobIds.Count == 0)
-				return [];
-
-			var distinctIds = new HashSet<string>(StringComparer.Ordinal);
-			foreach (var childJobId in childJobIds)
-				_ = distinctIds.Add(childJobId);
-
-			return [.. _edges.Where(edge => distinctIds.Contains(edge.ChildJobId))];
-		}
-	}
-
-	/// <inheritdoc />
 	public ValueTask EnqueueContinuationAsync(
 		JobRecord job,
 		IReadOnlyList<JobContinuationEdge> edges,
