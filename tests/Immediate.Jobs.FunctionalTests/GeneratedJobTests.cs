@@ -363,8 +363,8 @@ public sealed class JobCountingBehavior<TRequest, TResponse>(ExecutionState stat
 		var value = request switch
 		{
 			RecordMessageJob.Payload payload => payload.Message,
-			RetryOnceJob.Payload payload => payload.Value.ToString(System.Globalization.CultureInfo.InvariantCulture),
-			ValueTypeJob.Request valueTypeRequest => valueTypeRequest.Value.ToString(System.Globalization.CultureInfo.InvariantCulture),
+			RetryOnceJob.Payload payload => payload.Value.ToString(CultureInfo.InvariantCulture),
+			ValueTypeJob.Request valueTypeRequest => valueTypeRequest.Value.ToString(CultureInfo.InvariantCulture),
 			_ => typeof(TRequest).Name,
 		};
 		state.Details.Add(request.JobDetails ?? throw new InvalidOperationException("Job details were not populated."));
@@ -490,8 +490,7 @@ public sealed partial class PropertyBackedPayloadJob(PropertyBackedPayloadState?
 	private ValueTask HandleAsync(Payload payload, CancellationToken cancellationToken)
 	{
 		_ = cancellationToken;
-		if (state is not null)
-			state.OptionalValue = payload.Value;
+		state?.OptionalValue = payload.Value;
 		return ValueTask.CompletedTask;
 	}
 }
@@ -507,8 +506,7 @@ public sealed partial class RequiredPropertyBackedPayloadJob(PropertyBackedPaylo
 	private ValueTask HandleAsync(Payload payload, CancellationToken cancellationToken)
 	{
 		_ = cancellationToken;
-		if (state is not null)
-			state.RequiredValue = payload.Value;
+		state?.RequiredValue = payload.Value;
 		return ValueTask.CompletedTask;
 	}
 }

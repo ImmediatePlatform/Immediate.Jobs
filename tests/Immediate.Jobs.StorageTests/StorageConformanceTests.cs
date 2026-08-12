@@ -226,14 +226,15 @@ internal sealed class RelationalConformanceFixture : IAsyncDisposable
 			_ = serviceCollection.AddSingleton<TimeProvider>(clock);
 			_ = serviceCollection.AddSingleton(clock);
 			_ = serviceCollection.AddSingleton<IDbContextFactory<ConformanceDbContext>>(contextFactory);
-			_ = serviceCollection.AddImmediateJobsCore(options =>
-			{
-				_ = adapter == ConformanceAdapter.EntityFrameworkCore
-					? options.UseEntityFrameworkCore<ConformanceDbContext>()
-					: options.UseLinqToDB(dataOptions, schema);
-				if (useDistributedTopology)
-					_ = options.UseDistributed();
-			});
+			_ = serviceCollection.AddImmediateJobsCore()
+				.ConfigureStorage(options =>
+				{
+					_ = adapter == ConformanceAdapter.EntityFrameworkCore
+						? options.UseEntityFrameworkCore<ConformanceDbContext>()
+						: options.UseLinqToDB(dataOptions, schema);
+					if (useDistributedTopology)
+						_ = options.UseDistributed();
+				});
 			fixture._services = serviceCollection.BuildServiceProvider(new ServiceProviderOptions
 			{
 				ValidateOnBuild = true,
@@ -323,8 +324,10 @@ internal sealed class RedisConformanceFixture : IAsyncDisposable
 			_ = serviceCollection.AddLogging();
 			_ = serviceCollection.AddSingleton<TimeProvider>(clock);
 			_ = serviceCollection.AddSingleton(clock);
-			_ = serviceCollection.AddImmediateJobsCore(options =>
-				_ = options.UseRedis(connection, storage => storage.KeyPrefix = keyPrefix));
+			_ = serviceCollection.AddImmediateJobsCore()
+				.ConfigureStorage(options =>
+					_ = options.UseRedis(connection, storage => storage.KeyPrefix = keyPrefix)
+				);
 			var services = serviceCollection.BuildServiceProvider(new ServiceProviderOptions
 			{
 				ValidateOnBuild = true,

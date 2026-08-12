@@ -2,6 +2,7 @@
 
   <PropertyGroup>
 	<IsAotCompatible>true</IsAotCompatible>
+	<EnableConfigurationBindingGenerator>true</EnableConfigurationBindingGenerator>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(TargetFramework)' == 'net11.0'">
@@ -11,10 +12,12 @@
   <ItemGroup>
 	<PackageReference Include="Cronos" />
 	<PackageReference Include="Immediate.Handlers" />
+	<PackageReference Include="Immediate.Validations" />
 	<PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
 	<PackageReference Include="Microsoft.Extensions.Diagnostics.HealthChecks" />
 	<PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" />
 	<PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+	<PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" />
   </ItemGroup>
 
   <ItemGroup>

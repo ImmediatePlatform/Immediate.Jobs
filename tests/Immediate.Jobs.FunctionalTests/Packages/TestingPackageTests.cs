@@ -69,19 +69,6 @@ public sealed class TestingPackageTests
 	}
 
 	[Fact]
-	public void FairQueueOptionsRejectInvalidThresholds()
-	{
-		var services = new ServiceCollection();
-
-		_ = Assert.Throws<ImmediateJobException>(() => services.AddImmediateJobsCore(options =>
-			options.UseFairQueues(fairQueues => fairQueues.ConcurrencyShareThreshold = 0)
-		));
-		_ = Assert.Throws<ImmediateJobException>(() => services.AddImmediateJobsCore(options =>
-			options.UseFairQueues(fairQueues => fairQueues.MinInflightForNoisy = 0)
-		));
-	}
-
-	[Fact]
 	public async Task GroupedJobsLogOneWarningWhenFairQueuesAreDisabled()
 	{
 		var cancellationToken = TestContext.Current.CancellationToken;

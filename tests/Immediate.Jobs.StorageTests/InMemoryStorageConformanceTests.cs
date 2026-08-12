@@ -25,7 +25,7 @@ public sealed class InMemoryStorageConformanceTests
 		var services = new ServiceCollection();
 		_ = services.AddSingleton<TimeProvider>(clock);
 		_ = services.AddSingleton(clock);
-		_ = services.AddImmediateJobsCore(options => _ = options.UseInMemory());
+		_ = services.AddImmediateJobsCore().ConfigureStorage(options => _ = options.UseInMemory());
 		await using var provider = services.BuildServiceProvider(validateScopes: true);
 
 		await testCase.RunAsync(provider, TestContext.Current.CancellationToken);

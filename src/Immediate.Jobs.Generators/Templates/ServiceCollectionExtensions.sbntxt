@@ -12,11 +12,10 @@ public static class ImmediateJobsGeneratedServiceCollectionExtensions
 {
 	public static global::Immediate.Jobs.Shared.ImmediateJobsBuilder Add{{ assembly_name }}Jobs(
 		this global::Microsoft.Extensions.DependencyInjection.IServiceCollection services,
-		global::System.Action<global::Immediate.Jobs.Shared.ImmediateJobsOptions>? configure = null,
 		params {{ if language_version <= 1200 }}string[]{{ else }}global::System.ReadOnlySpan<string>{{ end }} tags
 	)
 	{
-		var builder = global::Immediate.Jobs.Shared.ImmediateJobsRuntimeServiceCollectionExtensions.AddImmediateJobsCore(services, configure);
+		var builder = global::Immediate.Jobs.Shared.ImmediateJobsRuntimeServiceCollectionExtensions.AddImmediateJobsCore(services);
 		
 		global::Microsoft.Extensions.DependencyInjection.Extensions.ServiceCollectionDescriptorExtensions.TryAddSingleton<
 			global::{{ if !string.empty namespace; namespace; "."; end }}RecurringJobs

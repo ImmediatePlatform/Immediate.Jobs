@@ -18,7 +18,7 @@ public sealed class SingleServerJobStorageTests
 		await using var durableInner = new InMemoryJobStorage(TimeProvider.System);
 		await using var durable = CreateProxy(durableInner);
 		var services = new ServiceCollection();
-		_ = services.AddImmediateJobsCore(options => options.UseStorage(_ => durable));
+		_ = services.AddImmediateJobsCore().ConfigureStorage(options => options.UseStorage(_ => durable));
 
 		await using var provider = services.BuildServiceProvider();
 		var storage = Assert.IsType<SingleServerJobStorage>(provider.GetRequiredService<IJobStorage>());
@@ -40,12 +40,12 @@ public sealed class SingleServerJobStorageTests
 	{
 		await using var durable = new InMemoryJobStorage(TimeProvider.System);
 		var inMemoryServices = new ServiceCollection();
-		_ = inMemoryServices.AddImmediateJobsCore(options => options.UseInMemory());
+		_ = inMemoryServices.AddImmediateJobsCore().ConfigureStorage(options => options.UseInMemory());
 		await using var inMemoryProvider = inMemoryServices.BuildServiceProvider();
 		_ = Assert.IsType<InMemoryJobStorage>(inMemoryProvider.GetRequiredService<IJobStorage>());
 
 		var distributedServices = new ServiceCollection();
-		_ = distributedServices.AddImmediateJobsCore(options => options.UseStorage(_ => durable).UseDistributed());
+		_ = distributedServices.AddImmediateJobsCore().ConfigureStorage(options => options.UseStorage(_ => durable).UseDistributed());
 		await using var distributedProvider = distributedServices.BuildServiceProvider();
 		Assert.Same(durable, distributedProvider.GetRequiredService<IJobStorage>());
 	}
@@ -55,12 +55,12 @@ public sealed class SingleServerJobStorageTests
 	{
 		var singleServerServices = new ServiceCollection();
 		_ = Assert.Throws<ImmediateJobException>(() =>
-			singleServerServices.AddImmediateJobsCore(options => options.UseSingleServer())
+			singleServerServices.AddImmediateJobsCore().ConfigureStorage(options => options.UseSingleServer())
 		);
 
 		var distributedServices = new ServiceCollection();
 		_ = Assert.Throws<ImmediateJobException>(() =>
-			distributedServices.AddImmediateJobsCore(options => options.UseDistributed())
+			distributedServices.AddImmediateJobsCore().ConfigureStorage(options => options.UseDistributed())
 		);
 	}
 

@@ -61,6 +61,7 @@
   <ItemGroup>
 	<PackageReference Include="Cronos" />
 	<PackageReference Include="Immediate.Handlers" />
+	<PackageReference Include="Immediate.Validations" />
 	<PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" NoWarn="NU5104" />
 	<PackageReference Include="Microsoft.Extensions.Diagnostics.HealthChecks" NoWarn="NU5104" />
 	<PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" NoWarn="NU5104" />

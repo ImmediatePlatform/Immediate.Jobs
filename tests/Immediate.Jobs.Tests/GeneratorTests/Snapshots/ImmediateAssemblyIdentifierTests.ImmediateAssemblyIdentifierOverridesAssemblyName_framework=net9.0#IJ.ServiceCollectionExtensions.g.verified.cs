@@ -10,11 +10,10 @@ public static class ImmediateJobsGeneratedServiceCollectionExtensions
 {
 	public static global::Immediate.Jobs.Shared.ImmediateJobsBuilder AddCustomJobs(
 		this global::Microsoft.Extensions.DependencyInjection.IServiceCollection services,
-		global::System.Action<global::Immediate.Jobs.Shared.ImmediateJobsOptions>? configure = null,
 		params global::System.ReadOnlySpan<string> tags
 	)
 	{
-		var builder = global::Immediate.Jobs.Shared.ImmediateJobsRuntimeServiceCollectionExtensions.AddImmediateJobsCore(services, configure);
+		var builder = global::Immediate.Jobs.Shared.ImmediateJobsRuntimeServiceCollectionExtensions.AddImmediateJobsCore(services);
 		
 		global::Microsoft.Extensions.DependencyInjection.Extensions.ServiceCollectionDescriptorExtensions.TryAddSingleton<
 			global::Immediate.Jobs.Testing.RecurringJobs

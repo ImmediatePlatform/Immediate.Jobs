@@ -6,26 +6,36 @@ namespace Immediate.Jobs.Redis;
 /// <summary>Registers Redis job storage.</summary>
 public static class RedisServiceCollectionExtensions
 {
-	/// <summary>Selects Redis as the distributed Immediate.Jobs queue and recurring provider.</summary>
+	/// <summary>
+	///		Selects Redis as the distributed Immediate.Jobs queue and recurring provider.
+	/// </summary>
 	/// <remarks>
-	/// Redis does not implement graph storage, so batches and continuations require a SQL provider.
-	/// This method always selects distributed mode; single-server mode requires a full-capability
-	/// durable replica and is not supported by the Redis provider.
+	///		Redis does not implement graph storage, so batches and continuations require a SQL provider.
+	///		This method always selects distributed mode; single-server mode requires a full-capability
+	///		durable replica and is not supported by the Redis provider.
 	/// </remarks>
-	/// <param name="jobs">The Immediate.Jobs options to configure.</param>
-	/// <param name="configuration">The Redis configuration string.</param>
-	/// <param name="configure">An optional callback that configures Redis key placement.</param>
-	/// <returns>The configured Immediate.Jobs options.</returns>
-	public static ImmediateJobsOptions UseRedis(
-		this ImmediateJobsOptions jobs,
+	/// <param name="builder">
+	///		The Immediate.Jobs storage options builder to configure.
+	/// </param>
+	/// <param name="configuration">
+	///		The Redis configuration string.
+	/// </param>
+	/// <param name="configure">
+	///		An optional callback that configures Redis key placement.
+	/// </param>
+	/// <returns>
+	///		The configured Immediate.Jobs options.
+	/// </returns>
+	public static ImmediateJobsStorageBuilder UseRedis(
+		this ImmediateJobsStorageBuilder builder,
 		string configuration,
 		Action<RedisJobStorageOptions>? configure = null
 	)
 	{
-		ArgumentNullException.ThrowIfNull(jobs);
+		ArgumentNullException.ThrowIfNull(builder);
 		ArgumentException.ThrowIfNullOrWhiteSpace(configuration);
 		var options = CreateOptions(configure);
-		return jobs
+		return builder
 			.UseStorage(services => new RedisJobStorage(
 				ConnectionMultiplexer.Connect(configuration),
 				options,
@@ -44,8 +54,8 @@ public static class RedisServiceCollectionExtensions
 	/// <param name="connection">The application-owned Redis connection.</param>
 	/// <param name="configure">An optional callback that configures Redis key placement.</param>
 	/// <returns>The configured Immediate.Jobs options.</returns>
-	public static ImmediateJobsOptions UseRedis(
-		this ImmediateJobsOptions jobs,
+	public static ImmediateJobsStorageBuilder UseRedis(
+		this ImmediateJobsStorageBuilder jobs,
 		IConnectionMultiplexer connection,
 		Action<RedisJobStorageOptions>? configure = null
 	)

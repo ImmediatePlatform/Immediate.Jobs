@@ -7,11 +7,10 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddSingleton<IEmailSender, ConsoleEmailSender>();
 builder.Services.AddImmediateJobsDashboard();
 builder.Services.AddBasicHandlers();
-builder.Services.AddBasicJobs(options =>
-{
-	_ = options.UseInMemory();
-	options.MaxParallelJobs = 4;
-}).AddHealthCheck();
+builder.Services.AddBasicJobs()
+	.Configure(o => o.MaxParallelJobs = 4)
+	.ConfigureStorage(options => options.UseInMemory())
+	.AddHealthCheck();
 
 var app = builder.Build();
 

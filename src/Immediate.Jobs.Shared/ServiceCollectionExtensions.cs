@@ -1,11 +1,10 @@
-using System.Diagnostics.CodeAnalysis;
 using Immediate.Jobs.Shared.Apis;
 using Immediate.Jobs.Shared.Interfaces;
 using Immediate.Jobs.Shared.Internals;
 using Immediate.Jobs.Shared.Storage;
+using Immediate.Validations.Shared;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
-using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Hosting;
 
 namespace Immediate.Jobs.Shared;
@@ -21,55 +20,48 @@ public static class ImmediateJobsRuntimeServiceCollectionExtensions
 	/// <param name="services">
 	/// 	The service collection to which the runtime is added.
 	/// </param>
-	/// <param name="configure">
-	/// 	An optional callback that configures the runtime.
-	/// </param>
 	/// <returns>
 	/// 	A builder for selecting storage and adding runtime integrations.
 	/// </returns>
 	public static ImmediateJobsBuilder AddImmediateJobsCore(
-		this IServiceCollection services,
-		Action<ImmediateJobsOptions>? configure = null
+		this IServiceCollection services
 	)
 	{
 		ArgumentNullException.ThrowIfNull(services);
 
-		var options = new ImmediateJobsOptions();
-		configure?.Invoke(options);
-		if (options.StorageFactory is null)
-		{
-			if (options.StorageModeExplicitlySelected)
-				throw new ImmediateJobException("Select a durable storage provider before choosing single-server or distributed mode.");
+		var optionsBuilder = services
+			.AddOptionsWithValidateOnStart<ImmediateJobsOptions>()
+			.Validate(
+				o =>
+				{
+					ValidationException.ThrowIfInvalid(o, $@"Validation error for ""{nameof(ImmediateJobsOptions)}""");
+					return true;
+				}
+			);
 
-			_ = options.UseInMemory();
-		}
+		var fairQueueOptionsBuilder = services
+			.AddOptionsWithValidateOnStart<FairQueueOptions>()
+			.Validate(
+				o =>
+				{
+					ValidationException.ThrowIfInvalid(o, $@"Validation error for ""{nameof(FairQueueOptions)}""");
+					return true;
+				}
+			);
 
-		options.Validate();
-
-		services.TryAddSingleton(options);
 		services.TryAddSingleton(TimeProvider.System);
-		services.TryAddSingleton<IIdGenerator>(GuidIdGenerator.Instance);
+		services.TryAddSingleton<IIdGenerator, GuidIdGenerator>();
 		services.TryAddSingleton<IJobSerializer, SystemTextJsonJobSerializer>();
-		services.TryAddSingleton(options.CreateStorage);
-		services.TryAddSingleton(static sp =>
-			sp.GetRequiredService<IJobStorage>() as IRecurringJobStorage
-				?? null!);
-		services.TryAddSingleton(static sp =>
-			sp.GetRequiredService<IJobStorage>() as IJobGraphStorage
-				?? null!);
+		services.TryAddSingleton<IJobStorage, InMemoryJobStorage>();
+
 		services.TryAddScoped<BatchScheduler>();
-		services.TryAddScoped<IBatchScheduler>(static sp =>
-			sp.GetService<IJobGraphStorage>() is null
-				? null!
-				: sp.GetRequiredService<BatchScheduler>());
+		services.TryAddScoped<IBatchScheduler>(sp => sp.GetRequiredService<BatchScheduler>());
+
 		services.TryAddScoped<JobMonitor>();
-		services.TryAddScoped<IBatchMonitor>(static sp =>
-			sp.GetService<IJobGraphStorage>() is null
-				? null!
-				: sp.GetRequiredService<JobMonitor>());
-		services.TryAddScoped<IJobMonitor>(static sp =>
-			sp.GetRequiredService<JobMonitor>());
-		_ = services.AddSingleton(JobQueueDefinition.Default);
+		services.TryAddScoped<IBatchMonitor>(static sp => sp.GetRequiredService<JobMonitor>());
+		services.TryAddScoped<IJobMonitor>(static sp => sp.GetRequiredService<JobMonitor>());
+
+		services.AddSingleton(JobQueueDefinition.Default);
 		services.TryAddSingleton<JobSchedulerState>();
 		services.TryAddSingleton<JobSchedulingService>();
 
@@ -79,60 +71,6 @@ public static class ImmediateJobsRuntimeServiceCollectionExtensions
 			)
 		);
 
-		return new(services);
-	}
-
-	/// <summary>
-	/// 	Replaces the default GUID job and batch identifier generator.
-	/// </summary>
-	/// <typeparam name="TGenerator">
-	/// 	The identifier generator implementation.
-	/// </typeparam>
-	/// <param name="builder">
-	/// 	The Immediate.Jobs builder.
-	/// </param>
-	/// <returns>
-	/// 	The supplied builder.
-	/// </returns>
-	public static ImmediateJobsBuilder UseIdGenerator<
-		[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TGenerator
-	>(
-		this ImmediateJobsBuilder builder
-	)
-		where TGenerator : class, IIdGenerator
-	{
-		ArgumentNullException.ThrowIfNull(builder);
-		_ = builder.Services.Replace(ServiceDescriptor.Singleton<IIdGenerator, TGenerator>());
-		return builder;
-	}
-
-	/// <summary>
-	/// 	Adds scheduler liveness and storage connectivity to the health-check system.
-	/// </summary>
-	/// <param name="builder">
-	/// 	The Immediate.Jobs builder.
-	/// </param>
-	/// <param name="name">
-	/// 	The registered health-check name.
-	/// </param>
-	/// <param name="failureStatus">
-	/// 	The status reported when the check fails.
-	/// </param>
-	/// <param name="tags">
-	/// 	The tags associated with the health check.
-	/// </param>
-	/// <returns>
-	/// 	The supplied builder.
-	/// </returns>
-	public static ImmediateJobsBuilder AddHealthCheck(
-		this ImmediateJobsBuilder builder,
-		string name = "immediate-jobs",
-		HealthStatus? failureStatus = null,
-		IEnumerable<string>? tags = null
-	)
-	{
-		ArgumentNullException.ThrowIfNull(builder);
-		_ = builder.Services.AddHealthChecks().AddCheck<ImmediateJobsHealthCheck>(name, failureStatus, tags ?? []);
-		return builder;
+		return new(services, optionsBuilder, fairQueueOptionsBuilder);
 	}
 }

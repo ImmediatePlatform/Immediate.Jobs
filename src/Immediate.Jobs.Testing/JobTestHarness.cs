@@ -42,15 +42,16 @@ public sealed class JobTestHarness : IAsyncDisposable, IDisposable
 	{
 		TimeProvider = new(start);
 		var services = new ServiceCollection();
+		configureServices?.Invoke(services);
+
 		_ = services.AddSingleton<TimeProvider>(TimeProvider);
 		_ = services.AddSingleton(TimeProvider);
 		_ = services.AddSingleton(typeof(ILogger<>), typeof(NullLogger<>));
-		_ = services.AddImmediateJobsCore(options =>
-		{
-			_ = options.UseInMemory();
-			options.MaxParallelJobs = 1;
-		});
-		configureServices?.Invoke(services);
+
+		_ = services.AddImmediateJobsCore()
+			.Configure(o => o.MaxParallelJobs = 1)
+			.ConfigureStorage(o => o.UseInMemory());
+
 		_serviceProvider = services.BuildServiceProvider(new ServiceProviderOptions
 		{
 			ValidateScopes = true,
