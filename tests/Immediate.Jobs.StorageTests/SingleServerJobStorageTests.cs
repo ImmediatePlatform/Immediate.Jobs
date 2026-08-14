@@ -5,7 +5,6 @@ using System.Runtime.ExceptionServices;
 using Immediate.Jobs.Shared.Apis;
 using Immediate.Jobs.Shared.Internals;
 using Immediate.Jobs.Shared.Storage;
-using Immediate.Validations.Shared;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Time.Testing;
 
@@ -441,6 +440,7 @@ public sealed class SingleServerJobStorageTests
 					Trigger = addition.Trigger,
 				}));
 			}
+
 			if (string.Equals(targetMethod.Name, nameof(IJobStorage.GetJobStatusAsync), StringComparison.Ordinal))
 				GetJobStatusCalls++;
 
