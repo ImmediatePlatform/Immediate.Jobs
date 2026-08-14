@@ -11,6 +11,7 @@ public sealed partial record JobExecutionQuery : IValidationTarget<JobExecutionQ
 	/// <summary>
 	/// 	The owning job identifier.
 	/// </summary>
+	[NotEmpty]
 	public required string JobId { get; init; }
 
 	/// <summary>

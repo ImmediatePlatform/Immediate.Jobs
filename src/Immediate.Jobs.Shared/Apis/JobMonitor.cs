@@ -79,7 +79,7 @@ public sealed class JobMonitor(IJobStorage storage, IEnumerable<JobDefinition> d
 		CancellationToken cancellationToken = default
 	)
 	{
-		ArgumentNullException.ThrowIfNull(batchId);
+		ArgumentException.ThrowIfNullOrWhiteSpace(batchId);
 		ValidationException.ThrowIfInvalid(query, $"Invalid argument \"{nameof(query)}\"");
 
 		return storage switch
@@ -92,7 +92,7 @@ public sealed class JobMonitor(IJobStorage storage, IEnumerable<JobDefinition> d
 	/// <inheritdoc />
 	public async ValueTask<BatchGraph?> GetBatchGraphAsync(string batchId, CancellationToken cancellationToken = default)
 	{
-		ArgumentNullException.ThrowIfNull(batchId);
+		ArgumentException.ThrowIfNullOrWhiteSpace(batchId);
 
 		return storage switch
 		{
@@ -104,7 +104,7 @@ public sealed class JobMonitor(IJobStorage storage, IEnumerable<JobDefinition> d
 	/// <inheritdoc />
 	public async ValueTask<JobStatus?> GetJobAsync(string jobId, CancellationToken cancellationToken = default)
 	{
-		ArgumentNullException.ThrowIfNull(jobId);
+		ArgumentException.ThrowIfNullOrWhiteSpace(jobId);
 
 		var status = await storage.GetJobStatusAsync(jobId, cancellationToken).ConfigureAwait(false);
 		if (status is null)
