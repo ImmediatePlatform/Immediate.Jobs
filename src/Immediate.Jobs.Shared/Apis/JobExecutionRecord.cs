@@ -50,7 +50,7 @@ public sealed record JobExecutionRecord
 	/// <summary>
 	/// 	The owning job identifier.
 	/// </summary>
-	public required string JobId { get; init; }
+	public required JobHandle JobId { get; init; }
 
 	/// <summary>
 	/// 	The 1-based execution ordinal and ownership-fencing value.

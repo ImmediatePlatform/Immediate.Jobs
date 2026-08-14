@@ -133,7 +133,8 @@ internal sealed class SingleServerJobStorage :
 			request.Lease,
 			cancellationToken
 		).ConfigureAwait(false);
-		var replicatedExecutions = replicated.ToDictionary(static job => job.JobId, static job => job.Attempt, StringComparer.Ordinal);
+
+		var replicatedExecutions = replicated.ToDictionary(static job => job.JobId, static job => job.Attempt);
 		if (acquired.Count != replicated.Count ||
 			acquired.Any(job => !replicatedExecutions.TryGetValue(job.JobId, out var attempt) || attempt != job.Attempt))
 		{
@@ -361,13 +362,14 @@ internal sealed class SingleServerJobStorage :
 
 	/// <inheritdoc />
 	public async ValueTask<IReadOnlyList<JobExecutionRecord>> QueryJobExecutionsAsync(
+		JobHandle jobId,
 		JobExecutionQuery query,
 		CancellationToken cancellationToken = default
 	)
 	{
 		await EnsureInitializedAsync(cancellationToken).ConfigureAwait(false);
 		// Recovery restores current jobs and related state into the primary, but not retained executions.
-		return await DurableStorage.QueryJobExecutionsAsync(query, cancellationToken).ConfigureAwait(false);
+		return await DurableStorage.QueryJobExecutionsAsync(jobId, query, cancellationToken).ConfigureAwait(false);
 	}
 
 	/// <inheritdoc />
@@ -567,7 +569,8 @@ internal sealed class SingleServerJobStorage :
 			await recoveredPrimary.InitializeAsync(cancellationToken).ConfigureAwait(false);
 
 			var recoveredJobs = new List<JobRecord>();
-			var recoveredIncomingEdges = new Dictionary<string, List<JobContinuationEdge>>(StringComparer.Ordinal);
+			var recoveredIncomingEdges = new Dictionary<JobHandle, List<JobContinuationEdge>>();
+
 			foreach (var state in Enum.GetValues<JobState>())
 			{
 				var skip = 0;
@@ -578,10 +581,12 @@ internal sealed class SingleServerJobStorage :
 						cancellationToken
 					).ConfigureAwait(false);
 					recoveredJobs.AddRange(jobs);
+
 					var standaloneJobs = jobs
 						.Where(static job => job.BatchId is null)
 						.Select(static job => job.JobId)
 						.ToArray();
+
 					if (standaloneJobs.Length != 0)
 					{
 						// Standalone continuation edges are not represented by a batch graph, so recovery must
@@ -590,10 +595,10 @@ internal sealed class SingleServerJobStorage :
 							standaloneJobs,
 							cancellationToken
 						).ConfigureAwait(false);
-						var requestedIds = standaloneJobs.Select(static job => job.Id).ToHashSet(StringComparer.Ordinal);
+
 						foreach (var edge in incomingEdges)
 						{
-							if (!requestedIds.Contains(edge.ChildJobId))
+							if (!standaloneJobs.Contains(edge.ChildJobId))
 							{
 								throw new ImmediateJobException(
 									$"Durable storage returned an incoming edge for unrequested job '{edge.ChildJobId}'."
@@ -615,20 +620,23 @@ internal sealed class SingleServerJobStorage :
 			var batchIds = recoveredJobs
 				.Where(static job => job.BatchId is not null)
 				.Select(static job => job.BatchId!)
-				.Distinct(StringComparer.Ordinal)
+				.Distinct()
 				.ToArray();
-			var recoveredBatches = new Dictionary<string, RecoveredBatch>(batchIds.Length, StringComparer.Ordinal);
+
+			var recoveredBatches = new Dictionary<BatchHandle, RecoveredBatch>(batchIds.Length);
+
 			foreach (var batchId in batchIds)
 			{
 				var status = await _graphDurableStorage.GetBatchStatusAsync(batchId, cancellationToken).ConfigureAwait(false)
 					?? throw new ImmediateJobException($"Batch '{batchId}' has members but no durable batch header.");
 				var graph = await _graphDurableStorage.GetBatchGraphAsync(batchId, cancellationToken).ConfigureAwait(false)
 					?? throw new ImmediateJobException($"Batch '{batchId}' has members but no durable dependency graph.");
+
 				recoveredBatches.Add(batchId, new RecoveredBatch
 				{
 					Record = new()
 					{
-						BatchId = status.Id,
+						BatchId = status.BatchId,
 						CreatedAt = status.CreatedAt,
 						TotalJobs = status.Total,
 						PendingCount = status.Remaining,
@@ -640,12 +648,12 @@ internal sealed class SingleServerJobStorage :
 						CompletedAt = status.CompletedAt,
 						State = status.State,
 					},
-					Jobs = [.. recoveredJobs.Where(job => string.Equals(job.BatchId, batchId, StringComparison.Ordinal))],
+					Jobs = [.. recoveredJobs.Where(job => job.BatchId == batchId)],
 					Edges = [.. graph.Edges.Select(ToContinuationEdge)],
 				});
 			}
 
-			var restoredBatchIds = new HashSet<string>(StringComparer.Ordinal);
+			var restoredBatchIds = new HashSet<BatchHandle>();
 			while (recoveredBatches.Count != 0)
 			{
 				var ready = recoveredBatches.Values
@@ -653,11 +661,12 @@ internal sealed class SingleServerJobStorage :
 						.Where(static edge => edge.ParentBatchId is not null)
 						.All(edge => restoredBatchIds.Contains(edge.ParentBatchId!)))
 					.OrderBy(static batch => batch.Record.CreatedAt)
-					.ThenBy(static batch => batch.Record.Id, StringComparer.Ordinal)
+					.ThenBy(static batch => batch.Record.BatchId)
 					.ToArray();
+
 				if (ready.Length == 0)
 				{
-					var unresolved = string.Join(", ", recoveredBatches.Keys.Order(StringComparer.Ordinal));
+					var unresolved = string.Join(", ", recoveredBatches.Keys.Order());
 					throw new ImmediateJobException(
 						$"Durable batches have cyclic or missing parent-batch dependencies: {unresolved}."
 					);
@@ -671,17 +680,19 @@ internal sealed class SingleServerJobStorage :
 						batch.Edges,
 						cancellationToken
 					).ConfigureAwait(false);
-					_ = recoveredBatches.Remove(batch.Record.Id);
-					_ = restoredBatchIds.Add(batch.Record.Id);
+					_ = recoveredBatches.Remove(batch.Record.BatchId);
+					_ = restoredBatchIds.Add(batch.Record.BatchId);
 				}
 			}
 
 			var restoredJobIds = recoveredJobs
 				.Where(static job => job.BatchId is not null)
 				.Select(static job => job.JobId)
-				.ToHashSet(StringComparer.Ordinal);
-			var allRecoveredJobIds = recoveredJobs.Select(static job => job.JobId).ToHashSet(StringComparer.Ordinal);
-			var standaloneContinuations = new Dictionary<string, JobRecord>(StringComparer.Ordinal);
+				.ToHashSet();
+
+			var allRecoveredJobIds = recoveredJobs.Select(static job => job.JobId).ToHashSet();
+			var standaloneContinuations = new Dictionary<JobHandle, JobRecord>();
+
 			foreach (var job in recoveredJobs.Where(static job => job.BatchId is null))
 			{
 				if (!recoveredIncomingEdges.TryGetValue(job.JobId, out var incomingEdges))
@@ -712,33 +723,36 @@ internal sealed class SingleServerJobStorage :
 				var ready = standaloneContinuations.Values
 					.Where(AreContinuationParentsRestored)
 					.OrderBy(static job => job.CreatedAt)
-					.ThenBy(static job => job.JobId, StringComparer.Ordinal)
+					.ThenBy(static job => job.JobId)
 					.ToArray();
+
 				if (ready.Length == 0)
 				{
 					var missingParents = standaloneContinuations.Values
 						.SelectMany(job => recoveredIncomingEdges[job.JobId])
 						.Where(edge => edge.ParentJobId is { } parentId && !allRecoveredJobIds.Contains(parentId))
 						.Select(static edge => edge.ParentJobId!)
-						.Distinct(StringComparer.Ordinal)
-						.Order(StringComparer.Ordinal)
-						.ToArray();
+						.Distinct()
+						.Order()
+						.ToList();
+
 					var missingParentBatches = standaloneContinuations.Values
 						.SelectMany(job => recoveredIncomingEdges[job.JobId])
 						.Where(edge => edge.ParentBatchId is { } parentId && !restoredBatchIds.Contains(parentId))
 						.Select(static edge => edge.ParentBatchId!)
-						.Distinct(StringComparer.Ordinal)
-						.Order(StringComparer.Ordinal)
-						.ToArray();
-					var unresolved = string.Join(", ", standaloneContinuations.Keys.Order(StringComparer.Ordinal));
-					if (missingParents.Length != 0)
+						.Distinct()
+						.Order()
+						.ToList();
+
+					var unresolved = string.Join(", ", standaloneContinuations.Keys.Order());
+					if (missingParents.Count != 0)
 					{
 						throw new ImmediateJobException(
 							$"Durable standalone continuations reference missing parent jobs: {string.Join(", ", missingParents)}."
 						);
 					}
 
-					if (missingParentBatches.Length != 0)
+					if (missingParentBatches.Count != 0)
 					{
 						throw new ImmediateJobException(
 							$"Durable standalone continuations reference missing parent batches: {string.Join(", ", missingParentBatches)}."
@@ -787,6 +801,7 @@ internal sealed class SingleServerJobStorage :
 		ParentJobId = edge.ParentJobId,
 		ParentBatchId = edge.ParentBatchId,
 		Trigger = edge.Trigger,
+		Delay = TimeSpan.Zero,
 	};
 
 	private InMemoryJobStorage CreatePrimaryStorage() => new(_timeProvider);

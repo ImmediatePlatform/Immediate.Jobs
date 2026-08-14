@@ -12,7 +12,7 @@ public interface IJobGraphStorageReplica
 	/// <param name="cancellationToken">A token that can cancel the storage operation.</param>
 	/// <returns>The incoming continuation edges for the supplied child invocations.</returns>
 	ValueTask<IReadOnlyList<JobContinuationEdge>> GetIncomingEdgesAsync(
-		IReadOnlyCollection<string> childJobs,
+		IReadOnlyCollection<JobHandle> childJobs,
 		CancellationToken cancellationToken = default
 	);
 }

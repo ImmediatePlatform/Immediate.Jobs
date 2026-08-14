@@ -1111,7 +1111,7 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 
 		await using var context = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
 		var jobs = context.Set<ImmediateJobEntity>().AsNoTracking();
-		if (query.Id is { } id)
+		if (query.JobId is { } id)
 			jobs = jobs.Where(job => job.Id == id);
 		if (query.State is { } state)
 			jobs = jobs.Where(job => job.State == state);
@@ -2775,7 +2775,7 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 
 	private static BatchStatus ToStatus(ImmediateJobBatchEntity batch) => new()
 	{
-		Id = batch.Id,
+		BatchId = batch.Id,
 		State = batch.State,
 		Total = batch.TotalJobs,
 		Succeeded = batch.SucceededCount,

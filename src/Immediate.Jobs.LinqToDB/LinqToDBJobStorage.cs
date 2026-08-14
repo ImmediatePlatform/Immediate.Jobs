@@ -1187,7 +1187,7 @@ internal sealed class LinqToDBJobStorage<T>(
 		await using var scope = contextScope.GetScope(out var connection);
 
 		IQueryable<ImmediateJobEntity> jobs = Jobs(connection);
-		if (query.Id is { } id)
+		if (query.JobId is { } id)
 			jobs = jobs.Where(job => job.Id == id);
 		if (query.State is { } state)
 			jobs = jobs.Where(job => job.State == state);
@@ -2930,7 +2930,7 @@ internal sealed class LinqToDBJobStorage<T>(
 
 	private static BatchStatus ToStatus(ImmediateJobBatchEntity batch) => new()
 	{
-		Id = batch.Id,
+		BatchId = batch.Id,
 		State = batch.State,
 		Total = batch.TotalJobs,
 		Succeeded = batch.SucceededCount,

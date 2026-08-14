@@ -146,13 +146,14 @@ public sealed class JobMonitor(
 
 	/// <inheritdoc />
 	public async ValueTask<IReadOnlyList<JobExecutionRecord>> QueryExecutionsAsync(
+		JobHandle jobId,
 		JobExecutionQuery query,
 		CancellationToken cancellationToken = default
 	)
 	{
 		ValidationException.ThrowIfInvalid(query, $"Invalid argument \"{nameof(query)}\"");
 
-		return await storage.QueryJobExecutionsAsync(query, cancellationToken);
+		return await storage.QueryJobExecutionsAsync(jobId, query, cancellationToken);
 	}
 
 	/// <inheritdoc />
@@ -171,9 +172,9 @@ public sealed class JobMonitor(
 	}
 
 	/// <inheritdoc />
-	public async ValueTask<BatchStatus?> GetBatchAsync(string batchId, CancellationToken cancellationToken = default)
+	public async ValueTask<BatchStatus?> GetBatchAsync(BatchHandle batchId, CancellationToken cancellationToken = default)
 	{
-		ArgumentException.ThrowIfNullOrWhiteSpace(batchId);
+		ArgumentNullException.ThrowIfNull(batchId);
 
 		return storage switch
 		{
@@ -184,12 +185,12 @@ public sealed class JobMonitor(
 
 	/// <inheritdoc />
 	public async ValueTask<IReadOnlyList<BatchMemberStatus>?> QueryBatchMembersAsync(
-		BatchHandle batch,
+		BatchHandle batchId,
 		BatchMemberQuery query,
 		CancellationToken cancellationToken = default
 	)
 	{
-		ArgumentException.ThrowIfNullOrWhiteSpace(batchId);
+		ArgumentNullException.ThrowIfNull(batchId);
 		ValidationException.ThrowIfInvalid(query, $"Invalid argument \"{nameof(query)}\"");
 
 		return storage switch
@@ -200,9 +201,9 @@ public sealed class JobMonitor(
 	}
 
 	/// <inheritdoc />
-	public async ValueTask<BatchGraph?> GetBatchGraphAsync(string batchId, CancellationToken cancellationToken = default)
+	public async ValueTask<BatchGraph?> GetBatchGraphAsync(BatchHandle batchId, CancellationToken cancellationToken = default)
 	{
-		ArgumentException.ThrowIfNullOrWhiteSpace(batchId);
+		ArgumentNullException.ThrowIfNull(batchId);
 
 		return storage switch
 		{
@@ -212,9 +213,9 @@ public sealed class JobMonitor(
 	}
 
 	/// <inheritdoc />
-	public async ValueTask<JobStatus?> GetJobAsync(JobHandle job, CancellationToken cancellationToken = default)
+	public async ValueTask<JobStatus?> GetJobAsync(JobHandle jobId, CancellationToken cancellationToken = default)
 	{
-		ArgumentException.ThrowIfNullOrWhiteSpace(jobId);
+		ArgumentNullException.ThrowIfNull(jobId);
 
 		var status = await storage.GetJobStatusAsync(jobId, cancellationToken).ConfigureAwait(false);
 		if (status is null)

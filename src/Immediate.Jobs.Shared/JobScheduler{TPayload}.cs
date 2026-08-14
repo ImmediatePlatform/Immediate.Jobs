@@ -735,7 +735,7 @@ public abstract class JobScheduler<TPayload>(
 	{
 		ArgumentNullException.ThrowIfNull(job);
 
-		await Storage.CancelAsync(job.JobId, cancellationToken).ConfigureAwait(false);
+		await Storage.CancelAsync(job, cancellationToken).ConfigureAwait(false);
 	}
 
 	private async ValueTask ScheduleAfterCoreAsync(
@@ -759,9 +759,9 @@ public abstract class JobScheduler<TPayload>(
 		var edges = parents
 			.Select(parent => new JobContinuationEdge
 			{
-				ChildJob = jobRecord.JobId,
-				ParentJob = parent as JobHandle,
-				ParentBatch = parent as BatchHandle,
+				ChildJobId = jobRecord.JobId,
+				ParentJobId = parent as JobHandle,
+				ParentBatchId = parent as BatchHandle,
 				Trigger = on,
 				Delay = delay,
 			});

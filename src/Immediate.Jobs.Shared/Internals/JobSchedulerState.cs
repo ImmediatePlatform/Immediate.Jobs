@@ -1,8 +1,11 @@
+using System.ComponentModel;
+
 namespace Immediate.Jobs.Shared.Internals;
 
 /// <summary>
 /// 	Scheduler liveness state shared with health checks and monitoring.
 /// </summary>
+[EditorBrowsable(EditorBrowsableState.Never)]
 public sealed class JobSchedulerState
 {
 	private long _activeWorkers;

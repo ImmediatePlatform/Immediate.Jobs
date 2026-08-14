@@ -12,14 +12,10 @@ namespace Immediate.Jobs.Shared.Internals;
 /// 	Runtime helpers used by generated context capture and restore code.
 /// </summary>
 [EditorBrowsable(EditorBrowsableState.Never)]
-public static class JobContextEnvelope
+public static partial class JobContextEnvelope
 {
-	private static readonly Action<ILogger, string, string, Exception?> LogOrphanedSlice =
-		LoggerMessage.Define<string, string>(
-			LogLevel.Warning,
-			new EventId(1, nameof(LogOrphanedSlices)),
-			"Skipping orphaned context slice {ContextKey} for job {JobId}"
-		);
+	[LoggerMessage("Skipping orphaned context slice {ContextKey} for job {JobId}", Level = LogLevel.Warning)]
+	private static partial void LogOrphanedSlice(ILogger logger, string contextKey, JobHandle jobId);
 
 	/// <summary>
 	/// 	Adds one serialized slice and rejects duplicate runtime keys.
@@ -130,6 +126,6 @@ public static class JobContextEnvelope
 
 		var logger = loggerFactory.CreateLogger("Immediate.Jobs.ContextPropagation");
 		foreach (var key in keys)
-			LogOrphanedSlice(logger, key, record.JobId, null);
+			LogOrphanedSlice(logger, key, record.JobId);
 	}
 }

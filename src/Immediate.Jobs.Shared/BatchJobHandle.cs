@@ -13,5 +13,5 @@ public sealed class BatchJobHandle
 	/// <summary>
 	/// 	The reference to a durable job invocation.
 	/// </summary>
-	public required JobHandle Job { get; init { ArgumentNullException.ThrowIfNull(value); field = value; } }
+	public required JobHandle JobId { get; init { ArgumentNullException.ThrowIfNull(value); field = value; } }
 }

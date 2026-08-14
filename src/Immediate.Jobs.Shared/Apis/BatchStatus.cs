@@ -8,7 +8,7 @@ public sealed record BatchStatus
 	/// <summary>
 	/// 	The opaque batch identifier.
 	/// </summary>
-	public required string Id { get; init; }
+	public required BatchHandle BatchId { get; init; }
 
 	/// <summary>
 	/// 	The aggregate batch state.

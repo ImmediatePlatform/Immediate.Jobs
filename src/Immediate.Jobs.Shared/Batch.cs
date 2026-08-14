@@ -57,7 +57,7 @@ public sealed class Batch : IAsyncDisposable
 		return new BatchJobHandle
 		{
 			Batch = this,
-			Job = record.JobId,
+			JobId = record.JobId,
 		};
 	}
 
@@ -70,8 +70,8 @@ public sealed class Batch : IAsyncDisposable
 		{
 			if (!ReferenceEquals(parent.Batch, this))
 				throw new ImmediateJobException("Continuation handles must belong to the same open batch.");
-			if (!parentIds.Add(parent.Job))
-				throw new ImmediateJobException($"Duplicate continuation parent '{parent.Job.JobId}'.");
+			if (!parentIds.Add(parent.JobId))
+				throw new ImmediateJobException($"Duplicate continuation parent '{parent.JobId.JobId}'.");
 		}
 
 		_jobs.Add(record with
@@ -85,8 +85,8 @@ public sealed class Batch : IAsyncDisposable
 		{
 			_edges.Add(new()
 			{
-				ChildJob = record.JobId,
-				ParentJob = parent.Job,
+				ChildJobId = record.JobId,
+				ParentJobId = parent.JobId,
 				Trigger = on,
 				Delay = delay,
 			});
@@ -95,7 +95,7 @@ public sealed class Batch : IAsyncDisposable
 		return new BatchJobHandle
 		{
 			Batch = this,
-			Job = record.JobId,
+			JobId = record.JobId,
 		};
 	}
 
@@ -129,8 +129,8 @@ public sealed class Batch : IAsyncDisposable
 
 					_edges.Add(new JobContinuationEdge
 					{
-						ChildJob = job.JobId,
-						ParentBatch = parentBatch,
+						ChildJobId = job.JobId,
+						ParentBatchId = parentBatch,
 						Trigger = _trigger,
 						Delay = TimeSpan.Zero,
 					});

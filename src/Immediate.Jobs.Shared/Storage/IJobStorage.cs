@@ -203,8 +203,11 @@ public interface IJobStorage : IAsyncDisposable
 	/// <summary>
 	/// 	Returns retained executions for one job, newest first unless an exact ordinal is requested.
 	/// </summary>
+	/// <param name="jobId">
+	///		The job identifier.
+	/// </param>
 	/// <param name="query">
-	/// 	The owning job, exact-ordinal filter, and paging options.
+	/// 	The exact-ordinal filter and paging options.
 	/// </param>
 	/// <param name="cancellationToken">
 	/// 	A token that can cancel the storage operation.
@@ -213,6 +216,7 @@ public interface IJobStorage : IAsyncDisposable
 	/// 	The matching retained executions, or an empty list when the job does not exist.
 	/// </returns>
 	ValueTask<IReadOnlyList<JobExecutionRecord>> QueryJobExecutionsAsync(
+		JobHandle jobId,
 		JobExecutionQuery query,
 		CancellationToken cancellationToken = default
 	);

@@ -12,7 +12,7 @@ public sealed partial record JobQuery : IValidationTarget<JobQuery>
 	/// 	The exact invocation identifier to match, or <see langword="null"/> to match any identifier.
 	/// </summary>
 	[NotEmpty]
-	public string? Id { get; init; }
+	public string? JobId { get; init; }
 
 	/// <summary>
 	/// 	The lifecycle state to match, or <see langword="null"/> to match every state.

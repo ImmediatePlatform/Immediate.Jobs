@@ -69,7 +69,7 @@ internal static class GraphStorageConformance
 		var listed = await graph.QueryBatchesAsync(new() { State = BatchState.Executing }, cancellationToken)
 			.ConfigureAwait(false);
 		ConformanceAssert.Equal("lifecycle-batch", ConformanceAssert.NotNull(listed.SingleOrDefault(), BatchLifecycleName,
-			"the inserted batch must be listed").Id, BatchLifecycleName, "batch listing must preserve identity");
+			"the inserted batch must be listed").BatchId, BatchLifecycleName, "batch listing must preserve identity");
 		var members = await graph.QueryBatchMembersAsync("lifecycle-batch", new(), cancellationToken).ConfigureAwait(false);
 		ConformanceAssert.SequenceEqual(
 			new[] { child.Id, parent.Id }.OrderBy(static id => id, StringComparer.Ordinal),
@@ -87,7 +87,7 @@ internal static class GraphStorageConformance
 		ConformanceAssert.Equal(parent.Id, acquiredParent.Id, BatchLifecycleName, "the dependency root must run first");
 		await graph.CompleteAsync(parent.Id, acquiredParent.Attempt, "lifecycle-worker", cancellationToken).ConfigureAwait(false);
 		var released = ConformanceAssert.NotNull(
-			(await graph.QueryJobsAsync(new() { Id = child.Id }, cancellationToken).ConfigureAwait(false)).SingleOrDefault(),
+			(await graph.QueryJobsAsync(new() { JobId = child.Id }, cancellationToken).ConfigureAwait(false)).SingleOrDefault(),
 			BatchLifecycleName,
 			"the child must remain queryable"
 		);
@@ -674,7 +674,7 @@ internal static class GraphStorageConformance
 		string caseName,
 		CancellationToken cancellationToken
 	) => ConformanceAssert.NotNull(
-		(await storage.QueryJobsAsync(new() { Id = id }, cancellationToken).ConfigureAwait(false)).SingleOrDefault(),
+		(await storage.QueryJobsAsync(new() { JobId = id }, cancellationToken).ConfigureAwait(false)).SingleOrDefault(),
 		caseName,
 		"the expected graph job must exist",
 		$"jobId={id}"

@@ -282,7 +282,7 @@ internal sealed class RedisJobStorage(
 	)
 	{
 		var take = Math.Min(query.Take, MaximumQueryTake);
-		if (query.Id is { } id)
+		if (query.JobId is { } id)
 		{
 			var job = await ReadJobAsync(id, cancellationToken).ConfigureAwait(false);
 			return job is not null && query.Skip == 0 && MatchesQuery(job, query) ? [job] : [];
@@ -408,7 +408,6 @@ internal sealed class RedisJobStorage(
 	/// <inheritdoc />
 	public async ValueTask CancelAsync(JobHandle jobId, CancellationToken cancellationToken = default)
 	{
-		ArgumentException.ThrowIfNullOrWhiteSpace(jobId);
 		var now = _timeProvider.GetUtcNow();
 		var result = await EvaluateInt64Async(
 			RedisScripts.Cancel,

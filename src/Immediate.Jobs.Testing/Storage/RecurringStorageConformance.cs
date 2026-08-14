@@ -488,7 +488,7 @@ internal static class RecurringStorageConformance
 		CancellationToken cancellationToken
 	)
 	{
-		var jobs = await storage.QueryJobsAsync(new() { Id = id, Take = 10 }, cancellationToken).ConfigureAwait(false);
+		var jobs = await storage.QueryJobsAsync(new() { JobId = id, Take = 10 }, cancellationToken).ConfigureAwait(false);
 		return ConformanceAssert.NotNull(
 			jobs.SingleOrDefault(),
 			caseName,

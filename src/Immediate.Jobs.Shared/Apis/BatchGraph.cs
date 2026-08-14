@@ -8,7 +8,7 @@ public sealed record BatchGraph
 	/// <summary>
 	/// 	The opaque batch identifier.
 	/// </summary>
-	public required string BatchId { get; init; }
+	public required BatchHandle BatchId { get; init; }
 
 	/// <summary>
 	/// 	The job nodes in the graph.
@@ -29,7 +29,7 @@ public sealed record BatchGraphNode
 	/// <summary>
 	/// 	The invocation identifier.
 	/// </summary>
-	public required string JobId { get; init; }
+	public required JobHandle JobId { get; init; }
 
 	/// <summary>
 	/// 	The stable job name.
@@ -50,17 +50,17 @@ public sealed record BatchGraphEdge
 	/// <summary>
 	/// 	The waiting child invocation identifier.
 	/// </summary>
-	public required string ChildJobId { get; init; }
+	public required JobHandle ChildJobId { get; init; }
 
 	/// <summary>
 	/// 	The parent invocation identifier for a job-to-job dependency.
 	/// </summary>
-	public string? ParentJobId { get; init; }
+	public JobHandle? ParentJobId { get; init; }
 
 	/// <summary>
 	/// 	The parent batch identifier for a batch-to-job dependency.
 	/// </summary>
-	public string? ParentBatchId { get; init; }
+	public BatchHandle? ParentBatchId { get; init; }
 
 	/// <summary>
 	/// 	The condition under which the edge is satisfied.
