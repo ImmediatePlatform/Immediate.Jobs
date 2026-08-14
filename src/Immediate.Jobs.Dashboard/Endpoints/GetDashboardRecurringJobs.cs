@@ -4,9 +4,7 @@ using Immediate.Jobs.Shared.Apis;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.HttpResults;
 
-#pragma warning disable CA1812 // Request types and route groups are activated by generated endpoints.
-
-namespace Immediate.Jobs.Dashboard;
+namespace Immediate.Jobs.Dashboard.Endpoints;
 
 [Handler]
 [MapGet("recurring")]

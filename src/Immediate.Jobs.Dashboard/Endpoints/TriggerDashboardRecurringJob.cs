@@ -5,9 +5,7 @@ using Immediate.Validations.Shared;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
 
-#pragma warning disable CA1812 // Request types and route groups are activated by generated endpoints.
-
-namespace Immediate.Jobs.Dashboard;
+namespace Immediate.Jobs.Dashboard.Endpoints;
 
 [Handler]
 [MapPost("recurring/{name}/trigger")]

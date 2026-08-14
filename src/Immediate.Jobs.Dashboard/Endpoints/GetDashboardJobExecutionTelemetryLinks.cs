@@ -5,20 +5,21 @@ using Immediate.Validations.Shared;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.Extensions.Options;
 
-#pragma warning disable CA1812 // Request types and route groups are activated by generated endpoints.
-
-namespace Immediate.Jobs.Dashboard;
+namespace Immediate.Jobs.Dashboard.Endpoints;
 
 [Handler]
-[MapGet("jobs/{jobId}/telemetry-links")]
+[MapGet("jobs/{jobId}/executions/{executionNumber:int}/telemetry-links")]
 [MapGroup<DashboardApi>]
-internal static partial class GetDashboardJobTelemetryLinks
+internal static partial class GetDashboardJobExecutionTelemetryLinks
 {
 	[Validate]
 	internal sealed partial record Query : IValidationTarget<Query>
 	{
 		[NotEmpty]
 		public required string JobId { get; init; }
+
+		[GreaterThan(0)]
+		public required int ExecutionNumber { get; init; }
 	}
 
 	internal static Results<JsonHttpResult<IReadOnlyList<JobTelemetryLink>>, NotFound> TransformResult(
@@ -32,7 +33,7 @@ internal static partial class GetDashboardJobTelemetryLinks
 		CancellationToken cancellationToken
 	) => DashboardApiEndpointOperations.GetJobTelemetryLinksAsync(
 		query.JobId,
-		executionNumber: null,
+		query.ExecutionNumber,
 		monitor,
 		options.Value,
 		cancellationToken

@@ -5,21 +5,19 @@ using Immediate.Validations.Shared;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
 
-#pragma warning disable CA1812 // Request types and route groups are activated by generated endpoints.
-
-namespace Immediate.Jobs.Dashboard;
+namespace Immediate.Jobs.Dashboard.Endpoints;
 
 [Handler]
-[MapPost("jobs/{jobId}/cancel")]
+[MapPost("recurring/{name}/pause")]
 [MapGroup<DashboardApi>]
-internal static partial class CancelDashboardJob
+internal static partial class PauseDashboardRecurringJob
 {
 	[Validate]
 	internal sealed partial record Command : IValidationTarget<Command>
 	{
 		[FromRoute]
 		[NotEmpty]
-		public required string JobId { get; init; }
+		public required string Name { get; init; }
 	}
 
 	internal static Results<NoContent, NotFound, ProblemHttpResult> TransformResult(
@@ -30,7 +28,7 @@ internal static partial class CancelDashboardJob
 		Command command,
 		JobMonitor monitor,
 		CancellationToken cancellationToken
-	) => DashboardApiEndpointOperations.MutateJobAsync(
-		() => monitor.CancelJobAsync(command.JobId, cancellationToken)
+	) => DashboardApiEndpointOperations.MutateRecurringAsync(
+		() => monitor.PauseRecurringAsync(command.Name, cancellationToken)
 	);
 }

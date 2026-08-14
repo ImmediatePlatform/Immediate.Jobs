@@ -1,31 +1,23 @@
 using Immediate.Apis.Shared;
 using Immediate.Handlers.Shared;
 using Immediate.Jobs.Shared.Apis;
-using Immediate.Validations.Shared;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.Extensions.Options;
 
-#pragma warning disable CA1812 // Request types and route groups are activated by generated endpoints.
-
-namespace Immediate.Jobs.Dashboard;
+namespace Immediate.Jobs.Dashboard.Endpoints;
 
 [Handler]
-[MapGet("batches/{batchId}/stream")]
+[MapGet("events")]
 [MapGroup<DashboardApi>]
-internal static partial class StreamDashboardBatch
+internal static partial class StreamDashboardEvents
 {
-	[Validate]
-	internal sealed partial record Query : IValidationTarget<Query>
-	{
-		[NotEmpty]
-		public required string BatchId { get; init; }
-	}
+	internal sealed record Query;
 
 	internal static EmptyHttpResult TransformResult() => TypedResults.Empty;
 
 	private static async ValueTask HandleAsync(
-		Query query,
+		Query _,
 		IHttpContextAccessor httpContextAccessor,
 		JobMonitor monitor,
 		TimeProvider timeProvider,
@@ -33,9 +25,8 @@ internal static partial class StreamDashboardBatch
 		CancellationToken cancellationToken
 	)
 	{
-		await DashboardApiEndpointOperations.StreamBatchEventsAsync(
+		await DashboardApiEndpointOperations.StreamEventsAsync(
 			httpContextAccessor.HttpContext ?? throw new InvalidOperationException("No active dashboard HTTP request was found."),
-			query.BatchId,
 			monitor,
 			timeProvider,
 			options.Value.UpdateInterval,

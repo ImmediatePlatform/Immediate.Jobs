@@ -3,21 +3,17 @@ using Immediate.Handlers.Shared;
 using Immediate.Jobs.Shared.Apis;
 using Immediate.Validations.Shared;
 using Microsoft.AspNetCore.Http.HttpResults;
-using Microsoft.AspNetCore.Mvc;
 
-#pragma warning disable CA1812 // Request types and route groups are activated by generated endpoints.
-
-namespace Immediate.Jobs.Dashboard;
+namespace Immediate.Jobs.Dashboard.Endpoints;
 
 [Handler]
-[MapPost("batches/{batchId}/cancel")]
+[MapDelete("batches/{batchId}")]
 [MapGroup<DashboardApi>]
-internal static partial class CancelDashboardBatch
+internal static partial class DeleteDashboardBatch
 {
 	[Validate]
 	internal sealed partial record Command : IValidationTarget<Command>
 	{
-		[FromRoute]
 		[NotEmpty]
 		public required string BatchId { get; init; }
 	}
@@ -31,6 +27,6 @@ internal static partial class CancelDashboardBatch
 		JobMonitor monitor,
 		CancellationToken cancellationToken
 	) => DashboardApiEndpointOperations.MutateBatchAsync(
-		() => monitor.CancelBatchAsync(command.BatchId, cancellationToken)
+		() => monitor.DeleteBatchAsync(command.BatchId, cancellationToken)
 	);
 }
