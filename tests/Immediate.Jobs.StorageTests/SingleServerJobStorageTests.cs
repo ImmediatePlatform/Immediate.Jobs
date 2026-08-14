@@ -393,10 +393,11 @@ public sealed class SingleServerJobStorageTests
 		return proxy;
 	}
 
-	public interface ISingleServerDurableStorage : IRecurringJobStorage, IJobGraphStorage, IJobStorageReplica;
+	public interface ISingleServerDurableStorage : IRecurringJobStorage, IJobGraphStorage, IJobStorageReplica, IJobGraphStorageReplica;
 
 	public class DurableStorageProxy : DispatchProxy
 	{
+		private readonly List<JobContinuationEdge> _edges = [];
 		public object Inner { get; set; } = null!;
 		public bool BlockInitialization { get; set; }
 		public int GetIncomingEdgesCalls { get; private set; }
@@ -409,16 +410,40 @@ public sealed class SingleServerJobStorageTests
 		{
 			ArgumentNullException.ThrowIfNull(targetMethod);
 			ArgumentNullException.ThrowIfNull(args);
+
 			if (string.Equals(targetMethod.Name, nameof(IJobStorage.InitializeAsync), StringComparison.Ordinal) && BlockInitialization)
 			{
 				_ = InitializationEntered.TrySetResult();
 				return new ValueTask(InitializationRelease.Task);
 			}
 
-			if (string.Equals(targetMethod.Name, nameof(IJobGraphStorage.GetIncomingEdgesAsync), StringComparison.Ordinal))
+			if (string.Equals(targetMethod.Name, nameof(IJobGraphStorageReplica.GetIncomingEdgesAsync), StringComparison.Ordinal))
+			{
 				GetIncomingEdgesCalls++;
+				var requested = ((IReadOnlyCollection<string>)args[0]!).ToHashSet(StringComparer.Ordinal);
+				return ValueTask.FromResult<IReadOnlyList<JobContinuationEdge>>(
+					[.. _edges.Where(edge => requested.Contains(edge.ChildJobId))]
+				);
+			}
+
+			if (string.Equals(targetMethod.Name, nameof(IJobGraphStorage.EnqueueContinuationAsync), StringComparison.Ordinal))
+				_edges.AddRange((IReadOnlyList<JobContinuationEdge>)args[1]!);
+			if (string.Equals(targetMethod.Name, nameof(IJobGraphStorage.EnqueueBatchAsync), StringComparison.Ordinal))
+				_edges.AddRange((IReadOnlyList<JobContinuationEdge>)args[2]!);
+			if (string.Equals(targetMethod.Name, nameof(IJobGraphStorage.CompleteWithContinuationsAsync), StringComparison.Ordinal))
+			{
+				var parentJobId = (string)args[0]!;
+				_edges.AddRange(((IReadOnlyList<JobContinuationAddition>)args[3]!).Select(addition => new JobContinuationEdge
+				{
+					ChildJobId = addition.Job.Id,
+					ParentJobId = parentJobId,
+					Trigger = addition.Trigger,
+				}));
+			}
+
 			if (string.Equals(targetMethod.Name, nameof(IJobStorage.GetJobStatusAsync), StringComparison.Ordinal))
 				GetJobStatusCalls++;
+
 			if (string.Equals(targetMethod.Name, nameof(IJobStorageReplica.AcquireJobsAsync), StringComparison.Ordinal))
 			{
 				return ((InMemoryJobStorage)Inner).AcquireJobsAsync(

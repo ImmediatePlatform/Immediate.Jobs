@@ -23,6 +23,7 @@ public static class ImmediateJobsDashboardServiceCollectionExtensions
 		_ = services.AddSingleton(options);
 		_ = services.AddHttpContextAccessor();
 		_ = services.AddImmediateJobsDashboardHandlers();
+		_ = services.AddImmediateJobsCore();
 		return services;
 	}
 }

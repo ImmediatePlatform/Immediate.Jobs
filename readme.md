@@ -371,8 +371,11 @@ Queue-aware dispatch changes the provider acquisition seam to `AcquireDueJobsAsy
 
 ## Monitoring API
 
-Use `IBatchMonitor` and `IJobMonitor` for status, member, graph, and job reads. See
-[Batches & Continuations](docs/batches-and-continuations.md) for the complete API and semantics.
+Inject the concrete `JobMonitor` for job, execution, batch, recurring, server, and aggregate reads.
+`IJobMonitor` mirrors the same contract for consumers that prefer a testing interface. `IJobStorage`
+is the provider and scheduler persistence seam, not the recommended application-level monitoring
+API. See the [job monitor API direction](docs/job-monitor-api-review.md) and
+[Batches & Continuations](docs/batches-and-continuations.md).
 
 ## Dashboard and Monitoring Web API
 

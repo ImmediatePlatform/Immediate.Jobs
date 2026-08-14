@@ -565,11 +565,11 @@ public sealed class RelationalStorageMatrixTests(StorageContainers containers)
 			Trigger = ContinuationTrigger.Success,
 		}], cancellationToken);
 
-		_ = Assert.Single(await storage.GetIncomingEdgesAsync([child.Id], cancellationToken));
+		_ = Assert.Single(await ((IJobGraphStorageReplica)storage).GetIncomingEdgesAsync([child.Id], cancellationToken));
 		await storage.DeleteAsync(child.Id, cancellationToken);
 
 		Assert.Null(await storage.GetJobStatusAsync(child.Id, cancellationToken));
-		Assert.Empty(await storage.GetIncomingEdgesAsync([child.Id], cancellationToken));
+		Assert.Empty(await ((IJobGraphStorageReplica)storage).GetIncomingEdgesAsync([child.Id], cancellationToken));
 	}
 
 	[Theory]

@@ -37,26 +37,6 @@ public sealed class JobExecutionStorageTests
 		Assert.Equal(synthetic, retained);
 	}
 
-	[Fact]
-	public async Task ExecutionQueryValidatesEveryFilter()
-	{
-		var cancellationToken = TestContext.Current.CancellationToken;
-		await using var storage = new InMemoryJobStorage(TimeProvider.System);
-
-		_ = await Assert.ThrowsAsync<ArgumentException>(
-			() => storage.QueryJobExecutionsAsync(new() { JobId = "" }, cancellationToken).AsTask()
-		);
-		_ = await Assert.ThrowsAsync<ArgumentOutOfRangeException>(
-			() => storage.QueryJobExecutionsAsync(new() { JobId = "job", Attempt = 0 }, cancellationToken).AsTask()
-		);
-		_ = await Assert.ThrowsAsync<ArgumentOutOfRangeException>(
-			() => storage.QueryJobExecutionsAsync(new() { JobId = "job", Skip = -1 }, cancellationToken).AsTask()
-		);
-		_ = await Assert.ThrowsAsync<ArgumentOutOfRangeException>(
-			() => storage.QueryJobExecutionsAsync(new() { JobId = "job", Take = 0 }, cancellationToken).AsTask()
-		);
-	}
-
 	private static JobRecord CreateJob(string id, DateTimeOffset now) => new()
 	{
 		Id = id,

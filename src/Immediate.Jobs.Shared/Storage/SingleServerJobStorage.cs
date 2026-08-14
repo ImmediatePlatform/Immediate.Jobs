@@ -21,6 +21,7 @@ internal sealed class SingleServerJobStorage :
 #pragma warning restore CA2213
 	private readonly IRecurringJobStorage _recurringDurableStorage;
 	private readonly IJobGraphStorage _graphDurableStorage;
+	private readonly IJobGraphStorageReplica _graphDurableReplica;
 	private readonly Lock _disposeGate = new();
 	private InMemoryJobStorage _primary;
 	private bool _initialized;
@@ -51,10 +52,13 @@ internal sealed class SingleServerJobStorage :
 			throw new ArgumentException("Single-server durable storage must support recurring jobs.", nameof(durableStorage));
 		if (durableStorage is not IJobGraphStorage graphDurableStorage)
 			throw new ArgumentException("Single-server durable storage must support batches and continuations.", nameof(durableStorage));
+		if (durableStorage is not IJobGraphStorageReplica graphDurableReplica)
+			throw new ArgumentException("Single-server durable storage must implement IJobGraphStorageReplica.", nameof(durableStorage));
 
 		DurableStorage = durableStorage;
 		_recurringDurableStorage = recurringDurableStorage;
 		_graphDurableStorage = graphDurableStorage;
+		_graphDurableReplica = graphDurableReplica;
 		_timeProvider = timeProvider;
 		_primary = new(timeProvider);
 	}
@@ -84,16 +88,6 @@ internal sealed class SingleServerJobStorage :
 		await EnsureInitializedAsync(cancellationToken).ConfigureAwait(false);
 		await DurableStorage.EnqueueAsync(job, cancellationToken).ConfigureAwait(false);
 		await _primary.EnqueueAsync(job, cancellationToken).ConfigureAwait(false);
-	}
-
-	/// <inheritdoc />
-	public async ValueTask<IReadOnlyList<JobContinuationEdge>> GetIncomingEdgesAsync(
-		IReadOnlyCollection<string> childJobIds,
-		CancellationToken cancellationToken = default
-	)
-	{
-		await EnsureInitializedAsync(cancellationToken).ConfigureAwait(false);
-		return await _primary.GetIncomingEdgesAsync(childJobIds, cancellationToken).ConfigureAwait(false);
 	}
 
 	/// <inheritdoc />
@@ -590,7 +584,7 @@ internal sealed class SingleServerJobStorage :
 						.ToArray();
 					if (standaloneIds.Length != 0)
 					{
-						var incomingEdges = await _graphDurableStorage.GetIncomingEdgesAsync(
+						var incomingEdges = await _graphDurableReplica.GetIncomingEdgesAsync(
 							standaloneIds,
 							cancellationToken
 						).ConfigureAwait(false);

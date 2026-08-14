@@ -33,14 +33,9 @@ internal static partial class GetDashboardOverview
 
 	private static async ValueTask<JobMonitoringSnapshot> HandleAsync(
 		Query _,
-		IJobStorage storage,
+		JobMonitor monitor,
 		CancellationToken cancellationToken
-	)
-	{
-		var snapshot = await storage.GetMonitoringSnapshotAsync(cancellationToken);
-		snapshot = snapshot with { Capabilities = storage.GetCapabilities() };
-		return snapshot;
-	}
+	) => await monitor.GetSnapshotAsync(cancellationToken);
 }
 
 [Handler]
@@ -67,13 +62,13 @@ internal static partial class GetDashboardJobs
 
 	private static async ValueTask<DashboardJobPage> HandleAsync(
 		Query query,
-		IJobStorage storage,
+		JobMonitor monitor,
 		CancellationToken cancellationToken
 	)
 	{
 		var pageSize = Math.Min(query.Take ?? 50, 200);
 		var pageStart = query.Skip ?? 0;
-		var jobs = await storage.QueryJobsAsync(new JobQuery
+		var jobs = await monitor.QueryJobsAsync(new JobQuery
 		{
 			State = query.State,
 			QueueName = query.Queue,
@@ -109,11 +104,11 @@ internal static partial class GetDashboardJob
 
 	private static async ValueTask<JobRecord?> HandleAsync(
 		Query query,
-		IJobStorage storage,
+		JobMonitor monitor,
 		CancellationToken cancellationToken
 	)
 	{
-		var jobs = await storage.QueryJobsAsync(
+		var jobs = await monitor.QueryJobsAsync(
 			new() { Id = query.JobId, Take = 1 },
 			cancellationToken
 		);
@@ -147,20 +142,20 @@ internal static partial class GetDashboardJobExecutions
 
 	private static async ValueTask<DashboardJobExecutionPage?> HandleAsync(
 		Query query,
-		IJobStorage storage,
+		JobMonitor monitor,
 		CancellationToken cancellationToken
 	)
 	{
 		var pageStart = query.Skip ?? 0;
 		var pageSize = Math.Min(query.Take ?? 50, 200);
-		var jobs = await storage.QueryJobsAsync(
+		var jobs = await monitor.QueryJobsAsync(
 			new() { Id = query.JobId, Take = 1 },
 			cancellationToken
 		);
 		if (jobs.Count == 0)
 			return null;
 
-		var executions = await storage.QueryJobExecutionsAsync(new()
+		var executions = await monitor.QueryExecutionsAsync(new()
 		{
 			JobId = query.JobId,
 			Skip = pageStart,
@@ -187,19 +182,19 @@ internal static partial class GetDashboardJobTelemetryLinks
 		public required string JobId { get; init; }
 	}
 
-	internal static Results<JsonHttpResult<JobTelemetryLink[]>, NotFound> TransformResult(
-		JobTelemetryLink[]? result
+	internal static Results<JsonHttpResult<IReadOnlyList<JobTelemetryLink>>, NotFound> TransformResult(
+		IReadOnlyList<JobTelemetryLink>? result
 	) => DashboardApiEndpointOperations.TransformTelemetryLinksResult(result);
 
-	private static ValueTask<JobTelemetryLink[]?> HandleAsync(
+	private static ValueTask<IReadOnlyList<JobTelemetryLink>?> HandleAsync(
 		Query query,
-		IJobStorage storage,
+		IJobMonitor monitor,
 		ImmediateJobsDashboardOptions options,
 		CancellationToken cancellationToken
 	) => DashboardApiEndpointOperations.GetJobTelemetryLinksAsync(
 		query.JobId,
 		executionNumber: null,
-		storage,
+		monitor,
 		options,
 		cancellationToken
 	);
@@ -220,19 +215,19 @@ internal static partial class GetDashboardJobExecutionTelemetryLinks
 		public required int ExecutionNumber { get; init; }
 	}
 
-	internal static Results<JsonHttpResult<JobTelemetryLink[]>, NotFound> TransformResult(
-		JobTelemetryLink[]? result
+	internal static Results<JsonHttpResult<IReadOnlyList<JobTelemetryLink>>, NotFound> TransformResult(
+		IReadOnlyList<JobTelemetryLink>? result
 	) => DashboardApiEndpointOperations.TransformTelemetryLinksResult(result);
 
-	private static ValueTask<JobTelemetryLink[]?> HandleAsync(
+	private static ValueTask<IReadOnlyList<JobTelemetryLink>?> HandleAsync(
 		Query query,
-		IJobStorage storage,
+		IJobMonitor monitor,
 		ImmediateJobsDashboardOptions options,
 		CancellationToken cancellationToken
 	) => DashboardApiEndpointOperations.GetJobTelemetryLinksAsync(
 		query.JobId,
 		query.ExecutionNumber,
-		storage,
+		monitor,
 		options,
 		cancellationToken
 	);
@@ -255,27 +250,23 @@ internal static partial class GetDashboardBatches
 		public int? Take { get; init; }
 	}
 
-	internal static Results<JsonHttpResult<BatchStatus[]>, NotFound> TransformResult(BatchStatus[]? result) =>
+	internal static Results<JsonHttpResult<IReadOnlyList<BatchStatus>>, NotFound> TransformResult(IReadOnlyList<BatchStatus>? result) =>
 		result is null
 			? TypedResults.NotFound()
-			: TypedResults.Json(result, DashboardJsonSerializerContext.Default.BatchStatusArray);
+			: TypedResults.Json(result, DashboardJsonSerializerContext.Default.IReadOnlyListBatchStatus);
 
-	private static async ValueTask<BatchStatus[]?> HandleAsync(
+	private static async ValueTask<IReadOnlyList<BatchStatus>?> HandleAsync(
 		Query query,
-		IJobStorage storage,
+		JobMonitor monitor,
 		CancellationToken cancellationToken
 	)
 	{
-		if (storage is not IJobGraphStorage graphStorage)
-			return null;
-
-		var batches = await graphStorage.QueryBatchesAsync(new()
+		return await monitor.QueryBatchesAsync(new()
 		{
 			State = query.State,
 			Skip = query.Skip ?? 0,
 			Take = Math.Min(query.Take ?? 100, 500),
 		}, cancellationToken);
-		return [.. batches];
 	}
 }
 
@@ -298,14 +289,11 @@ internal static partial class GetDashboardBatch
 
 	private static async ValueTask<BatchStatus?> HandleAsync(
 		Query query,
-		IJobStorage storage,
+		JobMonitor monitor,
 		CancellationToken cancellationToken
 	)
 	{
-		if (storage is not IJobGraphStorage graphStorage)
-			return null;
-
-		return await graphStorage.GetBatchStatusAsync(query.BatchId, cancellationToken);
+		return await monitor.GetBatchAsync(query.BatchId, cancellationToken);
 	}
 }
 
@@ -328,28 +316,24 @@ internal static partial class GetDashboardBatchMembers
 		public int? Take { get; init; }
 	}
 
-	internal static Results<JsonHttpResult<BatchMemberStatus[]>, NotFound> TransformResult(
-		BatchMemberStatus[]? result
+	internal static Results<JsonHttpResult<IReadOnlyList<BatchMemberStatus>>, NotFound> TransformResult(
+		IReadOnlyList<BatchMemberStatus>? result
 	) => result is null
 		? TypedResults.NotFound()
-		: TypedResults.Json(result, DashboardJsonSerializerContext.Default.BatchMemberStatusArray);
+		: TypedResults.Json(result, DashboardJsonSerializerContext.Default.IReadOnlyListBatchMemberStatus);
 
-	private static async ValueTask<BatchMemberStatus[]?> HandleAsync(
+	private static async ValueTask<IReadOnlyList<BatchMemberStatus>?> HandleAsync(
 		Query query,
-		IJobStorage storage,
+		JobMonitor monitor,
 		CancellationToken cancellationToken
 	)
 	{
-		if (storage is not IJobGraphStorage graphStorage)
-			return null;
-
-		var members = await graphStorage.QueryBatchMembersAsync(query.BatchId, new()
+		return await monitor.QueryBatchMembersAsync(query.BatchId, new()
 		{
 			State = query.State,
 			Skip = query.Skip ?? 0,
 			Take = Math.Min(query.Take ?? 100, 500),
 		}, cancellationToken);
-		return [.. members];
 	}
 }
 
@@ -372,14 +356,11 @@ internal static partial class GetDashboardBatchGraph
 
 	private static async ValueTask<BatchGraph?> HandleAsync(
 		Query query,
-		IJobStorage storage,
+		JobMonitor monitor,
 		CancellationToken cancellationToken
 	)
 	{
-		if (storage is not IJobGraphStorage graphStorage)
-			return null;
-
-		return await graphStorage.GetBatchGraphAsync(query.BatchId, cancellationToken);
+		return await monitor.GetBatchGraphAsync(query.BatchId, cancellationToken);
 	}
 }
 
@@ -477,16 +458,16 @@ internal static partial class GetDashboardRecurringJobs
 {
 	internal sealed record Query;
 
-	internal static JsonHttpResult<RecurringJobSchedule[]> TransformResult(RecurringJobSchedule[] result) =>
-		TypedResults.Json(result, DashboardJsonSerializerContext.Default.RecurringJobScheduleArray);
+	internal static JsonHttpResult<IReadOnlyList<RecurringJobSchedule>> TransformResult(IReadOnlyList<RecurringJobSchedule> result) =>
+		TypedResults.Json(result, DashboardJsonSerializerContext.Default.IReadOnlyListRecurringJobSchedule);
 
-	private static async ValueTask<RecurringJobSchedule[]> HandleAsync(
+	private static async ValueTask<IReadOnlyList<RecurringJobSchedule>> HandleAsync(
 		Query _,
-		IJobStorage storage,
+		JobMonitor monitor,
 		CancellationToken cancellationToken
 	)
 	{
-		var snapshot = await storage.GetMonitoringSnapshotAsync(cancellationToken);
+		var snapshot = await monitor.GetSnapshotAsync(cancellationToken);
 		return [.. snapshot.Recurring];
 	}
 }
@@ -498,16 +479,16 @@ internal static partial class GetDashboardServers
 {
 	internal sealed record Query;
 
-	internal static JsonHttpResult<JobServerSnapshot[]> TransformResult(JobServerSnapshot[] result) =>
-		TypedResults.Json(result, DashboardJsonSerializerContext.Default.JobServerSnapshotArray);
+	internal static JsonHttpResult<IReadOnlyList<JobServerSnapshot>> TransformResult(IReadOnlyList<JobServerSnapshot> result) =>
+		TypedResults.Json(result, DashboardJsonSerializerContext.Default.IReadOnlyListJobServerSnapshot);
 
-	private static async ValueTask<JobServerSnapshot[]> HandleAsync(
+	private static async ValueTask<IReadOnlyList<JobServerSnapshot>> HandleAsync(
 		Query _,
-		IJobStorage storage,
+		JobMonitor monitor,
 		CancellationToken cancellationToken
 	)
 	{
-		var snapshot = await storage.GetMonitoringSnapshotAsync(cancellationToken);
+		var snapshot = await monitor.GetSnapshotAsync(cancellationToken);
 		return [.. snapshot.Servers];
 	}
 }
@@ -723,11 +704,11 @@ internal sealed record DashboardMutationResult(DashboardMutationStatus Status, s
 
 internal static class DashboardApiEndpointOperations
 {
-	internal static Results<JsonHttpResult<JobTelemetryLink[]>, NotFound> TransformTelemetryLinksResult(
-		JobTelemetryLink[]? result
+	internal static Results<JsonHttpResult<IReadOnlyList<JobTelemetryLink>>, NotFound> TransformTelemetryLinksResult(
+		IReadOnlyList<JobTelemetryLink>? result
 	) => result is null
 		? TypedResults.NotFound()
-		: TypedResults.Json(result, DashboardJsonSerializerContext.Default.JobTelemetryLinkArray);
+		: TypedResults.Json(result, DashboardJsonSerializerContext.Default.IReadOnlyListJobTelemetryLink);
 
 	internal static Results<NoContent, NotFound, ProblemHttpResult> TransformMutationResult(
 		DashboardMutationResult result
@@ -761,26 +742,22 @@ internal static class DashboardApiEndpointOperations
 		_ => throw new InvalidOperationException($"Unsupported trigger status '{result.Status}'."),
 	};
 
-	internal static async ValueTask<JobTelemetryLink[]?> GetJobTelemetryLinksAsync(
+	internal static async ValueTask<IReadOnlyList<JobTelemetryLink>?> GetJobTelemetryLinksAsync(
 		string jobId,
 		int? executionNumber,
-		IJobStorage storage,
+		IJobMonitor monitor,
 		ImmediateJobsDashboardOptions options,
 		CancellationToken cancellationToken
 	)
 	{
-		var jobs = await storage.QueryJobsAsync(
-			new() { Id = jobId, Take = 1 },
-			cancellationToken
-		);
-		var job = jobs.SingleOrDefault();
+		var job = await monitor.GetJobAsync(jobId, cancellationToken);
 		if (job is null)
 			return null;
 
 		JobExecutionRecord? execution = null;
 		if (executionNumber is { } attempt)
 		{
-			var executions = await storage.QueryJobExecutionsAsync(
+			var executions = await monitor.QueryExecutionsAsync(
 				new() { JobId = jobId, Attempt = attempt, Take = 1 },
 				cancellationToken
 			);
@@ -792,16 +769,24 @@ internal static class DashboardApiEndpointOperations
 		if (options.TelemetryLinks.Count == 0)
 			return [];
 
-		var contextJob = execution is null
-			? job
-			: job with
-			{
-				Attempt = execution.Attempt,
-				ExecutionTraceId = execution.ExecutionTraceId,
-				ExecutionSpanId = execution.ExecutionSpanId,
-				ExecutionStartedAt = execution.ExecutionStartedAt,
-			};
-		var context = new JobTelemetryLinkContext(contextJob) { Execution = execution };
+		var contextJob = new JobRecord
+		{
+			Id = job.JobId,
+			JobName = job.JobName,
+			QueueName = job.QueueName,
+			Payload = string.Empty,
+			State = job.State,
+			Attempt = execution?.Attempt ?? job.Attempt,
+			DueAt = job.DueAt,
+			CreatedAt = job.CreatedAt,
+			CompletedAt = job.CompletedAt,
+			LastError = job.LastError,
+			BatchId = job.BatchId,
+			ExecutionTraceId = execution?.ExecutionTraceId,
+			ExecutionSpanId = execution?.ExecutionSpanId,
+			ExecutionStartedAt = execution?.ExecutionStartedAt,
+		};
+		var context = new JobTelemetryLinkContext(contextJob) { Execution = execution, MaxAttempts = job.MaxAttempts };
 		var links = new List<JobTelemetryLink>(options.TelemetryLinks.Count);
 		foreach (var registration in options.TelemetryLinks)
 		{

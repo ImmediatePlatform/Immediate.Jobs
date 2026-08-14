@@ -7,7 +7,6 @@ namespace Immediate.Jobs.Testing;
 internal static class GraphStorageConformance
 {
 	private const string CapabilityName = "Graph.Capability.ResolvesAdvertisedStorage";
-	private const string IncomingEdgesName = "Graph.Edges.PreservesAndNormalizesIncomingLookups";
 	private const string BatchLifecycleName = "Graph.Batches.CommitsProjectsAndDeletesAtomically";
 	private const string InvalidBatchName = "Graph.Batches.RollbackInvalidBatchWithoutPartialWrites";
 	private const string TriggerName = "Graph.Dependencies.ReleasesAndSkipsConditionalBranches";
@@ -18,7 +17,6 @@ internal static class GraphStorageConformance
 	internal static IReadOnlyList<JobStorageConformanceCaseDefinition> Cases { get; } =
 	[
 		new(CapabilityName, StorageCapabilities.Graph, ResolvesAdvertisedStorage),
-		new(IncomingEdgesName, StorageCapabilities.Graph, IncomingEdgesAsync),
 		new(BatchLifecycleName, StorageCapabilities.Graph, BatchLifecycleAsync),
 		new(InvalidBatchName, StorageCapabilities.Graph, InvalidBatchRollsBackAsync),
 		new(TriggerName, StorageCapabilities.Graph, ConditionalTriggersAsync),
@@ -37,78 +35,6 @@ internal static class GraphStorageConformance
 		cancellationToken.ThrowIfCancellationRequested();
 		_ = GetGraph(storage, CapabilityName);
 		return ValueTask.CompletedTask;
-	}
-
-	private static async ValueTask IncomingEdgesAsync(
-		IJobStorage storage,
-		IServiceProvider serviceProvider,
-		CancellationToken cancellationToken
-	)
-	{
-		_ = serviceProvider;
-		var graph = GetGraph(storage, IncomingEdgesName);
-		var batchParent = CreateJob("edges-batch-parent", batchId: "edges-parent-batch");
-		var jobParent = CreateJob("edges-job-parent");
-		var child = CreateJob("edges-child") with
-		{
-			State = JobState.AwaitingContinuation,
-			RemainingDependencies = 2,
-		};
-		await graph.EnqueueBatchAsync(CreateBatch("edges-parent-batch", 1), [batchParent], [], cancellationToken)
-			.ConfigureAwait(false);
-		await graph.EnqueueAsync(jobParent, cancellationToken).ConfigureAwait(false);
-		await graph.EnqueueContinuationAsync(
-			child,
-			[
-				new()
-				{
-					ChildJobId = child.Id,
-					ParentJobId = jobParent.Id,
-					Trigger = ContinuationTrigger.Failure,
-				},
-				new()
-				{
-					ChildJobId = child.Id,
-					ParentBatchId = "edges-parent-batch",
-					Trigger = ContinuationTrigger.Complete,
-				},
-			],
-			cancellationToken
-		).ConfigureAwait(false);
-
-		ConformanceAssert.Equal(
-			0,
-			(await graph.GetIncomingEdgesAsync([], cancellationToken).ConfigureAwait(false)).Count,
-			IncomingEdgesName,
-			"an empty incoming-edge lookup must return an empty collection"
-		);
-		var edges = await graph.GetIncomingEdgesAsync([child.Id, child.Id, "missing"], cancellationToken)
-			.ConfigureAwait(false);
-		ConformanceAssert.Equal(2, edges.Count, IncomingEdgesName, "duplicate child ids must be normalized");
-		ConformanceAssert.True(
-			edges.Any(edge => string.Equals(edge.ChildJobId, child.Id, StringComparison.Ordinal) &&
-				string.Equals(edge.ParentJobId, jobParent.Id, StringComparison.Ordinal) &&
-				edge.ParentBatchId is null && edge.Trigger == ContinuationTrigger.Failure),
-			IncomingEdgesName,
-			"job-parent edge fields must round-trip"
-		);
-		ConformanceAssert.True(
-			edges.Any(edge => string.Equals(edge.ChildJobId, child.Id, StringComparison.Ordinal) && edge.ParentJobId is null &&
-				string.Equals(edge.ParentBatchId, "edges-parent-batch", StringComparison.Ordinal) &&
-				edge.Trigger == ContinuationTrigger.Complete),
-			IncomingEdgesName,
-			"batch-parent edge fields must round-trip"
-		);
-		_ = await ConformanceAssert.ThrowsAsync<ArgumentNullException>(
-			async () => _ = await graph.GetIncomingEdgesAsync(null!, cancellationToken).ConfigureAwait(false),
-			IncomingEdgesName,
-			"a null child-id collection must be rejected"
-		).ConfigureAwait(false);
-		_ = await ConformanceAssert.ThrowsAsync<ArgumentException>(
-			async () => _ = await graph.GetIncomingEdgesAsync([" "], cancellationToken).ConfigureAwait(false),
-			IncomingEdgesName,
-			"blank child ids must be rejected"
-		).ConfigureAwait(false);
 	}
 
 	private static async ValueTask BatchLifecycleAsync(

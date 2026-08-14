@@ -25,8 +25,9 @@ implements the ones it can honor, and the runtime detects what is available and 
 
 ## 2. Capability taxonomy
 
-Three capabilities. The first is mandatory — a store that can't do it isn't a job store — and it *is*
-the base type everyone injects. The other two are optional extensions of it.
+The taxonomy has three job-store capabilities: the mandatory Queue base and the optional Recurring
+and Graph extensions. Two additional replica requirements support recovery when an in-memory queue
+uses a durable backing store in single-server mode.
 
 | Capability | Interface | What it covers | Redis? | SQL? |
 | --- | --- | --- | --- | --- |
@@ -34,8 +35,9 @@ the base type everyone injects. The other two are optional extensions of it.
 | **Recurring** | `IRecurringJobStorage : IJobStorage` | upsert/pause/resume/remove schedules, due-schedule scan, occurrence materialization (dedupe) | ✅ (conditional writes) | ✅ |
 | **Graph** | `IJobGraphStorage : IJobStorage` | atomic batch + continuation writes, edge/counter maintenance, gated-completion flush, batch reads/graph, cancel/delete batch, batch history purge | ❌ | ✅ |
 | **Replica** *(exists)* | `IJobStorageReplica` | mirror the exact job set an authoritative in-memory queue selected (single-server mode) | — | ✅ |
+| **Graph replica** | `IJobGraphStorageReplica` | read standalone continuation edges during single-server recovery | — | ✅ |
 
-The in-memory provider does not implement `IJobStorageReplica`. In-memory mode uses it directly;
+The in-memory provider implements neither replica interface. In-memory mode uses it directly;
 single-server mode requires a durable backing store, so only the built-in relational providers
 advertise replica support.
 

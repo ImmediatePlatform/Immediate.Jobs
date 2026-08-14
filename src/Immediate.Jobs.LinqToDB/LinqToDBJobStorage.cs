@@ -5,13 +5,10 @@ using LinqToDB;
 using LinqToDB.Async;
 using LinqToDB.Data;
 
-// TODO: remove and fix diagnostics
-#pragma warning disable MA0015 // Specify the parameter name in ArgumentException
-
 namespace Immediate.Jobs.LinqToDB;
 
 /// <summary>An optimistic-concurrency LinqToDB implementation of <see cref="IJobStorage"/>.</summary>
-internal sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorage, IFairQueueStorage, IJobStorageReplica
+internal sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorage, IFairQueueStorage, IJobStorageReplica, IJobGraphStorageReplica
 {
 	private const int MaxContendedCompletionAttempts = 50;
 	private const int MaxConcurrencyAttempts = 5;
@@ -64,12 +61,6 @@ internal sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorag
 		CancellationToken cancellationToken = default
 	)
 	{
-		ArgumentNullException.ThrowIfNull(childJobIds);
-		if (childJobIds.Any(string.IsNullOrWhiteSpace))
-			throw new ArgumentException("Child job identifiers cannot be null or blank.", nameof(childJobIds));
-		if (childJobIds.Count == 0)
-			return [];
-
 		var ids = childJobIds.Distinct(StringComparer.Ordinal).ToArray();
 		await using var connection = CreateConnection();
 		var edges = await Continuations(connection)
@@ -187,10 +178,6 @@ internal sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorag
 		CancellationToken cancellationToken = default
 	)
 	{
-		ArgumentNullException.ThrowIfNull(request);
-		ArgumentException.ThrowIfNullOrWhiteSpace(request.WorkerId);
-		ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(request.Lease, TimeSpan.Zero);
-		ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(request.BatchSize, 0);
 		if (request.FairQueues is not null)
 			return await AcquireDueJobsFairAsync(request, cancellationToken).ConfigureAwait(false);
 
@@ -682,8 +669,6 @@ internal sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorag
 
 	private static void ValidateDynamicJob(JobRecord job, string description)
 	{
-		ArgumentException.ThrowIfNullOrWhiteSpace(job.Id);
-		ArgumentException.ThrowIfNullOrWhiteSpace(job.JobName);
 		if (job.State is not (JobState.Pending or JobState.Scheduled))
 			throw new ImmediateJobException($"{description} '{job.Id}' has invalid state '{job.State}'.");
 	}
@@ -1155,9 +1140,6 @@ internal sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorag
 		CancellationToken cancellationToken = default
 	)
 	{
-		ArgumentNullException.ThrowIfNull(query);
-		ArgumentOutOfRangeException.ThrowIfNegative(query.Skip);
-		ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(query.Take, 0);
 		await using var connection = CreateConnection();
 		IQueryable<ImmediateJobEntity> jobs = Jobs(connection);
 		if (query.Id is { } id)
@@ -1191,8 +1173,6 @@ internal sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorag
 		CancellationToken cancellationToken = default
 	)
 	{
-		ArgumentNullException.ThrowIfNull(query);
-		query.Validate();
 		await using var connection = CreateConnection();
 		var job = await Jobs(connection)
 			.SingleOrDefaultAsync(item => item.Id == query.JobId, cancellationToken)
@@ -1213,7 +1193,7 @@ internal sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorag
 				cancellationToken
 			).ConfigureAwait(false);
 		var skip = query.Skip;
-		var take = Math.Min(query.Take, JobExecutionQuery.MaximumTake);
+		var take = query.Take;
 		var result = new List<JobExecutionRecord>(take);
 		if (syntheticMissing && skip == 0)
 		{
@@ -1258,9 +1238,6 @@ internal sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorag
 		CancellationToken cancellationToken = default
 	)
 	{
-		ArgumentNullException.ThrowIfNull(query);
-		ArgumentOutOfRangeException.ThrowIfNegative(query.Skip);
-		ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(query.Take, 0);
 		await using var connection = CreateConnection();
 		IQueryable<ImmediateJobBatchEntity> batches = Batches(connection);
 		if (query.State is { } state)
@@ -1281,10 +1258,6 @@ internal sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorag
 		CancellationToken cancellationToken = default
 	)
 	{
-		ArgumentException.ThrowIfNullOrWhiteSpace(batchId);
-		ArgumentNullException.ThrowIfNull(query);
-		ArgumentOutOfRangeException.ThrowIfNegative(query.Skip);
-		ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(query.Take, 0);
 		await using var connection = CreateConnection();
 		var jobs = Jobs(connection).Where(job => job.BatchId == batchId);
 		if (query.State is { } state)
@@ -1344,7 +1317,6 @@ internal sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorag
 		CancellationToken cancellationToken = default
 	)
 	{
-		ArgumentException.ThrowIfNullOrWhiteSpace(jobId);
 		await using var connection = CreateConnection();
 		var job = await Jobs(connection).SingleOrDefaultAsync(item => item.Id == jobId, cancellationToken)
 			.ConfigureAwait(false);
@@ -1988,8 +1960,6 @@ internal sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorag
 		var trackedAdditions = 0;
 		foreach (var addition in additions)
 		{
-			ArgumentNullException.ThrowIfNull(addition);
-			ArgumentNullException.ThrowIfNull(addition.Job);
 			ValidateDynamicJob(addition.Job, "Dynamic continuation");
 			if (!ids.Add(addition.Job.Id))
 				throw new ImmediateJobException($"Job '{addition.Job.Id}' occurs more than once in the completion buffer.");
