@@ -1,8 +1,6 @@
 using System.Globalization;
 using System.Text.Json;
 using Immediate.Jobs.Shared.Apis;
-using Immediate.Jobs.Shared.Interfaces;
-using Immediate.Jobs.Shared.Storage;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.HttpResults;
 
@@ -71,7 +69,7 @@ internal static class DashboardApiEndpointOperations
 	internal static async ValueTask<IReadOnlyList<JobTelemetryLink>?> GetJobTelemetryLinksAsync(
 		string jobId,
 		int? executionNumber,
-		IJobMonitor monitor,
+		JobMonitor monitor,
 		ImmediateJobsDashboardOptions options,
 		CancellationToken cancellationToken
 	)
@@ -168,7 +166,8 @@ internal static class DashboardApiEndpointOperations
 
 	internal static async Task StreamEventsAsync(
 		HttpContext context,
-		IJobStorage storage,
+		JobMonitor monitor,
+		TimeProvider timeProvider,
 		TimeSpan interval,
 		CancellationToken cancellationToken
 	)
@@ -185,12 +184,9 @@ internal static class DashboardApiEndpointOperations
 
 			while (!cancellationToken.IsCancellationRequested)
 			{
-				var snapshot = await storage.GetMonitoringSnapshotAsync(cancellationToken);
-				snapshot = snapshot with { Capabilities = storage.GetCapabilities() };
-				var jobs = await storage.QueryJobsAsync(new() { Take = 100 }, cancellationToken);
-				var batches = storage is IJobGraphStorage graphStorage
-					? await graphStorage.QueryBatchesAsync(new() { Take = 100 }, cancellationToken)
-					: [];
+				var snapshot = await monitor.GetSnapshotAsync(cancellationToken);
+				var jobs = await monitor.QueryJobsAsync(new() { Take = 100 }, cancellationToken);
+				var batches = await monitor.QueryBatchesAsync(new() { Take = 100 }, cancellationToken) ?? [];
 				var state = new DashboardState(snapshot, [.. jobs], [.. batches]);
 				var json = JsonSerializer.Serialize(state, DashboardJsonSerializerContext.Default.DashboardState);
 				await context.Response.WriteAsync(
@@ -199,7 +195,7 @@ internal static class DashboardApiEndpointOperations
 				);
 				await context.Response.WriteAsync("event: state\ndata: " + json + "\n\n", cancellationToken);
 				await context.Response.Body.FlushAsync(cancellationToken);
-				await Task.Delay(interval, cancellationToken);
+				await Task.Delay(interval, timeProvider, cancellationToken);
 			}
 		}
 		catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -210,18 +206,13 @@ internal static class DashboardApiEndpointOperations
 	internal static async Task StreamBatchEventsAsync(
 		HttpContext context,
 		string batchId,
-		IJobStorage storage,
+		JobMonitor monitor,
+		TimeProvider timeProvider,
 		TimeSpan interval,
 		CancellationToken cancellationToken
 	)
 	{
-		if (storage is not IJobGraphStorage graphStorage)
-		{
-			context.Response.StatusCode = StatusCodes.Status404NotFound;
-			return;
-		}
-
-		var status = await graphStorage.GetBatchStatusAsync(batchId, cancellationToken);
+		var status = await monitor.GetBatchAsync(batchId, cancellationToken);
 		if (status is null)
 		{
 			context.Response.StatusCode = StatusCodes.Status404NotFound;
@@ -241,8 +232,8 @@ internal static class DashboardApiEndpointOperations
 
 			while (!cancellationToken.IsCancellationRequested)
 			{
-				status = await graphStorage.GetBatchStatusAsync(batchId, cancellationToken);
-				var graph = await graphStorage.GetBatchGraphAsync(batchId, cancellationToken);
+				status = await monitor.GetBatchAsync(batchId, cancellationToken);
+				var graph = await monitor.GetBatchGraphAsync(batchId, cancellationToken);
 				if (status is null || graph is null)
 					break;
 
@@ -251,7 +242,7 @@ internal static class DashboardApiEndpointOperations
 				var currentState = statusJson + graphJson;
 				if (!string.Equals(previousState, currentState, StringComparison.Ordinal))
 				{
-					var eventId = TimeProvider.System.GetUtcNow().ToUnixTimeMilliseconds()
+					var eventId = timeProvider.GetUtcNow().ToUnixTimeMilliseconds()
 						.ToString(CultureInfo.InvariantCulture);
 					await context.Response.WriteAsync("id: " + eventId + "\n", cancellationToken);
 					await context.Response.WriteAsync("event: status\ndata: " + statusJson + "\n\n", cancellationToken);
@@ -260,7 +251,7 @@ internal static class DashboardApiEndpointOperations
 					previousState = currentState;
 				}
 
-				await Task.Delay(interval, cancellationToken);
+				await Task.Delay(interval, timeProvider, cancellationToken);
 			}
 		}
 		catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)

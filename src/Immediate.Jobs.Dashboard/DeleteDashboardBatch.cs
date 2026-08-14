@@ -1,6 +1,6 @@
 using Immediate.Apis.Shared;
 using Immediate.Handlers.Shared;
-using Immediate.Jobs.Shared.Storage;
+using Immediate.Jobs.Shared.Apis;
 using Immediate.Validations.Shared;
 using Microsoft.AspNetCore.Http.HttpResults;
 
@@ -26,11 +26,9 @@ internal static partial class DeleteDashboardBatch
 
 	private static ValueTask<DashboardMutationResult> HandleAsync(
 		Command command,
-		IJobStorage storage,
+		JobMonitor monitor,
 		CancellationToken cancellationToken
-	) => storage is IJobGraphStorage graphStorage
-		? DashboardApiEndpointOperations.MutateBatchAsync(
-			() => graphStorage.DeleteBatchAsync(command.BatchId, cancellationToken)
-		)
-		: ValueTask.FromResult(DashboardMutationResult.NotFound);
+	) => DashboardApiEndpointOperations.MutateBatchAsync(
+		() => monitor.DeleteBatchAsync(command.BatchId, cancellationToken)
+	);
 }

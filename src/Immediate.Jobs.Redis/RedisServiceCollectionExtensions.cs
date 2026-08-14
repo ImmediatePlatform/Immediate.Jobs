@@ -79,21 +79,19 @@ public static class RedisServiceCollectionExtensions
 		Action<RedisJobStorageOptions>? configure
 	)
 	{
-		builder.ConfigureOptions<RedisJobStorageOptions>(optionsBuilder =>
-		{
-			if (configure is not null)
-				optionsBuilder.Configure(configure);
+		var optionsBuilder = builder.Services.AddOptions<RedisJobStorageOptions>();
+		if (configure is not null)
+			optionsBuilder.Configure(configure);
 
-			optionsBuilder
-				.Validate(
-					static options => !string.IsNullOrWhiteSpace(options.KeyPrefix),
-					"The Redis key prefix cannot be empty."
-				)
-				.Validate(
-					static options => options.KeyPrefix.IndexOfAny(['{', '}']) < 0,
-					"The Redis key prefix cannot contain '{' or '}'."
-				)
-				.ValidateOnStart();
-		});
+		optionsBuilder
+			.Validate(
+				static options => !string.IsNullOrWhiteSpace(options.KeyPrefix),
+				"The Redis key prefix cannot be empty."
+			)
+			.Validate(
+				static options => options.KeyPrefix.IndexOfAny(['{', '}']) < 0,
+				"The Redis key prefix cannot contain '{' or '}'."
+			)
+			.ValidateOnStart();
 	}
 }

@@ -1,6 +1,6 @@
 using Immediate.Apis.Shared;
 using Immediate.Handlers.Shared;
-using Immediate.Jobs.Shared.Interfaces;
+using Immediate.Jobs.Shared.Apis;
 using Immediate.Validations.Shared;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.Extensions.Options;
@@ -30,7 +30,7 @@ internal static partial class GetDashboardJobExecutionTelemetryLinks
 
 	private static ValueTask<IReadOnlyList<JobTelemetryLink>?> HandleAsync(
 		Query query,
-		IJobMonitor monitor,
+		JobMonitor monitor,
 		IOptions<ImmediateJobsDashboardOptions> options,
 		CancellationToken cancellationToken
 	) => DashboardApiEndpointOperations.GetJobTelemetryLinksAsync(

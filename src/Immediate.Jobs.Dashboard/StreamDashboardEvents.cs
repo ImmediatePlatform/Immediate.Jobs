@@ -1,6 +1,6 @@
 using Immediate.Apis.Shared;
 using Immediate.Handlers.Shared;
-using Immediate.Jobs.Shared.Storage;
+using Immediate.Jobs.Shared.Apis;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.Extensions.Options;
@@ -21,14 +21,16 @@ internal static partial class StreamDashboardEvents
 	private static async ValueTask HandleAsync(
 		Query _,
 		IHttpContextAccessor httpContextAccessor,
-		IJobStorage storage,
+		JobMonitor monitor,
+		TimeProvider timeProvider,
 		IOptions<ImmediateJobsDashboardOptions> options,
 		CancellationToken cancellationToken
 	)
 	{
 		await DashboardApiEndpointOperations.StreamEventsAsync(
 			httpContextAccessor.HttpContext ?? throw new InvalidOperationException("No active dashboard HTTP request was found."),
-			storage,
+			monitor,
+			timeProvider,
 			options.Value.UpdateInterval,
 			cancellationToken
 		);

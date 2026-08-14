@@ -1,6 +1,6 @@
 using Immediate.Apis.Shared;
 using Immediate.Handlers.Shared;
-using Immediate.Jobs.Shared.Storage;
+using Immediate.Jobs.Shared.Apis;
 using Immediate.Validations.Shared;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
@@ -28,9 +28,9 @@ internal static partial class RetryDashboardJob
 
 	private static ValueTask<DashboardMutationResult> HandleAsync(
 		Command command,
-		IJobStorage storage,
+		JobMonitor monitor,
 		CancellationToken cancellationToken
 	) => DashboardApiEndpointOperations.MutateJobAsync(
-		() => storage.RetryAsync(command.JobId, cancellationToken)
+		() => monitor.RetryJobAsync(command.JobId, cancellationToken)
 	);
 }
