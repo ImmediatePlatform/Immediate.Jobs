@@ -9,12 +9,24 @@ using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;
 
 namespace Immediate.Jobs.FunctionalTests.Packages;
 
 public sealed class DashboardPackageTests
 {
+	private static void ConfigureDashboardTestServices(
+		IServiceCollection services,
+		IJobStorage storage,
+		FakeTimeProvider timeProvider
+	)
+	{
+		_ = services.Replace(ServiceDescriptor.Singleton<IJobStorage>(storage));
+		_ = services.Replace(ServiceDescriptor.Singleton<TimeProvider>(timeProvider));
+		services.RemoveAll<IHostedService>();
+	}
+
 	[Fact]
 	public void PackageEmbedsCompleteSpaAssetSet()
 	{
@@ -36,6 +48,22 @@ public sealed class DashboardPackageTests
 			JobTelemetryLinkKind.Trace,
 			static _ => null
 		));
+	}
+
+	[Fact]
+	public void DashboardConfigurationUsesOptionsPattern()
+	{
+		var services = new ServiceCollection();
+		_ = services.AddImmediateJobsDashboard(options =>
+		{
+			options.UpdateInterval = TimeSpan.FromSeconds(5);
+		});
+
+		using var provider = services.BuildServiceProvider();
+		var options = provider.GetRequiredService<IOptions<ImmediateJobsDashboardOptions>>().Value;
+
+		Assert.Equal(TimeSpan.FromSeconds(5), options.UpdateInterval);
+		Assert.Null(provider.GetService<ImmediateJobsDashboardOptions>());
 	}
 
 	[Theory]
@@ -64,7 +92,7 @@ public sealed class DashboardPackageTests
 				_ = options.AllowInAnyEnvironment();
 		});
 
-		_ = builder.Services.Replace(ServiceDescriptor.Singleton<IJobStorage>(storage));
+		ConfigureDashboardTestServices(builder.Services, storage, timeProvider);
 
 		await using var app = builder.Build();
 		_ = app.MapImmediateJobsDashboard();
@@ -135,7 +163,7 @@ public sealed class DashboardPackageTests
 			);
 		});
 
-		_ = builder.Services.Replace(ServiceDescriptor.Singleton<IJobStorage>(storage));
+		ConfigureDashboardTestServices(builder.Services, storage, timeProvider);
 
 		await using var app = builder.Build();
 		_ = app.MapImmediateJobsDashboard();
@@ -251,12 +279,7 @@ public sealed class DashboardPackageTests
 			EnvironmentName = Environments.Development,
 		});
 		_ = builder.WebHost.UseTestServer();
-		_ = builder.Services.AddImmediateJobsDashboard();
-
-		_ = builder.Services.Replace(ServiceDescriptor.Singleton<IJobStorage>(storage));
-
-		await using var app = builder.Build();
-		_ = app.MapImmediateJobsDashboard(configure: options =>
+		_ = builder.Services.AddImmediateJobsDashboard(options =>
 		{
 			_ = options.AddTelemetryLink(
 				"Legacy trace callback",
@@ -274,6 +297,11 @@ public sealed class DashboardPackageTests
 				))
 			);
 		});
+
+		ConfigureDashboardTestServices(builder.Services, storage, timeProvider);
+
+		await using var app = builder.Build();
+		_ = app.MapImmediateJobsDashboard();
 		await app.StartAsync(TestContext.Current.CancellationToken);
 
 		using var executionResponse = await app.GetTestClient().GetAsync(
@@ -327,7 +355,7 @@ public sealed class DashboardPackageTests
 		_ = builder.WebHost.UseTestServer();
 		_ = builder.Services.AddImmediateJobsDashboard();
 
-		_ = builder.Services.Replace(ServiceDescriptor.Singleton<IJobStorage>(storage));
+		ConfigureDashboardTestServices(builder.Services, storage, timeProvider);
 
 		await using var app = builder.Build();
 		_ = app.MapImmediateJobsDashboard();
@@ -365,7 +393,7 @@ public sealed class DashboardPackageTests
 		_ = builder.WebHost.UseTestServer();
 		_ = builder.Services.AddImmediateJobsDashboard();
 
-		_ = builder.Services.Replace(ServiceDescriptor.Singleton<IJobStorage>(storage));
+		ConfigureDashboardTestServices(builder.Services, storage, timeProvider);
 
 		await using var app = builder.Build();
 		_ = app.MapImmediateJobsDashboard();
@@ -409,7 +437,7 @@ public sealed class DashboardPackageTests
 		_ = builder.WebHost.UseTestServer();
 		_ = builder.Services.AddImmediateJobsDashboard();
 
-		_ = builder.Services.Replace(ServiceDescriptor.Singleton<IJobStorage>(storage));
+		ConfigureDashboardTestServices(builder.Services, storage, timeProvider);
 
 		await using var app = builder.Build();
 		_ = app.MapImmediateJobsDashboard();
@@ -446,7 +474,7 @@ public sealed class DashboardPackageTests
 		_ = builder.WebHost.UseTestServer();
 		_ = builder.Services.AddImmediateJobsDashboard();
 
-		_ = builder.Services.Replace(ServiceDescriptor.Singleton<IJobStorage>(storage));
+		ConfigureDashboardTestServices(builder.Services, storage, timeProvider);
 
 		await using var app = builder.Build();
 		_ = app.MapImmediateJobsDashboard();
@@ -486,7 +514,7 @@ public sealed class DashboardPackageTests
 		_ = builder.WebHost.UseTestServer();
 		_ = builder.Services.AddImmediateJobsDashboard();
 
-		_ = builder.Services.Replace(ServiceDescriptor.Singleton<IJobStorage>(storage));
+		ConfigureDashboardTestServices(builder.Services, storage, timeProvider);
 
 		await using var app = builder.Build();
 		_ = app.MapImmediateJobsDashboard();
@@ -518,7 +546,7 @@ public sealed class DashboardPackageTests
 		_ = builder.WebHost.UseTestServer();
 		_ = builder.Services.AddImmediateJobsDashboard();
 
-		_ = builder.Services.Replace(ServiceDescriptor.Singleton<IJobStorage>(storage));
+		ConfigureDashboardTestServices(builder.Services, storage, timeProvider);
 
 		await using var app = builder.Build();
 		_ = app.MapImmediateJobsDashboard("/operations/background-work");
@@ -552,7 +580,7 @@ public sealed class DashboardPackageTests
 		_ = builder.WebHost.UseTestServer();
 		_ = builder.Services.AddImmediateJobsDashboard();
 
-		_ = builder.Services.Replace(ServiceDescriptor.Singleton<IJobStorage>(storage));
+		ConfigureDashboardTestServices(builder.Services, storage, timeProvider);
 
 		await using var app = builder.Build();
 		_ = app.UsePathBase("/tenant");
@@ -587,7 +615,7 @@ public sealed class DashboardPackageTests
 		_ = builder.WebHost.UseTestServer();
 		_ = builder.Services.AddImmediateJobsDashboard();
 
-		_ = builder.Services.Replace(ServiceDescriptor.Singleton<IJobStorage>(storage));
+		ConfigureDashboardTestServices(builder.Services, storage, timeProvider);
 
 		await using var app = builder.Build();
 		_ = app.MapImmediateJobsDashboard();
@@ -629,7 +657,7 @@ public sealed class DashboardPackageTests
 		_ = builder.WebHost.UseTestServer();
 		_ = builder.Services.AddImmediateJobsDashboard();
 
-		_ = builder.Services.Replace(ServiceDescriptor.Singleton<IJobStorage>(storage));
+		ConfigureDashboardTestServices(builder.Services, storage, timeProvider);
 
 		await using var app = builder.Build();
 		_ = app.MapImmediateJobsDashboard();
@@ -692,7 +720,7 @@ public sealed class DashboardPackageTests
 		_ = builder.WebHost.UseTestServer();
 		_ = builder.Services.AddImmediateJobsDashboard();
 
-		_ = builder.Services.Replace(ServiceDescriptor.Singleton<IJobStorage>(storage));
+		ConfigureDashboardTestServices(builder.Services, storage, timeProvider);
 
 		await using var app = builder.Build();
 		_ = app.MapImmediateJobsDashboard();

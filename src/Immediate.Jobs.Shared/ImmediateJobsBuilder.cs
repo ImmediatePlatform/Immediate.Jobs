@@ -244,6 +244,8 @@ public sealed class ImmediateJobsBuilder
 /// </summary>
 public sealed class ImmediateJobsStorageBuilder
 {
+	private readonly List<Action<IServiceCollection>> _configureServices = [];
+
 	private enum JobStorageMode
 	{
 		None,
@@ -254,6 +256,29 @@ public sealed class ImmediateJobsStorageBuilder
 
 	private JobStorageMode _storageMode;
 	private Func<IServiceProvider, IJobStorage>? _factory;
+
+	/// <summary>
+	/// 	Configures provider-specific options through the Microsoft options pattern.
+	/// </summary>
+	/// <typeparam name="TOptions">
+	/// 	The provider options type.
+	/// </typeparam>
+	/// <param name="configure">
+	/// 	The callback used to configure the provider's options builder.
+	/// </param>
+	/// <returns>
+	/// 	This storage builder.
+	/// </returns>
+	public ImmediateJobsStorageBuilder ConfigureOptions<TOptions>(
+		Action<OptionsBuilder<TOptions>> configure
+	)
+		where TOptions : class
+	{
+		ArgumentNullException.ThrowIfNull(configure);
+
+		_configureServices.Add(services => configure(services.AddOptions<TOptions>()));
+		return this;
+	}
 
 	/// <summary>
 	/// 	Selects the non-durable, single-node in-memory provider.
@@ -364,6 +389,9 @@ public sealed class ImmediateJobsStorageBuilder
 
 	internal void ValidateAndRegister(IServiceCollection services)
 	{
+		foreach (var configureServices in _configureServices)
+			configureServices(services);
+
 		// explicit in-memory
 		if (_storageMode is JobStorageMode.InMemory)
 		{

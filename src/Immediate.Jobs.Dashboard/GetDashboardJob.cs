@@ -1,0 +1,41 @@
+using Immediate.Apis.Shared;
+using Immediate.Handlers.Shared;
+using Immediate.Jobs.Shared.Apis;
+using Immediate.Validations.Shared;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Http.HttpResults;
+
+#pragma warning disable CA1812 // Request types and route groups are activated by generated endpoints.
+
+namespace Immediate.Jobs.Dashboard;
+
+[Handler]
+[MapGet("jobs/{jobId}")]
+[MapGroup<DashboardApi>]
+internal static partial class GetDashboardJob
+{
+	[Validate]
+	internal sealed partial record Query : IValidationTarget<Query>
+	{
+		[NotEmpty]
+		public required string JobId { get; init; }
+	}
+
+	internal static Results<JsonHttpResult<JobRecord>, NotFound> TransformResult(JobRecord? result) =>
+		result is null
+			? TypedResults.NotFound()
+			: TypedResults.Json(result, DashboardJsonSerializerContext.Default.JobRecord);
+
+	private static async ValueTask<JobRecord?> HandleAsync(
+		Query query,
+		JobMonitor monitor,
+		CancellationToken cancellationToken
+	)
+	{
+		var jobs = await monitor.QueryJobsAsync(
+			new() { Id = query.JobId, Take = 1 },
+			cancellationToken
+		);
+		return jobs.SingleOrDefault();
+	}
+}

@@ -1,4 +1,5 @@
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 using StackExchange.Redis;
 
 namespace Immediate.Jobs.Redis;
@@ -34,11 +35,11 @@ public static class RedisServiceCollectionExtensions
 	{
 		ArgumentNullException.ThrowIfNull(builder);
 		ArgumentException.ThrowIfNullOrWhiteSpace(configuration);
-		var options = CreateOptions(configure);
+		ConfigureOptions(builder, configure);
 		return builder
 			.UseStorage(services => new RedisJobStorage(
 				ConnectionMultiplexer.Connect(configuration),
-				options,
+				services.GetRequiredService<IOptions<RedisJobStorageOptions>>(),
 				services.GetService<TimeProvider>(),
 				ownsConnection: true
 			))
@@ -62,27 +63,37 @@ public static class RedisServiceCollectionExtensions
 	{
 		ArgumentNullException.ThrowIfNull(jobs);
 		ArgumentNullException.ThrowIfNull(connection);
-		var options = CreateOptions(configure);
+		ConfigureOptions(jobs, configure);
 		return jobs
 			.UseStorage(services => new RedisJobStorage(
 				connection,
-				options,
+				services.GetRequiredService<IOptions<RedisJobStorageOptions>>(),
 				services.GetService<TimeProvider>(),
 				ownsConnection: false
 			))
 			.UseDistributed();
 	}
 
-	private static RedisJobStorageOptions CreateOptions(Action<RedisJobStorageOptions>? configure)
+	private static void ConfigureOptions(
+		ImmediateJobsStorageBuilder builder,
+		Action<RedisJobStorageOptions>? configure
+	)
 	{
-		var options = new RedisJobStorageOptions();
-		configure?.Invoke(options);
-		// TODO: Fix this shit?
-#pragma warning disable MA0015 // Specify the parameter name in ArgumentException
-		ArgumentException.ThrowIfNullOrWhiteSpace(options.KeyPrefix);
-#pragma warning restore MA0015 // Specify the parameter name in ArgumentException
-		if (options.KeyPrefix.IndexOfAny(['{', '}']) >= 0)
-			throw new ArgumentException("The Redis key prefix cannot contain '{' or '}'.", nameof(configure));
-		return options;
+		builder.ConfigureOptions<RedisJobStorageOptions>(optionsBuilder =>
+		{
+			if (configure is not null)
+				optionsBuilder.Configure(configure);
+
+			optionsBuilder
+				.Validate(
+					static options => !string.IsNullOrWhiteSpace(options.KeyPrefix),
+					"The Redis key prefix cannot be empty."
+				)
+				.Validate(
+					static options => options.KeyPrefix.IndexOfAny(['{', '}']) < 0,
+					"The Redis key prefix cannot contain '{' or '}'."
+				)
+				.ValidateOnStart();
+		});
 	}
 }

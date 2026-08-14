@@ -16,11 +16,15 @@ public static class ImmediateJobsDashboardServiceCollectionExtensions
 	{
 		ArgumentNullException.ThrowIfNull(services);
 
-		var options = new ImmediateJobsDashboardOptions();
-		configure?.Invoke(options);
-		options.Validate();
+		var optionsBuilder = services
+			.AddOptionsWithValidateOnStart<ImmediateJobsDashboardOptions>()
+			.Validate(
+				static options => options.UpdateInterval > TimeSpan.Zero,
+				"The dashboard update interval must be positive."
+			);
+		if (configure is not null)
+			optionsBuilder.Configure(configure);
 
-		_ = services.AddSingleton(options);
 		_ = services.AddHttpContextAccessor();
 		_ = services.AddImmediateJobsDashboardHandlers();
 		_ = services.AddImmediateJobsCore();
