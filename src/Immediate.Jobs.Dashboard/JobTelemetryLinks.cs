@@ -13,13 +13,16 @@ public enum JobTelemetryLinkKind
 
 /// <summary>Context supplied while constructing an external telemetry link.</summary>
 /// <param name="Job">
-/// The persisted job record. For an exact-execution link, its attempt, trace ID, span ID, and
+/// The monitoring-compatible job view. For an exact-execution link, its attempt, trace ID, span ID, and
 /// execution-started compatibility fields represent <see cref="Execution" />.
 /// </param>
 public sealed record JobTelemetryLinkContext(JobRecord Job)
 {
 	/// <summary>The exact retained execution being linked, or <see langword="null"/> for a job-level link.</summary>
 	public JobExecutionRecord? Execution { get; init; }
+
+	/// <summary>The configured execution-attempt limit, when the job definition is available.</summary>
+	public int? MaxAttempts { get; init; }
 }
 
 /// <summary>A link from job details to an external observability system.</summary>

@@ -25,8 +25,9 @@ implements the ones it can honor, and the runtime detects what is available and 
 
 ## 2. Capability taxonomy
 
-Three capabilities. The first is mandatory — a store that can't do it isn't a job store — and it *is*
-the base type everyone injects. The other two are optional extensions of it.
+The taxonomy has three job-store capabilities: the mandatory Queue base and the optional Recurring
+and Graph extensions. Two additional replica requirements support recovery when an in-memory queue
+uses a durable backing store in single-server mode.
 
 | Capability | Interface | What it covers | Redis? | SQL? |
 | --- | --- | --- | --- | --- |

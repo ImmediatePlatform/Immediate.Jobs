@@ -188,13 +188,13 @@ internal static partial class GetDashboardJobTelemetryLinks
 
 	private static ValueTask<IReadOnlyList<JobTelemetryLink>?> HandleAsync(
 		Query query,
-		IJobStorage storage,
+		IJobMonitor monitor,
 		ImmediateJobsDashboardOptions options,
 		CancellationToken cancellationToken
 	) => DashboardApiEndpointOperations.GetJobTelemetryLinksAsync(
 		query.JobId,
 		executionNumber: null,
-		storage,
+		monitor,
 		options,
 		cancellationToken
 	);
@@ -221,13 +221,13 @@ internal static partial class GetDashboardJobExecutionTelemetryLinks
 
 	private static ValueTask<IReadOnlyList<JobTelemetryLink>?> HandleAsync(
 		Query query,
-		IJobStorage storage,
+		IJobMonitor monitor,
 		ImmediateJobsDashboardOptions options,
 		CancellationToken cancellationToken
 	) => DashboardApiEndpointOperations.GetJobTelemetryLinksAsync(
 		query.JobId,
 		query.ExecutionNumber,
-		storage,
+		monitor,
 		options,
 		cancellationToken
 	);
@@ -745,23 +745,19 @@ internal static class DashboardApiEndpointOperations
 	internal static async ValueTask<IReadOnlyList<JobTelemetryLink>?> GetJobTelemetryLinksAsync(
 		string jobId,
 		int? executionNumber,
-		IJobStorage storage,
+		IJobMonitor monitor,
 		ImmediateJobsDashboardOptions options,
 		CancellationToken cancellationToken
 	)
 	{
-		var jobs = await storage.QueryJobsAsync(
-			new() { Id = jobId, Take = 1 },
-			cancellationToken
-		);
-		var job = jobs.SingleOrDefault();
+		var job = await monitor.GetJobAsync(jobId, cancellationToken);
 		if (job is null)
 			return null;
 
 		JobExecutionRecord? execution = null;
 		if (executionNumber is { } attempt)
 		{
-			var executions = await storage.QueryJobExecutionsAsync(
+			var executions = await monitor.QueryExecutionsAsync(
 				new() { JobId = jobId, Attempt = attempt, Take = 1 },
 				cancellationToken
 			);
@@ -773,16 +769,24 @@ internal static class DashboardApiEndpointOperations
 		if (options.TelemetryLinks.Count == 0)
 			return [];
 
-		var contextJob = execution is null
-			? job
-			: job with
-			{
-				Attempt = execution.Attempt,
-				ExecutionTraceId = execution.ExecutionTraceId,
-				ExecutionSpanId = execution.ExecutionSpanId,
-				ExecutionStartedAt = execution.ExecutionStartedAt,
-			};
-		var context = new JobTelemetryLinkContext(contextJob) { Execution = execution };
+		var contextJob = new JobRecord
+		{
+			Id = job.JobId,
+			JobName = job.JobName,
+			QueueName = job.QueueName,
+			Payload = string.Empty,
+			State = job.State,
+			Attempt = execution?.Attempt ?? job.Attempt,
+			DueAt = job.DueAt,
+			CreatedAt = job.CreatedAt,
+			CompletedAt = job.CompletedAt,
+			LastError = job.LastError,
+			BatchId = job.BatchId,
+			ExecutionTraceId = execution?.ExecutionTraceId,
+			ExecutionSpanId = execution?.ExecutionSpanId,
+			ExecutionStartedAt = execution?.ExecutionStartedAt,
+		};
+		var context = new JobTelemetryLinkContext(contextJob) { Execution = execution, MaxAttempts = job.MaxAttempts };
 		var links = new List<JobTelemetryLink>(options.TelemetryLinks.Count);
 		foreach (var registration in options.TelemetryLinks)
 		{

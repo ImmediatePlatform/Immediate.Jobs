@@ -38,13 +38,13 @@ public sealed partial record JobQuery : IValidationTarget<JobQuery>
 	public string? Search { get; init; }
 
 	/// <summary>
-	/// 	The number of matching executions to skip.
+	/// 	The number of matching jobs to skip.
 	/// </summary>
 	[GreaterThanOrEqual(0)]
 	public int Skip { get; init; }
 
 	/// <summary>
-	/// 	The maximum number of executions to return.
+	/// 	The maximum number of jobs to return.
 	/// </summary>
 	[GreaterThan(0)]
 	[LessThanOrEqual(nameof(Constants.MaximumTake))]

@@ -5,6 +5,7 @@ using System.Runtime.ExceptionServices;
 using Immediate.Jobs.Shared.Apis;
 using Immediate.Jobs.Shared.Internals;
 using Immediate.Jobs.Shared.Storage;
+using Immediate.Validations.Shared;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Time.Testing;
 
@@ -430,6 +431,16 @@ public sealed class SingleServerJobStorageTests
 				_edges.AddRange((IReadOnlyList<JobContinuationEdge>)args[1]!);
 			if (string.Equals(targetMethod.Name, nameof(IJobGraphStorage.EnqueueBatchAsync), StringComparison.Ordinal))
 				_edges.AddRange((IReadOnlyList<JobContinuationEdge>)args[2]!);
+			if (string.Equals(targetMethod.Name, nameof(IJobGraphStorage.CompleteWithContinuationsAsync), StringComparison.Ordinal))
+			{
+				var parentJobId = (string)args[0]!;
+				_edges.AddRange(((IReadOnlyList<JobContinuationAddition>)args[3]!).Select(addition => new JobContinuationEdge
+				{
+					ChildJobId = addition.Job.Id,
+					ParentJobId = parentJobId,
+					Trigger = addition.Trigger,
+				}));
+			}
 			if (string.Equals(targetMethod.Name, nameof(IJobStorage.GetJobStatusAsync), StringComparison.Ordinal))
 				GetJobStatusCalls++;
 

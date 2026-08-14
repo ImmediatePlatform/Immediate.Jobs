@@ -64,7 +64,7 @@ The existing type/capability relationship becomes:
 | `IJobGraphStorage` | `Graph` | Atomic batches, continuations, and graph reads |
 | `IFairQueueStorage` | `FairQueues` | Fair acquisition behavior |
 | `IJobStorageReplica` | `Replica` | Exact-id acquisition required by single-server mode |
-| `IJobGraphStorageReplica` | Graph replica | Standalone continuation-edge recovery required by single-server mode |
+| `IJobGraphStorageReplica` | — | Durable standalone continuation-edge reads required for startup recovery in single-server mode |
 
 `IJobStorageReplica` describes a durable store that can mirror the exact jobs selected by the
 authoritative in-memory primary. `InMemoryJobStorage` does not implement it: in-memory mode uses that

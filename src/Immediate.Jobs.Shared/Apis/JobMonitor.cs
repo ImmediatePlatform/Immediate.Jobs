@@ -63,7 +63,7 @@ public sealed class JobMonitor(IJobStorage storage, IEnumerable<JobDefinition> d
 	/// <inheritdoc />
 	public async ValueTask<BatchStatus?> GetBatchAsync(string batchId, CancellationToken cancellationToken = default)
 	{
-		ArgumentNullException.ThrowIfNull(batchId);
+		ArgumentException.ThrowIfNullOrWhiteSpace(batchId);
 
 		return storage switch
 		{

@@ -14,13 +14,13 @@ public sealed partial record BatchQuery : IValidationTarget<BatchQuery>
 	public BatchState? State { get; init; }
 
 	/// <summary>
-	/// 	Number of members to skip.
+	/// 	The number of matching batches to skip.
 	/// </summary>
 	[GreaterThanOrEqual(0)]
 	public int Skip { get; init; }
 
 	/// <summary>
-	/// 	Maximum members to return.
+	/// 	The maximum number of batches to return.
 	/// </summary>
 	[GreaterThan(0)]
 	[LessThanOrEqual(nameof(Constants.MaximumTake))]
