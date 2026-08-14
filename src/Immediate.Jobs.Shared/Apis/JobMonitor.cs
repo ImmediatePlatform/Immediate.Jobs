@@ -46,7 +46,7 @@ public sealed class JobMonitor(IJobStorage storage, IEnumerable<JobDefinition> d
 	}
 
 	/// <inheritdoc />
-	public async ValueTask<IReadOnlyList<BatchStatus>> QueryBatchesAsync(
+	public async ValueTask<IReadOnlyList<BatchStatus>?> QueryBatchesAsync(
 		BatchQuery query,
 		CancellationToken cancellationToken = default
 	)
@@ -56,7 +56,7 @@ public sealed class JobMonitor(IJobStorage storage, IEnumerable<JobDefinition> d
 		return storage switch
 		{
 			IJobGraphStorage graphStorage => await graphStorage.QueryBatchesAsync(query, cancellationToken),
-			_ => [],
+			_ => null,
 		};
 	}
 
@@ -73,7 +73,7 @@ public sealed class JobMonitor(IJobStorage storage, IEnumerable<JobDefinition> d
 	}
 
 	/// <inheritdoc />
-	public async ValueTask<IReadOnlyList<BatchMemberStatus>> QueryBatchMembersAsync(
+	public async ValueTask<IReadOnlyList<BatchMemberStatus>?> QueryBatchMembersAsync(
 		string batchId,
 		BatchMemberQuery query,
 		CancellationToken cancellationToken = default
@@ -85,7 +85,7 @@ public sealed class JobMonitor(IJobStorage storage, IEnumerable<JobDefinition> d
 		return storage switch
 		{
 			IJobGraphStorage graphStorage => await graphStorage.QueryBatchMembersAsync(batchId, query, cancellationToken),
-			_ => [],
+			_ => null,
 		};
 	}
 

@@ -410,6 +410,7 @@ public sealed class SingleServerJobStorageTests
 		{
 			ArgumentNullException.ThrowIfNull(targetMethod);
 			ArgumentNullException.ThrowIfNull(args);
+
 			if (string.Equals(targetMethod.Name, nameof(IJobStorage.InitializeAsync), StringComparison.Ordinal) && BlockInitialization)
 			{
 				_ = InitializationEntered.TrySetResult();
@@ -419,7 +420,7 @@ public sealed class SingleServerJobStorageTests
 			if (string.Equals(targetMethod.Name, nameof(IJobGraphStorageReplica.GetIncomingEdgesAsync), StringComparison.Ordinal))
 			{
 				GetIncomingEdgesCalls++;
-				var requested = ((IReadOnlyCollection<JobHandle>)args[0]!).Select(static job => job.Id).ToHashSet(StringComparer.Ordinal);
+				var requested = ((IReadOnlyCollection<string>)args[0]!).ToHashSet(StringComparer.Ordinal);
 				return ValueTask.FromResult<IReadOnlyList<JobContinuationEdge>>(
 					[.. _edges.Where(edge => requested.Contains(edge.ChildJobId))]
 				);
@@ -431,6 +432,7 @@ public sealed class SingleServerJobStorageTests
 				_edges.AddRange((IReadOnlyList<JobContinuationEdge>)args[2]!);
 			if (string.Equals(targetMethod.Name, nameof(IJobStorage.GetJobStatusAsync), StringComparison.Ordinal))
 				GetJobStatusCalls++;
+
 			if (string.Equals(targetMethod.Name, nameof(IJobStorageReplica.AcquireJobsAsync), StringComparison.Ordinal))
 			{
 				return ((InMemoryJobStorage)Inner).AcquireJobsAsync(

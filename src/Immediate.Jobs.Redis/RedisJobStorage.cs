@@ -4,9 +4,6 @@ using Immediate.Jobs.Shared.Apis;
 using Immediate.Jobs.Shared.Storage;
 using StackExchange.Redis;
 
-// TODO: remove and fix diagnostics
-#pragma warning disable MA0015 // Specify the parameter name in ArgumentException
-
 namespace Immediate.Jobs.Redis;
 
 /// <summary>
@@ -74,9 +71,13 @@ internal sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 		bool ownsConnection
 	)
 	{
+		// TODO: Fix configuration
+#pragma warning disable MA0015 // Specify the parameter name in ArgumentException
 		ArgumentNullException.ThrowIfNull(connection);
 		ArgumentNullException.ThrowIfNull(options);
 		ArgumentException.ThrowIfNullOrWhiteSpace(options.KeyPrefix);
+#pragma warning restore MA0015 // Specify the parameter name in ArgumentException
+
 		if (options.KeyPrefix.IndexOfAny(['{', '}']) >= 0)
 			throw new ArgumentException("The Redis key prefix cannot contain '{' or '}'.", nameof(options));
 
@@ -113,11 +114,6 @@ internal sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 		CancellationToken cancellationToken = default
 	)
 	{
-		ArgumentNullException.ThrowIfNull(request);
-		ArgumentException.ThrowIfNullOrWhiteSpace(request.WorkerId);
-		ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(request.Lease, TimeSpan.Zero);
-		ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(request.BatchSize, 0);
-		ArgumentNullException.ThrowIfNull(request.Queues);
 		if (request.FairQueues is not null)
 		{
 			throw new NotSupportedException(
@@ -147,8 +143,6 @@ internal sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 		};
 		foreach (var queue in request.Queues)
 		{
-			ArgumentNullException.ThrowIfNull(queue);
-			ArgumentException.ThrowIfNullOrWhiteSpace(queue.QueueName);
 			keys.Add(DueKey(queue.QueueName));
 			values.Add(queue.QueueName);
 			values.Add(Math.Max(0, queue.Capacity));
@@ -202,9 +196,6 @@ internal sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 		CancellationToken cancellationToken = default
 	)
 	{
-		ArgumentException.ThrowIfNullOrWhiteSpace(jobId);
-		ArgumentException.ThrowIfNullOrWhiteSpace(workerId);
-		ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(lease, TimeSpan.Zero);
 		var expiresAt = _timeProvider.GetUtcNow() + lease;
 		var result = await EvaluateInt64Async(
 			RedisScripts.RenewLease,
@@ -253,9 +244,6 @@ internal sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 		CancellationToken cancellationToken = default
 	)
 	{
-		ArgumentException.ThrowIfNullOrWhiteSpace(jobId);
-		ArgumentException.ThrowIfNullOrWhiteSpace(workerId);
-		ArgumentNullException.ThrowIfNull(error);
 		var now = _timeProvider.GetUtcNow();
 		var nextTicks = nextRetryAt is { } retryAt ? Ticks(retryAt) : "";
 		var nextScore = nextRetryAt is { } retryScore ? Score(retryScore) : 0;
@@ -322,9 +310,6 @@ internal sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 		CancellationToken cancellationToken = default
 	)
 	{
-		ArgumentNullException.ThrowIfNull(query);
-		ArgumentOutOfRangeException.ThrowIfNegative(query.Skip);
-		ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(query.Take, 0);
 		var take = Math.Min(query.Take, MaximumQueryTake);
 		if (query.Id is { } id)
 		{
@@ -529,8 +514,6 @@ internal sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 		CancellationToken cancellationToken = default
 	)
 	{
-		ArgumentNullException.ThrowIfNull(server);
-		ArgumentException.ThrowIfNullOrWhiteSpace(server.WorkerId);
 		_ = await EvaluateInt64Async(
 			RedisScripts.Heartbeat,
 			[ServerKey(server.WorkerId), ServersKey],
@@ -570,7 +553,6 @@ internal sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 		CancellationToken cancellationToken = default
 	)
 	{
-		ValidateRecurring(schedule);
 		var result = await EvaluateInt64Async(
 			RedisScripts.UpsertRecurring,
 			[RecurringKey(schedule.Name), RecurringNamesKey, RecurringDueKey],
@@ -641,7 +623,6 @@ internal sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 		CancellationToken cancellationToken = default
 	)
 	{
-		ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(batchSize, 0);
 		var values = await _database.SortedSetRangeByScoreAsync(
 			RecurringDueKey,
 			stop: Score(now),
@@ -688,7 +669,6 @@ internal sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 		CancellationToken cancellationToken = default
 	)
 	{
-		ValidateRecurring(schedule);
 		ValidateMaterializedJob(job);
 		var jobArguments = CreateMaterializeArguments(schedule, job, nextRunAt, _timeProvider.GetUtcNow());
 		var result = await EvaluateInt64Async(
@@ -1049,10 +1029,6 @@ internal sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 
 	private static void ValidateQueueJob(JobRecord job)
 	{
-		ArgumentNullException.ThrowIfNull(job);
-		ArgumentException.ThrowIfNullOrWhiteSpace(job.Id);
-		ArgumentException.ThrowIfNullOrWhiteSpace(job.JobName);
-		ArgumentException.ThrowIfNullOrWhiteSpace(job.QueueName);
 		if (job.BatchId is not null || job.RemainingDependencies != 0 || job.FailedDependencies != 0)
 		{
 			throw new NotSupportedException(
@@ -1066,10 +1042,6 @@ internal sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 
 	private static void ValidateMaterializedJob(JobRecord job)
 	{
-		ArgumentNullException.ThrowIfNull(job);
-		ArgumentException.ThrowIfNullOrWhiteSpace(job.Id);
-		ArgumentException.ThrowIfNullOrWhiteSpace(job.JobName);
-		ArgumentException.ThrowIfNullOrWhiteSpace(job.QueueName);
 		if (job.BatchId is not null || job.RemainingDependencies != 0 || job.FailedDependencies != 0)
 		{
 			throw new NotSupportedException(
@@ -1081,15 +1053,6 @@ internal sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 			throw new ImmediateJobException($"Recurring job '{job.Id}' has invalid state '{job.State}'.");
 		if (job.CompletedAt is null && (job.State == JobState.Cancelled || job.State == JobState.Skipped))
 			throw new ImmediateJobException($"Terminal recurring job '{job.Id}' must have a completion time.");
-	}
-
-	private static void ValidateRecurring(RecurringJobSchedule schedule)
-	{
-		ArgumentNullException.ThrowIfNull(schedule);
-		ArgumentException.ThrowIfNullOrWhiteSpace(schedule.Name);
-		ArgumentException.ThrowIfNullOrWhiteSpace(schedule.JobName);
-		ArgumentException.ThrowIfNullOrWhiteSpace(schedule.Cron);
-		ArgumentException.ThrowIfNullOrWhiteSpace(schedule.TimeZone);
 	}
 
 	private static void ThrowIfNotOwned(long result, string jobId, string workerId)

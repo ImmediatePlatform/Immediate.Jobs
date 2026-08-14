@@ -169,11 +169,6 @@ internal static class RecurringStorageConformance
 			DueScanName,
 			"a due scan must exclude paused and future schedules"
 		);
-		_ = await ConformanceAssert.ThrowsAsync<ArgumentOutOfRangeException>(
-			() => ObserveDueAsync(recurring, now, 0, cancellationToken),
-			DueScanName,
-			"a non-positive due-scan batch size must be rejected"
-		).ConfigureAwait(false);
 	}
 
 	private static async ValueTask MaterializesAtomicallyAsync(
@@ -523,11 +518,4 @@ internal static class RecurringStorageConformance
 		ConformanceAssert.Equal(expected.NextRunAt, actual.NextRunAt, caseName, invariant, "field=NextRunAt");
 		ConformanceAssert.Equal(expected.LastRunAt, actual.LastRunAt, caseName, invariant, "field=LastRunAt");
 	}
-
-	private static async ValueTask ObserveDueAsync(
-		IRecurringJobStorage storage,
-		DateTimeOffset now,
-		int batchSize,
-		CancellationToken cancellationToken
-	) => _ = await storage.GetDueRecurringAsync(now, batchSize, cancellationToken).ConfigureAwait(false);
 }

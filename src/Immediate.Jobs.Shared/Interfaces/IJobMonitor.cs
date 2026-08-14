@@ -76,9 +76,9 @@ public interface IJobMonitor
 	/// 	A token that can cancel the monitoring operation.
 	/// </param>
 	/// <returns>
-	/// 	The batches matching the query.
+	/// 	The batches matching the query, or <see langword="null"/> when the current job storage does not support batches.
 	/// </returns>
-	ValueTask<IReadOnlyList<BatchStatus>> QueryBatchesAsync(
+	ValueTask<IReadOnlyList<BatchStatus>?> QueryBatchesAsync(
 		BatchQuery query,
 		CancellationToken cancellationToken = default
 	);
@@ -93,7 +93,7 @@ public interface IJobMonitor
 	/// 	A token that can cancel the monitoring operation.
 	/// </param>
 	/// <returns>
-	/// 	The aggregate batch status, or <see langword="null"/> when the batch does not exist.
+	/// 	The aggregate batch status, or <see langword="null"/> when the batch does not exist or the current job storage does not support batches.
 	/// </returns>
 	ValueTask<BatchStatus?> GetBatchAsync(string batchId, CancellationToken cancellationToken = default);
 
@@ -110,9 +110,9 @@ public interface IJobMonitor
 	/// 	A token that can cancel the monitoring operation.
 	/// </param>
 	/// <returns>
-	/// 	The batch members matching the query.
+	/// 	The batch members matching the query, or <see langword="null"/> when the current job storage does not support batches.
 	/// </returns>
-	ValueTask<IReadOnlyList<BatchMemberStatus>> QueryBatchMembersAsync(
+	ValueTask<IReadOnlyList<BatchMemberStatus>?> QueryBatchMembersAsync(
 		string batchId,
 		BatchMemberQuery query,
 		CancellationToken cancellationToken = default
@@ -128,7 +128,7 @@ public interface IJobMonitor
 	/// 	A token that can cancel the monitoring operation.
 	/// </param>
 	/// <returns>
-	/// 	The batch dependency graph, or <see langword="null"/> when the batch does not exist.
+	/// 	The batch dependency graph, or <see langword="null"/> when the batch does not exist or the current job storage does not support batches.
 	/// </returns>
 	ValueTask<BatchGraph?> GetBatchGraphAsync(
 		string batchId,

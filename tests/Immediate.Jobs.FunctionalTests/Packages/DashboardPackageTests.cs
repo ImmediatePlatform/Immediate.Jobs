@@ -7,7 +7,9 @@ using Immediate.Jobs.Shared.Storage;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Time.Testing;
 
 namespace Immediate.Jobs.FunctionalTests.Packages;
 
@@ -46,6 +48,11 @@ public sealed class DashboardPackageTests
 		HttpStatusCode expectedStatus
 	)
 	{
+		var timeProvider = new FakeTimeProvider(new DateTimeOffset(2026, 7, 21, 12, 0, 0, TimeSpan.Zero));
+		var now = timeProvider.GetUtcNow();
+
+		await using var storage = new InMemoryJobStorage(timeProvider);
+
 		var builder = WebApplication.CreateBuilder(new WebApplicationOptions
 		{
 			EnvironmentName = environmentName,
@@ -56,7 +63,8 @@ public sealed class DashboardPackageTests
 			if (allowInAnyEnvironment)
 				_ = options.AllowInAnyEnvironment();
 		});
-		_ = builder.Services.AddSingleton<IJobStorage>(static _ => new InMemoryJobStorage(TimeProvider.System));
+
+		_ = builder.Services.Replace(ServiceDescriptor.Singleton<IJobStorage>(storage));
 
 		await using var app = builder.Build();
 		_ = app.MapImmediateJobsDashboard();
@@ -75,8 +83,12 @@ public sealed class DashboardPackageTests
 	{
 		const string JobId = "job:with retries";
 		const string TraceId = "4bf92f3577b34da6a3ce929d0e0e4736";
-		var now = new DateTimeOffset(2026, 7, 21, 12, 0, 0, TimeSpan.Zero);
-		await using var storage = new InMemoryJobStorage(TimeProvider.System);
+
+		var timeProvider = new FakeTimeProvider(new DateTimeOffset(2026, 7, 21, 12, 0, 0, TimeSpan.Zero));
+		var now = timeProvider.GetUtcNow();
+
+		await using var storage = new InMemoryJobStorage(timeProvider);
+
 		await storage.EnqueueAsync(new()
 		{
 			Id = JobId,
@@ -87,14 +99,13 @@ public sealed class DashboardPackageTests
 			CreatedAt = now,
 			Attempt = 3,
 			ExecutionTraceId = TraceId,
-			ExecutionStartedAt = now.AddMinutes(2),
-			CompletedAt = now.AddMinutes(3),
 		}, TestContext.Current.CancellationToken);
 
 		var builder = WebApplication.CreateBuilder(new WebApplicationOptions
 		{
 			EnvironmentName = Environments.Development,
 		});
+
 		_ = builder.WebHost.UseTestServer();
 		_ = builder.Services.AddImmediateJobsDashboard(options =>
 		{
@@ -123,7 +134,8 @@ public sealed class DashboardPackageTests
 					: null
 			);
 		});
-		_ = builder.Services.AddSingleton<IJobStorage>(storage);
+
+		_ = builder.Services.Replace(ServiceDescriptor.Singleton<IJobStorage>(storage));
 
 		await using var app = builder.Build();
 		_ = app.MapImmediateJobsDashboard();
@@ -180,9 +192,12 @@ public sealed class DashboardPackageTests
 		const string FirstSpanId = "1111111111111111";
 		const string LatestTraceId = "22222222222222222222222222222222";
 		const string LatestSpanId = "2222222222222222";
-		var cancellationToken = TestContext.Current.CancellationToken;
-		var now = TimeProvider.System.GetUtcNow();
-		await using var storage = new InMemoryJobStorage(TimeProvider.System);
+
+		var timeProvider = new FakeTimeProvider(new DateTimeOffset(2026, 7, 21, 12, 0, 0, TimeSpan.Zero));
+		var now = timeProvider.GetUtcNow();
+
+		await using var storage = new InMemoryJobStorage(timeProvider);
+
 		await storage.EnqueueAsync(new()
 		{
 			Id = JobId,
@@ -191,7 +206,8 @@ public sealed class DashboardPackageTests
 			State = JobState.Pending,
 			DueAt = now,
 			CreatedAt = now,
-		}, cancellationToken);
+		}, TestContext.Current.CancellationToken);
+
 		var request = new JobAcquisitionRequest
 		{
 			WorkerId = "worker",
@@ -207,7 +223,7 @@ public sealed class DashboardPackageTests
 				},
 			],
 		};
-		var first = Assert.Single(await storage.AcquireDueJobsAsync(request, cancellationToken));
+		var first = Assert.Single(await storage.AcquireDueJobsAsync(request, TestContext.Current.CancellationToken));
 		await storage.SetExecutionTelemetryAsync(
 			JobId,
 			first.Attempt,
@@ -215,10 +231,10 @@ public sealed class DashboardPackageTests
 			FirstTraceId,
 			FirstSpanId,
 			now,
-			cancellationToken
+			TestContext.Current.CancellationToken
 		);
-		await storage.FailAsync(JobId, first.Attempt, "worker", "first failure", now, cancellationToken);
-		var latest = Assert.Single(await storage.AcquireDueJobsAsync(request, cancellationToken));
+		await storage.FailAsync(JobId, first.Attempt, "worker", "first failure", now, TestContext.Current.CancellationToken);
+		var latest = Assert.Single(await storage.AcquireDueJobsAsync(request, TestContext.Current.CancellationToken));
 		await storage.SetExecutionTelemetryAsync(
 			JobId,
 			latest.Attempt,
@@ -226,9 +242,9 @@ public sealed class DashboardPackageTests
 			LatestTraceId,
 			LatestSpanId,
 			now.AddSeconds(1),
-			cancellationToken
+			TestContext.Current.CancellationToken
 		);
-		await storage.CompleteAsync(JobId, latest.Attempt, "worker", cancellationToken);
+		await storage.CompleteAsync(JobId, latest.Attempt, "worker", TestContext.Current.CancellationToken);
 
 		var builder = WebApplication.CreateBuilder(new WebApplicationOptions
 		{
@@ -236,7 +252,9 @@ public sealed class DashboardPackageTests
 		});
 		_ = builder.WebHost.UseTestServer();
 		_ = builder.Services.AddImmediateJobsDashboard();
-		_ = builder.Services.AddSingleton<IJobStorage>(storage);
+
+		_ = builder.Services.Replace(ServiceDescriptor.Singleton<IJobStorage>(storage));
+
 		await using var app = builder.Build();
 		_ = app.MapImmediateJobsDashboard(configure: options =>
 		{
@@ -256,14 +274,14 @@ public sealed class DashboardPackageTests
 				))
 			);
 		});
-		await app.StartAsync(cancellationToken);
+		await app.StartAsync(TestContext.Current.CancellationToken);
 
 		using var executionResponse = await app.GetTestClient().GetAsync(
 			new Uri($"/jobs/api/jobs/{Uri.EscapeDataString(JobId)}/executions/1/telemetry-links", UriKind.Relative),
-			cancellationToken
+			TestContext.Current.CancellationToken
 		);
 		_ = executionResponse.EnsureSuccessStatusCode();
-		using var executionDocument = JsonDocument.Parse(await executionResponse.Content.ReadAsStringAsync(cancellationToken));
+		using var executionDocument = JsonDocument.Parse(await executionResponse.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
 		var executionLinks = executionDocument.RootElement.EnumerateArray().ToArray();
 		Assert.Equal($"https://traces.example/trace/{FirstTraceId}", executionLinks[0].GetProperty("url").GetString());
 		Assert.Contains("attempt=1", executionLinks[1].GetProperty("url").GetString(), StringComparison.Ordinal);
@@ -271,10 +289,10 @@ public sealed class DashboardPackageTests
 
 		using var jobResponse = await app.GetTestClient().GetAsync(
 			new Uri($"/jobs/api/jobs/{Uri.EscapeDataString(JobId)}/telemetry-links", UriKind.Relative),
-			cancellationToken
+			TestContext.Current.CancellationToken
 		);
 		_ = jobResponse.EnsureSuccessStatusCode();
-		using var jobDocument = JsonDocument.Parse(await jobResponse.Content.ReadAsStringAsync(cancellationToken));
+		using var jobDocument = JsonDocument.Parse(await jobResponse.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
 		var jobLinks = jobDocument.RootElement.EnumerateArray().ToArray();
 		Assert.Equal($"https://traces.example/trace/{LatestTraceId}", jobLinks[0].GetProperty("url").GetString());
 		Assert.Contains("attempt=2", jobLinks[1].GetProperty("url").GetString(), StringComparison.Ordinal);
@@ -288,7 +306,11 @@ public sealed class DashboardPackageTests
 	[InlineData("/jobs/api/jobs/job/executions?take=0", HttpStatusCode.BadRequest)]
 	public async Task ExecutionApiValidatesPagingAndMissingResources(string path, HttpStatusCode expectedStatus)
 	{
-		await using var storage = new InMemoryJobStorage(TimeProvider.System);
+		var timeProvider = new FakeTimeProvider(new DateTimeOffset(2026, 7, 21, 12, 0, 0, TimeSpan.Zero));
+		var now = timeProvider.GetUtcNow();
+
+		await using var storage = new InMemoryJobStorage(timeProvider);
+
 		await storage.EnqueueAsync(new()
 		{
 			Id = "job",
@@ -304,7 +326,9 @@ public sealed class DashboardPackageTests
 		});
 		_ = builder.WebHost.UseTestServer();
 		_ = builder.Services.AddImmediateJobsDashboard();
-		_ = builder.Services.AddSingleton<IJobStorage>(storage);
+
+		_ = builder.Services.Replace(ServiceDescriptor.Singleton<IJobStorage>(storage));
+
 		await using var app = builder.Build();
 		_ = app.MapImmediateJobsDashboard();
 		await app.StartAsync(TestContext.Current.CancellationToken);
@@ -329,15 +353,19 @@ public sealed class DashboardPackageTests
 	[Fact]
 	public async Task QueueOnlyStorageReportsCapabilitiesAndDisablesBatchApi()
 	{
+		var timeProvider = new FakeTimeProvider(new DateTimeOffset(2026, 7, 21, 12, 0, 0, TimeSpan.Zero));
+		var now = timeProvider.GetUtcNow();
+
+		await using var storage = new StorageCapabilityTests.QueueOnlyStorage(timeProvider);
+
 		var builder = WebApplication.CreateBuilder(new WebApplicationOptions
 		{
 			EnvironmentName = Environments.Development,
 		});
 		_ = builder.WebHost.UseTestServer();
 		_ = builder.Services.AddImmediateJobsDashboard();
-		_ = builder.Services.AddSingleton<IJobStorage>(
-			static _ => new StorageCapabilityTests.QueueOnlyStorage(TimeProvider.System)
-		);
+
+		_ = builder.Services.Replace(ServiceDescriptor.Singleton<IJobStorage>(storage));
 
 		await using var app = builder.Build();
 		_ = app.MapImmediateJobsDashboard();
@@ -369,13 +397,19 @@ public sealed class DashboardPackageTests
 	[InlineData("POST", "/jobs/api/jobs/missing/cancel")]
 	public async Task InMemoryDashboardReturnsNotFoundForMissingMutationTargets(string method, string path)
 	{
+		var timeProvider = new FakeTimeProvider(new DateTimeOffset(2026, 7, 21, 12, 0, 0, TimeSpan.Zero));
+		var now = timeProvider.GetUtcNow();
+
+		await using var storage = new InMemoryJobStorage(timeProvider);
+
 		var builder = WebApplication.CreateBuilder(new WebApplicationOptions
 		{
 			EnvironmentName = Environments.Development,
 		});
 		_ = builder.WebHost.UseTestServer();
 		_ = builder.Services.AddImmediateJobsDashboard();
-		_ = builder.Services.AddSingleton<IJobStorage>(static _ => new InMemoryJobStorage(TimeProvider.System));
+
+		_ = builder.Services.Replace(ServiceDescriptor.Singleton<IJobStorage>(storage));
 
 		await using var app = builder.Build();
 		_ = app.MapImmediateJobsDashboard();
@@ -391,8 +425,11 @@ public sealed class DashboardPackageTests
 	public async Task DashboardCancelsNonTerminalJob()
 	{
 		var cancellationToken = TestContext.Current.CancellationToken;
-		await using var storage = new InMemoryJobStorage(TimeProvider.System);
-		var now = TimeProvider.System.GetUtcNow();
+		var timeProvider = new FakeTimeProvider(new DateTimeOffset(2026, 7, 21, 12, 0, 0, TimeSpan.Zero));
+		var now = timeProvider.GetUtcNow();
+
+		await using var storage = new InMemoryJobStorage(timeProvider);
+
 		await storage.EnqueueAsync(new()
 		{
 			Id = "dashboard-cancel",
@@ -408,7 +445,8 @@ public sealed class DashboardPackageTests
 		});
 		_ = builder.WebHost.UseTestServer();
 		_ = builder.Services.AddImmediateJobsDashboard();
-		_ = builder.Services.AddSingleton<IJobStorage>(storage);
+
+		_ = builder.Services.Replace(ServiceDescriptor.Singleton<IJobStorage>(storage));
 
 		await using var app = builder.Build();
 		_ = app.MapImmediateJobsDashboard();
@@ -436,13 +474,19 @@ public sealed class DashboardPackageTests
 	[InlineData("/jobs/batches/batch-42/jobs/job-7")]
 	public async Task SpaRoutesAreUnambiguous(string path)
 	{
+		var timeProvider = new FakeTimeProvider(new DateTimeOffset(2026, 7, 21, 12, 0, 0, TimeSpan.Zero));
+		var now = timeProvider.GetUtcNow();
+
+		await using var storage = new InMemoryJobStorage(timeProvider);
+
 		var builder = WebApplication.CreateBuilder(new WebApplicationOptions
 		{
 			EnvironmentName = Environments.Development,
 		});
 		_ = builder.WebHost.UseTestServer();
 		_ = builder.Services.AddImmediateJobsDashboard();
-		_ = builder.Services.AddSingleton<IJobStorage>(static _ => new InMemoryJobStorage(TimeProvider.System));
+
+		_ = builder.Services.Replace(ServiceDescriptor.Singleton<IJobStorage>(storage));
 
 		await using var app = builder.Build();
 		_ = app.MapImmediateJobsDashboard();
@@ -462,13 +506,19 @@ public sealed class DashboardPackageTests
 	[Fact]
 	public async Task CustomDashboardPrefixIsInjectedIntoSpaBase()
 	{
+		var timeProvider = new FakeTimeProvider(new DateTimeOffset(2026, 7, 21, 12, 0, 0, TimeSpan.Zero));
+		var now = timeProvider.GetUtcNow();
+
+		await using var storage = new InMemoryJobStorage(timeProvider);
+
 		var builder = WebApplication.CreateBuilder(new WebApplicationOptions
 		{
 			EnvironmentName = Environments.Development,
 		});
 		_ = builder.WebHost.UseTestServer();
 		_ = builder.Services.AddImmediateJobsDashboard();
-		_ = builder.Services.AddSingleton<IJobStorage>(static _ => new InMemoryJobStorage(TimeProvider.System));
+
+		_ = builder.Services.Replace(ServiceDescriptor.Singleton<IJobStorage>(storage));
 
 		await using var app = builder.Build();
 		_ = app.MapImmediateJobsDashboard("/operations/background-work");
@@ -490,13 +540,19 @@ public sealed class DashboardPackageTests
 	[Fact]
 	public async Task RequestPathBaseIsIncludedInSpaBase()
 	{
+		var timeProvider = new FakeTimeProvider(new DateTimeOffset(2026, 7, 21, 12, 0, 0, TimeSpan.Zero));
+		var now = timeProvider.GetUtcNow();
+
+		await using var storage = new InMemoryJobStorage(timeProvider);
+
 		var builder = WebApplication.CreateBuilder(new WebApplicationOptions
 		{
 			EnvironmentName = Environments.Development,
 		});
 		_ = builder.WebHost.UseTestServer();
 		_ = builder.Services.AddImmediateJobsDashboard();
-		_ = builder.Services.AddSingleton<IJobStorage>(static _ => new InMemoryJobStorage(TimeProvider.System));
+
+		_ = builder.Services.Replace(ServiceDescriptor.Singleton<IJobStorage>(storage));
 
 		await using var app = builder.Build();
 		_ = app.UsePathBase("/tenant");
@@ -519,13 +575,19 @@ public sealed class DashboardPackageTests
 	[Fact]
 	public async Task DashboardRootRedirectsToTrailingSlash()
 	{
+		var timeProvider = new FakeTimeProvider(new DateTimeOffset(2026, 7, 21, 12, 0, 0, TimeSpan.Zero));
+		var now = timeProvider.GetUtcNow();
+
+		await using var storage = new InMemoryJobStorage(timeProvider);
+
 		var builder = WebApplication.CreateBuilder(new WebApplicationOptions
 		{
 			EnvironmentName = Environments.Development,
 		});
 		_ = builder.WebHost.UseTestServer();
 		_ = builder.Services.AddImmediateJobsDashboard();
-		_ = builder.Services.AddSingleton<IJobStorage>(static _ => new InMemoryJobStorage(TimeProvider.System));
+
+		_ = builder.Services.Replace(ServiceDescriptor.Singleton<IJobStorage>(storage));
 
 		await using var app = builder.Build();
 		_ = app.MapImmediateJobsDashboard();
@@ -543,8 +605,12 @@ public sealed class DashboardPackageTests
 	[Fact]
 	public async Task EventStreamIncludesSucceededJobHistory()
 	{
-		var now = new DateTimeOffset(2026, 7, 21, 12, 0, 0, TimeSpan.Zero);
-		await using var storage = new InMemoryJobStorage(TimeProvider.System);
+		var timeProvider = new FakeTimeProvider(new DateTimeOffset(2026, 7, 21, 12, 0, 0, TimeSpan.Zero));
+		var now = timeProvider.GetUtcNow();
+		timeProvider.Advance(TimeSpan.FromSeconds(2));
+
+		await using var storage = new InMemoryJobStorage(timeProvider);
+
 		await storage.EnqueueAsync(new()
 		{
 			Id = "86bf8c31-d8e6-415b-8e92-45587a09fc52",
@@ -562,7 +628,8 @@ public sealed class DashboardPackageTests
 		});
 		_ = builder.WebHost.UseTestServer();
 		_ = builder.Services.AddImmediateJobsDashboard();
-		_ = builder.Services.AddSingleton<IJobStorage>(storage);
+
+		_ = builder.Services.Replace(ServiceDescriptor.Singleton<IJobStorage>(storage));
 
 		await using var app = builder.Build();
 		_ = app.MapImmediateJobsDashboard();
@@ -576,6 +643,7 @@ public sealed class DashboardPackageTests
 			timeout.Token
 		);
 		_ = response.EnsureSuccessStatusCode();
+
 		await using var stream = await response.Content.ReadAsStreamAsync(timeout.Token);
 		using var reader = new StreamReader(stream);
 
@@ -600,8 +668,12 @@ public sealed class DashboardPackageTests
 	public async Task JobApiAcceptsOpaqueStringIdentifiers()
 	{
 		const string JobId = "redis:jobs:01J2Z4J5Y6K7M8N9P0Q1R2S3T4";
-		var now = new DateTimeOffset(2026, 7, 21, 12, 0, 0, TimeSpan.Zero);
-		await using var storage = new InMemoryJobStorage(TimeProvider.System);
+
+		var timeProvider = new FakeTimeProvider(new DateTimeOffset(2026, 7, 21, 12, 0, 0, TimeSpan.Zero));
+		var now = timeProvider.GetUtcNow();
+
+		await using var storage = new InMemoryJobStorage(timeProvider);
+
 		await storage.EnqueueAsync(new()
 		{
 			Id = JobId,
@@ -619,7 +691,8 @@ public sealed class DashboardPackageTests
 		});
 		_ = builder.WebHost.UseTestServer();
 		_ = builder.Services.AddImmediateJobsDashboard();
-		_ = builder.Services.AddSingleton<IJobStorage>(storage);
+
+		_ = builder.Services.Replace(ServiceDescriptor.Singleton<IJobStorage>(storage));
 
 		await using var app = builder.Build();
 		_ = app.MapImmediateJobsDashboard();

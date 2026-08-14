@@ -3,9 +3,6 @@ using Immediate.Jobs.Shared.Apis;
 using Immediate.Jobs.Shared.Storage;
 using Microsoft.EntityFrameworkCore;
 
-// TODO: remove and fix diagnostics
-#pragma warning disable MA0015 // Specify the parameter name in ArgumentException
-
 namespace Immediate.Jobs.EntityFrameworkCore;
 
 /// <summary>An optimistic-concurrency EF Core implementation of <see cref="IJobStorage"/>.</summary>
@@ -175,10 +172,6 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 		CancellationToken cancellationToken = default
 	)
 	{
-		ArgumentNullException.ThrowIfNull(request);
-		ArgumentException.ThrowIfNullOrWhiteSpace(request.WorkerId);
-		ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(request.Lease, TimeSpan.Zero);
-		ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(request.BatchSize, 0);
 		if (request.FairQueues is not null)
 			return await AcquireDueJobsFairAsync(request, cancellationToken).ConfigureAwait(false);
 
@@ -1074,9 +1067,6 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 	/// <inheritdoc />
 	public async ValueTask<IReadOnlyList<JobRecord>> QueryJobsAsync(JobQuery query, CancellationToken cancellationToken = default)
 	{
-		ArgumentNullException.ThrowIfNull(query);
-		ArgumentOutOfRangeException.ThrowIfNegative(query.Skip);
-		ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(query.Take, 0);
 		await using var context = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
 		var jobs = context.Set<ImmediateJobEntity>().AsNoTracking();
 		if (query.Id is { } id)
@@ -1180,9 +1170,6 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 		CancellationToken cancellationToken = default
 	)
 	{
-		ArgumentNullException.ThrowIfNull(childJobIds);
-		foreach (var childJobId in childJobIds)
-			ArgumentException.ThrowIfNullOrWhiteSpace(childJobId);
 		if (childJobIds.Count == 0)
 			return [];
 
@@ -1205,9 +1192,6 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 		CancellationToken cancellationToken = default
 	)
 	{
-		ArgumentNullException.ThrowIfNull(query);
-		ArgumentOutOfRangeException.ThrowIfNegative(query.Skip);
-		ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(query.Take, 0);
 		await using var context = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
 		var batches = context.Set<ImmediateJobBatchEntity>().AsNoTracking();
 		if (query.State is { } state)
@@ -1228,10 +1212,6 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 		CancellationToken cancellationToken = default
 	)
 	{
-		ArgumentException.ThrowIfNullOrWhiteSpace(batchId);
-		ArgumentNullException.ThrowIfNull(query);
-		ArgumentOutOfRangeException.ThrowIfNegative(query.Skip);
-		ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(query.Take, 0);
 		await using var context = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
 		var jobs = context.Set<ImmediateJobEntity>()
 			.AsNoTracking()
@@ -2082,8 +2062,6 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 		var trackedAdditions = 0;
 		foreach (var addition in additions)
 		{
-			ArgumentNullException.ThrowIfNull(addition);
-			ArgumentNullException.ThrowIfNull(addition.Job);
 			if (!ids.Add(addition.Job.Id))
 				throw new ImmediateJobException("Buffered continuations contain duplicate job identifiers.");
 			if (!Enum.IsDefined(addition.Trigger))

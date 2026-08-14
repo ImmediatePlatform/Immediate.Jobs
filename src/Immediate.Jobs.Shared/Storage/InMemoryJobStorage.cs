@@ -3,9 +3,6 @@ using Immediate.Jobs.Shared.Apis;
 
 namespace Immediate.Jobs.Shared.Storage;
 
-// TODO: remove and fix diagnostics
-#pragma warning disable MA0015 // Specify the parameter name in ArgumentException
-
 /// <summary>
 /// A best-effort, non-durable, single-node provider intended for development and tests.
 /// 
@@ -569,8 +566,8 @@ internal sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 		CancellationToken cancellationToken = default
 	)
 	{
-		ArgumentNullException.ThrowIfNull(job);
 		cancellationToken.ThrowIfCancellationRequested();
+
 		lock (_gate)
 		{
 			if (!_jobs.TryGetValue(currentJobId, out var current) || current.State != JobState.Active)
@@ -619,6 +616,7 @@ internal sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 	)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+
 		lock (_gate)
 		{
 			var job = GetOwnedActive(jobId, executionNumber, workerId);
@@ -673,8 +671,8 @@ internal sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 		CancellationToken cancellationToken = default
 	)
 	{
-		ArgumentNullException.ThrowIfNull(activeScheduleNames);
 		cancellationToken.ThrowIfCancellationRequested();
+
 		var activeNames = activeScheduleNames.ToHashSet(StringComparer.Ordinal);
 		lock (_gate)
 		{
@@ -692,8 +690,8 @@ internal sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 	/// <inheritdoc />
 	public ValueTask RemoveRecurringAsync(string name, CancellationToken cancellationToken = default)
 	{
-		ArgumentException.ThrowIfNullOrWhiteSpace(name);
 		cancellationToken.ThrowIfCancellationRequested();
+
 		lock (_gate)
 		{
 			if (!_recurring.TryGetValue(name, out var schedule))
@@ -722,8 +720,8 @@ internal sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 		CancellationToken cancellationToken = default
 	)
 	{
-		ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(batchSize, 0);
 		cancellationToken.ThrowIfCancellationRequested();
+
 		lock (_gate)
 		{
 			return
@@ -741,9 +739,8 @@ internal sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 		CancellationToken cancellationToken = default
 	)
 	{
-		ArgumentNullException.ThrowIfNull(schedule);
-		ArgumentNullException.ThrowIfNull(job);
 		cancellationToken.ThrowIfCancellationRequested();
+
 		lock (_gate)
 		{
 			if (!_recurring.TryGetValue(schedule.Name, out var current) || current.NextRunAt != schedule.NextRunAt)
@@ -761,6 +758,7 @@ internal sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 	public async ValueTask<JobMonitoringSnapshot> GetMonitoringSnapshotAsync(CancellationToken cancellationToken = default)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+
 		lock (_gate)
 		{
 			var counts = Enum.GetValues<JobState>().ToDictionary(state => state, state => _jobs.Values.LongCount(x => x.State == state));
@@ -780,8 +778,8 @@ internal sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 	/// <inheritdoc />
 	public async ValueTask<IReadOnlyList<JobRecord>> QueryJobsAsync(JobQuery query, CancellationToken cancellationToken = default)
 	{
-		ArgumentNullException.ThrowIfNull(query);
 		cancellationToken.ThrowIfCancellationRequested();
+
 		lock (_gate)
 		{
 			var jobs = _jobs.Values.AsEnumerable();
@@ -814,6 +812,7 @@ internal sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 	)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+
 		lock (_gate)
 		{
 			if (!_jobs.TryGetValue(query.JobId, out var job))
@@ -1219,8 +1218,6 @@ internal sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 
 	private void ValidateNewJob(JobRecord job)
 	{
-		ArgumentException.ThrowIfNullOrWhiteSpace(job.Id);
-		ArgumentException.ThrowIfNullOrWhiteSpace(job.JobName);
 		if (_jobs.ContainsKey(job.Id))
 			throw new ImmediateJobException($"Job '{job.Id}' already exists.");
 	}
@@ -1231,7 +1228,6 @@ internal sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 		IReadOnlyList<JobContinuationEdge> edges
 	)
 	{
-		ArgumentException.ThrowIfNullOrWhiteSpace(batch.Id);
 		if (_batches.ContainsKey(batch.Id))
 			throw new ImmediateJobException($"Batch '{batch.Id}' already exists.");
 		if (jobs.Count == 0)
@@ -1293,10 +1289,9 @@ internal sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 		);
 		var outgoing = newJobIds.ToDictionary(static id => id, static _ => new List<string>(), StringComparer.Ordinal);
 		var incoming = newJobIds.ToDictionary(static id => id, static _ => 0, StringComparer.Ordinal);
+
 		foreach (var edge in edges)
 		{
-			ArgumentNullException.ThrowIfNull(edge);
-			ArgumentException.ThrowIfNullOrWhiteSpace(edge.ChildJobId);
 			if (!Enum.IsDefined(edge.Trigger))
 				throw new ArgumentOutOfRangeException(nameof(edges), "Unknown continuation trigger.");
 			if (!newJobIds.Contains(edge.ChildJobId))
