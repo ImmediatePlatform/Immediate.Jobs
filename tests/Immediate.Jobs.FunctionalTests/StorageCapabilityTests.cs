@@ -6,6 +6,7 @@ using Immediate.Jobs.Shared.Interfaces;
 using Immediate.Jobs.Shared.Internals;
 using Immediate.Jobs.Shared.Storage;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Time.Testing;
 
 namespace Immediate.Jobs.FunctionalTests;
 
@@ -15,8 +16,10 @@ public sealed class StorageCapabilityTests
 	public async Task InMemoryStorageResolvesOneInstanceAndReportsItsCapabilities()
 	{
 		var cancellationToken = TestContext.Current.CancellationToken;
+		var timeProvider = new FakeTimeProvider(DateTimeOffset.UnixEpoch);
 		var services = new ServiceCollection();
 		_ = services.AddLogging();
+		_ = services.AddSingleton<TimeProvider>(timeProvider);
 		_ = services.AddImmediateJobsCore().ConfigureStorage(options => _ = options.UseInMemory());
 
 		await using var provider = services.BuildServiceProvider();
@@ -38,17 +41,18 @@ public sealed class StorageCapabilityTests
 	[Fact]
 	public async Task GraphEntryPointsFailBeforeWriting()
 	{
-		await using var storage = new QueueOnlyStorage(TimeProvider.System);
+		var timeProvider = new FakeTimeProvider(DateTimeOffset.UnixEpoch);
+		await using var storage = new QueueOnlyStorage(timeProvider);
 		var idGenerator = new CapabilityIdGenerator();
 		var scheduler = new QueueOnlyScheduler(
 			storage,
 			new SystemTextJsonJobSerializer(),
-			TimeProvider.System,
+			timeProvider,
 			idGenerator
 		);
 		var batchScheduler = new BatchScheduler(
 			storage,
-			TimeProvider.System,
+			timeProvider,
 			idGenerator
 		);
 
@@ -69,9 +73,11 @@ public sealed class StorageCapabilityTests
 	public async Task QueueOnlySchedulerUsesPlainCompletionAndSkipsRecurring()
 	{
 		var cancellationToken = TestContext.Current.CancellationToken;
-		await using var storage = new QueueOnlyStorage(TimeProvider.System);
+		var timeProvider = new FakeTimeProvider(DateTimeOffset.UnixEpoch);
+		await using var storage = new QueueOnlyStorage(timeProvider);
 		var services = new ServiceCollection();
 		_ = services.AddLogging();
+		_ = services.AddSingleton<TimeProvider>(timeProvider);
 		_ = services.AddImmediateJobsCore()
 			.Configure(o => o.MaxParallelJobs = 1)
 			.ConfigureStorage(o => o.UseStorage(_ => storage).UseDistributed());

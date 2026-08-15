@@ -379,7 +379,7 @@ operations.
   receive both the retained execution and a compatibility job projection scoped to its attempt and
   trace/span fields.
 - **Actions:** trigger recurring job now · retry failed · delete failed · pause/resume recurring schedule · cancel a running batch · delete a terminal batch.
-- **Auth:** dashboard endpoints integrate with ASP.NET Core authorization — `MapImmediateJobsDashboard(o => o.RequireAuthorization("policy"))`. Default: allowed only in `Development` unless a policy is configured (Hangfire's local-only default, but explicit).
+- **Auth:** dashboard endpoints integrate with ASP.NET Core authorization — `AddImmediateJobsDashboard(o => o.RequireAuthorization("policy"))`. Default: allowed only in `Development` unless a policy is configured (Hangfire's local-only default, but explicit).
 - **Read/write split:** the JSON+SSE monitoring API is a documented, stable surface usable without the SPA.
 
 ---

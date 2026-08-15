@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text.Json;
 using Immediate.Jobs.Shared.Apis;
 using Immediate.Jobs.Shared.Storage;
+using Microsoft.Extensions.Options;
 using StackExchange.Redis;
 
 namespace Immediate.Jobs.Redis;
@@ -60,31 +61,31 @@ internal sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 		IConnectionMultiplexer connection,
 		RedisJobStorageOptions? options = null,
 		TimeProvider? timeProvider = null
-	) : this(connection, options ?? new(), timeProvider, ownsConnection: false)
+	) : this(connection, Options.Create(options ?? new()), timeProvider, ownsConnection: false)
 	{
 	}
 
 	internal RedisJobStorage(
 		IConnectionMultiplexer connection,
-		RedisJobStorageOptions options,
+		IOptions<RedisJobStorageOptions> options,
 		TimeProvider? timeProvider,
 		bool ownsConnection
 	)
 	{
-		// TODO: Fix configuration
 #pragma warning disable MA0015 // Specify the parameter name in ArgumentException
 		ArgumentNullException.ThrowIfNull(connection);
 		ArgumentNullException.ThrowIfNull(options);
-		ArgumentException.ThrowIfNullOrWhiteSpace(options.KeyPrefix);
+		var storageOptions = options.Value;
+		ArgumentException.ThrowIfNullOrWhiteSpace(storageOptions.KeyPrefix);
 #pragma warning restore MA0015 // Specify the parameter name in ArgumentException
 
-		if (options.KeyPrefix.IndexOfAny(['{', '}']) >= 0)
+		if (storageOptions.KeyPrefix.IndexOfAny(['{', '}']) >= 0)
 			throw new ArgumentException("The Redis key prefix cannot contain '{' or '}'.", nameof(options));
 
 		_connection = connection;
-		_database = connection.GetDatabase(options.Database);
+		_database = connection.GetDatabase(storageOptions.Database);
 		_timeProvider = timeProvider ?? TimeProvider.System;
-		_root = $"{{{options.KeyPrefix}}}:";
+		_root = $"{{{storageOptions.KeyPrefix}}}:";
 		_ownsConnection = ownsConnection;
 	}
 

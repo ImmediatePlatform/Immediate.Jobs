@@ -1,6 +1,7 @@
 using Immediate.Jobs.Shared.Internals;
 using Immediate.Jobs.Shared.Storage;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Time.Testing;
 
 namespace Immediate.Jobs.FunctionalTests;
 
@@ -10,7 +11,8 @@ public sealed class JobSchedulingServiceTests
 	public async Task TelemetryPersistenceFailureDoesNotConsumeAnAttempt()
 	{
 		var cancellationToken = TestContext.Current.CancellationToken;
-		await using var inner = new InMemoryJobStorage(TimeProvider.System);
+		var timeProvider = new FakeTimeProvider(DateTimeOffset.UnixEpoch);
+		await using var inner = new InMemoryJobStorage(timeProvider);
 		await using var proxy = ControllableJobStorageProxy.Create(inner);
 		((ControllableJobStorageProxy)(object)proxy).FailTelemetry = true;
 		var state = new BatchWorkflowState();
@@ -20,6 +22,7 @@ public sealed class JobSchedulingServiceTests
 		_ = services.AddSingleton(state);
 		_ = services.AddSingleton(new DynamicExpansionState());
 		_ = services.AddSingleton(new ExecutionBufferProbeState());
+		_ = services.AddSingleton<TimeProvider>(timeProvider);
 		_ = services.AddImmediateJobsCore();
 		_ = services.AddImmediateJobsFunctionalTestsHandlers();
 		_ = services.AddImmediateJobsFunctionalTestsJobs();
@@ -40,17 +43,19 @@ public sealed class JobSchedulingServiceTests
 	public async Task UnknownAcquiredJobIsFailedWithoutAnInvoker()
 	{
 		var cancellationToken = TestContext.Current.CancellationToken;
-		await using var inner = new InMemoryJobStorage(TimeProvider.System);
+		var timeProvider = new FakeTimeProvider(DateTimeOffset.UnixEpoch);
+		await using var inner = new InMemoryJobStorage(timeProvider);
 		await using var proxy = ControllableJobStorageProxy.Create(inner);
 		var proxyState = (ControllableJobStorageProxy)(object)proxy;
 		proxyState.CaptureFailures = true;
 		var services = new ServiceCollection();
 		_ = services.AddLogging();
 		_ = services.AddSingleton<IJobStorage>(proxy);
+		_ = services.AddSingleton<TimeProvider>(timeProvider);
 		_ = services.AddImmediateJobsCore();
 		await using var provider = services.BuildServiceProvider();
 		var service = provider.GetRequiredService<JobSchedulingService>();
-		var now = TimeProvider.System.GetUtcNow();
+		var now = timeProvider.GetUtcNow();
 
 		await service.ExecuteSingleAsync(
 			new()
@@ -75,7 +80,8 @@ public sealed class JobSchedulingServiceTests
 	public async Task HostShutdownDuringTelemetryKeepsCancellationSemantics()
 	{
 		var cancellationToken = TestContext.Current.CancellationToken;
-		await using var inner = new InMemoryJobStorage(TimeProvider.System);
+		var timeProvider = new FakeTimeProvider(DateTimeOffset.UnixEpoch);
+		await using var inner = new InMemoryJobStorage(timeProvider);
 		await using var proxy = ControllableJobStorageProxy.Create(inner);
 		using var shutdown = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
 		((ControllableJobStorageProxy)(object)proxy).CancelTelemetry = shutdown;
@@ -85,6 +91,7 @@ public sealed class JobSchedulingServiceTests
 		_ = services.AddSingleton(new BatchWorkflowState());
 		_ = services.AddSingleton(new DynamicExpansionState());
 		_ = services.AddSingleton(new ExecutionBufferProbeState());
+		_ = services.AddSingleton<TimeProvider>(timeProvider);
 		_ = services.AddImmediateJobsCore();
 		_ = services.AddImmediateJobsFunctionalTestsHandlers();
 		_ = services.AddImmediateJobsFunctionalTestsJobs();

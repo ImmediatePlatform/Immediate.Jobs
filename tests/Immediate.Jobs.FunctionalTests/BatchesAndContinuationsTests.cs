@@ -6,6 +6,7 @@ using Immediate.Jobs.Shared.Interfaces;
 using Immediate.Jobs.Shared.Storage;
 using Immediate.Jobs.Testing;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Time.Testing;
 
 namespace Immediate.Jobs.FunctionalTests;
 
@@ -122,7 +123,8 @@ public sealed class BatchesAndContinuationsTests
 	public async Task CommitSealsImmutableSnapshotsBeforeAwaitingStorage()
 	{
 		var cancellationToken = TestContext.Current.CancellationToken;
-		await using var inner = new InMemoryJobStorage(TimeProvider.System);
+		var timeProvider = new FakeTimeProvider(DateTimeOffset.UnixEpoch);
+		await using var inner = new InMemoryJobStorage(timeProvider);
 		await using var proxy = ControllableJobStorageProxy.Create(inner);
 		var proxyState = (ControllableJobStorageProxy)(object)proxy;
 		proxyState.BlockBatchEnqueue = true;
@@ -132,6 +134,7 @@ public sealed class BatchesAndContinuationsTests
 		_ = services.AddSingleton(new BatchWorkflowState());
 		_ = services.AddSingleton(new DynamicExpansionState());
 		_ = services.AddSingleton(new ExecutionBufferProbeState());
+		_ = services.AddSingleton<TimeProvider>(timeProvider);
 		_ = services.AddImmediateJobsCore();
 		_ = services.AddImmediateJobsFunctionalTestsHandlers();
 		_ = services.AddImmediateJobsFunctionalTestsJobs();
@@ -594,7 +597,9 @@ public sealed class BatchesAndContinuationsTests
 	[Fact]
 	public async Task RuntimeRegistersScopedBatchAndMonitoringServices()
 	{
+		var timeProvider = new FakeTimeProvider(DateTimeOffset.UnixEpoch);
 		var services = new ServiceCollection();
+		_ = services.AddSingleton<TimeProvider>(timeProvider);
 		_ = services.AddImmediateJobsCore();
 		await using var provider = services.BuildServiceProvider(new ServiceProviderOptions { ValidateScopes = true });
 

@@ -15,9 +15,11 @@ public sealed class SingleServerJobStorageTests
 	[Fact]
 	public async Task DurableStorageDefaultsToSingleServerMode()
 	{
-		await using var durableInner = new InMemoryJobStorage(TimeProvider.System);
+		var timeProvider = new FakeTimeProvider(DateTimeOffset.UnixEpoch);
+		await using var durableInner = new InMemoryJobStorage(timeProvider);
 		await using var durable = CreateProxy(durableInner);
 		var services = new ServiceCollection();
+		_ = services.AddSingleton<TimeProvider>(timeProvider);
 		_ = services.AddImmediateJobsCore().ConfigureStorage(options => options.UseStorage(_ => durable));
 
 		await using var provider = services.BuildServiceProvider();
@@ -38,13 +40,16 @@ public sealed class SingleServerJobStorageTests
 	[Fact]
 	public async Task InMemoryAndDistributedModesRemainDirect()
 	{
-		await using var durable = new InMemoryJobStorage(TimeProvider.System);
+		var timeProvider = new FakeTimeProvider(DateTimeOffset.UnixEpoch);
+		await using var durable = new InMemoryJobStorage(timeProvider);
 		var inMemoryServices = new ServiceCollection();
+		_ = inMemoryServices.AddSingleton<TimeProvider>(timeProvider);
 		_ = inMemoryServices.AddImmediateJobsCore().ConfigureStorage(options => options.UseInMemory());
 		await using var inMemoryProvider = inMemoryServices.BuildServiceProvider();
 		_ = Assert.IsType<InMemoryJobStorage>(inMemoryProvider.GetRequiredService<IJobStorage>());
 
 		var distributedServices = new ServiceCollection();
+		_ = distributedServices.AddSingleton<TimeProvider>(timeProvider);
 		_ = distributedServices.AddImmediateJobsCore().ConfigureStorage(options => options.UseStorage(_ => durable).UseDistributed());
 		await using var distributedProvider = distributedServices.BuildServiceProvider();
 		Assert.Same(durable, distributedProvider.GetRequiredService<IJobStorage>());
@@ -53,12 +58,15 @@ public sealed class SingleServerJobStorageTests
 	[Fact]
 	public void ExplicitDurableModeRequiresAProvider()
 	{
+		var timeProvider = new FakeTimeProvider(DateTimeOffset.UnixEpoch);
 		var singleServerServices = new ServiceCollection();
+		_ = singleServerServices.AddSingleton<TimeProvider>(timeProvider);
 		_ = Assert.Throws<ImmediateJobException>(() =>
 			singleServerServices.AddImmediateJobsCore().ConfigureStorage(options => options.UseSingleServer())
 		);
 
 		var distributedServices = new ServiceCollection();
+		_ = distributedServices.AddSingleton<TimeProvider>(timeProvider);
 		_ = Assert.Throws<ImmediateJobException>(() =>
 			distributedServices.AddImmediateJobsCore().ConfigureStorage(options => options.UseDistributed())
 		);
@@ -68,9 +76,10 @@ public sealed class SingleServerJobStorageTests
 	[SuppressMessage("Reliability", "CA2000", Justification = "SingleServerJobStorage owns and disposes the durable proxy and its in-memory test store.")]
 	public void SynchronousDisposalIsIdempotent()
 	{
+		var timeProvider = new FakeTimeProvider(DateTimeOffset.UnixEpoch);
 		using var storage = new SingleServerJobStorage(
-			CreateProxy(new InMemoryJobStorage(TimeProvider.System)),
-			TimeProvider.System
+			CreateProxy(new InMemoryJobStorage(timeProvider)),
+			timeProvider
 		);
 
 		storage.Dispose();
@@ -81,11 +90,12 @@ public sealed class SingleServerJobStorageTests
 	public async Task InitializationWaitersCompleteSafelyWhenDisposalStarts()
 	{
 		var cancellationToken = TestContext.Current.CancellationToken;
-		await using var inner = new InMemoryJobStorage(TimeProvider.System);
+		var timeProvider = new FakeTimeProvider(DateTimeOffset.UnixEpoch);
+		await using var inner = new InMemoryJobStorage(timeProvider);
 		await using var proxy = CreateProxy(inner);
 		var proxyState = (DurableStorageProxy)(object)proxy;
 		proxyState.BlockInitialization = true;
-		await using var storage = new SingleServerJobStorage(proxy, TimeProvider.System);
+		await using var storage = new SingleServerJobStorage(proxy, timeProvider);
 		var initializing = storage.InitializeAsync(cancellationToken).AsTask();
 		await proxyState.InitializationEntered.Task.WaitAsync(cancellationToken);
 		var waiting = storage.InitializeAsync(cancellationToken).AsTask();

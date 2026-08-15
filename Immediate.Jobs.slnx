@@ -21,7 +21,7 @@
     <Project Path="src/Immediate.Jobs.Shared/Immediate.Jobs.Shared.csproj" />
     <Project Path="src/Immediate.Jobs/Immediate.Jobs.csproj" />
   </Folder>
-  <Folder Name="/Source.Support/">
+  <Folder Name="/Source.Extensions/">
     <Project Path="src/Immediate.Jobs.Dashboard/Immediate.Jobs.Dashboard.csproj" />
     <Project Path="src/Immediate.Jobs.EntityFrameworkCore/Immediate.Jobs.EntityFrameworkCore.csproj" />
     <Project Path="src/Immediate.Jobs.LinqToDB/Immediate.Jobs.LinqToDB.csproj" />

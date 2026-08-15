@@ -1,5 +1,6 @@
 using Immediate.Jobs.Shared.Storage;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
+using Microsoft.Extensions.Options;
 
 namespace Immediate.Jobs.Shared.Internals;
 
@@ -21,7 +22,7 @@ namespace Immediate.Jobs.Shared.Internals;
 public sealed class ImmediateJobsHealthCheck(
 	IJobStorage storage,
 	JobSchedulerState state,
-	ImmediateJobsOptions options,
+	IOptions<ImmediateJobsOptions> options,
 	TimeProvider timeProvider
 ) : IHealthCheck
 {
@@ -49,7 +50,7 @@ public sealed class ImmediateJobsHealthCheck(
 		if (state.StartedAt is null)
 			return HealthCheckResult.Degraded("The Immediate.Jobs scheduler has not started.", data: data);
 
-		var allowedSilence = TimeSpan.FromTicks(options.PollingInterval.Ticks * 3);
+		var allowedSilence = TimeSpan.FromTicks(options.Value.PollingInterval.Ticks * 3);
 		if (state.LastHeartbeat is not { } heartbeat || timeProvider.GetUtcNow() - heartbeat > allowedSilence)
 		{
 			return new(

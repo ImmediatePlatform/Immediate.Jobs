@@ -58,10 +58,4 @@ public sealed class ImmediateJobsDashboardOptions
 		_telemetryLinks.Add(new(label, kind, createUrl));
 		return this;
 	}
-
-	internal void Validate()
-	{
-		if (UpdateInterval <= TimeSpan.Zero)
-			throw new InvalidOperationException("The dashboard update interval must be positive.");
-	}
 }

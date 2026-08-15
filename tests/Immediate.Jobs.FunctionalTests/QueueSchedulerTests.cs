@@ -4,6 +4,7 @@ using Immediate.Jobs.Shared.Internals;
 using Immediate.Jobs.Shared.Storage;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Time.Testing;
 
 namespace Immediate.Jobs.FunctionalTests;
 
@@ -12,9 +13,11 @@ public sealed class QueueSchedulerTests
 	[Fact]
 	public async Task RepeatedRuntimeRegistrationPreservesOtherHostedServicesAndAddsOneScheduler()
 	{
+		var timeProvider = new FakeTimeProvider(DateTimeOffset.UnixEpoch);
 		var services = new ServiceCollection();
 		_ = services.AddLogging();
 		_ = services.AddHostedService<OtherHostedService>();
+		_ = services.AddSingleton<TimeProvider>(timeProvider);
 		_ = services.AddImmediateJobsCore();
 		_ = services.AddImmediateJobsCore();
 
@@ -35,8 +38,10 @@ public sealed class QueueSchedulerTests
 		var execution = new BlockingExecution();
 		var highQueue = new JobQueueDefinition { Name = "high", Priority = 10, Concurrency = 2 };
 		var lowQueue = new JobQueueDefinition { Name = "low", Priority = 0 };
+		var timeProvider = new FakeTimeProvider(DateTimeOffset.UnixEpoch);
 		var services = new ServiceCollection();
 		_ = services.AddLogging();
+		_ = services.AddSingleton<TimeProvider>(timeProvider);
 		_ = services.AddImmediateJobsCore()
 			.Configure(o =>
 			{

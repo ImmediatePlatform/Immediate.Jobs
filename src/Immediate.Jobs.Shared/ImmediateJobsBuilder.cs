@@ -228,9 +228,8 @@ public sealed class ImmediateJobsBuilder
 		if (Services.Any(s => s.ServiceType == typeof(ImmediateJobsStorageBuilder)))
 			ImmediateJobException.Throw("Cannot configure storage multiple times.");
 
-		Services.AddSingleton<ImmediateJobsStorageBuilder>();
-
-		var builder = new ImmediateJobsStorageBuilder();
+		var builder = new ImmediateJobsStorageBuilder(Services);
+		Services.AddSingleton(builder);
 		configure(builder);
 
 		builder.ValidateAndRegister(Services);
@@ -254,6 +253,16 @@ public sealed class ImmediateJobsStorageBuilder
 
 	private JobStorageMode _storageMode;
 	private Func<IServiceProvider, IJobStorage>? _factory;
+
+	internal ImmediateJobsStorageBuilder(IServiceCollection services)
+	{
+		Services = services;
+	}
+
+	/// <summary>
+	/// 	The service collection being configured.
+	/// </summary>
+	public IServiceCollection Services { get; }
 
 	/// <summary>
 	/// 	Selects the non-durable, single-node in-memory provider.

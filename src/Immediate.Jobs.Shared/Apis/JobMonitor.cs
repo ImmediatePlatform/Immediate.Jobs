@@ -6,7 +6,7 @@ using Immediate.Validations.Shared;
 namespace Immediate.Jobs.Shared.Apis;
 
 /// <summary>
-/// 	Storage-backed implementation of the public monitoring services.
+/// 	Storage-backed implementation of the public job monitoring and management services.
 /// </summary>
 /// <param name="storage">
 /// 	The storage provider queried for job and batch status.
@@ -14,13 +14,123 @@ namespace Immediate.Jobs.Shared.Apis;
 /// <param name="definitions">
 /// 	The generated job definitions used to enrich monitoring results.
 /// </param>
-public sealed class JobMonitor(IJobStorage storage, IEnumerable<JobDefinition> definitions) : IJobMonitor
+/// <param name="timeProvider">
+/// 	The clock used when triggering recurring jobs.
+/// </param>
+/// <param name="idGenerator">
+/// 	The identifier generator used when triggering recurring jobs.
+/// </param>
+public sealed class JobMonitor(
+	IJobStorage storage,
+	IEnumerable<JobDefinition> definitions,
+	TimeProvider timeProvider,
+	IIdGenerator idGenerator
+) : IJobMonitor
 {
 	/// <inheritdoc />
 	public async ValueTask<JobMonitoringSnapshot> GetSnapshotAsync(CancellationToken cancellationToken = default)
 	{
 		var snapshot = await storage.GetMonitoringSnapshotAsync(cancellationToken).ConfigureAwait(false);
 		return snapshot with { Capabilities = storage.GetCapabilities() };
+	}
+
+	/// <summary>Cancels a non-terminal job.</summary>
+	/// <param name="jobId">The invocation identifier.</param>
+	/// <param name="cancellationToken">A token that can cancel the operation.</param>
+	public ValueTask CancelJobAsync(string jobId, CancellationToken cancellationToken = default)
+	{
+		ArgumentException.ThrowIfNullOrWhiteSpace(jobId);
+		return storage.CancelAsync(jobId, cancellationToken);
+	}
+
+	/// <summary>Moves a terminal job back to pending.</summary>
+	/// <param name="jobId">The invocation identifier.</param>
+	/// <param name="cancellationToken">A token that can cancel the operation.</param>
+	public ValueTask RetryJobAsync(string jobId, CancellationToken cancellationToken = default)
+	{
+		ArgumentException.ThrowIfNullOrWhiteSpace(jobId);
+		return storage.RetryAsync(jobId, cancellationToken);
+	}
+
+	/// <summary>Cancels a batch and its non-terminal members.</summary>
+	/// <param name="batchId">The batch identifier.</param>
+	/// <param name="cancellationToken">A token that can cancel the operation.</param>
+	public async ValueTask CancelBatchAsync(string batchId, CancellationToken cancellationToken = default)
+	{
+		ArgumentException.ThrowIfNullOrWhiteSpace(batchId);
+		if (storage is not IJobGraphStorage graphStorage)
+			throw new KeyNotFoundException($"Batch '{batchId}' is not available.");
+
+		await graphStorage.CancelBatchAsync(batchId, cancellationToken).ConfigureAwait(false);
+	}
+
+	/// <summary>Deletes a terminal batch and its retained graph.</summary>
+	/// <param name="batchId">The batch identifier.</param>
+	/// <param name="cancellationToken">A token that can cancel the operation.</param>
+	public async ValueTask DeleteBatchAsync(string batchId, CancellationToken cancellationToken = default)
+	{
+		ArgumentException.ThrowIfNullOrWhiteSpace(batchId);
+		if (storage is not IJobGraphStorage graphStorage)
+			throw new KeyNotFoundException($"Batch '{batchId}' is not available.");
+
+		await graphStorage.DeleteBatchAsync(batchId, cancellationToken).ConfigureAwait(false);
+	}
+
+	/// <summary>Pauses a recurring schedule.</summary>
+	/// <param name="name">The recurring schedule name.</param>
+	/// <param name="cancellationToken">A token that can cancel the operation.</param>
+	public async ValueTask PauseRecurringAsync(string name, CancellationToken cancellationToken = default)
+	{
+		ArgumentException.ThrowIfNullOrWhiteSpace(name);
+		if (storage is not IRecurringJobStorage recurringStorage)
+			throw new KeyNotFoundException($"Recurring schedule '{name}' is not available.");
+
+		await recurringStorage.PauseRecurringAsync(name, cancellationToken).ConfigureAwait(false);
+	}
+
+	/// <summary>Resumes a recurring schedule.</summary>
+	/// <param name="name">The recurring schedule name.</param>
+	/// <param name="cancellationToken">A token that can cancel the operation.</param>
+	public async ValueTask ResumeRecurringAsync(string name, CancellationToken cancellationToken = default)
+	{
+		ArgumentException.ThrowIfNullOrWhiteSpace(name);
+		if (storage is not IRecurringJobStorage recurringStorage)
+			throw new KeyNotFoundException($"Recurring schedule '{name}' is not available.");
+
+		await recurringStorage.ResumeRecurringAsync(name, cancellationToken).ConfigureAwait(false);
+	}
+
+	/// <summary>Creates an immediate invocation from a recurring schedule.</summary>
+	/// <param name="name">The recurring schedule name.</param>
+	/// <param name="cancellationToken">A token that can cancel the operation.</param>
+	public async ValueTask TriggerRecurringAsync(string name, CancellationToken cancellationToken = default)
+	{
+		ArgumentException.ThrowIfNullOrWhiteSpace(name);
+		var snapshot = await GetSnapshotAsync(cancellationToken).ConfigureAwait(false);
+		var schedule = snapshot.Recurring.FirstOrDefault(candidate =>
+			string.Equals(candidate.Name, name, StringComparison.Ordinal));
+		if (schedule is null)
+			throw new KeyNotFoundException($"Recurring schedule '{name}' is not available.");
+
+		var definition = definitions.FirstOrDefault(candidate =>
+			string.Equals(candidate.Name, schedule.JobName, StringComparison.Ordinal));
+		if (definition is null)
+			ImmediateJobException.Throw($"No generated job definition exists for '{schedule.JobName}'.");
+
+		var now = timeProvider.GetUtcNow();
+		await storage.EnqueueAsync(
+			new()
+			{
+				Id = idGenerator.CreateId(IdKind.Job),
+				JobName = schedule.JobName,
+				QueueName = definition.Queue.Name,
+				Payload = "{}",
+				State = JobState.Pending,
+				DueAt = now,
+				CreatedAt = now,
+			},
+			cancellationToken
+		).ConfigureAwait(false);
 	}
 
 	/// <inheritdoc />
