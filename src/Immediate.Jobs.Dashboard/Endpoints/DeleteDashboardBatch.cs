@@ -3,6 +3,7 @@ using Immediate.Handlers.Shared;
 using Immediate.Jobs.Shared.Apis;
 using Immediate.Validations.Shared;
 using Microsoft.AspNetCore.Http.HttpResults;
+using Microsoft.AspNetCore.Mvc;
 
 namespace Immediate.Jobs.Dashboard.Endpoints;
 
@@ -14,6 +15,7 @@ internal static partial class DeleteDashboardBatch
 	[Validate]
 	internal sealed partial record Command : IValidationTarget<Command>
 	{
+		[FromRoute]
 		[NotEmpty]
 		public required string BatchId { get; init; }
 	}
