@@ -1,7 +1,7 @@
 # Immediate.Jobs.LinqToDB
 
 [![NuGet](https://img.shields.io/nuget/v/Immediate.Jobs.LinqToDB.svg?style=plastic)](https://www.nuget.org/packages/Immediate.Jobs.LinqToDB/)
-[![Documentation](https://img.shields.io/badge/docs-online-brightgreen)](https://immediateplatform.dev/docs/Immediate.Jobs/introduction)
+[![Documentation](https://img.shields.io/badge/docs-online-brightgreen)](https://immediateplatform.dev/docs/Immediate.Jobs/configuring-storage-providers#linqtodb)
 [![License](https://img.shields.io/github/license/ImmediatePlatform/Immediate.Jobs.svg)](https://github.com/ImmediatePlatform/Immediate.Jobs/blob/main/license.txt)
 
 LinqToDB storage for [Immediate.Jobs](https://www.nuget.org/packages/Immediate.Jobs/), validated with PostgreSQL,
@@ -13,8 +13,8 @@ history, distributed leases, and fair acquisition.
 Install the core scheduler, this adapter, and the ADO.NET driver for your database:
 
 ```console
-dotnet add package Immediate.Jobs
-dotnet add package Immediate.Jobs.LinqToDB
+dotnet add package Immediate.Jobs --prerelease
+dotnet add package Immediate.Jobs.LinqToDB --prerelease
 dotnet add package Npgsql
 ```
 
@@ -32,14 +32,15 @@ var dataOptions = new DataOptions().UsePostgreSQL(connectionString);
 
 await dataOptions.CreateImmediateJobsSchemaAsync(
 	schema: "background", // must be null for SQLite
-	cancellationToken);
+	CancellationToken.None
+);
 
+builder.Services.AddMyAppHandlers();
 builder.Services.AddMyAppJobs(options =>
 	options.UseLinqToDB(dataOptions, schema: "background"));
 ```
 
-`AddMyAppJobs` is the generated registration method for an assembly named `MyApp`. Also register the matching generated
-Immediate.Handlers method, `AddMyAppHandlers()`.
+`AddMyAppJobs` is the generated registration method for an assembly named `MyApp`.
 
 `CreateImmediateJobsSchemaAsync` is an explicit, idempotent bootstrap helper for a fresh database. It is never called by
 `InitializeAsync` and is not a production migration system. Applications own upgrades to existing schemas.
@@ -96,5 +97,5 @@ request's queue order, queue capacities, and per-job capacities.
 ## More information
 
 - [Immediate.Jobs core package](https://www.nuget.org/packages/Immediate.Jobs/)
-- [Documentation](https://immediateplatform.dev/docs/Immediate.Jobs/introduction)
+- [Storage-provider configuration](https://immediateplatform.dev/docs/Immediate.Jobs/configuring-storage-providers#linqtodb)
 - [GitHub repository](https://github.com/ImmediatePlatform/Immediate.Jobs)

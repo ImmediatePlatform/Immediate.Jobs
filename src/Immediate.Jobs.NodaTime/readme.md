@@ -1,7 +1,7 @@
 # Immediate.Jobs.NodaTime
 
 [![NuGet](https://img.shields.io/nuget/v/Immediate.Jobs.NodaTime.svg?style=plastic)](https://www.nuget.org/packages/Immediate.Jobs.NodaTime/)
-[![Documentation](https://img.shields.io/badge/docs-online-brightgreen)](https://immediateplatform.dev/docs/Immediate.Jobs/introduction)
+[![Documentation](https://img.shields.io/badge/docs-online-brightgreen)](https://immediateplatform.dev/docs/Immediate.Jobs/nodatime)
 [![License](https://img.shields.io/github/license/ImmediatePlatform/Immediate.Jobs.svg)](https://github.com/ImmediatePlatform/Immediate.Jobs/blob/main/license.txt)
 
 NodaTime scheduling overloads and job payload serialization for
@@ -10,8 +10,8 @@ NodaTime scheduling overloads and job payload serialization for
 ## Installation
 
 ```console
-dotnet add package Immediate.Jobs
-dotnet add package Immediate.Jobs.NodaTime
+dotnet add package Immediate.Jobs --prerelease
+dotnet add package Immediate.Jobs.NodaTime --prerelease
 ```
 
 Immediate.Jobs reports diagnostic `IJOB0004` when a generated job payload uses NodaTime types without this package.
@@ -36,7 +36,7 @@ JobHandle scheduled = await scheduler.ScheduleAtAsync(
 
 await recurringScheduler.AddOrUpdateRecurringAsync(
 	"tenant-cleanup",
-	"0 0 3 * * *",
+	"0 3 * * *",
 	DateTimeZoneProviders.Tzdb["Europe/Vienna"],
 	cancellationToken);
 ```
@@ -49,28 +49,44 @@ Call `AddImmediateJobsNodaTime` after generated jobs registration when job paylo
 values:
 
 ```csharp
-builder.Services.AddMyAppJobs();
+builder.Services.AddMyAppHandlers();
+builder.Services.AddMyAppJobs(options => options.UseInMemory());
 builder.Services.AddImmediateJobsNodaTime();
 ```
 
 The default uses the TZDB time-zone provider. Supply another `IDateTimeZoneProvider` when required:
 
 ```csharp
-builder.Services.AddImmediateJobsNodaTime(customTimeZoneProvider);
+IDateTimeZoneProvider timeZoneProvider = DateTimeZoneProviders.Tzdb;
+builder.Services.AddSingleton(timeZoneProvider);
+builder.Services.AddImmediateJobsNodaTime(timeZoneProvider);
 ```
 
-For custom serialization, configure `JsonSerializerOptions` directly or construct `NodaTimeJobSerializer`:
+Every worker that reads stored jobs must use a provider that recognizes the same time-zone IDs.
+
+For application-owned serializer settings, construct `NodaTimeJobSerializer`; its constructor adds the NodaTime
+converters:
 
 ```csharp
 var jsonOptions = new JsonSerializerOptions(JsonSerializerDefaults.Web)
-	.UseNodaTime(DateTimeZoneProviders.Tzdb);
+{
+	WriteIndented = false,
+};
+
+IJobSerializer serializer = new NodaTimeJobSerializer(
+	jsonOptions,
+	DateTimeZoneProviders.Tzdb
+);
 ```
 
 The package uses NodaTime's System.Text.Json converters while retaining the generated metadata path used by
-Immediate.Jobs for trimming and Native AOT.
+Immediate.Jobs for trimming and Native AOT. If replacing `IJobSerializer` yourself, register the configured serializer
+after jobs registration. Call `JsonSerializerOptions.UseNodaTime(...)` when application-owned JSON options need the same
+converters outside the jobs serializer.
 
 ## More information
 
 - [Immediate.Jobs core package](https://www.nuget.org/packages/Immediate.Jobs/)
+- [NodaTime integration documentation](https://immediateplatform.dev/docs/Immediate.Jobs/nodatime)
 - [NodaTime documentation](https://nodatime.org/)
 - [GitHub repository](https://github.com/ImmediatePlatform/Immediate.Jobs)

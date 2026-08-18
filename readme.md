@@ -24,7 +24,7 @@ registrations at compile time.
 Install the core package:
 
 ```console
-dotnet add package Immediate.Jobs
+dotnet add package Immediate.Jobs --prerelease
 ```
 
 Define a job using the same handler model as Immediate.Handlers, then inject its generated scheduler:
@@ -49,8 +49,8 @@ public sealed class SignupService(SendWelcomeEmail.Scheduler welcomeEmail)
 }
 ```
 
-Register the generated jobs and handlers methods in `Program.cs`. For an assembly named `MyApp`, these are
-`AddMyAppJobs()` and `AddMyAppHandlers()`.
+Register the generated handlers and jobs methods in `Program.cs`, in that order. For an assembly named `MyApp`, these
+are `AddMyAppHandlers()` and `AddMyAppJobs()`.
 
 See the [Immediate.Jobs package README](src/Immediate.Jobs/readme.md) for jobs, queues, batches, recurring work,
 context propagation, diagnostics, and runtime defaults.

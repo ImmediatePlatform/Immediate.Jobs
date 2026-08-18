@@ -16,7 +16,7 @@ schedulers, an execution engine, and a development-only in-memory provider.
 ## Installation
 
 ```console
-dotnet add package Immediate.Jobs
+dotnet add package Immediate.Jobs --prerelease
 ```
 
 ## Define and enqueue a job
@@ -60,16 +60,22 @@ handler is not forcibly interrupted, but its stale completion cannot overwrite t
 
 ## Registration
 
-In `Program.cs`, call `services.AddXxxJobs()`, where `Xxx` is the application identifier. By default this is the short
-form of the assembly name:
+Register the Immediate.Handlers pieces first, then call `services.AddXxxJobs()`, where `Xxx` is the application
+identifier. By default this is the short form of the assembly name:
 
 - `Web` generates `services.AddWebJobs()`.
 - `Application.Web` generates `services.AddApplicationWebJobs()`.
 
 Override the identifier with `[assembly: ImmediateAssemblyIdentifier("SomeIdentifier")]`.
 
-Because jobs are Immediate.Handlers handlers, register them with the corresponding generated
-`services.AddXxxHandlers()` method too.
+```csharp
+builder.Services.AddMyAppHandlers();
+builder.Services.AddMyAppJobs(options => options.UseInMemory())
+	.AddHealthCheck();
+```
+
+Because jobs are Immediate.Handlers handlers, omitting the corresponding generated `AddXxxHandlers()` method allows
+enqueueing but causes execution to fail when the worker cannot resolve the handler or its behaviors.
 
 The core package uses the non-durable in-memory provider by default. For durable or distributed execution, install and
 configure one of the [storage providers](https://github.com/ImmediatePlatform/Immediate.Jobs#packages).
@@ -148,7 +154,7 @@ await welcomeEmail.EnqueueAsync(
 
 builder.Services.AddMyAppJobs(options =>
 {
-	options.UseEntityFrameworkCore<AppDbContext>();
+	options.UseEntityFrameworkCore<JobsDbContext>();
 	options.UseDistributed();
 	options.UseFairQueues();
 });
@@ -158,8 +164,7 @@ Fair queues are not FIFO and do not serialize a group. They rotate eligible work
 only when its non-expired in-flight share exceeds the configured threshold. Null, empty, or whitespace group IDs are
 ungrouped and retain due-time order. Group IDs should identify reusable tenants, not individual jobs.
 
-In-memory, EF Core, and LinqToDB support fair acquisition. Redis persists group IDs but rejects fair acquisition in the
-current release. See the
+In-memory, EF Core, and LinqToDB support fair acquisition. Redis does not support fair queues. See the
 [fair queues guide](https://github.com/ImmediatePlatform/Immediate.Jobs/blob/main/docs/fair-queues.md) for the algorithm,
 schema, tradeoffs, and provider details.
 
@@ -270,9 +275,9 @@ Place multiple extractor markers on a reusable custom attribute when a family of
 
 ## Monitoring and observability
 
-Inject `JobMonitor` for job, execution, batch, recurring, server, and aggregate reads. `IJobMonitor` mirrors the same
-contract for consumers that prefer a testing interface. `IJobStorage` is the provider and scheduler persistence seam,
-not the recommended application-level monitoring API.
+Inject scoped `IJobMonitor` for job, execution, recurring, server, and aggregate reads. With a graph provider, inject
+`IJobBatchMonitor` for batch status, members, and dependency graphs. `IJobStorage` is the provider and scheduler
+persistence seam, not the recommended application-level monitoring API.
 
 Executions emit activities from `ActivitySource` `Immediate.Jobs`, metrics from `Meter` `Immediate.Jobs`, structured
 logs scoped by job name, ID, and attempt, and scheduler/storage health checks. Metrics include enqueue, success, failure,

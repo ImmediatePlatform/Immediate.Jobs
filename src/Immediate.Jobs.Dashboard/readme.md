@@ -1,7 +1,7 @@
 # Immediate.Jobs.Dashboard
 
 [![NuGet](https://img.shields.io/nuget/v/Immediate.Jobs.Dashboard.svg?style=plastic)](https://www.nuget.org/packages/Immediate.Jobs.Dashboard/)
-[![Documentation](https://img.shields.io/badge/docs-online-brightgreen)](https://immediateplatform.dev/docs/Immediate.Jobs/introduction)
+[![Documentation](https://img.shields.io/badge/docs-online-brightgreen)](https://immediateplatform.dev/docs/Immediate.Jobs/dashboard-and-monitoring)
 [![License](https://img.shields.io/github/license/ImmediatePlatform/Immediate.Jobs.svg)](https://github.com/ImmediatePlatform/Immediate.Jobs/blob/main/license.txt)
 
 An embedded monitoring dashboard and stable HTTP API for
@@ -11,8 +11,8 @@ Immediate.Apis-generated JSON and Server-Sent Events endpoints.
 ## Installation
 
 ```console
-dotnet add package Immediate.Jobs
-dotnet add package Immediate.Jobs.Dashboard
+dotnet add package Immediate.Jobs --prerelease
+dotnet add package Immediate.Jobs.Dashboard --prerelease
 ```
 
 ## Registration and mapping
@@ -20,18 +20,29 @@ dotnet add package Immediate.Jobs.Dashboard
 Register the dashboard's generated handlers before building the app, then map it:
 
 ```csharp
+using Immediate.Jobs.Dashboard;
+
 builder.Services.AddImmediateJobsDashboard(options =>
 {
-	options.RequireAuthorization("operations");
+	_ = options.RequireAuthorization("operations");
 });
 
 var app = builder.Build();
 app.MapImmediateJobsDashboard("/jobs");
 ```
 
-Without an authorization policy, dashboard access is allowed only in the `Development` environment. Call
-`AllowInAnyEnvironment()` to explicitly disable this restriction for custom development environments. Prefer
-`RequireAuthorization(...)` whenever the dashboard is exposed outside a trusted environment.
+Without an authorization policy, every dashboard endpoint is allowed only in the `Development` environment and returns
+403 elsewhere. For a trusted custom development environment, explicitly disable this restriction when mapping:
+
+```csharp
+app.MapImmediateJobsDashboard("/jobs", options =>
+	_ = options.AllowInAnyEnvironment()
+);
+```
+
+Treat the dashboard as an administrative surface: it exposes payloads, errors, identifiers, and mutations. Prefer
+`RequireAuthorization(...)` whenever the dashboard is exposed outside a trusted environment. A named policy applies to
+UI assets and APIs together and remains authoritative if `AllowInAnyEnvironment()` is also configured.
 
 Immediate.Validations returns `application/problem+json` for invalid route and paging inputs.
 
@@ -61,16 +72,16 @@ var logExplorer = new Uri("https://logs.example/");
 
 builder.Services.AddImmediateJobsDashboard(options =>
 {
-	options.RequireAuthorization("operations");
+	_ = options.RequireAuthorization("operations");
 
-	options.AddTelemetryLink(
+	_ = options.AddTelemetryLink(
 		"View execution trace",
 		JobTelemetryLinkKind.Trace,
 		context => context.Execution?.ExecutionTraceId is { } traceId
 			? new(traceExplorer, $"trace/{traceId}")
 			: null);
 
-	options.AddTelemetryLink(
+	_ = options.AddTelemetryLink(
 		"View execution logs",
 		JobTelemetryLinkKind.Logs,
 		context => context.Execution is { } execution
@@ -78,7 +89,7 @@ builder.Services.AddImmediateJobsDashboard(options =>
 				$"search?jobId={Uri.EscapeDataString(context.Job.Id)}&attempt={execution.Attempt}")
 			: null);
 
-	options.AddTelemetryLink(
+	_ = options.AddTelemetryLink(
 		"View all retry logs",
 		JobTelemetryLinkKind.Logs,
 		context => context.Execution is null
@@ -101,5 +112,6 @@ dashboard-relative URLs.
 ## More information
 
 - [Immediate.Jobs core package](https://www.nuget.org/packages/Immediate.Jobs/)
+- [Dashboard and monitoring documentation](https://immediateplatform.dev/docs/Immediate.Jobs/dashboard-and-monitoring)
 - [Aspire sample](https://github.com/ImmediatePlatform/Immediate.Jobs/tree/main/samples/Aspire)
 - [GitHub repository](https://github.com/ImmediatePlatform/Immediate.Jobs)

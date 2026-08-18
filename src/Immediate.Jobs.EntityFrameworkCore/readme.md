@@ -1,7 +1,7 @@
 # Immediate.Jobs.EntityFrameworkCore
 
 [![NuGet](https://img.shields.io/nuget/v/Immediate.Jobs.EntityFrameworkCore.svg?style=plastic)](https://www.nuget.org/packages/Immediate.Jobs.EntityFrameworkCore/)
-[![Documentation](https://img.shields.io/badge/docs-online-brightgreen)](https://immediateplatform.dev/docs/Immediate.Jobs/introduction)
+[![Documentation](https://img.shields.io/badge/docs-online-brightgreen)](https://immediateplatform.dev/docs/Immediate.Jobs/configuring-storage-providers#entity-framework-core)
 [![License](https://img.shields.io/github/license/ImmediatePlatform/Immediate.Jobs.svg)](https://github.com/ImmediatePlatform/Immediate.Jobs/blob/main/license.txt)
 
 Entity Framework Core storage for [Immediate.Jobs](https://www.nuget.org/packages/Immediate.Jobs/), validated with
@@ -13,8 +13,8 @@ execution history, distributed leases, and fair acquisition.
 Install the core scheduler, this adapter, and the EF Core provider for your database:
 
 ```console
-dotnet add package Immediate.Jobs
-dotnet add package Immediate.Jobs.EntityFrameworkCore
+dotnet add package Immediate.Jobs --prerelease
+dotnet add package Immediate.Jobs.EntityFrameworkCore --prerelease
 dotnet add package Npgsql.EntityFrameworkCore.PostgreSQL
 ```
 
@@ -23,19 +23,33 @@ appropriate. This adapter deliberately does not reference a database-specific EF
 
 ## Configuration
 
-Register an `IDbContextFactory<TContext>`, select the database through its normal EF provider, and include the jobs model
-in the application context:
+Prefer a dedicated, application-owned `JobsDbContext` so the jobs schema stays separate from the application's business
+model. The contexts may still use the same physical database:
 
 ```csharp
-builder.Services.AddDbContextFactory<AppDbContext>(db =>
-	db.UseNpgsql(connectionString));       // PostgreSQL
-// db.UseSqlite(connectionString);       // SQLite
-// db.UseSqlServer(connectionString);    // SQL Server
+builder.Services.AddDbContext<AppDbContext>(db =>
+	db.UseNpgsql(appConnectionString));
 
+builder.Services.AddDbContextFactory<JobsDbContext>(db =>
+	db.UseNpgsql(jobsConnectionString));       // PostgreSQL
+// db.UseSqlite(jobsConnectionString);       // SQLite
+// db.UseSqlServer(jobsConnectionString);    // SQL Server
+
+builder.Services.AddMyAppHandlers();
 builder.Services.AddMyAppJobs(options =>
-	options.UseEntityFrameworkCore<AppDbContext>());
+	options.UseEntityFrameworkCore<JobsDbContext>());
 
 public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(options)
+{
+	public DbSet<Order> Orders => Set<Order>();
+}
+
+public sealed class Order
+{
+	public Guid Id { get; set; }
+}
+
+public sealed class JobsDbContext(DbContextOptions<JobsDbContext> options) : DbContext(options)
 {
 	protected override void OnModelCreating(ModelBuilder modelBuilder)
 	{
@@ -45,11 +59,23 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
 }
 ```
 
-`AddMyAppJobs` is the generated registration method for an assembly named `MyApp`. Also register the matching generated
-Immediate.Handlers method, `AddMyAppHandlers()`.
+`AddMyAppJobs` is the generated registration method for an assembly named `MyApp`.
 
-The application owns EF migrations. Add and apply a migration after calling `AddImmediateJobs`; use
-`EnsureCreatedAsync` only for disposable development or test databases.
+`AddImmediateJobs` configures the model but does not ship or apply migrations. Generate an application-owned migration
+after adding the model:
+
+```console
+dotnet ef migrations add CreateImmediateJobsSchema \
+	--context JobsDbContext \
+	--output-dir Migrations/ImmediateJobs
+dotnet ef database update --context JobsDbContext
+```
+
+Run these commands from the startup project, adding `--project` and `--startup-project` when the context lives in a
+different project. Apply the migration through the application's normal deployment process. `EnsureCreatedAsync` is
+appropriate only for samples and disposable databases. Using an existing business `DbContext` remains supported, but
+couples the jobs schema to that model. The generated migration creates the seven Immediate.Jobs tables, indexes, and
+constraints.
 
 ## Distributed execution
 
@@ -59,7 +85,7 @@ mode when multiple scheduler nodes share the same database:
 ```csharp
 builder.Services.AddMyAppJobs(options =>
 {
-	options.UseEntityFrameworkCore<AppDbContext>();
+	options.UseEntityFrameworkCore<JobsDbContext>();
 	options.UseDistributed();
 });
 ```
@@ -76,7 +102,7 @@ await scheduler.EnqueueAsync(payload, groupId: tenantId, cancellationToken);
 
 builder.Services.AddMyAppJobs(options =>
 {
-	options.UseEntityFrameworkCore<AppDbContext>();
+	options.UseEntityFrameworkCore<JobsDbContext>();
 	options.UseDistributed();
 	options.UseFairQueues();
 });
@@ -100,5 +126,5 @@ request's queue order, queue capacities, and per-job capacities.
 ## More information
 
 - [Immediate.Jobs core package](https://www.nuget.org/packages/Immediate.Jobs/)
-- [Documentation](https://immediateplatform.dev/docs/Immediate.Jobs/introduction)
+- [Storage-provider configuration](https://immediateplatform.dev/docs/Immediate.Jobs/configuring-storage-providers#entity-framework-core)
 - [GitHub repository](https://github.com/ImmediatePlatform/Immediate.Jobs)
