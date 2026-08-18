@@ -58,7 +58,7 @@
 	<PackageVersion Include="Microsoft.Extensions.Diagnostics.HealthChecks" Version="$(Net11PackageVersion)" />
 	<PackageVersion Include="Microsoft.Extensions.Hosting.Abstractions" Version="$(Net11PackageVersion)" />
 	<PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="$(Net11PackageVersion)" />
-	<PackageVersion Include="Microsoft.Extensions.Options.ConfigurationExtensions" Version="$(Net11PackageVersion)" />
+	<PackageVersion Include="Microsoft.Extensions.Options" Version="$(Net11PackageVersion)" />
 	<PackageVersion Include="Microsoft.Extensions.TimeProvider.Testing" Version="10.9.0" />
   </ItemGroup>
 
@@ -74,7 +74,7 @@
 	<PackageVersion Include="Microsoft.Extensions.Diagnostics.HealthChecks" Version="$(Net10PackageVersion)" />
 	<PackageVersion Include="Microsoft.Extensions.Hosting.Abstractions" Version="$(Net10PackageVersion)" />
 	<PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="$(Net10PackageVersion)" />
-	<PackageVersion Include="Microsoft.Extensions.Options.ConfigurationExtensions" Version="$(Net10PackageVersion)" />
+	<PackageVersion Include="Microsoft.Extensions.Options" Version="$(Net10PackageVersion)" />
 	<PackageVersion Include="Microsoft.Extensions.TimeProvider.Testing" Version="10.9.0" />
   </ItemGroup>
 
@@ -89,7 +89,7 @@
 	<PackageVersion Include="Microsoft.Extensions.Diagnostics.HealthChecks" Version="$(Net9PackageVersion)" />
 	<PackageVersion Include="Microsoft.Extensions.Hosting.Abstractions" Version="$(Net9PackageVersion)" />
 	<PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="$(Net9PackageVersion)" />
-	<PackageVersion Include="Microsoft.Extensions.Options.ConfigurationExtensions" Version="$(Net9PackageVersion)" />
+	<PackageVersion Include="Microsoft.Extensions.Options" Version="$(Net9PackageVersion)" />
 	<PackageVersion Include="Microsoft.Extensions.TimeProvider.Testing" Version="9.10.0" />
   </ItemGroup>
 
@@ -104,7 +104,7 @@
 	<PackageVersion Include="Microsoft.Extensions.Diagnostics.HealthChecks" Version="8.0.30" />
 	<PackageVersion Include="Microsoft.Extensions.Hosting.Abstractions" Version="8.0.1" />
 	<PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="8.0.3" />
-	<PackageVersion Include="Microsoft.Extensions.Options.ConfigurationExtensions" Version="8.0.0" />
+	<PackageVersion Include="Microsoft.Extensions.Options" Version="8.0.2" />
 	<PackageVersion Include="Microsoft.Extensions.TimeProvider.Testing" Version="8.10.0" />
   </ItemGroup>
 

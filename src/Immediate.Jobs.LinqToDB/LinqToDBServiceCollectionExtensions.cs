@@ -1,4 +1,6 @@
+using Immediate.Validations.Shared;
 using LinqToDB;
+using LinqToDB.Data;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Immediate.Jobs.LinqToDB;
@@ -16,31 +18,36 @@ public static class LinqToDBServiceCollectionExtensions
 	/// <param name="builder">
 	///		The Immediate.Jobs storage options builder to configure.
 	/// </param>
-	/// <param name="dataOptions">
-	///		The immutable LinqToDB connection options.
-	/// </param>
 	/// <param name="schema">
 	///		The database schema containing the Immediate.Jobs tables, or <see langword="null"/> for the provider default.
 	/// </param>
 	/// <returns>
 	///		The configured Immediate.Jobs options.
 	/// </returns>
-	public static ImmediateJobsStorageBuilder UseLinqToDB(
-		this ImmediateJobsStorageBuilder builder,
-		DataOptions dataOptions,
+	public static IImmediateJobsStorageBuilder UseLinqToDB<T>(
+		this IImmediateJobsStorageBuilder builder,
 		string? schema = null
-	)
+	) where T : DataConnection
 	{
 		ArgumentNullException.ThrowIfNull(builder);
-		ArgumentNullException.ThrowIfNull(dataOptions);
 
-		return builder.UseStorage(
-			services =>
-				new LinqToDBJobStorage(
-					dataOptions,
-					schema,
-					services.GetService<TimeProvider>()
-				)
-		);
+		builder.Services.AddSingleton<Owned<T>>();
+
+		var optionsBuilder = builder.Services
+			.AddOptionsWithValidateOnStart<LinqToDBJobStorageOptions>()
+			.Validate(
+				o =>
+				{
+					ValidationException.ThrowIfInvalid(o, $@"Validation error for ""{nameof(LinqToDBJobStorageOptions)}""");
+					return true;
+				}
+			);
+
+		if (!string.IsNullOrWhiteSpace(schema))
+			optionsBuilder.Configure(o => o.Schema = schema);
+
+		builder.UseStorage<LinqToDBJobStorage<T>>();
+
+		return builder;
 	}
 }

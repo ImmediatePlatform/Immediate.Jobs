@@ -9,6 +9,11 @@ namespace Immediate.Jobs.Shared;
 public sealed partial class ImmediateJobsOptions : IValidationTarget<ImmediateJobsOptions>
 {
 	/// <summary>
+	///		Controls whether workers are enabled.
+	/// </summary>
+	public bool Enabled { get; set; } = true;
+
+	/// <summary>
 	///     Maximum concurrently executing jobs on this node.
 	/// </summary>
 	/// <remarks>

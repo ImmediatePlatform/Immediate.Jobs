@@ -5,12 +5,12 @@ using Immediate.Handlers.Shared;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddSingleton<IEmailSender, ConsoleEmailSender>();
-builder.Services.AddImmediateJobsDashboard();
 builder.Services.AddBasicHandlers();
 builder.Services.AddBasicJobs()
-	.Configure(o => o.MaxParallelJobs = 4)
+	.ConfigureWorkers(o => o.MaxParallelJobs = 4)
 	.ConfigureStorage(options => options.UseInMemory())
-	.AddHealthCheck();
+	.AddHealthCheck()
+	.AddImmediateJobsDashboard();
 
 var app = builder.Build();
 
