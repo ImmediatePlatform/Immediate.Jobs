@@ -69,9 +69,10 @@ Each package has focused installation and configuration guidance:
 | [Immediate.Jobs.Testing](src/Immediate.Jobs.Testing/readme.md) | Deterministic test harness, test doubles, assertions, and provider conformance tests |
 | [Immediate.Jobs.NodaTime](src/Immediate.Jobs.NodaTime/readme.md) | NodaTime scheduling overloads and job payload serialization |
 
-The SQL providers support batches and continuations. Redis does not support dependency graphs or fair acquisition in
-the current release. See [Fair queues](docs/fair-queues.md) and
-[Batches & Continuations](docs/batches-and-continuations.md) for the cross-provider designs and tradeoffs.
+The SQL providers support batches, continuations, and fair scheduling between tenant groups. Redis does not support
+those features in the current release. See
+[Queues and fairness](https://immediateplatform.dev/docs/Immediate.Jobs/queues-and-fairness) and
+[Batches and continuations](https://immediateplatform.dev/docs/Immediate.Jobs/batches-and-continuations) for details.
 
 ## Samples and documentation
 

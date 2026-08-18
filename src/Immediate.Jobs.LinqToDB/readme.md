@@ -6,7 +6,7 @@
 
 LinqToDB storage for [Immediate.Jobs](https://www.nuget.org/packages/Immediate.Jobs/), validated with PostgreSQL,
 SQLite, and SQL Server. The adapter supports durable jobs, recurring schedules, batches, continuations, execution
-history, distributed leases, and fair acquisition.
+history, multiple worker processes, and fair queues between tenant groups.
 
 ## Installation
 
@@ -36,63 +36,56 @@ await dataOptions.CreateImmediateJobsSchemaAsync(
 );
 
 builder.Services.AddMyAppHandlers();
-builder.Services.AddMyAppJobs(options =>
-	options.UseLinqToDB(dataOptions, schema: "background"));
+builder.Services.AddMyAppJobs()
+	.ConfigureStorage(storage => storage
+		.UseLinqToDB(dataOptions, schema: "background")
+		.UseSingleServer());
 ```
 
 `AddMyAppJobs` is the generated registration method for an assembly named `MyApp`.
 
-`CreateImmediateJobsSchemaAsync` is an explicit, idempotent bootstrap helper for a fresh database. It is never called by
-`InitializeAsync` and is not a production migration system. Applications own upgrades to existing schemas.
+`CreateImmediateJobsSchemaAsync` creates the current tables and indexes for a fresh database. It runs only when the
+application calls it; worker startup does not create the schema.
 
 Named schemas are supported on PostgreSQL and SQL Server. SQLite has no server schemas and is normally embedded or
 file-backed.
 
-## Distributed execution
+## Run one or several application instances
 
-The provider can back the memory-primary durable single-server topology or distributed acquisition. Enable distributed
-mode when multiple scheduler nodes share the same database:
+The example above uses `UseSingleServer()` and is valid only when exactly one application instance runs the
+Immediate.Jobs worker. Jobs are selected from an in-process queue, while every change is also written to SQL so pending
+work can be restored after a restart. Do not run two instances against the same database in this mode.
+
+If the application runs multiple replicas, use `UseDistributed()` instead:
 
 ```csharp
-builder.Services.AddMyAppJobs(options =>
-{
-	options.UseLinqToDB(dataOptions, schema: "background");
-	options.UseDistributed();
-});
+builder.Services.AddMyAppJobs()
+	.ConfigureStorage(storage => storage
+		.UseLinqToDB(dataOptions, schema: "background")
+		.UseDistributed());
 ```
 
-Distributed mode uses provider leases. If a process dies, its lease expires and another node can acquire the
-invocation.
+In this mode every replica claims due jobs directly from the database. A claim expires after the configured lease period
+(30 seconds by default), allowing another replica to claim and run the job again if the first process stops.
 
 ## Fair queues
 
-Supply a reusable group ID when enqueueing work, then opt into fair acquisition:
+Supply a reusable tenant or customer ID when enqueueing work, then enable fair queues:
 
 ```csharp
 await scheduler.EnqueueAsync(payload, groupId: tenantId, cancellationToken);
 
-builder.Services.AddMyAppJobs(options =>
-{
-	options.UseLinqToDB(dataOptions, schema: "background");
-	options.UseDistributed();
-	options.UseFairQueues();
-});
+builder.Services.AddMyAppJobs()
+	.UseFairQueues()
+	.ConfigureStorage(storage => storage
+		.UseLinqToDB(dataOptions, schema: "background")
+		.UseDistributed());
 ```
 
-Schema bootstrap creates the nullable `GroupId` column, the `(QueueName, State, GroupId)` index, and the
-`immediate_fair_queue_groups` table for new databases. Existing databases need the equivalent additive upgrade before
-fair queues are enabled. See the
-[fair queues guide](https://github.com/ImmediatePlatform/Immediate.Jobs/blob/main/docs/fair-queues.md) for semantics and
-tradeoffs.
-
-## Schema upgrades
-
-Applications retaining execution history require the `immediate_job_executions` table. Apply the application-owned
-upgrade before deploying binaries that use execution history. During a mixed-version rollout, history remains best
-effort until all scheduler nodes are upgraded.
-
-Queue-aware dispatch uses `AcquireDueJobsAsync(JobAcquisitionRequest, ...)`. Custom storage wrappers must honor the
-request's queue order, queue capacities, and per-job capacities.
+Fair queues rotate due jobs between tenant or customer groups so a large backlog from one group does not crowd out
+quieter groups. They are supported in both single-server and distributed SQL modes. See the
+[queues and fairness documentation](https://immediateplatform.dev/docs/Immediate.Jobs/queues-and-fairness) for the
+available settings.
 
 ## More information
 

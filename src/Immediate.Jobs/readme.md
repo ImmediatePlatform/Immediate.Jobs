@@ -70,7 +70,8 @@ Override the identifier with `[assembly: ImmediateAssemblyIdentifier("SomeIdenti
 
 ```csharp
 builder.Services.AddMyAppHandlers();
-builder.Services.AddMyAppJobs(options => options.UseInMemory())
+builder.Services.AddMyAppJobs()
+	.ConfigureStorage(storage => storage.UseInMemory())
 	.AddHealthCheck();
 ```
 
@@ -82,7 +83,7 @@ configure one of the [storage providers](https://github.com/ImmediatePlatform/Im
 
 ## Batches and continuations
 
-Inject `BatchScheduler` to create an atomic group. Generated schedulers expose strongly typed batch methods and return
+Inject `IBatchScheduler` to create an atomic group. Generated schedulers expose strongly typed batch methods and return
 handles that can be connected into chains, fan-out branches, and fan-in joins. Storage receives the entire batch in one
 transaction; disposing without committing writes nothing.
 
@@ -142,8 +143,8 @@ rows before renaming or removing it.
 
 ### Fair queues
 
-Fair queues prevent one tenant's backlog from starving quieter tenants in the same queue. Supply a reusable runtime
-group ID when enqueueing or scheduling work, then enable fair acquisition:
+Fair queues prevent one tenant's backlog from starving quieter tenants in the same queue. Supply a reusable tenant or
+customer ID when enqueueing or scheduling work, then enable fair scheduling:
 
 ```csharp
 await welcomeEmail.EnqueueAsync(
@@ -152,21 +153,21 @@ await welcomeEmail.EnqueueAsync(
 	cancellationToken: cancellationToken
 );
 
-builder.Services.AddMyAppJobs(options =>
-{
-	options.UseEntityFrameworkCore<JobsDbContext>();
-	options.UseDistributed();
-	options.UseFairQueues();
-});
+builder.Services.AddMyAppJobs()
+	.UseFairQueues()
+	.ConfigureStorage(storage => storage
+		.UseEntityFrameworkCore<JobsDbContext>()
+		.UseDistributed());
 ```
 
-Fair queues are not FIFO and do not serialize a group. They rotate eligible work across groups and deprioritize a group
-only when its non-expired in-flight share exceeds the configured threshold. Null, empty, or whitespace group IDs are
-ungrouped and retain due-time order. Group IDs should identify reusable tenants, not individual jobs.
+Fair queues rotate due work between tenant or customer groups so one large backlog cannot crowd out quieter groups.
+They change which due job is selected next; they do not serialize a tenant's jobs or change queue priority and retry
+rules. Null, empty, or whitespace group IDs remain ordinary ungrouped work. Use stable tenant or customer IDs, not a
+different group ID for every job.
 
-In-memory, EF Core, and LinqToDB support fair acquisition. Redis does not support fair queues. See the
-[fair queues guide](https://github.com/ImmediatePlatform/Immediate.Jobs/blob/main/docs/fair-queues.md) for the algorithm,
-schema, tradeoffs, and provider details.
+In-memory, EF Core, and LinqToDB support fair queues. Redis does not. See the
+[queues and fairness documentation](https://immediateplatform.dev/docs/Immediate.Jobs/queues-and-fairness) for the
+available settings and provider support.
 
 ## Recurring work
 
@@ -267,17 +268,17 @@ public sealed partial class AuditUsageJob(UsageContext usage)
 }
 ```
 
-Register the application-owned holder as scoped. Generated job registration adds the extractor as scoped. Extractor
-keys identify persisted envelope slices and must be unique for a job. Return `null` from `Capture` when no context should
-be persisted, as is typical when recurring work is materialized outside a request.
+Register the application-owned holder as scoped. Generated job registration adds the extractor as scoped. An
+extractor's `Key` labels its stored context value and must be unique within a job. Return `null` from `Capture` when
+there is no request context to store, which is common for recurring jobs.
 
 Place multiple extractor markers on a reusable custom attribute when a family of jobs shares the same context policy.
 
 ## Monitoring and observability
 
-Inject scoped `IJobMonitor` for job, execution, recurring, server, and aggregate reads. With a graph provider, inject
-`IJobBatchMonitor` for batch status, members, and dependency graphs. `IJobStorage` is the provider and scheduler
-persistence seam, not the recommended application-level monitoring API.
+Inject the scoped `JobMonitor` to read jobs, executions, recurring schedules, servers, batches, and dependency graphs,
+or to perform administrative actions such as cancel, retry, pause, resume, and trigger. Inject `IJobMonitor` when code
+needs only the read methods. `IJobStorage` is the provider contract and is not intended for application monitoring.
 
 Executions emit activities from `ActivitySource` `Immediate.Jobs`, metrics from `Meter` `Immediate.Jobs`, structured
 logs scoped by job name, ID, and attempt, and scheduler/storage health checks. Metrics include enqueue, success, failure,

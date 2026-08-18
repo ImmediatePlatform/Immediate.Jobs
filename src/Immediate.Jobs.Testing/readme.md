@@ -24,7 +24,7 @@ starting background threads. Register the generated jobs, handlers, and their de
 await using var harness = new JobTestHarness(services =>
 {
 	services.AddMyAppHandlers();
-	services.AddMyAppJobs(options => options.UseInMemory());
+	services.AddMyAppJobs();
 	services.AddSingleton<IEmailSender, RecordingEmailSender>();
 });
 
@@ -48,7 +48,8 @@ Assert.Equal(JobState.Succeeded, (await harness.GetJobAsync(handle, cancellation
 ```
 
 Delayed work, scheduled occurrences, timeouts, and backoff tests do not need wall-clock sleeps. The harness also exposes
-persisted-job queries and focused assertions for batches, continuations, and dependency cascades.
+persisted-job queries and focused assertions for batches, continuations, and dependency cascades. Register generated
+jobs in the callback, but do not call `ConfigureStorage`; the harness installs its own in-memory provider and fake clock.
 
 ## Capture-only schedulers
 
@@ -79,9 +80,9 @@ ID. `CancelledIds` records cancellations of captured handles, and `Clear()` rese
 
 ## Storage-provider conformance
 
-Storage-provider authors can run the framework-neutral conformance catalog through their public DI registration path.
-Give the catalog the exact capabilities implemented by the registered `IJobStorage`, create a fresh isolated service
-provider per case, and pass that provider to `RunAsync`:
+If you are implementing a new `IJobStorage` provider, use `JobStorageConformanceSuite` to verify its shared behavior.
+Select the feature flags the provider supports, create a fresh service provider and backend for each case, and pass the
+service provider to `RunAsync`:
 
 ```csharp
 private const StorageCapabilities Capabilities =
@@ -101,12 +102,11 @@ public async Task StorageConforms(JobStorageConformanceTestCase testCase)
 
 The fixture should use the provider's normal public registration method, register a `FakeTimeProvider` as
 `TimeProvider`, and isolate its database, schema, or key prefix. See the
-[storage conformance guide](https://github.com/ImmediatePlatform/Immediate.Jobs/blob/main/docs/storage-tests.md) for
-lifecycle requirements, NUnit adaptation, the built-in provider matrix, and stable case names.
+[storage-provider testing documentation](https://immediateplatform.dev/docs/Immediate.Jobs/testing-jobs#test-a-storage-provider)
+for isolation requirements and capability selection.
 
 ## More information
 
 - [Immediate.Jobs core package](https://www.nuget.org/packages/Immediate.Jobs/)
 - [Testing jobs documentation](https://immediateplatform.dev/docs/Immediate.Jobs/testing-jobs)
-- [Storage conformance guide](https://github.com/ImmediatePlatform/Immediate.Jobs/blob/main/docs/storage-tests.md)
 - [GitHub repository](https://github.com/ImmediatePlatform/Immediate.Jobs)

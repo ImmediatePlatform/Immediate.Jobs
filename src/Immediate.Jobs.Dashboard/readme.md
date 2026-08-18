@@ -31,13 +31,20 @@ var app = builder.Build();
 app.MapImmediateJobsDashboard("/jobs");
 ```
 
+Dashboard options use the .NET options system and are validated when the host starts. Configure them through
+`AddImmediateJobsDashboard`; `MapImmediateJobsDashboard` only selects the URL path.
+
 Without an authorization policy, every dashboard endpoint is allowed only in the `Development` environment and returns
-403 elsewhere. For a trusted custom development environment, explicitly disable this restriction when mapping:
+403 elsewhere. For a trusted custom development environment, explicitly disable this restriction during registration:
 
 ```csharp
-app.MapImmediateJobsDashboard("/jobs", options =>
-	_ = options.AllowInAnyEnvironment()
-);
+builder.Services.AddImmediateJobsDashboard(options =>
+{
+	_ = options.AllowInAnyEnvironment();
+});
+
+var app = builder.Build();
+app.MapImmediateJobsDashboard("/jobs");
 ```
 
 Treat the dashboard as an administrative surface: it exposes payloads, errors, identifiers, and mutations. Prefer
@@ -53,7 +60,7 @@ The dashboard includes:
 - filtered, server-paged job search;
 - job details and retained execution attempts;
 - recurring schedule actions;
-- retry, cancellation, and atomic batch deletion;
+- retry, cancellation, and batch cancellation or deletion;
 - batch progress and a live dependency-graph viewer;
 - live updates over Server-Sent Events; and
 - application-defined links to traces and logs.
@@ -102,9 +109,9 @@ Each execution attempt creates a distinct `Activity` linked to the enqueue conte
 retained with its outcome, worker, timing, trace and span identifiers, and full failure text until its owning job or
 batch is deleted.
 
-The job-detail timeline is newest first and supplies the exact execution to telemetry-link callbacks. Job-level
-callbacks receive `Execution = null`. For compatibility, exact-execution callbacks also expose the selected attempt,
-trace ID, span ID, and start time through the corresponding latest-execution fields on `context.Job`.
+The job-detail timeline is newest first. Job-level callbacks receive `Execution = null`, which is useful for links that
+search by the stable job ID across all retries. Execution-level callbacks receive the exact retained attempt, including
+its attempt number, trace and span IDs, and timing.
 
 `AddTelemetryLink` callbacks may return `null` when a destination does not apply and may return HTTP(S) or
 dashboard-relative URLs.

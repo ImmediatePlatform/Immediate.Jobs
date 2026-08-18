@@ -6,7 +6,7 @@
 
 Entity Framework Core storage for [Immediate.Jobs](https://www.nuget.org/packages/Immediate.Jobs/), validated with
 PostgreSQL, SQLite, and SQL Server. The adapter supports durable jobs, recurring schedules, batches, continuations,
-execution history, distributed leases, and fair acquisition.
+execution history, multiple worker processes, and fair queues between tenant groups.
 
 ## Installation
 
@@ -36,8 +36,10 @@ builder.Services.AddDbContextFactory<JobsDbContext>(db =>
 // db.UseSqlServer(jobsConnectionString);    // SQL Server
 
 builder.Services.AddMyAppHandlers();
-builder.Services.AddMyAppJobs(options =>
-	options.UseEntityFrameworkCore<JobsDbContext>());
+builder.Services.AddMyAppJobs()
+	.ConfigureStorage(storage => storage
+		.UseEntityFrameworkCore<JobsDbContext>()
+		.UseSingleServer());
 
 public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(options)
 {
@@ -77,51 +79,42 @@ appropriate only for samples and disposable databases. Using an existing busines
 couples the jobs schema to that model. The generated migration creates the seven Immediate.Jobs tables, indexes, and
 constraints.
 
-## Distributed execution
+## Run one or several application instances
 
-The provider can back the memory-primary durable single-server topology or distributed acquisition. Enable distributed
-mode when multiple scheduler nodes share the same database:
+The example above uses `UseSingleServer()` and is valid only when exactly one application instance runs the
+Immediate.Jobs worker. Jobs are selected from an in-process queue, while every change is also written to SQL so pending
+work can be restored after a restart. Do not run two instances against the same database in this mode.
+
+If the application runs multiple replicas, use `UseDistributed()` instead:
 
 ```csharp
-builder.Services.AddMyAppJobs(options =>
-{
-	options.UseEntityFrameworkCore<JobsDbContext>();
-	options.UseDistributed();
-});
+builder.Services.AddMyAppJobs()
+	.ConfigureStorage(storage => storage
+		.UseEntityFrameworkCore<JobsDbContext>()
+		.UseDistributed());
 ```
 
-Distributed mode uses provider leases. If a process dies, its lease expires and another node can acquire the
-invocation.
+In this mode every replica claims due jobs directly from the database. A claim expires after the configured lease period
+(30 seconds by default), allowing another replica to claim and run the job again if the first process stops.
 
 ## Fair queues
 
-Supply a reusable group ID when enqueueing work, then opt into fair acquisition:
+Supply a reusable tenant or customer ID when enqueueing work, then enable fair queues:
 
 ```csharp
 await scheduler.EnqueueAsync(payload, groupId: tenantId, cancellationToken);
 
-builder.Services.AddMyAppJobs(options =>
-{
-	options.UseEntityFrameworkCore<JobsDbContext>();
-	options.UseDistributed();
-	options.UseFairQueues();
-});
+builder.Services.AddMyAppJobs()
+	.UseFairQueues()
+	.ConfigureStorage(storage => storage
+		.UseEntityFrameworkCore<JobsDbContext>()
+		.UseDistributed());
 ```
 
-The EF model includes the nullable `GroupId` column, the `(QueueName, State, GroupId)` index, and the
-`immediate_fair_queue_groups` table. Add and deploy the corresponding migration before enabling fair queues on an
-existing database. See the
-[fair queues guide](https://github.com/ImmediatePlatform/Immediate.Jobs/blob/main/docs/fair-queues.md) for semantics and
-tradeoffs.
-
-## Schema upgrades
-
-Applications retaining execution history require the `immediate_job_executions` table. Apply the application migration
-before deploying binaries that use execution history. During a mixed-version rollout, history remains best effort until
-all scheduler nodes are upgraded.
-
-Queue-aware dispatch uses `AcquireDueJobsAsync(JobAcquisitionRequest, ...)`. Custom storage wrappers must honor the
-request's queue order, queue capacities, and per-job capacities.
+Fair queues rotate due jobs between tenant or customer groups so a large backlog from one group does not crowd out
+quieter groups. They are supported in both single-server and distributed SQL modes. See the
+[queues and fairness documentation](https://immediateplatform.dev/docs/Immediate.Jobs/queues-and-fairness) for the
+available settings.
 
 ## More information
 
