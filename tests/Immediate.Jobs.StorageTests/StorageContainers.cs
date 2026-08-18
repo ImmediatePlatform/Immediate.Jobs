@@ -1,5 +1,6 @@
 using Testcontainers.MsSql;
 using Testcontainers.PostgreSql;
+using Testcontainers.Redis;
 
 namespace Immediate.Jobs.StorageTests;
 
@@ -28,4 +29,19 @@ public sealed class StorageContainers : IAsyncLifetime
 			SqlServer.DisposeAsync().AsTask()
 		);
 	}
+}
+
+[CollectionDefinition(Name)]
+public sealed class RedisContainerFixtureGroup : ICollectionFixture<RedisStorageFixture>
+{
+	public const string Name = "Redis storage";
+}
+
+public sealed class RedisStorageFixture : IAsyncLifetime
+{
+	public RedisContainer Container { get; } = new RedisBuilder("redis:8-alpine").Build();
+
+	public ValueTask InitializeAsync() => new(Container.StartAsync());
+
+	public ValueTask DisposeAsync() => Container.DisposeAsync();
 }

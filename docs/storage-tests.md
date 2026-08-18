@@ -449,8 +449,10 @@ SQL Server  × LinqToDB
 ```
 
 Both adapter types advertise queue, recurring, graph, fair-queue, and replica capabilities through
-their interfaces. Remove a matrix test only after its portable invariant is represented by a named
-package case. Retain the adapter- and database-specific tests listed in section 6.
+their interfaces. The same matrix also runs the queue, recurring, graph, and fair-queue cases with
+each durable adapter behind `SingleServerJobStorage`; this validates the replica interfaces through
+their real consumer as well as directly. Provider validity is established by these conformance
+cases rather than by parallel adapter- or database-specific storage test classes.
 
 ### 7.2 Redis
 
@@ -461,10 +463,9 @@ storage registration method and builds the container passed to each case. Pass
 the registered `RedisJobStorage` reports those capabilities and excludes graph, fair-queue, and
 replica cases from the catalog.
 
-Replace portable tests in `RedisStorageTests` with the catalog. Retain Redis data-layout,
-corruption-isolation, pagination-window implementation, Lua, TTL, registration, and ownership tests.
-The existing test that says fair acquisition is unsupported becomes a capability-advertisement test:
-Redis must not implement `IFairQueueStorage` and must reject a non-null fair policy consistently.
+The Redis conformance class replaces direct `RedisJobStorage` tests. Capability matching verifies
+that Redis does not advertise graph, fair-queue, or replica behavior, while the portable queue and
+recurring cases cover its externally observable storage contract.
 
 ### 7.3 In-memory and single-server
 
@@ -472,13 +473,14 @@ Run the same catalog against `InMemoryJobStorage`. This is important even though
 `Immediate.Jobs.Testing`: the in-memory provider is a real implementation and acts as the fastest
 contract smoke test.
 
-Run applicable cases against `SingleServerJobStorage` through a service provider backed by an
-isolated durable provider. Keep recovery, restart, write-through, initialization-race, and
-wrapper-specific tests in `SingleServerJobStorageTests`.
+Run applicable cases against `SingleServerJobStorage` through a service provider backed by every
+isolated relational provider in the matrix. The wrapper exercises `IJobStorageReplica` and
+`IJobGraphStorageReplica` during acquisition and recovery, so this topology is part of relational
+provider conformance rather than a separate direct-storage test class.
 
 ### 7.4 Test project dependency
 
-Keep concrete storage, conformance, and provider-specific tests in `Immediate.Jobs.StorageTests`.
+Keep concrete storage conformance tests in `Immediate.Jobs.StorageTests`.
 That project targets every supported framework for the portable in-memory conformance and suite
 infrastructure tests, while compiling and running the container-backed provider matrix only on
 .NET 10. `Immediate.Jobs.FunctionalTests` may use storage as a fixture when testing schedulers,
