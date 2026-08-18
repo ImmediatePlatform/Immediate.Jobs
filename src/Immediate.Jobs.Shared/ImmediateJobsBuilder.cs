@@ -150,7 +150,7 @@ internal sealed class ImmediateJobsBuilder : IImmediateJobsBuilder
 
 	public IImmediateJobsBuilder DisableWorkers()
 	{
-		OptionsBuilder.PostConfigure(o => o.Enabled = false);
+		OptionsBuilder.PostConfigure(o => o.IsJobSchedulingServiceEnabled = false);
 		return this;
 	}
 

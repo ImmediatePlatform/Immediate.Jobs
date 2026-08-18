@@ -43,7 +43,7 @@ public sealed class QueueSchedulerTests
 		_ = services.AddLogging();
 		_ = services.AddSingleton<TimeProvider>(timeProvider);
 		_ = services.AddImmediateJobsCore()
-			.Configure(o =>
+			.ConfigureWorkers(o =>
 			{
 				o.MaxParallelJobs = 3;
 				o.PollingInterval = TimeSpan.FromMilliseconds(10);
@@ -137,7 +137,7 @@ public sealed class QueueSchedulerTests
 		}
 	}
 
-	private sealed class OtherHostedService : IHostedService
+	public sealed class OtherHostedService : IHostedService
 	{
 		public Task StartAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 

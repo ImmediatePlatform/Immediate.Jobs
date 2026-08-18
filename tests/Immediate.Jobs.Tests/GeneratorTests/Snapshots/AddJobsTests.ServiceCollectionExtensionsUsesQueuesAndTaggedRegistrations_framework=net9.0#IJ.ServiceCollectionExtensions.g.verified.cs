@@ -8,7 +8,7 @@ namespace Immediate.Jobs.Testing;
 
 public static class ImmediateJobsGeneratedServiceCollectionExtensions
 {
-	public static global::Immediate.Jobs.Shared.ImmediateJobsBuilder AddTestsJobs(
+	public static global::Immediate.Jobs.Shared.IImmediateJobsBuilder AddTestsJobs(
 		this global::Microsoft.Extensions.DependencyInjection.IServiceCollection services,
 		params global::System.ReadOnlySpan<string> tags
 	)

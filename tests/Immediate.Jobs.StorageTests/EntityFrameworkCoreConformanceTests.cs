@@ -1,5 +1,15 @@
+using System.Diagnostics.CodeAnalysis;
+using System.Text.RegularExpressions;
+using Immediate.Jobs.EntityFrameworkCore;
 using Immediate.Jobs.Shared.Storage;
 using Immediate.Jobs.Testing;
+using LinqToDB;
+using LinqToDB.Data;
+using Microsoft.Data.Sqlite;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Time.Testing;
 
 namespace Immediate.Jobs.StorageTests;
 
@@ -25,13 +35,14 @@ public sealed class EntityFrameworkCoreConformanceTests(StorageContainers contai
 	)
 	{
 		ArgumentNullException.ThrowIfNull(testCase);
+
 		await using var fixture = await RelationalConformanceFixture.CreateAsync(
 			containers,
 			database,
-			ConformanceAdapter.EntityFrameworkCore,
 			TestContext.Current.CancellationToken,
 			useDistributedTopology: topology == ConformanceTopology.Distributed
 		);
+
 		await testCase.RunAsync(fixture.Services, TestContext.Current.CancellationToken);
 	}
 
@@ -52,4 +63,190 @@ public sealed class EntityFrameworkCoreConformanceTests(StorageContainers contai
 
 		return data;
 	}
+}
+
+file sealed class RelationalConformanceFixture : IAsyncDisposable
+{
+	private static readonly string[] SqlServerTables =
+	[
+		"immediate_job_continuations",
+		"immediate_job_executions",
+		"immediate_fair_queue_groups",
+		"immediate_jobs",
+		"immediate_job_batches",
+		"immediate_recurring_jobs",
+		"immediate_job_servers",
+	];
+
+	private readonly ConformanceDatabase _database;
+	private readonly string _connectionString;
+	private readonly string? _schema;
+	private readonly string? _sqlitePath;
+	private readonly ServiceProvider? _services;
+
+	private RelationalConformanceFixture(
+		ConformanceDatabase database,
+		ServiceProvider servicesProvider,
+		string connectionString,
+		string? schema,
+		string? sqlitePath
+	)
+	{
+		_database = database;
+		_services = servicesProvider;
+		_connectionString = connectionString;
+		_schema = schema;
+		_sqlitePath = sqlitePath;
+	}
+
+	internal IServiceProvider Services => _services
+		?? throw new InvalidOperationException("The relational conformance fixture has not finished initializing.");
+
+	internal static async ValueTask<RelationalConformanceFixture> CreateAsync(
+		StorageContainers? containers,
+		ConformanceDatabase database,
+		CancellationToken cancellationToken,
+		bool useDistributedTopology = true
+	)
+	{
+		var schema = database == ConformanceDatabase.Sqlite ? null : "jobs_" + Guid.NewGuid().ToString("N");
+		var sqlitePath = database == ConformanceDatabase.Sqlite
+			? Path.Combine(Path.GetTempPath(), $"immediate-jobs-conformance-{Guid.NewGuid():N}.db")
+			: null;
+
+		var connectionString = database switch
+		{
+			ConformanceDatabase.Sqlite => $"Data Source={sqlitePath}",
+			ConformanceDatabase.PostgreSql => GetContainers(containers).PostgreSql.GetConnectionString(),
+			ConformanceDatabase.SqlServer => GetContainers(containers).SqlServer.GetConnectionString(),
+			_ => throw new ArgumentOutOfRangeException(nameof(database)),
+		};
+
+		var contextOptions = database switch
+		{
+			ConformanceDatabase.Sqlite =>
+				new DbContextOptionsBuilder<ConformanceDbContext>().UseSqlite(connectionString),
+
+			ConformanceDatabase.PostgreSql =>
+				new DbContextOptionsBuilder<ConformanceDbContext>().UseNpgsql(connectionString),
+
+			ConformanceDatabase.SqlServer =>
+				new DbContextOptionsBuilder<ConformanceDbContext>().UseSqlServer(connectionString),
+
+			_ => throw new ArgumentOutOfRangeException(nameof(database)),
+		};
+
+		contextOptions.ReplaceService<IModelCacheKeyFactory, ConformanceSchemaModelCacheKeyFactory>();
+		var contextFactory = new ConformanceDbContextFactory(contextOptions.Options, schema);
+
+		var clock = new FakeTimeProvider(new DateTimeOffset(2026, 8, 8, 10, 0, 0, TimeSpan.Zero));
+		var services = new ServiceCollection();
+		services.AddLogging();
+		services.AddSingleton<TimeProvider>(clock);
+		services.AddSingleton(clock);
+		services.AddSingleton<IDbContextFactory<ConformanceDbContext>>(contextFactory);
+
+		services.AddImmediateJobsCore()
+			.ConfigureStorage(options =>
+			{
+				options.UseEntityFrameworkCore<ConformanceDbContext>();
+				if (useDistributedTopology)
+					_ = options.UseDistributed();
+			});
+
+		var servicesProvider = services.BuildServiceProvider(
+			new ServiceProviderOptions
+			{
+				ValidateOnBuild = true,
+				ValidateScopes = true,
+			}
+		);
+
+		var fixture = new RelationalConformanceFixture(database, servicesProvider, connectionString, schema, sqlitePath);
+
+		try
+		{
+			await using var context = contextFactory.CreateDbContext();
+			var script = context.Database.GenerateCreateScript();
+
+			foreach (var batch in Regex.Split(
+				script,
+				@"^\s*GO\s*$",
+				RegexOptions.Multiline | RegexOptions.IgnoreCase,
+				TimeSpan.FromSeconds(1)
+			))
+			{
+				if (!string.IsNullOrWhiteSpace(batch))
+					await context.Database.ExecuteSqlRawAsync(batch, cancellationToken).ConfigureAwait(false);
+			}
+
+			return fixture;
+		}
+		catch
+		{
+			await fixture.DisposeAsync().ConfigureAwait(false);
+			throw;
+		}
+	}
+
+	private static StorageContainers GetContainers(StorageContainers? containers) =>
+		containers ?? throw new InvalidOperationException("A container fixture is required for server databases.");
+
+	public async ValueTask DisposeAsync()
+	{
+		if (_services is not null)
+			await _services.DisposeAsync().ConfigureAwait(false);
+
+		if (_sqlitePath is not null)
+		{
+			SqliteConnection.ClearAllPools();
+			File.Delete(_sqlitePath);
+			return;
+		}
+
+		var cleanupOptions = _database == ConformanceDatabase.PostgreSql
+			? new DataOptions().UsePostgreSQL(_connectionString)
+			: new DataOptions().UseSqlServer(_connectionString);
+
+		await using var connection = new DataConnection(cleanupOptions);
+
+		if (_database == ConformanceDatabase.PostgreSql)
+		{
+			await connection.ExecuteAsync($"DROP SCHEMA IF EXISTS \"{_schema}\" CASCADE").ConfigureAwait(false);
+			return;
+		}
+
+		foreach (var table in SqlServerTables)
+			await connection.ExecuteAsync($"DROP TABLE IF EXISTS [{_schema}].[{table}]").ConfigureAwait(false);
+
+		await connection.ExecuteAsync(
+			$"IF SCHEMA_ID(N'{_schema}') IS NOT NULL EXEC(N'DROP SCHEMA [{_schema}]')"
+		).ConfigureAwait(false);
+	}
+}
+
+file sealed class ConformanceDbContextFactory(
+	DbContextOptions<ConformanceDbContext> options,
+	string? schema
+) : IDbContextFactory<ConformanceDbContext>
+{
+	public ConformanceDbContext CreateDbContext() => new(options, schema);
+}
+
+file sealed class ConformanceDbContext(
+	DbContextOptions<ConformanceDbContext> options,
+	string? schema
+) : DbContext(options)
+{
+	internal string? Schema { get; } = schema;
+
+	protected override void OnModelCreating(ModelBuilder modelBuilder) =>
+		_ = modelBuilder.AddImmediateJobs(Schema);
+}
+
+[SuppressMessage("Performance", "CA1812", Justification = "Used via attribute")]
+file sealed class ConformanceSchemaModelCacheKeyFactory : IModelCacheKeyFactory
+{
+	public object Create(DbContext context, bool designTime) =>
+		(context.GetType(), ((ConformanceDbContext)context).Schema, designTime);
 }

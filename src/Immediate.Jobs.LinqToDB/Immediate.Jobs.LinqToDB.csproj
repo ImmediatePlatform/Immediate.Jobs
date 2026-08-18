@@ -22,6 +22,7 @@
 
   <ItemGroup>
 	<PackageReference Include="linq2db" />
+	<PackageReference Include="linq2db.Extensions" />
   </ItemGroup>
 
   <ItemGroup>

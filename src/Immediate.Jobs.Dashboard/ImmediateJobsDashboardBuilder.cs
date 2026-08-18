@@ -19,7 +19,22 @@ public interface IImmediateJobsDashboardBuilder : IImmediateJobsBuilder
 	/// <returns>
 	/// 	The supplied builder.
 	/// </returns>
-	IImmediateJobsDashboardBuilder ConfigureDashboard(Action<OptionsBuilder<ImmediateJobsDashboardOptions>> configureDashboard);
+	IImmediateJobsDashboardBuilder ConfigureDashboard(
+		Action<OptionsBuilder<ImmediateJobsDashboardOptions>> configureDashboard
+	);
+
+	/// <summary>
+	///		Provides an extension point to configure the options using a user provided configuration method.
+	/// </summary>
+	/// <param name="configureDashboard">
+	///		The configuration method used to set the options.
+	///	</param>
+	/// <returns>
+	/// 	The supplied builder.
+	/// </returns>
+	IImmediateJobsDashboardBuilder ConfigureDashboard(
+		Action<ImmediateJobsDashboardOptions> configureDashboard
+	);
 
 	/// <summary>
 	///	    Adds a provider-specific link from job details to an external telemetry system.
@@ -67,6 +82,12 @@ internal sealed class ImmediateJobsDashboardBuilder(IImmediateJobsBuilder builde
 	public IImmediateJobsDashboardBuilder ConfigureDashboard(Action<OptionsBuilder<ImmediateJobsDashboardOptions>> configureDashboard)
 	{
 		configureDashboard(optionsBuilder);
+		return this;
+	}
+
+	public IImmediateJobsDashboardBuilder ConfigureDashboard(Action<ImmediateJobsDashboardOptions> configureDashboard)
+	{
+		optionsBuilder.Configure(configureDashboard);
 		return this;
 	}
 

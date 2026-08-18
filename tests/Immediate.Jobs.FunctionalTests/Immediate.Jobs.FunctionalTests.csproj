@@ -1,17 +1,18 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
+  
   <PropertyGroup>
     <OutputType>Exe</OutputType>
-    <_SkipUpgradeNetAnalyzersNuGetWarning>true</_SkipUpgradeNetAnalyzersNuGetWarning>
-    <NoWarn>$(NoWarn);CA1050;CA1812</NoWarn>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(TargetFramework)' == 'net11.0'">
 	<Features>runtime-async=on</Features>
   </PropertyGroup>
+  
   <ItemGroup>
 	<Using Include="Immediate.Jobs.Shared" />
     <Using Include="Xunit" />
   </ItemGroup>
+  
   <ItemGroup>
 	<PackageReference Include="Immediate.Handlers" />
 	<PackageReference Include="Microsoft.AspNetCore.TestHost" />
@@ -19,6 +20,7 @@
 	<PackageReference Include="Verify.XunitV3" />
     <PackageReference Include="xunit.v3.mtp-v2" />
   </ItemGroup>
+  
   <ItemGroup>
 	<ProjectReference Include="../../src/Immediate.Jobs.Shared/Immediate.Jobs.Shared.csproj" />
 	<ProjectReference Include="../../src/Immediate.Jobs.Analyzers/Immediate.Jobs.Analyzers.csproj"
@@ -31,4 +33,5 @@
                       OutputItemType="Analyzer"
                       ReferenceOutputAssembly="false" />
   </ItemGroup>
+  
 </Project>

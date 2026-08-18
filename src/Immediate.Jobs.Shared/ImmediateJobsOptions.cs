@@ -3,15 +3,15 @@ using Immediate.Validations.Shared;
 namespace Immediate.Jobs.Shared;
 
 /// <summary>
-/// 	Global scheduler and worker options.
+/// 	Process-wide scheduler and worker options.
 /// </summary>
 [Validate]
 public sealed partial class ImmediateJobsOptions : IValidationTarget<ImmediateJobsOptions>
 {
 	/// <summary>
-	///		Controls whether workers are enabled.
+	///		Controls whether the scheduling service and it's attendant workers are enabled.
 	/// </summary>
-	public bool Enabled { get; set; } = true;
+	public bool IsJobSchedulingServiceEnabled { get; set; } = true;
 
 	/// <summary>
 	///     Maximum concurrently executing jobs on this node.

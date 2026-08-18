@@ -22,6 +22,18 @@ public interface IImmediateJobsRedisBuilder : IImmediateJobsStorageBuilder
 	IImmediateJobsRedisBuilder ConfigureRedis(
 		Action<OptionsBuilder<RedisJobStorageOptions>> configureRedis
 	);
+	/// <summary>
+	///		Provides an extension point to configure the options using a user provided configuration method.
+	/// </summary>
+	/// <param name="configureRedis">
+	///		The configuration method used to set the options.
+	///	</param>
+	/// <returns>
+	/// 	The supplied builder.
+	/// </returns>
+	IImmediateJobsRedisBuilder ConfigureRedis(
+		Action<RedisJobStorageOptions> configureRedis
+	);
 }
 
 internal sealed class ImmediateJobsRedisBuilder(IImmediateJobsStorageBuilder builder, OptionsBuilder<RedisJobStorageOptions> optionsBuilder) : IImmediateJobsRedisBuilder
@@ -31,6 +43,14 @@ internal sealed class ImmediateJobsRedisBuilder(IImmediateJobsStorageBuilder bui
 		ArgumentNullException.ThrowIfNull(configureRedis);
 
 		configureRedis(optionsBuilder);
+		return this;
+	}
+
+	public IImmediateJobsRedisBuilder ConfigureRedis(Action<RedisJobStorageOptions> configureRedis)
+	{
+		ArgumentNullException.ThrowIfNull(configureRedis);
+
+		optionsBuilder.Configure(configureRedis);
 		return this;
 	}
 

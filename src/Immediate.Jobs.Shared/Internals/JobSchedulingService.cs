@@ -136,7 +136,7 @@ public sealed partial class JobSchedulingService : BackgroundService
 	/// <inheritdoc />
 	protected override async Task ExecuteAsync(CancellationToken stoppingToken)
 	{
-		if (!_options.Enabled)
+		if (!_options.IsJobSchedulingServiceEnabled)
 			return;
 
 		await _storage.InitializeAsync(stoppingToken).ConfigureAwait(false);
