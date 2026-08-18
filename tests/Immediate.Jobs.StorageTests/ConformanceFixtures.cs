@@ -2,8 +2,6 @@ using System.Text.RegularExpressions;
 using Immediate.Jobs.EntityFrameworkCore;
 using Immediate.Jobs.LinqToDB;
 using Immediate.Jobs.Redis;
-using Immediate.Jobs.Shared.Storage;
-using Immediate.Jobs.Testing;
 using LinqToDB;
 using LinqToDB.Data;
 using Microsoft.Data.Sqlite;
@@ -14,84 +12,6 @@ using Microsoft.Extensions.Time.Testing;
 using StackExchange.Redis;
 
 namespace Immediate.Jobs.StorageTests;
-
-[Collection(StorageContainerFixtureGroup.Name)]
-public sealed class RelationalStorageConformanceTests(StorageContainers containers)
-{
-	private const StorageCapabilities Capabilities =
-		StorageCapabilities.Queue |
-		StorageCapabilities.Recurring |
-		StorageCapabilities.Graph |
-		StorageCapabilities.FairQueues |
-		StorageCapabilities.Replica;
-
-	public static TheoryData<ConformanceDatabase, ConformanceAdapter, ConformanceTopology, JobStorageConformanceTestCase> Cases
-	{
-		get
-		{
-			var data = new TheoryData<ConformanceDatabase, ConformanceAdapter, ConformanceTopology, JobStorageConformanceTestCase>();
-			foreach (var database in Enum.GetValues<ConformanceDatabase>())
-			{
-				foreach (var adapter in Enum.GetValues<ConformanceAdapter>())
-				{
-					foreach (var topology in Enum.GetValues<ConformanceTopology>())
-					{
-						var capabilities = topology == ConformanceTopology.Distributed
-							? Capabilities
-							: Capabilities & ~StorageCapabilities.Replica;
-						foreach (var testCase in JobStorageConformanceSuite.GetCases(capabilities))
-							data.Add(database, adapter, topology, testCase);
-					}
-				}
-			}
-
-			return data;
-		}
-	}
-
-	[Theory]
-	[MemberData(nameof(Cases))]
-	public async Task RelationalStorageConforms(
-		ConformanceDatabase database,
-		ConformanceAdapter adapter,
-		ConformanceTopology topology,
-		JobStorageConformanceTestCase testCase
-	)
-	{
-		ArgumentNullException.ThrowIfNull(testCase);
-		await using var fixture = await RelationalConformanceFixture.CreateAsync(
-			containers,
-			database,
-			adapter,
-			TestContext.Current.CancellationToken,
-			useDistributedTopology: topology == ConformanceTopology.Distributed
-		);
-		await testCase.RunAsync(fixture.Services, TestContext.Current.CancellationToken);
-	}
-}
-
-[Collection(RedisContainerFixtureGroup.Name)]
-public sealed class RedisStorageConformanceTests(RedisStorageFixture redis)
-{
-	private const StorageCapabilities Capabilities =
-		StorageCapabilities.Queue |
-		StorageCapabilities.Recurring;
-
-	public static TheoryData<JobStorageConformanceTestCase> Cases =>
-		[.. JobStorageConformanceSuite.GetCases(Capabilities)];
-
-	[Theory]
-	[MemberData(nameof(Cases))]
-	public async Task RedisStorageConforms(JobStorageConformanceTestCase testCase)
-	{
-		ArgumentNullException.ThrowIfNull(testCase);
-		await using var fixture = await RedisConformanceFixture.CreateAsync(
-			redis.Container.GetConnectionString(),
-			TestContext.Current.CancellationToken
-		);
-		await testCase.RunAsync(fixture.Services, TestContext.Current.CancellationToken);
-	}
-}
 
 public enum ConformanceDatabase
 {
