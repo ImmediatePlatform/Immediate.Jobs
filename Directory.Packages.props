@@ -79,7 +79,7 @@
   </ItemGroup>
 
   <ItemGroup Condition="'$(TargetFramework)' == 'net9.0'">
-	<PackageVersion Include="Basic.Reference.Assemblies.Net90" Version="1.8.10" />
+	<PackageVersion Include="Basic.Reference.Assemblies.Net90" Version="1.8.11" />
 	<PackageVersion Include="Microsoft.AspNetCore.TestHost" Version="$(Net9PackageVersion)" />
 	<PackageVersion Include="Microsoft.EntityFrameworkCore" Version="$(Net9PackageVersion)" />
 	<PackageVersion Include="Microsoft.EntityFrameworkCore.Relational" Version="$(Net9PackageVersion)" />
