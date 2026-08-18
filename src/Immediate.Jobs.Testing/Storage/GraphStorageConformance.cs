@@ -1,5 +1,7 @@
 using Immediate.Jobs.Shared.Apis;
 using Immediate.Jobs.Shared.Storage;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Time.Testing;
 
 #pragma warning disable IDE0130 // Public conformance APIs intentionally use the package root namespace.
 namespace Immediate.Jobs.Testing;
@@ -12,6 +14,9 @@ internal static class GraphStorageConformance
 	private const string TriggerName = "Graph.Dependencies.ReleasesAndSkipsConditionalBranches";
 	private const string FanInName = "Graph.Dependencies.FanInWaitsForEveryParent";
 	private const string DynamicName = "Graph.Dynamic.SpliceAndOwnershipAreAtomic";
+	private const string StaleDynamicName = "Graph.Dynamic.RejectsStaleActiveExecution";
+	private const string TerminalParentName = "Graph.Dependencies.EvaluatesAlreadyTerminalParents";
+	private const string InvalidDynamicName = "Graph.Dynamic.RejectsInvalidBatchRelationshipsAtomically";
 	private const string CancellationName = "Graph.Maintenance.CancelsUnsettledDependencyChains";
 
 	internal static IReadOnlyList<JobStorageConformanceCaseDefinition> Cases { get; } =
@@ -22,6 +27,9 @@ internal static class GraphStorageConformance
 		new(TriggerName, StorageCapabilities.Graph, ConditionalTriggersAsync),
 		new(FanInName, StorageCapabilities.Graph, FanInAsync),
 		new(DynamicName, StorageCapabilities.Graph, DynamicContinuationsAsync),
+		new(StaleDynamicName, StorageCapabilities.Graph, RejectsStaleActiveExecutionAsync),
+		new(TerminalParentName, StorageCapabilities.Graph, EvaluatesAlreadyTerminalParentsAsync),
+		new(InvalidDynamicName, StorageCapabilities.Graph, RejectsInvalidBatchRelationshipsAsync),
 		new(CancellationName, StorageCapabilities.Graph, CancelUnsettledChainAsync),
 	];
 
@@ -466,6 +474,140 @@ internal static class GraphStorageConformance
 			"a batch with only explicit cancellations must be Cancelled");
 		ConformanceAssert.Equal(2, status.Cancelled, CancellationName,
 			"every non-terminal member must be included in cancellation counters");
+	}
+
+	private static async ValueTask RejectsStaleActiveExecutionAsync(
+		IJobStorage storage,
+		IServiceProvider serviceProvider,
+		CancellationToken cancellationToken
+	)
+	{
+		var graph = GetGraph(storage, StaleDynamicName);
+		var clock = serviceProvider.GetRequiredService<FakeTimeProvider>();
+		var current = CreateJob("stale-dynamic-parent", batchId: "stale-dynamic-batch");
+		await graph.EnqueueBatchAsync(
+			CreateBatch("stale-dynamic-batch", 1),
+			[current],
+			[],
+			cancellationToken
+		).ConfigureAwait(false);
+		_ = await graph.AcquireDueJobsAsync(CreateRequest("stale-dynamic-worker", current.JobName), cancellationToken)
+			.ConfigureAwait(false);
+		clock.Advance(TimeSpan.FromMinutes(2));
+		_ = await graph.AcquireDueJobsAsync(CreateRequest("stale-dynamic-worker", current.JobName), cancellationToken)
+			.ConfigureAwait(false);
+
+		var addition = CreateJob("stale-dynamic-child", batchId: "stale-dynamic-batch");
+		_ = await ConformanceAssert.ThrowsAsync<ImmediateJobException>(
+			() => graph.AddBatchJobAsync(
+				current.Id,
+				1,
+				addition,
+				ContinuationOptions.BesideContinuations,
+				cancellationToken
+			),
+			StaleDynamicName,
+			"a stale execution must not add a batch member while a newer execution is active"
+		).ConfigureAwait(false);
+		ConformanceAssert.Null(
+			await graph.GetJobStatusAsync(addition.Id, cancellationToken).ConfigureAwait(false),
+			StaleDynamicName,
+			"rejecting a stale execution must not partially insert its addition"
+		);
+		var active = await GetJobAsync(graph, current.Id, StaleDynamicName, cancellationToken).ConfigureAwait(false);
+		ConformanceAssert.Equal(JobState.Active, active.State, StaleDynamicName, "the newer execution must remain active");
+		ConformanceAssert.Equal(2, active.Attempt, StaleDynamicName, "the newer execution ordinal must remain current");
+	}
+
+	private static async ValueTask EvaluatesAlreadyTerminalParentsAsync(
+		IJobStorage storage,
+		IServiceProvider serviceProvider,
+		CancellationToken cancellationToken
+	)
+	{
+		_ = serviceProvider;
+		var graph = GetGraph(storage, TerminalParentName);
+		var parent = CreateJob("terminal-parent");
+		await graph.EnqueueAsync(parent, cancellationToken).ConfigureAwait(false);
+		_ = await graph.AcquireDueJobsAsync(CreateRequest("terminal-parent-worker", parent.JobName), cancellationToken)
+			.ConfigureAwait(false);
+		await graph.FailAsync(
+			parent.Id,
+			1,
+			"terminal-parent-worker",
+			"expected failure",
+			nextRetryAt: null,
+			cancellationToken
+		).ConfigureAwait(false);
+
+		foreach (var (trigger, expectedState) in new[]
+		{
+			(ContinuationTrigger.Success, JobState.Skipped),
+			(ContinuationTrigger.Complete, JobState.Pending),
+			(ContinuationTrigger.Failure, JobState.Pending),
+		})
+		{
+			var child = CreateWaitingJob($"terminal-child-{trigger}", 1);
+			await graph.EnqueueContinuationAsync(
+				child,
+				[new() { ChildJobId = child.Id, ParentJobId = parent.Id, Trigger = trigger }],
+				cancellationToken
+			).ConfigureAwait(false);
+			var persisted = await GetJobAsync(graph, child.Id, TerminalParentName, cancellationToken).ConfigureAwait(false);
+			ConformanceAssert.Equal(expectedState, persisted.State, TerminalParentName,
+				"a continuation inserted after its parent settled must be evaluated immediately", $"trigger={trigger}");
+			ConformanceAssert.Equal(1, persisted.FailedDependencies, TerminalParentName,
+				"a late continuation must project the parent failure", $"trigger={trigger}");
+		}
+	}
+
+	private static async ValueTask RejectsInvalidBatchRelationshipsAsync(
+		IJobStorage storage,
+		IServiceProvider serviceProvider,
+		CancellationToken cancellationToken
+	)
+	{
+		_ = serviceProvider;
+		var graph = GetGraph(storage, InvalidDynamicName);
+		var current = CreateJob("invalid-dynamic-parent", batchId: "invalid-dynamic-batch");
+		await graph.EnqueueBatchAsync(
+			CreateBatch("invalid-dynamic-batch", 1),
+			[current],
+			[],
+			cancellationToken
+		).ConfigureAwait(false);
+		_ = await graph.AcquireDueJobsAsync(CreateRequest("invalid-dynamic-worker", current.JobName), cancellationToken)
+			.ConfigureAwait(false);
+
+		foreach (var options in new[] { ContinuationOptions.Detached, ContinuationOptions.BesideContinuations })
+		{
+			var addition = CreateJob($"invalid-dynamic-{options}", batchId: "other-batch");
+			_ = await ConformanceAssert.ThrowsAsync<ImmediateJobException>(
+				() => graph.CompleteWithContinuationsAsync(
+					current.Id,
+					1,
+					"invalid-dynamic-worker",
+					[new() { Job = addition, Options = options }],
+					cancellationToken
+				),
+				InvalidDynamicName,
+				"a dynamic continuation with an invalid batch relationship must be rejected",
+				$"options={options}"
+			).ConfigureAwait(false);
+			ConformanceAssert.Null(await graph.GetJobStatusAsync(addition.Id, cancellationToken).ConfigureAwait(false),
+				InvalidDynamicName, "a rejected continuation must not be inserted", $"options={options}");
+			var active = await GetJobAsync(graph, current.Id, InvalidDynamicName, cancellationToken).ConfigureAwait(false);
+			ConformanceAssert.Equal(JobState.Active, active.State, InvalidDynamicName,
+				"a rejected continuation must not complete its current execution", $"options={options}");
+		}
+
+		var batch = ConformanceAssert.NotNull(
+			await graph.GetBatchStatusAsync("invalid-dynamic-batch", cancellationToken).ConfigureAwait(false),
+			InvalidDynamicName,
+			"the original batch must remain observable"
+		);
+		ConformanceAssert.Equal(1, batch.Total, InvalidDynamicName,
+			"rejected continuations must not change the original batch total");
 	}
 
 	private static IJobGraphStorage GetGraph(IJobStorage storage, string caseName) =>
