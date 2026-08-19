@@ -206,6 +206,8 @@ internal sealed class ImmediateJobsBuilder : IImmediateJobsBuilder
 		configure(builder);
 		builder.ValidateAndRegister();
 
+		Services.AddSingleton(builder);
+
 		return this;
 	}
 }

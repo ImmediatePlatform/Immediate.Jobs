@@ -51,7 +51,7 @@ public interface IImmediateJobsDashboardBuilder : IImmediateJobsBuilder
 	///     langword="null"/> when the link is not available, such as before a trace has been created.
 	/// </param>
 	/// <returns>
-	///		This options instance.
+	/// 	The supplied builder.
 	/// </returns>
 	IImmediateJobsDashboardBuilder AddTelemetryLink(
 		string label,

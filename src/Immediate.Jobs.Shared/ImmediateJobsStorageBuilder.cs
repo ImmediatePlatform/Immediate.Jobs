@@ -19,7 +19,7 @@ public interface IImmediateJobsStorageBuilder
 	/// 	Selects the non-durable, single-node in-memory provider.
 	/// </summary>
 	/// <returns>
-	/// 	This options instance.
+	/// 	The supplied builder.
 	/// </returns>
 	IImmediateJobsStorageBuilder UseInMemory();
 
@@ -31,7 +31,7 @@ public interface IImmediateJobsStorageBuilder
 	/// 	The factory that creates the durable storage provider.
 	/// </param>
 	/// <returns>
-	/// 	This options instance.
+	/// 	The supplied builder.
 	/// </returns>
 	IImmediateJobsStorageBuilder UseStorage(Func<IServiceProvider, IJobStorage> factory);
 
@@ -40,7 +40,7 @@ public interface IImmediateJobsStorageBuilder
 	///		authoritative in-process store for a single scheduler server.
 	/// </summary>
 	/// <returns>
-	/// 	This options instance.
+	/// 	The supplied builder.
 	/// </returns>
 	IImmediateJobsStorageBuilder UseStorage<
 		[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TJobStorage
@@ -50,7 +50,7 @@ public interface IImmediateJobsStorageBuilder
 	/// 	Selects memory-primary, durable-replica operation for one scheduler server.
 	/// </summary>
 	/// <returns>
-	/// 	This options instance.
+	/// 	The supplied builder.
 	/// </returns>
 	IImmediateJobsStorageBuilder UseSingleServer();
 
@@ -61,7 +61,7 @@ public interface IImmediateJobsStorageBuilder
 	/// 	The factory that creates the durable storage replica.
 	/// </param>
 	/// <returns>
-	/// 	This options instance.
+	/// 	The supplied builder.
 	/// </returns>
 	IImmediateJobsStorageBuilder UseSingleServer(Func<IServiceProvider, IJobStorage> durableStorageFactory);
 
@@ -69,7 +69,7 @@ public interface IImmediateJobsStorageBuilder
 	/// 	Selects durable-storage-primary operation for multiple scheduler servers.
 	/// </summary>
 	/// <returns>
-	/// 	This options instance.
+	/// 	The supplied builder.
 	/// </returns>
 	IImmediateJobsStorageBuilder UseDistributed();
 
@@ -80,7 +80,7 @@ public interface IImmediateJobsStorageBuilder
 	/// 	The factory that creates the durable storage replica.
 	/// </param>
 	/// <returns>
-	/// 	This options instance.
+	/// 	The supplied builder.
 	/// </returns>
 	IImmediateJobsStorageBuilder UseDistributed(Func<IServiceProvider, IJobStorage> durableStorageFactory);
 }

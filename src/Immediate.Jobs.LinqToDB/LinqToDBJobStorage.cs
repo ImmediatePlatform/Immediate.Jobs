@@ -987,6 +987,8 @@ internal sealed class LinqToDBJobStorage<T>(
 	/// <inheritdoc />
 	public async ValueTask RemoveRecurringAsync(string name, CancellationToken cancellationToken = default)
 	{
+		cancellationToken.ThrowIfCancellationRequested();
+
 		await using var scope = contextScope.GetScope(out var connection);
 
 		var removed = await Recurring(connection)
@@ -1135,6 +1137,8 @@ internal sealed class LinqToDBJobStorage<T>(
 		CancellationToken cancellationToken = default
 	)
 	{
+		cancellationToken.ThrowIfCancellationRequested();
+
 		await using var scope = contextScope.GetScope(out var connection);
 
 		var rawCounts = await Jobs(connection)
