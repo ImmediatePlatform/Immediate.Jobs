@@ -71,6 +71,7 @@ Override the identifier with `[assembly: ImmediateAssemblyIdentifier("SomeIdenti
 ```csharp
 builder.Services.AddMyAppHandlers();
 builder.Services.AddMyAppJobs()
+	.ConfigureWorkers(options => options.MaxParallelJobs = 8)
 	.ConfigureStorage(storage => storage.UseInMemory())
 	.AddHealthCheck();
 ```
@@ -78,8 +79,20 @@ builder.Services.AddMyAppJobs()
 Because jobs are Immediate.Handlers handlers, omitting the corresponding generated `AddXxxHandlers()` method allows
 enqueueing but causes execution to fail when the worker cannot resolve the handler or its behaviors.
 
-The core package uses the non-durable in-memory provider by default. For durable or distributed execution, install and
-configure one of the [storage providers](https://github.com/ImmediatePlatform/Immediate.Jobs#packages).
+Every application must call `ConfigureStorage` once. Use `UseInMemory()` for development, tests, or non-critical work.
+For durable or distributed execution, install and configure one of the
+[storage providers](https://github.com/ImmediatePlatform/Immediate.Jobs#packages).
+
+`ConfigureWorkers` controls the worker count, polling interval, lease duration, shutdown timeout, and retention
+periods. Call `DisableWorkers()` when a process may enqueue or inspect jobs but must not execute them:
+
+```csharp
+builder.Services.AddMyAppJobs()
+	.DisableWorkers()
+	.ConfigureStorage(storage => storage
+		.UseEntityFrameworkCore<JobsDbContext>()
+		.UseDistributed());
+```
 
 ## Batches and continuations
 

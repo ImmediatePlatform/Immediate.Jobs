@@ -16,28 +16,33 @@ dotnet add package Immediate.Jobs.Redis --prerelease
 
 ## Configuration
 
-Pass either a StackExchange.Redis configuration string or an application-owned `IConnectionMultiplexer`:
+Register an application-owned `IConnectionMultiplexer`, then select Redis storage and configure its key placement:
 
 ```csharp
+builder.Services.AddSingleton<IConnectionMultiplexer>(_ =>
+	ConnectionMultiplexer.Connect("localhost:6379"));
+
 builder.Services.AddMyAppHandlers();
 builder.Services.AddMyAppJobs()
-	.ConfigureStorage(storage => storage.UseRedis(
-		"localhost:6379",
-		redis =>
+	.ConfigureStorage(storage => storage
+		.UseRedis()
+		.ConfigureRedis(redis =>
 		{
 			redis.Database = 1;
 			redis.KeyPrefix = "billing-jobs";
-		}
-	));
+		}));
 ```
 
 `AddMyAppJobs` is the generated registration method for an assembly named `MyApp`.
 
+The provider resolves `IConnectionMultiplexer` from dependency injection. The application controls how that connection
+is created and shared. Registering it with the factory overload of `AddSingleton` lets the service provider dispose it
+at shutdown.
+
 The prefix isolates applications and keeps all of the application's keys in one Redis Cluster slot, which is required
-for operations that update several keys together. The provider owns connections it creates from a configuration string;
-it does not dispose an `IConnectionMultiplexer` supplied by the application. `Database` defaults to `-1` (the server
-default), and `KeyPrefix` defaults to `immediate-jobs`. Prefixes cannot be empty or contain braces; invalid options fail
-validation when the host starts.
+for operations that update several keys together. `Database` defaults to `-1` (the server default), and `KeyPrefix`
+defaults to `immediate-jobs`. Prefixes cannot be empty or contain braces; invalid options fail validation when the host
+starts.
 
 Redis coordinates job claims between every application replica automatically. No `UseSingleServer()` or
 `UseDistributed()` call is needed. If a process stops, work that it claimed becomes available to another replica after

@@ -23,23 +23,29 @@ does not carry a database driver.
 
 ## Configuration
 
-Configure and reuse an immutable `DataOptions`, then pass it to schema bootstrap and registration:
+Define a `DataConnection` for the jobs database, register it with LinqToDB, and select that connection type when
+configuring job storage:
 
 ```csharp
 var dataOptions = new DataOptions().UsePostgreSQL(connectionString);
 // new DataOptions().UseSQLite(connectionString);
 // new DataOptions().UseSqlServer(connectionString);
 
-await dataOptions.CreateImmediateJobsSchemaAsync(
-	schema: "background", // must be null for SQLite
-	CancellationToken.None
-);
+await using (var connection = new JobsDataConnection(dataOptions))
+{
+	await connection.CreateImmediateJobsSchemaAsync(
+		schema: "background", // must be null for SQLite
+		CancellationToken.None);
+}
 
+builder.Services.AddLinqToDBContext<JobsDataConnection>(() => dataOptions);
 builder.Services.AddMyAppHandlers();
 builder.Services.AddMyAppJobs()
 	.ConfigureStorage(storage => storage
-		.UseLinqToDB(dataOptions, schema: "background")
+		.UseLinqToDB<JobsDataConnection>(schema: "background")
 		.UseSingleServer());
+
+public sealed class JobsDataConnection(DataOptions options) : DataConnection(options);
 ```
 
 `AddMyAppJobs` is the generated registration method for an assembly named `MyApp`.
@@ -61,7 +67,7 @@ If the application runs multiple replicas, use `UseDistributed()` instead:
 ```csharp
 builder.Services.AddMyAppJobs()
 	.ConfigureStorage(storage => storage
-		.UseLinqToDB(dataOptions, schema: "background")
+		.UseLinqToDB<JobsDataConnection>(schema: "background")
 		.UseDistributed());
 ```
 
@@ -78,7 +84,7 @@ await scheduler.EnqueueAsync(payload, groupId: tenantId, cancellationToken);
 builder.Services.AddMyAppJobs()
 	.UseFairQueues()
 	.ConfigureStorage(storage => storage
-		.UseLinqToDB(dataOptions, schema: "background")
+		.UseLinqToDB<JobsDataConnection>(schema: "background")
 		.UseDistributed());
 ```
 
