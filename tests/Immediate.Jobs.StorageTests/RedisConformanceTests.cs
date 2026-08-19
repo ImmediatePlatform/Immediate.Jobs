@@ -4,6 +4,7 @@ using Immediate.Jobs.Testing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Time.Testing;
 using StackExchange.Redis;
+using Testcontainers.Redis;
 
 namespace Immediate.Jobs.StorageTests;
 
@@ -56,7 +57,7 @@ file sealed class RedisConformanceFixture : IAsyncDisposable
 	)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
-		var connection = await ConnectionMultiplexer.ConnectAsync(connectionString).ConfigureAwait(false);
+		var connection = await ConnectionMultiplexer.ConnectAsync(connectionString);
 		try
 		{
 			var keyPrefix = "immediate-jobs-conformance-" + Guid.NewGuid().ToString("N");
@@ -83,24 +84,39 @@ file sealed class RedisConformanceFixture : IAsyncDisposable
 		}
 		catch
 		{
-			await connection.DisposeAsync().ConfigureAwait(false);
+			await connection.DisposeAsync();
 			throw;
 		}
 	}
 
 	public async ValueTask DisposeAsync()
 	{
-		await ((ServiceProvider)Services).DisposeAsync().ConfigureAwait(false);
+		await ((ServiceProvider)Services).DisposeAsync();
 		foreach (var endpoint in _connection.GetEndPoints())
 		{
 			var server = _connection.GetServer(endpoint);
 			var keys = new List<RedisKey>();
-			await foreach (var key in server.KeysAsync(pattern: $"{{{_keyPrefix}}}:*").ConfigureAwait(false))
+			await foreach (var key in server.KeysAsync(pattern: $"{{{_keyPrefix}}}:*"))
 				keys.Add(key);
 			if (keys.Count > 0)
-				_ = await _connection.GetDatabase().KeyDeleteAsync([.. keys], flags: CommandFlags.None).ConfigureAwait(false);
+				_ = await _connection.GetDatabase().KeyDeleteAsync([.. keys], flags: CommandFlags.None);
 		}
 
-		await _connection.DisposeAsync().ConfigureAwait(false);
+		await _connection.DisposeAsync();
 	}
+}
+
+[CollectionDefinition(Name)]
+public sealed class RedisContainerFixtureGroup : ICollectionFixture<RedisStorageFixture>
+{
+	public const string Name = "Redis storage";
+}
+
+public sealed class RedisStorageFixture : IAsyncLifetime
+{
+	public RedisContainer Container { get; } = new RedisBuilder("redis:8-alpine").Build();
+
+	public ValueTask InitializeAsync() => new(Container.StartAsync());
+
+	public ValueTask DisposeAsync() => Container.DisposeAsync();
 }

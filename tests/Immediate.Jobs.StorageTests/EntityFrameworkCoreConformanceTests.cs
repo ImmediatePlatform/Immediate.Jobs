@@ -1,5 +1,6 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Text.RegularExpressions;
+using DotNet.Testcontainers.Containers;
 using Immediate.Jobs.EntityFrameworkCore;
 using Immediate.Jobs.Shared.Storage;
 using Immediate.Jobs.Testing;
@@ -10,11 +11,12 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Time.Testing;
+using Testcontainers.MsSql;
+using Testcontainers.PostgreSql;
 
 namespace Immediate.Jobs.StorageTests;
 
-[Collection(StorageContainerFixtureGroup.Name)]
-public sealed class EntityFrameworkCoreConformanceTests(StorageContainers containers)
+public static class EntityFrameworkCoreConformanceTestCases
 {
 	private const StorageCapabilities Capabilities =
 		StorageCapabilities.Queue |
@@ -23,49 +25,90 @@ public sealed class EntityFrameworkCoreConformanceTests(StorageContainers contai
 		StorageCapabilities.FairQueues |
 		StorageCapabilities.Replica;
 
-	public static TheoryData<ConformanceDatabase, ConformanceTopology, JobStorageConformanceTestCase> Cases =>
-		CreateCases();
-
-	[Theory]
-	[MemberData(nameof(Cases))]
-	public async Task EntityFrameworkCoreConforms(
-		ConformanceDatabase database,
-		ConformanceTopology topology,
-		JobStorageConformanceTestCase testCase
-	)
+	public static TheoryData<ConformanceTopology, JobStorageConformanceTestCase> CreateCases()
 	{
-		ArgumentNullException.ThrowIfNull(testCase);
-
-		await using var fixture = await RelationalConformanceFixture.CreateAsync(
-			containers,
-			database,
-			TestContext.Current.CancellationToken,
-			useDistributedTopology: topology == ConformanceTopology.Distributed
-		);
-
-		await testCase.RunAsync(fixture.Services, TestContext.Current.CancellationToken);
-	}
-
-	private static TheoryData<ConformanceDatabase, ConformanceTopology, JobStorageConformanceTestCase> CreateCases()
-	{
-		var data = new TheoryData<ConformanceDatabase, ConformanceTopology, JobStorageConformanceTestCase>();
-		foreach (var database in Enum.GetValues<ConformanceDatabase>())
+		var data = new TheoryData<ConformanceTopology, JobStorageConformanceTestCase>();
+		foreach (var topology in Enum.GetValues<ConformanceTopology>())
 		{
-			foreach (var topology in Enum.GetValues<ConformanceTopology>())
-			{
-				var capabilities = topology == ConformanceTopology.Distributed
-					? Capabilities
-					: Capabilities & ~StorageCapabilities.Replica;
-				foreach (var testCase in JobStorageConformanceSuite.GetCases(capabilities))
-					data.Add(database, topology, testCase);
-			}
+			var capabilities = topology == ConformanceTopology.Distributed
+				? Capabilities
+				: Capabilities & ~StorageCapabilities.Replica;
+
+			foreach (var testCase in JobStorageConformanceSuite.GetCases(capabilities))
+				data.Add(topology, testCase);
 		}
 
 		return data;
 	}
 }
 
-file sealed class RelationalConformanceFixture : IAsyncDisposable
+[Collection(EntityFrameworkCorePgSQLFixtureGroup.Name)]
+public sealed class EntityFrameworkCorePgSQLConformanceTests(EntityFrameworkCorePgSQLContainer container)
+{
+	[Theory]
+	[MemberData(nameof(EntityFrameworkCoreConformanceTestCases.CreateCases), MemberType = typeof(EntityFrameworkCoreConformanceTestCases))]
+	public async Task EntityFrameworkCoreConforms(
+		ConformanceTopology topology,
+		JobStorageConformanceTestCase testCase
+	)
+	{
+		await using var fixture = await RelationalConformanceFixture.CreateAsync(
+			ConformanceDatabase.PostgreSql,
+			useDistributedTopology: topology == ConformanceTopology.Distributed,
+			container: container.PostgreSql
+		);
+
+		await testCase.RunAsync(fixture.Services, TestContext.Current.CancellationToken);
+	}
+}
+
+[Collection(EntityFrameworkCoreMsSQLFixtureGroup.Name)]
+public sealed class EntityFrameworkCoreMsSQLConformanceTests(EntityFrameworkCoreMsSQLContainer container)
+{
+	[Theory]
+	[MemberData(nameof(EntityFrameworkCoreConformanceTestCases.CreateCases), MemberType = typeof(EntityFrameworkCoreConformanceTestCases))]
+	public async Task EntityFrameworkCoreConforms(
+		ConformanceTopology topology,
+		JobStorageConformanceTestCase testCase
+	)
+	{
+		await using var fixture = await RelationalConformanceFixture.CreateAsync(
+			ConformanceDatabase.SqlServer,
+			useDistributedTopology: topology == ConformanceTopology.Distributed,
+			container: container.SqlServer
+		);
+
+		await testCase.RunAsync(fixture.Services, TestContext.Current.CancellationToken);
+	}
+}
+
+[Collection("EntityFrameworkCore-SQLite")]
+public sealed class EntityFrameworkCoreSQLiteConformanceTests
+{
+	[Theory]
+	[MemberData(nameof(EntityFrameworkCoreConformanceTestCases.CreateCases), MemberType = typeof(EntityFrameworkCoreConformanceTestCases))]
+	public async Task EntityFrameworkCoreConforms(
+		ConformanceTopology topology,
+		JobStorageConformanceTestCase testCase
+	)
+	{
+		await using var fixture = await RelationalConformanceFixture.CreateAsync(
+			ConformanceDatabase.Sqlite,
+			useDistributedTopology: topology == ConformanceTopology.Distributed,
+			container: null
+		);
+
+		await testCase.RunAsync(fixture.Services, TestContext.Current.CancellationToken);
+	}
+}
+
+file sealed class RelationalConformanceFixture(
+	ConformanceDatabase database,
+	ServiceProvider services,
+	string connectionString,
+	string? schema,
+	string? sqlitePath
+) : IAsyncDisposable
 {
 	private static readonly string[] SqlServerTables =
 	[
@@ -78,35 +121,12 @@ file sealed class RelationalConformanceFixture : IAsyncDisposable
 		"immediate_job_servers",
 	];
 
-	private readonly ConformanceDatabase _database;
-	private readonly string _connectionString;
-	private readonly string? _schema;
-	private readonly string? _sqlitePath;
-	private readonly ServiceProvider? _services;
-
-	private RelationalConformanceFixture(
-		ConformanceDatabase database,
-		ServiceProvider servicesProvider,
-		string connectionString,
-		string? schema,
-		string? sqlitePath
-	)
-	{
-		_database = database;
-		_services = servicesProvider;
-		_connectionString = connectionString;
-		_schema = schema;
-		_sqlitePath = sqlitePath;
-	}
-
-	internal IServiceProvider Services => _services
-		?? throw new InvalidOperationException("The relational conformance fixture has not finished initializing.");
+	internal IServiceProvider Services => services;
 
 	internal static async ValueTask<RelationalConformanceFixture> CreateAsync(
-		StorageContainers? containers,
 		ConformanceDatabase database,
-		CancellationToken cancellationToken,
-		bool useDistributedTopology = true
+		bool useDistributedTopology,
+		IDatabaseContainer? container
 	)
 	{
 		var schema = database == ConformanceDatabase.Sqlite ? null : "jobs_" + Guid.NewGuid().ToString("N");
@@ -117,8 +137,8 @@ file sealed class RelationalConformanceFixture : IAsyncDisposable
 		var connectionString = database switch
 		{
 			ConformanceDatabase.Sqlite => $"Data Source={sqlitePath}",
-			ConformanceDatabase.PostgreSql => GetContainers(containers).PostgreSql.GetConnectionString(),
-			ConformanceDatabase.SqlServer => GetContainers(containers).SqlServer.GetConnectionString(),
+			ConformanceDatabase.PostgreSql when container is { } => container.GetConnectionString(),
+			ConformanceDatabase.SqlServer when container is { } => container.GetConnectionString(),
 			_ => throw new ArgumentOutOfRangeException(nameof(database)),
 		};
 
@@ -144,6 +164,7 @@ file sealed class RelationalConformanceFixture : IAsyncDisposable
 		services.AddLogging();
 		services.AddSingleton<TimeProvider>(clock);
 		services.AddSingleton(clock);
+
 		services.AddSingleton<IDbContextFactory<ConformanceDbContext>>(contextFactory);
 
 		services.AddImmediateJobsCore()
@@ -177,51 +198,48 @@ file sealed class RelationalConformanceFixture : IAsyncDisposable
 			))
 			{
 				if (!string.IsNullOrWhiteSpace(batch))
-					await context.Database.ExecuteSqlRawAsync(batch, cancellationToken).ConfigureAwait(false);
+					await context.Database.ExecuteSqlRawAsync(batch, TestContext.Current.CancellationToken);
 			}
 
 			return fixture;
 		}
 		catch
 		{
-			await fixture.DisposeAsync().ConfigureAwait(false);
+			await fixture.DisposeAsync();
 			throw;
 		}
 	}
 
-	private static StorageContainers GetContainers(StorageContainers? containers) =>
-		containers ?? throw new InvalidOperationException("A container fixture is required for server databases.");
-
 	public async ValueTask DisposeAsync()
 	{
-		if (_services is not null)
-			await _services.DisposeAsync().ConfigureAwait(false);
+		if (services is not null)
+			await services.DisposeAsync();
 
-		if (_sqlitePath is not null)
+		if (sqlitePath is not null)
 		{
 			SqliteConnection.ClearAllPools();
-			File.Delete(_sqlitePath);
+			File.Delete(sqlitePath);
 			return;
 		}
 
-		var cleanupOptions = _database == ConformanceDatabase.PostgreSql
-			? new DataOptions().UsePostgreSQL(_connectionString)
-			: new DataOptions().UseSqlServer(_connectionString);
+		var cleanupOptions = database == ConformanceDatabase.PostgreSql
+			? new DataOptions().UsePostgreSQL(connectionString)
+			: new DataOptions().UseSqlServer(connectionString);
 
 		await using var connection = new DataConnection(cleanupOptions);
 
-		if (_database == ConformanceDatabase.PostgreSql)
+		if (database == ConformanceDatabase.PostgreSql)
 		{
-			await connection.ExecuteAsync($"DROP SCHEMA IF EXISTS \"{_schema}\" CASCADE").ConfigureAwait(false);
+			await connection.ExecuteAsync($"DROP SCHEMA IF EXISTS \"{schema}\" CASCADE");
 			return;
 		}
 
 		foreach (var table in SqlServerTables)
-			await connection.ExecuteAsync($"DROP TABLE IF EXISTS [{_schema}].[{table}]").ConfigureAwait(false);
+			await connection.ExecuteAsync($"DROP TABLE IF EXISTS [{schema}].[{table}]");
 
 		await connection.ExecuteAsync(
-			$"IF SCHEMA_ID(N'{_schema}') IS NOT NULL EXEC(N'DROP SCHEMA [{_schema}]')"
-		).ConfigureAwait(false);
+			$"IF SCHEMA_ID(N'{schema}') IS NOT NULL EXEC(N'DROP SCHEMA [{schema}]')"
+		);
 	}
 }
 
@@ -239,7 +257,6 @@ file sealed class ConformanceDbContext(
 ) : DbContext(options)
 {
 	internal string? Schema { get; } = schema;
-
 	protected override void OnModelCreating(ModelBuilder modelBuilder) =>
 		_ = modelBuilder.AddImmediateJobs(Schema);
 }
@@ -249,4 +266,48 @@ file sealed class ConformanceSchemaModelCacheKeyFactory : IModelCacheKeyFactory
 {
 	public object Create(DbContext context, bool designTime) =>
 		(context.GetType(), ((ConformanceDbContext)context).Schema, designTime);
+}
+
+[CollectionDefinition(Name)]
+public sealed class EntityFrameworkCorePgSQLFixtureGroup : ICollectionFixture<EntityFrameworkCorePgSQLContainer>
+{
+	public const string Name = "EntityFrameworkCore-PgSQL";
+}
+
+public sealed class EntityFrameworkCorePgSQLContainer : IAsyncLifetime
+{
+	public PostgreSqlContainer PostgreSql { get; } = new PostgreSqlBuilder("postgres:18-alpine").Build();
+
+	public async ValueTask InitializeAsync()
+	{
+		await PostgreSql.StartAsync();
+	}
+
+	public async ValueTask DisposeAsync()
+	{
+		await PostgreSql.DisposeAsync();
+	}
+}
+
+[CollectionDefinition(Name)]
+public sealed class EntityFrameworkCoreMsSQLFixtureGroup : ICollectionFixture<EntityFrameworkCoreMsSQLContainer>
+{
+	public const string Name = "EntityFrameworkCore-MsSQL";
+}
+
+public sealed class EntityFrameworkCoreMsSQLContainer : IAsyncLifetime
+{
+	public MsSqlContainer SqlServer { get; } = new MsSqlBuilder(
+		"mcr.microsoft.com/mssql/server:2022-CU14-ubuntu-22.04"
+	).Build();
+
+	public async ValueTask InitializeAsync()
+	{
+		await SqlServer.StartAsync();
+	}
+
+	public async ValueTask DisposeAsync()
+	{
+		await SqlServer.DisposeAsync();
+	}
 }
