@@ -49,7 +49,7 @@ public sealed class JobTestHarness : IAsyncDisposable, IDisposable
 		_ = services.AddSingleton(typeof(ILogger<>), typeof(NullLogger<>));
 
 		_ = services.AddImmediateJobsCore()
-			.Configure(o => o.MaxParallelJobs = 1)
+			.ConfigureWorkers(o => o.MaxParallelJobs = 1)
 			.ConfigureStorage(o => o.UseInMemory());
 
 		_serviceProvider = services.BuildServiceProvider(new ServiceProviderOptions

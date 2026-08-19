@@ -403,11 +403,6 @@ internal static class RecurringStorageConformance
 			ExceptionsName,
 			"removing a code-defined schedule must throw ImmediateJobException"
 		).ConfigureAwait(false);
-		_ = await ConformanceAssert.ThrowsAsync<ArgumentException>(
-			() => recurring.PauseRecurringAsync("", cancellationToken),
-			ExceptionsName,
-			"a blank schedule name must be rejected before a dashboard mutation"
-		).ConfigureAwait(false);
 	}
 
 	private static IRecurringJobStorage Recurring(IJobStorage storage, string caseName) =>

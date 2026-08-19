@@ -44,6 +44,13 @@ public static class JobStorageConformanceSuite
 		);
 	}
 
+	/// <summary>
+	///		A map of all known cases by their case name.
+	/// </summary>
+	public static IReadOnlyDictionary<string, JobStorageConformanceTestCase> AllCasesByName { get; } =
+		GetCases(KnownCapabilities)
+			.ToDictionary(x => x.Name, StringComparer.OrdinalIgnoreCase);
+
 	private static void AddOptionalCases(
 		List<JobStorageConformanceCaseDefinition> destination,
 		StorageCapabilities advertisedCapabilities,

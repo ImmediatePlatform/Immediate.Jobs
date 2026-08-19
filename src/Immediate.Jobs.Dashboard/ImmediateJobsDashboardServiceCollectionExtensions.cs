@@ -1,34 +1,41 @@
+using Immediate.Validations.Shared;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Immediate.Jobs.Dashboard;
 
-/// <summary>Registers the Immediate.Jobs dashboard API handlers and validation pipeline.</summary>
+/// <summary>
+///		Registers the Immediate.Jobs dashboard API handlers and validation pipeline.
+/// </summary>
 public static class ImmediateJobsDashboardServiceCollectionExtensions
 {
-	/// <summary>Adds the services required by <c>MapImmediateJobsDashboard</c>.</summary>
-	/// <param name="services">The service collection to add dashboard services to.</param>
-	/// <param name="configure">An optional callback that configures the dashboard.</param>
-	/// <returns>The service collection for further configuration.</returns>
-	public static IServiceCollection AddImmediateJobsDashboard(
-		this IServiceCollection services,
-		Action<ImmediateJobsDashboardOptions>? configure = null
+	/// <summary>
+	///		Adds the services required by <c>MapImmediateJobsDashboard</c>.
+	/// </summary>
+	/// <param name="builder">
+	///		The builder used to configure <c>Immediate.Jobs</c>
+	/// </param>
+	/// <returns>
+	///		The service collection for further configuration.
+	/// </returns>
+	public static IImmediateJobsDashboardBuilder AddImmediateJobsDashboard(
+		this IImmediateJobsBuilder builder
 	)
 	{
-		ArgumentNullException.ThrowIfNull(services);
+		ArgumentNullException.ThrowIfNull(builder);
 
-		var optionsBuilder = services
+		var optionsBuilder = builder.Services
 			.AddOptionsWithValidateOnStart<ImmediateJobsDashboardOptions>()
 			.Validate(
-				static options => options.UpdateInterval > TimeSpan.Zero,
-				"The dashboard update interval must be positive."
+				o =>
+				{
+					ValidationException.ThrowIfInvalid(o, $@"Validation error for ""{nameof(ImmediateJobsDashboardOptions)}""");
+					return true;
+				}
 			);
-		if (configure is not null)
-			optionsBuilder.Configure(configure);
 
-		_ = services.AddHttpContextAccessor();
-		_ = services.AddImmediateJobsDashboardHandlers();
-		_ = services.AddImmediateJobsCore();
+		_ = builder.Services.AddHttpContextAccessor();
+		_ = builder.Services.AddImmediateJobsDashboardHandlers();
 
-		return services;
+		return new ImmediateJobsDashboardBuilder(builder, optionsBuilder);
 	}
 }

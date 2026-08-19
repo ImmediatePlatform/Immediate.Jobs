@@ -10,7 +10,7 @@ namespace {{ namespace }};
 [global::System.CodeDom.Compiler.GeneratedCodeAttribute("Immediate.Jobs", "{{ version }}")]
 public static class ImmediateJobsGeneratedServiceCollectionExtensions
 {
-	public static global::Immediate.Jobs.Shared.ImmediateJobsBuilder Add{{ assembly_name }}Jobs(
+	public static global::Immediate.Jobs.Shared.IImmediateJobsBuilder Add{{ assembly_name }}Jobs(
 		this global::Microsoft.Extensions.DependencyInjection.IServiceCollection services,
 		params {{ if language_version <= 1200 }}string[]{{ else }}global::System.ReadOnlySpan<string>{{ end }} tags
 	)

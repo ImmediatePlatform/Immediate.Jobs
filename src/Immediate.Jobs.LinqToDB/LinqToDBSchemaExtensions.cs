@@ -8,72 +8,80 @@ public static class LinqToDBSchemaExtensions
 {
 	/// <summary>Creates the Immediate.Jobs tables and indexes when they do not already exist.</summary>
 	/// <remarks>This helper bootstraps fresh storage only; it does not perform production schema upgrades.</remarks>
-	/// <param name="dataOptions">The LinqToDB connection options used to create the schema.</param>
+	/// <param name="context">A LinqToDB Data Connection.</param>
 	/// <param name="schema">The database schema to create objects in, or <see langword="null"/> for the provider default.</param>
 	/// <param name="cancellationToken">A token that can cancel the operation.</param>
 	/// <returns>A task that represents the asynchronous schema creation operation.</returns>
-	public static async Task CreateImmediateJobsSchemaAsync(
-		this DataOptions dataOptions,
+	public static async Task CreateImmediateJobsSchemaAsync<TContext>(
+		this TContext context,
 		string? schema = null,
 		CancellationToken cancellationToken = default
-	)
+	) where TContext : DataConnection
 	{
-		ArgumentNullException.ThrowIfNull(dataOptions);
+		ArgumentNullException.ThrowIfNull(context);
 		ValidateSchema(schema);
-		await using var connection = new DataConnection(dataOptions);
-		var provider = connection.DataProvider.Name;
+
+		var provider = context.DataProvider.Name;
 		if (schema is not null && provider.Contains("SQLite", StringComparison.OrdinalIgnoreCase))
 			throw new ArgumentException("SQLite does not support named schemas.", nameof(schema));
 
 		if (provider.Contains("SQLite", StringComparison.OrdinalIgnoreCase))
 		{
-			_ = await connection.ExecuteAsync(SqliteSchema, cancellationToken).ConfigureAwait(false);
-			await CreateIndexesAsync(connection, provider, schema, cancellationToken).ConfigureAwait(false);
+			_ = await context.ExecuteAsync(SqliteSchema, cancellationToken).ConfigureAwait(false);
+			await CreateIndexesAsync(context, provider, schema, cancellationToken).ConfigureAwait(false);
 			return;
 		}
 
 		if (schema is not null)
-			_ = await CreateSchemaAsync(connection, provider, schema, cancellationToken).ConfigureAwait(false);
+			_ = await CreateSchemaAsync(context, provider, schema, cancellationToken).ConfigureAwait(false);
 
 		const TableOptions CreateIfMissing = TableOptions.CreateIfNotExists;
-		_ = await connection.CreateTableAsync<ImmediateJobBatchEntity>(
+		_ = await context.CreateTableAsync<ImmediateJobBatchEntity>(
 			schemaName: schema,
 			tableOptions: CreateIfMissing,
 			token: cancellationToken
 		).ConfigureAwait(false);
-		_ = await connection.CreateTableAsync<ImmediateJobEntity>(
+
+		_ = await context.CreateTableAsync<ImmediateJobEntity>(
 			schemaName: schema,
 			tableOptions: CreateIfMissing,
 			token: cancellationToken
 		).ConfigureAwait(false);
-		_ = await connection.CreateTableAsync<ImmediateJobExecutionEntity>(
+
+		_ = await context.CreateTableAsync<ImmediateJobExecutionEntity>(
 			schemaName: schema,
 			tableOptions: CreateIfMissing,
 			token: cancellationToken
 		).ConfigureAwait(false);
-		_ = await connection.CreateTableAsync<ImmediateFairQueueGroupEntity>(
+
+		_ = await context.CreateTableAsync<ImmediateFairQueueGroupEntity>(
 			schemaName: schema,
 			tableOptions: CreateIfMissing,
 			token: cancellationToken
 		).ConfigureAwait(false);
-		_ = await connection.CreateTableAsync<ImmediateJobContinuationEntity>(
+
+		_ = await context.CreateTableAsync<ImmediateJobContinuationEntity>(
 			schemaName: schema,
 			tableOptions: CreateIfMissing,
 			token: cancellationToken
 		).ConfigureAwait(false);
-		_ = await connection.CreateTableAsync<ImmediateRecurringJobEntity>(
+
+		_ = await context.CreateTableAsync<ImmediateRecurringJobEntity>(
 			schemaName: schema,
 			tableOptions: CreateIfMissing,
 			token: cancellationToken
 		).ConfigureAwait(false);
-		_ = await connection.CreateTableAsync<ImmediateJobServerEntity>(
+
+		_ = await context.CreateTableAsync<ImmediateJobServerEntity>(
 			schemaName: schema,
 			tableOptions: CreateIfMissing,
 			token: cancellationToken
 		).ConfigureAwait(false);
-		_ = await CreateConstraintsAndDefaultsAsync(connection, provider, schema, cancellationToken)
+
+		_ = await CreateConstraintsAndDefaultsAsync(context, provider, schema, cancellationToken)
 			.ConfigureAwait(false);
-		await CreateIndexesAsync(connection, provider, schema, cancellationToken).ConfigureAwait(false);
+
+		await CreateIndexesAsync(context, provider, schema, cancellationToken).ConfigureAwait(false);
 	}
 
 	private const string SqliteSchema = """

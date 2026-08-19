@@ -260,7 +260,7 @@ public sealed class RecurringSchedulerTests
 		_ = services.AddLogging();
 		_ = services.AddSingleton(clock);
 		_ = services.AddImmediateJobsCore()
-			.Configure(o => o.MaxParallelJobs = maxParallelJobs)
+			.ConfigureWorkers(o => o.MaxParallelJobs = maxParallelJobs)
 			.ConfigureStorage(o => o.UseStorage(_ => storage).UseDistributed());
 
 		_ = services.AddSingleton(new JobDefinition

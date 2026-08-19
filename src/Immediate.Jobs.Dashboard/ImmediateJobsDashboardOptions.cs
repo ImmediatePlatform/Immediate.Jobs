@@ -1,61 +1,37 @@
+using Immediate.Validations.Shared;
+
 namespace Immediate.Jobs.Dashboard;
 
-/// <summary>Configures the Immediate.Jobs dashboard and monitoring API.</summary>
-public sealed class ImmediateJobsDashboardOptions
+/// <summary>
+///		Configures the Immediate.Jobs dashboard and monitoring API.
+/// </summary>
+[Validate]
+public sealed partial class ImmediateJobsDashboardOptions : IValidationTarget<ImmediateJobsDashboardOptions>
 {
-	private readonly List<JobTelemetryLinkRegistration> _telemetryLinks = [];
-
-	/// <summary>The interval between server-sent monitoring snapshots.</summary>
-	/// <value>The interval between consecutive dashboard updates.</value>
+	/// <summary>
+	///		The interval between server-sent monitoring snapshots.
+	/// </summary>
+	[GreaterThan(nameof(TimeSpan.Zero))]
 	public TimeSpan UpdateInterval { get; set; } = TimeSpan.FromSeconds(2);
 
-	internal bool RestrictToDevelopmentEnvironment { get; private set; } = true;
-	internal string? AuthorizationPolicy { get; private set; }
-	internal IReadOnlyList<JobTelemetryLinkRegistration> TelemetryLinks => _telemetryLinks;
+	/// <summary>
+	///		Determines whether the dashboard is disabled in non-<c>Development</c> environments.
+	/// </summary>
+	/// <value>
+	///		When <see langword="true" />, dashboard will only be enabled when the current environment
+	///		is <c>Development</c>. Otherwise, dashboard will be enabled in all environments.
+	///		Default is <see langword="true" />.
+	/// </value>
+	public bool RestrictToDevelopmentEnvironment { get; set; } = true;
 
-	/// <summary>Allows dashboard access without an authorization policy in any hosting environment.</summary>
-	/// <remarks>
-	/// This disables the default development-environment restriction. Prefer <see cref="RequireAuthorization"/>
-	/// when exposing the dashboard outside a trusted development environment.
-	/// </remarks>
-	/// <returns>This options instance.</returns>
-	public ImmediateJobsDashboardOptions AllowInAnyEnvironment()
-	{
-		RestrictToDevelopmentEnvironment = false;
-		return this;
-	}
+	/// <summary>
+	///		Requires the named ASP.NET Core authorization policy on every dashboard endpoint.
+	/// </summary>
+	/// <value>
+	///		The registered authorization policy name.
+	///	</value>
+	[NotEmpty]
+	public string? AuthorizationPolicy { get; set; }
 
-	/// <summary>Requires the named ASP.NET Core authorization policy on every dashboard endpoint.</summary>
-	/// <param name="policy">The registered authorization policy name.</param>
-	/// <returns>This options instance.</returns>
-	public ImmediateJobsDashboardOptions RequireAuthorization(string policy)
-	{
-		ArgumentException.ThrowIfNullOrWhiteSpace(policy);
-		AuthorizationPolicy = policy;
-		return this;
-	}
-
-	/// <summary>Adds a provider-specific link from job details to an external telemetry system.</summary>
-	/// <param name="label">User-facing action label.</param>
-	/// <param name="kind">Whether the link opens traces or logs.</param>
-	/// <param name="createUrl">
-	/// Builds a URL from the job and optional exact execution. Exact-execution requests scope the job's
-	/// attempt, trace ID, span ID, and execution-started compatibility fields to that execution. Return
-	/// <see langword="null"/> when the link is not available, such as before a trace has been created.
-	/// </param>
-	/// <returns>This options instance.</returns>
-	public ImmediateJobsDashboardOptions AddTelemetryLink(
-		string label,
-		JobTelemetryLinkKind kind,
-		Func<JobTelemetryLinkContext, Uri?> createUrl
-	)
-	{
-		ArgumentException.ThrowIfNullOrWhiteSpace(label);
-		ArgumentNullException.ThrowIfNull(createUrl);
-		if (!Enum.IsDefined(kind))
-			throw new ArgumentOutOfRangeException(nameof(kind));
-
-		_telemetryLinks.Add(new(label, kind, createUrl));
-		return this;
-	}
+	internal List<JobTelemetryLinkRegistration> TelemetryLinks { get; } = [];
 }
