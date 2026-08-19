@@ -1,40 +1,39 @@
 <Project Sdk="Microsoft.NET.Sdk">
+  
   <PropertyGroup>
-    <TargetFrameworks>net8.0;net9.0;net10.0;net11.0</TargetFrameworks>
+	<!-- Override until npgsql gets their shit together -->
+    <TargetFrameworks>net8.0;net9.0;net10.0</TargetFrameworks>
     <OutputType>Exe</OutputType>
-    <_SkipUpgradeNetAnalyzersNuGetWarning>true</_SkipUpgradeNetAnalyzersNuGetWarning>
-	<NoWarn>$(NoWarn);CA1050;CA1812;CS8892</NoWarn>
   </PropertyGroup>
+
+  <PropertyGroup Condition="'$(TargetFramework)' == 'net11.0'">
+	<Features>runtime-async=on</Features>
+  </PropertyGroup>
+
   <ItemGroup>
     <Using Include="Immediate.Jobs.Shared" />
     <Using Include="Xunit" />
   </ItemGroup>
+  
   <ItemGroup>
-    <PackageReference Include="Microsoft.Testing.Extensions.CodeCoverage" />
-    <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" />
-    <PackageReference Include="xunit.v3.mtp-v2" />
-  </ItemGroup>
-  <ItemGroup Condition="'$(TargetFramework)' == 'net10.0'">
     <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" />
+    <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" />
+    <PackageReference Include="Microsoft.Testing.Extensions.CodeCoverage" />
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" />
     <PackageReference Include="SQLitePCLRaw.lib.e_sqlite3" />
     <PackageReference Include="Testcontainers.MsSql" />
     <PackageReference Include="Testcontainers.PostgreSql" />
     <PackageReference Include="Testcontainers.Redis" />
+    <PackageReference Include="xunit.v3.mtp-v2" />
   </ItemGroup>
+  
   <ItemGroup>
-	<ProjectReference Include="../../src/Immediate.Jobs.Shared/Immediate.Jobs.Shared.csproj" />
-	<ProjectReference Include="../../src/Immediate.Jobs.Testing/Immediate.Jobs.Testing.csproj" />
-  </ItemGroup>
-  <ItemGroup Condition="'$(TargetFramework)' == 'net10.0'">
     <ProjectReference Include="../../src/Immediate.Jobs.EntityFrameworkCore/Immediate.Jobs.EntityFrameworkCore.csproj" />
     <ProjectReference Include="../../src/Immediate.Jobs.LinqToDB/Immediate.Jobs.LinqToDB.csproj" />
     <ProjectReference Include="../../src/Immediate.Jobs.Redis/Immediate.Jobs.Redis.csproj" />
+	<ProjectReference Include="../../src/Immediate.Jobs.Shared/Immediate.Jobs.Shared.csproj" />
+	<ProjectReference Include="../../src/Immediate.Jobs.Testing/Immediate.Jobs.Testing.csproj" />
   </ItemGroup>
-  <ItemGroup Condition="'$(TargetFramework)' != 'net10.0'">
-    <Compile Remove="*.cs" />
-    <Compile Include="InMemoryStorageConformanceTests.cs" />
-    <Compile Include="StorageConformanceInfrastructureTests.cs" />
-  </ItemGroup>
+  
 </Project>

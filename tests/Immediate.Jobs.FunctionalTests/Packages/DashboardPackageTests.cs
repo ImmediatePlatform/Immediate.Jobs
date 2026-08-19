@@ -9,7 +9,6 @@ using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;
 
 namespace Immediate.Jobs.FunctionalTests.Packages;
@@ -22,8 +21,8 @@ public sealed class DashboardPackageTests
 		FakeTimeProvider timeProvider
 	)
 	{
-		_ = services.Replace(ServiceDescriptor.Singleton<IJobStorage>(storage));
-		_ = services.Replace(ServiceDescriptor.Singleton<TimeProvider>(timeProvider));
+		services.Replace(ServiceDescriptor.Singleton(storage));
+		services.Replace(ServiceDescriptor.Singleton<TimeProvider>(timeProvider));
 		services.RemoveAll<IHostedService>();
 	}
 
@@ -35,35 +34,6 @@ public sealed class DashboardPackageTests
 		Assert.Contains("Immediate.Jobs.Dashboard.Assets.index.html", resources);
 		Assert.Contains("Immediate.Jobs.Dashboard.Assets.app.css", resources);
 		Assert.Contains("Immediate.Jobs.Dashboard.Assets.app.js", resources);
-	}
-
-	[Fact]
-	public void AuthorizationPolicyRejectsBlankNames()
-	{
-		var options = new ImmediateJobsDashboardOptions();
-
-		_ = Assert.Throws<ArgumentException>(() => options.RequireAuthorization(" "));
-		_ = Assert.Throws<ArgumentException>(() => options.AddTelemetryLink(
-			" ",
-			JobTelemetryLinkKind.Trace,
-			static _ => null
-		));
-	}
-
-	[Fact]
-	public void DashboardConfigurationUsesOptionsPattern()
-	{
-		var services = new ServiceCollection();
-		_ = services.AddImmediateJobsDashboard(options =>
-		{
-			options.UpdateInterval = TimeSpan.FromSeconds(5);
-		});
-
-		using var provider = services.BuildServiceProvider();
-		var options = provider.GetRequiredService<IOptions<ImmediateJobsDashboardOptions>>().Value;
-
-		Assert.Equal(TimeSpan.FromSeconds(5), options.UpdateInterval);
-		Assert.Null(provider.GetService<ImmediateJobsDashboardOptions>());
 	}
 
 	[Theory]
@@ -85,12 +55,15 @@ public sealed class DashboardPackageTests
 		{
 			EnvironmentName = environmentName,
 		});
-		_ = builder.WebHost.UseTestServer();
-		_ = builder.Services.AddImmediateJobsDashboard(options =>
-		{
-			if (allowInAnyEnvironment)
-				_ = options.AllowInAnyEnvironment();
-		});
+
+		builder.WebHost.UseTestServer();
+
+		builder.Services
+			.AddImmediateJobsCore()
+			.DisableWorkers()
+			.ConfigureStorage(o => o.UseInMemory())
+			.AddImmediateJobsDashboard()
+			.ConfigureDashboard(o => o.RestrictToDevelopmentEnvironment = !allowInAnyEnvironment);
 
 		ConfigureDashboardTestServices(builder.Services, storage, timeProvider);
 
@@ -134,17 +107,20 @@ public sealed class DashboardPackageTests
 			EnvironmentName = Environments.Development,
 		});
 
-		_ = builder.WebHost.UseTestServer();
-		_ = builder.Services.AddImmediateJobsDashboard(options =>
-		{
-			_ = options.AddTelemetryLink(
+		builder.WebHost.UseTestServer();
+		builder.Services
+			.AddImmediateJobsCore()
+			.DisableWorkers()
+			.ConfigureStorage(o => o.UseInMemory())
+			.AddImmediateJobsDashboard()
+			.AddTelemetryLink(
 				"View execution trace",
 				JobTelemetryLinkKind.Trace,
 				context => context.Execution?.ExecutionTraceId is { } traceId
 					? new($"https://traces.example/trace/{traceId}")
 					: null
-			);
-			_ = options.AddTelemetryLink(
+			)
+			.AddTelemetryLink(
 				"View execution logs",
 				JobTelemetryLinkKind.Logs,
 				context => context.Execution is { } execution
@@ -153,15 +129,14 @@ public sealed class DashboardPackageTests
 						$"https://logs.example/search?jobId={Uri.EscapeDataString(context.Job.Id)}&attempt={execution.Attempt}"
 					))
 					: null
-			);
-			_ = options.AddTelemetryLink(
+			)
+			.AddTelemetryLink(
 				"View all retry logs",
 				JobTelemetryLinkKind.Logs,
 				context => context.Execution is null
 					? new($"https://logs.example/search?jobId={Uri.EscapeDataString(context.Job.Id)}")
 					: null
 			);
-		});
 
 		ConfigureDashboardTestServices(builder.Services, storage, timeProvider);
 
@@ -278,17 +253,22 @@ public sealed class DashboardPackageTests
 		{
 			EnvironmentName = Environments.Development,
 		});
-		_ = builder.WebHost.UseTestServer();
-		_ = builder.Services.AddImmediateJobsDashboard(options =>
-		{
-			_ = options.AddTelemetryLink(
+
+		builder.WebHost.UseTestServer();
+
+		builder.Services
+			.AddImmediateJobsCore()
+			.DisableWorkers()
+			.ConfigureStorage(o => o.UseInMemory())
+			.AddImmediateJobsDashboard()
+			.AddTelemetryLink(
 				"Legacy trace callback",
 				JobTelemetryLinkKind.Trace,
 				context => context.Job.ExecutionTraceId is { } traceId
 					? new($"https://traces.example/trace/{traceId}")
 					: null
-			);
-			_ = options.AddTelemetryLink(
+			)
+			.AddTelemetryLink(
 				"Legacy attempt callback",
 				JobTelemetryLinkKind.Logs,
 				context => new(string.Create(
@@ -296,7 +276,6 @@ public sealed class DashboardPackageTests
 					$"https://logs.example/search?attempt={context.Job.Attempt}&span={context.Job.ExecutionSpanId}"
 				))
 			);
-		});
 
 		ConfigureDashboardTestServices(builder.Services, storage, timeProvider);
 
@@ -335,7 +314,6 @@ public sealed class DashboardPackageTests
 	public async Task ExecutionApiValidatesPagingAndMissingResources(string path, HttpStatusCode expectedStatus)
 	{
 		var timeProvider = new FakeTimeProvider(new DateTimeOffset(2026, 7, 21, 12, 0, 0, TimeSpan.Zero));
-		var now = timeProvider.GetUtcNow();
 
 		await using var storage = new InMemoryJobStorage(timeProvider);
 
@@ -348,12 +326,19 @@ public sealed class DashboardPackageTests
 			DueAt = DateTimeOffset.UnixEpoch,
 			CreatedAt = DateTimeOffset.UnixEpoch,
 		}, TestContext.Current.CancellationToken);
+
 		var builder = WebApplication.CreateBuilder(new WebApplicationOptions
 		{
 			EnvironmentName = Environments.Development,
 		});
-		_ = builder.WebHost.UseTestServer();
-		_ = builder.Services.AddImmediateJobsDashboard();
+
+		builder.WebHost.UseTestServer();
+
+		builder.Services
+			.AddImmediateJobsCore()
+			.DisableWorkers()
+			.ConfigureStorage(o => o.UseInMemory())
+			.AddImmediateJobsDashboard();
 
 		ConfigureDashboardTestServices(builder.Services, storage, timeProvider);
 
@@ -382,7 +367,6 @@ public sealed class DashboardPackageTests
 	public async Task QueueOnlyStorageReportsCapabilitiesAndDisablesBatchApi()
 	{
 		var timeProvider = new FakeTimeProvider(new DateTimeOffset(2026, 7, 21, 12, 0, 0, TimeSpan.Zero));
-		var now = timeProvider.GetUtcNow();
 
 		await using var storage = new StorageCapabilityTests.QueueOnlyStorage(timeProvider);
 
@@ -390,8 +374,14 @@ public sealed class DashboardPackageTests
 		{
 			EnvironmentName = Environments.Development,
 		});
-		_ = builder.WebHost.UseTestServer();
-		_ = builder.Services.AddImmediateJobsDashboard();
+
+		builder.WebHost.UseTestServer();
+
+		builder.Services
+			.AddImmediateJobsCore()
+			.DisableWorkers()
+			.ConfigureStorage(o => o.UseInMemory())
+			.AddImmediateJobsDashboard();
 
 		ConfigureDashboardTestServices(builder.Services, storage, timeProvider);
 
@@ -426,7 +416,6 @@ public sealed class DashboardPackageTests
 	public async Task InMemoryDashboardReturnsNotFoundForMissingMutationTargets(string method, string path)
 	{
 		var timeProvider = new FakeTimeProvider(new DateTimeOffset(2026, 7, 21, 12, 0, 0, TimeSpan.Zero));
-		var now = timeProvider.GetUtcNow();
 
 		await using var storage = new InMemoryJobStorage(timeProvider);
 
@@ -434,8 +423,14 @@ public sealed class DashboardPackageTests
 		{
 			EnvironmentName = Environments.Development,
 		});
-		_ = builder.WebHost.UseTestServer();
-		_ = builder.Services.AddImmediateJobsDashboard();
+
+		builder.WebHost.UseTestServer();
+
+		builder.Services
+			.AddImmediateJobsCore()
+			.DisableWorkers()
+			.ConfigureStorage(o => o.UseInMemory())
+			.AddImmediateJobsDashboard();
 
 		ConfigureDashboardTestServices(builder.Services, storage, timeProvider);
 
@@ -467,12 +462,19 @@ public sealed class DashboardPackageTests
 			DueAt = now,
 			CreatedAt = now,
 		}, cancellationToken);
+
 		var builder = WebApplication.CreateBuilder(new WebApplicationOptions
 		{
 			EnvironmentName = Environments.Development,
 		});
-		_ = builder.WebHost.UseTestServer();
-		_ = builder.Services.AddImmediateJobsDashboard();
+
+		builder.WebHost.UseTestServer();
+
+		builder.Services
+			.AddImmediateJobsCore()
+			.DisableWorkers()
+			.ConfigureStorage(o => o.UseInMemory())
+			.AddImmediateJobsDashboard();
 
 		ConfigureDashboardTestServices(builder.Services, storage, timeProvider);
 
@@ -503,7 +505,6 @@ public sealed class DashboardPackageTests
 	public async Task SpaRoutesAreUnambiguous(string path)
 	{
 		var timeProvider = new FakeTimeProvider(new DateTimeOffset(2026, 7, 21, 12, 0, 0, TimeSpan.Zero));
-		var now = timeProvider.GetUtcNow();
 
 		await using var storage = new InMemoryJobStorage(timeProvider);
 
@@ -511,8 +512,14 @@ public sealed class DashboardPackageTests
 		{
 			EnvironmentName = Environments.Development,
 		});
-		_ = builder.WebHost.UseTestServer();
-		_ = builder.Services.AddImmediateJobsDashboard();
+
+		builder.WebHost.UseTestServer();
+
+		builder.Services
+			.AddImmediateJobsCore()
+			.DisableWorkers()
+			.ConfigureStorage(o => o.UseInMemory())
+			.AddImmediateJobsDashboard();
 
 		ConfigureDashboardTestServices(builder.Services, storage, timeProvider);
 
@@ -535,7 +542,6 @@ public sealed class DashboardPackageTests
 	public async Task CustomDashboardPrefixIsInjectedIntoSpaBase()
 	{
 		var timeProvider = new FakeTimeProvider(new DateTimeOffset(2026, 7, 21, 12, 0, 0, TimeSpan.Zero));
-		var now = timeProvider.GetUtcNow();
 
 		await using var storage = new InMemoryJobStorage(timeProvider);
 
@@ -543,8 +549,14 @@ public sealed class DashboardPackageTests
 		{
 			EnvironmentName = Environments.Development,
 		});
-		_ = builder.WebHost.UseTestServer();
-		_ = builder.Services.AddImmediateJobsDashboard();
+
+		builder.WebHost.UseTestServer();
+
+		builder.Services
+			.AddImmediateJobsCore()
+			.DisableWorkers()
+			.ConfigureStorage(o => o.UseInMemory())
+			.AddImmediateJobsDashboard();
 
 		ConfigureDashboardTestServices(builder.Services, storage, timeProvider);
 
@@ -569,7 +581,6 @@ public sealed class DashboardPackageTests
 	public async Task RequestPathBaseIsIncludedInSpaBase()
 	{
 		var timeProvider = new FakeTimeProvider(new DateTimeOffset(2026, 7, 21, 12, 0, 0, TimeSpan.Zero));
-		var now = timeProvider.GetUtcNow();
 
 		await using var storage = new InMemoryJobStorage(timeProvider);
 
@@ -577,8 +588,14 @@ public sealed class DashboardPackageTests
 		{
 			EnvironmentName = Environments.Development,
 		});
-		_ = builder.WebHost.UseTestServer();
-		_ = builder.Services.AddImmediateJobsDashboard();
+
+		builder.WebHost.UseTestServer();
+
+		builder.Services
+			.AddImmediateJobsCore()
+			.DisableWorkers()
+			.ConfigureStorage(o => o.UseInMemory())
+			.AddImmediateJobsDashboard();
 
 		ConfigureDashboardTestServices(builder.Services, storage, timeProvider);
 
@@ -604,7 +621,6 @@ public sealed class DashboardPackageTests
 	public async Task DashboardRootRedirectsToTrailingSlash()
 	{
 		var timeProvider = new FakeTimeProvider(new DateTimeOffset(2026, 7, 21, 12, 0, 0, TimeSpan.Zero));
-		var now = timeProvider.GetUtcNow();
 
 		await using var storage = new InMemoryJobStorage(timeProvider);
 
@@ -612,8 +628,14 @@ public sealed class DashboardPackageTests
 		{
 			EnvironmentName = Environments.Development,
 		});
-		_ = builder.WebHost.UseTestServer();
-		_ = builder.Services.AddImmediateJobsDashboard();
+
+		builder.WebHost.UseTestServer();
+
+		builder.Services
+			.AddImmediateJobsCore()
+			.DisableWorkers()
+			.ConfigureStorage(o => o.UseInMemory())
+			.AddImmediateJobsDashboard();
 
 		ConfigureDashboardTestServices(builder.Services, storage, timeProvider);
 
@@ -654,8 +676,14 @@ public sealed class DashboardPackageTests
 		{
 			EnvironmentName = Environments.Development,
 		});
-		_ = builder.WebHost.UseTestServer();
-		_ = builder.Services.AddImmediateJobsDashboard();
+
+		builder.WebHost.UseTestServer();
+
+		builder.Services
+			.AddImmediateJobsCore()
+			.DisableWorkers()
+			.ConfigureStorage(o => o.UseInMemory())
+			.AddImmediateJobsDashboard();
 
 		ConfigureDashboardTestServices(builder.Services, storage, timeProvider);
 
@@ -717,8 +745,14 @@ public sealed class DashboardPackageTests
 		{
 			EnvironmentName = Environments.Development,
 		});
-		_ = builder.WebHost.UseTestServer();
-		_ = builder.Services.AddImmediateJobsDashboard();
+
+		builder.WebHost.UseTestServer();
+
+		builder.Services
+			.AddImmediateJobsCore()
+			.DisableWorkers()
+			.ConfigureStorage(o => o.UseInMemory())
+			.AddImmediateJobsDashboard();
 
 		ConfigureDashboardTestServices(builder.Services, storage, timeProvider);
 

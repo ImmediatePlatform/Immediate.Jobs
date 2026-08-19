@@ -20,11 +20,13 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 	private readonly TimeProvider _timeProvider = timeProvider ?? TimeProvider.System;
 
 	/// <inheritdoc />
-	public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+	public async ValueTask DisposeAsync() { }
 
 	/// <inheritdoc />
 	public async ValueTask InitializeAsync(CancellationToken cancellationToken = default)
 	{
+		cancellationToken.ThrowIfCancellationRequested();
+
 		await using var context = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
 		_ = context.Model.FindEntityType(typeof(ImmediateJobEntity))
 			?? throw new ImmediateJobException("Immediate.Jobs entities are not configured. Call modelBuilder.AddImmediateJobs() from OnModelCreating.");
@@ -33,7 +35,8 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 	/// <inheritdoc />
 	public async ValueTask EnqueueAsync(JobRecord job, CancellationToken cancellationToken = default)
 	{
-		ArgumentNullException.ThrowIfNull(job);
+		cancellationToken.ThrowIfCancellationRequested();
+
 		await ExecuteWithStrategyAsync(
 			operationCancellationToken => EnqueueCoreAsync(job, operationCancellationToken),
 			cancellationToken
@@ -42,8 +45,11 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 
 	private async Task EnqueueCoreAsync(JobRecord job, CancellationToken cancellationToken)
 	{
+		cancellationToken.ThrowIfCancellationRequested();
+
 		await using var context = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
 		await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+
 		if (job.GroupId is { } groupId && !await HasLiveGroupJobsAsync(
 			context,
 			job.QueueName,
@@ -73,8 +79,8 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 		CancellationToken cancellationToken = default
 	)
 	{
-		ArgumentNullException.ThrowIfNull(job);
-		ArgumentNullException.ThrowIfNull(edges);
+		cancellationToken.ThrowIfCancellationRequested();
+
 		await ExecuteGraphInsertAsync(batch: null, [job], edges, cancellationToken).ConfigureAwait(false);
 	}
 
@@ -86,11 +92,8 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 		CancellationToken cancellationToken = default
 	)
 	{
-		ArgumentNullException.ThrowIfNull(batch);
-		ArgumentNullException.ThrowIfNull(jobs);
-		ArgumentNullException.ThrowIfNull(edges);
-		if (jobs.Count == 0)
-			throw new ImmediateJobException("An atomic batch cannot be committed without jobs.");
+		cancellationToken.ThrowIfCancellationRequested();
+
 		await ExecuteGraphInsertAsync(batch, jobs, edges, cancellationToken).ConfigureAwait(false);
 	}
 
@@ -172,6 +175,8 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 		CancellationToken cancellationToken = default
 	)
 	{
+		cancellationToken.ThrowIfCancellationRequested();
+
 		if (request.FairQueues is not null)
 			return await AcquireDueJobsFairAsync(request, cancellationToken).ConfigureAwait(false);
 
@@ -623,9 +628,8 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 		CancellationToken cancellationToken = default
 	)
 	{
-		ArgumentNullException.ThrowIfNull(jobIds);
-		ArgumentException.ThrowIfNullOrWhiteSpace(workerId);
-		ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(lease, TimeSpan.Zero);
+		cancellationToken.ThrowIfCancellationRequested();
+
 		if (jobIds.Count == 0)
 			return [];
 
@@ -718,7 +722,7 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 	}
 
 	/// <inheritdoc />
-	public ValueTask SetExecutionTelemetryAsync(
+	public async ValueTask SetExecutionTelemetryAsync(
 		string jobId,
 		int executionNumber,
 		string workerId,
@@ -726,18 +730,29 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 		string? spanId,
 		DateTimeOffset startedAt,
 		CancellationToken cancellationToken = default
-	) => MutateOwnedAsync(jobId, executionNumber, workerId, (job, execution) =>
+	)
 	{
-		job.ExecutionTraceId = traceId;
-		job.ExecutionSpanId = spanId;
-		job.ExecutionStartedAt = startedAt;
-		execution.ExecutionTraceId = traceId;
-		execution.ExecutionSpanId = spanId;
-		execution.ExecutionStartedAt = startedAt;
-	}, cancellationToken);
+		cancellationToken.ThrowIfCancellationRequested();
+
+		await MutateOwnedAsync(
+			jobId,
+			executionNumber,
+			workerId,
+			(job, execution) =>
+			{
+				job.ExecutionTraceId = traceId;
+				job.ExecutionSpanId = spanId;
+				job.ExecutionStartedAt = startedAt;
+				execution.ExecutionTraceId = traceId;
+				execution.ExecutionSpanId = spanId;
+				execution.ExecutionStartedAt = startedAt;
+			},
+			cancellationToken
+		);
+	}
 
 	/// <inheritdoc />
-	public ValueTask RenewLeaseAsync(
+	public async ValueTask RenewLeaseAsync(
 		string jobId,
 		int executionNumber,
 		string workerId,
@@ -745,8 +760,9 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 		CancellationToken cancellationToken = default
 	)
 	{
-		ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(lease, TimeSpan.Zero);
-		return MutateOwnedAsync(
+		cancellationToken.ThrowIfCancellationRequested();
+
+		await MutateOwnedAsync(
 			jobId,
 			executionNumber,
 			workerId,
@@ -756,15 +772,20 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 	}
 
 	/// <inheritdoc />
-	public ValueTask CompleteAsync(
+	public async ValueTask CompleteAsync(
 		string jobId,
 		int executionNumber,
 		string workerId,
 		CancellationToken cancellationToken = default
-	) => CompleteWithContinuationsAsync(jobId, executionNumber, workerId, [], cancellationToken);
+	)
+	{
+		cancellationToken.ThrowIfCancellationRequested();
+
+		await CompleteWithContinuationsAsync(jobId, executionNumber, workerId, [], cancellationToken);
+	}
 
 	/// <inheritdoc />
-	public ValueTask CompleteWithContinuationsAsync(
+	public async ValueTask CompleteWithContinuationsAsync(
 		string jobId,
 		int executionNumber,
 		string workerId,
@@ -772,8 +793,9 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 		CancellationToken cancellationToken = default
 	)
 	{
-		ArgumentNullException.ThrowIfNull(additions);
-		return MutateOwnedWithDependenciesAsync(
+		cancellationToken.ThrowIfCancellationRequested();
+
+		await MutateOwnedWithDependenciesAsync(
 			jobId,
 			executionNumber,
 			workerId,
@@ -786,7 +808,7 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 	}
 
 	/// <inheritdoc />
-	public ValueTask AddBatchJobAsync(
+	public async ValueTask AddBatchJobAsync(
 		string currentJobId,
 		int executionNumber,
 		JobRecord job,
@@ -794,10 +816,9 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 		CancellationToken cancellationToken = default
 	)
 	{
-		ArgumentNullException.ThrowIfNull(job);
-		if (options == ContinuationOptions.Detached)
-			throw new ImmediateJobException("AddToBatchAsync cannot create a detached job.");
-		return RetryConcurrencyAsync(
+		cancellationToken.ThrowIfCancellationRequested();
+
+		await RetryConcurrencyAsync(
 			operationCancellationToken => AddBatchJobCoreAsync(
 				currentJobId,
 				executionNumber,
@@ -810,28 +831,34 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 	}
 
 	/// <inheritdoc />
-	public ValueTask FailAsync(
+	public async ValueTask FailAsync(
 		string jobId,
 		int executionNumber,
 		string workerId,
 		string error,
 		DateTimeOffset? nextRetryAt,
 		CancellationToken cancellationToken = default
-	) => MutateOwnedWithDependenciesAsync(
-		jobId,
-		executionNumber,
-		workerId,
-		error,
-		nextRetryAt,
-		succeeded: false,
-		[],
-		cancellationToken
-	);
+	)
+	{
+		cancellationToken.ThrowIfCancellationRequested();
+
+		await MutateOwnedWithDependenciesAsync(
+			jobId,
+			executionNumber,
+			workerId,
+			error,
+			nextRetryAt,
+			succeeded: false,
+			[],
+			cancellationToken
+		);
+	}
 
 	/// <inheritdoc />
 	public async ValueTask UpsertRecurringAsync(RecurringJobSchedule schedule, CancellationToken cancellationToken = default)
 	{
-		ArgumentNullException.ThrowIfNull(schedule);
+		cancellationToken.ThrowIfCancellationRequested();
+
 		await using var context = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
 		if (await UpdateRecurringAsync(context, schedule, cancellationToken).ConfigureAwait(false) != 0)
 			return;
@@ -859,7 +886,8 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 		CancellationToken cancellationToken = default
 	)
 	{
-		ArgumentNullException.ThrowIfNull(activeScheduleNames);
+		cancellationToken.ThrowIfCancellationRequested();
+
 		await using var context = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
 		var schedules = context.Set<ImmediateRecurringJobEntity>()
 			.Where(schedule => schedule.IsCodeDefined);
@@ -871,7 +899,8 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 	/// <inheritdoc />
 	public async ValueTask RemoveRecurringAsync(string name, CancellationToken cancellationToken = default)
 	{
-		ArgumentException.ThrowIfNullOrWhiteSpace(name);
+		cancellationToken.ThrowIfCancellationRequested();
+
 		await using var context = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
 		var removed = await context.Set<ImmediateRecurringJobEntity>()
 			.Where(schedule => schedule.Name == name && !schedule.IsCodeDefined)
@@ -890,17 +919,26 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 	}
 
 	/// <inheritdoc />
-	public ValueTask PauseRecurringAsync(string name, CancellationToken cancellationToken = default)
-		=> MutateRecurringAsync(name, schedule => schedule.IsPaused = true, cancellationToken);
+	public async ValueTask PauseRecurringAsync(string name, CancellationToken cancellationToken = default)
+	{
+		cancellationToken.ThrowIfCancellationRequested();
+
+		await MutateRecurringAsync(name, schedule => schedule.IsPaused = true, cancellationToken);
+	}
 
 	/// <inheritdoc />
-	public ValueTask ResumeRecurringAsync(string name, CancellationToken cancellationToken = default)
-		=> MutateRecurringAsync(name, schedule => schedule.IsPaused = false, cancellationToken);
+	public async ValueTask ResumeRecurringAsync(string name, CancellationToken cancellationToken = default)
+	{
+		cancellationToken.ThrowIfCancellationRequested();
+
+		await MutateRecurringAsync(name, schedule => schedule.IsPaused = false, cancellationToken);
+	}
 
 	/// <inheritdoc />
 	public async ValueTask<IReadOnlyList<RecurringJobSchedule>> GetDueRecurringAsync(DateTimeOffset now, int batchSize, CancellationToken cancellationToken = default)
 	{
-		ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(batchSize, 0);
+		cancellationToken.ThrowIfCancellationRequested();
+
 		await using var context = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
 		return await context.Set<ImmediateRecurringJobEntity>()
 			.AsNoTracking()
@@ -930,8 +968,8 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 		CancellationToken cancellationToken = default
 	)
 	{
-		ArgumentNullException.ThrowIfNull(schedule);
-		ArgumentNullException.ThrowIfNull(job);
+		cancellationToken.ThrowIfCancellationRequested();
+
 		await using var strategyContext = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
 		var strategy = strategyContext.Database.CreateExecutionStrategy();
 		return await strategy.ExecuteAsync(
@@ -1019,6 +1057,8 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 	/// <inheritdoc />
 	public async ValueTask<JobMonitoringSnapshot> GetMonitoringSnapshotAsync(CancellationToken cancellationToken = default)
 	{
+		cancellationToken.ThrowIfCancellationRequested();
+
 		await using var context = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
 		var rawCounts = await context.Set<ImmediateJobEntity>()
 			.AsNoTracking()
@@ -1067,6 +1107,8 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 	/// <inheritdoc />
 	public async ValueTask<IReadOnlyList<JobRecord>> QueryJobsAsync(JobQuery query, CancellationToken cancellationToken = default)
 	{
+		cancellationToken.ThrowIfCancellationRequested();
+
 		await using var context = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
 		var jobs = context.Set<ImmediateJobEntity>().AsNoTracking();
 		if (query.Id is { } id)
@@ -1101,6 +1143,8 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 		CancellationToken cancellationToken = default
 	)
 	{
+		cancellationToken.ThrowIfCancellationRequested();
+
 		await using var context = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
 		var job = await context.Set<ImmediateJobEntity>()
 			.AsNoTracking()
@@ -1155,7 +1199,8 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 		CancellationToken cancellationToken = default
 	)
 	{
-		ArgumentException.ThrowIfNullOrWhiteSpace(batchId);
+		cancellationToken.ThrowIfCancellationRequested();
+
 		await using var context = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
 		var batch = await context.Set<ImmediateJobBatchEntity>()
 			.AsNoTracking()
@@ -1170,6 +1215,8 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 		CancellationToken cancellationToken = default
 	)
 	{
+		cancellationToken.ThrowIfCancellationRequested();
+
 		if (childJobIds.Count == 0)
 			return [];
 
@@ -1192,6 +1239,8 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 		CancellationToken cancellationToken = default
 	)
 	{
+		cancellationToken.ThrowIfCancellationRequested();
+
 		await using var context = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
 		var batches = context.Set<ImmediateJobBatchEntity>().AsNoTracking();
 		if (query.State is { } state)
@@ -1212,6 +1261,8 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 		CancellationToken cancellationToken = default
 	)
 	{
+		cancellationToken.ThrowIfCancellationRequested();
+
 		await using var context = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
 		var jobs = context.Set<ImmediateJobEntity>()
 			.AsNoTracking()
@@ -1243,7 +1294,8 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 		CancellationToken cancellationToken = default
 	)
 	{
-		ArgumentException.ThrowIfNullOrWhiteSpace(batchId);
+		cancellationToken.ThrowIfCancellationRequested();
+
 		await using var context = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
 		if (!await context.Set<ImmediateJobBatchEntity>()
 			.AnyAsync(batch => batch.Id == batchId, cancellationToken)
@@ -1280,7 +1332,8 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 		CancellationToken cancellationToken = default
 	)
 	{
-		ArgumentException.ThrowIfNullOrWhiteSpace(jobId);
+		cancellationToken.ThrowIfCancellationRequested();
+
 		await using var context = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
 		var job = await context.Set<ImmediateJobEntity>()
 			.AsNoTracking()
@@ -1313,10 +1366,11 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 	}
 
 	/// <inheritdoc />
-	public ValueTask CancelBatchAsync(string batchId, CancellationToken cancellationToken = default)
+	public async ValueTask CancelBatchAsync(string batchId, CancellationToken cancellationToken = default)
 	{
-		ArgumentException.ThrowIfNullOrWhiteSpace(batchId);
-		return RetryConcurrencyAsync(
+		cancellationToken.ThrowIfCancellationRequested();
+
+		await RetryConcurrencyAsync(
 			operationCancellationToken => CancelBatchCoreAsync(batchId, operationCancellationToken),
 			cancellationToken
 		);
@@ -1370,10 +1424,11 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 	}
 
 	/// <inheritdoc />
-	public ValueTask DeleteBatchAsync(string batchId, CancellationToken cancellationToken = default)
+	public async ValueTask DeleteBatchAsync(string batchId, CancellationToken cancellationToken = default)
 	{
-		ArgumentException.ThrowIfNullOrWhiteSpace(batchId);
-		return ExecuteWithStrategyAsync(
+		cancellationToken.ThrowIfCancellationRequested();
+
+		await ExecuteWithStrategyAsync(
 			operationCancellationToken => DeleteBatchCoreAsync(batchId, operationCancellationToken),
 			cancellationToken
 		);
@@ -1410,10 +1465,11 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 	}
 
 	/// <inheritdoc />
-	public ValueTask CancelAsync(string jobId, CancellationToken cancellationToken = default)
+	public async ValueTask CancelAsync(string jobId, CancellationToken cancellationToken = default)
 	{
-		ArgumentException.ThrowIfNullOrWhiteSpace(jobId);
-		return RetryConcurrencyAsync(
+		cancellationToken.ThrowIfCancellationRequested();
+
+		await RetryConcurrencyAsync(
 			operationCancellationToken => CancelCoreAsync(jobId, operationCancellationToken),
 			cancellationToken
 		);
@@ -1457,10 +1513,11 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 	}
 
 	/// <inheritdoc />
-	public ValueTask RetryAsync(string jobId, CancellationToken cancellationToken = default)
+	public async ValueTask RetryAsync(string jobId, CancellationToken cancellationToken = default)
 	{
-		ArgumentException.ThrowIfNullOrWhiteSpace(jobId);
-		return RetryConcurrencyAsync(
+		cancellationToken.ThrowIfCancellationRequested();
+
+		await RetryConcurrencyAsync(
 			operationCancellationToken => RetryCoreAsync(jobId, operationCancellationToken),
 			cancellationToken
 		);
@@ -1532,10 +1589,11 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 	}
 
 	/// <inheritdoc />
-	public ValueTask DeleteAsync(string jobId, CancellationToken cancellationToken = default)
+	public async ValueTask DeleteAsync(string jobId, CancellationToken cancellationToken = default)
 	{
-		ArgumentException.ThrowIfNullOrWhiteSpace(jobId);
-		return ExecuteWithStrategyAsync(
+		cancellationToken.ThrowIfCancellationRequested();
+
+		await ExecuteWithStrategyAsync(
 			operationCancellationToken => DeleteCoreAsync(jobId, operationCancellationToken),
 			cancellationToken
 		);
@@ -1590,14 +1648,16 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 	}
 
 	/// <inheritdoc />
-	public ValueTask PurgeJobsAsync(
+	public async ValueTask PurgeJobsAsync(
 		TimeSpan succeededRetention,
 		TimeSpan failedRetention,
 		CancellationToken cancellationToken = default
 	)
 	{
+		cancellationToken.ThrowIfCancellationRequested();
+
 		var now = _timeProvider.GetUtcNow();
-		return ExecuteWithStrategyAsync(
+		await ExecuteWithStrategyAsync(
 			operationCancellationToken => PurgeJobsCoreAsync(
 				now - succeededRetention,
 				now - failedRetention,
@@ -1608,14 +1668,16 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 	}
 
 	/// <inheritdoc />
-	public ValueTask PurgeBatchesAsync(
+	public async ValueTask PurgeBatchesAsync(
 		TimeSpan batchSucceededRetention,
 		TimeSpan batchFailedRetention,
 		CancellationToken cancellationToken = default
 	)
 	{
+		cancellationToken.ThrowIfCancellationRequested();
+
 		var now = _timeProvider.GetUtcNow();
-		return ExecuteWithStrategyAsync(
+		await ExecuteWithStrategyAsync(
 			operationCancellationToken => PurgeBatchesCoreAsync(
 				now - batchSucceededRetention,
 				now - batchFailedRetention,
@@ -1699,7 +1761,8 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 	/// <inheritdoc />
 	public async ValueTask HeartbeatAsync(JobServerSnapshot server, CancellationToken cancellationToken = default)
 	{
-		ArgumentNullException.ThrowIfNull(server);
+		cancellationToken.ThrowIfCancellationRequested();
+
 		await using var context = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
 		var cutoff = _timeProvider.GetUtcNow() - TimeSpan.FromMinutes(2);
 		_ = await context.Set<ImmediateJobServerEntity>()
@@ -1730,6 +1793,8 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 	/// <inheritdoc />
 	public async ValueTask<bool> IsHealthyAsync(CancellationToken cancellationToken = default)
 	{
+		cancellationToken.ThrowIfCancellationRequested();
+
 		try
 		{
 			await using var context = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);

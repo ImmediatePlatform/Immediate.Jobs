@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Text.Json;
 using Immediate.Jobs.Shared.Apis;
@@ -11,7 +12,11 @@ namespace Immediate.Jobs.Redis;
 /// Distributed Redis storage for ordinary queue jobs and recurring schedules.
 /// Batches and continuations require a graph-capable SQL provider.
 /// </summary>
-internal sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
+internal sealed class RedisJobStorage(
+	IConnectionMultiplexer connection,
+	IOptions<RedisJobStorageOptions> options,
+	TimeProvider timeProvider
+) : IRecurringJobStorage
 {
 	private const int QueryWindowSize = 256;
 	private const int MaximumQueryTake = 1000;
@@ -45,54 +50,19 @@ internal sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 		"synthetic",
 	];
 
-	private readonly IConnectionMultiplexer _connection;
-	private readonly IDatabase _database;
-	private readonly TimeProvider _timeProvider;
-	private readonly string _root;
-	private readonly bool _ownsConnection;
-	private readonly Lock _disposeGate = new();
-	private Task? _disposeTask;
+	[SuppressMessage("Usage", "CA2213:Disposable fields should be disposed", Justification = "Owned by DI")]
+	private readonly IConnectionMultiplexer _connection = connection;
 
-	/// <summary>Creates storage over an existing Redis connection.</summary>
-	/// <param name="connection">The application-owned Redis connection.</param>
-	/// <param name="options">The Redis storage options, or <see langword="null"/> to use defaults.</param>
-	/// <param name="timeProvider">The clock used for storage timestamps, or <see langword="null"/> to use the system clock.</param>
-	public RedisJobStorage(
-		IConnectionMultiplexer connection,
-		RedisJobStorageOptions? options = null,
-		TimeProvider? timeProvider = null
-	) : this(connection, Options.Create(options ?? new()), timeProvider, ownsConnection: false)
-	{
-	}
+	private readonly RedisJobStorageOptions _storageOptions = options.Value;
+	private readonly TimeProvider _timeProvider = timeProvider;
+	private readonly string _root = $"{{{options.Value.KeyPrefix}}}:";
 
-	internal RedisJobStorage(
-		IConnectionMultiplexer connection,
-		IOptions<RedisJobStorageOptions> options,
-		TimeProvider? timeProvider,
-		bool ownsConnection
-	)
-	{
-#pragma warning disable MA0015 // Specify the parameter name in ArgumentException
-		ArgumentNullException.ThrowIfNull(connection);
-		ArgumentNullException.ThrowIfNull(options);
-		var storageOptions = options.Value;
-		ArgumentException.ThrowIfNullOrWhiteSpace(storageOptions.KeyPrefix);
-#pragma warning restore MA0015 // Specify the parameter name in ArgumentException
-
-		if (storageOptions.KeyPrefix.IndexOfAny(['{', '}']) >= 0)
-			throw new ArgumentException("The Redis key prefix cannot contain '{' or '}'.", nameof(options));
-
-		_connection = connection;
-		_database = connection.GetDatabase(storageOptions.Database);
-		_timeProvider = timeProvider ?? TimeProvider.System;
-		_root = $"{{{storageOptions.KeyPrefix}}}:";
-		_ownsConnection = ownsConnection;
-	}
+	private IDatabase Database => _connection.GetDatabase(_storageOptions.Database);
 
 	/// <inheritdoc />
 	public async ValueTask InitializeAsync(CancellationToken cancellationToken = default)
 	{
-		_ = await _database.PingAsync().WaitAsync(cancellationToken).ConfigureAwait(false);
+		_ = await Database.PingAsync().WaitAsync(cancellationToken).ConfigureAwait(false);
 	}
 
 	/// <inheritdoc />
@@ -155,7 +125,7 @@ internal sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 			}
 		}
 
-		var result = await _database.ScriptEvaluateAsync(
+		var result = await Database.ScriptEvaluateAsync(
 			RedisScripts.Acquire,
 			[.. keys],
 			[.. values]
@@ -285,7 +255,7 @@ internal sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 	{
 		var states = Enum.GetValues<JobState>();
 		var countTasks = states
-			.Select(state => _database.SetLengthAsync(StateKey(state)))
+			.Select(state => Database.SetLengthAsync(StateKey(state)))
 			.ToArray();
 		var recurringTask = ReadAllRecurringAsync(cancellationToken);
 		var serversTask = ReadLiveServersAsync(cancellationToken);
@@ -365,7 +335,7 @@ internal sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 		var synthetic = JobExecutionRecord.CreateSynthetic(job);
 		var syntheticMissing = synthetic is not null
 			&& (query.Attempt is null || query.Attempt == synthetic.Attempt)
-			&& !await _database.HashExistsAsync(
+			&& !await Database.HashExistsAsync(
 				ExecutionDataKey(query.JobId),
 				ExecutionField(synthetic.Attempt, "state")
 			).WaitAsync(cancellationToken).ConfigureAwait(false);
@@ -388,7 +358,7 @@ internal sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 		RedisValue[] attempts;
 		if (query.Attempt is { } attempt)
 		{
-			var exists = await _database.HashExistsAsync(
+			var exists = await Database.HashExistsAsync(
 				ExecutionDataKey(query.JobId),
 				ExecutionField(attempt, "state")
 			).WaitAsync(cancellationToken).ConfigureAwait(false);
@@ -396,7 +366,7 @@ internal sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 		}
 		else
 		{
-			attempts = await _database.SortedSetRangeByRankAsync(
+			attempts = await Database.SortedSetRangeByRankAsync(
 				ExecutionIndexKey(query.JobId),
 				skip,
 				skip + take - 1,
@@ -535,7 +505,7 @@ internal sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 	{
 		try
 		{
-			_ = await _database.PingAsync().WaitAsync(cancellationToken).ConfigureAwait(false);
+			_ = await Database.PingAsync().WaitAsync(cancellationToken).ConfigureAwait(false);
 			return true;
 		}
 		catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -624,7 +594,7 @@ internal sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 		CancellationToken cancellationToken = default
 	)
 	{
-		var values = await _database.SortedSetRangeByScoreAsync(
+		var values = await Database.SortedSetRangeByScoreAsync(
 			RecurringDueKey,
 			stop: Score(now),
 			take: batchSize
@@ -655,7 +625,7 @@ internal sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 
 		if (stale.Count != 0)
 		{
-			_ = await _database.SortedSetRemoveAsync(RecurringDueKey, [.. stale])
+			_ = await Database.SortedSetRemoveAsync(RecurringDueKey, [.. stale])
 				.WaitAsync(cancellationToken).ConfigureAwait(false);
 		}
 
@@ -693,29 +663,7 @@ internal sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 	}
 
 	/// <inheritdoc />
-	public void Dispose() => DisposeAsync().AsTask().GetAwaiter().GetResult();
-
-	/// <inheritdoc />
-	public ValueTask DisposeAsync()
-	{
-		lock (_disposeGate)
-			return new(_disposeTask ??= DisposeCoreAsync());
-	}
-
-	private async Task DisposeCoreAsync()
-	{
-		if (_ownsConnection)
-		{
-			try
-			{
-				await _connection.CloseAsync().ConfigureAwait(false);
-			}
-			finally
-			{
-				_connection.Dispose();
-			}
-		}
-	}
+	public async ValueTask DisposeAsync() { }
 
 	private async ValueTask SetRecurringPausedAsync(
 		string name,
@@ -742,7 +690,7 @@ internal sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 	{
 		while (true)
 		{
-			var ids = await _database.SortedSetRangeByScoreAsync(
+			var ids = await Database.SortedSetRangeByScoreAsync(
 				CompletedKey(state),
 				stop: Score(cutoff),
 				exclude: Exclude.Stop,
@@ -774,19 +722,19 @@ internal sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 	private async Task<IReadOnlyList<JobServerSnapshot>> ReadLiveServersAsync(CancellationToken cancellationToken)
 	{
 		var cutoff = _timeProvider.GetUtcNow() - TimeSpan.FromMinutes(2);
-		var stale = await _database.SortedSetRangeByScoreAsync(
+		var stale = await Database.SortedSetRangeByScoreAsync(
 			ServersKey,
 			stop: Score(cutoff),
 			exclude: Exclude.Stop
 		).WaitAsync(cancellationToken).ConfigureAwait(false);
 		if (stale.Length != 0)
-			_ = await _database.SortedSetRemoveAsync(ServersKey, stale).WaitAsync(cancellationToken).ConfigureAwait(false);
-		var ids = await _database.SortedSetRangeByScoreAsync(
+			_ = await Database.SortedSetRemoveAsync(ServersKey, stale).WaitAsync(cancellationToken).ConfigureAwait(false);
+		var ids = await Database.SortedSetRangeByScoreAsync(
 			ServersKey,
 			start: Score(cutoff)
 		).WaitAsync(cancellationToken).ConfigureAwait(false);
 		var tasks = ids
-			.Select(id => _database.HashGetAsync(ServerKey((string)id!), ["last", "active", "max"]))
+			.Select(id => Database.HashGetAsync(ServerKey((string)id!), ["last", "active", "max"]))
 			.ToArray();
 		_ = await Task.WhenAll(tasks).WaitAsync(cancellationToken).ConfigureAwait(false);
 		return
@@ -806,7 +754,7 @@ internal sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 
 	private async Task<IReadOnlyList<RecurringJobSchedule>> ReadAllRecurringAsync(CancellationToken cancellationToken)
 	{
-		var names = await _database.SetMembersAsync(RecurringNamesKey)
+		var names = await Database.SetMembersAsync(RecurringNamesKey)
 			.WaitAsync(cancellationToken)
 			.ConfigureAwait(false);
 		return await ReadRecurringAsync(
@@ -830,7 +778,7 @@ internal sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 		CancellationToken cancellationToken
 	)
 	{
-		var values = await _database.HashGetAsync(RecurringKey(name), RecurringMutableFields)
+		var values = await Database.HashGetAsync(RecurringKey(name), RecurringMutableFields)
 			.WaitAsync(cancellationToken)
 			.ConfigureAwait(false);
 		if (values[0].IsNull)
@@ -877,7 +825,7 @@ internal sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 			}
 		}
 
-		var allValues = await _database.HashGetAsync(ExecutionDataKey(jobId), fields)
+		var allValues = await Database.HashGetAsync(ExecutionDataKey(jobId), fields)
 			.WaitAsync(cancellationToken)
 			.ConfigureAwait(false);
 
@@ -912,7 +860,7 @@ internal sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 		CancellationToken cancellationToken
 	)
 	{
-		var values = await _database.SortedSetRangeByRankAsync(
+		var values = await Database.SortedSetRangeByRankAsync(
 			AllJobsKey,
 			start,
 			start + count - 1,
@@ -936,7 +884,7 @@ internal sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 
 	private async ValueTask<JobRecord?> ReadJobAsync(string id, CancellationToken cancellationToken)
 	{
-		var values = await _database.HashGetAsync(JobKey(id), JobMutableFields)
+		var values = await Database.HashGetAsync(JobKey(id), JobMutableFields)
 			.WaitAsync(cancellationToken)
 			.ConfigureAwait(false);
 		if (values[0].IsNull)
@@ -967,7 +915,7 @@ internal sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 		CancellationToken cancellationToken
 	)
 	{
-		var result = await _database.ScriptEvaluateAsync(script, keys, values)
+		var result = await Database.ScriptEvaluateAsync(script, keys, values)
 			.WaitAsync(cancellationToken)
 			.ConfigureAwait(false);
 		return (long)result;

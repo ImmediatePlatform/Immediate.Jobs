@@ -1,8 +1,6 @@
 using System.Diagnostics.CodeAnalysis;
 using Immediate.Jobs.Shared.Interfaces;
 using Immediate.Jobs.Shared.Internals;
-using Immediate.Jobs.Shared.Storage;
-using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
@@ -13,40 +11,12 @@ namespace Immediate.Jobs.Shared;
 /// <summary>
 /// 	The fluent registration result returned by generated AddImmediateJobs methods.
 /// </summary>
-public sealed class ImmediateJobsBuilder
+public interface IImmediateJobsBuilder
 {
-	internal ImmediateJobsBuilder(
-		IServiceCollection services,
-		OptionsBuilder<ImmediateJobsOptions> optionsBuilder,
-		OptionsBuilder<FairQueueOptions> fairQueueOptionsBuilder
-	)
-	{
-		Services = services;
-		OptionsBuilder = optionsBuilder;
-		FairQueueOptionsBuilder = fairQueueOptionsBuilder;
-	}
-
-	internal IServiceCollection Services { get; }
-	internal OptionsBuilder<ImmediateJobsOptions> OptionsBuilder { get; }
-	internal OptionsBuilder<FairQueueOptions> FairQueueOptionsBuilder { get; }
-
 	/// <summary>
-	/// 	Replaces the default GUID job and batch identifier generator.
+	/// 	The service collection being configured.
 	/// </summary>
-	/// <typeparam name="TGenerator">
-	/// 	The identifier generator implementation.
-	/// </typeparam>
-	/// <returns>
-	/// 	The supplied builder.
-	/// </returns>
-	public ImmediateJobsBuilder UseIdGenerator<
-		[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TGenerator
-	>()
-		where TGenerator : class, IIdGenerator
-	{
-		Services.Replace(ServiceDescriptor.Singleton<IIdGenerator, TGenerator>());
-		return this;
-	}
+	IServiceCollection Services { get; }
 
 	/// <summary>
 	/// 	Adds scheduler liveness and storage connectivity to the health-check system.
@@ -63,73 +33,37 @@ public sealed class ImmediateJobsBuilder
 	/// <returns>
 	/// 	The supplied builder.
 	/// </returns>
-	public ImmediateJobsBuilder AddHealthCheck(
-		string name = "immediate-jobs",
-		HealthStatus? failureStatus = null,
-		IEnumerable<string>? tags = null
-	)
-	{
-		Services.AddHealthChecks().AddCheck<ImmediateJobsHealthCheck>(name, failureStatus, tags ?? []);
-		return this;
-	}
+	IImmediateJobsBuilder AddHealthCheck(string name = "immediate-jobs", HealthStatus? failureStatus = null, IEnumerable<string>? tags = null);
 
 	/// <summary>
-	///		Registers the dependency injection container to bind <see cref="ImmediateJobsOptions"/> against
-	///		the <see cref="IConfiguration"/> obtained from the DI service provider.
+	///		Provides an extension point to configure the options using a user provided configuration method.
 	/// </summary>
-	/// <param name="configurationSectionPath">
-	///		The name of the configuration section to bind from.
+	/// <param name="configureJobs">
+	///		The configuration method used to set the options.
 	///	</param>
 	/// <returns>
 	/// 	The supplied builder.
 	/// </returns>
-	public ImmediateJobsBuilder Configure(
-		string configurationSectionPath
-	)
-	{
-		ArgumentException.ThrowIfNullOrWhiteSpace(configurationSectionPath);
-
-		OptionsBuilder.BindConfiguration(configurationSectionPath);
-		return this;
-	}
+	IImmediateJobsBuilder ConfigureWorkers(Action<OptionsBuilder<ImmediateJobsOptions>> configureJobs);
 
 	/// <summary>
-	///		Registers a configuration instance which <see cref="ImmediateJobsOptions"/> will bind against.
+	///		Provides an extension point to configure the options using a user provided configuration method.
 	/// </summary>
-	/// <param name="configurationSection">
-	///		The configuration being bound.
-	/// </param>
+	/// <param name="configureJobs">
+	///		The configuration method used to set the options.
+	///	</param>
 	/// <returns>
 	/// 	The supplied builder.
 	/// </returns>
-	public ImmediateJobsBuilder Configure(
-		IConfiguration configurationSection
-	)
-	{
-		ArgumentNullException.ThrowIfNull(configurationSection);
-
-		OptionsBuilder.Bind(configurationSection);
-		return this;
-	}
+	IImmediateJobsBuilder ConfigureWorkers(Action<ImmediateJobsOptions> configureJobs);
 
 	/// <summary>
-	///		Registers an action used to configure an <see cref="ImmediateJobsOptions"/>.
+	///		Disables workers from running in this application.
 	/// </summary>
-	/// <param name="configureOptions">
-	///		The action used to configure the options.
-	/// </param>
 	/// <returns>
 	/// 	The supplied builder.
 	/// </returns>
-	public ImmediateJobsBuilder Configure(
-		Action<ImmediateJobsOptions> configureOptions
-	)
-	{
-		ArgumentNullException.ThrowIfNull(configureOptions);
-
-		OptionsBuilder.Configure(configureOptions);
-		return this;
-	}
+	IImmediateJobsBuilder DisableWorkers();
 
 	/// <summary>
 	///		Enables Fair Queues.
@@ -137,78 +71,31 @@ public sealed class ImmediateJobsBuilder
 	/// <returns>
 	/// 	The supplied builder.
 	/// </returns>
-	public ImmediateJobsBuilder UseFairQueues()
-	{
-		FairQueueOptionsBuilder.PostConfigure(o => o.Enabled = true);
-		return this;
-	}
+	IImmediateJobsBuilder UseFairQueues();
 
 	/// <summary>
-	///		Enables Fair Queues and registers the dependency injection container to bind <see cref="FairQueueOptions"/> against
-	///		the <see cref="IConfiguration"/> obtained from the DI service provider.
+	///		Enables Fair Queues.
 	/// </summary>
-	/// <param name="configurationSectionPath">
-	///		The name of the configuration section to bind from.
-	///	</param>
-	/// <returns>
-	/// 	The supplied builder.
-	/// </returns>
-	public ImmediateJobsBuilder UseFairQueues(
-		string configurationSectionPath
-	)
-	{
-		ArgumentException.ThrowIfNullOrWhiteSpace(configurationSectionPath);
-
-		FairQueueOptionsBuilder
-			.BindConfiguration(configurationSectionPath)
-			.PostConfigure(o => o.Enabled = true);
-
-		return this;
-	}
-
-	/// <summary>
-	///		Enables Fair Queues and registers a configuration instance which <see cref="FairQueueOptions"/> will bind against.
-	/// </summary>
-	/// <param name="configurationSection">
-	///		The configuration being bound.
+	/// <param name="configureFairQueues">
+	///		A configuration method used to configure the fair options policy.
 	/// </param>
 	/// <returns>
 	/// 	The supplied builder.
 	/// </returns>
-	public ImmediateJobsBuilder UseFairQueues(
-		IConfiguration configurationSection
-	)
-	{
-		ArgumentNullException.ThrowIfNull(configurationSection);
-
-		FairQueueOptionsBuilder
-			.Bind(configurationSection)
-			.PostConfigure(o => o.Enabled = true);
-
-		return this;
-	}
+	IImmediateJobsBuilder UseFairQueues(Action<OptionsBuilder<FairQueueOptions>> configureFairQueues);
 
 	/// <summary>
-	///		Enables Fair Queues and registers an action used to configure an <see cref="FairQueueOptions"/>.
+	/// 	Replaces the default GUID job and batch identifier generator.
 	/// </summary>
-	/// <param name="configureOptions">
-	///		The action used to configure the options.
-	/// </param>
+	/// <typeparam name="TGenerator">
+	/// 	The identifier generator implementation.
+	/// </typeparam>
 	/// <returns>
 	/// 	The supplied builder.
 	/// </returns>
-	public ImmediateJobsBuilder UseFairQueues(
-		Action<FairQueueOptions> configureOptions
-	)
-	{
-		ArgumentNullException.ThrowIfNull(configureOptions);
-
-		FairQueueOptionsBuilder
-			.Configure(configureOptions)
-			.PostConfigure(o => o.Enabled = true);
-
-		return this;
-	}
+	IImmediateJobsBuilder UseIdGenerator<
+		[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TGenerator
+	>() where TGenerator : class, IIdGenerator;
 
 	/// <summary>
 	///		Configures the job storage used by <c>Immediate.Jobs</c>.
@@ -219,8 +106,93 @@ public sealed class ImmediateJobsBuilder
 	/// <returns>
 	/// 	The supplied builder.
 	/// </returns>
-	public ImmediateJobsBuilder ConfigureStorage(
-		Action<ImmediateJobsStorageBuilder> configure
+	IImmediateJobsBuilder ConfigureStorage(Action<IImmediateJobsStorageBuilder> configure);
+}
+
+internal sealed class ImmediateJobsBuilder : IImmediateJobsBuilder
+{
+	internal ImmediateJobsBuilder(
+		IServiceCollection services,
+		OptionsBuilder<ImmediateJobsOptions> optionsBuilder,
+		OptionsBuilder<ImmediateJobsStorageOptions> storageOptionsBuilder,
+		OptionsBuilder<FairQueueOptions> fairQueueOptionsBuilder
+	)
+	{
+		Services = services;
+		OptionsBuilder = optionsBuilder;
+		StorageOptionsBuilder = storageOptionsBuilder;
+		FairQueueOptionsBuilder = fairQueueOptionsBuilder;
+	}
+
+	public IServiceCollection Services { get; }
+
+	internal OptionsBuilder<ImmediateJobsOptions> OptionsBuilder { get; }
+	internal OptionsBuilder<ImmediateJobsStorageOptions> StorageOptionsBuilder { get; }
+	internal OptionsBuilder<FairQueueOptions> FairQueueOptionsBuilder { get; }
+
+	public IImmediateJobsBuilder UseIdGenerator<
+		[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TGenerator
+	>() where TGenerator : class, IIdGenerator
+	{
+		Services.Replace(ServiceDescriptor.Singleton<IIdGenerator, TGenerator>());
+		return this;
+	}
+
+	public IImmediateJobsBuilder AddHealthCheck(
+		string name = "immediate-jobs",
+		HealthStatus? failureStatus = null,
+		IEnumerable<string>? tags = null
+	)
+	{
+		Services.AddHealthChecks().AddCheck<ImmediateJobsHealthCheck>(name, failureStatus, tags ?? []);
+		return this;
+	}
+
+	public IImmediateJobsBuilder DisableWorkers()
+	{
+		OptionsBuilder.PostConfigure(o => o.IsJobSchedulingServiceEnabled = false);
+		return this;
+	}
+
+	public IImmediateJobsBuilder ConfigureWorkers(
+		Action<OptionsBuilder<ImmediateJobsOptions>> configureJobs
+	)
+	{
+		ArgumentNullException.ThrowIfNull(configureJobs);
+
+		configureJobs(OptionsBuilder);
+		return this;
+	}
+
+	public IImmediateJobsBuilder ConfigureWorkers(
+		Action<ImmediateJobsOptions> configureJobs
+	)
+	{
+		ArgumentNullException.ThrowIfNull(configureJobs);
+
+		OptionsBuilder.Configure(configureJobs);
+		return this;
+	}
+
+	public IImmediateJobsBuilder UseFairQueues()
+	{
+		FairQueueOptionsBuilder.Configure(o => o.Enabled = true);
+		return this;
+	}
+
+	public IImmediateJobsBuilder UseFairQueues(
+		Action<OptionsBuilder<FairQueueOptions>> configureFairQueues
+	)
+	{
+		ArgumentNullException.ThrowIfNull(configureFairQueues);
+
+		FairQueueOptionsBuilder.Configure(o => o.Enabled = true);
+		configureFairQueues(FairQueueOptionsBuilder);
+		return this;
+	}
+
+	public IImmediateJobsBuilder ConfigureStorage(
+		Action<IImmediateJobsStorageBuilder> configure
 	)
 	{
 		ArgumentNullException.ThrowIfNull(configure);
@@ -228,185 +200,14 @@ public sealed class ImmediateJobsBuilder
 		if (Services.Any(s => s.ServiceType == typeof(ImmediateJobsStorageBuilder)))
 			ImmediateJobException.Throw("Cannot configure storage multiple times.");
 
+		StorageOptionsBuilder.Configure(o => o.Configured = true);
+
 		var builder = new ImmediateJobsStorageBuilder(Services);
-		Services.AddSingleton(builder);
 		configure(builder);
+		builder.ValidateAndRegister();
 
-		builder.ValidateAndRegister(Services);
+		Services.AddSingleton(builder);
 
 		return this;
-	}
-}
-
-/// <summary>
-/// 	The fluent registration object used to configure job storage.
-/// </summary>
-public sealed class ImmediateJobsStorageBuilder
-{
-	private enum JobStorageMode
-	{
-		None,
-		InMemory,
-		SingleServer,
-		Distributed,
-	}
-
-	private JobStorageMode _storageMode;
-	private Func<IServiceProvider, IJobStorage>? _factory;
-
-	internal ImmediateJobsStorageBuilder(IServiceCollection services)
-	{
-		Services = services;
-	}
-
-	/// <summary>
-	/// 	The service collection being configured.
-	/// </summary>
-	public IServiceCollection Services { get; }
-
-	/// <summary>
-	/// 	Selects the non-durable, single-node in-memory provider.
-	/// </summary>
-	/// <returns>
-	/// 	This options instance.
-	/// </returns>
-	public ImmediateJobsStorageBuilder UseInMemory()
-	{
-		if (_storageMode is not (JobStorageMode.None or JobStorageMode.InMemory))
-			ImmediateJobException.Throw("Cannot select in-memory job storage when other job storage options have been selected.");
-
-		_storageMode = JobStorageMode.InMemory;
-		return this;
-	}
-
-	/// <summary>
-	///		Selects a durable storage provider. By default, it is used as a write-through replica of the
-	///		authoritative in-process store for a single scheduler server.
-	/// </summary>
-	/// <param name="factory">
-	/// 	The factory that creates the durable storage provider.
-	/// </param>
-	/// <returns>
-	/// 	This options instance.
-	/// </returns>
-	public ImmediateJobsStorageBuilder UseStorage(Func<IServiceProvider, IJobStorage> factory)
-	{
-		ArgumentNullException.ThrowIfNull(factory);
-
-		if (_storageMode is JobStorageMode.InMemory)
-			ImmediateJobException.Throw("Cannot provide a durable storage provider when in-memory job storage has already been selected.");
-
-		if (_factory is { })
-			ImmediateJobException.Throw("A durable storage provider has already been provided.");
-
-		_factory = factory;
-		return this;
-	}
-
-	/// <summary>
-	/// 	Selects memory-primary, durable-replica operation for one scheduler server.
-	/// </summary>
-	/// <returns>
-	/// 	This options instance.
-	/// </returns>
-	public ImmediateJobsStorageBuilder UseSingleServer()
-	{
-		if (_storageMode is not (JobStorageMode.None or JobStorageMode.SingleServer))
-			ImmediateJobException.Throw("Cannot select single-server operation mode when other job storage options have been selected.");
-
-		if (_factory is null)
-			ImmediateJobException.Throw("Cannot select single-server operation mode when no durable storage provider has been provided.");
-
-		_storageMode = JobStorageMode.SingleServer;
-		return this;
-	}
-
-	/// <summary>
-	/// 	Selects memory-primary operation with the supplied durable replica.
-	/// </summary>
-	/// <param name="durableStorageFactory">
-	/// 	The factory that creates the durable storage replica.
-	/// </param>
-	/// <returns>
-	/// 	This options instance.
-	/// </returns>
-	public ImmediateJobsStorageBuilder UseSingleServer(Func<IServiceProvider, IJobStorage> durableStorageFactory)
-	{
-		UseStorage(durableStorageFactory);
-		UseSingleServer();
-		return this;
-	}
-
-	/// <summary>
-	/// 	Selects durable-storage-primary operation for multiple scheduler servers.
-	/// </summary>
-	/// <returns>
-	/// 	This options instance.
-	/// </returns>
-	public ImmediateJobsStorageBuilder UseDistributed()
-	{
-		if (_storageMode is not (JobStorageMode.None or JobStorageMode.Distributed))
-			ImmediateJobException.Throw("Cannot select distributed operation mode when other job storage options have been selected.");
-
-		if (_factory is null)
-			ImmediateJobException.Throw("Cannot select distributed operation mode when no durable storage provider has been provided.");
-
-		_storageMode = JobStorageMode.Distributed;
-		return this;
-	}
-
-	/// <summary>
-	/// 	Selects durable-storage-primary operation for multiple scheduler servers.
-	/// </summary>
-	/// <param name="durableStorageFactory">
-	/// 	The factory that creates the durable storage replica.
-	/// </param>
-	/// <returns>
-	/// 	This options instance.
-	/// </returns>
-	public ImmediateJobsStorageBuilder UseDistributed(Func<IServiceProvider, IJobStorage> durableStorageFactory)
-	{
-		UseStorage(durableStorageFactory);
-		UseDistributed();
-		return this;
-	}
-
-	internal void ValidateAndRegister(IServiceCollection services)
-	{
-		// explicit in-memory
-		if (_storageMode is JobStorageMode.InMemory)
-		{
-			// error should be thrown earlier, but just in case...
-			if (_factory is { })
-				ImmediateJobException.Throw("Cannot provide a durable storage provider when in-memory job storage has already been selected.");
-
-			return;
-		}
-
-		if (_factory is null)
-		{
-			// none, with no factory is base-state; aka in-memory
-			if (_storageMode is JobStorageMode.None)
-				return;
-
-			ImmediateJobException.Throw("Durable storage is required, but no durable storage provider has been provided.");
-		}
-
-		// only check for explicit distributed
-		if (_storageMode is JobStorageMode.Distributed)
-		{
-			services.Replace(ServiceDescriptor.Singleton(_factory));
-			return;
-		}
-
-		// none or explicit single-server are both single-server
-		services.Replace(
-			ServiceDescriptor.Singleton<IJobStorage, SingleServerJobStorage>(
-				sp => new SingleServerJobStorage(
-					_factory(sp),
-					sp.GetRequiredService<TimeProvider>()
-				)
-			)
-		);
 	}
 }

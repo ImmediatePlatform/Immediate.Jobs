@@ -23,7 +23,7 @@ public static class ImmediateJobsRuntimeServiceCollectionExtensions
 	/// <returns>
 	/// 	A builder for selecting storage and adding runtime integrations.
 	/// </returns>
-	public static ImmediateJobsBuilder AddImmediateJobsCore(
+	public static IImmediateJobsBuilder AddImmediateJobsCore(
 		this IServiceCollection services
 	)
 	{
@@ -37,6 +37,13 @@ public static class ImmediateJobsRuntimeServiceCollectionExtensions
 					ValidationException.ThrowIfInvalid(o, $@"Validation error for ""{nameof(ImmediateJobsOptions)}""");
 					return true;
 				}
+			);
+
+		var storageOptionsBuilder = services
+			.AddOptionsWithValidateOnStart<ImmediateJobsStorageOptions>()
+			.Validate(
+				o => o.Configured,
+				"Storage must be configured via `.ConfigureStorage()`"
 			);
 
 		var fairQueueOptionsBuilder = services
@@ -70,6 +77,6 @@ public static class ImmediateJobsRuntimeServiceCollectionExtensions
 			)
 		);
 
-		return new(services, optionsBuilder, fairQueueOptionsBuilder);
+		return new ImmediateJobsBuilder(services, optionsBuilder, storageOptionsBuilder, fairQueueOptionsBuilder);
 	}
 }

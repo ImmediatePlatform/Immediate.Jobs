@@ -4,31 +4,23 @@ using Immediate.Jobs.Shared.Storage;
 using LinqToDB;
 using LinqToDB.Async;
 using LinqToDB.Data;
+using Microsoft.Extensions.Options;
 
 namespace Immediate.Jobs.LinqToDB;
 
 /// <summary>An optimistic-concurrency LinqToDB implementation of <see cref="IJobStorage"/>.</summary>
-internal sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorage, IFairQueueStorage, IJobStorageReplica, IJobGraphStorageReplica
+internal sealed class LinqToDBJobStorage<T>(
+	Owned<T> contextScope,
+	IOptions<LinqToDBJobStorageOptions> options,
+	TimeProvider timeProvider
+) : IRecurringJobStorage, IJobGraphStorage, IFairQueueStorage, IJobStorageReplica, IJobGraphStorageReplica
+	where T : DataConnection
 {
 	private const int MaxContendedCompletionAttempts = 50;
 	private const int MaxConcurrencyAttempts = 5;
 	private const int MaxConsecutiveFailedFairClaims = 5;
-	private readonly DataOptions _dataOptions;
-	private readonly string? _schema;
-	private readonly TimeProvider _timeProvider;
 
-	/// <summary>Creates storage using immutable LinqToDB connection options.</summary>
-	/// <param name="dataOptions">The immutable LinqToDB connection options.</param>
-	/// <param name="schema">The database schema containing the Immediate.Jobs tables, or <see langword="null"/> for the provider default.</param>
-	/// <param name="timeProvider">The clock used for storage timestamps, or <see langword="null"/> to use the system clock.</param>
-	public LinqToDBJobStorage(DataOptions dataOptions, string? schema = null, TimeProvider? timeProvider = null)
-	{
-		ArgumentNullException.ThrowIfNull(dataOptions);
-		LinqToDBSchemaExtensions.ValidateSchema(schema);
-		_dataOptions = dataOptions;
-		_schema = schema;
-		_timeProvider = timeProvider ?? TimeProvider.System;
-	}
+	private readonly string? _schema = options.Value.Schema;
 
 	/// <inheritdoc />
 	public ValueTask DisposeAsync() => ValueTask.CompletedTask;
@@ -39,8 +31,10 @@ internal sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorag
 	/// <inheritdoc />
 	public async ValueTask EnqueueAsync(JobRecord job, CancellationToken cancellationToken = default)
 	{
-		ArgumentNullException.ThrowIfNull(job);
-		await using var connection = CreateConnection();
+		cancellationToken.ThrowIfCancellationRequested();
+
+		await using var scope = contextScope.GetScope(out var connection);
+
 		_ = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
 		try
 		{
@@ -61,8 +55,12 @@ internal sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorag
 		CancellationToken cancellationToken = default
 	)
 	{
+		cancellationToken.ThrowIfCancellationRequested();
+
 		var ids = childJobIds.Distinct(StringComparer.Ordinal).ToArray();
-		await using var connection = CreateConnection();
+
+		await using var scope = contextScope.GetScope(out var connection);
+
 		var edges = await Continuations(connection)
 			.Where(edge => ids.Contains(edge.ChildJobId))
 			.OrderBy(edge => edge.ChildJobId)
@@ -74,31 +72,28 @@ internal sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorag
 	}
 
 	/// <inheritdoc />
-	public ValueTask EnqueueContinuationAsync(
+	public async ValueTask EnqueueContinuationAsync(
 		JobRecord job,
 		IReadOnlyList<JobContinuationEdge> edges,
 		CancellationToken cancellationToken = default
 	)
 	{
-		ArgumentNullException.ThrowIfNull(job);
-		ArgumentNullException.ThrowIfNull(edges);
-		return ExecuteGraphInsertAsync(batch: null, [job], edges, cancellationToken);
+		cancellationToken.ThrowIfCancellationRequested();
+
+		await ExecuteGraphInsertAsync(batch: null, [job], edges, cancellationToken);
 	}
 
 	/// <inheritdoc />
-	public ValueTask EnqueueBatchAsync(
+	public async ValueTask EnqueueBatchAsync(
 		BatchRecord batch,
 		IReadOnlyList<JobRecord> jobs,
 		IReadOnlyList<JobContinuationEdge> edges,
 		CancellationToken cancellationToken = default
 	)
 	{
-		ArgumentNullException.ThrowIfNull(batch);
-		ArgumentNullException.ThrowIfNull(jobs);
-		ArgumentNullException.ThrowIfNull(edges);
-		if (jobs.Count == 0)
-			throw new ImmediateJobException("An atomic batch cannot be committed without jobs.");
-		return ExecuteGraphInsertAsync(batch, jobs, edges, cancellationToken);
+		cancellationToken.ThrowIfCancellationRequested();
+
+		await ExecuteGraphInsertAsync(batch, jobs, edges, cancellationToken);
 	}
 
 	private ValueTask ExecuteGraphInsertAsync(
@@ -138,7 +133,7 @@ internal sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorag
 			connection,
 			jobEntities,
 			edgeEntities,
-			_timeProvider.GetUtcNow().UtcTicks,
+			timeProvider.GetUtcNow().UtcTicks,
 			cancellationToken
 		).ConfigureAwait(false);
 
@@ -160,7 +155,7 @@ internal sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorag
 				CancelledCount = cancelled,
 				SkippedCount = skipped,
 				StartedAt = Ticks(batch.StartedAt),
-				CompletedAt = pending == 0 ? Ticks(batch.CompletedAt ?? _timeProvider.GetUtcNow()) : null,
+				CompletedAt = pending == 0 ? Ticks(batch.CompletedAt ?? timeProvider.GetUtcNow()) : null,
 				State = pending == 0 ? GetTerminalBatchState(failed, cancelled) : BatchState.Executing,
 				ConcurrencyStamp = Guid.NewGuid(),
 			}, cancellationToken).ConfigureAwait(false);
@@ -178,10 +173,12 @@ internal sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorag
 		CancellationToken cancellationToken = default
 	)
 	{
+		cancellationToken.ThrowIfCancellationRequested();
+
 		if (request.FairQueues is not null)
 			return await AcquireDueJobsFairAsync(request, cancellationToken).ConfigureAwait(false);
 
-		var now = _timeProvider.GetUtcNow().UtcTicks;
+		var now = timeProvider.GetUtcNow().UtcTicks;
 		var acquired = new List<JobRecord>(request.BatchSize);
 		foreach (var queue in request.Queues)
 		{
@@ -195,7 +192,9 @@ internal sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorag
 				var eligibleNames = jobCapacities.Where(static pair => pair.Value > 0).Select(static pair => pair.Key).ToArray();
 				if (eligibleNames.Length == 0)
 					break;
-				await using var readConnection = CreateConnection();
+
+				await using var scope = contextScope.GetScope(out var readConnection);
+
 				var candidates = await Jobs(readConnection)
 					.Where(job => job.QueueName == queue.QueueName && eligibleNames.Contains(job.JobName) &&
 						(((job.State == JobState.Scheduled || job.State == JobState.Pending) && job.DueAt <= now)
@@ -233,7 +232,7 @@ internal sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorag
 		CancellationToken cancellationToken
 	)
 	{
-		var now = _timeProvider.GetUtcNow().UtcTicks;
+		var now = timeProvider.GetUtcNow().UtcTicks;
 		var acquired = new List<JobRecord>(request.BatchSize);
 		foreach (var queue in request.Queues)
 		{
@@ -256,7 +255,8 @@ internal sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorag
 				if (eligibleNames.Length == 0)
 					break;
 
-				await using var readConnection = CreateConnection();
+				await using var scope = contextScope.GetScope(out var readConnection);
+
 				var eligibleQuery = Jobs(readConnection)
 					.Where(job => job.QueueName == queue.QueueName && eligibleNames.Contains(job.JobName) &&
 						(((job.State == JobState.Scheduled || job.State == JobState.Pending) && job.DueAt <= now)
@@ -429,7 +429,8 @@ internal sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorag
 			if (eligibleNames.Length == 0)
 				break;
 
-			await using var readConnection = CreateConnection();
+			await using var scope = contextScope.GetScope(out var readConnection);
+
 			var candidates = await Jobs(readConnection)
 				.Where(job => job.QueueName == queueName && eligibleNames.Contains(job.JobName) &&
 					(((job.State == JobState.Scheduled || job.State == JobState.Pending) && job.DueAt <= now)
@@ -483,7 +484,8 @@ internal sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorag
 		CancellationToken cancellationToken
 	)
 	{
-		await using var connection = CreateConnection();
+		await using var scope = contextScope.GetScope(out var connection);
+
 		_ = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
 		Guid? observedCursorStamp = null;
 		var cursorWasMissing = false;
@@ -607,12 +609,14 @@ internal sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorag
 		if (groupId is null || (!cursorWasMissing && observedCursorStamp is null))
 			return false;
 
-		await using var connection = CreateConnection();
+		await using var scope = contextScope.GetScope(out var connection);
+
 		var currentStamp = await FairQueueGroups(connection)
 			.Where(group => group.QueueName == queueName && group.GroupId == groupId)
 			.Select(static group => (Guid?)group.ConcurrencyStamp)
 			.SingleOrDefaultAsync(cancellationToken)
 			.ConfigureAwait(false);
+
 		return cursorWasMissing
 			? currentStamp is not null
 			: currentStamp != observedCursorStamp;
@@ -687,20 +691,22 @@ internal sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorag
 		CancellationToken cancellationToken = default
 	)
 	{
-		ArgumentNullException.ThrowIfNull(jobIds);
-		ArgumentException.ThrowIfNullOrWhiteSpace(workerId);
-		ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(lease, TimeSpan.Zero);
+		cancellationToken.ThrowIfCancellationRequested();
+
 		if (jobIds.Count == 0)
 			return [];
-		var now = _timeProvider.GetUtcNow().UtcTicks;
+		var now = timeProvider.GetUtcNow().UtcTicks;
 		var ids = jobIds.ToArray();
-		await using var connection = CreateConnection();
+
+		await using var scope = contextScope.GetScope(out var connection);
+
 		var candidates = await Jobs(connection)
 			.Where(job => ids.Contains(job.Id) &&
 				(((job.State == JobState.Scheduled || job.State == JobState.Pending) && job.DueAt <= now)
 					|| (job.State == JobState.Active && job.LeaseExpiresAt <= now)))
 			.ToListAsync(cancellationToken)
 			.ConfigureAwait(false);
+
 		return await AcquireCandidatesAsync(candidates, workerId, lease, now, cancellationToken).ConfigureAwait(false);
 	}
 
@@ -715,7 +721,8 @@ internal sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorag
 		var acquired = new List<JobRecord>(candidates.Count);
 		foreach (var candidate in candidates)
 		{
-			await using var connection = CreateConnection();
+			await using var scope = contextScope.GetScope(out var connection);
+
 			_ = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
 			try
 			{
@@ -784,6 +791,8 @@ internal sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorag
 		CancellationToken cancellationToken = default
 	)
 	{
+		cancellationToken.ThrowIfCancellationRequested();
+
 		await RetryConcurrencyAsync(async connection =>
 		{
 			var job = await Jobs(connection).SingleOrDefaultAsync(
@@ -820,11 +829,13 @@ internal sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorag
 		CancellationToken cancellationToken = default
 	)
 	{
-		ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(lease, TimeSpan.Zero);
-		await using var connection = CreateConnection();
+		cancellationToken.ThrowIfCancellationRequested();
+
+		await using var scope = contextScope.GetScope(out var connection);
+
 		var updated = await Jobs(connection)
 			.Where(job => job.Id == jobId && job.Attempt == executionNumber && job.State == JobState.Active && job.WorkerId == workerId)
-			.Set(job => job.LeaseExpiresAt, _timeProvider.GetUtcNow().UtcTicks + lease.Ticks)
+			.Set(job => job.LeaseExpiresAt, timeProvider.GetUtcNow().UtcTicks + lease.Ticks)
 			.Set(job => job.ConcurrencyStamp, Guid.NewGuid())
 			.UpdateAsync(cancellationToken)
 			.ConfigureAwait(false);
@@ -833,15 +844,20 @@ internal sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorag
 	}
 
 	/// <inheritdoc />
-	public ValueTask CompleteAsync(
+	public async ValueTask CompleteAsync(
 		string jobId,
 		int executionNumber,
 		string workerId,
 		CancellationToken cancellationToken = default
-	) => CompleteWithContinuationsAsync(jobId, executionNumber, workerId, [], cancellationToken);
+	)
+	{
+		cancellationToken.ThrowIfCancellationRequested();
+
+		await CompleteWithContinuationsAsync(jobId, executionNumber, workerId, [], cancellationToken);
+	}
 
 	/// <inheritdoc />
-	public ValueTask CompleteWithContinuationsAsync(
+	public async ValueTask CompleteWithContinuationsAsync(
 		string jobId,
 		int executionNumber,
 		string workerId,
@@ -849,8 +865,9 @@ internal sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorag
 		CancellationToken cancellationToken = default
 	)
 	{
-		ArgumentNullException.ThrowIfNull(additions);
-		return MutateOwnedWithDependenciesAsync(
+		cancellationToken.ThrowIfCancellationRequested();
+
+		await MutateOwnedWithDependenciesAsync(
 			jobId,
 			executionNumber,
 			workerId,
@@ -863,7 +880,7 @@ internal sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorag
 	}
 
 	/// <inheritdoc />
-	public ValueTask AddBatchJobAsync(
+	public async ValueTask AddBatchJobAsync(
 		string currentJobId,
 		int executionNumber,
 		JobRecord job,
@@ -871,35 +888,37 @@ internal sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorag
 		CancellationToken cancellationToken = default
 	)
 	{
-		ArgumentNullException.ThrowIfNull(job);
-		if (options == ContinuationOptions.Detached)
-			throw new ImmediateJobException("AddToBatchAsync cannot create a detached job.");
-		if (options is not (ContinuationOptions.BesideContinuations or ContinuationOptions.BeforeContinuations))
-			throw new ArgumentOutOfRangeException(nameof(options));
-		return RetryConcurrencyAsync(
+		cancellationToken.ThrowIfCancellationRequested();
+
+		await RetryConcurrencyAsync(
 			connection => AddBatchJobCoreAsync(connection, currentJobId, executionNumber, job, options, cancellationToken),
 			cancellationToken
 		);
 	}
 
 	/// <inheritdoc />
-	public ValueTask FailAsync(
+	public async ValueTask FailAsync(
 		string jobId,
 		int executionNumber,
 		string workerId,
 		string error,
 		DateTimeOffset? nextRetryAt,
 		CancellationToken cancellationToken = default
-	) => MutateOwnedWithDependenciesAsync(
-		jobId,
-		executionNumber,
-		workerId,
-		error,
-		nextRetryAt,
-		succeeded: false,
-		[],
-		cancellationToken
-	);
+	)
+	{
+		cancellationToken.ThrowIfCancellationRequested();
+
+		await MutateOwnedWithDependenciesAsync(
+			jobId,
+			executionNumber,
+			workerId,
+			error,
+			nextRetryAt,
+			succeeded: false,
+			[],
+			cancellationToken
+		);
+	}
 
 	/// <inheritdoc />
 	public async ValueTask UpsertRecurringAsync(
@@ -907,10 +926,12 @@ internal sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorag
 		CancellationToken cancellationToken = default
 	)
 	{
-		ArgumentNullException.ThrowIfNull(schedule);
+		cancellationToken.ThrowIfCancellationRequested();
+
 		for (var attempt = 0; attempt < MaxConcurrencyAttempts; attempt++)
 		{
-			await using var connection = CreateConnection();
+			await using var scope = contextScope.GetScope(out var connection);
+
 			var existing = await Recurring(connection).SingleOrDefaultAsync(item => item.Name == schedule.Name, cancellationToken)
 				.ConfigureAwait(false);
 			if (existing is null)
@@ -953,8 +974,10 @@ internal sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorag
 		CancellationToken cancellationToken = default
 	)
 	{
-		ArgumentNullException.ThrowIfNull(activeScheduleNames);
-		await using var connection = CreateConnection();
+		cancellationToken.ThrowIfCancellationRequested();
+
+		await using var scope = contextScope.GetScope(out var connection);
+
 		var schedules = Recurring(connection).Where(schedule => schedule.IsCodeDefined);
 		if (activeScheduleNames.Count != 0)
 			schedules = schedules.Where(schedule => !activeScheduleNames.Contains(schedule.Name));
@@ -964,8 +987,10 @@ internal sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorag
 	/// <inheritdoc />
 	public async ValueTask RemoveRecurringAsync(string name, CancellationToken cancellationToken = default)
 	{
-		ArgumentException.ThrowIfNullOrWhiteSpace(name);
-		await using var connection = CreateConnection();
+		cancellationToken.ThrowIfCancellationRequested();
+
+		await using var scope = contextScope.GetScope(out var connection);
+
 		var removed = await Recurring(connection)
 			.Where(schedule => schedule.Name == name && !schedule.IsCodeDefined)
 			.DeleteAsync(cancellationToken)
@@ -978,17 +1003,27 @@ internal sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorag
 	}
 
 	/// <inheritdoc />
-	public ValueTask PauseRecurringAsync(string name, CancellationToken cancellationToken = default) =>
-		SetRecurringPausedAsync(name, paused: true, cancellationToken);
+	public async ValueTask PauseRecurringAsync(string name, CancellationToken cancellationToken = default)
+	{
+		cancellationToken.ThrowIfCancellationRequested();
+
+		await SetRecurringPausedAsync(name, paused: true, cancellationToken);
+	}
 
 	/// <inheritdoc />
-	public ValueTask ResumeRecurringAsync(string name, CancellationToken cancellationToken = default) =>
-		SetRecurringPausedAsync(name, paused: false, cancellationToken);
+	public async ValueTask ResumeRecurringAsync(string name, CancellationToken cancellationToken = default)
+	{
+		cancellationToken.ThrowIfCancellationRequested();
+
+		await SetRecurringPausedAsync(name, paused: false, cancellationToken).ConfigureAwait(false);
+	}
 
 	private async ValueTask SetRecurringPausedAsync(string name, bool paused, CancellationToken cancellationToken)
 	{
-		ArgumentException.ThrowIfNullOrWhiteSpace(name);
-		await using var connection = CreateConnection();
+		cancellationToken.ThrowIfCancellationRequested();
+
+		await using var scope = contextScope.GetScope(out var connection);
+
 		var updated = await Recurring(connection)
 			.Where(schedule => schedule.Name == name)
 			.Set(schedule => schedule.IsPaused, paused)
@@ -1006,8 +1041,10 @@ internal sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorag
 		CancellationToken cancellationToken = default
 	)
 	{
-		ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(batchSize, 0);
-		await using var connection = CreateConnection();
+		cancellationToken.ThrowIfCancellationRequested();
+
+		await using var scope = contextScope.GetScope(out var connection);
+
 		var schedules = await Recurring(connection)
 			.Where(schedule => !schedule.IsPaused && schedule.NextRunAt <= now.UtcTicks)
 			.OrderBy(schedule => schedule.NextRunAt)
@@ -1025,9 +1062,10 @@ internal sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorag
 		CancellationToken cancellationToken = default
 	)
 	{
-		ArgumentNullException.ThrowIfNull(schedule);
-		ArgumentNullException.ThrowIfNull(job);
-		await using var connection = CreateConnection();
+		cancellationToken.ThrowIfCancellationRequested();
+
+		await using var scope = contextScope.GetScope(out var connection);
+
 		_ = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
 		try
 		{
@@ -1073,7 +1111,8 @@ internal sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorag
 		CancellationToken cancellationToken
 	)
 	{
-		await using var connection = CreateConnection();
+		await using var scope = contextScope.GetScope(out var connection);
+
 		if (!await Jobs(connection)
 			.AnyAsync(job => job.RecurringKey == recurringKey, cancellationToken)
 			.ConfigureAwait(false))
@@ -1098,7 +1137,10 @@ internal sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorag
 		CancellationToken cancellationToken = default
 	)
 	{
-		await using var connection = CreateConnection();
+		cancellationToken.ThrowIfCancellationRequested();
+
+		await using var scope = contextScope.GetScope(out var connection);
+
 		var rawCounts = await Jobs(connection)
 			.GroupBy(job => job.State)
 			.Select(group => new { State = group.Key, Count = group.LongCount() })
@@ -1112,7 +1154,7 @@ internal sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorag
 			.OrderBy(schedule => schedule.Name)
 			.ToListAsync(cancellationToken)
 			.ConfigureAwait(false);
-		var cutoff = (_timeProvider.GetUtcNow() - TimeSpan.FromMinutes(2)).UtcTicks;
+		var cutoff = (timeProvider.GetUtcNow() - TimeSpan.FromMinutes(2)).UtcTicks;
 		var serverEntities = await Servers(connection)
 			.Where(server => server.LastHeartbeat >= cutoff)
 			.OrderBy(server => server.WorkerId)
@@ -1120,7 +1162,7 @@ internal sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorag
 			.ConfigureAwait(false);
 		return new JobMonitoringSnapshot
 		{
-			CapturedAt = _timeProvider.GetUtcNow(),
+			CapturedAt = timeProvider.GetUtcNow(),
 			Counts = counts,
 			Recurring = [.. recurringEntities.Select(ToRecord)],
 			Servers = [.. serverEntities.Select(server => new JobServerSnapshot
@@ -1140,7 +1182,10 @@ internal sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorag
 		CancellationToken cancellationToken = default
 	)
 	{
-		await using var connection = CreateConnection();
+		cancellationToken.ThrowIfCancellationRequested();
+
+		await using var scope = contextScope.GetScope(out var connection);
+
 		IQueryable<ImmediateJobEntity> jobs = Jobs(connection);
 		if (query.Id is { } id)
 			jobs = jobs.Where(job => job.Id == id);
@@ -1173,7 +1218,10 @@ internal sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorag
 		CancellationToken cancellationToken = default
 	)
 	{
-		await using var connection = CreateConnection();
+		cancellationToken.ThrowIfCancellationRequested();
+
+		await using var scope = contextScope.GetScope(out var connection);
+
 		var job = await Jobs(connection)
 			.SingleOrDefaultAsync(item => item.Id == query.JobId, cancellationToken)
 			.ConfigureAwait(false);
@@ -1225,8 +1273,10 @@ internal sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorag
 		CancellationToken cancellationToken = default
 	)
 	{
-		ArgumentException.ThrowIfNullOrWhiteSpace(batchId);
-		await using var connection = CreateConnection();
+		cancellationToken.ThrowIfCancellationRequested();
+
+		await using var scope = contextScope.GetScope(out var connection);
+
 		var batch = await Batches(connection).SingleOrDefaultAsync(item => item.Id == batchId, cancellationToken)
 			.ConfigureAwait(false);
 		return batch is null ? null : ToStatus(batch);
@@ -1238,7 +1288,10 @@ internal sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorag
 		CancellationToken cancellationToken = default
 	)
 	{
-		await using var connection = CreateConnection();
+		cancellationToken.ThrowIfCancellationRequested();
+
+		await using var scope = contextScope.GetScope(out var connection);
+
 		IQueryable<ImmediateJobBatchEntity> batches = Batches(connection);
 		if (query.State is { } state)
 			batches = batches.Where(batch => batch.State == state);
@@ -1258,7 +1311,10 @@ internal sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorag
 		CancellationToken cancellationToken = default
 	)
 	{
-		await using var connection = CreateConnection();
+		cancellationToken.ThrowIfCancellationRequested();
+
+		await using var scope = contextScope.GetScope(out var connection);
+
 		var jobs = Jobs(connection).Where(job => job.BatchId == batchId);
 		if (query.State is { } state)
 			jobs = jobs.Where(job => job.State == state);
@@ -1287,8 +1343,10 @@ internal sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorag
 		CancellationToken cancellationToken = default
 	)
 	{
-		ArgumentException.ThrowIfNullOrWhiteSpace(batchId);
-		await using var connection = CreateConnection();
+		cancellationToken.ThrowIfCancellationRequested();
+
+		await using var scope = contextScope.GetScope(out var connection);
+
 		if (!await Batches(connection).AnyAsync(batch => batch.Id == batchId, cancellationToken).ConfigureAwait(false))
 			return null;
 		var entities = await Jobs(connection)
@@ -1317,7 +1375,10 @@ internal sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorag
 		CancellationToken cancellationToken = default
 	)
 	{
-		await using var connection = CreateConnection();
+		cancellationToken.ThrowIfCancellationRequested();
+
+		await using var scope = contextScope.GetScope(out var connection);
+
 		var job = await Jobs(connection).SingleOrDefaultAsync(item => item.Id == jobId, cancellationToken)
 			.ConfigureAwait(false);
 		if (job is null)
@@ -1348,7 +1409,8 @@ internal sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorag
 	/// <inheritdoc />
 	public async ValueTask CancelBatchAsync(string batchId, CancellationToken cancellationToken = default)
 	{
-		ArgumentException.ThrowIfNullOrWhiteSpace(batchId);
+		cancellationToken.ThrowIfCancellationRequested();
+
 		var terminalGroups = new HashSet<(string QueueName, string GroupId)>();
 		await RetryConcurrencyAsync(
 			connection => CancelBatchCoreAsync(
@@ -1369,7 +1431,7 @@ internal sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorag
 		CancellationToken cancellationToken
 	)
 	{
-		var now = _timeProvider.GetUtcNow().UtcTicks;
+		var now = timeProvider.GetUtcNow().UtcTicks;
 		var batch = await Batches(connection).SingleOrDefaultAsync(item => item.Id == batchId, cancellationToken)
 			.ConfigureAwait(false)
 			?? throw new KeyNotFoundException($"Batch '{batchId}' was not found.");
@@ -1423,8 +1485,10 @@ internal sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorag
 	/// <inheritdoc />
 	public async ValueTask DeleteBatchAsync(string batchId, CancellationToken cancellationToken = default)
 	{
-		ArgumentException.ThrowIfNullOrWhiteSpace(batchId);
-		await using var connection = CreateConnection();
+		cancellationToken.ThrowIfCancellationRequested();
+
+		await using var scope = contextScope.GetScope(out var connection);
+
 		_ = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
 		try
 		{
@@ -1459,7 +1523,8 @@ internal sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorag
 	/// <inheritdoc />
 	public async ValueTask CancelAsync(string jobId, CancellationToken cancellationToken = default)
 	{
-		ArgumentException.ThrowIfNullOrWhiteSpace(jobId);
+		cancellationToken.ThrowIfCancellationRequested();
+
 		var terminalGroups = new HashSet<(string QueueName, string GroupId)>();
 		await RetryConcurrencyAsync(
 			connection => CancelCoreAsync(connection, jobId, terminalGroups, cancellationToken),
@@ -1481,7 +1546,7 @@ internal sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorag
 		if (IsTerminal(job.State))
 			throw new ImmediateJobException("Only a non-terminal job can be cancelled.");
 
-		var now = _timeProvider.GetUtcNow().UtcTicks;
+		var now = timeProvider.GetUtcNow().UtcTicks;
 		if (job.State == JobState.Active)
 		{
 			_ = await GetOrMaterializeExecutionAsync(connection, job, cancellationToken).ConfigureAwait(false)
@@ -1507,10 +1572,11 @@ internal sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorag
 	}
 
 	/// <inheritdoc />
-	public ValueTask RetryAsync(string jobId, CancellationToken cancellationToken = default)
+	public async ValueTask RetryAsync(string jobId, CancellationToken cancellationToken = default)
 	{
-		ArgumentException.ThrowIfNullOrWhiteSpace(jobId);
-		return RetryConcurrencyAsync(
+		cancellationToken.ThrowIfCancellationRequested();
+
+		await RetryConcurrencyAsync(
 			connection => RetryCoreAsync(connection, jobId, cancellationToken),
 			cancellationToken
 		);
@@ -1546,7 +1612,7 @@ internal sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorag
 
 		var oldStamp = job.ConcurrencyStamp;
 		job.State = JobState.Pending;
-		job.DueAt = _timeProvider.GetUtcNow().UtcTicks;
+		job.DueAt = timeProvider.GetUtcNow().UtcTicks;
 		job.WorkerId = null;
 		job.LeaseExpiresAt = null;
 		if (wasFailed)
@@ -1563,8 +1629,10 @@ internal sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorag
 	/// <inheritdoc />
 	public async ValueTask DeleteAsync(string jobId, CancellationToken cancellationToken = default)
 	{
-		ArgumentException.ThrowIfNullOrWhiteSpace(jobId);
-		await using var connection = CreateConnection();
+		cancellationToken.ThrowIfCancellationRequested();
+
+		await using var scope = contextScope.GetScope(out var connection);
+
 		_ = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
 		try
 		{
@@ -1615,8 +1683,11 @@ internal sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorag
 		CancellationToken cancellationToken = default
 	)
 	{
-		var now = _timeProvider.GetUtcNow();
-		await using var connection = CreateConnection();
+		cancellationToken.ThrowIfCancellationRequested();
+
+		await using var scope = contextScope.GetScope(out var connection);
+
+		var now = timeProvider.GetUtcNow();
 		_ = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
 		try
 		{
@@ -1667,9 +1738,13 @@ internal sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorag
 		CancellationToken cancellationToken = default
 	)
 	{
-		var now = _timeProvider.GetUtcNow();
-		await using var connection = CreateConnection();
+		cancellationToken.ThrowIfCancellationRequested();
+
+		await using var scope = contextScope.GetScope(out var connection);
+
+		var now = timeProvider.GetUtcNow();
 		_ = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+
 		try
 		{
 			var batchIds = await Batches(connection)
@@ -1716,9 +1791,11 @@ internal sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorag
 	/// <inheritdoc />
 	public async ValueTask HeartbeatAsync(JobServerSnapshot server, CancellationToken cancellationToken = default)
 	{
-		ArgumentNullException.ThrowIfNull(server);
-		await using var connection = CreateConnection();
-		var cutoff = (_timeProvider.GetUtcNow() - TimeSpan.FromMinutes(2)).UtcTicks;
+		cancellationToken.ThrowIfCancellationRequested();
+
+		await using var scope = contextScope.GetScope(out var connection);
+
+		var cutoff = (timeProvider.GetUtcNow() - TimeSpan.FromMinutes(2)).UtcTicks;
 		_ = await Servers(connection)
 			.Where(entity => entity.LastHeartbeat < cutoff)
 			.DeleteAsync(cancellationToken)
@@ -1757,9 +1834,12 @@ internal sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorag
 	/// <inheritdoc />
 	public async ValueTask<bool> IsHealthyAsync(CancellationToken cancellationToken = default)
 	{
+		cancellationToken.ThrowIfCancellationRequested();
+
 		try
 		{
-			await using var connection = CreateConnection();
+			await using var scope = contextScope.GetScope(out var connection);
+
 			_ = await connection.ExecuteAsync("SELECT 1", cancellationToken).ConfigureAwait(false);
 			return true;
 		}
@@ -1808,7 +1888,8 @@ internal sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorag
 		{
 			try
 			{
-				await using var connection = CreateConnection();
+				await using var scope = contextScope.GetScope(out var connection);
+
 				if (await Jobs(connection)
 					.AnyAsync(
 						item => item.QueueName == queueName
@@ -1857,7 +1938,7 @@ internal sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorag
 			)
 			.ConfigureAwait(false) ?? throw new ImmediateJobException($"Worker '{workerId}' does not own active job '{jobId}'.");
 		var oldStamp = job.ConcurrencyStamp;
-		var now = _timeProvider.GetUtcNow().UtcTicks;
+		var now = timeProvider.GetUtcNow().UtcTicks;
 		_ = await GetOrMaterializeExecutionAsync(connection, job, cancellationToken).ConfigureAwait(false)
 			?? throw new ImmediateJobException($"Active job '{job.Id}' has no execution ordinal.");
 		var executionUpdated = await Executions(connection)
@@ -2401,7 +2482,8 @@ internal sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorag
 		var concurrencyAttempt = 0;
 		while (true)
 		{
-			await using var connection = CreateConnection();
+			await using var scope = contextScope.GetScope(out var connection);
+
 			_ = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
 			try
 			{
@@ -2463,7 +2545,8 @@ internal sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorag
 	{
 		try
 		{
-			await using var connection = CreateConnection();
+			await using var scope = contextScope.GetScope(out var connection);
+
 			return await Executions(connection)
 				.AnyAsync(
 					execution => execution.JobId == jobId && execution.Attempt == attempt,
@@ -2582,8 +2665,6 @@ internal sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorag
 		return updated != 0;
 	}
 
-	private DataConnection CreateConnection() => new(_dataOptions);
-
 	private ITable<ImmediateJobEntity> Jobs(DataConnection connection) =>
 		WithSchema(connection.GetTable<ImmediateJobEntity>());
 
@@ -2605,11 +2686,11 @@ internal sealed class LinqToDBJobStorage : IRecurringJobStorage, IJobGraphStorag
 	private ITable<ImmediateJobServerEntity> Servers(DataConnection connection) =>
 		WithSchema(connection.GetTable<ImmediateJobServerEntity>());
 
-	private ITable<T> WithSchema<T>(ITable<T> table)
-		where T : notnull => _schema is null ? table : table.SchemaName(_schema);
+	private ITable<TTable> WithSchema<TTable>(ITable<TTable> table)
+		where TTable : notnull => _schema is null ? table : table.SchemaName(_schema);
 
-	private Task<int> InsertAsync<T>(DataConnection connection, T entity, CancellationToken cancellationToken)
-		where T : notnull => connection.InsertAsync(entity, schemaName: _schema, token: cancellationToken);
+	private Task<int> InsertAsync<TTable>(DataConnection connection, TTable entity, CancellationToken cancellationToken)
+		where TTable : notnull => connection.InsertAsync(entity, schemaName: _schema, token: cancellationToken);
 
 	private static bool IsTerminal(JobState state) =>
 		state is JobState.Succeeded or JobState.Failed or JobState.Cancelled or JobState.Skipped;

@@ -33,11 +33,7 @@ builder.Services.AddDbContextFactory<JobsDbContext>(options =>
 	options.UseNpgsql(connectionString, npgsql => npgsql.EnableRetryOnFailure()));
 
 builder.Services.AddAspireApiHandlers();
-builder.Services.AddImmediateJobsDashboard(options =>
-{
-	if (aspireDashboardUrl is not null)
-		_ = options.AddAspireTelemetryLinks(aspireDashboardUrl);
-});
+
 builder.Services.AddAspireApiJobs()
 	.UseFairQueues()
 	.ConfigureStorage(
@@ -45,12 +41,14 @@ builder.Services.AddAspireApiJobs()
 			.UseEntityFrameworkCore<JobsDbContext>()
 			.UseSingleServer()
 	)
-	.Configure(o =>
+	.ConfigureWorkers(o =>
 	{
 		o.MaxParallelJobs = 4;
 		o.PollingInterval = TimeSpan.FromSeconds(5);
 	})
-	.AddHealthCheck();
+	.AddHealthCheck()
+	.AddImmediateJobsDashboard()
+	.AddAspireTelemetryLinks(aspireDashboardUrl);
 
 var app = builder.Build();
 

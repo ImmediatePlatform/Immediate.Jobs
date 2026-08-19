@@ -101,15 +101,8 @@ public sealed partial class JobSchedulingService : BackgroundService
 		_storage = storage;
 		_recurringStorage = storage as IRecurringJobStorage;
 		_graphStorage = storage as IJobGraphStorage;
-		_options = options.Value;
-		_fairQueueOptions = fairQueueOptions.Value;
-		_timeProvider = timeProvider;
-		_idGenerator = idGenerator;
-		_logger = logger;
-		_state = state;
-		if (_graphStorage is null)
-			GraphFeaturesDisabled(_logger, storage.GetType().Name);
 		_definitions = definitions.ToDictionary(x => x.Name, StringComparer.Ordinal);
+
 		_queues = queueDefinitions
 			.Concat(_definitions.Values.Select(static definition => definition.Queue))
 			.Append(JobQueueDefinition.Default)
@@ -119,6 +112,14 @@ public sealed partial class JobSchedulingService : BackgroundService
 				static group => group.Distinct().Single(),
 				StringComparer.Ordinal
 			);
+
+		_options = options.Value;
+		_fairQueueOptions = fairQueueOptions.Value;
+		_timeProvider = timeProvider;
+		_idGenerator = idGenerator;
+		_logger = logger;
+		_state = state;
+
 		// Reservation accounting in BuildAcquisitionRequest is the admission control, so the channel is
 		// only a handoff buffer. A bounded channel would add a second, redundant limit whose sole effect
 		// is to block the scheduler loop -- and with it the heartbeat -- if the two ever disagree.
@@ -127,11 +128,17 @@ public sealed partial class JobSchedulingService : BackgroundService
 			SingleWriter = true,
 			SingleReader = _options.MaxParallelJobs == 1,
 		});
+
+		if (_graphStorage is null)
+			GraphFeaturesDisabled(_logger, storage.GetType().Name);
 	}
 
 	/// <inheritdoc />
 	protected override async Task ExecuteAsync(CancellationToken stoppingToken)
 	{
+		if (!_options.IsJobSchedulingServiceEnabled)
+			return;
+
 		await _storage.InitializeAsync(stoppingToken).ConfigureAwait(false);
 		await EnsureCodeSchedulesAsync(stoppingToken).ConfigureAwait(false);
 		_state.MarkStarted(_timeProvider.GetUtcNow());
