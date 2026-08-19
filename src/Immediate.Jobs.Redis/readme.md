@@ -28,7 +28,7 @@ builder.Services.AddMyAppJobs()
 		.UseRedis()
 		.ConfigureRedis(redis =>
 		{
-			redis.Database = 1;
+			redis.Database = 0;
 			redis.KeyPrefix = "billing-jobs";
 		}));
 ```
