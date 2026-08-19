@@ -9,7 +9,7 @@
 
 ## 1. Outcome
 
-`Immediate.Jobs.Testing` will expose a test-framework-neutral catalog of storage conformance cases.
+`Immediate.Jobs.Testing` exposes a test-framework-neutral catalog of storage conformance cases.
 A provider author supplies the provider's `StorageCapabilities`, creates an `IServiceProvider` for
 an isolated instance of their provider, and adapts the catalog to xUnit, NUnit, MSTest, or another
 runner. Immediate.Jobs' own provider matrix consumes the same catalog from the package project.
@@ -79,7 +79,7 @@ Extend `StorageCapabilities` with `FairQueues` and `Replica`. The conformance su
 instance-based capability detection after resolving `IJobStorage`, so runtime reporting and test
 validation cannot disagree.
 
-Suggested API:
+Public API:
 
 ```csharp
 [Flags]
@@ -107,18 +107,26 @@ a conformance failure with the advertised and resolved flag sets in its diagnost
 ### 2.3 The service provider owns backend isolation and storage lifetime
 
 The provider test project creates a fresh service provider for every conformance case. That service
-provider represents one empty, isolated backend namespace: for example a unique SQL schema, a
-temporary SQLite database, a unique Redis key prefix, or a dedicated test database. The fixture uses
-the provider package's public registration method to place its implementation into the container as
-`IJobStorage`, registers the controllable `FakeTimeProvider` as `TimeProvider`, and then builds the
-container passed to `RunAsync`.
+provider represents one empty, isolated backend namespace, such as a unique SQL schema, temporary
+SQLite database, Redis key prefix, or dedicated test database. Register the controllable
+`FakeTimeProvider` as `TimeProvider`, then configure storage through the public builder:
 
-This public registration method is the provider's conformance seam. The suite does not construct a
-concrete storage type, call an internal factory, or require `InternalsVisibleTo`. It exercises the
-same registration path available to an application, then tests the `IJobStorage` obtained from that
-container entirely through public contracts. Provider packages may improve or replace their
-construction internals without changing the suite, provided their public registration still
-produces the advertised storage service.
+```csharp
+services.AddImmediateJobsCore()
+    .ConfigureStorage(storage => storage
+        .UseAcmeStorage(options)
+        .UseDistributed());
+```
+
+Call `ConfigureStorage` exactly once. Use the provider's normal `IImmediateJobsStorageBuilder`
+extension rather than registering `IJobStorage` directly. This is the provider's conformance seam.
+The suite does not construct a concrete storage type, call an internal factory, or require
+`InternalsVisibleTo`.
+
+Topology is part of the fixture. Distributed mode resolves the durable provider itself. Single-server
+mode resolves `SingleServerJobStorage`, with the durable provider behind it as a replica. The
+capability flags passed to `GetCases` must describe the resolved `IJobStorage`, not the backing
+provider.
 
 The registered storage:
 
@@ -160,6 +168,8 @@ public static class JobStorageConformanceSuite
 {
     public static IReadOnlyList<JobStorageConformanceTestCase> GetCases(
         StorageCapabilities capabilities);
+
+    public static IReadOnlyDictionary<string, JobStorageConformanceTestCase> AllCasesByName { get; }
 }
 ```
 
@@ -167,6 +177,10 @@ public static class JobStorageConformanceSuite
 flags. Each returned case also exposes its requirements for reporting and documentation. The full
 advertised flag set is retained by each case so `RunAsync` can compare it with the capabilities of
 the resolved storage before running the scenario.
+
+`AllCasesByName` contains every published case, keyed case-insensitively by its stable name. The
+repository's xUnit serializer stores the name during discovery and uses this map to recover the case
+at execution time.
 
 `RunAsync` calls `serviceProvider.GetRequiredService<IJobStorage>()` and uses that resolved instance
 for the case. Resolution failure and a capability mismatch are reported as conformance failures
@@ -433,9 +447,13 @@ invariant. Move the behavioral assertion, not the provider-specific reproduction
 
 ### 7.1 Relational matrix
 
-Split the existing relational fixture into reusable EF Core and LinqToDB service-provider factories.
-Each factory creates a unique schema or SQLite database per case, calls the adapter's public storage
-registration method, registers the shared fake clock, and builds the service provider.
+EF Core and LinqToDB have separate conformance fixtures. Each adapter has its own PostgreSQL and SQL
+Server container collections, while SQLite uses a temporary file. Every case gets a unique schema or
+SQLite database, a fake clock, and a new service provider.
+
+Each fixture calls `AddImmediateJobsCore().ConfigureStorage(...)` with its adapter extension. Calling
+`UseDistributed()` tests the durable provider directly. Leaving the durable topology unspecified
+selects the default single-server wrapper.
 
 Run the packaged cases for each existing matrix entry:
 
@@ -448,17 +466,18 @@ SQL Server  × EF Core
 SQL Server  × LinqToDB
 ```
 
-Both adapter types advertise queue, recurring, graph, fair-queue, and replica capabilities through
-their interfaces. The same matrix also runs the queue, recurring, graph, and fair-queue cases with
-each durable adapter behind `SingleServerJobStorage`; this validates the replica interfaces through
-their real consumer as well as directly. Provider validity is established by these conformance
-cases rather than by parallel adapter- or database-specific storage test classes.
+In distributed mode, both adapters advertise queue, recurring, graph, fair-queue, and replica
+capabilities. In single-server mode, the resolved `SingleServerJobStorage` advertises queue,
+recurring, graph, and fair queues, but not replica. The backing provider still uses its replica
+interfaces for recovery. Provider validity comes from these conformance cases rather than parallel
+adapter-specific storage test classes.
 
 ### 7.2 Redis
 
-Add a service-provider factory that allocates a unique key prefix while reusing the assembly-level
-Redis container and, where appropriate, the connection multiplexer. The factory calls Redis's public
-storage registration method and builds the container passed to each case. Pass
+The Redis fixture allocates a unique key prefix while reusing its collection-level Redis container.
+It registers `IConnectionMultiplexer`, then calls
+`AddImmediateJobsCore().ConfigureStorage(storage => storage.UseRedis().ConfigureRedis(...))`.
+`UseRedis()` selects distributed mode. Pass
 `StorageCapabilities.Queue | StorageCapabilities.Recurring` to `GetCases`; `RunAsync` verifies that
 the registered `RedisJobStorage` reports those capabilities and excludes graph, fair-queue, and
 replica cases from the catalog.
@@ -469,9 +488,10 @@ recurring cases cover its externally observable storage contract.
 
 ### 7.3 In-memory and single-server
 
-Run the same catalog against `InMemoryJobStorage`. This is important even though the suite lives in
-`Immediate.Jobs.Testing`: the in-memory provider is a real implementation and acts as the fastest
-contract smoke test.
+Run the same catalog against `InMemoryJobStorage`, registered with
+`AddImmediateJobsCore().ConfigureStorage(storage => storage.UseInMemory())`. This is important even
+though the suite lives in `Immediate.Jobs.Testing`: the in-memory provider is a real implementation
+and acts as the fastest contract smoke test.
 
 Run applicable cases against `SingleServerJobStorage` through a service provider backed by every
 isolated relational provider in the matrix. The wrapper exercises `IJobStorageReplica` and
@@ -481,16 +501,16 @@ provider conformance rather than a separate direct-storage test class.
 ### 7.4 Test project dependency
 
 Keep concrete storage conformance tests in `Immediate.Jobs.StorageTests`.
-That project targets every supported framework for the portable in-memory conformance and suite
-infrastructure tests, while compiling and running the container-backed provider matrix only on
-.NET 10. `Immediate.Jobs.FunctionalTests` may use storage as a fixture when testing schedulers,
-generated jobs, or dashboard behavior, but it must not own storage-provider contract or
-implementation tests.
+That project currently targets .NET 8, .NET 9, and .NET 10. It compiles the in-memory, Redis, EF Core,
+and LinqToDB conformance tests for every target. .NET 11 is temporarily excluded until Npgsql supports
+it. `Immediate.Jobs.FunctionalTests` may use storage as a fixture when testing schedulers, generated
+jobs, or dashboard behavior, but it must not own storage-provider contract or implementation tests.
 
 Add a project reference from the storage test project to `Immediate.Jobs.Testing`. Conformance tests
 must consume the public API exactly as an external package consumer would. Provider projects expose
-public registration methods that register `IJobStorage`; do not add `InternalsVisibleTo`, public
-test-only constructors, or public conformance factories for conformance execution.
+`IImmediateJobsStorageBuilder` extensions used inside `ConfigureStorage`; do not add
+`InternalsVisibleTo`, public test-only constructors, or public conformance factories for conformance
+execution.
 
 ## 8. Assertion and failure behavior
 
@@ -532,8 +552,8 @@ suppressing individual invariants.
 1. Add `IFairQueueStorage` and implement it on the providers that honor fair policies.
 2. Add `FairQueues` and `Replica` to `StorageCapabilities`.
 3. Extend instance-based capability detection for the new marker interfaces.
-4. Expose or standardize each built-in provider's public registration method so it registers its
-   implementation as `IJobStorage` without test-only access.
+4. Expose or standardize each built-in provider's `IImmediateJobsStorageBuilder` extension so tests
+   can configure it through `AddImmediateJobsCore().ConfigureStorage(...)` without test-only access.
 5. Add the public test-case and suite types to `Immediate.Jobs.Testing`.
 6. Add infrastructure tests proving case selection follows the supplied flags, `RunAsync` rejects a
    mismatch between those flags and the resolved `IJobStorage`, and Redis cannot accidentally claim
@@ -609,8 +629,8 @@ The work is complete when:
 - each built-in provider runs every catalog case selected by its advertised flags;
 - Redis advertises and runs queue and recurring cases, and excludes graph, fair-queue, and replica
   cases;
-- every provider fixture builds the supplied service provider through the provider package's public
-  `IJobStorage` registration method;
+- every provider fixture builds the supplied service provider through
+  `AddImmediateJobsCore().ConfigureStorage(...)` and the provider's public storage-builder extension;
 - the relational matrix uses the public package API rather than private shared test helpers;
 - conformance execution requires no `InternalsVisibleTo`, test-only storage constructor, or
   provider-specific factory in `Immediate.Jobs.Testing`;
