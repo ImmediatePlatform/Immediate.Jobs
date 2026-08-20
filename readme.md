@@ -52,16 +52,13 @@ public sealed class SignupService(SendWelcomeEmail.Scheduler welcomeEmail)
 Register the generated handlers and jobs methods in `Program.cs`, in that order. For an assembly named `MyApp`, these
 are `AddMyAppHandlers()` and `AddMyAppJobs()`.
 
-See the [Immediate.Jobs package README](src/Immediate.Jobs/readme.md) for jobs, queues, batches, recurring work,
-context propagation, diagnostics, and runtime defaults.
-
 ## Packages
 
 Each package has focused installation and configuration guidance:
 
 | Package | Purpose |
 |---|---|
-| [Immediate.Jobs](src/Immediate.Jobs/readme.md) | Core scheduler, source generator, execution engine, and in-memory provider |
+| [Immediate.Jobs](https://www.nuget.org/packages/Immediate.Jobs/) | Core scheduler, source generator, execution engine, and in-memory provider |
 | [Immediate.Jobs.EntityFrameworkCore](src/Immediate.Jobs.EntityFrameworkCore/readme.md) | Durable EF Core storage for PostgreSQL, SQLite, and SQL Server |
 | [Immediate.Jobs.LinqToDB](src/Immediate.Jobs.LinqToDB/readme.md) | Durable LinqToDB storage for PostgreSQL, SQLite, and SQL Server |
 | [Immediate.Jobs.Redis](src/Immediate.Jobs.Redis/readme.md) | Distributed Redis queue and recurring storage |
