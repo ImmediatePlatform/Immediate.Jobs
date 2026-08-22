@@ -24,7 +24,7 @@ public sealed class NodaTimeTests
 			groupId: "tenant-a",
 			cancellationToken: cancellationToken
 		);
-		_ = await scheduler.ScheduleAtAsync(
+		_ = await scheduler.ScheduleAsync(
 			new("absolute"),
 			start + Duration.FromHours(2),
 			groupId: "tenant-b",
@@ -51,45 +51,45 @@ public sealed class NodaTimeTests
 		);
 		await using var batch = harness.Batches.Begin();
 
-		var delayedBatchMember = scheduler.AddToBatch(
-			batch,
+		var delayedBatchMember = scheduler.Schedule(
 			new("delayed-batch-member"),
+			batch,
 			Duration.FromMinutes(5)
 		);
-		var absoluteBatchMember = scheduler.AddToBatchAt(
-			batch,
+		var absoluteBatchMember = scheduler.Schedule(
 			new("absolute-batch-member"),
+			batch,
 			start + Duration.FromHours(2)
 		);
-		var firstParent = scheduler.AddToBatch(batch, new("first-parent"));
-		var secondParent = scheduler.AddToBatch(batch, new("second-parent"));
+		var firstParent = scheduler.Enqueue(new("first-parent"), batch);
+		var secondParent = scheduler.Enqueue(new("second-parent"), batch);
 		var jobContinuation = await scheduler.ScheduleAfterAsync(
-			firstParent,
 			new("job-continuation"),
+			firstParent.JobId,
 			delay: Duration.FromMinutes(10),
 			cancellationToken: cancellationToken
 		);
 		var fanInContinuation = await scheduler.ScheduleAfterAsync(
-			[firstParent, secondParent],
 			new("fan-in-continuation"),
+			[firstParent.JobId, secondParent.JobId],
 			delay: Duration.FromMinutes(15),
 			cancellationToken: cancellationToken
 		);
 		var batchHandle = await batch.CommitAsync(cancellationToken);
 		var batchContinuation = await scheduler.ScheduleAfterAsync(
-			batchHandle,
 			new("batch-continuation"),
+			batchHandle,
 			delay: Duration.FromMinutes(20),
 			cancellationToken: cancellationToken
 		);
 
 		var jobs = (await harness.QueryJobsAsync(cancellationToken: cancellationToken))
 			.ToDictionary(static job => job.JobId, StringComparer.Ordinal);
-		Assert.Equal(start + Duration.FromMinutes(5), Instant.FromDateTimeOffset(jobs[delayedBatchMember.Id].DueAt));
-		Assert.Equal(start + Duration.FromHours(2), Instant.FromDateTimeOffset(jobs[absoluteBatchMember.Id].DueAt));
-		Assert.Equal(start + Duration.FromMinutes(10), Instant.FromDateTimeOffset(jobs[jobContinuation.Id].DueAt));
-		Assert.Equal(start + Duration.FromMinutes(15), Instant.FromDateTimeOffset(jobs[fanInContinuation.Id].DueAt));
-		Assert.Equal(start + Duration.FromMinutes(20), Instant.FromDateTimeOffset(jobs[batchContinuation.Id].DueAt));
+		Assert.Equal(start + Duration.FromMinutes(5), Instant.FromDateTimeOffset(jobs[delayedBatchMember.JobId.JobId].DueAt));
+		Assert.Equal(start + Duration.FromHours(2), Instant.FromDateTimeOffset(jobs[absoluteBatchMember.JobId.JobId].DueAt));
+		Assert.Equal(start + Duration.FromMinutes(10), Instant.FromDateTimeOffset(jobs[jobContinuation.JobId].DueAt));
+		Assert.Equal(start + Duration.FromMinutes(15), Instant.FromDateTimeOffset(jobs[fanInContinuation.JobId].DueAt));
+		Assert.Equal(start + Duration.FromMinutes(20), Instant.FromDateTimeOffset(jobs[batchContinuation.JobId].DueAt));
 	}
 
 	[Fact]

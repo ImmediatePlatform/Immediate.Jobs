@@ -27,15 +27,15 @@ public class CaptureOnlyJobScheduler<TPayload>(TimeProvider? timeProvider = null
 
 	/// <inheritdoc />
 	public virtual ValueTask<JobHandle> EnqueueAsync(TPayload payload, CancellationToken cancellationToken = default) =>
-		throw new NotImplementedException();
+		CaptureAsync(payload, _timeProvider.GetUtcNow(), null, cancellationToken);
 
 	/// <inheritdoc />
 	public virtual ValueTask<JobHandle> EnqueueAsync(TPayload payload, string groupId, CancellationToken cancellationToken = default) =>
-		throw new NotImplementedException();
+		CaptureAsync(payload, _timeProvider.GetUtcNow(), groupId, cancellationToken);
 
 	/// <inheritdoc />
 	public virtual ValueTask<JobHandle> ScheduleAsync(TPayload payload, TimeSpan delay, CancellationToken cancellationToken = default) =>
-		throw new NotImplementedException();
+		CaptureDelayedAsync(payload, delay, null, cancellationToken);
 
 	/// <inheritdoc />
 	public virtual ValueTask<JobHandle> ScheduleAsync(
@@ -43,11 +43,11 @@ public class CaptureOnlyJobScheduler<TPayload>(TimeProvider? timeProvider = null
 		TimeSpan delay,
 		string groupId,
 		CancellationToken cancellationToken = default
-	) => throw new NotImplementedException();
+	) => CaptureDelayedAsync(payload, delay, groupId, cancellationToken);
 
 	/// <inheritdoc />
 	public virtual ValueTask<JobHandle> ScheduleAsync(TPayload payload, DateTimeOffset at, CancellationToken cancellationToken = default) =>
-		throw new NotImplementedException();
+		CaptureAtAsync(payload, at, null, cancellationToken);
 
 	/// <inheritdoc />
 	public virtual ValueTask<JobHandle> ScheduleAsync(
@@ -55,98 +55,56 @@ public class CaptureOnlyJobScheduler<TPayload>(TimeProvider? timeProvider = null
 		DateTimeOffset at,
 		string groupId,
 		CancellationToken cancellationToken = default
-	) => throw new NotImplementedException();
+	) => CaptureAtAsync(payload, at, groupId, cancellationToken);
 
 	/// <inheritdoc />
-	public virtual ValueTask<JobHandle> ScheduleAfterAsync(TPayload payload, JobHandle job, CancellationToken cancellationToken = default) =>
-		throw new NotImplementedException();
+	public virtual ValueTask<JobHandle> ScheduleAfterAsync(TPayload payload, ContinuationHandle parent, ContinuationTrigger on = ContinuationTrigger.Success, CancellationToken cancellationToken = default) =>
+		CaptureAsync(payload, _timeProvider.GetUtcNow(), null, cancellationToken);
 
 	/// <inheritdoc />
-	public virtual ValueTask<JobHandle> ScheduleAfterAsync(TPayload payload, JobHandle job, string groupId, CancellationToken cancellationToken = default) =>
-		throw new NotImplementedException();
+	public virtual ValueTask<JobHandle> ScheduleAfterAsync(TPayload payload, ContinuationHandle parent, string groupId, ContinuationTrigger on = ContinuationTrigger.Success, CancellationToken cancellationToken = default) =>
+		CaptureAsync(payload, _timeProvider.GetUtcNow(), groupId, cancellationToken);
 
 	/// <inheritdoc />
-	public virtual ValueTask<JobHandle> ScheduleAfterAsync(TPayload payload, JobHandle job, TimeSpan delay, CancellationToken cancellationToken = default) =>
-		throw new NotImplementedException();
-
-	/// <inheritdoc />
-	public virtual ValueTask<JobHandle> ScheduleAfterAsync(
-		TPayload payload,
-		JobHandle job,
-		TimeSpan delay,
-		string groupId,
-		CancellationToken cancellationToken = default
-	) => throw new NotImplementedException();
-
-	/// <inheritdoc />
-	public virtual ValueTask<JobHandle> ScheduleAfterAsync(TPayload payload, IReadOnlyList<JobHandle> jobs, CancellationToken cancellationToken = default) =>
-		throw new NotImplementedException();
-
-	/// <inheritdoc />
-	public virtual ValueTask<JobHandle> ScheduleAfterAsync(TPayload payload, IReadOnlyList<JobHandle> jobs, string groupId, CancellationToken cancellationToken = default) =>
-		throw new NotImplementedException();
-
-	/// <inheritdoc />
-	public virtual ValueTask<JobHandle> ScheduleAfterAsync(TPayload payload, IReadOnlyList<JobHandle> jobs, TimeSpan delay, CancellationToken cancellationToken = default) =>
-		throw new NotImplementedException();
+	public virtual ValueTask<JobHandle> ScheduleAfterAsync(TPayload payload, ContinuationHandle parent, TimeSpan delay, ContinuationTrigger on = ContinuationTrigger.Success, CancellationToken cancellationToken = default) =>
+		CaptureDelayedAsync(payload, delay, null, cancellationToken);
 
 	/// <inheritdoc />
 	public virtual ValueTask<JobHandle> ScheduleAfterAsync(
 		TPayload payload,
-		IReadOnlyList<JobHandle> jobs,
+		ContinuationHandle parent,
 		TimeSpan delay,
 		string groupId,
-		CancellationToken cancellationToken = default
-	) => throw new NotImplementedException();
+		ContinuationTrigger on = ContinuationTrigger.Success, CancellationToken cancellationToken = default
+	) => CaptureDelayedAsync(payload, delay, groupId, cancellationToken);
 
 	/// <inheritdoc />
-	public virtual ValueTask<JobHandle> ScheduleAfterAsync(TPayload payload, BatchHandle batch, CancellationToken cancellationToken = default) =>
-		throw new NotImplementedException();
+	public virtual ValueTask<JobHandle> ScheduleAfterAsync(TPayload payload, IReadOnlyList<ContinuationHandle> parents, ContinuationTrigger on = ContinuationTrigger.Success, CancellationToken cancellationToken = default) =>
+		CaptureAsync(payload, _timeProvider.GetUtcNow(), null, cancellationToken);
 
 	/// <inheritdoc />
-	public virtual ValueTask<JobHandle> ScheduleAfterAsync(TPayload payload, BatchHandle batch, string groupId, CancellationToken cancellationToken = default) =>
-		throw new NotImplementedException();
+	public virtual ValueTask<JobHandle> ScheduleAfterAsync(TPayload payload, IReadOnlyList<ContinuationHandle> parents, string groupId, ContinuationTrigger on = ContinuationTrigger.Success, CancellationToken cancellationToken = default) =>
+		CaptureAsync(payload, _timeProvider.GetUtcNow(), groupId, cancellationToken);
 
 	/// <inheritdoc />
-	public virtual ValueTask<JobHandle> ScheduleAfterAsync(TPayload payload, BatchHandle batch, TimeSpan delay, CancellationToken cancellationToken = default) =>
-		throw new NotImplementedException();
+	public virtual ValueTask<JobHandle> ScheduleAfterAsync(TPayload payload, IReadOnlyList<ContinuationHandle> parents, TimeSpan delay, ContinuationTrigger on = ContinuationTrigger.Success, CancellationToken cancellationToken = default) =>
+		CaptureDelayedAsync(payload, delay, null, cancellationToken);
 
 	/// <inheritdoc />
 	public virtual ValueTask<JobHandle> ScheduleAfterAsync(
 		TPayload payload,
-		BatchHandle batch,
+		IReadOnlyList<ContinuationHandle> parents,
 		TimeSpan delay,
 		string groupId,
-		CancellationToken cancellationToken = default
-	) => throw new NotImplementedException();
-
-	/// <inheritdoc />
-	public virtual ValueTask<JobHandle> ScheduleAfterAsync(TPayload payload, IReadOnlyList<BatchHandle> batches, CancellationToken cancellationToken = default) =>
-		throw new NotImplementedException();
-
-	/// <inheritdoc />
-	public virtual ValueTask<JobHandle> ScheduleAfterAsync(TPayload payload, IReadOnlyList<BatchHandle> batches, string groupId, CancellationToken cancellationToken = default) =>
-		throw new NotImplementedException();
-
-	/// <inheritdoc />
-	public virtual ValueTask<JobHandle> ScheduleAfterAsync(TPayload payload, IReadOnlyList<BatchHandle> batches, TimeSpan delay, CancellationToken cancellationToken = default) =>
-		throw new NotImplementedException();
-
-	/// <inheritdoc />
-	public virtual ValueTask<JobHandle> ScheduleAfterAsync(
-		TPayload payload,
-		IReadOnlyList<BatchHandle> batches,
-		TimeSpan delay,
-		string groupId,
-		CancellationToken cancellationToken = default
-	) => throw new NotImplementedException();
+		ContinuationTrigger on = ContinuationTrigger.Success, CancellationToken cancellationToken = default
+	) => CaptureDelayedAsync(payload, delay, groupId, cancellationToken);
 
 	/// <inheritdoc />
 	public virtual JobHandle ScheduleAfter(
 		TPayload payload,
 		JobDetails currentJob,
 		ContinuationOptions options = ContinuationOptions.BeforeContinuations
-	) => throw new NotImplementedException();
+	) => Capture(payload, _timeProvider.GetUtcNow(), null);
 
 	/// <inheritdoc />
 	public virtual JobHandle ScheduleAfter(
@@ -154,7 +112,7 @@ public class CaptureOnlyJobScheduler<TPayload>(TimeProvider? timeProvider = null
 		JobDetails currentJob,
 		string groupId,
 		ContinuationOptions options = ContinuationOptions.BeforeContinuations
-	) => throw new NotImplementedException();
+	) => Capture(payload, _timeProvider.GetUtcNow(), groupId);
 
 	/// <inheritdoc />
 	public virtual JobHandle ScheduleAfter(
@@ -162,7 +120,7 @@ public class CaptureOnlyJobScheduler<TPayload>(TimeProvider? timeProvider = null
 		JobDetails currentJob,
 		TimeSpan delay,
 		ContinuationOptions options = ContinuationOptions.BeforeContinuations
-	) => throw new NotImplementedException();
+	) => CaptureDelayed(payload, delay, null);
 
 	/// <inheritdoc />
 	public virtual JobHandle ScheduleAfter(
@@ -171,43 +129,43 @@ public class CaptureOnlyJobScheduler<TPayload>(TimeProvider? timeProvider = null
 		TimeSpan delay,
 		string groupId,
 		ContinuationOptions options = ContinuationOptions.BeforeContinuations
-	) => throw new NotImplementedException();
+	) => CaptureDelayed(payload, delay, groupId);
 
 	/// <inheritdoc />
 	public virtual BatchJobHandle Enqueue(TPayload payload, Batch batch) =>
-		throw new NotImplementedException();
+		CaptureBatch(payload, batch, _timeProvider.GetUtcNow(), null);
 
 	/// <inheritdoc />
 	public virtual BatchJobHandle Enqueue(TPayload payload, Batch batch, string groupId) =>
-		throw new NotImplementedException();
+		CaptureBatch(payload, batch, _timeProvider.GetUtcNow(), groupId);
 
 	/// <inheritdoc />
 	public virtual BatchJobHandle Schedule(TPayload payload, Batch batch, TimeSpan delay) =>
-		throw new NotImplementedException();
+		CaptureBatchDelayed(payload, batch, delay, null);
 
 	/// <inheritdoc />
 	public virtual BatchJobHandle Schedule(TPayload payload, Batch batch, TimeSpan delay, string groupId) =>
-		throw new NotImplementedException();
+		CaptureBatchDelayed(payload, batch, delay, groupId);
 
 	/// <inheritdoc />
 	public virtual BatchJobHandle Schedule(TPayload payload, Batch batch, DateTimeOffset at) =>
-		throw new NotImplementedException();
+		CaptureBatchAt(payload, batch, at, null);
 
 	/// <inheritdoc />
 	public virtual BatchJobHandle Schedule(TPayload payload, Batch batch, DateTimeOffset at, string groupId) =>
-		throw new NotImplementedException();
+		CaptureBatchAt(payload, batch, at, groupId);
 
 	/// <inheritdoc />
-	public virtual BatchJobHandle ScheduleAfter(TPayload payload, BatchJobHandle job, CancellationToken cancellationToken = default) =>
-		throw new NotImplementedException();
+	public virtual BatchJobHandle ScheduleAfter(TPayload payload, BatchJobHandle job, ContinuationTrigger on = ContinuationTrigger.Success) =>
+		CaptureBatch(payload, job.Batch, _timeProvider.GetUtcNow(), null);
 
 	/// <inheritdoc />
-	public virtual BatchJobHandle ScheduleAfter(TPayload payload, BatchJobHandle job, string groupId, CancellationToken cancellationToken = default) =>
-		throw new NotImplementedException();
+	public virtual BatchJobHandle ScheduleAfter(TPayload payload, BatchJobHandle job, string groupId, ContinuationTrigger on = ContinuationTrigger.Success) =>
+		CaptureBatch(payload, job.Batch, _timeProvider.GetUtcNow(), groupId);
 
 	/// <inheritdoc />
-	public virtual BatchJobHandle ScheduleAfter(TPayload payload, BatchJobHandle job, TimeSpan delay, CancellationToken cancellationToken = default) =>
-		throw new NotImplementedException();
+	public virtual BatchJobHandle ScheduleAfter(TPayload payload, BatchJobHandle job, TimeSpan delay, ContinuationTrigger on = ContinuationTrigger.Success) =>
+		CaptureBatchDelayed(payload, job.Batch, delay, null);
 
 	/// <inheritdoc />
 	public virtual BatchJobHandle ScheduleAfter(
@@ -215,20 +173,20 @@ public class CaptureOnlyJobScheduler<TPayload>(TimeProvider? timeProvider = null
 		BatchJobHandle job,
 		TimeSpan delay,
 		string groupId,
-		CancellationToken cancellationToken = default
-	) => throw new NotImplementedException();
+		ContinuationTrigger on = ContinuationTrigger.Success
+	) => CaptureBatchDelayed(payload, job.Batch, delay, groupId);
 
 	/// <inheritdoc />
-	public virtual BatchJobHandle ScheduleAfter(TPayload payload, IReadOnlyList<BatchJobHandle> jobs, CancellationToken cancellationToken = default) =>
-		throw new NotImplementedException();
+	public virtual BatchJobHandle ScheduleAfter(TPayload payload, IReadOnlyList<BatchJobHandle> jobs, ContinuationTrigger on = ContinuationTrigger.Success) =>
+		CaptureBatch(payload, FirstBatch(jobs), _timeProvider.GetUtcNow(), null);
 
 	/// <inheritdoc />
-	public virtual BatchJobHandle ScheduleAfter(TPayload payload, IReadOnlyList<BatchJobHandle> jobs, string groupId, CancellationToken cancellationToken = default) =>
-		throw new NotImplementedException();
+	public virtual BatchJobHandle ScheduleAfter(TPayload payload, IReadOnlyList<BatchJobHandle> jobs, string groupId, ContinuationTrigger on = ContinuationTrigger.Success) =>
+		CaptureBatch(payload, FirstBatch(jobs), _timeProvider.GetUtcNow(), groupId);
 
 	/// <inheritdoc />
-	public virtual BatchJobHandle ScheduleAfter(TPayload payload, IReadOnlyList<BatchJobHandle> jobs, TimeSpan delay, CancellationToken cancellationToken = default) =>
-		throw new NotImplementedException();
+	public virtual BatchJobHandle ScheduleAfter(TPayload payload, IReadOnlyList<BatchJobHandle> jobs, TimeSpan delay, ContinuationTrigger on = ContinuationTrigger.Success) =>
+		CaptureBatchDelayed(payload, FirstBatch(jobs), delay, null);
 
 	/// <inheritdoc />
 	public virtual BatchJobHandle ScheduleAfter(
@@ -236,12 +194,83 @@ public class CaptureOnlyJobScheduler<TPayload>(TimeProvider? timeProvider = null
 		IReadOnlyList<BatchJobHandle> jobs,
 		TimeSpan delay,
 		string groupId,
-		CancellationToken cancellationToken = default
-	) => throw new NotImplementedException();
+		ContinuationTrigger on = ContinuationTrigger.Success
+	) => CaptureBatchDelayed(payload, FirstBatch(jobs), delay, groupId);
 
 	/// <inheritdoc />
-	public virtual ValueTask CancelAsync(JobHandle job, CancellationToken cancellationToken = default) =>
-		throw new NotImplementedException();
+	public virtual ValueTask CancelAsync(JobHandle job, CancellationToken cancellationToken = default)
+	{
+		ArgumentNullException.ThrowIfNull(job);
+		cancellationToken.ThrowIfCancellationRequested();
+		if (!_captures.Any(capture => string.Equals(capture.Id, job.JobId, StringComparison.Ordinal)))
+			throw new KeyNotFoundException($"Job '{job.JobId}' was not found.");
+		if (!_cancelledIds.Add(job.JobId))
+			throw new ImmediateJobException("Only a non-terminal job can be cancelled.");
+		return ValueTask.CompletedTask;
+	}
+
+	private ValueTask<JobHandle> CaptureDelayedAsync(TPayload payload, TimeSpan delay, string? groupId, CancellationToken cancellationToken)
+	{
+		ValidateDelay(delay);
+		return CaptureAsync(payload, _timeProvider.GetUtcNow() + delay, groupId, cancellationToken);
+	}
+
+	private ValueTask<JobHandle> CaptureAtAsync(TPayload payload, DateTimeOffset at, string? groupId, CancellationToken cancellationToken) =>
+		CaptureAsync(payload, at, groupId, cancellationToken);
+
+	private ValueTask<JobHandle> CaptureAsync(TPayload payload, DateTimeOffset runAt, string? groupId, CancellationToken cancellationToken)
+	{
+		cancellationToken.ThrowIfCancellationRequested();
+		return ValueTask.FromResult(Capture(payload, runAt, groupId));
+	}
+
+	private JobHandle CaptureDelayed(TPayload payload, TimeSpan delay, string? groupId)
+	{
+		ValidateDelay(delay);
+		return Capture(payload, _timeProvider.GetUtcNow() + delay, groupId);
+	}
+
+	private JobHandle Capture(TPayload payload, DateTimeOffset runAt, string? groupId)
+	{
+		groupId = NormalizeGroupId(groupId);
+		var handle = new JobHandle { JobId = CreateId() };
+		_captures.Add(new(handle.JobId, payload, runAt) { GroupId = groupId });
+		return handle;
+	}
+
+	private BatchJobHandle CaptureBatchDelayed(TPayload payload, Batch batch, TimeSpan delay, string? groupId)
+	{
+		ValidateDelay(delay);
+		return CaptureBatch(payload, batch, _timeProvider.GetUtcNow() + delay, groupId);
+	}
+
+	private BatchJobHandle CaptureBatchAt(TPayload payload, Batch batch, DateTimeOffset at, string? groupId) => CaptureBatch(payload, batch, at, groupId);
+
+	private BatchJobHandle CaptureBatch(TPayload payload, Batch batch, DateTimeOffset runAt, string? groupId) =>
+		new() { Batch = batch, JobId = Capture(payload, runAt, groupId) };
+
+	private static Batch FirstBatch(IReadOnlyList<BatchJobHandle> jobs)
+	{
+		ArgumentNullException.ThrowIfNull(jobs);
+		if (jobs.Count == 0)
+			throw new ArgumentException("No prior jobs were provided.", nameof(jobs));
+		return jobs[0].Batch;
+	}
+
+	private static void ValidateDelay(TimeSpan delay)
+	{
+		if (delay < TimeSpan.Zero)
+			ArgumentOutOfRangeException.Throw(nameof(delay), "A job delay cannot be negative.");
+	}
+
+	private static string? NormalizeGroupId(string? groupId)
+	{
+		if (string.IsNullOrWhiteSpace(groupId))
+			return null;
+		if (groupId.Length > 128)
+			throw new ArgumentException("A fair queue group id cannot exceed 128 characters.", nameof(groupId));
+		return groupId;
+	}
 
 	/// <summary>Clears every captured call and cancellation.</summary>
 	public void Clear()
