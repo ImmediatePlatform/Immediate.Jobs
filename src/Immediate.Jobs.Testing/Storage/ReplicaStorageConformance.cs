@@ -1,6 +1,7 @@
 using System.Globalization;
 using Immediate.Jobs.Shared.Apis;
 using Immediate.Jobs.Shared.Storage;
+using Immediate.Jobs.Testing.Storage;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Time.Testing;
 
@@ -32,7 +33,7 @@ internal static class ReplicaStorageConformance
 
 	private static ValueTask ResolvesAdvertisedStorage(
 		IJobStorage storage,
-		IServiceProvider serviceProvider,
+		FakeTimeProvider timeProvider,
 		CancellationToken cancellationToken
 	)
 	{
@@ -44,7 +45,7 @@ internal static class ReplicaStorageConformance
 
 	private static async ValueTask ClaimsExactlyRequestedDueJobsAsync(
 		IJobStorage storage,
-		IServiceProvider serviceProvider,
+		FakeTimeProvider timeProvider,
 		CancellationToken cancellationToken
 	)
 	{
@@ -105,7 +106,7 @@ internal static class ReplicaStorageConformance
 
 	private static async ValueTask IgnoresDuplicateAndMissingIdsAsync(
 		IJobStorage storage,
-		IServiceProvider serviceProvider,
+		FakeTimeProvider timeProvider,
 		CancellationToken cancellationToken
 	)
 	{
@@ -137,7 +138,7 @@ internal static class ReplicaStorageConformance
 
 	private static async ValueTask PersistsProjectionAndHistoryAsync(
 		IJobStorage storage,
-		IServiceProvider serviceProvider,
+		FakeTimeProvider timeProvider,
 		CancellationToken cancellationToken
 	)
 	{
@@ -203,7 +204,7 @@ internal static class ReplicaStorageConformance
 
 	private static async ValueTask ClaimsOnceUnderContentionAsync(
 		IJobStorage storage,
-		IServiceProvider serviceProvider,
+		FakeTimeProvider timeProvider,
 		CancellationToken cancellationToken
 	)
 	{
@@ -236,7 +237,7 @@ internal static class ReplicaStorageConformance
 
 	private static async ValueTask ReclaimsAndFencesStaleOwnerAsync(
 		IJobStorage storage,
-		IServiceProvider serviceProvider,
+		FakeTimeProvider timeProvider,
 		CancellationToken cancellationToken
 	)
 	{
@@ -301,7 +302,7 @@ internal static class ReplicaStorageConformance
 
 	private static async ValueTask PreservesRecoveryFieldsAsync(
 		IJobStorage storage,
-		IServiceProvider serviceProvider,
+		FakeTimeProvider timeProvider,
 		CancellationToken cancellationToken
 	)
 	{
@@ -411,7 +412,7 @@ internal static class ReplicaStorageConformance
 			"a storage advertising replica support must implement IJobStorageReplica"
 		);
 
-	private static FakeTimeProvider Clock(IServiceProvider serviceProvider, string caseName) =>
+	private static FakeTimeProvider Clock(FakeTimeProvider timeProvider, string caseName) =>
 		ConformanceAssert.IsAssignableFrom<FakeTimeProvider>(
 			serviceProvider.GetRequiredService<TimeProvider>(),
 			caseName,

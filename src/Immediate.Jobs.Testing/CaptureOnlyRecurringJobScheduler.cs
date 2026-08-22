@@ -44,7 +44,7 @@ public class CaptureOnlyRecurringJobScheduler : IRecurringJobScheduler
 		cancellationToken.ThrowIfCancellationRequested();
 		var id = CreateId();
 		_captures.Add(new(RecurringJobOperation.Trigger, JobId: id));
-		return ValueTask.FromResult(new JobHandle(id));
+		return ValueTask.FromResult(JobHandle.FromString(id));
 	}
 
 	/// <summary>Clears every captured call.</summary>

@@ -1,6 +1,7 @@
 using System.Globalization;
 using Immediate.Jobs.Shared.Apis;
 using Immediate.Jobs.Shared.Storage;
+using Immediate.Jobs.Testing.Storage;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Time.Testing;
 
@@ -40,7 +41,7 @@ internal static class RecurringStorageConformance
 
 	private static ValueTask ResolvesAdvertisedStorage(
 		IJobStorage storage,
-		IServiceProvider serviceProvider,
+		FakeTimeProvider timeProvider,
 		CancellationToken cancellationToken
 	)
 	{
@@ -52,7 +53,7 @@ internal static class RecurringStorageConformance
 
 	private static async ValueTask DynamicLifecycleAsync(
 		IJobStorage storage,
-		IServiceProvider serviceProvider,
+		FakeTimeProvider timeProvider,
 		CancellationToken cancellationToken
 	)
 	{
@@ -98,7 +99,7 @@ internal static class RecurringStorageConformance
 
 	private static async ValueTask ProtectsDefinitionsAsync(
 		IJobStorage storage,
-		IServiceProvider serviceProvider,
+		FakeTimeProvider timeProvider,
 		CancellationToken cancellationToken
 	)
 	{
@@ -142,7 +143,7 @@ internal static class RecurringStorageConformance
 
 	private static async ValueTask FiltersDueSchedulesAsync(
 		IJobStorage storage,
-		IServiceProvider serviceProvider,
+		FakeTimeProvider timeProvider,
 		CancellationToken cancellationToken
 	)
 	{
@@ -173,7 +174,7 @@ internal static class RecurringStorageConformance
 
 	private static async ValueTask MaterializesAtomicallyAsync(
 		IJobStorage storage,
-		IServiceProvider serviceProvider,
+		FakeTimeProvider timeProvider,
 		CancellationToken cancellationToken
 	)
 	{
@@ -202,7 +203,7 @@ internal static class RecurringStorageConformance
 
 	private static async ValueTask DeduplicatesConcurrentOccurrenceAsync(
 		IJobStorage storage,
-		IServiceProvider serviceProvider,
+		FakeTimeProvider timeProvider,
 		CancellationToken cancellationToken
 	)
 	{
@@ -232,7 +233,7 @@ internal static class RecurringStorageConformance
 
 	private static async ValueTask AdvancesAfterDedupeHitAsync(
 		IJobStorage storage,
-		IServiceProvider serviceProvider,
+		FakeTimeProvider timeProvider,
 		CancellationToken cancellationToken
 	)
 	{
@@ -267,7 +268,7 @@ internal static class RecurringStorageConformance
 
 	private static async ValueTask RejectsStaleDueEntryAsync(
 		IJobStorage storage,
-		IServiceProvider serviceProvider,
+		FakeTimeProvider timeProvider,
 		CancellationToken cancellationToken
 	)
 	{
@@ -304,7 +305,7 @@ internal static class RecurringStorageConformance
 
 	private static async ValueTask PersistsSkippedOccurrenceAsync(
 		IJobStorage storage,
-		IServiceProvider serviceProvider,
+		FakeTimeProvider timeProvider,
 		CancellationToken cancellationToken
 	)
 	{
@@ -330,7 +331,7 @@ internal static class RecurringStorageConformance
 
 	private static async ValueTask PurgeRemovesDedupeStateAsync(
 		IJobStorage storage,
-		IServiceProvider serviceProvider,
+		FakeTimeProvider timeProvider,
 		CancellationToken cancellationToken
 	)
 	{
@@ -374,7 +375,7 @@ internal static class RecurringStorageConformance
 
 	private static async ValueTask UsesDashboardExceptionConventionsAsync(
 		IJobStorage storage,
-		IServiceProvider serviceProvider,
+		FakeTimeProvider timeProvider,
 		CancellationToken cancellationToken
 	)
 	{
@@ -412,7 +413,7 @@ internal static class RecurringStorageConformance
 			"a storage advertising recurring support must implement IRecurringJobStorage"
 		);
 
-	private static FakeTimeProvider Clock(IServiceProvider serviceProvider, string caseName) =>
+	private static FakeTimeProvider Clock(FakeTimeProvider timeProvider, string caseName) =>
 		ConformanceAssert.IsAssignableFrom<FakeTimeProvider>(
 			serviceProvider.GetRequiredService<TimeProvider>(),
 			caseName,

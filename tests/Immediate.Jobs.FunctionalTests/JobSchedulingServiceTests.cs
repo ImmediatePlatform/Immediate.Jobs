@@ -60,7 +60,7 @@ public sealed class JobSchedulingServiceTests
 		await service.ExecuteSingleAsync(
 			new()
 			{
-				Id = "unknown-job",
+				JobId = JobHandle.FromString("unknown-job"),
 				JobName = "unknown-definition",
 				Payload = "{}",
 				State = JobState.Active,
@@ -104,7 +104,7 @@ public sealed class JobSchedulingServiceTests
 			() => service.DrainAsync(shutdown.Token).AsTask()
 		);
 
-		var job = Assert.Single(await inner.QueryJobsAsync(new() { JobId = handle.Id }, cancellationToken));
+		var job = Assert.Single(await inner.QueryJobsAsync(new() { JobId = handle.JobId }, cancellationToken));
 		Assert.Equal(JobState.Active, job.State);
 		Assert.Equal(1, job.Attempt);
 	}

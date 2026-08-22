@@ -1,6 +1,7 @@
 using System.Globalization;
 using Immediate.Jobs.Shared.Apis;
 using Immediate.Jobs.Shared.Storage;
+using Immediate.Jobs.Testing.Storage;
 using Microsoft.Extensions.Time.Testing;
 
 #pragma warning disable IDE0130 // Public conformance APIs intentionally use the package root namespace.
@@ -36,7 +37,7 @@ internal static class FairQueueStorageConformance
 
 	private static ValueTask ResolvesAdvertisedStorage(
 		IJobStorage storage,
-		IServiceProvider serviceProvider,
+		FakeTimeProvider timeProvider,
 		CancellationToken cancellationToken
 	)
 	{
@@ -48,7 +49,7 @@ internal static class FairQueueStorageConformance
 
 	private static async ValueTask RotatesAcrossGroupsAsync(
 		IJobStorage storage,
-		IServiceProvider serviceProvider,
+		FakeTimeProvider timeProvider,
 		CancellationToken cancellationToken
 	)
 	{
@@ -147,7 +148,7 @@ internal static class FairQueueStorageConformance
 
 	private static async ValueTask InterleavesGroupsAsync(
 		IJobStorage storage,
-		IServiceProvider serviceProvider,
+		FakeTimeProvider timeProvider,
 		CancellationToken cancellationToken
 	)
 	{
@@ -170,7 +171,7 @@ internal static class FairQueueStorageConformance
 
 	private static async ValueTask ServesQuietGroupAsync(
 		IJobStorage storage,
-		IServiceProvider serviceProvider,
+		FakeTimeProvider timeProvider,
 		CancellationToken cancellationToken
 	)
 	{
@@ -200,7 +201,7 @@ internal static class FairQueueStorageConformance
 
 	private static async ValueTask IgnoresExpiredLeasesAsync(
 		IJobStorage storage,
-		IServiceProvider serviceProvider,
+		FakeTimeProvider timeProvider,
 		CancellationToken cancellationToken
 	)
 	{
@@ -236,7 +237,7 @@ internal static class FairQueueStorageConformance
 
 	private static async ValueTask NullPolicyPreservesOrderAsync(
 		IJobStorage storage,
-		IServiceProvider serviceProvider,
+		FakeTimeProvider timeProvider,
 		CancellationToken cancellationToken
 	)
 	{
@@ -353,7 +354,7 @@ internal static class FairQueueStorageConformance
 
 	private static async ValueTask ConcurrentClaimsAreDistinctAsync(
 		IJobStorage storage,
-		IServiceProvider serviceProvider,
+		FakeTimeProvider timeProvider,
 		CancellationToken cancellationToken
 	)
 	{
@@ -398,7 +399,7 @@ internal static class FairQueueStorageConformance
 			"a storage advertising fair-queue support must implement IFairQueueStorage"
 		);
 
-	private static FakeTimeProvider GetClock(IServiceProvider serviceProvider, string caseName) =>
+	private static FakeTimeProvider GetClock(FakeTimeProvider timeProvider, string caseName) =>
 		ConformanceAssert.IsAssignableFrom<FakeTimeProvider>(
 			serviceProvider.GetService(typeof(TimeProvider)),
 			caseName,

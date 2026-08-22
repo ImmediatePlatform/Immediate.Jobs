@@ -3,8 +3,7 @@ using Immediate.Jobs.Shared.Storage;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Time.Testing;
 
-#pragma warning disable IDE0130 // Public conformance APIs intentionally use the package root namespace.
-namespace Immediate.Jobs.Testing;
+namespace Immediate.Jobs.Testing.Storage;
 
 internal static class GraphStorageConformance
 {
@@ -35,7 +34,7 @@ internal static class GraphStorageConformance
 
 	private static ValueTask ResolvesAdvertisedStorage(
 		IJobStorage storage,
-		IServiceProvider serviceProvider,
+		FakeTimeProvider timeProvider,
 		CancellationToken cancellationToken
 	)
 	{
@@ -47,33 +46,34 @@ internal static class GraphStorageConformance
 
 	private static async ValueTask BatchLifecycleAsync(
 		IJobStorage storage,
-		IServiceProvider serviceProvider,
+		FakeTimeProvider timeProvider,
 		CancellationToken cancellationToken
 	)
 	{
 		_ = serviceProvider;
 		var graph = GetGraph(storage, BatchLifecycleName);
-		var parent = CreateJob("lifecycle-parent", batchId: "lifecycle-batch");
-		var child = CreateJob("lifecycle-child", batchId: "lifecycle-batch") with
+		var batchId = BatchHandle.FromString("lifecycle-batch");
+		var parent = CreateJob(JobHandle.FromString("lifecycle-parent"), batchId);
+		var child = CreateJob(JobHandle.FromString("lifecycle-child"), batchId) with
 		{
 			State = JobState.AwaitingContinuation,
 			RemainingDependencies = 1,
 		};
 		await graph.EnqueueBatchAsync(
-			CreateBatch("lifecycle-batch", 2),
+			CreateBatch(batchId, 2),
 			[parent, child],
-			[new() { ChildJobId = child.Id, ParentJobId = parent.Id }],
+			[new() { ChildJobId = child.JobId, ParentJobId = parent.JobId, Delay = TimeSpan.Zero }],
 			cancellationToken
 		).ConfigureAwait(false);
 
 		var listed = await graph.QueryBatchesAsync(new() { State = BatchState.Executing }, cancellationToken)
 			.ConfigureAwait(false);
-		ConformanceAssert.Equal("lifecycle-batch", ConformanceAssert.NotNull(listed.SingleOrDefault(), BatchLifecycleName,
+		ConformanceAssert.Equal(batchId, ConformanceAssert.NotNull(listed.SingleOrDefault(), BatchLifecycleName,
 			"the inserted batch must be listed").BatchId, BatchLifecycleName, "batch listing must preserve identity");
-		var members = await graph.QueryBatchMembersAsync("lifecycle-batch", new(), cancellationToken).ConfigureAwait(false);
+		var members = await graph.QueryBatchMembersAsync(batchId, new(), cancellationToken).ConfigureAwait(false);
 		ConformanceAssert.SequenceEqual(
-			new[] { child.Id, parent.Id }.OrderBy(static id => id, StringComparer.Ordinal),
-			members.Select(static member => member.JobId).OrderBy(static id => id, StringComparer.Ordinal),
+			new[] { child.JobId, parent.JobId }.Order(),
+			members.Select(static member => member.JobId).Order(),
 			BatchLifecycleName,
 			"batch member projection must include every inserted job"
 		);
@@ -137,7 +137,7 @@ internal static class GraphStorageConformance
 
 	private static async ValueTask InvalidBatchRollsBackAsync(
 		IJobStorage storage,
-		IServiceProvider serviceProvider,
+		FakeTimeProvider timeProvider,
 		CancellationToken cancellationToken
 	)
 	{
@@ -172,7 +172,7 @@ internal static class GraphStorageConformance
 
 	private static async ValueTask ConditionalTriggersAsync(
 		IJobStorage storage,
-		IServiceProvider serviceProvider,
+		FakeTimeProvider timeProvider,
 		CancellationToken cancellationToken
 	)
 	{
@@ -349,7 +349,7 @@ internal static class GraphStorageConformance
 
 	private static async ValueTask FanInAsync(
 		IJobStorage storage,
-		IServiceProvider serviceProvider,
+		FakeTimeProvider timeProvider,
 		CancellationToken cancellationToken
 	)
 	{
@@ -388,7 +388,7 @@ internal static class GraphStorageConformance
 
 	private static async ValueTask DynamicContinuationsAsync(
 		IJobStorage storage,
-		IServiceProvider serviceProvider,
+		FakeTimeProvider timeProvider,
 		CancellationToken cancellationToken
 	)
 	{
@@ -444,7 +444,7 @@ internal static class GraphStorageConformance
 
 	private static async ValueTask CancelUnsettledChainAsync(
 		IJobStorage storage,
-		IServiceProvider serviceProvider,
+		FakeTimeProvider timeProvider,
 		CancellationToken cancellationToken
 	)
 	{
@@ -478,7 +478,7 @@ internal static class GraphStorageConformance
 
 	private static async ValueTask RejectsStaleActiveExecutionAsync(
 		IJobStorage storage,
-		IServiceProvider serviceProvider,
+		FakeTimeProvider timeProvider,
 		CancellationToken cancellationToken
 	)
 	{
@@ -521,7 +521,7 @@ internal static class GraphStorageConformance
 
 	private static async ValueTask EvaluatesAlreadyTerminalParentsAsync(
 		IJobStorage storage,
-		IServiceProvider serviceProvider,
+		FakeTimeProvider timeProvider,
 		CancellationToken cancellationToken
 	)
 	{
@@ -563,7 +563,7 @@ internal static class GraphStorageConformance
 
 	private static async ValueTask RejectsInvalidBatchRelationshipsAsync(
 		IJobStorage storage,
-		IServiceProvider serviceProvider,
+		FakeTimeProvider timeProvider,
 		CancellationToken cancellationToken
 	)
 	{
@@ -617,31 +617,34 @@ internal static class GraphStorageConformance
 			"a storage advertising graph support must implement IJobGraphStorage"
 		);
 
-	private static JobRecord CreateJob(string id, string? batchId = null) => new()
-	{
-		Id = id,
-		JobName = id,
-		Payload = "{}",
-		State = JobState.Pending,
-		DueAt = DateTimeOffset.UnixEpoch,
-		CreatedAt = DateTimeOffset.UnixEpoch,
-		BatchId = batchId,
-	};
+	private static JobRecord CreateJob(JobHandle id, BatchHandle? batchId = null) =>
+		new()
+		{
+			JobId = id,
+			JobName = id.JobId,
+			Payload = "{}",
+			State = JobState.Pending,
+			DueAt = DateTimeOffset.UnixEpoch,
+			CreatedAt = DateTimeOffset.UnixEpoch,
+			BatchId = batchId,
+		};
 
-	private static JobRecord CreateWaitingJob(string id, int dependencies) => CreateJob(id) with
-	{
-		State = JobState.AwaitingContinuation,
-		RemainingDependencies = dependencies,
-	};
+	private static JobRecord CreateWaitingJob(JobHandle id, int dependencies) =>
+		CreateJob(id) with
+		{
+			State = JobState.AwaitingContinuation,
+			RemainingDependencies = dependencies,
+		};
 
-	private static BatchRecord CreateBatch(string id, int count) => new()
-	{
-		Id = id,
-		CreatedAt = DateTimeOffset.UnixEpoch,
-		TotalJobs = count,
-		PendingCount = count,
-		State = BatchState.Executing,
-	};
+	private static BatchRecord CreateBatch(BatchHandle id, int count) =>
+		new()
+		{
+			BatchId = id,
+			CreatedAt = DateTimeOffset.UnixEpoch,
+			TotalJobs = count,
+			PendingCount = count,
+			State = BatchState.Executing,
+		};
 
 	private static JobAcquisitionRequest CreateRequest(string workerId, params string[] jobNames) => new()
 	{
@@ -654,7 +657,7 @@ internal static class GraphStorageConformance
 			{
 				QueueName = new JobRecord
 				{
-					Id = "default-queue-probe",
+					JobId = JobHandle.FromString("default-queue-probe"),
 					JobName = "default-queue-probe",
 					Payload = "{}",
 					State = JobState.Pending,
@@ -680,4 +683,3 @@ internal static class GraphStorageConformance
 		$"jobId={id}"
 	);
 }
-#pragma warning restore IDE0130

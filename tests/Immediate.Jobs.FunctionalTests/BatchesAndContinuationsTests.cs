@@ -29,7 +29,7 @@ public sealed class BatchesAndContinuationsTests
 		Assert.False(string.IsNullOrWhiteSpace(handle.Id));
 		Assert.True(Guid.TryParseExact(handle.Id, "N", out _));
 		Assert.Equal(handle.Id, (await harness.GetJobAsync(handle.Id, cancellationToken)).Id);
-		Assert.Equal(handle, new JobHandle(handle.Id));
+		Assert.Equal(handle, JobHandle.FromString(handle.Id));
 	}
 
 	[Fact]
@@ -486,7 +486,7 @@ public sealed class BatchesAndContinuationsTests
 		await harness.Storage.EnqueueAsync(
 			new()
 			{
-				JobId = "unknown-definition",
+				JobId = JobHandle.FromString("unknown-definition"),
 				JobName = "unknown-definition",
 				Payload = "{}",
 				State = JobState.Pending,
@@ -496,8 +496,8 @@ public sealed class BatchesAndContinuationsTests
 			cancellationToken
 		);
 
-		var status = Assert.IsType<JobStatus>(await monitor.GetJobAsync("unknown-definition", cancellationToken));
-		Assert.Null(status.MaxAttempts);
+		var status = Assert.IsType<JobStatus>(await monitor.GetJobAsync(JobHandle.FromString("unknown-definition"), cancellationToken));
+		Assert.Equal(0, status.MaxAttempts);
 	}
 
 	[Fact]

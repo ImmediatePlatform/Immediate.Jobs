@@ -1,7 +1,6 @@
 using System.Globalization;
 
-#pragma warning disable IDE0130
-namespace Immediate.Jobs.Testing;
+namespace Immediate.Jobs.Testing.Storage;
 
 internal static class ConformanceAssert
 {

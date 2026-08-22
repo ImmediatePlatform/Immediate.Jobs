@@ -1,11 +1,11 @@
 using Immediate.Jobs.Shared.Storage;
+using Microsoft.Extensions.Time.Testing;
 
-#pragma warning disable IDE0130
-namespace Immediate.Jobs.Testing;
+namespace Immediate.Jobs.Testing.Storage;
 
 internal delegate ValueTask JobStorageConformanceScenario(
 	IJobStorage storage,
-	IServiceProvider serviceProvider,
+	FakeTimeProvider timeProvider,
 	CancellationToken cancellationToken
 );
 

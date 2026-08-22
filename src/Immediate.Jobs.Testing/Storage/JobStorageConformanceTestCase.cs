@@ -1,8 +1,8 @@
 using Immediate.Jobs.Shared.Storage;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Time.Testing;
 
-#pragma warning disable IDE0130
-namespace Immediate.Jobs.Testing;
+namespace Immediate.Jobs.Testing.Storage;
 
 /// <summary>
 /// 	A separately discoverable storage-provider conformance test.
@@ -55,31 +55,30 @@ public sealed class JobStorageConformanceTestCase
 	{
 		ArgumentNullException.ThrowIfNull(serviceProvider);
 
-		IJobStorage storage;
-		try
+		var storage = serviceProvider.GetServices<IJobStorage>().ToList() switch
 		{
-			var storages = serviceProvider.GetServices<IJobStorage>().ToArray();
-			if (storages.Length != 1)
-			{
-				throw new InvalidOperationException(
-					$"Expected exactly one IJobStorage registration, but found {storages.Length}."
-				);
-			}
-
-			storage = storages[0];
-		}
-		catch (Exception exception)
-		{
-			throw new JobTestAssertionException(
+			[] => throw new JobTestAssertionException(
 				ConformanceAssert.FormatFailure(
 					Name,
 					"the service provider must resolve exactly one IJobStorage registration"
-				),
-				exception
-			);
-		}
+				)
+			),
+
+			[{ } x] => x,
+
+			var list => throw new JobTestAssertionException(
+				string.Create(provider: null, $"Expected exactly one IJobStorage registration, but found {list.Count}.")
+			),
+		};
+
+		var timeProvider = ConformanceAssert.IsAssignableFrom<FakeTimeProvider>(
+			serviceProvider.GetRequiredService<TimeProvider>(),
+			Name,
+			"time-dependent conformance cases require a FakeTimeProvider registered as TimeProvider"
+		);
 
 		var resolvedCapabilities = storage.GetCapabilities();
+
 		ConformanceAssert.Equal(
 			_advertisedCapabilities,
 			resolvedCapabilities,
@@ -89,7 +88,7 @@ public sealed class JobStorageConformanceTestCase
 
 		try
 		{
-			await _scenario(storage, serviceProvider, cancellationToken).ConfigureAwait(false);
+			await _scenario(storage, timeProvider, cancellationToken).ConfigureAwait(false);
 		}
 		catch (JobTestAssertionException)
 		{

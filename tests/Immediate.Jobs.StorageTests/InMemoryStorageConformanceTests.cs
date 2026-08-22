@@ -1,5 +1,5 @@
 using Immediate.Jobs.Shared.Storage;
-using Immediate.Jobs.Testing;
+using Immediate.Jobs.Testing.Storage;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Time.Testing;
 

@@ -61,8 +61,8 @@ public sealed class StorageCapabilityTests
 
 		var continuationException = await Assert.ThrowsAsync<NotSupportedException>(() =>
 			scheduler.ScheduleAfterAsync(
-				new JobHandle("parent"),
 				"payload",
+				JobHandle.FromString("parent"),
 				cancellationToken: TestContext.Current.CancellationToken
 			).AsTask());
 		Assert.Contains("SQL database", continuationException.Message, StringComparison.Ordinal);
@@ -93,7 +93,7 @@ public sealed class StorageCapabilityTests
 		await using var provider = services.BuildServiceProvider();
 		await storage.EnqueueAsync(new()
 		{
-			JobId = "queue-only-job",
+			JobId = JobHandle.FromString("queue-only-job"),
 			JobName = "queue-only",
 			Payload = "{}",
 			State = JobState.Pending,
@@ -104,7 +104,7 @@ public sealed class StorageCapabilityTests
 		await provider.GetRequiredService<JobSchedulingService>().DrainAsync(cancellationToken);
 
 		Assert.Equal(1, storage.CompleteCalls);
-		Assert.Equal(JobState.Succeeded, (await storage.GetJobStatusAsync("queue-only-job", cancellationToken))!.State);
+		Assert.Equal(JobState.Succeeded, (await storage.GetJobStatusAsync(JobHandle.FromString("queue-only-job"), cancellationToken))!.State);
 		var snapshot = await storage.GetMonitoringSnapshotAsync(cancellationToken);
 		Assert.Empty(snapshot.Recurring);
 		Assert.Equal(StorageCapabilities.Queue, snapshot.Capabilities);
@@ -233,9 +233,10 @@ public sealed class StorageCapabilityTests
 		) => _inner.QueryJobsAsync(query, cancellationToken);
 
 		public ValueTask<IReadOnlyList<JobExecutionRecord>> QueryJobExecutionsAsync(
+			JobHandle jobId,
 			JobExecutionQuery query,
 			CancellationToken cancellationToken = default
-		) => _inner.QueryJobExecutionsAsync(query, cancellationToken);
+		) => _inner.QueryJobExecutionsAsync(jobId, query, cancellationToken);
 
 		public ValueTask<JobStatus?> GetJobStatusAsync(
 			JobHandle jobId,
