@@ -16,6 +16,11 @@ public sealed record RecurringJobSchedule
 	public required string JobName { get; init; }
 
 	/// <summary>
+	/// 	The generated job definition name.
+	/// </summary>
+	public required string QueueName { get; init; }
+
+	/// <summary>
 	/// 	A five- or six-field cron expression.
 	/// </summary>
 	public required string Cron { get; init; }

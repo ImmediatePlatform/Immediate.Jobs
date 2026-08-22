@@ -65,7 +65,7 @@ internal static class DashboardApiEndpointOperations
 	};
 
 	internal static async ValueTask<IReadOnlyList<JobTelemetryLink>?> GetJobTelemetryLinksAsync(
-		string jobId,
+		JobHandle jobId,
 		int? executionNumber,
 		JobMonitor monitor,
 		ImmediateJobsDashboardOptions options,
@@ -77,7 +77,8 @@ internal static class DashboardApiEndpointOperations
 			return null;
 
 		var executions = await monitor.QueryExecutionsAsync(
-			new() { JobId = jobId, Attempt = executionNumber, Take = 1 },
+			jobId,
+			new() { Attempt = executionNumber, Take = 1 },
 			cancellationToken
 		);
 		var telemetryExecution = executions.SingleOrDefault();
@@ -90,7 +91,7 @@ internal static class DashboardApiEndpointOperations
 
 		var contextJob = new JobRecord
 		{
-			Id = job.JobId,
+			JobId = job.JobId,
 			JobName = job.JobName,
 			QueueName = job.QueueName,
 			Payload = string.Empty,
@@ -210,7 +211,7 @@ internal static class DashboardApiEndpointOperations
 		CancellationToken cancellationToken
 	)
 	{
-		var status = await monitor.GetBatchAsync(batchId, cancellationToken);
+		var status = await monitor.GetBatchAsync(BatchHandle.FromString(batchId), cancellationToken);
 		if (status is null)
 		{
 			context.Response.StatusCode = StatusCodes.Status404NotFound;
@@ -230,8 +231,8 @@ internal static class DashboardApiEndpointOperations
 
 			while (!cancellationToken.IsCancellationRequested)
 			{
-				status = await monitor.GetBatchAsync(batchId, cancellationToken);
-				var graph = await monitor.GetBatchGraphAsync(batchId, cancellationToken);
+				status = await monitor.GetBatchAsync(BatchHandle.FromString(batchId), cancellationToken);
+				var graph = await monitor.GetBatchGraphAsync(BatchHandle.FromString(batchId), cancellationToken);
 				if (status is null || graph is null)
 					break;
 

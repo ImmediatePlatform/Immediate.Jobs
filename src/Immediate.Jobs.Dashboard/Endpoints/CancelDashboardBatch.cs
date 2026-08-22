@@ -29,6 +29,6 @@ internal static partial class CancelDashboardBatch
 		JobMonitor monitor,
 		CancellationToken cancellationToken
 	) => DashboardApiEndpointOperations.MutateBatchAsync(
-		() => monitor.CancelBatchAsync(command.BatchId, cancellationToken)
+		() => monitor.CancelBatchAsync(BatchHandle.FromString(command.BatchId), cancellationToken)
 	);
 }

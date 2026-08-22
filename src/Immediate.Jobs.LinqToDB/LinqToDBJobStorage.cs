@@ -57,7 +57,7 @@ internal sealed class LinqToDBJobStorage<T>(
 	{
 		cancellationToken.ThrowIfCancellationRequested();
 
-		var ids = childJobIds.Distinct().ToArray();
+		var ids = childJobIds.Select(i => i.JobId).Distinct(StringComparer.Ordinal).ToList();
 
 		await using var scope = contextScope.GetScope(out var connection);
 
@@ -114,10 +114,10 @@ internal sealed class LinqToDBJobStorage<T>(
 		CancellationToken cancellationToken
 	)
 	{
-		var jobIds = jobs.Select(static job => job.JobId).ToHashSet(StringComparer.Ordinal);
+		var jobIds = jobs.Select(static job => job.JobId.JobId).ToHashSet(StringComparer.Ordinal);
 		if (jobIds.Count != jobs.Count)
 			throw new ImmediateJobException("A batch or continuation insert contains duplicate job identifiers.");
-		if (batch is not null && jobs.Any(job => !string.Equals(job.BatchId, batch.BatchId, StringComparison.Ordinal)))
+		if (batch is not null && jobs.Any(job => job.BatchId != batch.BatchId))
 			throw new ImmediateJobException("Every atomic batch member must carry the committed batch identifier.");
 
 		var edgeEntities = edges.Select(ToEntity).ToArray();
@@ -146,7 +146,7 @@ internal sealed class LinqToDBJobStorage<T>(
 			var skipped = terminal.Count(static job => job.State == JobState.Skipped);
 			_ = await InsertAsync(connection, new ImmediateJobBatchEntity
 			{
-				Id = batch.BatchId,
+				Id = batch.BatchId.BatchId,
 				CreatedAt = batch.CreatedAt.UtcTicks,
 				TotalJobs = jobEntities.Count,
 				PendingCount = pending,
@@ -695,13 +695,13 @@ internal sealed class LinqToDBJobStorage<T>(
 
 		if (jobIds.Count == 0)
 			return [];
+
 		var now = timeProvider.GetUtcNow().UtcTicks;
-		var ids = jobIds.Select(static job => job.Id).ToArray();
 
 		await using var scope = contextScope.GetScope(out var connection);
 
 		var candidates = await Jobs(connection)
-			.Where(job => ids.Contains(job.Id) &&
+			.Where(job => job.Id.In(jobIds.Select(static job => job.JobId)) &&
 				(((job.State == JobState.Scheduled || job.State == JobState.Pending) && job.DueAt <= now)
 					|| (job.State == JobState.Active && job.LeaseExpiresAt <= now)))
 			.ToListAsync(cancellationToken)
@@ -796,7 +796,7 @@ internal sealed class LinqToDBJobStorage<T>(
 		await RetryConcurrencyAsync(async connection =>
 		{
 			var job = await Jobs(connection).SingleOrDefaultAsync(
-				item => item.Id == jobId && item.Attempt == executionNumber && item.State == JobState.Active && item.WorkerId == workerId,
+				item => item.Id == jobId.JobId && item.Attempt == executionNumber && item.State == JobState.Active && item.WorkerId == workerId,
 				cancellationToken
 			).ConfigureAwait(false) ?? throw new ImmediateJobException($"Worker '{workerId}' does not own active job '{jobId}'.");
 			_ = await GetOrMaterializeExecutionAsync(connection, job, cancellationToken).ConfigureAwait(false)
@@ -809,7 +809,7 @@ internal sealed class LinqToDBJobStorage<T>(
 			if (!await UpdateJobAsync(connection, job, oldStamp, cancellationToken).ConfigureAwait(false))
 				throw new LostRaceException();
 			var executionUpdated = await Executions(connection)
-				.Where(execution => execution.JobId == jobId && execution.Attempt == executionNumber && execution.State == JobExecutionState.Active)
+				.Where(execution => execution.JobId == jobId.JobId && execution.Attempt == executionNumber && execution.State == JobExecutionState.Active)
 				.Set(execution => execution.ExecutionTraceId, traceId)
 				.Set(execution => execution.ExecutionSpanId, spanId)
 				.Set(execution => execution.ExecutionStartedAt, startedAt.UtcTicks)
@@ -834,7 +834,7 @@ internal sealed class LinqToDBJobStorage<T>(
 		await using var scope = contextScope.GetScope(out var connection);
 
 		var updated = await Jobs(connection)
-			.Where(job => job.Id == jobId && job.Attempt == executionNumber && job.State == JobState.Active && job.WorkerId == workerId)
+			.Where(job => job.Id == jobId.JobId && job.Attempt == executionNumber && job.State == JobState.Active && job.WorkerId == workerId)
 			.Set(job => job.LeaseExpiresAt, timeProvider.GetUtcNow().UtcTicks + lease.Ticks)
 			.Set(job => job.ConcurrencyStamp, Guid.NewGuid())
 			.UpdateAsync(cancellationToken)
@@ -1214,6 +1214,7 @@ internal sealed class LinqToDBJobStorage<T>(
 
 	/// <inheritdoc />
 	public async ValueTask<IReadOnlyList<JobExecutionRecord>> QueryJobExecutionsAsync(
+		JobHandle jobId,
 		JobExecutionQuery query,
 		CancellationToken cancellationToken = default
 	)
@@ -1223,13 +1224,15 @@ internal sealed class LinqToDBJobStorage<T>(
 		await using var scope = contextScope.GetScope(out var connection);
 
 		var job = await Jobs(connection)
-			.SingleOrDefaultAsync(item => item.Id == query.JobId, cancellationToken)
+			.SingleOrDefaultAsync(item => item.Id == jobId.JobId, cancellationToken)
 			.ConfigureAwait(false);
+
 		if (job is null)
 			return [];
 
 		var executions = Executions(connection)
-			.Where(execution => execution.JobId == query.JobId);
+			.Where(execution => execution.JobId == jobId.JobId);
+
 		if (query.Attempt is { } attempt)
 			executions = executions.Where(execution => execution.Attempt == attempt);
 
@@ -1277,7 +1280,7 @@ internal sealed class LinqToDBJobStorage<T>(
 
 		await using var scope = contextScope.GetScope(out var connection);
 
-		var batch = await Batches(connection).SingleOrDefaultAsync(item => item.Id == batchId, cancellationToken)
+		var batch = await Batches(connection).SingleOrDefaultAsync(item => item.Id == batchId.BatchId, cancellationToken)
 			.ConfigureAwait(false);
 		return batch is null ? null : ToStatus(batch);
 	}
@@ -1315,18 +1318,20 @@ internal sealed class LinqToDBJobStorage<T>(
 
 		await using var scope = contextScope.GetScope(out var connection);
 
-		var jobs = Jobs(connection).Where(job => job.BatchId == batchId);
+		var jobs = Jobs(connection).Where(job => job.BatchId == batchId.BatchId);
 		if (query.State is { } state)
 			jobs = jobs.Where(job => job.State == state);
+
 		var entities = await jobs.OrderBy(job => job.CreatedAt)
 			.ThenBy(job => job.Id)
 			.Skip(query.Skip)
 			.Take(query.Take)
 			.ToListAsync(cancellationToken)
 			.ConfigureAwait(false);
+
 		return [.. entities.Select(job => new BatchMemberStatus
 		{
-			JobId = job.Id,
+			JobId = JobHandle.FromString(job.Id),
 			JobName = job.JobName,
 			QueueName = job.QueueName,
 			State = job.State,
@@ -1347,20 +1352,19 @@ internal sealed class LinqToDBJobStorage<T>(
 
 		await using var scope = contextScope.GetScope(out var connection);
 
-		if (!await Batches(connection).AnyAsync(batch => batch.Id == batchId, cancellationToken).ConfigureAwait(false))
+		if (!await Batches(connection).AnyAsync(batch => batch.Id == batchId.BatchId, cancellationToken).ConfigureAwait(false))
 			return null;
 		var entities = await Jobs(connection)
-			.Where(job => job.BatchId == batchId)
+			.Where(job => job.BatchId == batchId.BatchId)
 			.OrderBy(job => job.CreatedAt)
 			.ThenBy(job => job.Id)
 			.ToListAsync(cancellationToken)
 			.ConfigureAwait(false);
-		var jobs = entities.Select(job => new BatchGraphNode { JobId = job.Id, JobName = job.JobName, State = job.State }).ToArray();
-		var ids = jobs.Select(static job => job.JobId).ToArray();
-		var edges = ids.Length == 0
+		var jobs = entities.Select(job => new BatchGraphNode { JobId = JobHandle.FromString(job.Id), JobName = job.JobName, State = job.State }).ToArray();
+		var edges = entities.Count == 0
 			? []
 			: await Continuations(connection)
-				.Where(edge => ids.Contains(edge.ChildJobId))
+				.Where(edge => edge.ChildJobId.In(entities.Select(static job => job.Id)))
 				.OrderBy(edge => edge.ChildJobId)
 				.ThenBy(edge => edge.ParentKind)
 				.ThenBy(edge => edge.ParentId)
@@ -1379,29 +1383,29 @@ internal sealed class LinqToDBJobStorage<T>(
 
 		await using var scope = contextScope.GetScope(out var connection);
 
-		var job = await Jobs(connection).SingleOrDefaultAsync(item => item.Id == jobId, cancellationToken)
+		var job = await Jobs(connection).SingleOrDefaultAsync(item => item.Id == jobId.JobId, cancellationToken)
 			.ConfigureAwait(false);
 		if (job is null)
 			return null;
 		var edges = await Continuations(connection)
-			.Where(edge => edge.ChildJobId == jobId)
+			.Where(edge => edge.ChildJobId == jobId.JobId)
 			.OrderBy(edge => edge.ParentKind)
 			.ThenBy(edge => edge.ParentId)
 			.ToListAsync(cancellationToken)
 			.ConfigureAwait(false);
 		return new JobStatus
 		{
-			JobId = job.Id,
+			JobId = JobHandle.FromString(job.Id),
 			JobName = job.JobName,
 			QueueName = job.QueueName,
 			State = job.State,
 			Attempt = job.Attempt,
-			MaxAttempts = null,
+			MaxAttempts = 0,
 			CreatedAt = FromTicks(job.CreatedAt),
 			DueAt = FromTicks(job.DueAt),
 			CompletedAt = FromTicks(job.CompletedAt),
 			LastError = job.LastError,
-			BatchId = job.BatchId,
+			BatchId = BatchHandle.FromString(job.BatchId),
 			DependsOn = [.. edges.Select(ToGraphEdge)],
 		};
 	}
@@ -1432,12 +1436,12 @@ internal sealed class LinqToDBJobStorage<T>(
 	)
 	{
 		var now = timeProvider.GetUtcNow().UtcTicks;
-		var batch = await Batches(connection).SingleOrDefaultAsync(item => item.Id == batchId, cancellationToken)
+		var batch = await Batches(connection).SingleOrDefaultAsync(item => item.Id == batchId.BatchId, cancellationToken)
 			.ConfigureAwait(false)
 			?? throw new KeyNotFoundException($"Batch '{batchId}' was not found.");
 		if (batch.State != BatchState.Executing)
 			throw new ImmediateJobException("Only an executing batch can be cancelled.");
-		var jobIds = await Jobs(connection).Where(job => job.BatchId == batchId).Select(job => job.Id)
+		var jobIds = await Jobs(connection).Where(job => job.BatchId == batchId.BatchId).Select(job => job.Id)
 			.ToArrayAsync(cancellationToken).ConfigureAwait(false);
 		var jobsToCancel = new List<ImmediateJobEntity>(jobIds.Length);
 		foreach (var jobId in jobIds)
@@ -1492,25 +1496,25 @@ internal sealed class LinqToDBJobStorage<T>(
 		_ = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
 		try
 		{
-			var batch = await Batches(connection).SingleOrDefaultAsync(item => item.Id == batchId, cancellationToken)
+			var batch = await Batches(connection).SingleOrDefaultAsync(item => item.Id == batchId.BatchId, cancellationToken)
 				.ConfigureAwait(false)
 				?? throw new KeyNotFoundException($"Batch '{batchId}' was not found.");
 			if (batch.State == BatchState.Executing)
 				throw new ImmediateJobException("Only a terminal batch can be deleted.");
-			var jobIds = await Jobs(connection).Where(job => job.BatchId == batchId).Select(job => job.Id)
+			var jobIds = await Jobs(connection).Where(job => job.BatchId == batchId.BatchId).Select(job => job.Id)
 				.ToArrayAsync(cancellationToken).ConfigureAwait(false);
 			_ = await Continuations(connection)
 				.Where(edge =>
 					jobIds.Contains(edge.ChildJobId)
 					|| (edge.ParentKind == ContinuationParentKind.Job && jobIds.Contains(edge.ParentId))
-					|| (edge.ParentKind == ContinuationParentKind.Batch && edge.ParentId == batchId)
+					|| (edge.ParentKind == ContinuationParentKind.Batch && edge.ParentId == batchId.BatchId)
 				)
 				.DeleteAsync(cancellationToken)
 				.ConfigureAwait(false);
 			_ = await Executions(connection).Where(execution => jobIds.Contains(execution.JobId))
 				.DeleteAsync(cancellationToken).ConfigureAwait(false);
-			_ = await Jobs(connection).Where(job => job.BatchId == batchId).DeleteAsync(cancellationToken).ConfigureAwait(false);
-			_ = await Batches(connection).Where(item => item.Id == batchId).DeleteAsync(cancellationToken).ConfigureAwait(false);
+			_ = await Jobs(connection).Where(job => job.BatchId == batchId.BatchId).DeleteAsync(cancellationToken).ConfigureAwait(false);
+			_ = await Batches(connection).Where(item => item.Id == batchId.BatchId).DeleteAsync(cancellationToken).ConfigureAwait(false);
 			await connection.CommitTransactionAsync(cancellationToken).ConfigureAwait(false);
 		}
 		catch
@@ -1540,7 +1544,7 @@ internal sealed class LinqToDBJobStorage<T>(
 		CancellationToken cancellationToken
 	)
 	{
-		var job = await Jobs(connection).SingleOrDefaultAsync(item => item.Id == jobId, cancellationToken)
+		var job = await Jobs(connection).SingleOrDefaultAsync(item => item.Id == jobId.JobId, cancellationToken)
 			.ConfigureAwait(false)
 			?? throw new KeyNotFoundException($"Job '{jobId}' was not found.");
 		if (IsTerminal(job.State))
@@ -1585,12 +1589,12 @@ internal sealed class LinqToDBJobStorage<T>(
 	private async Task RetryCoreAsync(DataConnection connection, JobHandle jobId, CancellationToken cancellationToken)
 	{
 		var job = await Jobs(connection)
-			.SingleOrDefaultAsync(item => item.Id == jobId &&
+			.SingleOrDefaultAsync(item => item.Id == jobId.JobId &&
 				(item.State == JobState.Failed || item.State == JobState.Scheduled), cancellationToken)
 			.ConfigureAwait(false);
 		if (job is null)
 		{
-			if (await Jobs(connection).AnyAsync(item => item.Id == jobId, cancellationToken).ConfigureAwait(false))
+			if (await Jobs(connection).AnyAsync(item => item.Id == jobId.JobId, cancellationToken).ConfigureAwait(false))
 				throw new ImmediateJobException("Only failed or scheduled jobs can be retried.");
 			throw new KeyNotFoundException($"Job '{jobId}' was not found.");
 		}
@@ -1636,12 +1640,12 @@ internal sealed class LinqToDBJobStorage<T>(
 		_ = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
 		try
 		{
-			var job = await Jobs(connection).SingleOrDefaultAsync(item => item.Id == jobId &&
+			var job = await Jobs(connection).SingleOrDefaultAsync(item => item.Id == jobId.JobId &&
 				(item.State == JobState.Succeeded || item.State == JobState.Failed || item.State == JobState.Cancelled || item.State == JobState.Skipped), cancellationToken)
 				.ConfigureAwait(false);
 			if (job is null)
 			{
-				if (await Jobs(connection).AnyAsync(item => item.Id == jobId, cancellationToken).ConfigureAwait(false))
+				if (await Jobs(connection).AnyAsync(item => item.Id == jobId.JobId, cancellationToken).ConfigureAwait(false))
 					throw new ImmediateJobException("Only terminal jobs can be deleted.");
 				throw new KeyNotFoundException($"Job '{jobId}' was not found.");
 			}
@@ -1649,20 +1653,20 @@ internal sealed class LinqToDBJobStorage<T>(
 			if (job.BatchId is not null)
 				throw new ImmediateJobException("Batch members are deleted with their batch so the workflow remains coherent.");
 			_ = await Continuations(connection)
-				.Where(edge => edge.ChildJobId == jobId ||
-					(edge.ParentKind == ContinuationParentKind.Job && edge.ParentId == jobId))
+				.Where(edge => edge.ChildJobId == jobId.JobId ||
+					(edge.ParentKind == ContinuationParentKind.Job && edge.ParentId == jobId.JobId))
 				.DeleteAsync(cancellationToken)
 				.ConfigureAwait(false);
-			_ = await Executions(connection).Where(execution => execution.JobId == jobId)
+			_ = await Executions(connection).Where(execution => execution.JobId == jobId.JobId)
 				.DeleteAsync(cancellationToken).ConfigureAwait(false);
 			var removed = await Jobs(connection)
-				.Where(item => item.Id == jobId &&
+				.Where(item => item.Id == jobId.JobId &&
 					(item.State == JobState.Succeeded || item.State == JobState.Failed || item.State == JobState.Cancelled || item.State == JobState.Skipped))
 				.DeleteAsync(cancellationToken)
 				.ConfigureAwait(false);
 			if (removed == 0)
 			{
-				if (await Jobs(connection).AnyAsync(item => item.Id == jobId, cancellationToken).ConfigureAwait(false))
+				if (await Jobs(connection).AnyAsync(item => item.Id == jobId.JobId, cancellationToken).ConfigureAwait(false))
 					throw new ImmediateJobException("Only terminal jobs can be deleted.");
 				throw new KeyNotFoundException($"Job '{jobId}' was not found.");
 			}
@@ -1933,7 +1937,7 @@ internal sealed class LinqToDBJobStorage<T>(
 	{
 		var job = await Jobs(connection)
 			.SingleOrDefaultAsync(
-				item => item.Id == jobId && item.Attempt == executionNumber && item.State == JobState.Active && item.WorkerId == workerId,
+				item => item.Id == jobId.JobId && item.Attempt == executionNumber && item.State == JobState.Active && item.WorkerId == workerId,
 				cancellationToken
 			)
 			.ConfigureAwait(false) ?? throw new ImmediateJobException($"Worker '{workerId}' does not own active job '{jobId}'.");
@@ -1942,7 +1946,7 @@ internal sealed class LinqToDBJobStorage<T>(
 		_ = await GetOrMaterializeExecutionAsync(connection, job, cancellationToken).ConfigureAwait(false)
 			?? throw new ImmediateJobException($"Active job '{job.Id}' has no execution ordinal.");
 		var executionUpdated = await Executions(connection)
-			.Where(execution => execution.JobId == jobId && execution.Attempt == executionNumber && execution.State == JobExecutionState.Active)
+			.Where(execution => execution.JobId == jobId.JobId && execution.Attempt == executionNumber && execution.State == JobExecutionState.Active)
 			.Set(execution => execution.State, succeeded ? JobExecutionState.Succeeded : JobExecutionState.Failed)
 			.Set(execution => execution.CompletedAt, now)
 			.Set(execution => execution.Error, error)
@@ -1989,13 +1993,13 @@ internal sealed class LinqToDBJobStorage<T>(
 	)
 	{
 		var current = await Jobs(connection)
-			.SingleOrDefaultAsync(job => job.Id == currentJobId && job.Attempt == executionNumber && job.State == JobState.Active, cancellationToken)
+			.SingleOrDefaultAsync(job => job.Id == currentJobId.JobId && job.Attempt == executionNumber && job.State == JobState.Active, cancellationToken)
 			.ConfigureAwait(false)
 			?? throw new ImmediateJobException($"The current active job '{currentJobId}' was not found.");
 		if (current.BatchId is not { } batchId)
 			throw new ImmediateJobException("The current job does not belong to a batch.");
 		ValidateDynamicJob(record, "Concurrent batch member");
-		if (!string.Equals(record.BatchId, batchId, StringComparison.Ordinal))
+		if (!string.Equals(record.BatchId?.BatchId, batchId, StringComparison.Ordinal))
 			throw new ImmediateJobException("The new job must belong to the current job's batch.");
 		var batch = await Batches(connection)
 			.SingleAsync(item => item.Id == batchId && item.State == BatchState.Executing, cancellationToken)
@@ -2042,7 +2046,7 @@ internal sealed class LinqToDBJobStorage<T>(
 		foreach (var addition in additions)
 		{
 			ValidateDynamicJob(addition.Job, "Dynamic continuation");
-			if (!ids.Add(addition.Job.JobId))
+			if (!ids.Add(addition.Job.JobId.JobId))
 				throw new ImmediateJobException($"Job '{addition.Job.JobId}' occurs more than once in the completion buffer.");
 			if (!Enum.IsDefined(addition.Trigger))
 				throw new ArgumentOutOfRangeException(nameof(additions), "Unknown continuation trigger.");
@@ -2054,7 +2058,7 @@ internal sealed class LinqToDBJobStorage<T>(
 			}
 			else if (addition.Options is ContinuationOptions.BesideContinuations or ContinuationOptions.BeforeContinuations)
 			{
-				if (current.BatchId is null || !string.Equals(addition.Job.BatchId, current.BatchId, StringComparison.Ordinal))
+				if (current.BatchId is null || !string.Equals(addition.Job.BatchId?.BatchId, current.BatchId, StringComparison.Ordinal))
 					throw new ImmediateJobException("A batch-tracked continuation must belong to the current job's batch.");
 				trackedAdditions++;
 			}
@@ -2065,7 +2069,7 @@ internal sealed class LinqToDBJobStorage<T>(
 		}
 
 		var waiters = additions.Any(static addition => addition.Options == ContinuationOptions.BeforeContinuations)
-			? await GetActiveWaitersAsync(connection, current.Id, cancellationToken).ConfigureAwait(false)
+			? await GetActiveWaitersAsync(connection, JobHandle.FromString(current.Id), cancellationToken).ConfigureAwait(false)
 			: [];
 		if (trackedAdditions != 0)
 		{
@@ -2131,7 +2135,7 @@ internal sealed class LinqToDBJobStorage<T>(
 	)
 	{
 		var waiterIds = await Continuations(connection)
-			.Where(edge => edge.ParentKind == ContinuationParentKind.Job && edge.ParentId == currentJobId)
+			.Where(edge => edge.ParentKind == ContinuationParentKind.Job && edge.ParentId == currentJobId.JobId)
 			.Select(edge => edge.ChildJobId)
 			.Distinct()
 			.ToArrayAsync(cancellationToken)
@@ -2332,11 +2336,11 @@ internal sealed class LinqToDBJobStorage<T>(
 			.Order(StringComparer.Ordinal)
 			.ToArray();
 		var externalJobEntities = externalJobIds.Length == 0
-			? []
+			? [with(StringComparer.Ordinal)]
 			: (await Jobs(connection).Where(job => externalJobIds.Contains(job.Id)).ToListAsync(cancellationToken)
 				.ConfigureAwait(false)).ToDictionary(job => job.Id, StringComparer.Ordinal);
 		var externalBatchEntities = externalBatchIds.Length == 0
-			? []
+			? [with(StringComparer.Ordinal)]
 			: (await Batches(connection).Where(batch => externalBatchIds.Contains(batch.Id)).ToListAsync(cancellationToken)
 				.ConfigureAwait(false)).ToDictionary(batch => batch.Id, StringComparer.Ordinal);
 		if (externalJobEntities.Count != externalJobIds.Length || externalBatchEntities.Count != externalBatchIds.Length)
@@ -2549,7 +2553,7 @@ internal sealed class LinqToDBJobStorage<T>(
 
 			return await Executions(connection)
 				.AnyAsync(
-					execution => execution.JobId == jobId && execution.Attempt == attempt,
+					execution => execution.JobId == jobId.JobId && execution.Attempt == attempt,
 					cancellationToken
 				)
 				.ConfigureAwait(false);
@@ -2739,33 +2743,34 @@ internal sealed class LinqToDBJobStorage<T>(
 	private static DateTimeOffset? FromTicks(long? value) =>
 		value is { } ticks ? new DateTimeOffset(ticks, TimeSpan.Zero) : null;
 
-	private static ImmediateJobEntity ToEntity(JobRecord job) => new()
-	{
-		Id = job.JobId,
-		QueueName = job.QueueName,
-		JobName = job.JobName,
-		Payload = job.Payload,
-		Context = job.Context,
-		GroupId = job.GroupId,
-		State = job.State,
-		DueAt = job.DueAt.UtcTicks,
-		CreatedAt = job.CreatedAt.UtcTicks,
-		Attempt = job.Attempt,
-		WorkerId = job.WorkerId,
-		LeaseExpiresAt = Ticks(job.LeaseExpiresAt),
-		LastError = job.LastError,
-		CompletedAt = Ticks(job.CompletedAt),
-		RecurringKey = job.RecurringKey,
-		TraceParent = job.TraceParent,
-		TraceState = job.TraceState,
-		ExecutionTraceId = job.ExecutionTraceId,
-		ExecutionSpanId = job.ExecutionSpanId,
-		ExecutionStartedAt = Ticks(job.ExecutionStartedAt),
-		BatchId = job.BatchId,
-		RemainingDependencies = job.RemainingDependencies,
-		FailedDependencies = job.FailedDependencies,
-		ConcurrencyStamp = Guid.NewGuid(),
-	};
+	private static ImmediateJobEntity ToEntity(JobRecord job) =>
+		new()
+		{
+			Id = job.JobId.JobId,
+			QueueName = job.QueueName,
+			JobName = job.JobName,
+			Payload = job.Payload,
+			Context = job.Context,
+			GroupId = job.GroupId,
+			State = job.State,
+			DueAt = job.DueAt.UtcTicks,
+			CreatedAt = job.CreatedAt.UtcTicks,
+			Attempt = job.Attempt,
+			WorkerId = job.WorkerId,
+			LeaseExpiresAt = Ticks(job.LeaseExpiresAt),
+			LastError = job.LastError,
+			CompletedAt = Ticks(job.CompletedAt),
+			RecurringKey = job.RecurringKey,
+			TraceParent = job.TraceParent,
+			TraceState = job.TraceState,
+			ExecutionTraceId = job.ExecutionTraceId,
+			ExecutionSpanId = job.ExecutionSpanId,
+			ExecutionStartedAt = Ticks(job.ExecutionStartedAt),
+			BatchId = job.BatchId?.BatchId,
+			RemainingDependencies = job.RemainingDependencies,
+			FailedDependencies = job.FailedDependencies,
+			ConcurrencyStamp = Guid.NewGuid(),
+		};
 
 	private async Task PrepareAcquisitionExecutionsAsync(
 		DataConnection connection,
@@ -2780,7 +2785,7 @@ internal sealed class LinqToDBJobStorage<T>(
 		if (previous.State == JobState.Active && priorExecution is not null)
 		{
 			_ = await Executions(connection)
-				.Where(execution => execution.JobId == previous.JobId && execution.Attempt == previous.Attempt)
+				.Where(execution => execution.JobId == previous.JobId.JobId && execution.Attempt == previous.Attempt)
 				.Set(execution => execution.State, JobExecutionState.Interrupted)
 				.Set(execution => execution.CompletedAt, Ticks(previous.LeaseExpiresAt))
 				.Set(execution => execution.Error, (string?)null)
@@ -2790,7 +2795,7 @@ internal sealed class LinqToDBJobStorage<T>(
 
 		_ = await InsertAsync(connection, new ImmediateJobExecutionEntity
 		{
-			JobId = previous.JobId,
+			JobId = previous.JobId.JobId,
 			Attempt = previous.Attempt + 1,
 			State = JobExecutionState.Active,
 			WorkerId = workerId,
@@ -2825,60 +2830,66 @@ internal sealed class LinqToDBJobStorage<T>(
 		}
 		catch (DbException exception)
 		{
-			throw new SyntheticExecutionInsertFailedException(job.Id, job.Attempt, exception);
+			throw new SyntheticExecutionInsertFailedException(JobHandle.FromString(job.Id), job.Attempt, exception);
 		}
 
 		return execution;
 	}
 
-	private static ImmediateJobExecutionEntity ToEntity(JobExecutionRecord execution) => new()
-	{
-		JobId = execution.JobId,
-		Attempt = execution.Attempt,
-		State = execution.State,
-		WorkerId = execution.WorkerId,
-		AcquiredAt = Ticks(execution.AcquiredAt),
-		ExecutionStartedAt = Ticks(execution.ExecutionStartedAt),
-		CompletedAt = Ticks(execution.CompletedAt),
-		ExecutionTraceId = execution.ExecutionTraceId,
-		ExecutionSpanId = execution.ExecutionSpanId,
-		Error = execution.Error,
-		IsSynthetic = execution.IsSynthetic,
-	};
+	private static ImmediateJobExecutionEntity ToEntity(JobExecutionRecord execution) =>
+		new()
+		{
+			JobId = execution.JobId.JobId,
+			Attempt = execution.Attempt,
+			State = execution.State,
+			WorkerId = execution.WorkerId,
+			AcquiredAt = Ticks(execution.AcquiredAt),
+			ExecutionStartedAt = Ticks(execution.ExecutionStartedAt),
+			CompletedAt = Ticks(execution.CompletedAt),
+			ExecutionTraceId = execution.ExecutionTraceId,
+			ExecutionSpanId = execution.ExecutionSpanId,
+			Error = execution.Error,
+			IsSynthetic = execution.IsSynthetic,
+		};
 
-	private static JobExecutionRecord ToRecord(ImmediateJobExecutionEntity execution) => new()
-	{
-		JobId = execution.JobId,
-		Attempt = execution.Attempt,
-		State = execution.State,
-		WorkerId = execution.WorkerId,
-		AcquiredAt = FromTicks(execution.AcquiredAt),
-		ExecutionStartedAt = FromTicks(execution.ExecutionStartedAt),
-		CompletedAt = FromTicks(execution.CompletedAt),
-		ExecutionTraceId = execution.ExecutionTraceId,
-		ExecutionSpanId = execution.ExecutionSpanId,
-		Error = execution.Error,
-		IsSynthetic = execution.IsSynthetic,
-	};
+	private static JobExecutionRecord ToRecord(ImmediateJobExecutionEntity execution) =>
+		new()
+		{
+			JobId = JobHandle.FromString(execution.JobId),
+			Attempt = execution.Attempt,
+			State = execution.State,
+			WorkerId = execution.WorkerId,
+			AcquiredAt = FromTicks(execution.AcquiredAt),
+			ExecutionStartedAt = FromTicks(execution.ExecutionStartedAt),
+			CompletedAt = FromTicks(execution.CompletedAt),
+			ExecutionTraceId = execution.ExecutionTraceId,
+			ExecutionSpanId = execution.ExecutionSpanId,
+			Error = execution.Error,
+			IsSynthetic = execution.IsSynthetic,
+		};
 
 	private static ImmediateJobContinuationEntity ToEntity(JobContinuationEdge edge)
 	{
-		var hasJobParent = edge.ParentJobId is not null;
-		var hasBatchParent = edge.ParentBatchId is not null;
-		if (hasJobParent == hasBatchParent)
-			throw new ImmediateJobException("A continuation edge must identify exactly one parent job or batch.");
+		var (parentKind, parentId) = (edge.ParentJobId, edge.ParentBatchId) switch
+		{
+			({ JobId: { } jobId }, null) => (ContinuationParentKind.Job, jobId),
+			(null, { BatchId: { } batchId }) => (ContinuationParentKind.Batch, batchId),
+			_ => throw new ImmediateJobException("A continuation edge must identify exactly one parent job or batch."),
+		};
+
 		return new()
 		{
-			ChildJobId = edge.ChildJobId,
-			ParentKind = hasJobParent ? ContinuationParentKind.Job : ContinuationParentKind.Batch,
-			ParentId = edge.ParentJobId ?? edge.ParentBatchId!,
+			ChildJobId = edge.ChildJobId.JobId,
+			ParentKind = parentKind,
+			ParentId = parentId,
 			Trigger = edge.Trigger,
+			Delay = edge.Delay.ToString("c"),
 		};
 	}
 
 	private static JobRecord ToRecord(ImmediateJobEntity job) => new()
 	{
-		JobId = job.Id,
+		JobId = JobHandle.FromString(job.Id),
 		QueueName = job.QueueName,
 		JobName = job.JobName,
 		Payload = job.Payload,
@@ -2898,7 +2909,7 @@ internal sealed class LinqToDBJobStorage<T>(
 		ExecutionTraceId = job.ExecutionTraceId,
 		ExecutionSpanId = job.ExecutionSpanId,
 		ExecutionStartedAt = FromTicks(job.ExecutionStartedAt),
-		BatchId = job.BatchId,
+		BatchId = BatchHandle.FromString(job.BatchId),
 		RemainingDependencies = job.RemainingDependencies,
 		FailedDependencies = job.FailedDependencies,
 	};
@@ -2916,49 +2927,55 @@ internal sealed class LinqToDBJobStorage<T>(
 		ConcurrencyStamp = Guid.NewGuid(),
 	};
 
-	private static RecurringJobSchedule ToRecord(ImmediateRecurringJobEntity schedule) => new()
-	{
-		Name = schedule.Name,
-		JobName = schedule.JobName,
-		Cron = schedule.Cron,
-		TimeZone = schedule.TimeZone,
-		IsCodeDefined = schedule.IsCodeDefined,
-		IsPaused = schedule.IsPaused,
-		NextRunAt = FromTicks(schedule.NextRunAt),
-		LastRunAt = FromTicks(schedule.LastRunAt),
-	};
+	private static RecurringJobSchedule ToRecord(ImmediateRecurringJobEntity schedule) =>
+		new()
+		{
+			Name = schedule.Name,
+			JobName = schedule.JobName,
+			QueueName = schedule.QueueName,
+			Cron = schedule.Cron,
+			TimeZone = schedule.TimeZone,
+			IsCodeDefined = schedule.IsCodeDefined,
+			IsPaused = schedule.IsPaused,
+			NextRunAt = FromTicks(schedule.NextRunAt),
+			LastRunAt = FromTicks(schedule.LastRunAt),
+		};
 
-	private static BatchStatus ToStatus(ImmediateJobBatchEntity batch) => new()
-	{
-		BatchId = batch.Id,
-		State = batch.State,
-		Total = batch.TotalJobs,
-		Succeeded = batch.SucceededCount,
-		Failed = batch.FailedCount,
-		Cancelled = batch.CancelledCount,
-		Skipped = batch.SkippedCount,
-		Remaining = batch.PendingCount,
-		CreatedAt = FromTicks(batch.CreatedAt),
-		StartedAt = FromTicks(batch.StartedAt),
-		CompletedAt = FromTicks(batch.CompletedAt),
-		FractionSettled = BatchStatus.CalculateFractionSettled(batch.TotalJobs, batch.PendingCount),
-	};
+	private static BatchStatus ToStatus(ImmediateJobBatchEntity batch) =>
+		new()
+		{
+			BatchId = BatchHandle.FromString(batch.Id),
+			State = batch.State,
+			Total = batch.TotalJobs,
+			Succeeded = batch.SucceededCount,
+			Failed = batch.FailedCount,
+			Cancelled = batch.CancelledCount,
+			Skipped = batch.SkippedCount,
+			Remaining = batch.PendingCount,
+			CreatedAt = FromTicks(batch.CreatedAt),
+			StartedAt = FromTicks(batch.StartedAt),
+			CompletedAt = FromTicks(batch.CompletedAt),
+			FractionSettled = BatchStatus.CalculateFractionSettled(batch.TotalJobs, batch.PendingCount),
+		};
 
-	private static JobContinuationEdge ToContinuationEdge(ImmediateJobContinuationEntity edge) => new()
-	{
-		ChildJobId = edge.ChildJobId,
-		ParentJobId = edge.ParentKind == ContinuationParentKind.Job ? edge.ParentId : null,
-		ParentBatchId = edge.ParentKind == ContinuationParentKind.Batch ? edge.ParentId : null,
-		Trigger = edge.Trigger,
-	};
+	private static JobContinuationEdge ToContinuationEdge(ImmediateJobContinuationEntity edge) =>
+		new()
+		{
+			ChildJobId = JobHandle.FromString(edge.ChildJobId),
+			ParentJobId = edge.ParentKind == ContinuationParentKind.Job ? JobHandle.FromString(edge.ParentId) : null,
+			ParentBatchId = edge.ParentKind == ContinuationParentKind.Batch ? BatchHandle.FromString(edge.ParentId) : null,
+			Trigger = edge.Trigger,
+			Delay = TimeSpan.ParseExact(edge.Delay, "c", formatProvider: null),
+		};
 
-	private static BatchGraphEdge ToGraphEdge(ImmediateJobContinuationEntity edge) => new()
-	{
-		ChildJobId = edge.ChildJobId,
-		ParentJobId = edge.ParentKind == ContinuationParentKind.Job ? edge.ParentId : null,
-		ParentBatchId = edge.ParentKind == ContinuationParentKind.Batch ? edge.ParentId : null,
-		Trigger = edge.Trigger,
-	};
+	private static BatchGraphEdge ToGraphEdge(ImmediateJobContinuationEntity edge) =>
+		new()
+		{
+			ChildJobId = JobHandle.FromString(edge.ChildJobId),
+			ParentJobId = edge.ParentKind == ContinuationParentKind.Job ? JobHandle.FromString(edge.ParentId) : null,
+			ParentBatchId = edge.ParentKind == ContinuationParentKind.Batch ? BatchHandle.FromString(edge.ParentId) : null,
+			Trigger = edge.Trigger,
+		};
 
 #pragma warning disable CA1032, CA1064
 	private sealed class LostRaceException : Exception;
@@ -2969,7 +2986,7 @@ internal sealed class LinqToDBJobStorage<T>(
 		DbException databaseException
 	) : Exception("A synthetic execution insert failed.", databaseException)
 	{
-		public string JobId { get; } = jobId;
+		public JobHandle JobId { get; } = jobId;
 		public int Attempt { get; } = attempt;
 		public DbException DatabaseException { get; } = databaseException;
 	}

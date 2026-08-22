@@ -646,6 +646,7 @@ public sealed partial class JobSchedulingService : BackgroundService
 				{
 					Name = definition.Name,
 					JobName = definition.Name,
+					QueueName = definition.Queue.Name,
 					Cron = definition.Cron!,
 					TimeZone = definition.TimeZone,
 					IsCodeDefined = true,
@@ -736,7 +737,7 @@ public sealed partial class JobSchedulingService : BackgroundService
 		var (traceParent, traceState) = Activity.Current;
 		var record = new JobRecord
 		{
-			JobId = new() { JobId = _idGenerator.CreateId(IdKind.Job) },
+			JobId = JobHandle.FromString(_idGenerator.CreateId(IdKind.Job)),
 			JobName = schedule.JobName,
 			QueueName = definition.Queue.Name,
 			Payload = "{}",

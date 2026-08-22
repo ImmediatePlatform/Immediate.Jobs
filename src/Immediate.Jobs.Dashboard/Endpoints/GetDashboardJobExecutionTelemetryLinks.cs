@@ -32,7 +32,7 @@ internal static partial class GetDashboardJobExecutionTelemetryLinks
 		IOptions<ImmediateJobsDashboardOptions> options,
 		CancellationToken cancellationToken
 	) => DashboardApiEndpointOperations.GetJobTelemetryLinksAsync(
-		query.JobId,
+		JobHandle.FromString(query.JobId),
 		query.ExecutionNumber,
 		monitor,
 		options.Value,

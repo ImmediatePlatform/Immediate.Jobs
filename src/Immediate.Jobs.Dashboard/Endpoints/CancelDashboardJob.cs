@@ -29,6 +29,6 @@ internal static partial class CancelDashboardJob
 		JobMonitor monitor,
 		CancellationToken cancellationToken
 	) => DashboardApiEndpointOperations.MutateJobAsync(
-		() => monitor.CancelJobAsync(command.JobId, cancellationToken)
+		() => monitor.CancelJobAsync(JobHandle.FromString(command.JobId), cancellationToken)
 	);
 }

@@ -40,6 +40,7 @@ internal sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 	public ValueTask EnqueueAsync(JobRecord jobRecord, CancellationToken cancellationToken = default)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+
 		lock (_gate)
 		{
 			if (!_jobs.TryAdd(jobRecord.JobId, jobRecord))
@@ -57,6 +58,7 @@ internal sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 	)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+
 		lock (_gate)
 		{
 			ValidateNewJob(job);
@@ -124,12 +126,8 @@ internal sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 		CancellationToken cancellationToken = default
 	)
 	{
-		ArgumentNullException.ThrowIfNull(request);
-		ArgumentException.ThrowIfNullOrWhiteSpace(request.WorkerId, nameof(request));
-		ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(request.Lease, TimeSpan.Zero, nameof(request));
-		ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(request.BatchSize, 0, nameof(request));
-
 		cancellationToken.ThrowIfCancellationRequested();
+
 		var now = timeProvider.GetUtcNow();
 		lock (_gate)
 		{
@@ -640,8 +638,8 @@ internal sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 	/// <inheritdoc />
 	public ValueTask UpsertRecurringAsync(RecurringJobSchedule schedule, CancellationToken cancellationToken = default)
 	{
-		ArgumentNullException.ThrowIfNull(schedule);
 		cancellationToken.ThrowIfCancellationRequested();
+
 		lock (_gate)
 		{
 			if (_recurring.TryGetValue(schedule.Name, out var current))
@@ -671,8 +669,8 @@ internal sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 		{
 			var obsoleteNames = _recurring
 				.Where(schedule => schedule.Value.IsCodeDefined && !activeNames.Contains(schedule.Key))
-				.Select(static schedule => schedule.Key)
-				.ToArray();
+				.Select(static schedule => schedule.Key);
+
 			foreach (var name in obsoleteNames)
 				_ = _recurring.Remove(name);
 		}
@@ -962,7 +960,7 @@ internal sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 				QueueName = job.QueueName,
 				State = job.State,
 				Attempt = job.Attempt,
-				MaxAttempts = null,
+				MaxAttempts = 0,
 				CreatedAt = job.CreatedAt,
 				DueAt = job.DueAt,
 				CompletedAt = job.CompletedAt,
@@ -1807,8 +1805,8 @@ internal sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 
 	private ValueTask SetRecurringPausedAsync(string name, bool isPaused, CancellationToken cancellationToken)
 	{
-		ArgumentException.ThrowIfNullOrWhiteSpace(name);
 		cancellationToken.ThrowIfCancellationRequested();
+
 		lock (_gate)
 		{
 			if (!_recurring.TryGetValue(name, out var schedule))

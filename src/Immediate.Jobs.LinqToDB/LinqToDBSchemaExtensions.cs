@@ -121,14 +121,14 @@ public static class LinqToDBSchemaExtensions
 		);
 		CREATE TABLE IF NOT EXISTS "immediate_job_continuations" (
 			"ChildJobId" TEXT NOT NULL, "ParentKind" INTEGER NOT NULL, "ParentId" TEXT NOT NULL,
-			"Trigger" INTEGER NOT NULL, "ParentOutcome" INTEGER NOT NULL,
+			"Delay" TEXT NOT NULL, "Trigger" INTEGER NOT NULL, "ParentOutcome" INTEGER NOT NULL,
 			CONSTRAINT "PK_immediate_job_continuations" PRIMARY KEY ("ChildJobId", "ParentKind", "ParentId"),
 			CONSTRAINT "FK_immediate_job_continuations_immediate_jobs_ChildJobId" FOREIGN KEY ("ChildJobId")
 				REFERENCES "immediate_jobs" ("Id") ON DELETE CASCADE
 		);
 		CREATE TABLE IF NOT EXISTS "immediate_recurring_jobs" (
 			"Name" TEXT NOT NULL CONSTRAINT "PK_immediate_recurring_jobs" PRIMARY KEY,
-			"JobName" TEXT NOT NULL, "Cron" TEXT NOT NULL, "TimeZone" TEXT NOT NULL,
+			"JobName" TEXT NOT NULL, "QueueName" TEXT NOT NULL, "Cron" TEXT NOT NULL, "TimeZone" TEXT NOT NULL,
 			"IsCodeDefined" INTEGER NOT NULL, "IsPaused" INTEGER NOT NULL, "NextRunAt" INTEGER NOT NULL,
 			"LastRunAt" INTEGER NULL, "ConcurrencyStamp" TEXT NOT NULL
 		);

@@ -31,7 +31,7 @@ internal static partial class GetDashboardJob
 	)
 	{
 		var jobs = await monitor.QueryJobsAsync(
-			new() { Id = query.JobId, Take = 1 },
+			new() { JobId = query.JobId, Take = 1 },
 			cancellationToken
 		);
 		return jobs.SingleOrDefault();

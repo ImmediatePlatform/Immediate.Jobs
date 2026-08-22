@@ -33,7 +33,7 @@ public sealed record JobStatus
 	/// <summary>
 	/// 	The total permitted execution attempts, if the job definition is available.
 	/// </summary>
-	public int? MaxAttempts { get; init; }
+	public int MaxAttempts { get; init; }
 
 	/// <summary>
 	/// 	The UTC invocation-creation time.

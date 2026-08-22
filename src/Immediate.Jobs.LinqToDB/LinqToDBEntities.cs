@@ -150,6 +150,8 @@ internal sealed class ImmediateJobContinuationEntity
 	public ContinuationParentKind ParentKind { get; set; }
 	[PrimaryKey(3), Column(Length = 256, CanBeNull = false)]
 	public string ParentId { get; set; } = null!;
+	[Column(Length = 32, CanBeNull = false)]
+	public string Delay { get; set; } = null!;
 	[Column(DataType = DataType.Int16)]
 	public ContinuationTrigger Trigger { get; set; }
 	[Column(DataType = DataType.Int16)]
@@ -163,6 +165,8 @@ internal sealed class ImmediateRecurringJobEntity
 	public string Name { get; set; } = null!;
 	[Column(Length = 256, CanBeNull = false)]
 	public string JobName { get; set; } = null!;
+	[Column(Length = 256, CanBeNull = false)]
+	public string QueueName { get; set; } = null!;
 	[Column(Length = 128, CanBeNull = false)]
 	public string Cron { get; set; } = null!;
 	[Column(Length = 128, CanBeNull = false)]

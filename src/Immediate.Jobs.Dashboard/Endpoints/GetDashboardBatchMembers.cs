@@ -38,7 +38,7 @@ internal static partial class GetDashboardBatchMembers
 		CancellationToken cancellationToken
 	)
 	{
-		return await monitor.QueryBatchMembersAsync(query.BatchId, new()
+		return await monitor.QueryBatchMembersAsync(BatchHandle.FromString(query.BatchId), new()
 		{
 			State = query.State,
 			Skip = query.Skip ?? 0,

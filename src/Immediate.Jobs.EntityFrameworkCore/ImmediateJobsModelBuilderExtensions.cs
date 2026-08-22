@@ -147,6 +147,7 @@ public static class ImmediateJobsModelBuilderExtensions
 		_ = entity.Property(edge => edge.ChildJobId).HasMaxLength(256);
 		_ = entity.Property(edge => edge.ParentKind).HasConversion<short>();
 		_ = entity.Property(edge => edge.ParentId).HasMaxLength(256);
+		_ = entity.Property(edge => edge.Delay).HasMaxLength(32);
 		_ = entity.Property(edge => edge.Trigger).HasConversion<short>();
 		_ = entity.Property(edge => edge.ParentOutcome).HasConversion<short>();
 		_ = entity.HasOne<ImmediateJobEntity>()
@@ -162,6 +163,7 @@ public static class ImmediateJobsModelBuilderExtensions
 		_ = entity.HasKey(schedule => schedule.Name);
 		_ = entity.Property(schedule => schedule.Name).HasMaxLength(256);
 		_ = entity.Property(schedule => schedule.JobName).HasMaxLength(256).IsRequired();
+		_ = entity.Property(schedule => schedule.QueueName).HasMaxLength(256).IsRequired();
 		_ = entity.Property(schedule => schedule.Cron).HasMaxLength(128).IsRequired();
 		_ = entity.Property(schedule => schedule.TimeZone).HasMaxLength(128).IsRequired();
 		_ = entity.Property(schedule => schedule.NextRunAt).HasConversion(
@@ -275,6 +277,7 @@ internal sealed class ImmediateJobContinuationEntity
 	public string ChildJobId { get; set; } = null!;
 	public ContinuationParentKind ParentKind { get; set; }
 	public string ParentId { get; set; } = null!;
+	public string Delay { get; set; } = null!;
 	public ContinuationTrigger Trigger { get; set; }
 	public ContinuationParentOutcome ParentOutcome { get; set; }
 }
@@ -283,6 +286,7 @@ internal sealed class ImmediateRecurringJobEntity
 {
 	public string Name { get; set; } = null!;
 	public string JobName { get; set; } = null!;
+	public string QueueName { get; set; } = null!;
 	public string Cron { get; set; } = null!;
 	public string TimeZone { get; set; } = null!;
 	public bool IsCodeDefined { get; set; }

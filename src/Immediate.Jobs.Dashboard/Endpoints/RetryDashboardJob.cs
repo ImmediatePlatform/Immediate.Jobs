@@ -29,6 +29,6 @@ internal static partial class RetryDashboardJob
 		JobMonitor monitor,
 		CancellationToken cancellationToken
 	) => DashboardApiEndpointOperations.MutateJobAsync(
-		() => monitor.RetryJobAsync(command.JobId, cancellationToken)
+		() => monitor.RetryJobAsync(JobHandle.FromString(command.JobId), cancellationToken)
 	);
 }

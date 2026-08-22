@@ -346,8 +346,7 @@ internal sealed class SingleServerJobStorage :
 	public async ValueTask<JobMonitoringSnapshot> GetMonitoringSnapshotAsync(CancellationToken cancellationToken = default)
 	{
 		await EnsureInitializedAsync(cancellationToken).ConfigureAwait(false);
-		var snapshot = await _primary.GetMonitoringSnapshotAsync(cancellationToken).ConfigureAwait(false);
-		return snapshot with { Capabilities = this.GetCapabilities() };
+		return await _primary.GetMonitoringSnapshotAsync(cancellationToken).ConfigureAwait(false);
 	}
 
 	/// <inheritdoc />

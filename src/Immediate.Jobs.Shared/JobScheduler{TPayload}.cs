@@ -776,7 +776,7 @@ public abstract class JobScheduler<TPayload>(
 
 		return new JobRecord
 		{
-			JobId = new() { JobId = idGenerator.CreateId(IdKind.Job) },
+			JobId = JobHandle.FromString(idGenerator.CreateId(IdKind.Job)),
 			JobName = JobName,
 			QueueName = QueueName,
 			GroupId = NormalizeGroupId(groupId),
@@ -839,6 +839,7 @@ public abstract class JobScheduler<TPayload>(
 					Name = name,
 					JobName = JobName,
 					Cron = cron,
+					QueueName = QueueName,
 					TimeZone = timeZone,
 					IsCodeDefined = false,
 					NextRunAt = next,

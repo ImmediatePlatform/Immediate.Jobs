@@ -30,6 +30,6 @@ internal static partial class GetDashboardBatchGraph
 		CancellationToken cancellationToken
 	)
 	{
-		return await monitor.GetBatchGraphAsync(query.BatchId, cancellationToken);
+		return await monitor.GetBatchGraphAsync(BatchHandle.FromString(query.BatchId), cancellationToken);
 	}
 }
