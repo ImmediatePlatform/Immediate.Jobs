@@ -2,9 +2,10 @@
 
 > **Status:** Implemented.
 > **Goal:** Split the single `IJobStorage` seam into **capability interfaces** so a provider can
-> implement a subset — e.g. a Redis connector that does the queue only. Batches and continuations
-> require a **graph-capable** provider (a SQL database); when the active provider lacks that
-> capability, the batch/continuation APIs fail fast with a clear message ("use a SQL provider").
+> implement a subset, such as Redis with queue and recurring support but no graph support. Batches
+> and continuations require a **graph-capable** provider (a SQL database); when the active provider
+> lacks that capability, the batch/continuation APIs fail fast with a clear message ("use a SQL
+> provider").
 >
 > **Scope decision:** this plan is about **one active provider that advertises what it supports**.
 > Running two providers at once and routing between them (a *composite* provider) is a separate,
@@ -18,9 +19,8 @@ That is exactly what non-relational stores (Redis, DynamoDB, Cassandra) are bad 
 stores are good at — see [`provider-suitability.md`](provider-suitability.md) for the backend matrix
 and the reasoning.
 
-We want a high-throughput queue-only Redis provider to be a **small, correct** deliverable — it should
-implement the claim/lease/state-machine surface it is genuinely good at, and *not* be forced to fake
-atomic batches. The mechanism is **interface segregation**: cohesive capability interfaces, a provider
+We want Redis to implement the queue and recurring operations it can honor without faking atomic
+batches. The mechanism is **interface segregation**: cohesive capability interfaces, a provider
 implements the ones it can honor, and the runtime detects what is available and guards the rest.
 
 ## 2. Capability taxonomy
@@ -100,7 +100,7 @@ breaks capability detection outright: anything that satisfies `IJobStorage` nece
 three sub-interfaces, so
 
 ```csharp
-IJobStorage storage = /* a Redis, queue-only provider */;
+IJobStorage storage = /* a provider with queue support only */;
 bool supportsGraph = storage is IJobGraphStorage;   // ALWAYS true — useless
 ```
 
@@ -113,7 +113,8 @@ check means something.
   declares `: IRecurringJobStorage, IJobGraphStorage` (each transitively `IJobStorage`). The method
   bodies already exist — this is a one-line change to each class declaration. A convenience marker
   `IFullJobStorage : IRecurringJobStorage, IJobGraphStorage` can shorten it, but isn't required.
-- A **queue-only provider** (Redis) declares `: IJobStorage` and stops there.
+- A **partial provider** such as Redis declares only the capabilities it supports. Redis implements
+  `IRecurringJobStorage`, which includes `IJobStorage`, but does not implement `IJobGraphStorage`.
 - **Consumers inject the base `IJobStorage`** and cast up to a capability when they need one (§3.2, §4).
 
 ### 3.2 Capability detection (and it's nearly free)
@@ -150,9 +151,9 @@ Two existing runtime paths call optional-capability methods on the base seam tod
 once those methods move off `IJobStorage`:
 
 - **Completion** — `JobSchedulerService` calls `CompleteWithContinuationsAsync` (a graph method) after
-  every job. Under a queue-only provider there are no continuations to flush, so it must call the plain
-  `CompleteAsync` instead. Resolve the branch once at startup (store an `IJobGraphStorage?` alongside
-  the base) rather than per-job.
+  every job. Under a provider without graph support there are no continuations to flush, so it must
+  call the plain `CompleteAsync` instead. Resolve the branch once at startup (store an
+  `IJobGraphStorage?` alongside the base) rather than per-job.
 - **Recurring scan** — the `GetDueRecurringAsync` → `MaterializeRecurringAsync` loop (and code-defined
   `UpsertRecurringAsync` sync) must only run when the provider is `IRecurringJobStorage`. Skip the
   whole loop otherwise; there are no schedules to scan.
@@ -161,74 +162,92 @@ Both branches are decided once (singleton type), consistent with §3.2.
 
 ## 4. Guarding "batches need SQL"
 
-When the active provider lacks `IJobGraphStorage`, batch/continuation usage must fail **clearly and
-early**, never silently. Layers, outermost first:
+When the active provider lacks `IJobGraphStorage`, batch and continuation calls fail before writing
+anything. `IBatchScheduler` remains registered. Its operations and the generated `AddToBatch` and
+`ScheduleAfterAsync` entry points call `RequireGraph` on the resolved `IJobStorage`:
 
-1. **Startup validation.** During `AddMyAppJobs()`, if the registered storage is not
-   `IJobGraphStorage`, log an informational line ("Batch & continuation features are disabled: the
-   configured storage 'RedisJobStorage' implements the queue capability only. Configure a SQL provider
-   to enable them.") and **do not register** `IJobBatchScheduler`.
-2. **Resolve-time guard (the cast pattern).** The batch scheduler and the generated
-   `AddToBatch` / `ScheduleAfterAsync` entry points inject the base `IJobStorage` and cast up, throwing
-   when the capability is absent:
+```csharp
+var graph = storage as IJobGraphStorage
+    ?? throw new NotSupportedException(
+        "Batches & continuations require a graph-capable storage provider (a SQL database). " +
+        "The configured provider does not implement the graph capability.");
+```
 
-   ```csharp
-   public async ValueTask<BatchHandle> CommitAsync(/* … */)
-   {
-       if (storage is not IJobGraphStorage graph)
-           throw new NotSupportedException(
-               "Batches & continuations require a graph-capable storage provider (a SQL database). " +
-               "The configured provider implements the queue capability only.");
-       await graph.EnqueueBatchAsync(/* … */);
-   }
-   ```
-
-   This catches code paths the startup scan can't prove are unused, and — per §3.2 — the cast is
-   monomorphic and near-free. (Alternatively the scheduler could inject `IJobGraphStorage` directly and
-   rely on step 1 not registering it; the explicit guard gives a better message and one obvious place
-   for it.)
-3. **No partial writes.** Because the guard trips *before* any storage write, a batch attempt on a
-   queue-only provider does nothing — consistent with the atomic-batch contract.
+The guard gives callers the SQL-provider guidance and prevents partial writes. Monitoring derives
+the `Graph` flag from the same resolved storage instance, allowing the dashboard to hide graph views.
 
 The inherited `AddToBatch` / `ScheduleAfterAsync` methods still **compile** regardless of provider;
-they just throw at runtime under a queue-only provider. This keeps the generated scheduler
-provider-agnostic. *(Optional later: an analyzer hint if the project references only a queue-only
-provider package — deferred; provider choice isn't reliably known at compile time.)*
+they just throw at runtime when the provider lacks graph support. This keeps the generated scheduler
+provider-agnostic. Provider choice is not reliably known at compile time, so this remains a runtime
+guard.
 
 ## 5. Registration
 
-Register the provider instance under **every capability interface it implements**, so consumers can
-inject either the base or a capability and resolve the same singleton:
+The generated `AddXxxJobs()` method returns `IImmediateJobsBuilder`. Call `ConfigureStorage` exactly
+once. Its `IImmediateJobsStorageBuilder` callback selects one active `IJobStorage` and its topology:
+
+- `UseInMemory()` selects the non-durable, single-node provider.
+- A provider extension such as `UseEntityFrameworkCore<TContext>()` or `UseLinqToDB<TConnection>()`
+  supplies durable storage. Durable storage uses single-server mode unless the callback selects
+  `UseDistributed()`.
+- `UseRedis()` supplies Redis storage and selects distributed mode itself.
+
+Capability interfaces belong to the concrete storage type. The runtime resolves one `IJobStorage`
+and derives its capabilities with `GetCapabilities()`. Do not register separate
+`IRecurringJobStorage`, `IJobGraphStorage`, or `IFairQueueStorage` services.
+
+Configure Redis through dependency injection and the Redis builder:
 
 ```csharp
-// inside UseEntityFrameworkCore<T>() — a full provider
-services.AddSingleton<EntityFrameworkCoreJobStorage>();
-services.AddSingleton<IJobStorage>(sp => sp.GetRequiredService<EntityFrameworkCoreJobStorage>());
-services.AddSingleton<IRecurringJobStorage>(sp => sp.GetRequiredService<EntityFrameworkCoreJobStorage>());
-services.AddSingleton<IJobGraphStorage>(sp => sp.GetRequiredService<EntityFrameworkCoreJobStorage>());
+services.AddSingleton<IConnectionMultiplexer>(_ =>
+    ConnectionMultiplexer.Connect("localhost:6379"));
 
-// inside UseRedis() — a queue-only provider: base only
-services.AddSingleton<IJobStorage, RedisJobStorage>();
-// no IRecurringJobStorage / IJobGraphStorage registered → capability checks are false,
-// IJobBatchScheduler is not registered (§4.1)
+services.AddMyAppJobs()
+    .ConfigureWorkers(options => options.MaxParallelJobs = 32)
+    .ConfigureStorage(storage => storage
+        .UseRedis()
+        .ConfigureRedis(options => options.KeyPrefix = "billing-jobs"));
 ```
 
-From the user's side nothing new is required:
+EF Core requires an `IDbContextFactory<TContext>`. The context must also add the Immediate.Jobs model:
 
 ```csharp
-// Queue-only: Redis. Batches/continuations disabled (guarded per §4).
-services.AddMyAppJobs(o =>
-{
-    o.UseRedis("localhost:6379");
-    o.MaxParallelJobs = 32;
-});
+services.AddDbContextFactory<JobsDbContext>(options =>
+    options.UseNpgsql(connectionString));
 
-// Full: SQL. Everything, exactly as today.
-services.AddMyAppJobs(o =>
+services.AddMyAppJobs()
+    .ConfigureStorage(storage => storage
+        .UseEntityFrameworkCore<JobsDbContext>()
+        .UseDistributed());
+
+public sealed class JobsDbContext(DbContextOptions<JobsDbContext> options) : DbContext(options)
 {
-    o.UseEntityFrameworkCore<AppDbContext>();
-});
+    protected override void OnModelCreating(ModelBuilder modelBuilder) =>
+        modelBuilder.AddImmediateJobs(schema: "background");
+}
 ```
+
+LinqToDB requires a registered `DataConnection` type. Immediate.Jobs resolves a new scoped instance
+of that type for each storage operation:
+
+```csharp
+var dataOptions = new DataOptions().UsePostgreSQL(connectionString);
+services.AddLinqToDBContext<JobsDataConnection>(() => dataOptions);
+
+services.AddMyAppJobs()
+    .ConfigureStorage(storage => storage
+        .UseLinqToDB<JobsDataConnection>(schema: "background")
+        .UseDistributed());
+
+public sealed class JobsDataConnection(DataOptions options) : DataConnection(options);
+```
+
+The SQL examples above use `UseDistributed()` because several scheduler processes may share the
+database. Use `UseSingleServer()` instead when exactly one scheduler process uses it.
+
+A third-party provider extension uses `UseStorage<TJobStorage>()` or its factory overload. The
+storage builder then registers either that provider for distributed mode or a `SingleServerJobStorage`
+wrapper for single-server mode.
 
 ## 6. Redis provider scope (first partial provider)
 
@@ -255,10 +274,10 @@ Ships as `Immediate.Jobs.Redis` implementing **`IJobStorage`** (queue) and
 
 - **Segregation refactor:** existing suite must pass unchanged for the full providers (proves the
   inverted hierarchy is behavior-preserving for anything that implements every capability).
-- **Capability guard:** register a queue-only fake provider (implements `IJobStorage` only); assert
-  `IJobBatchScheduler` is not registered, and that `AddToBatch` / `ScheduleAfterAsync` throw
-  `NotSupportedException` with the guidance message; assert queue/recurring paths work; assert the
-  completion path uses `CompleteAsync` and the recurring loop is skipped (§3.4).
+- **Capability guard:** configure a queue-only fake with
+  `ConfigureStorage(storage => storage.UseStorage(...).UseDistributed())`; assert `BatchScheduler`
+  and `ScheduleAfterAsync` throw `NotSupportedException` before any write. Also assert the completion
+  path uses `CompleteAsync` and the recurring loop is skipped (§3.4).
 - **Dashboard:** batch views hidden when graph capability absent.
 - **Redis provider:** its own queue + recurring integration tests (claim under contention, lease
   recovery, occurrence dedupe).
@@ -273,10 +292,9 @@ branches (§3.4). No behavior change for full providers; full suite green. This 
 providers.
 
 **Phase 2 — Capability guard + detection.**
-Interface-check detection, `StorageCapabilities` surfacing, startup + resolve-time guards, conditional
-`IJobBatchScheduler` registration, dashboard hiding.
+Interface-check detection, `StorageCapabilities` reporting, call-time guards, and dashboard hiding.
 
-**Phase 3 — Redis queue-only provider.**
+**Phase 3 — Redis partial provider.**
 `Immediate.Jobs.Redis` implementing queue (+ recurring), with docs stating batching needs SQL.
 
 **Effort & back-compat.** Phase 1 is a bit more than a pure marker refactor: because methods *move off*
@@ -289,7 +307,7 @@ indexes, recurring dedupe) but is now a *bounded* surface — exactly the queue 
 ## 9. Deferred: composite provider (not now)
 
 A **composite** runs two providers at once — e.g. standalone jobs on Redis, batch/continuation jobs on
-SQL, in the same app. It is **out of scope here** and **not required** for the queue-only Redis goal
+SQL, in the same app. It is **out of scope here** and **not required** for the partial Redis provider
 (that goal is served by single-provider capability detection above).
 
 The segregation in this plan is precisely the foundation a composite would need, so adding it later

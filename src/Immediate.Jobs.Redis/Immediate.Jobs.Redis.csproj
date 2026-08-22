@@ -9,7 +9,7 @@
   </PropertyGroup>
 
   <ItemGroup Label="Nuget">
-	<None Include="../../readme.md" Pack="true" PackagePath="/" />
+	<None Include="readme.md" Pack="true" PackagePath="/" />
   </ItemGroup>
 
   <PropertyGroup Condition="'$(TargetFramework)' == 'net11.0'">
