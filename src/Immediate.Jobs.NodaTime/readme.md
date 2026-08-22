@@ -45,8 +45,44 @@ NodaTime overloads also cover fair-queue group IDs, batch due times, and delayed
 
 ## Payload serialization
 
-Call `AddImmediateJobsNodaTime` after generated jobs registration when job payloads or captured contexts contain NodaTime
-values:
+Immediate.Jobs has its own `IJobSerializer`; it does not use ASP.NET Core's JSON options. When an application owns its
+JSON settings, create dedicated `JsonSerializerOptions` and register a `NodaTimeJobSerializer` before
+`AddMyAppJobs()`:
+
+```csharp
+using System.Text.Json;
+using Immediate.Jobs.NodaTime;
+using Immediate.Jobs.Shared.Interfaces;
+using NodaTime;
+
+var jobJsonOptions = new JsonSerializerOptions(JsonSerializerDefaults.Web)
+{
+	WriteIndented = false,
+	PropertyNameCaseInsensitive = true,
+};
+
+builder.Services.AddMyAppHandlers();
+
+builder.Services.AddSingleton<IJobSerializer>(
+	new NodaTimeJobSerializer(
+		jobJsonOptions,
+		DateTimeZoneProviders.Tzdb
+	)
+);
+
+builder.Services.AddMyAppJobs()
+	.ConfigureStorage(storage => storage.UseInMemory());
+```
+
+`NodaTimeJobSerializer` adds NodaTime's System.Text.Json converters to the supplied options. Generated schedulers and
+invokers build their AOT-safe payload metadata from those same options, so custom naming, converters, and other JSON
+settings apply consistently when a job is written and read.
+
+Register the serializer before `AddMyAppJobs()`. Jobs registers its default serializer only when no `IJobSerializer`
+has already been registered.
+
+If web JSON defaults and the TZDB time-zone provider are sufficient, `AddImmediateJobsNodaTime()` is a shorter
+convenience registration:
 
 ```csharp
 builder.Services.AddMyAppHandlers();
@@ -55,35 +91,16 @@ builder.Services.AddMyAppJobs()
 builder.Services.AddImmediateJobsNodaTime();
 ```
 
-The default uses the TZDB time-zone provider. Supply another `IDateTimeZoneProvider` when required:
+The convenience method replaces the default `IJobSerializer`; do not combine it with the explicit serializer
+registration above. Pass an `IDateTimeZoneProvider` to either `NodaTimeJobSerializer` or
+`AddImmediateJobsNodaTime(...)` when the application does not use TZDB.
 
-```csharp
-IDateTimeZoneProvider timeZoneProvider = DateTimeZoneProviders.Tzdb;
-builder.Services.AddSingleton(timeZoneProvider);
-builder.Services.AddImmediateJobsNodaTime(timeZoneProvider);
-```
+Every worker that reads stored jobs must use the same serializer options and a time-zone provider that recognizes the
+same IDs. Treat these settings as part of the durable payload contract: changing converters or JSON names while jobs are
+still queued can make their stored payloads unreadable.
 
-Every worker that reads stored jobs must use a provider that recognizes the same time-zone IDs.
-
-For application-owned serializer settings, construct `NodaTimeJobSerializer`; its constructor adds the NodaTime
-converters:
-
-```csharp
-var jsonOptions = new JsonSerializerOptions(JsonSerializerDefaults.Web)
-{
-	WriteIndented = false,
-};
-
-IJobSerializer serializer = new NodaTimeJobSerializer(
-	jsonOptions,
-	DateTimeZoneProviders.Tzdb
-);
-```
-
-The package uses NodaTime's System.Text.Json converters while retaining the generated metadata path used by
-Immediate.Jobs for trimming and Native AOT. If replacing `IJobSerializer` yourself, register the configured serializer
-after jobs registration. Call `JsonSerializerOptions.UseNodaTime(...)` when application-owned JSON options need the same
-converters outside the jobs serializer.
+Call `JsonSerializerOptions.UseNodaTime(...)` only when JSON options outside the Jobs serializer need the same NodaTime
+converters.
 
 ## More information
 
