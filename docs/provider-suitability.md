@@ -33,7 +33,7 @@ workload (b) ≈ the **graph** capability. A store that's great at (a) and bad a
 | **Relational SQL** (optimistic claims) | Strong | **Strong** | Strong | Full fidelity; PostgreSQL can scale further with tuned claims and partitioning |
 | **DynamoDB** | Excellent (conditional writes) | Weak (100-item txn cap) | Weak (GSI-per-pattern, no text search) | Great **queue-only** provider; TTL purge is a bonus |
 | **Cassandra / ScyllaDB** | Good (LWT) | Weak (batches ≠ ACID at scale) | Weak | Same shape as DynamoDB |
-| **Redis** | Excellent (Lua atomicity) | Weak (durability + multi-key limits) | Weak | Prime **queue-only** target; memory-bound |
+| **Redis** | Excellent (Lua atomicity) | Weak (durability + multi-key limits) | Weak | Queue and recurring support; no graph support; memory-bound |
 | **FoundationDB** | Good | **Strong — real multi-key ACID** | Manual (build a layer) | Best technical fit for (b); operationally heavy/niche |
 | **Kafka / NATS JetStream** | Poor (no per-item claim/mutate/delete) | N/A | Poor | Log model fights this contract — avoid |
 
