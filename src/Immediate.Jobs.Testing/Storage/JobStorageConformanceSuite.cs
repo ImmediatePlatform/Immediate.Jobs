@@ -26,7 +26,7 @@ public static class JobStorageConformanceSuite
 		if ((capabilities & ~KnownCapabilities) != StorageCapabilities.None)
 			throw new ArgumentOutOfRangeException(nameof(capabilities), capabilities, "The capability set contains unknown flags.");
 
-		if (capabilities.HasFlag(StorageCapabilities.Queue))
+		if (!capabilities.HasFlag(StorageCapabilities.Queue))
 			throw new ArgumentException("Every IJobStorage provider must advertise the Queue capability.", nameof(capabilities));
 
 		return QueueStorageConformance.Cases

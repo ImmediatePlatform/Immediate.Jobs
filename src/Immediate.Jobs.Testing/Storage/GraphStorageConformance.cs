@@ -1,6 +1,5 @@
 using Immediate.Jobs.Shared.Apis;
 using Immediate.Jobs.Shared.Storage;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Time.Testing;
 
 namespace Immediate.Jobs.Testing.Storage;
@@ -99,7 +98,7 @@ internal static class GraphStorageConformance
 		);
 		await graph.CompleteAsync(child.JobId, acquiredChild.Attempt, "lifecycle-worker", cancellationToken).ConfigureAwait(false);
 		var status = ConformanceAssert.NotNull(
-			await graph.GetBatchStatusAsync("lifecycle-batch", cancellationToken).ConfigureAwait(false),
+			await graph.GetBatchStatusAsync(BatchHandle.FromString("lifecycle-batch"), cancellationToken).ConfigureAwait(false),
 			BatchLifecycleName,
 			"the completed batch must have status"
 		);
@@ -107,16 +106,16 @@ internal static class GraphStorageConformance
 		ConformanceAssert.Equal(2, status.Succeeded, BatchLifecycleName, "both members must be counted as successful");
 		ConformanceAssert.Equal(0, status.Remaining, BatchLifecycleName, "a completed batch has no remaining members");
 		var projected = ConformanceAssert.NotNull(
-			await graph.GetBatchGraphAsync("lifecycle-batch", cancellationToken).ConfigureAwait(false),
+			await graph.GetBatchGraphAsync(BatchHandle.FromString("lifecycle-batch"), cancellationToken).ConfigureAwait(false),
 			BatchLifecycleName,
 			"the durable graph must be queryable"
 		);
 		ConformanceAssert.Equal(2, projected.Nodes.Count, BatchLifecycleName, "graph projection must contain both nodes");
 		ConformanceAssert.Equal(1, projected.Edges.Count, BatchLifecycleName, "graph projection must contain the dependency");
 
-		await graph.DeleteBatchAsync("lifecycle-batch", cancellationToken).ConfigureAwait(false);
+		await graph.DeleteBatchAsync(BatchHandle.FromString("lifecycle-batch"), cancellationToken).ConfigureAwait(false);
 		ConformanceAssert.Null(
-			await graph.GetBatchStatusAsync("lifecycle-batch", cancellationToken).ConfigureAwait(false),
+			await graph.GetBatchStatusAsync(BatchHandle.FromString("lifecycle-batch"), cancellationToken).ConfigureAwait(false),
 			BatchLifecycleName,
 			"deleting a terminal batch must remove its header"
 		);
@@ -127,7 +126,7 @@ internal static class GraphStorageConformance
 		);
 		ConformanceAssert.Equal(
 			0,
-			(await graph.QueryJobExecutionsAsync(new() { JobId = parent.JobId }, cancellationToken).ConfigureAwait(false)).Count,
+			(await graph.QueryJobExecutionsAsync(parent.JobId, new(), cancellationToken).ConfigureAwait(false)).Count,
 			BatchLifecycleName,
 			"deleting a terminal batch must remove member execution history"
 		);
@@ -149,14 +148,14 @@ internal static class GraphStorageConformance
 			() => graph.EnqueueBatchAsync(
 				CreateBatch("invalid-batch", 1),
 				[member],
-				[new() { ChildJobId = member.JobId, ParentJobId = "missing-parent" }],
+				[new() { ChildJobId = member.JobId, ParentJobId = JobHandle.FromString("missing-parent"), Delay = TimeSpan.Zero }],
 				cancellationToken
 			),
 			InvalidBatchName,
 			"an edge referencing a missing parent must reject the batch atomically"
 		).ConfigureAwait(false);
 		ConformanceAssert.Null(
-			await graph.GetBatchStatusAsync("invalid-batch", cancellationToken).ConfigureAwait(false),
+			await graph.GetBatchStatusAsync(BatchHandle.FromString("invalid-batch"), cancellationToken).ConfigureAwait(false),
 			InvalidBatchName,
 			"a rejected batch must not leave a header"
 		);
@@ -180,12 +179,12 @@ internal static class GraphStorageConformance
 		var completeChild = CreateWaitingJob("trigger-complete", 1);
 		await graph.EnqueueAsync(parent, cancellationToken).ConfigureAwait(false);
 		await graph.EnqueueContinuationAsync(successChild,
-			[new() { ChildJobId = successChild.JobId, ParentJobId = parent.JobId }], cancellationToken).ConfigureAwait(false);
+			[new() { ChildJobId = successChild.JobId, ParentJobId = parent.JobId, Delay = TimeSpan.Zero }], cancellationToken).ConfigureAwait(false);
 		await graph.EnqueueContinuationAsync(failureChild,
-			[new() { ChildJobId = failureChild.JobId, ParentJobId = parent.JobId, Trigger = ContinuationTrigger.Failure }],
+			[new() { ChildJobId = failureChild.JobId, ParentJobId = parent.JobId, Delay = TimeSpan.Zero, Trigger = ContinuationTrigger.Failure }],
 			cancellationToken).ConfigureAwait(false);
 		await graph.EnqueueContinuationAsync(completeChild,
-			[new() { ChildJobId = completeChild.JobId, ParentJobId = parent.JobId, Trigger = ContinuationTrigger.Complete }],
+			[new() { ChildJobId = completeChild.JobId, ParentJobId = parent.JobId, Delay = TimeSpan.Zero, Trigger = ContinuationTrigger.Complete }],
 			cancellationToken).ConfigureAwait(false);
 		var acquired = ConformanceAssert.NotNull(
 			(await graph.AcquireDueJobsAsync(CreateRequest("trigger-worker", parent.JobName), cancellationToken)
@@ -208,20 +207,22 @@ internal static class GraphStorageConformance
 		var completeAfterFailure = CreateWaitingJob("trigger-complete-after-failure", 1);
 		await graph.EnqueueAsync(failedParent, cancellationToken).ConfigureAwait(false);
 		await graph.EnqueueContinuationAsync(successAfterFailure,
-			[new() { ChildJobId = successAfterFailure.JobId, ParentJobId = failedParent.JobId }],
+			[new() { ChildJobId = successAfterFailure.JobId, ParentJobId = failedParent.JobId, Delay = TimeSpan.Zero }],
 			cancellationToken).ConfigureAwait(false);
 		await graph.EnqueueContinuationAsync(failureAfterFailure,
 			[new()
 			{
 				ChildJobId = failureAfterFailure.JobId,
-				ParentJobId = failedParent.JobId,
+					ParentJobId = failedParent.JobId,
+					Delay = TimeSpan.Zero,
 				Trigger = ContinuationTrigger.Failure,
 			}], cancellationToken).ConfigureAwait(false);
 		await graph.EnqueueContinuationAsync(completeAfterFailure,
 			[new()
 			{
 				ChildJobId = completeAfterFailure.JobId,
-				ParentJobId = failedParent.JobId,
+					ParentJobId = failedParent.JobId,
+					Delay = TimeSpan.Zero,
 				Trigger = ContinuationTrigger.Complete,
 			}], cancellationToken).ConfigureAwait(false);
 		var acquiredFailedParent = ConformanceAssert.NotNull(
@@ -263,12 +264,14 @@ internal static class GraphStorageConformance
 						{
 							ChildJobId = mixedChild.JobId,
 							ParentJobId = mixedSuccessParent.JobId,
+							Delay = TimeSpan.Zero,
 							Trigger = ContinuationTrigger.Success,
 						},
 						new()
 						{
 							ChildJobId = mixedChild.JobId,
 							ParentJobId = mixedFailureParent.JobId,
+							Delay = TimeSpan.Zero,
 							Trigger = ContinuationTrigger.Failure,
 						},
 					],
@@ -358,8 +361,8 @@ internal static class GraphStorageConformance
 		await graph.EnqueueContinuationAsync(
 			child,
 			[
-				new() { ChildJobId = child.JobId, ParentJobId = successfulParent.JobId, Trigger = ContinuationTrigger.Failure },
-				new() { ChildJobId = child.JobId, ParentJobId = failedParent.JobId, Trigger = ContinuationTrigger.Failure },
+				new() { ChildJobId = child.JobId, ParentJobId = successfulParent.JobId, Delay = TimeSpan.Zero, Trigger = ContinuationTrigger.Failure },
+				new() { ChildJobId = child.JobId, ParentJobId = failedParent.JobId, Delay = TimeSpan.Zero, Trigger = ContinuationTrigger.Failure },
 			],
 			cancellationToken
 		).ConfigureAwait(false);
@@ -397,7 +400,7 @@ internal static class GraphStorageConformance
 		await graph.EnqueueBatchAsync(
 			CreateBatch("dynamic-batch", 2),
 			[current, waiter],
-			[new() { ChildJobId = waiter.JobId, ParentJobId = current.JobId }],
+			[new() { ChildJobId = waiter.JobId, ParentJobId = current.JobId, Delay = TimeSpan.Zero }],
 			cancellationToken
 		).ConfigureAwait(false);
 		_ = await graph.AcquireDueJobsAsync(CreateRequest("dynamic-worker", current.JobName), cancellationToken)
@@ -407,7 +410,7 @@ internal static class GraphStorageConformance
 			current.JobId,
 			1,
 			"dynamic-worker",
-			[new() { Job = inserted, Options = ContinuationOptions.BeforeContinuations }],
+			[new() { Job = inserted, Delay = TimeSpan.Zero, Options = ContinuationOptions.BeforeContinuations }],
 			cancellationToken
 		).ConfigureAwait(false);
 		ConformanceAssert.Equal(JobState.Pending,
@@ -417,11 +420,10 @@ internal static class GraphStorageConformance
 		ConformanceAssert.Equal(JobState.AwaitingContinuation, stillWaiting.State, DynamicName,
 			"existing waiters must be spliced behind the inserted continuation");
 		var projection = ConformanceAssert.NotNull(
-			await graph.GetBatchGraphAsync("dynamic-batch", cancellationToken).ConfigureAwait(false),
+			await graph.GetBatchGraphAsync(BatchHandle.FromString("dynamic-batch"), cancellationToken).ConfigureAwait(false),
 			DynamicName, "dynamic graph must remain queryable");
 		ConformanceAssert.True(
-			projection.Edges.Any(edge => string.Equals(edge.ParentJobId, inserted.JobId, StringComparison.Ordinal) &&
-				string.Equals(edge.ChildJobId, waiter.JobId, StringComparison.Ordinal)),
+			projection.Edges.Any(edge => edge.ParentJobId == inserted.JobId && edge.ChildJobId == waiter.JobId),
 			DynamicName,
 			"splicing must replace the existing waiter dependency atomically"
 		);
@@ -450,8 +452,8 @@ internal static class GraphStorageConformance
 			RemainingDependencies = 1,
 		};
 		await graph.EnqueueBatchAsync(CreateBatch("cancel-batch", 2), [parent, child],
-			[new() { ChildJobId = child.JobId, ParentJobId = parent.JobId }], cancellationToken).ConfigureAwait(false);
-		await graph.CancelBatchAsync("cancel-batch", cancellationToken).ConfigureAwait(false);
+			[new() { ChildJobId = child.JobId, ParentJobId = parent.JobId, Delay = TimeSpan.Zero }], cancellationToken).ConfigureAwait(false);
+		await graph.CancelBatchAsync(BatchHandle.FromString("cancel-batch"), cancellationToken).ConfigureAwait(false);
 		ConformanceAssert.Equal(JobState.Cancelled,
 			ConformanceAssert.NotNull(await graph.GetJobStatusAsync(parent.JobId, cancellationToken).ConfigureAwait(false),
 				CancellationName, "cancelled parent must remain observable").State,
@@ -461,7 +463,7 @@ internal static class GraphStorageConformance
 				CancellationName, "cancelled child must remain observable").State,
 			CancellationName, "batch cancellation must cancel an unresolved child");
 		var status = ConformanceAssert.NotNull(
-			await graph.GetBatchStatusAsync("cancel-batch", cancellationToken).ConfigureAwait(false),
+			await graph.GetBatchStatusAsync(BatchHandle.FromString("cancel-batch"), cancellationToken).ConfigureAwait(false),
 			CancellationName, "cancelled batch status must remain observable");
 		ConformanceAssert.Equal(BatchState.Cancelled, status.State, CancellationName,
 			"a batch with only explicit cancellations must be Cancelled");
@@ -476,7 +478,7 @@ internal static class GraphStorageConformance
 	)
 	{
 		var graph = GetGraph(storage, StaleDynamicName);
-		var clock = serviceProvider.GetRequiredService<FakeTimeProvider>();
+		var clock = timeProvider;
 		var current = CreateJob("stale-dynamic-parent", batchId: "stale-dynamic-batch");
 		await graph.EnqueueBatchAsync(
 			CreateBatch("stale-dynamic-batch", 1),
@@ -518,7 +520,7 @@ internal static class GraphStorageConformance
 		CancellationToken cancellationToken
 	)
 	{
-		_ = serviceProvider;
+		_ = timeProvider;
 		var graph = GetGraph(storage, TerminalParentName);
 		var parent = CreateJob("terminal-parent");
 		await graph.EnqueueAsync(parent, cancellationToken).ConfigureAwait(false);
@@ -543,7 +545,7 @@ internal static class GraphStorageConformance
 			var child = CreateWaitingJob($"terminal-child-{trigger}", 1);
 			await graph.EnqueueContinuationAsync(
 				child,
-				[new() { ChildJobId = child.JobId, ParentJobId = parent.JobId, Trigger = trigger }],
+				[new() { ChildJobId = child.JobId, ParentJobId = parent.JobId, Delay = TimeSpan.Zero, Trigger = trigger }],
 				cancellationToken
 			).ConfigureAwait(false);
 			var persisted = await GetJobAsync(graph, child.JobId, TerminalParentName, cancellationToken).ConfigureAwait(false);
@@ -560,7 +562,7 @@ internal static class GraphStorageConformance
 		CancellationToken cancellationToken
 	)
 	{
-		_ = serviceProvider;
+		_ = timeProvider;
 		var graph = GetGraph(storage, InvalidDynamicName);
 		var current = CreateJob("invalid-dynamic-parent", batchId: "invalid-dynamic-batch");
 		await graph.EnqueueBatchAsync(
@@ -580,7 +582,7 @@ internal static class GraphStorageConformance
 					current.JobId,
 					1,
 					"invalid-dynamic-worker",
-					[new() { Job = addition, Options = options }],
+					[new() { Job = addition, Delay = TimeSpan.Zero, Options = options }],
 					cancellationToken
 				),
 				InvalidDynamicName,
@@ -595,7 +597,7 @@ internal static class GraphStorageConformance
 		}
 
 		var batch = ConformanceAssert.NotNull(
-			await graph.GetBatchStatusAsync("invalid-dynamic-batch", cancellationToken).ConfigureAwait(false),
+			await graph.GetBatchStatusAsync(BatchHandle.FromString("invalid-dynamic-batch"), cancellationToken).ConfigureAwait(false),
 			InvalidDynamicName,
 			"the original batch must remain observable"
 		);
@@ -610,34 +612,40 @@ internal static class GraphStorageConformance
 			"a storage advertising graph support must implement IJobGraphStorage"
 		);
 
-	private static JobRecord CreateJob(JobHandle id, BatchHandle? batchId = null) =>
+	private static JobRecord CreateJob(string id, string? batchId = null) =>
 		new()
 		{
-			JobId = id,
-			JobName = id.JobId,
+			JobId = JobHandle.FromString(id),
+			JobName = id,
 			Payload = "{}",
 			State = JobState.Pending,
 			DueAt = DateTimeOffset.UnixEpoch,
 			CreatedAt = DateTimeOffset.UnixEpoch,
-			BatchId = batchId,
+			BatchId = BatchHandle.FromString(batchId),
 		};
 
-	private static JobRecord CreateWaitingJob(JobHandle id, int dependencies) =>
+	private static JobRecord CreateJob(JobHandle id, BatchHandle? batchId = null) =>
+		CreateJob(id.JobId, batchId?.BatchId);
+
+	private static JobRecord CreateWaitingJob(string id, int dependencies) =>
 		CreateJob(id) with
 		{
 			State = JobState.AwaitingContinuation,
 			RemainingDependencies = dependencies,
 		};
 
-	private static BatchRecord CreateBatch(BatchHandle id, int count) =>
+	private static BatchRecord CreateBatch(string id, int count) =>
 		new()
 		{
-			BatchId = id,
+			BatchId = BatchHandle.FromString(id),
 			CreatedAt = DateTimeOffset.UnixEpoch,
 			TotalJobs = count,
 			PendingCount = count,
 			State = BatchState.Executing,
 		};
+
+	private static BatchRecord CreateBatch(BatchHandle id, int count) =>
+		CreateBatch(id.BatchId, count);
 
 	private static JobAcquisitionRequest CreateRequest(string workerId, params string[] jobNames) => new()
 	{
@@ -670,9 +678,16 @@ internal static class GraphStorageConformance
 		string caseName,
 		CancellationToken cancellationToken
 	) => ConformanceAssert.NotNull(
-		(await storage.QueryJobsAsync(new() { JobId = id }, cancellationToken).ConfigureAwait(false)).SingleOrDefault(),
+		(await storage.QueryJobsAsync(new() { JobId = JobHandle.FromString(id) }, cancellationToken).ConfigureAwait(false)).SingleOrDefault(),
 		caseName,
 		"the expected graph job must exist",
 		$"jobId={id}"
 	);
+
+	private static ValueTask<JobRecord> GetJobAsync(
+		IJobStorage storage,
+		JobHandle id,
+		string caseName,
+		CancellationToken cancellationToken
+	) => GetJobAsync(storage, id.JobId, caseName, cancellationToken);
 }
