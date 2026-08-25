@@ -258,9 +258,9 @@ public sealed class ContextPropagationTests
 			await harness.QueryJobsAsync(cancellationToken: cancellationToken),
 			candidate => string.Equals(candidate.JobName, "context-cron", StringComparison.Ordinal));
 
-		Assert.StartsWith("job_", job.Id, StringComparison.Ordinal);
+		Assert.StartsWith("job_", job.JobId, StringComparison.Ordinal);
 		Assert.StartsWith("job_", batchJob.Id, StringComparison.Ordinal);
-		Assert.StartsWith("batch_", batchHandle.Id, StringComparison.Ordinal);
+		Assert.StartsWith("batch_", batchHandle.BatchId, StringComparison.Ordinal);
 		Assert.StartsWith("job_", recurring.JobId, StringComparison.Ordinal);
 	}
 
@@ -565,7 +565,7 @@ public sealed class ScopedSchedulerConsumer(IServiceScopeFactory scopeFactory)
 		state.TenantId = "singleton-tenant";
 		state.CorrelationId = "singleton-correlation";
 		var scheduler = scope.ServiceProvider.GetRequiredService<ContextRoundTripJob.Scheduler>();
-		return (await scheduler.EnqueueAsync(new("singleton"), cancellationToken)).Id;
+		return (await scheduler.EnqueueAsync(new("singleton"), cancellationToken)).JobId;
 	}
 }
 

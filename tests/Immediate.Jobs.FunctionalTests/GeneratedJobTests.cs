@@ -60,7 +60,7 @@ public sealed class GeneratedJobTests
 
 		Assert.Equal(["before:hello", "job:hello", "after:hello"], state.Events);
 		var details = Assert.Single(state.Details);
-		Assert.Equal(id.Id, details.JobId);
+		Assert.Equal(id.JobId, details.JobId);
 		Assert.Equal("record-message", details.JobName);
 		Assert.Equal("messages", details.QueueName);
 		Assert.Equal(1, details.Attempt);
@@ -170,7 +170,7 @@ public sealed class GeneratedJobTests
 		var secondSpanId = Assert.IsType<string>(completed.ExecutionSpanId);
 		Assert.NotEqual(firstSpanId, secondSpanId);
 		Assert.Equal([1, 2], state.Details
-			.Where(details => string.Equals(details.JobId, id.Id, StringComparison.Ordinal))
+			.Where(details => string.Equals(details.JobId, id.JobId, StringComparison.Ordinal))
 			.Select(details => details.Attempt));
 	}
 
@@ -248,7 +248,7 @@ public sealed class GeneratedJobTests
 		await harness.DrainAsync(TestContext.Current.CancellationToken);
 
 		Assert.Equal(["before:7", "job:7", "after:7"], state.Events);
-		Assert.Equal(id.Id, Assert.Single(state.Details).JobId);
+		Assert.Equal(id.JobId, Assert.Single(state.Details).JobId);
 	}
 
 	[Fact]

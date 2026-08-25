@@ -33,7 +33,7 @@ public sealed class JobSchedulingServiceTests
 
 		await service.DrainAsync(cancellationToken);
 
-		var job = Assert.Single(await inner.QueryJobsAsync(new() { JobId = handle.Id }, cancellationToken));
+		var job = Assert.Single(await inner.QueryJobsAsync(new() { JobId = handle.JobId }, cancellationToken));
 		Assert.Equal(JobState.Succeeded, job.State);
 		Assert.Equal(1, job.Attempt);
 		Assert.Equal(["telemetry-failure"], state.Events);

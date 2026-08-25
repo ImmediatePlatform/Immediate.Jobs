@@ -26,10 +26,10 @@ public sealed class BatchesAndContinuationsTests
 
 		var handle = await scheduler.EnqueueAsync(new("one"), cancellationToken);
 
-		Assert.False(string.IsNullOrWhiteSpace(handle.Id));
-		Assert.True(Guid.TryParseExact(handle.Id, "N", out _));
-		Assert.Equal(handle.Id, (await harness.GetJobAsync(handle.Id, cancellationToken)).Id);
-		Assert.Equal(handle, JobHandle.FromString(handle.Id));
+		Assert.False(string.IsNullOrWhiteSpace(handle.JobId));
+		Assert.True(Guid.TryParseExact(handle.JobId, "N", out _));
+		Assert.Equal(handle.JobId, (await harness.GetJobAsync(handle.JobId, cancellationToken)).Id);
+		Assert.Equal(handle, JobHandle.FromString(handle.JobId));
 	}
 
 	[Fact]
@@ -44,7 +44,7 @@ public sealed class BatchesAndContinuationsTests
 
 		await scheduler.CancelAsync(jobHandle, cancellationToken);
 
-		Assert.Equal(JobState.Cancelled, (await harness.GetJobAsync(jobHandle.Id, cancellationToken)).State);
+		Assert.Equal(JobState.Cancelled, (await harness.GetJobAsync(jobHandle.JobId, cancellationToken)).State);
 
 		await using var batch = batches.Begin();
 		var memberHandle = scheduler.AddToBatch(batch, new("cancel-batch"));
@@ -54,7 +54,7 @@ public sealed class BatchesAndContinuationsTests
 
 		Assert.Equal(JobState.Cancelled, (await harness.GetJobAsync(memberHandle.Id, cancellationToken)).State);
 		var graphStorage = Assert.IsAssignableFrom<IJobGraphStorage>(harness.Storage);
-		var status = Assert.IsType<BatchStatus>(await graphStorage.GetBatchStatusAsync(batchHandle.Id, cancellationToken));
+		var status = Assert.IsType<BatchStatus>(await graphStorage.GetBatchStatusAsync(batchHandle.BatchId, cancellationToken));
 		Assert.Equal(BatchState.Cancelled, status.State);
 	}
 
@@ -88,12 +88,12 @@ public sealed class BatchesAndContinuationsTests
 
 		var batchHandle = await committedBatch.CommitAsync(cancellationToken);
 
-		Assert.False(string.IsNullOrWhiteSpace(batchHandle.Id));
-		Assert.True(Guid.TryParseExact(batchHandle.Id, "N", out _));
-		Assert.NotEqual(rolledBack.Id, committed.Id);
+		Assert.False(string.IsNullOrWhiteSpace(batchHandle.BatchId));
+		Assert.True(Guid.TryParseExact(batchHandle.BatchId, "N", out _));
+		Assert.NotEqual(rolledBack.JobId, committed.Id);
 		var job = Assert.Single(await harness.QueryJobsAsync(cancellationToken: cancellationToken));
 		Assert.Equal(committed.Id, job.JobId);
-		Assert.Equal(batchHandle.Id, job.BatchId);
+		Assert.Equal(batchHandle.BatchId, job.BatchId);
 		Assert.Equal(JobState.Pending, job.State);
 	}
 
@@ -112,7 +112,7 @@ public sealed class BatchesAndContinuationsTests
 		var batchHandle = await batch.CommitAsync(cancellationToken);
 
 		var jobs = (await harness.QueryJobsAsync(cancellationToken: cancellationToken))
-			.Where(job => string.Equals(job.BatchId, batchHandle.Id, StringComparison.Ordinal))
+			.Where(job => string.Equals(job.BatchId, batchHandle.BatchId, StringComparison.Ordinal))
 			.ToArray();
 		Assert.Equal(128, handles.Count);
 		Assert.Equal(128, jobs.Length);
@@ -241,14 +241,14 @@ public sealed class BatchesAndContinuationsTests
 		var child = await scheduler.ScheduleAfterAsync(root, new("child"), cancellationToken: cancellationToken);
 		var followUpHandle = await followUpBatch.CommitAsync(cancellationToken);
 
-		var graph = Assert.IsType<BatchGraph>(await monitor.GetBatchGraphAsync(followUpHandle.Id, cancellationToken));
+		var graph = Assert.IsType<BatchGraph>(await monitor.GetBatchGraphAsync(followUpHandle.BatchId, cancellationToken));
 		Assert.Equal(2, graph.Edges.Count);
 		var childEdge = Assert.Single(graph.Edges, edge => string.Equals(edge.ChildJobId, child.Id, StringComparison.Ordinal));
 		Assert.Equal(root.Id, childEdge.ParentJobId);
 		Assert.Null(childEdge.ParentBatchId);
 		var rootEdge = Assert.Single(graph.Edges, edge => string.Equals(edge.ChildJobId, root.Id, StringComparison.Ordinal));
 		Assert.Null(rootEdge.ParentJobId);
-		Assert.Equal(parentBatchHandle.Id, rootEdge.ParentBatchId);
+		Assert.Equal(parentBatchHandle.BatchId, rootEdge.ParentBatchId);
 		Assert.Equal(ContinuationTrigger.Complete, rootEdge.Trigger);
 		Assert.Equal(1, (await harness.GetJobAsync(root, cancellationToken)).RemainingDependencies);
 		Assert.Equal(1, (await harness.GetJobAsync(child, cancellationToken)).RemainingDependencies);
@@ -279,7 +279,7 @@ public sealed class BatchesAndContinuationsTests
 
 		Assert.Equal(JobState.Succeeded, (await harness.GetJobAsync(parent.Id, cancellationToken)).State);
 		Assert.Equal(JobState.Skipped, (await harness.GetJobAsync(failureOnly.Id, cancellationToken)).State);
-		var status = Assert.IsType<BatchStatus>(await monitor.GetBatchAsync(batchHandle.Id, cancellationToken));
+		var status = Assert.IsType<BatchStatus>(await monitor.GetBatchAsync(batchHandle.BatchId, cancellationToken));
 		Assert.Equal(BatchState.Succeeded, status.State);
 		Assert.Equal(1, status.Succeeded);
 		Assert.Equal(1, status.Skipped);
@@ -366,7 +366,7 @@ public sealed class BatchesAndContinuationsTests
 		var graphStorage = Assert.IsType<IJobGraphStorage>(harness.Storage, exactMatch: false);
 		Assert.Equal(
 			BatchState.Failed,
-			(await graphStorage.GetBatchStatusAsync(batchHandle.Id, cancellationToken))!.State
+			(await graphStorage.GetBatchStatusAsync(batchHandle.BatchId, cancellationToken))!.State
 		);
 		Assert.Equal(JobState.Skipped, (await harness.GetJobAsync(successOnly, cancellationToken)).State);
 		Assert.Equal(JobState.Succeeded, (await harness.GetJobAsync(failureOnly, cancellationToken)).State);
@@ -440,7 +440,7 @@ public sealed class BatchesAndContinuationsTests
 		var child = await scheduler.ScheduleAfterAsync(parent, new("child"), cancellationToken: cancellationToken);
 		var batchHandle = await batch.CommitAsync(cancellationToken);
 
-		var initial = Assert.IsType<BatchStatus>(await monitor.GetBatchAsync(batchHandle.Id, cancellationToken));
+		var initial = Assert.IsType<BatchStatus>(await monitor.GetBatchAsync(batchHandle.BatchId, cancellationToken));
 		Assert.Equal(BatchState.Executing, initial.State);
 		Assert.Equal(2, initial.Total);
 		Assert.Equal(2, initial.Remaining);
@@ -448,25 +448,25 @@ public sealed class BatchesAndContinuationsTests
 		Assert.Equal(
 			[child.Id],
 			(await monitor.QueryBatchMembersAsync(
-				batchHandle.Id,
+				batchHandle.BatchId,
 				new() { State = JobState.AwaitingContinuation },
 				cancellationToken
 			))?.Select(static member => member.JobId)
 		);
 
-		var graph = Assert.IsType<BatchGraph>(await monitor.GetBatchGraphAsync(batchHandle.Id, cancellationToken));
+		var graph = Assert.IsType<BatchGraph>(await monitor.GetBatchGraphAsync(batchHandle.BatchId, cancellationToken));
 		Assert.Equal(2, graph.Nodes.Count);
 		var edge = Assert.Single(graph.Edges);
 		Assert.Equal(parent.Id, edge.ParentJobId);
 		Assert.Equal(child.Id, edge.ChildJobId);
 		var childStatus = Assert.IsType<JobStatus>(await monitor.GetJobAsync(child.Id, cancellationToken));
-		Assert.Equal(batchHandle.Id, childStatus.BatchId);
+		Assert.Equal(batchHandle.BatchId, childStatus.BatchId);
 		Assert.Equal(1, childStatus.MaxAttempts);
 		_ = Assert.Single(childStatus.DependsOn);
 
 		await harness.DrainAsync(cancellationToken);
 
-		var completed = Assert.IsType<BatchStatus>(await monitor.GetBatchAsync(batchHandle.Id, cancellationToken));
+		var completed = Assert.IsType<BatchStatus>(await monitor.GetBatchAsync(batchHandle.BatchId, cancellationToken));
 		Assert.Equal(BatchState.Succeeded, completed.State);
 		Assert.Equal(2, completed.Succeeded);
 		Assert.Equal(0, completed.Remaining);
@@ -529,7 +529,7 @@ public sealed class BatchesAndContinuationsTests
 		await harness.AdvanceTimeAndDrainAsync(TimeSpan.FromSeconds(1), cancellationToken);
 
 		var jobs = (await harness.QueryJobsAsync(cancellationToken: cancellationToken))
-			.Where(job => string.Equals(job.BatchId, batchHandle.Id, StringComparison.Ordinal))
+			.Where(job => string.Equals(job.BatchId, batchHandle.BatchId, StringComparison.Ordinal))
 			.ToArray();
 		Assert.Equal(
 			["batch-workflow-test", "batch-workflow-test", "dynamic-expansion-test"],
@@ -562,7 +562,7 @@ public sealed class BatchesAndContinuationsTests
 		await harness.DrainAsync(cancellationToken);
 
 		var jobs = (await harness.QueryJobsAsync(cancellationToken: cancellationToken))
-			.Where(job => string.Equals(job.BatchId, batchHandle.Id, StringComparison.Ordinal))
+			.Where(job => string.Equals(job.BatchId, batchHandle.BatchId, StringComparison.Ordinal))
 			.ToArray();
 		Assert.Equal(3, jobs.Length);
 		Assert.All(jobs, static job => Assert.Equal(JobState.Succeeded, job.State));

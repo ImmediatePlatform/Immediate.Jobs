@@ -1187,7 +1187,7 @@ internal sealed class LinqToDBJobStorage<T>(
 		await using var scope = contextScope.GetScope(out var connection);
 
 		IQueryable<ImmediateJobEntity> jobs = Jobs(connection);
-		if (query.JobId is { } id)
+		if (query.JobId is { JobId: { } id })
 			jobs = jobs.Where(job => job.Id == id);
 		if (query.State is { } state)
 			jobs = jobs.Where(job => job.State == state);
@@ -1329,17 +1329,17 @@ internal sealed class LinqToDBJobStorage<T>(
 			.ToListAsync(cancellationToken)
 			.ConfigureAwait(false);
 
-		return [.. entities.Select(job => new BatchMemberStatus
+		return [.. Enumerable.Select<ImmediateJobEntity, BatchMemberStatus>(entities, (Func<ImmediateJobEntity, BatchMemberStatus>)(job => new BatchMemberStatus
 		{
 			JobId = JobHandle.FromString(job.Id),
 			JobName = job.JobName,
 			QueueName = job.QueueName,
 			State = job.State,
 			Attempt = job.Attempt,
-			CreatedAt = FromTicks(job.CreatedAt),
-			CompletedAt = FromTicks(job.CompletedAt),
+			CreatedAt = LinqToDBJobStorage<T>.FromTicks(job.CreatedAt),
+			CompletedAt = LinqToDBJobStorage<T>.FromTicks(job.CompletedAt),
 			LastError = job.LastError,
-		})];
+		}))];
 	}
 
 	/// <inheritdoc />

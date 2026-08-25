@@ -1113,7 +1113,7 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 
 		await using var context = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
 		var jobs = context.Set<ImmediateJobEntity>().AsNoTracking();
-		if (query.JobId is { } id)
+		if (query.JobId is { JobId: { } id })
 			jobs = jobs.Where(job => job.Id == id);
 		if (query.State is { } state)
 			jobs = jobs.Where(job => job.State == state);

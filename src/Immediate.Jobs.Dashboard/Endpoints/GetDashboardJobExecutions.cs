@@ -40,7 +40,7 @@ internal static partial class GetDashboardJobExecutions
 		var pageStart = query.Skip ?? 0;
 		var pageSize = Math.Min(query.Take ?? 50, 200);
 		var jobs = await monitor.QueryJobsAsync(
-			new() { JobId = query.JobId, Take = 1 },
+			new() { JobId = JobHandle.FromString(query.JobId), Take = 1 },
 			cancellationToken
 		);
 		if (jobs.Count == 0)

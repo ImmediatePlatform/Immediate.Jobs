@@ -35,111 +35,94 @@ public sealed class GameReleaseWorkflow(
 	)
 	{
 		await using var batch = batches.Begin();
+
 		var payload = new GameReleasePayload(releaseId, title);
 
-		var approved = approveRelease.AddToBatch(batch, payload);
+		var approved = approveRelease.Enqueue(payload, batch);
 
 		// 1 → 2: start the client and online-service workstreams in parallel.
-		var clientBuild = await buildClient.ScheduleAfterAsync(
-			approved,
+		var clientBuild = buildClient.ScheduleAfter(
 			payload,
-			cancellationToken: cancellationToken
+			approved
 		);
-		var serviceProvisioning = await provisionServices.ScheduleAfterAsync(
-			approved,
+		var serviceProvisioning = provisionServices.ScheduleAfter(
 			payload,
-			cancellationToken: cancellationToken
+			approved
 		);
 
 		// Each workstream forms its own 1 → 2 → 1 diamond.
-		var compatibility = await testCompatibility.ScheduleAfterAsync(
-			clientBuild,
+		var compatibility = testCompatibility.ScheduleAfter(
 			payload,
-			cancellationToken: cancellationToken
+			clientBuild
 		);
-		var signedBinaries = await signBinaries.ScheduleAfterAsync(
-			clientBuild,
+		var signedBinaries = signBinaries.ScheduleAfter(
 			payload,
-			cancellationToken: cancellationToken
+			clientBuild
 		);
-		var migratedPlayerData = await migratePlayerData.ScheduleAfterAsync(
-			serviceProvisioning,
+		var migratedPlayerData = migratePlayerData.ScheduleAfter(
 			payload,
-			cancellationToken: cancellationToken
+			serviceProvisioning
 		);
-		var loadTestedServices = await loadTestServices.ScheduleAfterAsync(
-			serviceProvisioning,
+		var loadTestedServices = loadTestServices.ScheduleAfter(
 			payload,
-			cancellationToken: cancellationToken
+			serviceProvisioning
 		);
 
-		var certifiedClient = await certifyClient.ScheduleAfterAsync(
-			[compatibility, signedBinaries],
+		var certifiedClient = certifyClient.ScheduleAfter(
 			payload,
-			cancellationToken: cancellationToken
+			[compatibility, signedBinaries]
 		);
-		var certifiedServices = await certifyServices.ScheduleAfterAsync(
-			[migratedPlayerData, loadTestedServices],
+		var certifiedServices = certifyServices.ScheduleAfter(
 			payload,
-			cancellationToken: cancellationToken
+			[migratedPlayerData, loadTestedServices]
 		);
 
 		// 2 → 1: both certified workstreams are required for the release candidate.
-		var releaseCandidate = await assembleCandidate.ScheduleAfterAsync(
-			[certifiedClient, certifiedServices],
+		var releaseCandidate = assembleCandidate.ScheduleAfter(
 			payload,
-			cancellationToken: cancellationToken
+			[certifiedClient, certifiedServices]
 		);
 
 		// 1 → 4 → 1: distribution tasks converge at the release gate.
-		var publishedStoreBuild = await publishStoreBuild.ScheduleAfterAsync(
-			releaseCandidate,
+		var publishedStoreBuild = publishStoreBuild.ScheduleAfter(
 			payload,
-			cancellationToken: cancellationToken
+			releaseCandidate
 		);
-		var deployedServices = await deployServices.ScheduleAfterAsync(
-			releaseCandidate,
+		var deployedServices = deployServices.ScheduleAfter(
 			payload,
-			cancellationToken: cancellationToken
+			releaseCandidate
 		);
-		var prewarmedCdn = await prewarmCdn.ScheduleAfterAsync(
-			releaseCandidate,
+		var prewarmedCdn = prewarmCdn.ScheduleAfter(
 			payload,
-			cancellationToken: cancellationToken
+			releaseCandidate
 		);
-		var briefedSupport = await briefSupport.ScheduleAfterAsync(
-			releaseCandidate,
+		var briefedSupport = briefSupport.ScheduleAfter(
 			payload,
-			cancellationToken: cancellationToken
+			releaseCandidate
 		);
 
-		var releaseGate = await openReleaseGate.ScheduleAfterAsync(
-			[publishedStoreBuild, deployedServices, prewarmedCdn, briefedSupport],
+		var releaseGate = openReleaseGate.ScheduleAfter(
 			payload,
-			cancellationToken: cancellationToken
+			[publishedStoreBuild, deployedServices, prewarmedCdn, briefedSupport]
 		);
 
 		// 1 → 3 → 1: launch activities run together before final confirmation.
-		var announcement = await announceRelease.ScheduleAfterAsync(
-			releaseGate,
+		var announcement = announceRelease.ScheduleAfter(
 			payload,
-			cancellationToken: cancellationToken
+			releaseGate
 		);
-		var matchmaking = await enableMatchmaking.ScheduleAfterAsync(
-			releaseGate,
+		var matchmaking = enableMatchmaking.ScheduleAfter(
 			payload,
-			cancellationToken: cancellationToken
+			releaseGate
 		);
-		var telemetry = await startTelemetry.ScheduleAfterAsync(
-			releaseGate,
+		var telemetry = startTelemetry.ScheduleAfter(
 			payload,
-			cancellationToken: cancellationToken
+			releaseGate
 		);
 
-		_ = await confirmLaunch.ScheduleAfterAsync(
-			[announcement, matchmaking, telemetry],
+		_ = confirmLaunch.ScheduleAfter(
 			payload,
-			cancellationToken: cancellationToken
+			[announcement, matchmaking, telemetry]
 		);
 
 		return await batch.CommitAsync(cancellationToken);

@@ -24,13 +24,13 @@ public sealed class TestingPackageTests
 		);
 
 		var capture = Assert.Single(scheduler.Captures);
-		Assert.Equal(id.Id, capture.Id);
+		Assert.Equal(id.JobId, capture.Id);
 		Assert.Equal(payload, capture.Payload);
 		Assert.Equal("tenant-a", capture.GroupId);
 
 		await scheduler.CancelAsync(id, TestContext.Current.CancellationToken);
 
-		Assert.Contains(id.Id, scheduler.CancelledIds);
+		Assert.Contains(id.JobId, scheduler.CancelledIds);
 	}
 
 	[Fact]

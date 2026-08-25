@@ -775,7 +775,7 @@ internal sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 		{
 			var jobs = _jobs.Values.AsEnumerable();
 			if (query.JobId is { } id)
-				jobs = jobs.Where(x => string.Equals(x.JobId.JobId, id, StringComparison.Ordinal));
+				jobs = jobs.Where(x => x.JobId == query.JobId);
 			if (query.State is { } state)
 				jobs = jobs.Where(x => x.State == state);
 			if (!string.IsNullOrWhiteSpace(query.QueueName))

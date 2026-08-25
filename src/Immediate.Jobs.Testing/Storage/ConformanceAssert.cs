@@ -38,11 +38,9 @@ internal static class ConformanceAssert
 		IEqualityComparer<T>? comparer = null
 	)
 	{
-		ArgumentNullException.ThrowIfNull(expected);
-		ArgumentNullException.ThrowIfNull(actual);
+		var expectedValues = expected.ToList();
+		var actualValues = actual.ToList();
 
-		var expectedValues = expected.ToArray();
-		var actualValues = actual.ToArray();
 		if (expectedValues.SequenceEqual(actualValues, comparer))
 			return;
 

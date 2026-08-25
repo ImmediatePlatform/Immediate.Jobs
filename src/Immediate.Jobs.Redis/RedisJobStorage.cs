@@ -297,7 +297,7 @@ internal sealed class RedisJobStorage(
 		var take = Math.Min(query.Take, MaximumQueryTake);
 		if (query.JobId is { } id)
 		{
-			var job = await ReadJobAsync(JobHandle.FromString(id), cancellationToken).ConfigureAwait(false);
+			var job = await ReadJobAsync(id, cancellationToken).ConfigureAwait(false);
 			return job is not null && query.Skip == 0 && MatchesQuery(job, query) ? [job] : [];
 		}
 
