@@ -4,7 +4,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-	<PackageVersion Include="Aspire.Hosting.PostgreSQL" Version="13.4.6" />
+	<PackageVersion Include="Aspire.Hosting.PostgreSQL" Version="13.5.2" />
 	<PackageVersion Include="AssemblyMetadata.Generators" Version="2.2.0" />
 	<PackageVersion Include="BenchmarkDotNet" Version="0.15.8" />
 	<PackageVersion Include="Cronos" Version="0.13.0" />
