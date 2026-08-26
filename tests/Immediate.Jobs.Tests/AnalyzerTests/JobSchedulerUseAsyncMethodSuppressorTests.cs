@@ -19,6 +19,7 @@ public sealed class JobSchedulerUseAsyncMethodSuppressorTests
 				public static async Task TestAsync(JobScheduler<string> scheduler, Batch batch)
 				{
 					{|#0:scheduler.Enqueue("payload", batch)|};
+					await Task.CompletedTask;
 				}
 			}
 			"""
@@ -42,6 +43,7 @@ public sealed class JobSchedulerUseAsyncMethodSuppressorTests
 				public static async Task TestAsync(Stream stream)
 				{
 					{|#0:stream.Read(new byte[1], 0, 1)|};
+					await Task.CompletedTask;
 				}
 			}
 			"""

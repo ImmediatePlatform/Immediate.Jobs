@@ -40,6 +40,38 @@ public interface IJobScheduler<TPayload>
 	ValueTask<JobHandle> EnqueueAsync(TPayload payload, string groupId, CancellationToken cancellationToken = default);
 
 	/// <summary>
+	/// 	Immediately adds work to the batch containing the currently running job, without waiting for that job to complete.
+	/// </summary>
+	/// <param name="payload">The payload to enqueue.</param>
+	/// <param name="currentJob">Details of the currently running job whose batch receives the new work.</param>
+	/// <param name="options">The new job's relationship to continuations of the current job.</param>
+	/// <param name="cancellationToken">A token that can cancel the enqueue operation.</param>
+	/// <returns>A handle for the enqueued invocation.</returns>
+	ValueTask<JobHandle> EnqueueAsync(
+		TPayload payload,
+		JobDetails currentJob,
+		ContinuationOptions options = ContinuationOptions.BeforeContinuations,
+		CancellationToken cancellationToken = default
+	);
+
+	/// <summary>
+	/// 	Immediately adds grouped work to the batch containing the currently running job, without waiting for that job to complete.
+	/// </summary>
+	/// <param name="payload">The payload to enqueue.</param>
+	/// <param name="currentJob">Details of the currently running job whose batch receives the new work.</param>
+	/// <param name="groupId">The fair queue group identifier.</param>
+	/// <param name="options">The new job's relationship to continuations of the current job.</param>
+	/// <param name="cancellationToken">A token that can cancel the enqueue operation.</param>
+	/// <returns>A handle for the enqueued invocation.</returns>
+	ValueTask<JobHandle> EnqueueAsync(
+		TPayload payload,
+		JobDetails currentJob,
+		string groupId,
+		ContinuationOptions options = ContinuationOptions.BeforeContinuations,
+		CancellationToken cancellationToken = default
+	);
+
+	/// <summary>
 	/// 	Schedules work after a delay and returns its opaque invocation identifier.
 	/// </summary>
 	/// <param name="payload">
@@ -82,6 +114,42 @@ public interface IJobScheduler<TPayload>
 	);
 
 	/// <summary>
+	/// 	Schedules work in the batch containing the currently running job after a delay, without waiting for that job to complete.
+	/// </summary>
+	/// <param name="payload">The payload to schedule.</param>
+	/// <param name="currentJob">Details of the currently running job whose batch receives the new work.</param>
+	/// <param name="delay">The delay before the invocation becomes due.</param>
+	/// <param name="options">The new job's relationship to continuations of the current job.</param>
+	/// <param name="cancellationToken">A token that can cancel the scheduling operation.</param>
+	/// <returns>A handle for the scheduled invocation.</returns>
+	ValueTask<JobHandle> ScheduleAsync(
+		TPayload payload,
+		JobDetails currentJob,
+		TimeSpan delay,
+		ContinuationOptions options = ContinuationOptions.BeforeContinuations,
+		CancellationToken cancellationToken = default
+	);
+
+	/// <summary>
+	/// 	Schedules grouped work in the batch containing the currently running job after a delay, without waiting for that job to complete.
+	/// </summary>
+	/// <param name="payload">The payload to schedule.</param>
+	/// <param name="currentJob">Details of the currently running job whose batch receives the new work.</param>
+	/// <param name="delay">The delay before the invocation becomes due.</param>
+	/// <param name="groupId">The fair queue group identifier.</param>
+	/// <param name="options">The new job's relationship to continuations of the current job.</param>
+	/// <param name="cancellationToken">A token that can cancel the scheduling operation.</param>
+	/// <returns>A handle for the scheduled invocation.</returns>
+	ValueTask<JobHandle> ScheduleAsync(
+		TPayload payload,
+		JobDetails currentJob,
+		TimeSpan delay,
+		string groupId,
+		ContinuationOptions options = ContinuationOptions.BeforeContinuations,
+		CancellationToken cancellationToken = default
+	);
+
+	/// <summary>
 	/// 	Schedules work at an absolute time and returns its opaque invocation identifier.
 	/// </summary>
 	/// <param name="payload">
@@ -120,6 +188,42 @@ public interface IJobScheduler<TPayload>
 		TPayload payload,
 		DateTimeOffset at,
 		string groupId,
+		CancellationToken cancellationToken = default
+	);
+
+	/// <summary>
+	/// 	Schedules work in the batch containing the currently running job at an absolute time, without waiting for that job to complete.
+	/// </summary>
+	/// <param name="payload">The payload to schedule.</param>
+	/// <param name="currentJob">Details of the currently running job whose batch receives the new work.</param>
+	/// <param name="at">The absolute time at which the invocation becomes due.</param>
+	/// <param name="options">The new job's relationship to continuations of the current job.</param>
+	/// <param name="cancellationToken">A token that can cancel the scheduling operation.</param>
+	/// <returns>A handle for the scheduled invocation.</returns>
+	ValueTask<JobHandle> ScheduleAsync(
+		TPayload payload,
+		JobDetails currentJob,
+		DateTimeOffset at,
+		ContinuationOptions options = ContinuationOptions.BeforeContinuations,
+		CancellationToken cancellationToken = default
+	);
+
+	/// <summary>
+	/// 	Schedules grouped work in the batch containing the currently running job at an absolute time, without waiting for that job to complete.
+	/// </summary>
+	/// <param name="payload">The payload to schedule.</param>
+	/// <param name="currentJob">Details of the currently running job whose batch receives the new work.</param>
+	/// <param name="at">The absolute time at which the invocation becomes due.</param>
+	/// <param name="groupId">The fair queue group identifier.</param>
+	/// <param name="options">The new job's relationship to continuations of the current job.</param>
+	/// <param name="cancellationToken">A token that can cancel the scheduling operation.</param>
+	/// <returns>A handle for the scheduled invocation.</returns>
+	ValueTask<JobHandle> ScheduleAsync(
+		TPayload payload,
+		JobDetails currentJob,
+		DateTimeOffset at,
+		string groupId,
+		ContinuationOptions options = ContinuationOptions.BeforeContinuations,
 		CancellationToken cancellationToken = default
 	);
 

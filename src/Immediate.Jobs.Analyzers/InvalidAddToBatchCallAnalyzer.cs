@@ -41,7 +41,7 @@ public sealed class InvalidAddToBatchCallAnalyzer : DiagnosticAnalyzer
 
 		if (invocation is not
 			{
-				TargetMethod.Name: "ScheduleAfter",
+				TargetMethod.Name: "EnqueueAsync" or "ScheduleAsync",
 				Arguments:
 				[
 				_,
@@ -51,6 +51,7 @@ public sealed class InvalidAddToBatchCallAnalyzer : DiagnosticAnalyzer
 					Parameter.Type.IsContinuationOptions: true,
 					IsImplicit: false,
 				} argument,
+				{ Parameter.Type.IsCancellationToken: true },
 				],
 			}
 		)

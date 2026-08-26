@@ -26,7 +26,7 @@ public sealed class InvalidAddToBatchCallAnalyzerTests
 			{
 				private async ValueTask HandleAsync(EmptyJobRequest request, CancellationToken ct)
 				{
-					regularJobScheduler.ScheduleAfter(
+					await regularJobScheduler.EnqueueAsync(
 						request,
 						request.JobDetails!,
 						{|IJOB0015:ContinuationOptions.Detached|}
@@ -59,7 +59,7 @@ public sealed class InvalidAddToBatchCallAnalyzerTests
 			{
 				private async ValueTask HandleAsync(EmptyJobRequest request, CancellationToken ct)
 				{
-					regularJobScheduler.ScheduleAfter(
+					await regularJobScheduler.ScheduleAsync(
 						request,
 						request.JobDetails!,
 						TimeSpan.Zero,
@@ -93,7 +93,7 @@ public sealed class InvalidAddToBatchCallAnalyzerTests
 			{
 				private async ValueTask HandleAsync(EmptyJobRequest request, CancellationToken ct)
 				{
-					regularJobScheduler.ScheduleAfter(
+					await regularJobScheduler.EnqueueAsync(
 						request,
 						request.JobDetails!
 					);
@@ -124,7 +124,7 @@ public sealed class InvalidAddToBatchCallAnalyzerTests
 			{
 				private async ValueTask HandleAsync(EmptyJobRequest request, CancellationToken ct)
 				{
-					regularJobScheduler.ScheduleAfter(
+					await regularJobScheduler.EnqueueAsync(
 						request,
 						request.JobDetails!,
 						ContinuationOptions.BeforeContinuations
@@ -156,7 +156,7 @@ public sealed class InvalidAddToBatchCallAnalyzerTests
 			{
 				private async ValueTask HandleAsync(EmptyJobRequest request, CancellationToken ct)
 				{
-					regularJobScheduler.ScheduleAfter(
+					await regularJobScheduler.EnqueueAsync(
 						request,
 						request.JobDetails!,
 						ContinuationOptions.BesideContinuations
@@ -188,7 +188,7 @@ public sealed class InvalidAddToBatchCallAnalyzerTests
 			{
 				private async ValueTask HandleAsync(EmptyJobRequest request, CancellationToken ct)
 				{
-					regularJobScheduler.ScheduleAfter(
+					await regularJobScheduler.EnqueueAsync(
 						request,
 						request.JobDetails!,
 						"test",
@@ -222,7 +222,7 @@ public sealed class InvalidAddToBatchCallAnalyzerTests
 			{
 				private async ValueTask HandleAsync(EmptyJobRequest request, CancellationToken ct)
 				{
-					regularJobScheduler.ScheduleAfter(
+					await regularJobScheduler.ScheduleAsync(
 						request,
 						request.JobDetails!,
 						TimeSpan.Zero,
@@ -256,7 +256,7 @@ public sealed class InvalidAddToBatchCallAnalyzerTests
 			{
 				private async ValueTask HandleAsync(EmptyJobRequest request, CancellationToken ct)
 				{
-					regularJobScheduler.ScheduleAfter(
+					await regularJobScheduler.ScheduleAsync(
 						request,
 						request.JobDetails!,
 						TimeSpan.Zero,
