@@ -8,6 +8,10 @@ namespace Immediate.Jobs.Shared;
 /// <summary>
 /// 	An in-progress atomic batch buffer created by <see cref="IBatchScheduler"/>.
 /// </summary>
+/// <remarks>
+///		This class is a builder class and is not thread-safe; it is intended to be used
+///		in the context of a single thread with a short lifetime.
+/// </remarks>
 public sealed class Batch : IAsyncDisposable
 {
 	private enum Lifecycle
@@ -112,7 +116,7 @@ public sealed class Batch : IAsyncDisposable
 		if (_jobs.Count == 0)
 			throw new ImmediateJobException("An atomic batch cannot be committed without jobs.");
 
-		if (_parents is { } parentBatches)
+		if (_parents is { Count: > 0 } parentBatches)
 		{
 			foreach (ref var job in CollectionsMarshal.AsSpan(_jobs))
 			{

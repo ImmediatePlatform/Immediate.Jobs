@@ -794,14 +794,15 @@ internal sealed class SingleServerJobStorage :
 	private void ThrowIfDisposed() =>
 		ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposeStarted) != 0, this);
 
-	private static JobContinuationEdge ToContinuationEdge(BatchGraphEdge edge) => new()
-	{
-		ChildJobId = edge.ChildJobId,
-		ParentJobId = edge.ParentJobId,
-		ParentBatchId = edge.ParentBatchId,
-		Trigger = edge.Trigger,
-		Delay = TimeSpan.Zero,
-	};
+	private static JobContinuationEdge ToContinuationEdge(BatchGraphEdge edge) =>
+		new()
+		{
+			ChildJobId = edge.ChildJobId,
+			ParentJobId = edge.ParentJobId,
+			ParentBatchId = edge.ParentBatchId,
+			Trigger = edge.Trigger,
+			Delay = edge.Delay,
+		};
 
 	private InMemoryJobStorage CreatePrimaryStorage() => new(_timeProvider);
 

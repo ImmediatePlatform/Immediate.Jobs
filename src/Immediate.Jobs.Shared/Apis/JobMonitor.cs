@@ -119,7 +119,7 @@ public sealed class JobMonitor(
 			?? throw new KeyNotFoundException($"Recurring schedule '{name}' is not available.");
 
 		if (!_definitionsByName.ContainsKey(schedule.JobName))
-			throw new ImmediateJobException($"No generated job definition exists for '{name}'.");
+			throw new ImmediateJobException($"No generated job definition exists for '{schedule.JobName}' (recurring job '{name}').");
 
 		var now = timeProvider.GetUtcNow();
 		await storage.EnqueueAsync(
@@ -155,6 +155,7 @@ public sealed class JobMonitor(
 		CancellationToken cancellationToken = default
 	)
 	{
+		ArgumentNullException.ThrowIfNull(jobId);
 		ValidationException.ThrowIfInvalid(query, $"Invalid argument \"{nameof(query)}\"");
 
 		return await storage.QueryJobExecutionsAsync(jobId, query, cancellationToken);

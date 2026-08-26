@@ -282,13 +282,13 @@ internal sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 				.Select(static group => group
 					.OrderBy(static job => job.DueAt)
 					.ThenBy(static job => job.CreatedAt)
-					.ThenBy(static job => job.JobId)
+					.ThenBy(static job => job.JobId.JobId, StringComparer.Ordinal)
 					.First());
 			var ungroupedHead = eligible
 				.Where(static job => job.GroupId is null)
 				.OrderBy(static job => job.DueAt)
 				.ThenBy(static job => job.CreatedAt)
-				.ThenBy(static job => job.JobId)
+				.ThenBy(static job => job.JobId.JobId, StringComparer.Ordinal)
 				.Take(1);
 			var candidates = groupedHeads.Concat(ungroupedHead);
 
@@ -298,7 +298,7 @@ internal sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 				.ThenBy(job => policy.GroupRoundRobin ? GetLastServed(queueName, job.GroupId) : 0)
 				.ThenBy(static job => job.DueAt)
 				.ThenBy(static job => job.CreatedAt)
-				.ThenBy(static job => job.JobId)
+				.ThenBy(static job => job.JobId.JobId, StringComparer.Ordinal)
 				.First();
 
 			var job = Acquire(candidate, request, now);
