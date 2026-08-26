@@ -5,7 +5,7 @@ namespace Immediate.Jobs;
 internal static class PayloadValidation
 {
 	public static bool CanSerializeToJson(this ITypeSymbol type, Action<string, Location?>? reportError) =>
-		Visit(type, location: null, reportError, [with(SymbolEqualityComparer.Default)]);
+		Visit(type, location: null, reportError, new HashSet<ITypeSymbol>(SymbolEqualityComparer.Default));
 
 	private static bool Visit(ITypeSymbol type, Location? location, Action<string, Location?>? reportError, HashSet<ITypeSymbol> visited)
 	{
