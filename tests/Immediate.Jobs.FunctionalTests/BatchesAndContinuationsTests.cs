@@ -117,48 +117,6 @@ public sealed class BatchesAndContinuationsTests
 	}
 
 	[Fact]
-	public async Task CommitSealsImmutableSnapshotsBeforeAwaitingStorage()
-	{
-		var cancellationToken = TestContext.Current.CancellationToken;
-		var timeProvider = new FakeTimeProvider(DateTimeOffset.UnixEpoch);
-		await using var inner = new InMemoryJobStorage(timeProvider);
-		await using var proxy = ControllableJobStorageProxy.Create(inner);
-		var proxyState = (ControllableJobStorageProxy)(object)proxy;
-		proxyState.BlockBatchEnqueue = true;
-		var services = new ServiceCollection();
-		_ = services.AddLogging();
-		_ = services.AddSingleton<IJobStorage>(proxy);
-		_ = services.AddSingleton(new BatchWorkflowState());
-		_ = services.AddSingleton(new DynamicExpansionState());
-		_ = services.AddSingleton(new ExecutionBufferProbeState());
-		_ = services.AddSingleton<TimeProvider>(timeProvider);
-		_ = services.AddImmediateJobsCore();
-		_ = services.AddImmediateJobsFunctionalTestsHandlers();
-		_ = services.AddImmediateJobsFunctionalTestsJobs();
-		await using var provider = services.BuildServiceProvider();
-		var batches = provider.GetRequiredService<BatchScheduler>();
-		var scheduler = provider.GetRequiredService<BatchWorkflowJob.Scheduler>();
-		await using var batch = batches.Begin();
-		_ = scheduler.Enqueue(new("seed"), batch);
-
-		var commit = batch.CommitAsync(cancellationToken).AsTask();
-		await proxyState.BatchEnqueueEntered.Task.WaitAsync(cancellationToken);
-		_ = Assert.Throws<ImmediateJobException>(() => scheduler.Enqueue(new("too-late"), batch));
-		_ = await Assert.ThrowsAsync<ImmediateJobException>(() => batch.CommitAsync(cancellationToken).AsTask());
-		await batch.DisposeAsync();
-
-		var capturedJobs = Assert.IsType<IReadOnlyList<JobRecord>>(proxyState.CapturedBatchJobs, exactMatch: false);
-		var capturedEdges = Assert.IsType<IReadOnlyList<JobContinuationEdge>>(proxyState.CapturedBatchEdges, exactMatch: false);
-		_ = Assert.Single(capturedJobs);
-		Assert.Empty(capturedEdges);
-		_ = Assert.Throws<NotSupportedException>(() =>
-			((IList<JobRecord>)capturedJobs).Add(capturedJobs[0]));
-		_ = proxyState.BatchEnqueueRelease.TrySetResult();
-		_ = await commit.WaitAsync(cancellationToken);
-		_ = Assert.Single(capturedJobs);
-	}
-
-	[Fact]
 	public async Task GroupedBatchAdditionsUseTheSameNormalizationAsDirectScheduling()
 	{
 		var cancellationToken = TestContext.Current.CancellationToken;

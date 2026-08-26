@@ -70,7 +70,7 @@ public sealed class JobSchedulingServiceTests
 			cancellationToken
 		);
 
-		Assert.Equal("unknown-job", proxyState.CapturedFailedJobId);
+		Assert.Equal("unknown-job", proxyState.CapturedFailedJobId?.JobId);
 		var failure = Assert.IsType<string>(proxyState.CapturedFailure);
 		Assert.Contains("No generated job definition", failure, StringComparison.Ordinal);
 		Assert.Contains("unknown-definition", failure, StringComparison.Ordinal);

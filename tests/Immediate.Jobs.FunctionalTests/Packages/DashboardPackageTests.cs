@@ -767,7 +767,7 @@ public sealed class DashboardPackageTests
 
 		_ = response.EnsureSuccessStatusCode();
 		using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
-		Assert.Equal(JobId, document.RootElement.GetProperty("id").GetString());
+		Assert.Equal(JobId, document.RootElement.GetProperty("jobId").GetString());
 		Assert.Equal("tenant-a", document.RootElement.GetProperty("groupId").GetString());
 	}
 }

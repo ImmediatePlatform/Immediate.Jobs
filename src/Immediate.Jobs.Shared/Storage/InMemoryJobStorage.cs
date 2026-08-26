@@ -219,7 +219,7 @@ internal sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 				job.DueAt <= now)
 			.OrderBy(job => job.DueAt)
 			.ThenBy(job => job.CreatedAt)
-			.ThenBy(job => job.JobId))
+			.ThenBy(job => job.JobId.JobId, StringComparer.Ordinal))
 		{
 			if (queueCapacity == 0)
 				break;
@@ -789,7 +789,7 @@ internal sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 			return
 			[
 				.. jobs.OrderByDescending(x => x.CreatedAt)
-					.ThenBy(x => x.JobId)
+					.ThenBy(x => x.JobId.JobId, StringComparer.Ordinal)
 					.Skip(Math.Max(0, query.Skip))
 					.Take(Math.Clamp(query.Take, 1, 1000)),
 			];
@@ -892,7 +892,7 @@ internal sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 			[
 				.. members
 					.OrderBy(job => job.CreatedAt)
-					.ThenBy(job => job.JobId)
+					.ThenBy(job => job.JobId.JobId, StringComparer.Ordinal)
 					.Skip(query.Skip)
 					.Take(query.Take)
 					.Select(static job => new BatchMemberStatus
@@ -926,7 +926,7 @@ internal sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 			var members = _jobs.Values
 				.Where(job => job.BatchId == batchId)
 				.OrderBy(job => job.CreatedAt)
-				.ThenBy(job => job.JobId)
+				.ThenBy(job => job.JobId.JobId, StringComparer.Ordinal)
 				.ToArray();
 
 			var memberIds = members.Select(static job => job.JobId).ToHashSet();

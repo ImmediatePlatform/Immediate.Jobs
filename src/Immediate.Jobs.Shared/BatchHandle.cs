@@ -1,10 +1,14 @@
+using System.ComponentModel;
 using System.Diagnostics.CodeAnalysis;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace Immediate.Jobs.Shared;
 
 /// <summary>
-/// 	An opaque reference to a committed atomic batch.
+/// 	An opaque reference to a durable batch invocation.
 /// </summary>
+[JsonConverter(typeof(BatchHandleConverter))]
 public sealed record BatchHandle : ContinuationHandle
 {
 	/// <summary>
@@ -31,4 +35,30 @@ public sealed record BatchHandle : ContinuationHandle
 			{ } => new() { BatchId = value },
 			_ => null,
 		};
+}
+
+/// <summary>
+///		Converter type used to serialize/deserialize <see cref="BatchHandle"/>.
+/// </summary>
+[EditorBrowsable(EditorBrowsableState.Never)]
+public sealed class BatchHandleConverter : JsonConverter<BatchHandle>
+{
+	/// <inheritdoc />
+	public override BatchHandle? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+	{
+		return reader.GetString() switch
+		{
+			{ } str => BatchHandle.FromString(str),
+			_ => null,
+		};
+	}
+
+	/// <inheritdoc />
+	public override void Write(Utf8JsonWriter writer, BatchHandle value, JsonSerializerOptions options)
+	{
+		ArgumentNullException.ThrowIfNull(writer);
+		ArgumentNullException.ThrowIfNull(value);
+
+		writer.WriteStringValue(value.BatchId);
+	}
 }
