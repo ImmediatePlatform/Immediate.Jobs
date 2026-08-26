@@ -21,7 +21,7 @@ internal static class RecurringStorageConformance
 	private const string QueueName = "conformance-recurring";
 	private const string JobName = "conformance-recurring-job";
 
-	internal static IReadOnlyList<JobStorageConformanceCaseDefinition> Cases { get; } =
+	internal static IReadOnlyList<JobStorageConformanceTestCase> Cases { get; } =
 	[
 		new(CapabilityName, StorageCapabilities.Recurring, ResolvesAdvertisedStorage),
 		new(LifecycleName, StorageCapabilities.Recurring, DynamicLifecycleAsync),

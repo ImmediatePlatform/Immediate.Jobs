@@ -24,7 +24,7 @@ internal static class FairQueueStorageConformance
 		GroupRoundRobin = true,
 	};
 
-	internal static IReadOnlyList<JobStorageConformanceCaseDefinition> Cases { get; } =
+	internal static IReadOnlyList<JobStorageConformanceTestCase> Cases { get; } =
 	[
 		new(CapabilityName, StorageCapabilities.FairQueues, ResolvesAdvertisedStorage),
 		new(RotationName, StorageCapabilities.FairQueues, RotatesAcrossGroupsAsync),

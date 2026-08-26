@@ -17,7 +17,7 @@ internal static class GraphStorageConformance
 	private const string InvalidDynamicName = "Graph.Dynamic.RejectsInvalidBatchRelationshipsAtomically";
 	private const string CancellationName = "Graph.Maintenance.CancelsUnsettledDependencyChains";
 
-	internal static IReadOnlyList<JobStorageConformanceCaseDefinition> Cases { get; } =
+	internal static IReadOnlyList<JobStorageConformanceTestCase> Cases { get; } =
 	[
 		new(CapabilityName, StorageCapabilities.Graph, ResolvesAdvertisedStorage),
 		new(BatchLifecycleName, StorageCapabilities.Graph, BatchLifecycleAsync),
@@ -69,8 +69,8 @@ internal static class GraphStorageConformance
 			"the inserted batch must be listed").BatchId, BatchLifecycleName, "batch listing must preserve identity");
 		var members = await graph.QueryBatchMembersAsync(batchId, new(), cancellationToken).ConfigureAwait(false);
 		ConformanceAssert.SequenceEqual(
-			new[] { child.JobId, parent.JobId }.Order(),
-			members.Select(static member => member.JobId).Order(),
+			new[] { child.JobId.JobId, parent.JobId.JobId }.Order(StringComparer.Ordinal),
+			members.Select(static member => member.JobId.JobId).Order(StringComparer.Ordinal),
 			BatchLifecycleName,
 			"batch member projection must include every inserted job"
 		);

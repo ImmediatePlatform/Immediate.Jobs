@@ -1068,7 +1068,7 @@ internal sealed class RedisJobStorage(
 
 	private static long Score(DateTimeOffset value) => value.ToUnixTimeMilliseconds();
 	private static string Ticks(DateTimeOffset value) => value.UtcTicks.ToString("D19", CultureInfo.InvariantCulture);
-	private static string DueMember(JobRecord job) => $"{Ticks(job.DueAt)}|{Ticks(job.CreatedAt)}|{job.JobId}";
+	private static string DueMember(JobRecord job) => $"{Ticks(job.DueAt)}|{Ticks(job.CreatedAt)}|{job.JobId.JobId}";
 	private static string RecurringDueMember(DateTimeOffset nextRunAt, string name) => $"{Ticks(nextRunAt)}|{name}";
 	private static string NullableTicks(DateTimeOffset? value) => value is { } actual ? Ticks(actual) : "";
 	private static RedisValue ExecutionField(int executionNumber, string name) =>

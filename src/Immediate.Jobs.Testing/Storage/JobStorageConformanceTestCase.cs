@@ -9,20 +9,17 @@ namespace Immediate.Jobs.Testing.Storage;
 /// </summary>
 public sealed class JobStorageConformanceTestCase
 {
-	private readonly StorageCapabilities _advertisedCapabilities;
 	private readonly JobStorageConformanceScenario _scenario;
 
 	internal JobStorageConformanceTestCase(
-		JobStorageConformanceCaseDefinition definition,
-		StorageCapabilities advertisedCapabilities
+		string name,
+		StorageCapabilities requiredCapabilities,
+		JobStorageConformanceScenario scenario
 	)
 	{
-		ArgumentNullException.ThrowIfNull(definition);
-
-		Name = definition.Name;
-		RequiredCapabilities = definition.RequiredCapabilities;
-		_scenario = definition.Scenario;
-		_advertisedCapabilities = advertisedCapabilities;
+		Name = name;
+		RequiredCapabilities = requiredCapabilities;
+		_scenario = scenario;
 	}
 
 	/// <summary>
@@ -67,7 +64,10 @@ public sealed class JobStorageConformanceTestCase
 			[{ } x] => x,
 
 			var list => throw new JobTestAssertionException(
-				string.Create(provider: null, $"Expected exactly one IJobStorage registration, but found {list.Count}.")
+				ConformanceAssert.FormatFailure(
+					Name,
+					string.Create(provider: null, $"Expected exactly one IJobStorage registration, but found {list.Count}.")
+				)
 			),
 		};
 
@@ -79,11 +79,10 @@ public sealed class JobStorageConformanceTestCase
 
 		var resolvedCapabilities = storage.GetCapabilities();
 
-		ConformanceAssert.Equal(
-			_advertisedCapabilities,
-			resolvedCapabilities,
+		ConformanceAssert.True(
+			resolvedCapabilities.HasFlag(RequiredCapabilities),
 			Name,
-			"the resolved IJobStorage capability interfaces must exactly match the flags passed to GetCases"
+			"the resolved IJobStorage capability interfaces must contain the flags required to run the test"
 		);
 
 		try

@@ -23,7 +23,7 @@ internal static class QueueStorageConformance
 	private const string CancellationName = "Queue.Cancellation.ObservesPreCancelledOperation";
 	private const string DisposeName = "Queue.Lifecycle.ToleratesRepeatedConcurrentDisposal";
 
-	internal static IReadOnlyList<JobStorageConformanceCaseDefinition> Cases { get; } =
+	internal static IReadOnlyList<JobStorageConformanceTestCase> Cases { get; } =
 	[
 		new(InitializeName, StorageCapabilities.Queue, InitializeAsync),
 		new(HealthName, StorageCapabilities.Queue, IsHealthyAsync),

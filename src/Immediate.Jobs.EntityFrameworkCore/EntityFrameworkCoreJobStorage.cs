@@ -843,15 +843,15 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 		cancellationToken.ThrowIfCancellationRequested();
 
 		await MutateOwnedWithDependenciesAsync(
-		jobId,
-		executionNumber,
-		workerId,
-		error,
-		nextRetryAt,
-		succeeded: false,
-		[],
-		cancellationToken
-	);
+			jobId,
+			executionNumber,
+			workerId,
+			error,
+			nextRetryAt,
+			succeeded: false,
+			[],
+			cancellationToken
+		);
 	}
 
 	/// <inheritdoc />
@@ -2108,6 +2108,7 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 					ChildJobId = waiter.Id,
 					ParentKind = ContinuationParentKind.Job,
 					ParentId = job.Id,
+					Delay = "00:00:00",
 					Trigger = ContinuationTrigger.Success,
 				});
 				waiter.RemainingDependencies++;
@@ -2183,6 +2184,7 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 				ChildJobId = job.Id,
 				ParentKind = ContinuationParentKind.Job,
 				ParentId = current.Id,
+				Delay = addition.Delay.ToString("c"),
 				Trigger = addition.Trigger,
 			});
 
@@ -2195,6 +2197,7 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 					ChildJobId = waiter.Id,
 					ParentKind = ContinuationParentKind.Job,
 					ParentId = job.Id,
+					Delay = "00:00:00",
 					Trigger = ContinuationTrigger.Success,
 				});
 				waiter.RemainingDependencies++;

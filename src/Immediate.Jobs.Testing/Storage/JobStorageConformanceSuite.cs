@@ -34,7 +34,6 @@ public static class JobStorageConformanceSuite
 			.Concat(AddOptionalCases(capabilities, StorageCapabilities.Graph, GraphStorageConformance.Cases))
 			.Concat(AddOptionalCases(capabilities, StorageCapabilities.FairQueues, FairQueueStorageConformance.Cases))
 			.Concat(AddOptionalCases(capabilities, StorageCapabilities.Replica, ReplicaStorageConformance.Cases))
-			.Select(definition => new JobStorageConformanceTestCase(definition, capabilities))
 			.ToList();
 	}
 
@@ -45,10 +44,10 @@ public static class JobStorageConformanceSuite
 		GetCases(KnownCapabilities)
 			.ToDictionary(x => x.Name, StringComparer.OrdinalIgnoreCase);
 
-	private static IEnumerable<JobStorageConformanceCaseDefinition> AddOptionalCases(
+	private static IEnumerable<JobStorageConformanceTestCase> AddOptionalCases(
 		StorageCapabilities advertisedCapabilities,
 		StorageCapabilities suiteCapability,
-		IReadOnlyCollection<JobStorageConformanceCaseDefinition> cases
+		IReadOnlyCollection<JobStorageConformanceTestCase> cases
 	)
 	{
 		return advertisedCapabilities.HasFlag(suiteCapability)

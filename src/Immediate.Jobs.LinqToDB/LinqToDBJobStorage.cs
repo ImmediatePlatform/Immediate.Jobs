@@ -2026,6 +2026,7 @@ internal sealed class LinqToDBJobStorage<T>(
 				ChildJobId = waiter.Id,
 				ParentKind = ContinuationParentKind.Job,
 				ParentId = job.Id,
+				Delay = "00:00:00",
 				Trigger = ContinuationTrigger.Success,
 			}, cancellationToken).ConfigureAwait(false);
 			var waiterStamp = waiter.ConcurrencyStamp;
@@ -2107,6 +2108,7 @@ internal sealed class LinqToDBJobStorage<T>(
 				ChildJobId = job.Id,
 				ParentKind = ContinuationParentKind.Job,
 				ParentId = current.Id,
+				Delay = addition.Delay.ToString("c"),
 				Trigger = addition.Trigger,
 			}, cancellationToken).ConfigureAwait(false);
 
@@ -2119,6 +2121,7 @@ internal sealed class LinqToDBJobStorage<T>(
 					ChildJobId = waiter.Id,
 					ParentKind = ContinuationParentKind.Job,
 					ParentId = job.Id,
+					Delay = "00:00:00",
 					Trigger = ContinuationTrigger.Success,
 				}, cancellationToken).ConfigureAwait(false);
 				var waiterStamp = waiter.ConcurrencyStamp;
@@ -2889,45 +2892,48 @@ internal sealed class LinqToDBJobStorage<T>(
 		};
 	}
 
-	private static JobRecord ToRecord(ImmediateJobEntity job) => new()
-	{
-		JobId = JobHandle.FromString(job.Id),
-		QueueName = job.QueueName,
-		JobName = job.JobName,
-		Payload = job.Payload,
-		Context = job.Context,
-		GroupId = job.GroupId,
-		State = job.State,
-		DueAt = FromTicks(job.DueAt),
-		CreatedAt = FromTicks(job.CreatedAt),
-		Attempt = job.Attempt,
-		WorkerId = job.WorkerId,
-		LeaseExpiresAt = FromTicks(job.LeaseExpiresAt),
-		LastError = job.LastError,
-		CompletedAt = FromTicks(job.CompletedAt),
-		RecurringKey = job.RecurringKey,
-		TraceParent = job.TraceParent,
-		TraceState = job.TraceState,
-		ExecutionTraceId = job.ExecutionTraceId,
-		ExecutionSpanId = job.ExecutionSpanId,
-		ExecutionStartedAt = FromTicks(job.ExecutionStartedAt),
-		BatchId = BatchHandle.FromString(job.BatchId),
-		RemainingDependencies = job.RemainingDependencies,
-		FailedDependencies = job.FailedDependencies,
-	};
+	private static JobRecord ToRecord(ImmediateJobEntity job) =>
+		new()
+		{
+			JobId = JobHandle.FromString(job.Id),
+			QueueName = job.QueueName,
+			JobName = job.JobName,
+			Payload = job.Payload,
+			Context = job.Context,
+			GroupId = job.GroupId,
+			State = job.State,
+			DueAt = FromTicks(job.DueAt),
+			CreatedAt = FromTicks(job.CreatedAt),
+			Attempt = job.Attempt,
+			WorkerId = job.WorkerId,
+			LeaseExpiresAt = FromTicks(job.LeaseExpiresAt),
+			LastError = job.LastError,
+			CompletedAt = FromTicks(job.CompletedAt),
+			RecurringKey = job.RecurringKey,
+			TraceParent = job.TraceParent,
+			TraceState = job.TraceState,
+			ExecutionTraceId = job.ExecutionTraceId,
+			ExecutionSpanId = job.ExecutionSpanId,
+			ExecutionStartedAt = FromTicks(job.ExecutionStartedAt),
+			BatchId = BatchHandle.FromString(job.BatchId),
+			RemainingDependencies = job.RemainingDependencies,
+			FailedDependencies = job.FailedDependencies,
+		};
 
-	private static ImmediateRecurringJobEntity ToEntity(RecurringJobSchedule schedule) => new()
-	{
-		Name = schedule.Name,
-		JobName = schedule.JobName,
-		Cron = schedule.Cron,
-		TimeZone = schedule.TimeZone,
-		IsCodeDefined = schedule.IsCodeDefined,
-		IsPaused = schedule.IsPaused,
-		NextRunAt = schedule.NextRunAt.UtcTicks,
-		LastRunAt = Ticks(schedule.LastRunAt),
-		ConcurrencyStamp = Guid.NewGuid(),
-	};
+	private static ImmediateRecurringJobEntity ToEntity(RecurringJobSchedule schedule) =>
+		new()
+		{
+			Name = schedule.Name,
+			JobName = schedule.JobName,
+			QueueName = schedule.QueueName,
+			Cron = schedule.Cron,
+			TimeZone = schedule.TimeZone,
+			IsCodeDefined = schedule.IsCodeDefined,
+			IsPaused = schedule.IsPaused,
+			NextRunAt = schedule.NextRunAt.UtcTicks,
+			LastRunAt = Ticks(schedule.LastRunAt),
+			ConcurrencyStamp = Guid.NewGuid(),
+		};
 
 	private static RecurringJobSchedule ToRecord(ImmediateRecurringJobEntity schedule) =>
 		new()

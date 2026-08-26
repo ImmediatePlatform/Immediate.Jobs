@@ -8,16 +8,3 @@ internal delegate ValueTask JobStorageConformanceScenario(
 	FakeTimeProvider timeProvider,
 	CancellationToken cancellationToken
 );
-
-internal sealed class JobStorageConformanceCaseDefinition(
-	string name,
-	StorageCapabilities requiredCapabilities,
-	JobStorageConformanceScenario scenario
-)
-{
-	internal string Name { get; } = name;
-
-	internal StorageCapabilities RequiredCapabilities { get; } = requiredCapabilities;
-
-	internal JobStorageConformanceScenario Scenario { get; } = scenario;
-}

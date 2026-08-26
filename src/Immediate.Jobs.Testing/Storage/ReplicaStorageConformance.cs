@@ -19,7 +19,7 @@ internal static class ReplicaStorageConformance
 	private const string QueueName = "conformance-replica";
 	private const string JobName = "conformance-replica-job";
 
-	internal static IReadOnlyList<JobStorageConformanceCaseDefinition> Cases { get; } =
+	internal static IReadOnlyList<JobStorageConformanceTestCase> Cases { get; } =
 	[
 		new(CapabilityName, StorageCapabilities.Replica, ResolvesAdvertisedStorage),
 		new(ExactDueName, StorageCapabilities.Replica, ClaimsExactlyRequestedDueJobsAsync),
