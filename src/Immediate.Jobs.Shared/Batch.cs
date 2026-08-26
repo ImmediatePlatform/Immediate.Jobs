@@ -27,6 +27,11 @@ public sealed class Batch : IAsyncDisposable
 	private readonly ContinuationTrigger _trigger;
 	private Lifecycle _lifecycle;
 
+	/// <summary>
+	///		Information on whether or not the current batch has been committed to storage.
+	/// </summary>
+	public bool IsCommitted { get; private set; }
+
 	internal Batch(
 		IJobGraphStorage storage,
 		TimeProvider timeProvider,
@@ -54,11 +59,7 @@ public sealed class Batch : IAsyncDisposable
 		_jobs.Add(record with { BatchId = BatchId });
 		_rootJobs.Add(_jobs[^1]);
 
-		return new BatchJobHandle
-		{
-			Batch = this,
-			JobId = record.JobId,
-		};
+		return new BatchJobHandle(batch: this, record.JobId);
 	}
 
 	internal BatchJobHandle Add(JobRecord record, IReadOnlyList<BatchJobHandle> parents, ContinuationTrigger on, TimeSpan delay)
@@ -70,8 +71,8 @@ public sealed class Batch : IAsyncDisposable
 		{
 			if (!ReferenceEquals(parent.Batch, this))
 				throw new ImmediateJobException("Continuation handles must belong to the same open batch.");
-			if (!parentIds.Add(parent.JobId))
-				throw new ImmediateJobException($"Duplicate continuation parent '{parent.JobId.JobId}'.");
+			if (!parentIds.Add(parent.RawJobId))
+				throw new ImmediateJobException($"Duplicate continuation parent '{parent.RawJobId.JobId}'.");
 		}
 
 		_jobs.Add(record with
@@ -86,17 +87,13 @@ public sealed class Batch : IAsyncDisposable
 			_edges.Add(new()
 			{
 				ChildJobId = record.JobId,
-				ParentJobId = parent.JobId,
+				ParentJobId = parent.RawJobId,
 				Trigger = on,
 				Delay = delay,
 			});
 		}
 
-		return new BatchJobHandle
-		{
-			Batch = this,
-			JobId = record.JobId,
-		};
+		return new BatchJobHandle(batch: this, record.JobId);
 	}
 
 	/// <summary>
@@ -106,7 +103,7 @@ public sealed class Batch : IAsyncDisposable
 	/// 	A token that can cancel the commit operation.
 	/// </param>
 	/// <returns>
-	/// 	A handle for the committed batch.
+	/// 	The dependency graph for the committed batch.
 	/// </returns>
 	public async ValueTask<BatchHandle> CommitAsync(CancellationToken cancellationToken = default)
 	{
@@ -152,6 +149,8 @@ public sealed class Batch : IAsyncDisposable
 		try
 		{
 			await _storage.EnqueueBatchAsync(record, _jobs, _edges, cancellationToken).ConfigureAwait(false);
+			IsCommitted = true;
+
 			return BatchId;
 		}
 		finally

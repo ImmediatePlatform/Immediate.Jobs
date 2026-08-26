@@ -2966,8 +2966,8 @@ internal sealed class LinqToDBJobStorage<T>(
 			ChildJobId = JobHandle.FromString(edge.ChildJobId),
 			ParentJobId = edge.ParentKind == ContinuationParentKind.Job ? JobHandle.FromString(edge.ParentId) : null,
 			ParentBatchId = edge.ParentKind == ContinuationParentKind.Batch ? BatchHandle.FromString(edge.ParentId) : null,
-			Trigger = edge.Trigger,
 			Delay = TimeSpan.ParseExact(edge.Delay, "c", formatProvider: null),
+			Trigger = edge.Trigger,
 		};
 
 	private static BatchGraphEdge ToGraphEdge(ImmediateJobContinuationEntity edge) =>
@@ -2976,6 +2976,7 @@ internal sealed class LinqToDBJobStorage<T>(
 			ChildJobId = JobHandle.FromString(edge.ChildJobId),
 			ParentJobId = edge.ParentKind == ContinuationParentKind.Job ? JobHandle.FromString(edge.ParentId) : null,
 			ParentBatchId = edge.ParentKind == ContinuationParentKind.Batch ? BatchHandle.FromString(edge.ParentId) : null,
+			Delay = TimeSpan.ParseExact(edge.Delay, "c", formatProvider: null),
 			Trigger = edge.Trigger,
 		};
 

@@ -63,6 +63,11 @@ public sealed record BatchGraphEdge
 	public BatchHandle? ParentBatchId { get; init; }
 
 	/// <summary>
+	///		The amount of delay after the parent job or batch completes to schedule the child job.
+	/// </summary>
+	public required TimeSpan Delay { get; init; }
+
+	/// <summary>
 	/// 	The condition under which the edge is satisfied.
 	/// </summary>
 	public required ContinuationTrigger Trigger { get; init; }

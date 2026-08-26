@@ -1663,29 +1663,32 @@ internal sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 
 	private static bool IsTerminal(BatchState state) => state is not BatchState.Executing;
 
-	private static BatchStatus ToStatus(BatchRecord batch) => new()
-	{
-		BatchId = batch.BatchId,
-		State = batch.State,
-		Total = batch.TotalJobs,
-		Succeeded = batch.SucceededCount,
-		Failed = batch.FailedCount,
-		Cancelled = batch.CancelledCount,
-		Skipped = batch.SkippedCount,
-		Remaining = batch.PendingCount,
-		CreatedAt = batch.CreatedAt,
-		StartedAt = batch.StartedAt,
-		CompletedAt = batch.CompletedAt,
-		FractionSettled = BatchStatus.CalculateFractionSettled(batch.TotalJobs, batch.PendingCount),
-	};
+	private static BatchStatus ToStatus(BatchRecord batch) =>
+		new()
+		{
+			BatchId = batch.BatchId,
+			State = batch.State,
+			Total = batch.TotalJobs,
+			Succeeded = batch.SucceededCount,
+			Failed = batch.FailedCount,
+			Cancelled = batch.CancelledCount,
+			Skipped = batch.SkippedCount,
+			Remaining = batch.PendingCount,
+			CreatedAt = batch.CreatedAt,
+			StartedAt = batch.StartedAt,
+			CompletedAt = batch.CompletedAt,
+			FractionSettled = BatchStatus.CalculateFractionSettled(batch.TotalJobs, batch.PendingCount),
+		};
 
-	private static BatchGraphEdge ToGraphEdge(JobContinuationEdge edge) => new()
-	{
-		ChildJobId = edge.ChildJobId,
-		ParentJobId = edge.ParentJobId,
-		ParentBatchId = edge.ParentBatchId,
-		Trigger = edge.Trigger,
-	};
+	private static BatchGraphEdge ToGraphEdge(JobContinuationEdge edge) =>
+		new()
+		{
+			ChildJobId = edge.ChildJobId,
+			ParentJobId = edge.ParentJobId,
+			ParentBatchId = edge.ParentBatchId,
+			Delay = edge.Delay,
+			Trigger = edge.Trigger,
+		};
 
 	private void RemoveEdgesForJobs(
 		HashSet<JobHandle> jobIds,

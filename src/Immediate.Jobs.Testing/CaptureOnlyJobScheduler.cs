@@ -260,7 +260,8 @@ public class CaptureOnlyJobScheduler<TPayload>(TimeProvider? timeProvider = null
 	private BatchJobHandle CaptureBatchAt(TPayload payload, Batch batch, DateTimeOffset at, string? groupId) => CaptureBatch(payload, batch, at, groupId);
 
 	private BatchJobHandle CaptureBatch(TPayload payload, Batch batch, DateTimeOffset runAt, string? groupId) =>
-		new() { Batch = batch, JobId = Capture(payload, runAt, groupId) };
+		//new() { Batch = batch, JobId = Capture(payload, runAt, groupId) };
+		throw new NotImplementedException();
 
 	private static Batch FirstBatch(IReadOnlyList<BatchJobHandle> jobs)
 	{
