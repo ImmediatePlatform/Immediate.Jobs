@@ -157,7 +157,7 @@ public sealed class TestingPackageTests
 		await graphStorage.EnqueueAsync(parent, cancellationToken);
 		await graphStorage.EnqueueContinuationAsync(
 			child,
-			[new() { ChildJobId = child.JobId, ParentJobId = parent.JobId }],
+			[new() { ChildJobId = child.JobId, ParentJobId = parent.JobId, Delay = TimeSpan.Zero }],
 			cancellationToken
 		);
 		_ = Assert.Single(await graphStorage.AcquireDueJobsAsync(new()
@@ -178,7 +178,11 @@ public sealed class TestingPackageTests
 		await graphStorage.FailAsync(parent.JobId, 1, "worker", "broken", nextRetryAt: null, cancellationToken);
 
 		var exception = await Assert.ThrowsAsync<JobTestAssertionException>(
-			() => harness.AssertContinuationReleasedAfterAsync(new(parent.JobId), new(child.JobId), cancellationToken).AsTask()
+			() => harness.AssertContinuationReleasedAfterAsync(
+				parent.JobId,
+				child.JobId,
+				cancellationToken
+			).AsTask()
 		);
 		Assert.Contains("Skipped", exception.Message, StringComparison.Ordinal);
 	}
@@ -190,15 +194,16 @@ public sealed class TestingPackageTests
 		public int Count { get; set; }
 	}
 
-	private static JobRecord CreateRawJob(string id) => new()
-	{
-		JobId = id,
-		JobName = "raw-job",
-		Payload = "{}",
-		State = JobState.Pending,
-		DueAt = DateTimeOffset.UnixEpoch,
-		CreatedAt = DateTimeOffset.UnixEpoch,
-	};
+	private static JobRecord CreateRawJob(string id) =>
+		new()
+		{
+			JobId = JobHandle.FromString(id),
+			JobName = "raw-job",
+			Payload = "{}",
+			State = JobState.Pending,
+			DueAt = DateTimeOffset.UnixEpoch,
+			CreatedAt = DateTimeOffset.UnixEpoch,
+		};
 
 	private sealed class TestScheduler(
 		IJobStorage storage,

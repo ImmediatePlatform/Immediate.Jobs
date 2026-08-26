@@ -174,6 +174,7 @@ public sealed class RecurringSchedulerTests
 		{
 			Name = "bad-schedule",
 			JobName = "ordinary",
+			QueueName = "default",
 			Cron = cron,
 			TimeZone = timeZone,
 			IsCodeDefined = false,
@@ -181,8 +182,9 @@ public sealed class RecurringSchedulerTests
 		}, cancellationToken);
 		await storage.EnqueueAsync(new()
 		{
-			JobId = "ordinary-job",
+			JobId = JobHandle.FromString("ordinary-job"),
 			JobName = "ordinary",
+			QueueName = "default",
 			Payload = "{}",
 			State = JobState.Pending,
 			DueAt = Start,
@@ -194,7 +196,7 @@ public sealed class RecurringSchedulerTests
 
 		Assert.Equal(
 			JobState.Succeeded,
-			(await storage.GetJobStatusAsync("ordinary-job", cancellationToken))!.State
+			(await storage.GetJobStatusAsync(JobHandle.FromString("ordinary-job"), cancellationToken))!.State
 		);
 		Assert.Equal(Start, (await GetSchedule(storage, "bad-schedule", cancellationToken)).NextRunAt);
 	}
@@ -217,8 +219,9 @@ public sealed class RecurringSchedulerTests
 		CancellationToken cancellationToken
 	) => storage.EnqueueAsync(new()
 	{
-		JobId = Guid.NewGuid().ToString("N"),
+		JobId = JobHandle.FromString(Guid.NewGuid().ToString("N")),
 		JobName = jobName,
+		QueueName = "default",
 		Payload = "{}",
 		State = JobState.Active,
 		DueAt = createdAt,
@@ -235,8 +238,9 @@ public sealed class RecurringSchedulerTests
 		CancellationToken cancellationToken
 	) => storage.EnqueueAsync(new()
 	{
-		JobId = Guid.NewGuid().ToString("N"),
+		JobId = JobHandle.FromString(Guid.NewGuid().ToString("N")),
 		JobName = jobName,
+		QueueName = "default",
 		Payload = "{}",
 		State = JobState.Pending,
 		DueAt = dueAt,

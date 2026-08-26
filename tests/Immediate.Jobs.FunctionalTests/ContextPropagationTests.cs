@@ -142,7 +142,7 @@ public sealed class ContextPropagationTests
 		var now = harness.TimeProvider.GetUtcNow();
 		var record = new JobRecord
 		{
-			JobId = Guid.NewGuid().ToString("N"),
+			JobId = JobHandle.FromString(Guid.NewGuid().ToString("N")),
 			JobName = "record-message",
 			QueueName = "messages",
 			Payload = "{\"message\":\"orphan\"}",
@@ -249,7 +249,7 @@ public sealed class ContextPropagationTests
 		var batches = scope.ServiceProvider.GetRequiredService<BatchScheduler>();
 		var job = await scheduler.EnqueueAsync(new("custom-id"), cancellationToken);
 		await using var batch = batches.Begin();
-		var batchJob = scheduler.AddToBatch(batch, new("batch-id"));
+		var batchJob = scheduler.Enqueue(new("batch-id"), batch);
 		var batchHandle = await batch.CommitAsync(cancellationToken);
 
 		await harness.DrainAsync(cancellationToken);
@@ -259,9 +259,9 @@ public sealed class ContextPropagationTests
 			candidate => string.Equals(candidate.JobName, "context-cron", StringComparison.Ordinal));
 
 		Assert.StartsWith("job_", job.JobId, StringComparison.Ordinal);
-		Assert.StartsWith("job_", batchJob.Id, StringComparison.Ordinal);
+		Assert.StartsWith("job_", batchJob.JobId.JobId, StringComparison.Ordinal);
 		Assert.StartsWith("batch_", batchHandle.BatchId, StringComparison.Ordinal);
-		Assert.StartsWith("job_", recurring.JobId, StringComparison.Ordinal);
+		Assert.StartsWith("job_", recurring.JobId.JobId, StringComparison.Ordinal);
 	}
 
 	[Fact]
@@ -324,16 +324,17 @@ public sealed class ContextPropagationTests
 		_ = services.AddImmediateJobsFunctionalTestsJobs();
 	});
 
-	private static JobRecord CreateContextRecord(JobTestHarness harness, [StringSyntax("json")] string context) => new()
-	{
-		JobId = Guid.NewGuid().ToString("N"),
-		JobName = "context-round-trip",
-		Payload = "{\"message\":\"legacy\"}",
-		State = JobState.Pending,
-		DueAt = harness.TimeProvider.GetUtcNow(),
-		CreatedAt = harness.TimeProvider.GetUtcNow(),
-		Context = context,
-	};
+	private static JobRecord CreateContextRecord(JobTestHarness harness, [StringSyntax("json")] string context) =>
+		new()
+		{
+			JobId = JobHandle.FromString(Guid.NewGuid().ToString("N")),
+			JobName = "context-round-trip",
+			Payload = "{\"message\":\"legacy\"}",
+			State = JobState.Pending,
+			DueAt = harness.TimeProvider.GetUtcNow(),
+			CreatedAt = harness.TimeProvider.GetUtcNow(),
+			Context = context,
+		};
 
 	private static RecurringJobSchedule CreateRecurringSchedule(
 		string name,
@@ -344,6 +345,7 @@ public sealed class ContextPropagationTests
 	{
 		Name = name,
 		JobName = jobName,
+		QueueName = "default",
 		Cron = "0 * * * *",
 		TimeZone = "UTC",
 		IsCodeDefined = isCodeDefined,

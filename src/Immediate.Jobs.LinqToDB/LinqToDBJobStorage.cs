@@ -1329,17 +1329,19 @@ internal sealed class LinqToDBJobStorage<T>(
 			.ToListAsync(cancellationToken)
 			.ConfigureAwait(false);
 
-		return [.. Enumerable.Select<ImmediateJobEntity, BatchMemberStatus>(entities, (Func<ImmediateJobEntity, BatchMemberStatus>)(job => new BatchMemberStatus
-		{
-			JobId = JobHandle.FromString(job.Id),
-			JobName = job.JobName,
-			QueueName = job.QueueName,
-			State = job.State,
-			Attempt = job.Attempt,
-			CreatedAt = LinqToDBJobStorage<T>.FromTicks(job.CreatedAt),
-			CompletedAt = LinqToDBJobStorage<T>.FromTicks(job.CompletedAt),
-			LastError = job.LastError,
-		}))];
+		return entities
+			.Select(job => new BatchMemberStatus
+			{
+				JobId = JobHandle.FromString(job.Id),
+				JobName = job.JobName,
+				QueueName = job.QueueName,
+				State = job.State,
+				Attempt = job.Attempt,
+				CreatedAt = LinqToDBJobStorage<T>.FromTicks(job.CreatedAt),
+				CompletedAt = LinqToDBJobStorage<T>.FromTicks(job.CompletedAt),
+				LastError = job.LastError,
+			})
+			.ToList();
 	}
 
 	/// <inheritdoc />

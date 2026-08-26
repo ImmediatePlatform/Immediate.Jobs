@@ -175,7 +175,7 @@ public class DispatchBenchmarks
 	{
 		var record = new JobRecord
 		{
-			JobId = Guid.NewGuid().ToString("N"),
+			JobId = JobHandle.FromString(Guid.NewGuid().ToString("N")),
 			JobName = "benchmark-job",
 			Payload = "{\"value\":42}",
 			State = JobState.Active,
