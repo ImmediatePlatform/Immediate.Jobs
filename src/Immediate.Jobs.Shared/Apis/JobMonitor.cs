@@ -112,14 +112,14 @@ public sealed class JobMonitor(
 	{
 		ArgumentException.ThrowIfNullOrWhiteSpace(name);
 
-		if (!_definitionsByName.ContainsKey(name))
-			throw new ImmediateJobException($"No generated job definition exists for '{name}'.");
-
 		var snapshot = await GetSnapshotAsync(cancellationToken).ConfigureAwait(false);
 
 		var schedule = snapshot.Recurring
 			.FirstOrDefault(candidate => string.Equals(candidate.Name, name, StringComparison.Ordinal))
 			?? throw new KeyNotFoundException($"Recurring schedule '{name}' is not available.");
+
+		if (!_definitionsByName.ContainsKey(schedule.JobName))
+			throw new ImmediateJobException($"No generated job definition exists for '{name}'.");
 
 		var now = timeProvider.GetUtcNow();
 		await storage.EnqueueAsync(

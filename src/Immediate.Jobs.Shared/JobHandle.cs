@@ -46,6 +46,9 @@ public sealed class JobHandleConverter : JsonConverter<JobHandle>
 	/// <inheritdoc />
 	public override JobHandle? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
 	{
+		if (reader.TokenType is not JsonTokenType.String)
+			throw new InvalidOperationException($"Invalid token type for parsing a `BatchHandle`; type: {reader.TokenType}");
+
 		return reader.GetString() switch
 		{
 			{ } str => JobHandle.FromString(str),

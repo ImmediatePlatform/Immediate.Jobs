@@ -9,7 +9,7 @@ internal static class JobCron
 		ArgumentException.ThrowIfNullOrWhiteSpace(cron);
 
 		Span<Range> splits = stackalloc Range[7];
-		var numSplits = cron.AsSpan().Split(splits, ' ');
+		var numSplits = cron.AsSpan().Trim().Split(splits, ' ');
 
 		var format = numSplits switch
 		{

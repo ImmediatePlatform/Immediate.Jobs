@@ -12,11 +12,11 @@ public sealed class InvalidAddToBatchCallAnalyzer : DiagnosticAnalyzer
 		new(
 			id: DiagnosticIds.IJOB0015DetachedJobCannotBeAddedToBatch,
 			title: "Detached work cannot be added to a batch",
-			messageFormat: "ScheduleAfter(payload, JobDetails, ...) cannot use ContinuationOptions.Detached; use ScheduleAfter for detached work",
+			messageFormat: "EnqueueAsync or ScheduleAsync with JobDetails cannot use ContinuationOptions.Detached; use ScheduleAfter or ScheduleAsync without JobDetails for detached work",
 			category: "ImmediateJobs",
 			defaultSeverity: DiagnosticSeverity.Warning,
 			isEnabledByDefault: true,
-			description: "ScheduleAfter(payload, JobDetails, ...) cannot use ContinuationOptions.Detached; use ScheduleAfter for detached work."
+			description: "EnqueueAsync or ScheduleAsync with JobDetails cannot use ContinuationOptions.Detached; use ScheduleAfter or ScheduleAsync without JobDetails for detached work."
 		);
 
 	/// <inheritdoc />

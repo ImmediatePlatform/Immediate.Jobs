@@ -128,7 +128,7 @@ public static class NodaTimeJobSchedulerExtensions
 		return await scheduler.ScheduleAsync(payload, at.ToDateTimeOffset(), groupId, cancellationToken);
 	}
 
-	/// <summary>Schedules a payload after a NodaTime duration.</summary>
+	/// <summary>Schedules a payload at a NodaTime instant.</summary>
 	/// <typeparam name="TPayload">The type of payload to schedule.</typeparam>
 	/// <param name="scheduler">The typed job scheduler.</param>
 	/// <param name="payload">The payload to schedule.</param>
@@ -150,7 +150,7 @@ public static class NodaTimeJobSchedulerExtensions
 		return await scheduler.ScheduleAsync(payload, currentJob, at.ToDateTimeOffset(), options, cancellationToken);
 	}
 
-	/// <summary>Schedules grouped payload work after a NodaTime duration.</summary>
+	/// <summary>Schedules grouped payload work at a NodaTime instant.</summary>
 	/// <typeparam name="TPayload">The type of payload to schedule.</typeparam>
 	/// <param name="scheduler">The typed job scheduler.</param>
 	/// <param name="payload">The payload to schedule.</param>

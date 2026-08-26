@@ -16,7 +16,7 @@ public sealed record RecurringJobSchedule
 	public required string JobName { get; init; }
 
 	/// <summary>
-	/// 	The generated job definition name.
+	/// 	The persisted queue name.
 	/// </summary>
 	public required string QueueName { get; init; }
 

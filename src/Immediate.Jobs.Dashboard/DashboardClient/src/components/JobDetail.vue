@@ -42,7 +42,7 @@ let copyResetTimer: number | undefined;
 const executionPageSize = 20;
 
 watch(
-	[() => props.job.id, () => props.job.attempt, () => props.job.state],
+	[() => props.job.jobId, () => props.job.attempt, () => props.job.state],
 	() => void loadExecutions(),
 	{ immediate: true },
 );
@@ -61,7 +61,7 @@ async function loadExecutions(): Promise<void> {
 	executionsLoading.value = true;
 	executionsError.value = undefined;
 	try {
-		const page = await getJobExecutions(props.job.id, 0, executionPageSize, request.signal);
+		const page = await getJobExecutions(props.job.jobId, 0, executionPageSize, request.signal);
 		executions.value = page.items;
 		executionLinks.value = await loadExecutionLinks(page.items, request.signal);
 		hasOlderExecutions.value = page.hasNext;
@@ -85,7 +85,7 @@ async function showOlderExecutions(): Promise<void> {
 	olderExecutionsLoading.value = true;
 	try {
 		const page = await getJobExecutions(
-			props.job.id,
+			props.job.jobId,
 			executions.value.length,
 			executionPageSize,
 			executionRequest.signal,
@@ -203,7 +203,7 @@ function retryButtonLabel(job: JobRecord, pending: boolean): string {
 			<dl class="detail-list">
 				<div>
 					<dt>Invocation</dt>
-					<dd><code>{{ job.id }}</code></dd>
+					<dd><code>{{ job.jobId }}</code></dd>
 				</div>
 				<div>
 					<dt>Queue</dt>

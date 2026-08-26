@@ -19,7 +19,7 @@ public sealed class Batch : IAsyncDisposable
 	}
 
 	private readonly List<JobRecord> _jobs = [];
-	private readonly List<JobRecord> _rootJobs = [];
+	private readonly HashSet<JobHandle> _rootJobs = [];
 	private readonly List<JobContinuationEdge> _edges = [];
 	private readonly IJobGraphStorage _storage;
 	private readonly TimeProvider _timeProvider;
@@ -57,7 +57,7 @@ public sealed class Batch : IAsyncDisposable
 		EnsureOpenCore();
 
 		_jobs.Add(record with { BatchId = BatchId });
-		_rootJobs.Add(_jobs[^1]);
+		_rootJobs.Add(record.JobId);
 
 		return new BatchJobHandle(batch: this, record.JobId);
 	}
@@ -114,16 +114,19 @@ public sealed class Batch : IAsyncDisposable
 
 		if (_parents is { } parentBatches)
 		{
-			foreach (var parentBatch in parentBatches)
+			foreach (ref var job in CollectionsMarshal.AsSpan(_jobs))
 			{
-				foreach (ref var job in CollectionsMarshal.AsSpan(_rootJobs))
-				{
-					job = job with
-					{
-						State = JobState.AwaitingContinuation,
-						RemainingDependencies = job.RemainingDependencies + 1,
-					};
+				if (!_rootJobs.Contains(job.JobId))
+					continue;
 
+				job = job with
+				{
+					State = JobState.AwaitingContinuation,
+					RemainingDependencies = job.RemainingDependencies + parentBatches.Count,
+				};
+
+				foreach (var parentBatch in parentBatches)
+				{
 					_edges.Add(new JobContinuationEdge
 					{
 						ChildJobId = job.JobId,

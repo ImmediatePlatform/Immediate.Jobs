@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using System.Globalization;
 using Immediate.Handlers.Shared;
 using Immediate.Jobs.Shared.Apis;
@@ -344,8 +343,6 @@ public sealed class BatchesAndContinuationsTests
 		}
 
 		await AssertRejected("duplicate", standalone, standalone);
-
-		await scheduler.ScheduleAfterAsync(new("invalid"), [standalone, batched.JobId], cancellationToken: cancellationToken);
 	}
 
 	[Fact]

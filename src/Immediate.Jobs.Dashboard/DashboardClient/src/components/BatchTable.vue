@@ -42,10 +42,10 @@ function width(value: number, total: number): string {
 					</tr>
 				</thead>
 				<tbody>
-					<tr v-for="batch in rows" :key="batch.id" :data-selected="selectedId === batch.id">
+					<tr v-for="batch in rows" :key="batch.batchId" :data-selected="selectedId === batch.batchId">
 						<td>
-							<button class="table-link max-w-64 truncate" type="button" :title="batch.id" @click="emit('select', batch)">
-								{{ batch.id }}
+							<button class="table-link max-w-64 truncate" type="button" :title="batch.batchId" @click="emit('select', batch)">
+								{{ batch.batchId }}
 							</button>
 						</td>
 						<td><StateBadge :state="batch.state" /></td>
@@ -62,15 +62,15 @@ function width(value: number, total: number): string {
 						<td>{{ formatDate(batch.createdAt) }}</td>
 						<td>
 							<div class="row-actions">
-								<button class="icon-button" type="button" :aria-label="`View batch ${batch.id}`" @click="emit('select', batch)">
+								<button class="icon-button" type="button" :aria-label="`View batch ${batch.batchId}`" @click="emit('select', batch)">
 									<Eye :size="15" aria-hidden="true" />
 								</button>
 								<button
 									v-if="batch.state === 'Executing'"
 									class="icon-button danger"
 									type="button"
-									:disabled="busyBatchId === batch.id"
-									:aria-label="`Cancel batch ${batch.id}`"
+									:disabled="busyBatchId === batch.batchId"
+									:aria-label="`Cancel batch ${batch.batchId}`"
 									@click="emit('cancel', batch)"
 								>
 									<Ban :size="15" aria-hidden="true" />
@@ -79,8 +79,8 @@ function width(value: number, total: number): string {
 									v-else
 									class="icon-button danger"
 									type="button"
-									:disabled="busyBatchId === batch.id"
-									:aria-label="`Delete batch ${batch.id}`"
+									:disabled="busyBatchId === batch.batchId"
+									:aria-label="`Delete batch ${batch.batchId}`"
 									@click="emit('delete', batch)"
 								>
 									<Trash2 :size="15" aria-hidden="true" />

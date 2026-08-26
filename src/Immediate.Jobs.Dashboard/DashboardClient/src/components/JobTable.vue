@@ -44,7 +44,7 @@ function retryLabel(job: JobRecord): string {
 					</tr>
 				</thead>
 				<tbody>
-					<tr v-for="job in rows" :key="job.id" :data-job-id="job.id">
+					<tr v-for="job in rows" :key="job.jobId" :data-job-id="job.jobId">
 						<td>
 							<button
 								class="table-link max-w-72 truncate"
@@ -85,7 +85,7 @@ function retryLabel(job: JobRecord): string {
 									v-if="canRetryJob(job)"
 									class="icon-button"
 									type="button"
-									:disabled="busyJobId === job.id"
+									:disabled="busyJobId === job.jobId"
 									:aria-label="retryLabel(job)"
 									@click="emit('retry', job)"
 								>
@@ -95,7 +95,7 @@ function retryLabel(job: JobRecord): string {
 									v-if="canCancelJob(job)"
 									class="icon-button danger"
 									type="button"
-									:disabled="busyJobId === job.id"
+									:disabled="busyJobId === job.jobId"
 									:aria-label="`Cancel ${job.jobName}`"
 									@click="emit('cancel', job)"
 								>

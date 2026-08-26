@@ -1537,30 +1537,42 @@ internal sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 			return;
 		}
 
-		var (triggersSatisfied, failedDependencies) = EvaluateIncomingTriggers(child.JobId);
+		var (triggersSatisfied, failedDependencies, delay) = EvaluateIncomingTriggers(child.JobId);
+
+		var evaluateDelay = triggersSatisfied && child.State == JobState.AwaitingContinuation
+			? timeProvider.GetUtcNow() + delay
+			: DateTimeOffset.UnixEpoch;
+
+		var dueAt = child.DueAt > evaluateDelay ? child.DueAt : evaluateDelay;
+
 		_jobs[child.JobId] = child with
 		{
 			State = triggersSatisfied && child.State == JobState.AwaitingContinuation
-				? GetReadyState(child)
+				? dueAt <= timeProvider.GetUtcNow() ? JobState.Pending : JobState.Scheduled
 				: child.State,
+			DueAt = dueAt,
 			RemainingDependencies = 0,
 			FailedDependencies = failedDependencies,
 		};
+
 		if (!triggersSatisfied)
 			TransitionToTerminal(child.JobId, JobState.Skipped, error: null, timeProvider.GetUtcNow());
 	}
 
-	private (bool Satisfied, int FailedDependencies) EvaluateIncomingTriggers(JobHandle childJobId)
+	private (bool Satisfied, int FailedDependencies, TimeSpan Delay) EvaluateIncomingTriggers(JobHandle childJobId)
 	{
 		var allTerminal = true;
 		var requiresFailure = false;
 		var successViolated = false;
 		var failedDependencies = 0;
+		var delay = TimeSpan.Zero;
+
 		foreach (var edge in _edges.Where(edge => edge.ChildJobId == childJobId))
 		{
 			var parentTerminal = false;
 			var parentSucceeded = false;
 			var parentFailed = false;
+
 			if (edge.ParentJobId is { } parentJobId && _jobs.TryGetValue(parentJobId, out var parentJob))
 			{
 				parentTerminal = IsTerminal(parentJob.State);
@@ -1578,16 +1590,15 @@ internal sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 			failedDependencies += parentFailed ? 1 : 0;
 			requiresFailure |= edge.Trigger == ContinuationTrigger.Failure;
 			successViolated |= edge.Trigger == ContinuationTrigger.Success && !parentSucceeded;
+			delay = edge.Delay > delay ? edge.Delay : delay;
 		}
 
 		return (
 			allTerminal && !successViolated && (!requiresFailure || failedDependencies != 0),
-			failedDependencies
+			failedDependencies,
+			delay
 		);
 	}
-
-	private JobState GetReadyState(JobRecord job) =>
-		job.DueAt <= timeProvider.GetUtcNow() ? JobState.Pending : JobState.Scheduled;
 
 	private JobContinuationEdge[] GetUnsettledWaiters(JobHandle parentJobId) =>
 	[
