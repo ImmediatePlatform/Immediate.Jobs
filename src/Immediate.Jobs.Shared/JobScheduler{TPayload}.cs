@@ -611,7 +611,10 @@ public abstract class JobScheduler<TPayload>(
 	)
 	{
 		ArgumentNullException.ThrowIfNull(batch);
-		var record = CreateRecord(payload, JobState.Scheduled, runAt, now, groupId);
+
+		var state = runAt == now ? JobState.Pending : JobState.Scheduled;
+		var record = CreateRecord(payload, state, runAt, now, groupId);
+
 		return batch.Add(record);
 	}
 

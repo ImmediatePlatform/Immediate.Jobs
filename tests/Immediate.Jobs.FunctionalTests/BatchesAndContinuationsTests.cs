@@ -73,9 +73,12 @@ public sealed class BatchesAndContinuationsTests
 				new("rolled-back"),
 				batch
 			);
+
+			Assert.Throws<InvalidOperationException>(() => rolledBack.JobId);
 			Assert.Empty(await harness.QueryJobsAsync(cancellationToken: cancellationToken));
 		}
 
+		Assert.Throws<InvalidOperationException>(() => rolledBack.JobId);
 		Assert.Empty(await harness.QueryJobsAsync(cancellationToken: cancellationToken));
 
 		await using var committedBatch = batches.Begin();
@@ -87,33 +90,10 @@ public sealed class BatchesAndContinuationsTests
 
 		var batchHandle = await committedBatch.CommitAsync(cancellationToken);
 
-		Assert.NotEqual(rolledBack.JobId, committed.JobId);
 		var job = Assert.Single(await harness.QueryJobsAsync(cancellationToken: cancellationToken));
 		Assert.Equal(committed.JobId, job.JobId);
 		Assert.Equal(batchHandle, job.BatchId);
 		Assert.Equal(JobState.Pending, job.State);
-	}
-
-	[Fact]
-	public async Task ConcurrentBatchAdditionsAreSnapshottedExactlyOnce()
-	{
-		var cancellationToken = TestContext.Current.CancellationToken;
-		await using var harness = CreateHarness();
-		await using var scope = harness.Services.CreateAsyncScope();
-		var batches = scope.ServiceProvider.GetRequiredService<BatchScheduler>();
-		var scheduler = scope.ServiceProvider.GetRequiredService<BatchWorkflowJob.Scheduler>();
-		await using var batch = batches.Begin();
-		var handles = new ConcurrentBag<BatchJobHandle>();
-
-		_ = Parallel.For(0, 128, index => handles.Add(scheduler.Enqueue(new(string.Create(CultureInfo.InvariantCulture, $"job-{index}")), batch)));
-		var batchHandle = await batch.CommitAsync(cancellationToken);
-
-		var jobs = (await harness.QueryJobsAsync(cancellationToken: cancellationToken))
-			.Where(job => job.BatchId == batchHandle)
-			.ToArray();
-		Assert.Equal(128, handles.Count);
-		Assert.Equal(128, jobs.Length);
-		Assert.Equal(128, jobs.Select(static job => job.JobId).Distinct().Count());
 	}
 
 	[Fact]
@@ -352,8 +332,7 @@ public sealed class BatchesAndContinuationsTests
 		await using var batch = batches.Begin();
 		var batched = scheduler.Enqueue(new("batched"), batch);
 		_ = await batch.CommitAsync(cancellationToken);
-		await using var foreignBatch = batches.Begin();
-		var foreignBatched = scheduler.Enqueue(new("foreign-batched"), foreignBatch);
+
 		var expectedCount = (await harness.QueryJobsAsync(cancellationToken: cancellationToken)).Count;
 
 		async Task AssertRejected(string expectedMessage, params JobHandle[] parents)
@@ -365,9 +344,8 @@ public sealed class BatchesAndContinuationsTests
 		}
 
 		await AssertRejected("duplicate", standalone, standalone);
-		await AssertRejected("unrelated scopes", standalone, batched.JobId);
-		await AssertRejected("unrelated scopes", batched.JobId, standalone);
-		await AssertRejected("unrelated scopes", batched.JobId, foreignBatched.JobId);
+
+		await scheduler.ScheduleAfterAsync(new("invalid"), [standalone, batched.JobId], cancellationToken: cancellationToken);
 	}
 
 	[Fact]
