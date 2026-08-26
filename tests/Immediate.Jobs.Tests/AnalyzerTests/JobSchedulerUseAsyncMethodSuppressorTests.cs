@@ -1,4 +1,6 @@
 using Immediate.Jobs.Analyzers;
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.Testing;
 using Microsoft.NetCore.Analyzers.Runtime;
 
 namespace Immediate.Jobs.Tests.AnalyzerTests;
@@ -14,14 +16,19 @@ public sealed class JobSchedulerUseAsyncMethodSuppressorTests
 
 			public static class TestClass
 			{
-				public static async Task AddAsync(JobScheduler<string> scheduler, Batch batch)
+				public static async Task TestAsync(JobScheduler<string> scheduler, Batch batch)
 				{
-					scheduler.Enqueue("payload", batch);
-					await Task.CompletedTask;
+					{|#0:scheduler.Enqueue("payload", batch)|};
 				}
 			}
 			"""
-		).RunAsync(TestContext.Current.CancellationToken);
+		)
+			.WithDiagnostic(
+				new DiagnosticResult("CA1849", DiagnosticSeverity.Warning)
+					.WithLocation(0)
+					.WithIsSuppressed(true)
+			)
+			.RunAsync(TestContext.Current.CancellationToken);
 
 	[Fact]
 	public async Task UnrelatedSynchronousMethodShouldNotBeSuppressed() =>
@@ -32,12 +39,16 @@ public sealed class JobSchedulerUseAsyncMethodSuppressorTests
 
 			public static class TestClass
 			{
-				public static async Task ReadAsync(Stream stream)
+				public static async Task TestAsync(Stream stream)
 				{
-					{|CA1849:stream.Read(new byte[1], 0, 1)|};
-					await Task.CompletedTask;
+					{|#0:stream.Read(new byte[1], 0, 1)|};
 				}
 			}
 			"""
-		).RunAsync(TestContext.Current.CancellationToken);
+		)
+			.WithDiagnostic(
+				new DiagnosticResult("CA1849", DiagnosticSeverity.Warning)
+					.WithLocation(0)
+			)
+			.RunAsync(TestContext.Current.CancellationToken);
 }

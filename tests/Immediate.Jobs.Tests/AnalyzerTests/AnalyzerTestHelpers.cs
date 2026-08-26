@@ -136,7 +136,6 @@ internal static class AnalyzerTestHelpers
 			TestCode = inputSource,
 			ReferenceAssemblies = Utility.ReferenceAssemblies,
 			CompilerDiagnostics = CompilerDiagnostics.Warnings,
-			MarkupOptions = MarkupOptions.UseFirstDescriptor,
 			DisabledDiagnostics =
 			{
 				"CS1591",
