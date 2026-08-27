@@ -2219,6 +2219,14 @@ internal sealed class LinqToDBJobStorage<T>(
 					}
 					else
 					{
+						var delay = await GetMaximumContinuationDelayAsync(
+							connection,
+							child.Id,
+							cancellationToken
+						).ConfigureAwait(false);
+						var delayedDueAt = now + delay.Ticks;
+						if (child.DueAt < delayedDueAt)
+							child.DueAt = delayedDueAt;
 						child.State = child.DueAt <= now ? JobState.Pending : JobState.Scheduled;
 					}
 				}
@@ -2228,6 +2236,22 @@ internal sealed class LinqToDBJobStorage<T>(
 					throw new LostRaceException();
 			}
 		}
+	}
+
+	private async Task<TimeSpan> GetMaximumContinuationDelayAsync(
+		DataConnection connection,
+		string childJobId,
+		CancellationToken cancellationToken
+	)
+	{
+		var delays = await Continuations(connection)
+			.Where(edge => edge.ChildJobId == childJobId)
+			.Select(edge => edge.Delay)
+			.ToListAsync(cancellationToken)
+			.ConfigureAwait(false);
+		return delays.Count == 0
+			? TimeSpan.Zero
+			: delays.Max(static delay => TimeSpan.ParseExact(delay, "c", formatProvider: null));
 	}
 
 	private async Task<bool> ShouldSkipSettledContinuationAsync(

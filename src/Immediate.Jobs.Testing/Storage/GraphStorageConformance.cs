@@ -11,6 +11,7 @@ internal static class GraphStorageConformance
 	private const string InvalidBatchName = "Graph.Batches.RollbackInvalidBatchWithoutPartialWrites";
 	private const string TriggerName = "Graph.Dependencies.ReleasesAndSkipsConditionalBranches";
 	private const string FanInName = "Graph.Dependencies.FanInWaitsForEveryParent";
+	private const string PropagationDelayName = "Graph.Dependencies.AppliesDelayFromParentSettlement";
 	private const string DynamicName = "Graph.Dynamic.SpliceAndOwnershipAreAtomic";
 	private const string StaleDynamicName = "Graph.Dynamic.RejectsStaleActiveExecution";
 	private const string TerminalParentName = "Graph.Dependencies.EvaluatesAlreadyTerminalParents";
@@ -24,12 +25,54 @@ internal static class GraphStorageConformance
 		new(InvalidBatchName, StorageCapabilities.Graph, InvalidBatchRollsBackAsync),
 		new(TriggerName, StorageCapabilities.Graph, ConditionalTriggersAsync),
 		new(FanInName, StorageCapabilities.Graph, FanInAsync),
+		new(PropagationDelayName, StorageCapabilities.Graph, PropagationDelayAsync),
 		new(DynamicName, StorageCapabilities.Graph, DynamicContinuationsAsync),
 		new(StaleDynamicName, StorageCapabilities.Graph, RejectsStaleActiveExecutionAsync),
 		new(TerminalParentName, StorageCapabilities.Graph, EvaluatesAlreadyTerminalParentsAsync),
 		new(InvalidDynamicName, StorageCapabilities.Graph, RejectsInvalidBatchRelationshipsAsync),
 		new(CancellationName, StorageCapabilities.Graph, CancelUnsettledChainAsync),
 	];
+
+	private static async ValueTask PropagationDelayAsync(
+		IJobStorage storage,
+		FakeTimeProvider timeProvider,
+		CancellationToken cancellationToken
+	)
+	{
+		var graph = GetGraph(storage, PropagationDelayName);
+		var parent = CreateJob("delayed-parent", batchId: "delayed-batch");
+		var child = CreateJob("delayed-child", batchId: "delayed-batch") with
+		{
+			State = JobState.AwaitingContinuation,
+			RemainingDependencies = 1,
+		};
+		await graph.EnqueueBatchAsync(
+			CreateBatch("delayed-batch", 2),
+			[parent, child],
+			[new() { ChildJobId = child.JobId, ParentJobId = parent.JobId, Delay = TimeSpan.FromMinutes(10) }],
+			cancellationToken
+		).ConfigureAwait(false);
+
+		var execution = ConformanceAssert.NotNull(
+			(await graph.AcquireDueJobsAsync(CreateRequest("delayed-worker", parent.JobName), cancellationToken)
+				.ConfigureAwait(false)).SingleOrDefault(),
+			PropagationDelayName,
+			"the parent must be acquirable"
+		);
+		timeProvider.Advance(TimeSpan.FromMinutes(20));
+		var settledAt = timeProvider.GetUtcNow();
+		await graph.CompleteAsync(parent.JobId, execution.Attempt, "delayed-worker", cancellationToken).ConfigureAwait(false);
+
+		var released = ConformanceAssert.NotNull(
+			(await graph.QueryJobsAsync(new() { JobId = child.JobId }, cancellationToken).ConfigureAwait(false)).SingleOrDefault(),
+			PropagationDelayName,
+			"the delayed child must remain queryable"
+		);
+		ConformanceAssert.Equal(JobState.Scheduled, released.State, PropagationDelayName,
+			"the child must remain scheduled during its post-parent delay");
+		ConformanceAssert.Equal(settledAt.AddMinutes(10), released.DueAt, PropagationDelayName,
+			"the child due time must be based on parent settlement rather than enqueue time");
+	}
 
 	private static ValueTask ResolvesAdvertisedStorage(
 		IJobStorage storage,

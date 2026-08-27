@@ -2282,6 +2282,14 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 					}
 					else
 					{
+						var delay = await GetMaximumContinuationDelayAsync(
+							context,
+							child.Id,
+							cancellationToken
+						).ConfigureAwait(false);
+						var delayedDueAt = now + delay;
+						if (child.DueAt < delayedDueAt)
+							child.DueAt = delayedDueAt;
 						child.State = child.DueAt <= now ? JobState.Pending : JobState.Scheduled;
 					}
 				}
@@ -2289,6 +2297,22 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 				child.ConcurrencyStamp = Guid.NewGuid();
 			}
 		}
+	}
+
+	private static async Task<TimeSpan> GetMaximumContinuationDelayAsync(
+		TContext context,
+		string childJobId,
+		CancellationToken cancellationToken
+	)
+	{
+		var delays = await context.Set<ImmediateJobContinuationEntity>()
+			.Where(edge => edge.ChildJobId == childJobId)
+			.Select(edge => edge.Delay)
+			.ToListAsync(cancellationToken)
+			.ConfigureAwait(false);
+		return delays.Count == 0
+			? TimeSpan.Zero
+			: delays.Max(static delay => TimeSpan.ParseExact(delay, "c", formatProvider: null));
 	}
 
 	private static async Task<bool> ShouldSkipSettledContinuationAsync(
