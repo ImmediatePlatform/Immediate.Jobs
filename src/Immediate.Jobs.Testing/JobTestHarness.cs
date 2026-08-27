@@ -47,10 +47,13 @@ public sealed class JobTestHarness : IAsyncDisposable, IDisposable
 		_ = services.AddSingleton<TimeProvider>(TimeProvider);
 		_ = services.AddSingleton(TimeProvider);
 		_ = services.AddSingleton(typeof(ILogger<>), typeof(NullLogger<>));
+		_ = services.AddSingleton<CapturingJobStorage>();
 
 		_ = services.AddImmediateJobsCore()
 			.ConfigureWorkers(o => o.MaxParallelJobs = 1)
-			.ConfigureStorage(o => o.UseInMemory());
+			.ConfigureStorage(o => o
+				.UseStorage(static provider => provider.GetRequiredService<CapturingJobStorage>())
+				.UseDistributed());
 
 		_serviceProvider = services.BuildServiceProvider(new ServiceProviderOptions
 		{
@@ -60,6 +63,7 @@ public sealed class JobTestHarness : IAsyncDisposable, IDisposable
 
 		Services = _serviceProvider;
 		Storage = _serviceProvider.GetRequiredService<IJobStorage>();
+		Captures = _serviceProvider.GetRequiredService<CapturingJobStorage>();
 		_graphStorage = Storage as IJobGraphStorage
 			?? throw new NotSupportedException(
 				"Batches & continuations require a graph-capable storage provider (a SQL database). " +
@@ -84,6 +88,10 @@ public sealed class JobTestHarness : IAsyncDisposable, IDisposable
 	/// <summary>The in-memory durable-state abstraction.</summary>
 	/// <value>The storage provider used by the harness.</value>
 	public IJobStorage Storage { get; }
+
+	/// <summary>The storage capture log used by the harness.</summary>
+	/// <value>The capturing storage instance, also available from <see cref="Services"/>.</value>
+	public CapturingJobStorage Captures { get; }
 
 	/// <summary>Builds atomic batches against the harness storage and fake clock.</summary>
 	/// <value>The batch scheduler configured for the harness.</value>

@@ -1,16 +1,22 @@
+using System.ComponentModel;
+using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using Immediate.Jobs.Shared.Apis;
 
 namespace Immediate.Jobs.Shared.Storage;
 
 /// <summary>
-/// A best-effort, non-durable, single-node provider intended for development and tests.
-/// 
+///		A best-effort, non-durable, single-node provider intended for development and tests.
 /// </summary>
 /// <param name="timeProvider">
 /// 	The clock used for scheduling, leases, and timestamps.
 /// </param>
-internal sealed class InMemoryJobStorage(TimeProvider timeProvider) :
+/// <remarks>
+///		Public use should only be done via <see cref="IImmediateJobsStorageBuilder.UseInMemory"/>.
+/// </remarks>
+[SuppressMessage("Design", "CA1062:Validate arguments of public methods", Justification = "Not publicly usable; arguments are validated by internal consumers.")]
+[EditorBrowsable(EditorBrowsableState.Never)]
+public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 	IRecurringJobStorage,
 	IJobGraphStorage,
 	IFairQueueStorage
@@ -37,14 +43,14 @@ internal sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 	}
 
 	/// <inheritdoc />
-	public ValueTask EnqueueAsync(JobRecord jobRecord, CancellationToken cancellationToken = default)
+	public ValueTask EnqueueAsync(JobRecord job, CancellationToken cancellationToken = default)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
 
 		lock (_gate)
 		{
-			if (!_jobs.TryAdd(jobRecord.JobId, jobRecord))
-				throw new ImmediateJobException($"Job '{jobRecord.JobId}' already exists.");
+			if (!_jobs.TryAdd(job.JobId, job))
+				throw new ImmediateJobException($"Job '{job.JobId}' already exists.");
 		}
 
 		return ValueTask.CompletedTask;

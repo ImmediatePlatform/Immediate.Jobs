@@ -12,9 +12,16 @@ namespace Immediate.Jobs.FunctionalTests.Packages;
 public sealed class TestingPackageTests
 {
 	[Fact]
-	public async Task CaptureOnlySchedulerRecordsTypedCalls()
+	public async Task CapturingStorageRecordsTypedCallsWithoutInterruptingStorage()
 	{
-		var scheduler = new CaptureOnlyJobScheduler<TestPayload>();
+		await using var harness = new JobTestHarness();
+		Assert.Same(harness.Captures, harness.Services.GetRequiredService<CapturingJobStorage>());
+		var scheduler = new TestScheduler(
+			harness.Storage,
+			harness.Services.GetRequiredService<IJobSerializer>(),
+			harness.TimeProvider,
+			harness.Services.GetRequiredService<IIdGenerator>()
+		);
 		var payload = new TestPayload("hello");
 
 		var id = await scheduler.EnqueueAsync(
@@ -23,14 +30,14 @@ public sealed class TestingPackageTests
 			cancellationToken: TestContext.Current.CancellationToken
 		);
 
-		var capture = Assert.Single(scheduler.Captures);
-		Assert.Equal(id.JobId, capture.Id);
-		Assert.Equal(payload, capture.Payload);
+		var capture = Assert.Single(harness.Captures.Jobs);
+		Assert.Equal(id, capture.JobId);
 		Assert.Equal("tenant-a", capture.GroupId);
+		Assert.Equal(capture, harness.Captures.FindJob(id));
+		Assert.Equal(capture, await harness.GetJobAsync(id, TestContext.Current.CancellationToken));
 
 		await scheduler.CancelAsync(id, TestContext.Current.CancellationToken);
-
-		Assert.Contains(id.JobId, scheduler.CancelledIds);
+		Assert.Equal(JobState.Cancelled, (await harness.GetJobAsync(id, TestContext.Current.CancellationToken)).State);
 	}
 
 	[Fact]

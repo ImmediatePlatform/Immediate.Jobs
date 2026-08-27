@@ -20,10 +20,4 @@
 	<PackageReference Include="Microsoft.Extensions.Options" />
   </ItemGroup>
 
-  <ItemGroup>
-	<InternalsVisibleTo Include="Immediate.Jobs.Benchmarks" />
-	<InternalsVisibleTo Include="Immediate.Jobs.FunctionalTests" />
-	<InternalsVisibleTo Include="Immediate.Jobs.StorageTests" />
-  </ItemGroup>
-
 </Project>
