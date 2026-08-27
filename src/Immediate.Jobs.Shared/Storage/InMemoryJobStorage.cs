@@ -675,7 +675,8 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 		{
 			var obsoleteNames = _recurring
 				.Where(schedule => schedule.Value.IsCodeDefined && !activeNames.Contains(schedule.Key))
-				.Select(static schedule => schedule.Key);
+				.Select(static schedule => schedule.Key)
+				.ToList();
 
 			foreach (var name in obsoleteNames)
 				_ = _recurring.Remove(name);
