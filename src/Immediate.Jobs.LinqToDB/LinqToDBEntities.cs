@@ -150,8 +150,8 @@ internal sealed class ImmediateJobContinuationEntity
 	public ContinuationParentKind ParentKind { get; set; }
 	[PrimaryKey(3), Column(Length = 256, CanBeNull = false)]
 	public string ParentId { get; set; } = null!;
-	[Column(Length = 32, CanBeNull = false)]
-	public string Delay { get; set; } = null!;
+	[Column(DataType = DataType.Int64)]
+	public long Delay { get; set; }
 	[Column(DataType = DataType.Int16)]
 	public ContinuationTrigger Trigger { get; set; }
 	[Column(DataType = DataType.Int16)]

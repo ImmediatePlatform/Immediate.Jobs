@@ -277,7 +277,7 @@ internal sealed class ImmediateJobContinuationEntity
 	public string ChildJobId { get; set; } = null!;
 	public ContinuationParentKind ParentKind { get; set; }
 	public string ParentId { get; set; } = null!;
-	public string Delay { get; set; } = null!;
+	public long Delay { get; set; }
 	public ContinuationTrigger Trigger { get; set; }
 	public ContinuationParentOutcome ParentOutcome { get; set; }
 }

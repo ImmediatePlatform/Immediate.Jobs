@@ -954,6 +954,7 @@ internal sealed class LinqToDBJobStorage<T>(
 				throw new ImmediateJobException("Code-defined recurring schedules cannot be replaced by dynamic schedules.");
 			var oldStamp = existing.ConcurrencyStamp;
 			existing.JobName = schedule.JobName;
+			existing.QueueName = schedule.QueueName;
 			existing.Cron = schedule.Cron;
 			existing.TimeZone = schedule.TimeZone;
 			existing.IsCodeDefined = schedule.IsCodeDefined;
@@ -2026,7 +2027,7 @@ internal sealed class LinqToDBJobStorage<T>(
 				ChildJobId = waiter.Id,
 				ParentKind = ContinuationParentKind.Job,
 				ParentId = job.Id,
-				Delay = "00:00:00",
+				Delay = 0,
 				Trigger = ContinuationTrigger.Success,
 			}, cancellationToken).ConfigureAwait(false);
 			var waiterStamp = waiter.ConcurrencyStamp;
@@ -2108,7 +2109,7 @@ internal sealed class LinqToDBJobStorage<T>(
 				ChildJobId = job.Id,
 				ParentKind = ContinuationParentKind.Job,
 				ParentId = current.Id,
-				Delay = addition.Delay.ToString("c"),
+				Delay = addition.Delay.Ticks,
 				Trigger = addition.Trigger,
 			}, cancellationToken).ConfigureAwait(false);
 
@@ -2121,7 +2122,7 @@ internal sealed class LinqToDBJobStorage<T>(
 					ChildJobId = waiter.Id,
 					ParentKind = ContinuationParentKind.Job,
 					ParentId = job.Id,
-					Delay = "00:00:00",
+					Delay = 0,
 					Trigger = ContinuationTrigger.Success,
 				}, cancellationToken).ConfigureAwait(false);
 				var waiterStamp = waiter.ConcurrencyStamp;
@@ -2251,7 +2252,7 @@ internal sealed class LinqToDBJobStorage<T>(
 			.ConfigureAwait(false);
 		return delays.Count == 0
 			? TimeSpan.Zero
-			: delays.Max(static delay => TimeSpan.ParseExact(delay, "c", formatProvider: null));
+			: TimeSpan.FromTicks(delays.Max());
 	}
 
 	private async Task<bool> ShouldSkipSettledContinuationAsync(
@@ -2426,6 +2427,9 @@ internal sealed class LinqToDBJobStorage<T>(
 					}
 
 					edge.ParentOutcome = GetParentOutcome(parentSucceeded, parentFailed);
+					var delayedDueAt = now + edge.Delay;
+					if (job.DueAt < delayedDueAt)
+						job.DueAt = delayedDueAt;
 
 					if (parentFailed)
 						failedDependencies++;
@@ -2686,6 +2690,7 @@ internal sealed class LinqToDBJobStorage<T>(
 		var updated = await Recurring(connection)
 			.Where(entity => entity.Name == schedule.Name && entity.ConcurrencyStamp == oldStamp)
 			.Set(entity => entity.JobName, schedule.JobName)
+			.Set(entity => entity.QueueName, schedule.QueueName)
 			.Set(entity => entity.Cron, schedule.Cron)
 			.Set(entity => entity.TimeZone, schedule.TimeZone)
 			.Set(entity => entity.IsCodeDefined, schedule.IsCodeDefined)
@@ -2912,7 +2917,7 @@ internal sealed class LinqToDBJobStorage<T>(
 			ParentKind = parentKind,
 			ParentId = parentId,
 			Trigger = edge.Trigger,
-			Delay = edge.Delay.ToString("c"),
+			Delay = edge.Delay.Ticks,
 		};
 	}
 
@@ -2996,7 +3001,7 @@ internal sealed class LinqToDBJobStorage<T>(
 			ChildJobId = JobHandle.FromString(edge.ChildJobId),
 			ParentJobId = edge.ParentKind == ContinuationParentKind.Job ? JobHandle.FromString(edge.ParentId) : null,
 			ParentBatchId = edge.ParentKind == ContinuationParentKind.Batch ? BatchHandle.FromString(edge.ParentId) : null,
-			Delay = TimeSpan.ParseExact(edge.Delay, "c", formatProvider: null),
+			Delay = TimeSpan.FromTicks(edge.Delay),
 			Trigger = edge.Trigger,
 		};
 
@@ -3006,7 +3011,7 @@ internal sealed class LinqToDBJobStorage<T>(
 			ChildJobId = JobHandle.FromString(edge.ChildJobId),
 			ParentJobId = edge.ParentKind == ContinuationParentKind.Job ? JobHandle.FromString(edge.ParentId) : null,
 			ParentBatchId = edge.ParentKind == ContinuationParentKind.Batch ? BatchHandle.FromString(edge.ParentId) : null,
-			Delay = TimeSpan.ParseExact(edge.Delay, "c", formatProvider: null),
+			Delay = TimeSpan.FromTicks(edge.Delay),
 			Trigger = edge.Trigger,
 		};
 

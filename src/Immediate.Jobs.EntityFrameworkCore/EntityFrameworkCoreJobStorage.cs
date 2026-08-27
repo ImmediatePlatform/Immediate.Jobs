@@ -2108,7 +2108,7 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 					ChildJobId = waiter.Id,
 					ParentKind = ContinuationParentKind.Job,
 					ParentId = job.Id,
-					Delay = "00:00:00",
+					Delay = 0,
 					Trigger = ContinuationTrigger.Success,
 				});
 				waiter.RemainingDependencies++;
@@ -2184,7 +2184,7 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 				ChildJobId = job.Id,
 				ParentKind = ContinuationParentKind.Job,
 				ParentId = current.Id,
-				Delay = addition.Delay.ToString("c"),
+				Delay = addition.Delay.Ticks,
 				Trigger = addition.Trigger,
 			});
 
@@ -2197,7 +2197,7 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 					ChildJobId = waiter.Id,
 					ParentKind = ContinuationParentKind.Job,
 					ParentId = job.Id,
-					Delay = "00:00:00",
+					Delay = 0,
 					Trigger = ContinuationTrigger.Success,
 				});
 				waiter.RemainingDependencies++;
@@ -2312,7 +2312,7 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 			.ConfigureAwait(false);
 		return delays.Count == 0
 			? TimeSpan.Zero
-			: delays.Max(static delay => TimeSpan.ParseExact(delay, "c", formatProvider: null));
+			: TimeSpan.FromTicks(delays.Max());
 	}
 
 	private static async Task<bool> ShouldSkipSettledContinuationAsync(
@@ -2465,6 +2465,10 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 					}
 
 					edge.ParentOutcome = GetParentOutcome(parentSucceeded, parentFailed);
+
+					var delayedDueAt = now + TimeSpan.FromTicks(edge.Delay);
+					if (job.DueAt < delayedDueAt)
+						job.DueAt = delayedDueAt;
 
 					if (parentFailed)
 						failedDependencies++;
@@ -2752,7 +2756,7 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 			ParentKind = parentKind,
 			ParentId = parentId,
 			Trigger = edge.Trigger,
-			Delay = edge.Delay.ToString("c"),
+			Delay = edge.Delay.Ticks,
 		};
 	}
 
@@ -2836,7 +2840,7 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 			ChildJobId = JobHandle.FromString(edge.ChildJobId),
 			ParentJobId = edge.ParentKind == ContinuationParentKind.Job ? JobHandle.FromString(edge.ParentId) : null,
 			ParentBatchId = edge.ParentKind == ContinuationParentKind.Batch ? BatchHandle.FromString(edge.ParentId) : null,
-			Delay = TimeSpan.ParseExact(edge.Delay, "c", formatProvider: null),
+			Delay = TimeSpan.FromTicks(edge.Delay),
 			Trigger = edge.Trigger,
 		};
 
@@ -2846,7 +2850,7 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 			ChildJobId = JobHandle.FromString(edge.ChildJobId),
 			ParentJobId = edge.ParentKind == ContinuationParentKind.Job ? JobHandle.FromString(edge.ParentId) : null,
 			ParentBatchId = edge.ParentKind == ContinuationParentKind.Batch ? BatchHandle.FromString(edge.ParentId) : null,
-			Delay = TimeSpan.ParseExact(edge.Delay, "c", formatProvider: null),
+			Delay = TimeSpan.FromTicks(edge.Delay),
 			Trigger = edge.Trigger,
 		};
 
