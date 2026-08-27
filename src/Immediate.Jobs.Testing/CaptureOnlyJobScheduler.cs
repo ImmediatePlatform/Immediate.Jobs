@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using Immediate.Jobs.Shared.Interfaces;
 
 namespace Immediate.Jobs.Testing;
@@ -7,6 +8,11 @@ namespace Immediate.Jobs.Testing;
 /// </summary>
 /// <typeparam name="TPayload">The job payload type.</typeparam>
 /// <param name="timeProvider">The optional clock used to determine immediate and delayed due times.</param>
+[SuppressMessage(
+	"Design",
+	"MA0025:Implement the functionality instead of throwing NotImplementedException",
+	Justification = "Temporarily suppressed to be fixed in follow-up PR."
+)]
 public class CaptureOnlyJobScheduler<TPayload>(TimeProvider? timeProvider = null) : IJobScheduler<TPayload>
 {
 	private readonly List<ScheduledJobCapture<TPayload>> _captures = [];
