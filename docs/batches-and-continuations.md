@@ -608,11 +608,11 @@ keeps its own wire DTOs; it may read through these services internally.)
 ```csharp
 public sealed class JobMonitor : IJobMonitor
 {
-    ValueTask<JobStatus?> GetJobAsync(string jobId, CancellationToken ct = default);
-    ValueTask<BatchStatus?> GetBatchAsync(string batchId, CancellationToken ct = default);
+    ValueTask<JobStatus?> GetJobAsync(JobHandle job, CancellationToken ct = default);
+    ValueTask<BatchStatus?> GetBatchAsync(BatchHandle batch, CancellationToken ct = default);
     ValueTask<IReadOnlyList<BatchMemberStatus>> QueryBatchMembersAsync(
-        string batchId, BatchMemberQuery query, CancellationToken ct = default);
-    ValueTask<BatchGraph?> GetBatchGraphAsync(string batchId, CancellationToken ct = default);
+        BatchHandle batch, BatchMemberQuery query, CancellationToken ct = default);
+    ValueTask<BatchGraph?> GetBatchGraphAsync(BatchHandle batch, CancellationToken ct = default);
 }
 ```
 
