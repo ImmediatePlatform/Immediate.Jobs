@@ -74,7 +74,7 @@ JobHandle scheduled = await welcomeEmail.ScheduleAsync(
 ```
 
 `JobHandle` and `BatchHandle` keep job and batch identifiers separate in application code. Read their string values
-from `JobHandle.JobId` and `BatchHandle.BatchId`. Use `JobHandle.FromString(...)` or `BatchHandle.FromString(...)` when
+from `JobHandle.JobHandle` and `BatchHandle.BatchHandle`. Use `JobHandle.FromString(...)` or `BatchHandle.FromString(...)` when
 an identifier enters through a route, message, or another string-based boundary. Both handle types serialize to their
 string value with System.Text.Json.
 
@@ -96,11 +96,11 @@ var dispatch = dispatchOrder.ScheduleAfter(
 	[inventory, payment]);
 
 BatchHandle batchHandle = await batch.CommitAsync(cancellationToken);
-JobHandle dispatchHandle = dispatch.JobId;
+JobHandle dispatchHandle = dispatch.JobHandle;
 ```
 
 The batch builder is short-lived and is not thread-safe. Nothing reaches storage until `CommitAsync` succeeds. A
-`BatchJobHandle` exposes its `JobId` only after that commit. Disposing an uncommitted batch discards its buffered jobs.
+`BatchJobHandle` exposes its `JobHandle` only after that commit. Disposing an uncommitted batch discards its buffered jobs.
 
 Use `ScheduleAfterAsync` for a continuation created outside an open batch. Its parent may be a `JobHandle` or
 `BatchHandle`, and a list of handles creates a fan-in dependency. Delays start when the required parent outcome is

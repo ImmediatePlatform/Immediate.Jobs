@@ -8,14 +8,14 @@ import { formatDate } from '@/format';
 
 withDefaults(defineProps<{
 	rows: JobRecord[];
-	busyJobId?: string;
+	busyJobHandle?: string;
 }>(), {
-	busyJobId: undefined,
+	busyJobHandle: undefined,
 });
 
 const emit = defineEmits<{
 	select: [job: JobRecord];
-	openBatch: [batchId: string];
+	openBatch: [batchHandle: string];
 	cancel: [job: JobRecord];
 	retry: [job: JobRecord];
 }>();
@@ -44,7 +44,7 @@ function retryLabel(job: JobRecord): string {
 					</tr>
 				</thead>
 				<tbody>
-					<tr v-for="job in rows" :key="job.jobId" :data-job-id="job.jobId">
+					<tr v-for="job in rows" :key="job.jobHandle" :data-job-id="job.jobHandle">
 						<td>
 							<button
 								class="table-link max-w-72 truncate"
@@ -61,9 +61,9 @@ function retryLabel(job: JobRecord): string {
 							<span v-else class="text-muted">—</span>
 						</td>
 						<td>
-							<button v-if="job.batchId" class="table-link" type="button" @click="emit('openBatch', job.batchId)">
+							<button v-if="job.batchHandle" class="table-link" type="button" @click="emit('openBatch', job.batchHandle)">
 								<Layers3 :size="13" aria-hidden="true" />
-								{{ job.batchId }}
+								{{ job.batchHandle }}
 							</button>
 							<span v-else class="text-muted">—</span>
 						</td>
@@ -85,7 +85,7 @@ function retryLabel(job: JobRecord): string {
 									v-if="canRetryJob(job)"
 									class="icon-button"
 									type="button"
-									:disabled="busyJobId === job.jobId"
+									:disabled="busyJobHandle === job.jobHandle"
 									:aria-label="retryLabel(job)"
 									@click="emit('retry', job)"
 								>
@@ -95,7 +95,7 @@ function retryLabel(job: JobRecord): string {
 									v-if="canCancelJob(job)"
 									class="icon-button danger"
 									type="button"
-									:disabled="busyJobId === job.jobId"
+									:disabled="busyJobHandle === job.jobHandle"
 									:aria-label="`Cancel ${job.jobName}`"
 									@click="emit('cancel', job)"
 								>

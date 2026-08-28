@@ -33,7 +33,7 @@ const filteredBatches = computed(() => {
 	const search = searchQuery.value.trim().toLocaleLowerCase();
 	return (batchesQuery.data.value ?? []).filter((batch) => {
 		return (!selectedState.value || batch.state === selectedState.value)
-			&& (!search || batch.batchId.toLocaleLowerCase().includes(search));
+			&& (!search || batch.batchHandle.toLocaleLowerCase().includes(search));
 	});
 });
 
@@ -44,7 +44,7 @@ watch(stateQuery, (value) => {
 }, { immediate: true });
 
 function openBatch(batch: BatchStatus): void {
-	void router.push({ name: 'batch-detail', params: { batchId: batch.batchId }, query: route.query });
+	void router.push({ name: 'batch-detail', params: { batchHandle: batch.batchHandle }, query: route.query });
 }
 
 async function confirmAction(): Promise<void> {
@@ -54,9 +54,9 @@ async function confirmAction(): Promise<void> {
 	const action = pendingAction.value;
 	try {
 		if (action.type === 'cancel') {
-			await batchMutations.cancelBatch(action.batch.batchId);
+			await batchMutations.cancelBatch(action.batch.batchHandle);
 		} else {
-			await batchMutations.deleteBatch(action.batch.batchId);
+			await batchMutations.deleteBatch(action.batch.batchHandle);
 		}
 		pendingAction.value = undefined;
 	} catch {
@@ -98,7 +98,7 @@ async function confirmAction(): Promise<void> {
 		<BatchTable
 			v-else
 			:rows="filteredBatches"
-			:busy-batch-id="batchMutations.busyBatchId.value"
+			:busy-batch-id="batchMutations.busyBatchHandle.value"
 			@select="openBatch"
 			@cancel="pendingAction = { type: 'cancel', batch: $event }"
 			@delete="pendingAction = { type: 'delete', batch: $event }"

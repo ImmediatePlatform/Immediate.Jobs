@@ -13,8 +13,8 @@ public sealed partial class AspireHeartbeatJob(
 	{
 		cancellationToken.ThrowIfCancellationRequested();
 		logger.LogInformation(
-			"Recurring Aspire heartbeat {JobId} fired at {FiredAt}",
-			payload.JobDetails?.JobId,
+			"Recurring Aspire heartbeat {JobHandle} fired at {FiredAt}",
+			payload.JobDetails?.JobHandle,
 			timeProvider.GetUtcNow()
 		);
 		return ValueTask.CompletedTask;

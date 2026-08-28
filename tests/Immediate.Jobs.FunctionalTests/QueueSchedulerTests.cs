@@ -96,7 +96,7 @@ public sealed class QueueSchedulerTests
 			storage.EnqueueAsync(
 				new()
 				{
-					JobId = JobHandle.FromString(Guid.NewGuid().ToString("N")),
+					JobHandle = JobHandle.FromString(Guid.NewGuid().ToString("N")),
 					QueueName = queueName,
 					JobName = jobName,
 					Payload = "{}",

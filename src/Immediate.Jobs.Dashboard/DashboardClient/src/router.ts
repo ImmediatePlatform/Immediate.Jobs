@@ -22,19 +22,19 @@ export const routes: RouteRecordRaw[] = [
 		meta: { title: 'Jobs' },
 	},
 	{
-		path: '/invocations/:jobId',
+		path: '/invocations/:jobHandle',
 		name: 'job-detail',
 		component: JobDetailView,
 		meta: { title: 'Job details' },
 	},
 	{
-		path: '/batches/:batchId/jobs/:jobId',
+		path: '/batches/:batchHandle/jobs/:jobHandle',
 		name: 'batch-job',
 		component: BatchDetailView,
 		meta: { title: 'Batch workflow' },
 	},
 	{
-		path: '/batches/:batchId',
+		path: '/batches/:batchHandle',
 		name: 'batch-detail',
 		component: BatchDetailView,
 		meta: { title: 'Batch workflow' },

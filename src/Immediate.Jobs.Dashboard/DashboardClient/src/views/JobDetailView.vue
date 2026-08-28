@@ -13,12 +13,12 @@ import { useJobMutations } from '@/use-dashboard-mutations';
 
 const route = useRoute();
 const router = useRouter();
-const jobId = computed(() => {
-	const value = route.params.jobId;
+const jobHandle = computed(() => {
+	const value = route.params.jobHandle;
 	return typeof value === 'string' ? value : undefined;
 });
-const jobQuery = useJobQuery(jobId);
-const telemetryLinksQuery = useJobTelemetryLinksQuery(jobId);
+const jobQuery = useJobQuery(jobHandle);
+const telemetryLinksQuery = useJobTelemetryLinksQuery(jobHandle);
 const jobMutations = useJobMutations();
 const cancelCandidate = ref<JobRecord>();
 
@@ -31,7 +31,7 @@ async function confirmCancel(): Promise<void> {
 		return;
 	}
 	try {
-		await jobMutations.cancelJob(cancelCandidate.value.jobId);
+		await jobMutations.cancelJob(cancelCandidate.value.jobHandle);
 		cancelCandidate.value = undefined;
 	} catch {
 		// The mutation displays the API error and leaves the confirmation open.
@@ -47,7 +47,7 @@ async function confirmCancel(): Promise<void> {
 		</button>
 
 		<FeedbackState
-			v-if="!jobId"
+			v-if="!jobHandle"
 			title="Job not found"
 			description="The requested job does not exist."
 		/>
@@ -62,10 +62,10 @@ async function confirmCancel(): Promise<void> {
 			v-else-if="jobQuery.data.value"
 			:job="jobQuery.data.value"
 			:telemetry-links="telemetryLinksQuery.data.value ?? []"
-			:pending="jobMutations.busyJobId.value === jobId"
+			:pending="jobMutations.busyJobHandle.value === jobHandle"
 			:show-close="false"
 			@cancel="cancelCandidate = $event"
-			@retry="(job) => jobMutations.retryJob(job.jobId)"
+			@retry="(job) => jobMutations.retryJob(job.jobHandle)"
 		/>
 		<FeedbackState
 			v-else

@@ -8,7 +8,7 @@ using Microsoft.Extensions.Options;
 namespace Immediate.Jobs.Dashboard.Endpoints;
 
 [Handler]
-[MapGet("jobs/{jobId}/telemetry-links")]
+[MapGet("jobs/{jobHandle}/telemetry-links")]
 [MapGroup<DashboardApi>]
 internal static partial class GetDashboardJobTelemetryLinks
 {
@@ -16,7 +16,7 @@ internal static partial class GetDashboardJobTelemetryLinks
 	internal sealed partial record Query : IValidationTarget<Query>
 	{
 		[NotEmpty]
-		public required string JobId { get; init; }
+		public required string JobHandle { get; init; }
 	}
 
 	internal static Results<JsonHttpResult<IReadOnlyList<JobTelemetryLink>>, NotFound> TransformResult(
@@ -29,7 +29,7 @@ internal static partial class GetDashboardJobTelemetryLinks
 		IOptions<ImmediateJobsDashboardOptions> options,
 		CancellationToken cancellationToken
 	) => DashboardApiEndpointOperations.GetJobTelemetryLinksAsync(
-		JobHandle.FromString(query.JobId),
+		JobHandle.FromString(query.JobHandle),
 		executionNumber: null,
 		monitor,
 		options.Value,

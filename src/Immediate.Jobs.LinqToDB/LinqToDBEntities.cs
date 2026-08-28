@@ -92,7 +92,7 @@ internal sealed class ImmediateJobEntity
 	[Column(DataType = DataType.Int64, CanBeNull = true)]
 	public long? ExecutionStartedAt { get; set; }
 	[Column(Length = 256, CanBeNull = true)]
-	public string? BatchId { get; set; }
+	public string? BatchHandle { get; set; }
 	[Column]
 	public int RemainingDependencies { get; set; }
 	[Column]
@@ -105,7 +105,7 @@ internal sealed class ImmediateJobEntity
 internal sealed class ImmediateJobExecutionEntity
 {
 	[PrimaryKey(1), Column(Length = 256, CanBeNull = false)]
-	public string JobId { get; set; } = null!;
+	public string JobHandle { get; set; } = null!;
 	[PrimaryKey(2), Column]
 	public int Attempt { get; set; }
 	[Column(DataType = DataType.Int16)]
@@ -145,7 +145,7 @@ internal sealed class ImmediateFairQueueGroupEntity
 internal sealed class ImmediateJobContinuationEntity
 {
 	[PrimaryKey(1), Column(Length = 256, CanBeNull = false)]
-	public string ChildJobId { get; set; } = null!;
+	public string ChildJobHandle { get; set; } = null!;
 	[PrimaryKey(2), Column(DataType = DataType.Int16)]
 	public ContinuationParentKind ParentKind { get; set; }
 	[PrimaryKey(3), Column(Length = 256, CanBeNull = false)]

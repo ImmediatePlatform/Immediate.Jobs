@@ -5,10 +5,10 @@ namespace Immediate.Jobs.Shared;
 /// </summary>
 public sealed class BatchJobHandle
 {
-	internal BatchJobHandle(Batch batch, JobHandle jobId)
+	internal BatchJobHandle(Batch batch, JobHandle jobHandle)
 	{
 		Batch = batch;
-		RawJobId = jobId;
+		RawJobHandle = jobHandle;
 	}
 
 	/// <summary>
@@ -16,7 +16,7 @@ public sealed class BatchJobHandle
 	/// </summary>
 	public Batch Batch { get; }
 
-	internal JobHandle RawJobId { get; }
+	internal JobHandle RawJobHandle { get; }
 
 	/// <summary>
 	/// 	The reference to a durable job invocation.
@@ -27,10 +27,10 @@ public sealed class BatchJobHandle
 	/// <remarks>
 	///		This property is only valid if the containing <see cref="Batch"/> has been committed.
 	/// </remarks>
-	public JobHandle JobId =>
+	public JobHandle JobHandle =>
 		Batch.IsCommitted switch
 		{
-			true => RawJobId,
+			true => RawJobHandle,
 			false => throw new InvalidOperationException("Cannot retrieve job ids from uncommitted batches."),
 		};
 }

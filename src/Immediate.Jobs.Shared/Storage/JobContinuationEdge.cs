@@ -8,17 +8,17 @@ public sealed record JobContinuationEdge
 	/// <summary>
 	/// 	The waiting child invocation.
 	/// </summary>
-	public required JobHandle ChildJobId { get; init; }
+	public required JobHandle ChildJobHandle { get; init; }
 
 	/// <summary>
 	/// 	The parent invocation for a job-to-job dependency.
 	/// </summary>
-	public JobHandle? ParentJobId { get; init; }
+	public JobHandle? ParentJobHandle { get; init; }
 
 	/// <summary>
 	/// 	The parent batch for a batch-to-job dependency.
 	/// </summary>
-	public BatchHandle? ParentBatchId { get; init; }
+	public BatchHandle? ParentBatchHandle { get; init; }
 
 	/// <summary>
 	///		The amount of delay after the parent job or batch completes to schedule the child job.

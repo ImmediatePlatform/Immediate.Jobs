@@ -8,7 +8,7 @@ using Microsoft.AspNetCore.Mvc;
 namespace Immediate.Jobs.Dashboard.Endpoints;
 
 [Handler]
-[MapDelete("batches/{batchId}")]
+[MapDelete("batches/{batchHandle}")]
 [MapGroup<DashboardApi>]
 internal static partial class DeleteDashboardBatch
 {
@@ -17,7 +17,7 @@ internal static partial class DeleteDashboardBatch
 	{
 		[FromRoute]
 		[NotEmpty]
-		public required string BatchId { get; init; }
+		public required string BatchHandle { get; init; }
 	}
 
 	internal static Results<NoContent, NotFound, ProblemHttpResult> TransformResult(
@@ -29,6 +29,6 @@ internal static partial class DeleteDashboardBatch
 		JobMonitor monitor,
 		CancellationToken cancellationToken
 	) => DashboardApiEndpointOperations.MutateBatchAsync(
-		() => monitor.DeleteBatchAsync(BatchHandle.FromString(command.BatchId), cancellationToken)
+		() => monitor.DeleteBatchAsync(BatchHandle.FromString(command.BatchHandle), cancellationToken)
 	);
 }

@@ -95,10 +95,10 @@ internal static class QueueStorageConformance
 		await storage.EnqueueAsync(original, cancellationToken);
 
 		var queried = ConformanceAssert.NotNull(
-			(await storage.QueryJobsAsync(new() { JobId = original.JobId }, cancellationToken)).SingleOrDefault(),
+			(await storage.QueryJobsAsync(new() { JobHandle = original.JobHandle }, cancellationToken)).SingleOrDefault(),
 			RoundTripName,
 			"an enqueued record must be immediately visible by exact id",
-			original.JobId.JobId
+			original.JobHandle.Value
 		);
 
 		AssertRecordEqual(original, queried, RoundTripName);
@@ -107,10 +107,10 @@ internal static class QueueStorageConformance
 			() => storage.EnqueueAsync(original with { Payload = "{\"replacement\":true}" }, cancellationToken),
 			RoundTripName,
 			"a duplicate invocation identifier must fail",
-			original.JobId.JobId
+			original.JobHandle.Value
 		);
 
-		var unchanged = (await storage.QueryJobsAsync(new() { JobId = original.JobId }, cancellationToken)).Single();
+		var unchanged = (await storage.QueryJobsAsync(new() { JobHandle = original.JobHandle }, cancellationToken)).Single();
 		AssertRecordEqual(original, unchanged, RoundTripName);
 	}
 
@@ -140,7 +140,7 @@ internal static class QueueStorageConformance
 
 		ConformanceAssert.SequenceEqual(
 			["due"],
-			acquired.Select(static job => job.JobId.JobId),
+			acquired.Select(static job => job.JobHandle.Value),
 			DueName,
 			"only due pending or scheduled records may be acquired",
 			comparer: StringComparer.Ordinal
@@ -172,7 +172,7 @@ internal static class QueueStorageConformance
 
 		ConformanceAssert.SequenceEqual(
 			["high-a-first", "high-b", "low-first"],
-			acquired.Select(static job => job.JobId.JobId),
+			acquired.Select(static job => job.JobHandle.Value),
 			CapacityName,
 			"queue order, queue capacity, job-name capacity, and due order must compose",
 			comparer: StringComparer.Ordinal
@@ -214,7 +214,7 @@ internal static class QueueStorageConformance
 
 		ConformanceAssert.Equal(
 			JobCount,
-			acquired.Select(static job => job.JobId).Distinct().Count(),
+			acquired.Select(static job => job.JobHandle).Distinct().Count(),
 			ContentionName,
 			"concurrent acquisitions must claim each invocation at most once"
 		);
@@ -230,11 +230,11 @@ internal static class QueueStorageConformance
 
 		var first = (await storage.AcquireDueJobsAsync(CreateRequest("owner-a", 1), cancellationToken)).Single();
 
-		await storage.SetExecutionTelemetryAsync(first.JobId, first.Attempt, "owner-a", "trace-a", "span-a", timeProvider.GetUtcNow(), cancellationToken);
+		await storage.SetExecutionTelemetryAsync(first.JobHandle, first.Attempt, "owner-a", "trace-a", "span-a", timeProvider.GetUtcNow(), cancellationToken);
 
 		timeProvider.Advance(TimeSpan.FromSeconds(30));
 
-		await storage.RenewLeaseAsync(first.JobId, first.Attempt, "owner-a", TimeSpan.FromMinutes(2), cancellationToken);
+		await storage.RenewLeaseAsync(first.JobHandle, first.Attempt, "owner-a", TimeSpan.FromMinutes(2), cancellationToken);
 
 		timeProvider.Advance(TimeSpan.FromMinutes(1));
 
@@ -252,40 +252,40 @@ internal static class QueueStorageConformance
 
 		var second = (await storage.AcquireDueJobsAsync(CreateRequest("owner-b", 1), cancellationToken)).Single();
 
-		ConformanceAssert.Equal(2, second.Attempt, LeaseName, "reclaiming an expired lease must begin a new execution ordinal", first.JobId.JobId);
-		ConformanceAssert.Null(second.ExecutionTraceId, LeaseName, "reclaim must clear latest-attempt trace telemetry", first.JobId.JobId);
-		ConformanceAssert.Null(second.ExecutionSpanId, LeaseName, "reclaim must clear latest-attempt span telemetry", first.JobId.JobId);
-		ConformanceAssert.Null(second.ExecutionStartedAt, LeaseName, "reclaim must clear latest-attempt start telemetry", first.JobId.JobId);
+		ConformanceAssert.Equal(2, second.Attempt, LeaseName, "reclaiming an expired lease must begin a new execution ordinal", first.JobHandle.Value);
+		ConformanceAssert.Null(second.ExecutionTraceId, LeaseName, "reclaim must clear latest-attempt trace telemetry", first.JobHandle.Value);
+		ConformanceAssert.Null(second.ExecutionSpanId, LeaseName, "reclaim must clear latest-attempt span telemetry", first.JobHandle.Value);
+		ConformanceAssert.Null(second.ExecutionStartedAt, LeaseName, "reclaim must clear latest-attempt start telemetry", first.JobHandle.Value);
 
 		await ConformanceAssert.ThrowsAsync<ImmediateJobException>(
-			() => storage.SetExecutionTelemetryAsync(first.JobId, first.Attempt, "owner-a", "first", "first", first.DueAt, cancellationToken),
+			() => storage.SetExecutionTelemetryAsync(first.JobHandle, first.Attempt, "owner-a", "first", "first", first.DueAt, cancellationToken),
 			LeaseName,
 			"a first execution owner must be fenced from every execution mutation",
-			first.JobId.JobId
+			first.JobHandle.Value
 		);
 
 		await ConformanceAssert.ThrowsAsync<ImmediateJobException>(
-			() => storage.RenewLeaseAsync(first.JobId, first.Attempt, "owner-a", TimeSpan.FromMinutes(1), cancellationToken),
+			() => storage.RenewLeaseAsync(first.JobHandle, first.Attempt, "owner-a", TimeSpan.FromMinutes(1), cancellationToken),
 			LeaseName,
 			"a first execution owner must be fenced from every execution mutation",
-			first.JobId.JobId
+			first.JobHandle.Value
 		);
 
 		await ConformanceAssert.ThrowsAsync<ImmediateJobException>(
-			() => storage.CompleteAsync(first.JobId, first.Attempt, "owner-a", cancellationToken),
+			() => storage.CompleteAsync(first.JobHandle, first.Attempt, "owner-a", cancellationToken),
 			LeaseName,
 			"a first execution owner must be fenced from every execution mutation",
-			first.JobId.JobId
+			first.JobHandle.Value
 		);
 
 		await ConformanceAssert.ThrowsAsync<ImmediateJobException>(
-			() => storage.FailAsync(first.JobId, first.Attempt, "owner-a", "first", nextRetryAt: null, cancellationToken),
+			() => storage.FailAsync(first.JobHandle, first.Attempt, "owner-a", "first", nextRetryAt: null, cancellationToken),
 			LeaseName,
 			"a first execution owner must be fenced from every execution mutation",
-			first.JobId.JobId
+			first.JobHandle.Value
 		);
 
-		var history = await storage.QueryJobExecutionsAsync(first.JobId, new(), cancellationToken);
+		var history = await storage.QueryJobExecutionsAsync(first.JobHandle, new(), cancellationToken);
 
 		ConformanceAssert.SequenceEqual(
 			[2, 1],
@@ -316,14 +316,14 @@ internal static class QueueStorageConformance
 
 		var startedAt = now.AddSeconds(1);
 
-		await storage.SetExecutionTelemetryAsync(active.JobId, active.Attempt, "completion-worker", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "bbbbbbbbbbbbbbbb", startedAt, cancellationToken);
+		await storage.SetExecutionTelemetryAsync(active.JobHandle, active.Attempt, "completion-worker", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "bbbbbbbbbbbbbbbb", startedAt, cancellationToken);
 
 		timeProvider.Advance(TimeSpan.FromSeconds(2));
 
-		await storage.CompleteAsync(active.JobId, active.Attempt, "completion-worker", cancellationToken);
+		await storage.CompleteAsync(active.JobHandle, active.Attempt, "completion-worker", cancellationToken);
 
-		var job = (await storage.QueryJobsAsync(new() { JobId = active.JobId }, cancellationToken)).Single();
-		var execution = (await storage.QueryJobExecutionsAsync(active.JobId, new(), cancellationToken)).Single();
+		var job = (await storage.QueryJobsAsync(new() { JobHandle = active.JobHandle }, cancellationToken)).Single();
+		var execution = (await storage.QueryJobExecutionsAsync(active.JobHandle, new(), cancellationToken)).Single();
 
 		ConformanceAssert.Equal(JobState.Succeeded, job.State, CompletionName, "completion must atomically make the job successful");
 		ConformanceAssert.Equal(JobExecutionState.Succeeded, execution.State, CompletionName, "completion must atomically retain a successful execution");
@@ -344,28 +344,28 @@ internal static class QueueStorageConformance
 		var first = (await storage.AcquireDueJobsAsync(CreateRequest("failure-worker", 1), cancellationToken)).Single();
 		var retryAt = timeProvider.GetUtcNow().AddMinutes(5);
 
-		await storage.FailAsync(first.JobId, first.Attempt, "failure-worker", "retryable error", retryAt, cancellationToken);
+		await storage.FailAsync(first.JobHandle, first.Attempt, "failure-worker", "retryable error", retryAt, cancellationToken);
 
-		var scheduled = (await storage.QueryJobsAsync(new() { JobId = first.JobId }, cancellationToken)).Single();
+		var scheduled = (await storage.QueryJobsAsync(new() { JobHandle = first.JobHandle }, cancellationToken)).Single();
 		ConformanceAssert.Equal(JobState.Scheduled, scheduled.State, FailureName, "a future retry must schedule the job");
 		ConformanceAssert.Equal(retryAt, scheduled.DueAt, FailureName, "a future retry must preserve its supplied due time");
 		ConformanceAssert.Equal("retryable error", scheduled.LastError, FailureName, "a retryable failure must remain visible on the job projection");
 
-		await storage.RetryAsync(first.JobId, cancellationToken);
+		await storage.RetryAsync(first.JobHandle, cancellationToken);
 
-		var fastForwarded = (await storage.QueryJobsAsync(new() { JobId = first.JobId }, cancellationToken)).Single();
+		var fastForwarded = (await storage.QueryJobsAsync(new() { JobHandle = first.JobHandle }, cancellationToken)).Single();
 		ConformanceAssert.Equal(JobState.Pending, fastForwarded.State, FailureName, "retrying a scheduled job must fast-forward it to pending");
 		ConformanceAssert.Equal(first.Attempt, fastForwarded.Attempt, FailureName, "fast-forwarding must not create an execution attempt");
 		ConformanceAssert.Equal("retryable error", fastForwarded.LastError, FailureName, "fast-forwarding a scheduled retry must preserve its latest error");
 
 		var second = (await storage.AcquireDueJobsAsync(CreateRequest("failure-worker", 1), cancellationToken)).Single();
-		await storage.FailAsync(second.JobId, second.Attempt, "failure-worker", "terminal error", nextRetryAt: null, cancellationToken);
+		await storage.FailAsync(second.JobHandle, second.Attempt, "failure-worker", "terminal error", nextRetryAt: null, cancellationToken);
 
-		var failed = (await storage.QueryJobsAsync(new() { JobId = second.JobId }, cancellationToken)).Single();
+		var failed = (await storage.QueryJobsAsync(new() { JobHandle = second.JobHandle }, cancellationToken)).Single();
 		ConformanceAssert.Equal(JobState.Failed, failed.State, FailureName, "a failure without a retry time must be terminal");
 		ConformanceAssert.Equal("terminal error", failed.LastError, FailureName, "terminal failure must retain its error");
 
-		var executions = await storage.QueryJobExecutionsAsync(second.JobId, new(), cancellationToken);
+		var executions = await storage.QueryJobExecutionsAsync(second.JobHandle, new(), cancellationToken);
 		ConformanceAssert.SequenceEqual(
 			[2, 1],
 			executions.Select(static execution => execution.Attempt),
@@ -380,33 +380,33 @@ internal static class QueueStorageConformance
 			"each failed execution must retain its own error"
 		);
 
-		var newestPage = await storage.QueryJobExecutionsAsync(second.JobId, new() { Take = 1 }, cancellationToken);
+		var newestPage = await storage.QueryJobExecutionsAsync(second.JobHandle, new() { Take = 1 }, cancellationToken);
 		ConformanceAssert.Equal(2, newestPage.Single().Attempt, FailureName, "execution-history paging must return the newest attempt first");
 
-		var olderPage = await storage.QueryJobExecutionsAsync(second.JobId, new() { Skip = 1, Take = 1 }, cancellationToken);
+		var olderPage = await storage.QueryJobExecutionsAsync(second.JobHandle, new() { Skip = 1, Take = 1 }, cancellationToken);
 		ConformanceAssert.Equal(1, olderPage.Single().Attempt, FailureName, "execution-history skip/take paging must visit the older attempt");
 
-		var exactAttempt = await storage.QueryJobExecutionsAsync(second.JobId, new() { Attempt = 1 }, cancellationToken);
+		var exactAttempt = await storage.QueryJobExecutionsAsync(second.JobHandle, new() { Attempt = 1 }, cancellationToken);
 		ConformanceAssert.Equal(1, exactAttempt.Single().Attempt, FailureName, "execution-history exact-attempt filtering must return only that attempt");
 
-		await storage.RetryAsync(second.JobId, cancellationToken);
-		var manuallyRetried = (await storage.QueryJobsAsync(new() { JobId = second.JobId }, cancellationToken)).Single();
+		await storage.RetryAsync(second.JobHandle, cancellationToken);
+		var manuallyRetried = (await storage.QueryJobsAsync(new() { JobHandle = second.JobHandle }, cancellationToken)).Single();
 		ConformanceAssert.Equal(JobState.Pending, manuallyRetried.State, FailureName, "retrying a terminal failure must return it to pending");
 		ConformanceAssert.Equal(2, manuallyRetried.Attempt, FailureName, "manual retry must not create an execution attempt before acquisition");
 		ConformanceAssert.Null(manuallyRetried.LastError, FailureName, "retrying a terminal failure must clear the projected error");
 		ConformanceAssert.Null(manuallyRetried.CompletedAt, FailureName, "retrying a terminal failure must clear terminal completion time");
 
 		var third = (await storage.AcquireDueJobsAsync(CreateRequest("failure-worker", 1), cancellationToken)).Single();
-		await storage.CancelAsync(third.JobId, cancellationToken);
+		await storage.CancelAsync(third.JobHandle, cancellationToken);
 
-		var cancelled = (await storage.QueryJobExecutionsAsync(third.JobId, new() { Attempt = 3 }, cancellationToken)).Single();
+		var cancelled = (await storage.QueryJobExecutionsAsync(third.JobHandle, new() { Attempt = 3 }, cancellationToken)).Single();
 		ConformanceAssert.Equal(JobExecutionState.Cancelled, cancelled.State, FailureName, "cancelling an active job must close its execution as cancelled");
 
 		_ = await ConformanceAssert.ThrowsAsync<ImmediateJobException>(
-			() => storage.CompleteAsync(third.JobId, third.Attempt, "failure-worker", cancellationToken),
+			() => storage.CompleteAsync(third.JobHandle, third.Attempt, "failure-worker", cancellationToken),
 			FailureName,
 			"cancellation must fence the former execution owner",
-			third.JobId.JobId
+			third.JobHandle.Value
 		);
 	}
 
@@ -416,23 +416,23 @@ internal static class QueueStorageConformance
 		CancellationToken cancellationToken
 	)
 	{
-		var jobId = JobHandle.FromString("pending-invalid");
+		var jobHandle = JobHandle.FromString("pending-invalid");
 
 		await storage.EnqueueAsync(CreateJob("pending-invalid", timeProvider.GetUtcNow()), cancellationToken);
 
 		await ConformanceAssert.ThrowsAsync<ImmediateJobException>(
-			() => storage.RetryAsync(jobId, cancellationToken),
+			() => storage.RetryAsync(jobHandle, cancellationToken),
 			MutationName,
 			"retry must reject a pending job without changing it"
 		);
 
 		await ConformanceAssert.ThrowsAsync<ImmediateJobException>(
-			() => storage.DeleteAsync(jobId, cancellationToken),
+			() => storage.DeleteAsync(jobHandle, cancellationToken),
 			MutationName,
 			"delete must reject a non-terminal job without changing it"
 		);
 
-		var pending = (await storage.QueryJobsAsync(new() { JobId = jobId }, cancellationToken)).Single();
+		var pending = (await storage.QueryJobsAsync(new() { JobHandle = jobHandle }, cancellationToken)).Single();
 		ConformanceAssert.Equal(JobState.Pending, pending.State, MutationName, "invalid mutations must not partially change the target");
 
 		await ConformanceAssert.ThrowsAsync<KeyNotFoundException>(
@@ -467,11 +467,11 @@ internal static class QueueStorageConformance
 		await storage.EnqueueAsync(CreateJob("page-b", created, "priority", "Email.Other") with { State = JobState.Scheduled, DueAt = created.AddHours(1) }, cancellationToken);
 		await storage.EnqueueAsync(CreateJob("newer", created.AddMinutes(1), "ordinary", "Cleanup.Job"), cancellationToken);
 
-		var exact = await storage.QueryJobsAsync(new() { JobId = JobHandle.FromString("page-a") }, cancellationToken);
+		var exact = await storage.QueryJobsAsync(new() { JobHandle = JobHandle.FromString("page-a") }, cancellationToken);
 
 		ConformanceAssert.SequenceEqual(
 			[JobHandle.FromString("page-a")],
-			exact.Select(static job => job.JobId),
+			exact.Select(static job => job.JobHandle),
 			QueryName,
 			"exact-id lookup must be unaffected by unrelated records"
 		);
@@ -489,14 +489,14 @@ internal static class QueueStorageConformance
 
 		ConformanceAssert.SequenceEqual(
 			["page-a", "page-c"],
-			filtered.Select(static job => job.JobId.JobId).Order(StringComparer.Ordinal),
+			filtered.Select(static job => job.JobHandle.Value).Order(StringComparer.Ordinal),
 			QueryName,
 			"state, queue, exact-name, and case-insensitive search filters must compose"
 		);
 
 		var firstPage = await storage.QueryJobsAsync(new() { Skip = 0, Take = 2 }, cancellationToken);
 		var secondPage = await storage.QueryJobsAsync(new() { Skip = 2, Take = 2 }, cancellationToken);
-		var pagedIds = firstPage.Concat(secondPage).Select(static job => job.JobId.JobId).ToList();
+		var pagedIds = firstPage.Concat(secondPage).Select(static job => job.JobHandle.Value).ToList();
 
 		ConformanceAssert.Equal(
 			"newer",
@@ -514,7 +514,7 @@ internal static class QueueStorageConformance
 
 		var repeatedIds = (await storage.QueryJobsAsync(new() { Skip = 0, Take = 1 }, cancellationToken))
 			.Concat(await storage.QueryJobsAsync(new() { Skip = 1, Take = 3 }, cancellationToken))
-			.Select(static job => job.JobId.JobId);
+			.Select(static job => job.JobHandle.Value);
 
 		ConformanceAssert.SequenceEqual(
 			pagedIds,
@@ -603,7 +603,7 @@ internal static class QueueStorageConformance
 		await storage.EnqueueAsync(CreateJob("old-failure", timeProvider.GetUtcNow()), cancellationToken);
 
 		var failure = (await storage.AcquireDueJobsAsync(CreateRequest("maintenance-worker", 1), cancellationToken)).Single();
-		await storage.FailAsync(failure.JobId, failure.Attempt, "maintenance-worker", "old error", nextRetryAt: null, cancellationToken);
+		await storage.FailAsync(failure.JobHandle, failure.Attempt, "maintenance-worker", "old error", nextRetryAt: null, cancellationToken);
 
 		await storage.EnqueueAsync(CreateJob("old-cancelled", timeProvider.GetUtcNow()), cancellationToken);
 		await storage.CancelAsync(JobHandle.FromString("old-cancelled"), cancellationToken);
@@ -624,7 +624,7 @@ internal static class QueueStorageConformance
 		await storage.PurgeJobsAsync(TimeSpan.FromHours(1), TimeSpan.FromHours(3), cancellationToken);
 
 		foreach (var id in new[] { JobHandle.FromString("old-failure"), JobHandle.FromString("old-cancelled") })
-			ConformanceAssert.Null(await storage.GetJobStatusAsync(id, cancellationToken), MaintenanceName, "failed and cancelled retention must remove older jobs", id.JobId);
+			ConformanceAssert.Null(await storage.GetJobStatusAsync(id, cancellationToken), MaintenanceName, "failed and cancelled retention must remove older jobs", id.Value);
 
 		ConformanceAssert.Equal(
 			0,
@@ -674,7 +674,7 @@ internal static class QueueStorageConformance
 	{
 		await storage.EnqueueAsync(CreateJob(id, now), cancellationToken);
 		var active = (await storage.AcquireDueJobsAsync(CreateRequest(workerId, 1), cancellationToken)).Single();
-		await storage.CompleteAsync(active.JobId, active.Attempt, workerId, cancellationToken);
+		await storage.CompleteAsync(active.JobHandle, active.Attempt, workerId, cancellationToken);
 	}
 
 	private static JobRecord CreateJob(
@@ -685,7 +685,7 @@ internal static class QueueStorageConformance
 	) =>
 		new()
 		{
-			JobId = JobHandle.FromString(id),
+			JobHandle = JobHandle.FromString(id),
 			QueueName = queueName,
 			JobName = jobName,
 			Payload = "{}",
@@ -716,10 +716,10 @@ internal static class QueueStorageConformance
 	private static void AssertRecordEqual(JobRecord expected, JobRecord actual, string caseName)
 	{
 		var invariant = "all provider-neutral JobRecord fields must round-trip without rewriting";
-		var context = expected.JobId.JobId;
+		var context = expected.JobHandle.Value;
 
 		ConformanceAssert.Equal(expected.QueueName, actual.QueueName, caseName, invariant, context);
-		ConformanceAssert.Equal(expected.JobId, actual.JobId, caseName, invariant, context);
+		ConformanceAssert.Equal(expected.JobHandle, actual.JobHandle, caseName, invariant, context);
 		ConformanceAssert.Equal(expected.JobName, actual.JobName, caseName, invariant, context);
 		ConformanceAssert.Equal(expected.Payload, actual.Payload, caseName, invariant, context);
 		ConformanceAssert.Equal(expected.Context, actual.Context, caseName, invariant, context);
@@ -738,7 +738,7 @@ internal static class QueueStorageConformance
 		ConformanceAssert.Equal(expected.ExecutionTraceId, actual.ExecutionTraceId, caseName, invariant, context);
 		ConformanceAssert.Equal(expected.ExecutionSpanId, actual.ExecutionSpanId, caseName, invariant, context);
 		ConformanceAssert.Equal(expected.ExecutionStartedAt, actual.ExecutionStartedAt, caseName, invariant, context);
-		ConformanceAssert.Equal(expected.BatchId, actual.BatchId, caseName, invariant, context);
+		ConformanceAssert.Equal(expected.BatchHandle, actual.BatchHandle, caseName, invariant, context);
 		ConformanceAssert.Equal(expected.RemainingDependencies, actual.RemainingDependencies, caseName, invariant, context);
 		ConformanceAssert.Equal(expected.FailedDependencies, actual.FailedDependencies, caseName, invariant, context);
 	}

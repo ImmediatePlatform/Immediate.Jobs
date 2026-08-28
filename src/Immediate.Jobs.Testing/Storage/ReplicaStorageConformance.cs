@@ -73,7 +73,7 @@ internal static class ReplicaStorageConformance
 		}
 
 		_ = await replica.AcquireJobsAsync(
-			[unavailable.JobId],
+			[unavailable.JobHandle],
 			"exact-existing-owner",
 			TimeSpan.FromMinutes(5),
 			cancellationToken
@@ -81,11 +81,11 @@ internal static class ReplicaStorageConformance
 
 		var acquired = await replica.AcquireJobsAsync(
 			[
-				requestedPending.JobId,
-				requestedScheduled.JobId,
-				requestedFuture.JobId,
-				requestedParked.JobId,
-				unavailable.JobId,
+				requestedPending.JobHandle,
+				requestedScheduled.JobHandle,
+				requestedFuture.JobHandle,
+				requestedParked.JobHandle,
+				unavailable.JobHandle,
 				JobHandle.FromString("exact-missing"),
 			],
 			"exact-worker",
@@ -93,12 +93,12 @@ internal static class ReplicaStorageConformance
 			cancellationToken
 		).ConfigureAwait(false);
 		ConformanceAssert.SequenceEqual(
-			new[] { requestedPending.JobId.JobId, requestedScheduled.JobId.JobId }.Order(StringComparer.Ordinal),
-			acquired.Select(static job => job.JobId.JobId).Order(StringComparer.Ordinal),
+			new[] { requestedPending.JobHandle.Value, requestedScheduled.JobHandle.Value }.Order(StringComparer.Ordinal),
+			acquired.Select(static job => job.JobHandle.Value).Order(StringComparer.Ordinal),
 			ExactDueName,
 			"exact acquisition must claim only requested, due, currently available jobs"
 		);
-		var untouched = await GetJobAsync(storage, unrequested.JobId, ExactDueName, cancellationToken).ConfigureAwait(false);
+		var untouched = await GetJobAsync(storage, unrequested.JobHandle, ExactDueName, cancellationToken).ConfigureAwait(false);
 		ConformanceAssert.Equal(JobState.Pending, untouched.State, ExactDueName, "an unrequested due job must remain available");
 	}
 
@@ -114,14 +114,14 @@ internal static class ReplicaStorageConformance
 		await storage.EnqueueAsync(job, cancellationToken).ConfigureAwait(false);
 
 		var acquired = await replica.AcquireJobsAsync(
-			[job.JobId, JobHandle.FromString("duplicate-missing"), job.JobId, JobHandle.FromString("duplicate-missing")],
+			[job.JobHandle, JobHandle.FromString("duplicate-missing"), job.JobHandle, JobHandle.FromString("duplicate-missing")],
 			"duplicate-worker",
 			TimeSpan.FromMinutes(1),
 			cancellationToken
 		).ConfigureAwait(false);
 		ConformanceAssert.SequenceEqual(
-			[job.JobId],
-			acquired.Select(static item => item.JobId),
+			[job.JobHandle],
+			acquired.Select(static item => item.JobHandle),
 			DuplicateName,
 			"duplicate and missing requested identifiers must not duplicate acquisition results"
 		);
@@ -153,14 +153,14 @@ internal static class ReplicaStorageConformance
 		await storage.EnqueueAsync(job, cancellationToken).ConfigureAwait(false);
 
 		var active = ConformanceAssert.NotNull(
-			(await replica.AcquireJobsAsync([job.JobId], "projection-worker", lease, cancellationToken).ConfigureAwait(false))
+			(await replica.AcquireJobsAsync([job.JobHandle], "projection-worker", lease, cancellationToken).ConfigureAwait(false))
 				.SingleOrDefault(),
 			ProjectionName,
 			"a requested due job must be returned"
 		);
 		AssertAcquired(job, active, "projection-worker", now + lease, ProjectionName);
 		var executions = await storage.QueryJobExecutionsAsync(
-			job.JobId,
+			job.JobHandle,
 			new(),
 			cancellationToken
 		).ConfigureAwait(false);
@@ -176,7 +176,7 @@ internal static class ReplicaStorageConformance
 
 		var startedAt = now.AddSeconds(1);
 		await storage.SetExecutionTelemetryAsync(
-			job.JobId,
+			job.JobHandle,
 			active.Attempt,
 			"projection-worker",
 			"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
@@ -184,14 +184,14 @@ internal static class ReplicaStorageConformance
 			startedAt,
 			cancellationToken
 		).ConfigureAwait(false);
-		await storage.CompleteAsync(job.JobId, active.Attempt, "projection-worker", cancellationToken).ConfigureAwait(false);
+		await storage.CompleteAsync(job.JobHandle, active.Attempt, "projection-worker", cancellationToken).ConfigureAwait(false);
 
-		var completed = await GetJobAsync(storage, job.JobId, ProjectionName, cancellationToken).ConfigureAwait(false);
+		var completed = await GetJobAsync(storage, job.JobHandle, ProjectionName, cancellationToken).ConfigureAwait(false);
 		ConformanceAssert.Equal(JobState.Succeeded, completed.State, ProjectionName, "completion must update the acquired job projection");
 		ConformanceAssert.Equal("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", completed.ExecutionTraceId, ProjectionName, "execution trace id must round-trip");
 		ConformanceAssert.Equal("bbbbbbbbbbbbbbbb", completed.ExecutionSpanId, ProjectionName, "execution span id must round-trip");
 		ConformanceAssert.Equal(startedAt, completed.ExecutionStartedAt, ProjectionName, "execution start time must round-trip");
-		executions = await storage.QueryJobExecutionsAsync(job.JobId, new(), cancellationToken).ConfigureAwait(false);
+		executions = await storage.QueryJobExecutionsAsync(job.JobHandle, new(), cancellationToken).ConfigureAwait(false);
 		var completedExecution = ConformanceAssert.NotNull(
 			executions.SingleOrDefault(),
 			ProjectionName,
@@ -213,7 +213,7 @@ internal static class ReplicaStorageConformance
 		await storage.EnqueueAsync(job, cancellationToken).ConfigureAwait(false);
 		var contenders = Enumerable.Range(0, 12)
 			.Select(index => replica.AcquireJobsAsync(
-				[job.JobId],
+				[job.JobHandle],
 				string.Create(CultureInfo.InvariantCulture, $"contention-worker-{index}"),
 				TimeSpan.FromMinutes(1),
 				cancellationToken
@@ -227,10 +227,10 @@ internal static class ReplicaStorageConformance
 			claims.Length,
 			ContentionName,
 			"concurrent exact-id acquisitions must claim one invocation version at most once",
-			$"job={job.JobId}"
+			$"job={job.JobHandle}"
 		);
 		ConformanceAssert.Equal(1, claims[0].Attempt, ContentionName, "contention must create only the first execution ordinal");
-		var executions = await storage.QueryJobExecutionsAsync(job.JobId, new(), cancellationToken).ConfigureAwait(false);
+		var executions = await storage.QueryJobExecutionsAsync(job.JobHandle, new(), cancellationToken).ConfigureAwait(false);
 		ConformanceAssert.Equal(1, executions.Count, ContentionName, "contention must create one active execution-history row");
 	}
 
@@ -247,7 +247,7 @@ internal static class ReplicaStorageConformance
 		await storage.EnqueueAsync(job, cancellationToken).ConfigureAwait(false);
 		var first = ConformanceAssert.NotNull(
 			(await replica.AcquireJobsAsync(
-				[job.JobId],
+				[job.JobHandle],
 				"stale-worker-one",
 				TimeSpan.FromMinutes(1),
 				cancellationToken
@@ -258,7 +258,7 @@ internal static class ReplicaStorageConformance
 		clock.Advance(TimeSpan.FromMinutes(1));
 		var second = ConformanceAssert.NotNull(
 			(await replica.AcquireJobsAsync(
-				[job.JobId],
+				[job.JobHandle],
 				"stale-worker-two",
 				TimeSpan.FromMinutes(2),
 				cancellationToken
@@ -270,13 +270,13 @@ internal static class ReplicaStorageConformance
 		ConformanceAssert.Equal("stale-worker-two", second.WorkerId, StaleName, "reclaim must assign the new owner");
 
 		_ = await ConformanceAssert.ThrowsAsync<ImmediateJobException>(
-			() => storage.CompleteAsync(job.JobId, first.Attempt, "stale-worker-one", cancellationToken),
+			() => storage.CompleteAsync(job.JobHandle, first.Attempt, "stale-worker-one", cancellationToken),
 			StaleName,
 			"the stale replica owner must not complete the reclaimed execution"
 		).ConfigureAwait(false);
 		_ = await ConformanceAssert.ThrowsAsync<ImmediateJobException>(
 			() => storage.RenewLeaseAsync(
-				job.JobId,
+				job.JobHandle,
 				first.Attempt,
 				"stale-worker-one",
 				TimeSpan.FromMinutes(5),
@@ -285,12 +285,12 @@ internal static class ReplicaStorageConformance
 			StaleName,
 			"the stale replica owner must not renew the reclaimed execution"
 		).ConfigureAwait(false);
-		var persisted = await GetJobAsync(storage, job.JobId, StaleName, cancellationToken).ConfigureAwait(false);
+		var persisted = await GetJobAsync(storage, job.JobHandle, StaleName, cancellationToken).ConfigureAwait(false);
 		ConformanceAssert.Equal(JobState.Active, persisted.State, StaleName, "a stale mutation must not alter the current execution");
 		ConformanceAssert.Equal(second.Attempt, persisted.Attempt, StaleName, "a stale mutation must not alter the current ordinal");
 		ConformanceAssert.Equal("stale-worker-two", persisted.WorkerId, StaleName, "a stale mutation must not alter the current owner");
 
-		var executions = await storage.QueryJobExecutionsAsync(job.JobId, new(), cancellationToken).ConfigureAwait(false);
+		var executions = await storage.QueryJobExecutionsAsync(job.JobHandle, new(), cancellationToken).ConfigureAwait(false);
 		ConformanceAssert.SequenceEqual(
 			[JobExecutionState.Active, JobExecutionState.Interrupted],
 			executions.Select(static execution => execution.State),
@@ -318,17 +318,17 @@ internal static class ReplicaStorageConformance
 		};
 		if (storage is IJobGraphStorage graph)
 		{
-			var parent = Job("fields-parent", now) with { BatchId = BatchHandle.FromString("recovery-batch") };
+			var parent = Job("fields-parent", now) with { BatchHandle = BatchHandle.FromString("recovery-batch") };
 			job = job with
 			{
-				BatchId = parent.BatchId,
+				BatchHandle = parent.BatchHandle,
 				State = JobState.AwaitingContinuation,
 				RemainingDependencies = 1,
 			};
 			await graph.EnqueueBatchAsync(
 				new()
 				{
-					BatchId = job.BatchId,
+					BatchHandle = job.BatchHandle,
 					CreatedAt = now,
 					TotalJobs = 2,
 					PendingCount = 2,
@@ -338,8 +338,8 @@ internal static class ReplicaStorageConformance
 				[
 					new()
 					{
-						ChildJobId = job.JobId,
-						ParentJobId = parent.JobId,
+						ChildJobHandle = job.JobHandle,
+						ParentJobHandle = parent.JobHandle,
 						Delay = TimeSpan.Zero,
 						Trigger = ContinuationTrigger.Complete,
 					},
@@ -348,7 +348,7 @@ internal static class ReplicaStorageConformance
 			).ConfigureAwait(false);
 			var activeParent = ConformanceAssert.NotNull(
 				(await replica.AcquireJobsAsync(
-					[parent.JobId],
+					[parent.JobHandle],
 					"fields-parent-worker",
 					TimeSpan.FromMinutes(1),
 					cancellationToken
@@ -357,14 +357,14 @@ internal static class ReplicaStorageConformance
 				"the graph parent must be acquired before releasing the recovery record"
 			);
 			await storage.FailAsync(
-				parent.JobId,
+				parent.JobHandle,
 				activeParent.Attempt,
 				"fields-parent-worker",
 				"expected graph parent failure",
 				nextRetryAt: null,
 				cancellationToken
 			).ConfigureAwait(false);
-			job = await GetJobAsync(storage, job.JobId, FieldsName, cancellationToken).ConfigureAwait(false);
+			job = await GetJobAsync(storage, job.JobHandle, FieldsName, cancellationToken).ConfigureAwait(false);
 			ConformanceAssert.Equal(JobState.Pending, job.State, FieldsName, "a complete-trigger edge must release the recovery record");
 			ConformanceAssert.Equal(0, job.RemainingDependencies, FieldsName, "the released record must have no remaining dependencies");
 			ConformanceAssert.Equal(1, job.FailedDependencies, FieldsName, "the released record must retain its failed dependency count");
@@ -376,7 +376,7 @@ internal static class ReplicaStorageConformance
 
 		var active = ConformanceAssert.NotNull(
 			(await replica.AcquireJobsAsync(
-				[job.JobId],
+				[job.JobHandle],
 				"fields-worker",
 				TimeSpan.FromMinutes(1),
 				cancellationToken
@@ -390,7 +390,7 @@ internal static class ReplicaStorageConformance
 		ConformanceAssert.Equal(job.RecurringKey, active.RecurringKey, FieldsName, "replica acquisition must preserve recurring identity");
 		ConformanceAssert.Equal(job.TraceParent, active.TraceParent, FieldsName, "replica acquisition must preserve trace parent");
 		ConformanceAssert.Equal(job.TraceState, active.TraceState, FieldsName, "replica acquisition must preserve trace state");
-		ConformanceAssert.Equal(job.BatchId, active.BatchId, FieldsName, "replica acquisition must preserve graph batch identity");
+		ConformanceAssert.Equal(job.BatchHandle, active.BatchHandle, FieldsName, "replica acquisition must preserve graph batch identity");
 		ConformanceAssert.Equal(
 			job.RemainingDependencies,
 			active.RemainingDependencies,
@@ -416,7 +416,7 @@ internal static class ReplicaStorageConformance
 		new()
 		{
 			QueueName = QueueName,
-			JobId = JobHandle.FromString(id),
+			JobHandle = JobHandle.FromString(id),
 			JobName = JobName,
 			Payload = "{\"source\":\"replica-conformance\"}",
 			State = JobState.Pending,
@@ -431,7 +431,7 @@ internal static class ReplicaStorageConformance
 		CancellationToken cancellationToken
 	)
 	{
-		var jobs = await storage.QueryJobsAsync(new() { JobId = JobHandle.FromString(id), Take = 10 }, cancellationToken).ConfigureAwait(false);
+		var jobs = await storage.QueryJobsAsync(new() { JobHandle = JobHandle.FromString(id), Take = 10 }, cancellationToken).ConfigureAwait(false);
 		return ConformanceAssert.NotNull(
 			jobs.SingleOrDefault(),
 			caseName,
@@ -445,7 +445,7 @@ internal static class ReplicaStorageConformance
 		JobHandle id,
 		string caseName,
 		CancellationToken cancellationToken
-	) => GetJobAsync(storage, id.JobId, caseName, cancellationToken);
+	) => GetJobAsync(storage, id.Value, caseName, cancellationToken);
 
 	private static void AssertAcquired(
 		JobRecord expected,
@@ -455,7 +455,7 @@ internal static class ReplicaStorageConformance
 		string caseName
 	)
 	{
-		ConformanceAssert.Equal(expected.JobId, actual.JobId, caseName, "exact acquisition must preserve the requested id");
+		ConformanceAssert.Equal(expected.JobHandle, actual.JobHandle, caseName, "exact acquisition must preserve the requested id");
 		ConformanceAssert.Equal(expected.QueueName, actual.QueueName, caseName, "exact acquisition must preserve the queue");
 		ConformanceAssert.Equal(expected.JobName, actual.JobName, caseName, "exact acquisition must preserve the job name");
 		ConformanceAssert.Equal(expected.Payload, actual.Payload, caseName, "exact acquisition must preserve the payload");

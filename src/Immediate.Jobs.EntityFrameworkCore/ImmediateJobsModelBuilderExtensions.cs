@@ -28,8 +28,8 @@ public static class ImmediateJobsModelBuilderExtensions
 	private static void ConfigureExecutions(EntityTypeBuilder<ImmediateJobExecutionEntity> entity, string? schema)
 	{
 		_ = entity.ToTable("immediate_job_executions", schema);
-		_ = entity.HasKey(execution => new { execution.JobId, execution.Attempt });
-		_ = entity.Property(execution => execution.JobId).HasMaxLength(256);
+		_ = entity.HasKey(execution => new { execution.JobHandle, execution.Attempt });
+		_ = entity.Property(execution => execution.JobHandle).HasMaxLength(256);
 		_ = entity.Property(execution => execution.State).HasConversion<short>();
 		_ = entity.Property(execution => execution.WorkerId).HasMaxLength(256);
 		_ = entity.Property(execution => execution.AcquiredAt).HasConversion(
@@ -49,7 +49,7 @@ public static class ImmediateJobsModelBuilderExtensions
 		_ = entity.Property(execution => execution.IsSynthetic).HasDefaultValue(value: false);
 		_ = entity.HasOne<ImmediateJobEntity>()
 			.WithMany()
-			.HasForeignKey(execution => execution.JobId)
+			.HasForeignKey(execution => execution.JobHandle)
 			.OnDelete(DeleteBehavior.Cascade);
 	}
 
@@ -111,14 +111,14 @@ public static class ImmediateJobsModelBuilderExtensions
 		_ = entity.Property(job => job.TraceParent).HasMaxLength(256);
 		_ = entity.Property(job => job.ExecutionTraceId).HasMaxLength(32);
 		_ = entity.Property(job => job.ExecutionSpanId).HasMaxLength(16);
-		_ = entity.Property(job => job.BatchId).HasMaxLength(256);
+		_ = entity.Property(job => job.BatchHandle).HasMaxLength(256);
 		_ = entity.Property(job => job.ConcurrencyStamp).IsConcurrencyToken();
 		_ = entity.HasOne<ImmediateJobBatchEntity>()
 			.WithMany()
-			.HasForeignKey(job => job.BatchId)
+			.HasForeignKey(job => job.BatchHandle)
 			.OnDelete(DeleteBehavior.Cascade);
 		_ = entity.HasIndex(job => job.RecurringKey).IsUnique();
-		_ = entity.HasIndex(job => job.BatchId);
+		_ = entity.HasIndex(job => job.BatchHandle);
 		_ = entity.HasIndex(job => new { job.State, job.DueAt });
 		_ = entity.HasIndex(job => new { job.State, job.CreatedAt });
 		_ = entity.HasIndex(job => new { job.QueueName, job.State, job.DueAt, job.CreatedAt });
@@ -143,8 +143,8 @@ public static class ImmediateJobsModelBuilderExtensions
 	)
 	{
 		_ = entity.ToTable("immediate_job_continuations", schema);
-		_ = entity.HasKey(edge => new { edge.ChildJobId, edge.ParentKind, edge.ParentId });
-		_ = entity.Property(edge => edge.ChildJobId).HasMaxLength(256);
+		_ = entity.HasKey(edge => new { edge.ChildJobHandle, edge.ParentKind, edge.ParentId });
+		_ = entity.Property(edge => edge.ChildJobHandle).HasMaxLength(256);
 		_ = entity.Property(edge => edge.ParentKind).HasConversion<short>();
 		_ = entity.Property(edge => edge.ParentId).HasMaxLength(256);
 		_ = entity.Property(edge => edge.Delay).HasMaxLength(32);
@@ -152,7 +152,7 @@ public static class ImmediateJobsModelBuilderExtensions
 		_ = entity.Property(edge => edge.ParentOutcome).HasConversion<short>();
 		_ = entity.HasOne<ImmediateJobEntity>()
 			.WithMany()
-			.HasForeignKey(edge => edge.ChildJobId)
+			.HasForeignKey(edge => edge.ChildJobHandle)
 			.OnDelete(DeleteBehavior.Cascade);
 		_ = entity.HasIndex(edge => new { edge.ParentKind, edge.ParentId });
 	}
@@ -243,7 +243,7 @@ internal sealed class ImmediateJobEntity
 	public string? ExecutionTraceId { get; set; }
 	public string? ExecutionSpanId { get; set; }
 	public DateTimeOffset? ExecutionStartedAt { get; set; }
-	public string? BatchId { get; set; }
+	public string? BatchHandle { get; set; }
 	public int RemainingDependencies { get; set; }
 	public int FailedDependencies { get; set; }
 	public Guid ConcurrencyStamp { get; set; }
@@ -251,7 +251,7 @@ internal sealed class ImmediateJobEntity
 
 internal sealed class ImmediateJobExecutionEntity
 {
-	public string JobId { get; set; } = null!;
+	public string JobHandle { get; set; } = null!;
 	public int Attempt { get; set; }
 	public JobExecutionState State { get; set; }
 	public string? WorkerId { get; set; }
@@ -274,7 +274,7 @@ internal sealed class ImmediateFairQueueGroupEntity
 
 internal sealed class ImmediateJobContinuationEntity
 {
-	public string ChildJobId { get; set; } = null!;
+	public string ChildJobHandle { get; set; } = null!;
 	public ContinuationParentKind ParentKind { get; set; }
 	public string ParentId { get; set; } = null!;
 	public long Delay { get; set; }

@@ -518,16 +518,16 @@ public abstract class JobScheduler<TPayload>(
 		var edges = parents
 			.Select(parent => new JobContinuationEdge
 			{
-				ChildJobId = waiting.JobId,
-				ParentJobId = parent as JobHandle,
-				ParentBatchId = parent as BatchHandle,
+				ChildJobHandle = waiting.JobHandle,
+				ParentJobHandle = parent as JobHandle,
+				ParentBatchHandle = parent as BatchHandle,
 				Trigger = on,
 				Delay = delay,
 			});
 
 		await graphStorage.EnqueueContinuationAsync(waiting, [.. edges], cancellationToken).ConfigureAwait(false);
 		JobTelemetry.Enqueued(JobName, QueueName);
-		return waiting.JobId;
+		return waiting.JobHandle;
 	}
 
 	private async ValueTask<JobHandle> ScheduleJobAsync(
@@ -571,7 +571,7 @@ public abstract class JobScheduler<TPayload>(
 
 		await Storage.EnqueueAsync(record, cancellationToken).ConfigureAwait(false);
 		JobTelemetry.Enqueued(JobName, QueueName);
-		return record.JobId;
+		return record.JobHandle;
 	}
 
 	private BatchJobHandle ScheduleBatchJob(
@@ -681,18 +681,18 @@ public abstract class JobScheduler<TPayload>(
 	)
 	{
 		ArgumentNullException.ThrowIfNull(currentJob);
-		if (currentJob.BatchId is null)
+		if (currentJob.BatchHandle is null)
 			ArgumentException.Throw(nameof(currentJob), "The current job does not belong to a batch.");
 		if (options == ContinuationOptions.Detached)
 			ArgumentException.Throw(nameof(options), "A job added to the current batch cannot be detached.");
 
 		var graphStorage = JobStorageCapabilityGuards.RequireGraph(Storage);
 		var state = runAt == now ? JobState.Pending : JobState.Scheduled;
-		var record = CreateRecord(payload, state, runAt, now, groupId) with { BatchId = currentJob.BatchId };
+		var record = CreateRecord(payload, state, runAt, now, groupId) with { BatchHandle = currentJob.BatchHandle };
 
-		await graphStorage.AddBatchJobAsync(currentJob.JobId, currentJob.Attempt, record, options, cancellationToken).ConfigureAwait(false);
+		await graphStorage.AddBatchJobAsync(currentJob.JobHandle, currentJob.Attempt, record, options, cancellationToken).ConfigureAwait(false);
 		JobTelemetry.Enqueued(JobName, QueueName);
-		return record.JobId;
+		return record.JobHandle;
 	}
 
 	private JobHandle ScheduleAfterCurrentJobCore(
@@ -706,7 +706,7 @@ public abstract class JobScheduler<TPayload>(
 		ArgumentNullException.ThrowIfNull(currentJob);
 		if (currentJob.Buffer is null)
 			ArgumentException.Throw(nameof(currentJob), "JobDetails can schedule work only during its active execution attempt.");
-		if (options != ContinuationOptions.Detached && currentJob.BatchId is null)
+		if (options != ContinuationOptions.Detached && currentJob.BatchHandle is null)
 			ArgumentException.Throw(nameof(currentJob), "The current job does not belong to a batch; only Detached scheduling is valid.");
 
 		if (delay < TimeSpan.Zero)
@@ -717,7 +717,7 @@ public abstract class JobScheduler<TPayload>(
 		var now = TimeProvider.GetUtcNow();
 		var record = CreateRecord(payload, delay == TimeSpan.Zero ? JobState.Pending : JobState.Scheduled, runAt: now, now, groupId);
 		if (options != ContinuationOptions.Detached)
-			record = record with { BatchId = currentJob.BatchId };
+			record = record with { BatchHandle = currentJob.BatchHandle };
 
 		currentJob.Buffer.Add(
 			new JobContinuationAddition
@@ -729,7 +729,7 @@ public abstract class JobScheduler<TPayload>(
 		);
 
 		JobTelemetry.Enqueued(JobName, QueueName);
-		return record.JobId;
+		return record.JobHandle;
 	}
 
 	private JobRecord CreateRecord(TPayload payload, JobState state, DateTimeOffset runAt, DateTimeOffset now, string? groupId = null)
@@ -739,7 +739,7 @@ public abstract class JobScheduler<TPayload>(
 
 		return new JobRecord
 		{
-			JobId = JobHandle.FromString(idGenerator.CreateId(IdKind.Job)),
+			JobHandle = JobHandle.FromString(idGenerator.CreateId(IdKind.Job)),
 			JobName = JobName,
 			QueueName = QueueName,
 			GroupId = NormalizeGroupId(groupId),

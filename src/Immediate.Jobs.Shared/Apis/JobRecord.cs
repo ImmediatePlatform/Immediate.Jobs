@@ -16,7 +16,7 @@ public sealed record JobRecord
 	/// <summary>
 	/// 	The unique opaque invocation identifier.
 	/// </summary>
-	public required JobHandle JobId { get; init; }
+	public required JobHandle JobHandle { get; init; }
 
 	/// <summary>
 	/// 	The generated stable job name.
@@ -113,7 +113,7 @@ public sealed record JobRecord
 	/// <summary>
 	/// 	The identifier of the batch containing this invocation, if any.
 	/// </summary>
-	public BatchHandle? BatchId { get; init; }
+	public BatchHandle? BatchHandle { get; init; }
 
 	/// <summary>
 	/// 	Number of incoming continuation dependencies not yet satisfied.

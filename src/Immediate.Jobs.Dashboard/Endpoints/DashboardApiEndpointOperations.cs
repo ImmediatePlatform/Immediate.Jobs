@@ -65,19 +65,19 @@ internal static class DashboardApiEndpointOperations
 	};
 
 	internal static async ValueTask<IReadOnlyList<JobTelemetryLink>?> GetJobTelemetryLinksAsync(
-		JobHandle jobId,
+		JobHandle jobHandle,
 		int? executionNumber,
 		JobMonitor monitor,
 		ImmediateJobsDashboardOptions options,
 		CancellationToken cancellationToken
 	)
 	{
-		var job = await monitor.GetJobAsync(jobId, cancellationToken);
+		var job = await monitor.GetJobAsync(jobHandle, cancellationToken);
 		if (job is null)
 			return null;
 
 		var executions = await monitor.QueryExecutionsAsync(
-			jobId,
+			jobHandle,
 			new() { Attempt = executionNumber, Take = 1 },
 			cancellationToken
 		);
@@ -91,7 +91,7 @@ internal static class DashboardApiEndpointOperations
 
 		var contextJob = new JobRecord
 		{
-			JobId = job.JobId,
+			JobHandle = job.JobHandle,
 			JobName = job.JobName,
 			QueueName = job.QueueName,
 			Payload = string.Empty,
@@ -101,7 +101,7 @@ internal static class DashboardApiEndpointOperations
 			CreatedAt = job.CreatedAt,
 			CompletedAt = job.CompletedAt,
 			LastError = job.LastError,
-			BatchId = job.BatchId,
+			BatchHandle = job.BatchHandle,
 			ExecutionTraceId = telemetryExecution?.ExecutionTraceId,
 			ExecutionSpanId = telemetryExecution?.ExecutionSpanId,
 			ExecutionStartedAt = telemetryExecution?.ExecutionStartedAt,
@@ -204,14 +204,14 @@ internal static class DashboardApiEndpointOperations
 
 	internal static async Task StreamBatchEventsAsync(
 		HttpContext context,
-		string batchId,
+		string batchHandle,
 		JobMonitor monitor,
 		TimeProvider timeProvider,
 		TimeSpan interval,
 		CancellationToken cancellationToken
 	)
 	{
-		var status = await monitor.GetBatchAsync(BatchHandle.FromString(batchId), cancellationToken);
+		var status = await monitor.GetBatchAsync(BatchHandle.FromString(batchHandle), cancellationToken);
 		if (status is null)
 		{
 			context.Response.StatusCode = StatusCodes.Status404NotFound;
@@ -231,8 +231,8 @@ internal static class DashboardApiEndpointOperations
 
 			while (!cancellationToken.IsCancellationRequested)
 			{
-				status = await monitor.GetBatchAsync(BatchHandle.FromString(batchId), cancellationToken);
-				var graph = await monitor.GetBatchGraphAsync(BatchHandle.FromString(batchId), cancellationToken);
+				status = await monitor.GetBatchAsync(BatchHandle.FromString(batchHandle), cancellationToken);
+				var graph = await monitor.GetBatchGraphAsync(BatchHandle.FromString(batchHandle), cancellationToken);
 				if (status is null || graph is null)
 					break;
 

@@ -8,7 +8,7 @@ using Microsoft.AspNetCore.Http.HttpResults;
 namespace Immediate.Jobs.Dashboard.Endpoints;
 
 [Handler]
-[MapGet("batches/{batchId}/graph")]
+[MapGet("batches/{batchHandle}/graph")]
 [MapGroup<DashboardApi>]
 internal static partial class GetDashboardBatchGraph
 {
@@ -16,7 +16,7 @@ internal static partial class GetDashboardBatchGraph
 	internal sealed partial record Query : IValidationTarget<Query>
 	{
 		[NotEmpty]
-		public required string BatchId { get; init; }
+		public required string BatchHandle { get; init; }
 	}
 
 	internal static Results<JsonHttpResult<BatchGraph>, NotFound> TransformResult(BatchGraph? result) =>
@@ -30,6 +30,6 @@ internal static partial class GetDashboardBatchGraph
 		CancellationToken cancellationToken
 	)
 	{
-		return await monitor.GetBatchGraphAsync(BatchHandle.FromString(query.BatchId), cancellationToken);
+		return await monitor.GetBatchGraphAsync(BatchHandle.FromString(query.BatchHandle), cancellationToken);
 	}
 }

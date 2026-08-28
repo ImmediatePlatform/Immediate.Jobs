@@ -8,7 +8,7 @@ using Microsoft.AspNetCore.Http.HttpResults;
 namespace Immediate.Jobs.Dashboard.Endpoints;
 
 [Handler]
-[MapGet("jobs/{jobId}/executions")]
+[MapGet("jobs/{jobHandle}/executions")]
 [MapGroup<DashboardApi>]
 internal static partial class GetDashboardJobExecutions
 {
@@ -16,7 +16,7 @@ internal static partial class GetDashboardJobExecutions
 	internal sealed partial record Query : IValidationTarget<Query>
 	{
 		[NotEmpty]
-		public required string JobId { get; init; }
+		public required string JobHandle { get; init; }
 
 		[GreaterThanOrEqual(0)]
 		public int? Skip { get; init; }
@@ -40,14 +40,14 @@ internal static partial class GetDashboardJobExecutions
 		var pageStart = query.Skip ?? 0;
 		var pageSize = Math.Min(query.Take ?? 50, 200);
 		var jobs = await monitor.QueryJobsAsync(
-			new() { JobId = JobHandle.FromString(query.JobId), Take = 1 },
+			new() { JobHandle = JobHandle.FromString(query.JobHandle), Take = 1 },
 			cancellationToken
 		);
 		if (jobs.Count == 0)
 			return null;
 
 		var executions = await monitor.QueryExecutionsAsync(
-			JobHandle.FromString(query.JobId),
+			JobHandle.FromString(query.JobHandle),
 			new()
 			{
 				Skip = pageStart,

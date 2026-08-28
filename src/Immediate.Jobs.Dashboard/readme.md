@@ -70,21 +70,21 @@ Job search and filters are paged on the server in groups of 50. Batch members li
 
 ## Identifier fields
 
-Dashboard JSON uses `jobId` for job records and `batchId` for batch records. Their values remain opaque JSON strings.
+Dashboard JSON uses `jobHandle` for job records and `batchHandle` for batch records. Their values remain opaque JSON strings.
 The .NET monitoring APIs use `JobHandle` and `BatchHandle` so a job ID cannot be passed to a batch operation by mistake:
 
 ```csharp
 var job = await monitor.GetJobAsync(
-	JobHandle.FromString(jobId),
+	JobHandle.FromString(jobHandle),
 	cancellationToken);
 
 var batch = await monitor.GetBatchAsync(
-	BatchHandle.FromString(batchId),
+	BatchHandle.FromString(batchHandle),
 	cancellationToken);
 ```
 
 The handle converters keep the HTTP representation string-based. In .NET, first take the handle from the record, then
-read its `.JobId` or `.BatchId` string when building a route or an external-system query.
+read its `.JobHandle` or `.BatchHandle` string when building a route or an external-system query.
 
 ## Telemetry links
 
@@ -111,10 +111,10 @@ builder.Services.AddMyAppJobs()
 		JobTelemetryLinkKind.Logs,
 		context =>
 		{
-			var jobHandle = context.Job.JobId;
+			var jobHandle = context.Job.JobHandle;
 			return context.Execution is { } execution
 				? new(logExplorer,
-					$"search?jobId={Uri.EscapeDataString(jobHandle.JobId)}&attempt={execution.Attempt}")
+					$"search?jobHandle={Uri.EscapeDataString(jobHandle.JobHandle)}&attempt={execution.Attempt}")
 				: null;
 		})
 	.AddTelemetryLink(
@@ -122,9 +122,9 @@ builder.Services.AddMyAppJobs()
 		JobTelemetryLinkKind.Logs,
 		context =>
 		{
-			var jobHandle = context.Job.JobId;
+			var jobHandle = context.Job.JobHandle;
 			return context.Execution is null
-				? new(logExplorer, $"search?jobId={Uri.EscapeDataString(jobHandle.JobId)}")
+				? new(logExplorer, $"search?jobHandle={Uri.EscapeDataString(jobHandle.JobHandle)}")
 				: null;
 		});
 ```

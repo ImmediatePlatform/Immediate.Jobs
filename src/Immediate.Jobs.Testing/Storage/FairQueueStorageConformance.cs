@@ -59,13 +59,13 @@ internal static class FairQueueStorageConformance
 		var first = Single(
 			await storage.AcquireDueJobsAsync(CreateRequest("rotation-worker-a", 1, DefaultPolicy), cancellationToken)
 				.ConfigureAwait(false), RotationName, "the first fair acquisition must claim one job");
-		await storage.CompleteAsync(first.JobId, first.Attempt, "rotation-worker-a", cancellationToken).ConfigureAwait(false);
+		await storage.CompleteAsync(first.JobHandle, first.Attempt, "rotation-worker-a", cancellationToken).ConfigureAwait(false);
 		await EnqueueAsync(storage, clock, "rotation-b-1", 2, "group-b", cancellationToken).ConfigureAwait(false);
 		var second = Single(
 			await storage.AcquireDueJobsAsync(CreateRequest("rotation-worker-b", 1, DefaultPolicy), cancellationToken)
 				.ConfigureAwait(false), RotationName, "the second fair acquisition must claim one job");
-		ConformanceAssert.Equal("rotation-a-1", first.JobId.JobId, RotationName, "ordinary due order selects the first group initially");
-		ConformanceAssert.Equal("rotation-b-1", second.JobId.JobId, RotationName,
+		ConformanceAssert.Equal("rotation-a-1", first.JobHandle.Value, RotationName, "ordinary due order selects the first group initially");
+		ConformanceAssert.Equal("rotation-b-1", second.JobHandle.Value, RotationName,
 			"a newly arrived group must advance ahead of previously served backlog");
 
 		const string ExistingJobName = "fair-existing-groups";
@@ -83,7 +83,7 @@ internal static class FairQueueStorageConformance
 			RotationName,
 			"capacity-one fair acquisition must claim one existing-group job"
 		);
-		await storage.CompleteAsync(existingFirst.JobId, existingFirst.Attempt, "existing-worker-a", cancellationToken)
+		await storage.CompleteAsync(existingFirst.JobHandle, existingFirst.Attempt, "existing-worker-a", cancellationToken)
 			.ConfigureAwait(false);
 		var existingSecond = Single(
 			await storage.AcquireDueJobsAsync(
@@ -95,7 +95,7 @@ internal static class FairQueueStorageConformance
 		);
 		ConformanceAssert.SequenceEqual(
 			["existing-a-1", "existing-b-1"],
-			[existingFirst.JobId.JobId, existingSecond.JobId.JobId],
+			[existingFirst.JobHandle.Value, existingSecond.JobHandle.Value],
 			RotationName,
 			"capacity-one acquisitions must rotate across existing grouped backlogs"
 		);
@@ -115,7 +115,7 @@ internal static class FairQueueStorageConformance
 			RotationName,
 			"returning-group setup must claim its first job"
 		);
-		await storage.CompleteAsync(returningFirst.JobId, returningFirst.Attempt, "returning-worker-a", cancellationToken)
+		await storage.CompleteAsync(returningFirst.JobHandle, returningFirst.Attempt, "returning-worker-a", cancellationToken)
 			.ConfigureAwait(false);
 		var returningSecond = Single(
 			await storage.AcquireDueJobsAsync(
@@ -125,7 +125,7 @@ internal static class FairQueueStorageConformance
 			RotationName,
 			"returning-group setup must rotate to the second group"
 		);
-		await storage.CompleteAsync(returningSecond.JobId, returningSecond.Attempt, "returning-worker-b", cancellationToken)
+		await storage.CompleteAsync(returningSecond.JobHandle, returningSecond.Attempt, "returning-worker-b", cancellationToken)
 			.ConfigureAwait(false);
 		await EnqueueAsync(storage, clock, "returning-b-2", 9, "returning-b", cancellationToken, ReturningJobName)
 			.ConfigureAwait(false);
@@ -139,7 +139,7 @@ internal static class FairQueueStorageConformance
 		);
 		ConformanceAssert.Equal(
 			"returning-b-2",
-			returned.JobId.JobId,
+			returned.JobHandle.Value,
 			RotationName,
 			"a cleared group must return without historical cursor debt"
 		);
@@ -161,7 +161,7 @@ internal static class FairQueueStorageConformance
 			CreateRequest("interleave-worker", 4, DefaultPolicy), cancellationToken).ConfigureAwait(false);
 		ConformanceAssert.SequenceEqual(
 			["interleave-a-1", "interleave-b-1", "interleave-a-2", "interleave-b-2"],
-			acquired.Select(static job => job.JobId.JobId),
+			acquired.Select(static job => job.JobHandle.Value),
 			InterleaveName,
 			"one fair acquisition must rotate among grouped backlogs",
 			comparer: StringComparer.Ordinal
@@ -194,7 +194,7 @@ internal static class FairQueueStorageConformance
 			NoisyName,
 			"the noisy-neighbor acquisition must claim one job"
 		);
-		ConformanceAssert.Equal("quiet-waiting", acquired.JobId.JobId, NoisyName,
+		ConformanceAssert.Equal("quiet-waiting", acquired.JobHandle.Value, NoisyName,
 			"a quiet group must be served before a group exceeding the in-flight threshold");
 	}
 
@@ -230,7 +230,7 @@ internal static class FairQueueStorageConformance
 			ExpiredName,
 			"the post-expiry acquisition must claim one job"
 		);
-		ConformanceAssert.Equal("formerly-noisy-waiting", acquired.JobId.JobId, ExpiredName,
+		ConformanceAssert.Equal("formerly-noisy-waiting", acquired.JobHandle.Value, ExpiredName,
 			"expired leases must not contribute to noisy-group classification");
 	}
 
@@ -248,13 +248,13 @@ internal static class FairQueueStorageConformance
 		var first = Single(
 			await storage.AcquireDueJobsAsync(CreateRequest("ordinary-worker-a", 1, policy: null), cancellationToken)
 				.ConfigureAwait(false), OrdinaryName, "ordinary acquisition must claim one job");
-		await storage.CompleteAsync(first.JobId, first.Attempt, "ordinary-worker-a", cancellationToken).ConfigureAwait(false);
+		await storage.CompleteAsync(first.JobHandle, first.Attempt, "ordinary-worker-a", cancellationToken).ConfigureAwait(false);
 		var second = Single(
 			await storage.AcquireDueJobsAsync(CreateRequest("ordinary-worker-b", 1, policy: null), cancellationToken)
 				.ConfigureAwait(false), OrdinaryName, "second ordinary acquisition must claim one job");
 		ConformanceAssert.SequenceEqual(
 			["ordinary-a-1", "ordinary-a-2"],
-			[first.JobId.JobId, second.JobId.JobId],
+			[first.JobHandle.Value, second.JobHandle.Value],
 			OrdinaryName,
 			"a null fair policy must retain ordinary due ordering",
 			comparer: StringComparer.Ordinal
@@ -273,7 +273,7 @@ internal static class FairQueueStorageConformance
 		).ConfigureAwait(false);
 		ConformanceAssert.SequenceEqual(
 			["ungrouped-oldest", "ungrouped-middle", "ungrouped-newer"],
-			ungrouped.Select(static job => job.JobId.JobId),
+			ungrouped.Select(static job => job.JobHandle.Value),
 			OrdinaryName,
 			"enabling fair queues must preserve due order for ungrouped jobs"
 		);
@@ -293,7 +293,7 @@ internal static class FairQueueStorageConformance
 			OrdinaryName,
 			"round-robin setup must claim one job"
 		);
-		await storage.CompleteAsync(roundRobinFirst.JobId, roundRobinFirst.Attempt, "no-rr-worker-a", cancellationToken)
+		await storage.CompleteAsync(roundRobinFirst.JobHandle, roundRobinFirst.Attempt, "no-rr-worker-a", cancellationToken)
 			.ConfigureAwait(false);
 		var roundRobinDisabled = Single(
 			await storage.AcquireDueJobsAsync(
@@ -310,7 +310,7 @@ internal static class FairQueueStorageConformance
 		);
 		ConformanceAssert.Equal(
 			"no-rr-a-2",
-			roundRobinDisabled.JobId.JobId,
+			roundRobinDisabled.JobHandle.Value,
 			OrdinaryName,
 			"disabling group round-robin must restore ordinary due order"
 		);
@@ -345,7 +345,7 @@ internal static class FairQueueStorageConformance
 		}, cancellationToken).ConfigureAwait(false);
 		ConformanceAssert.SequenceEqual(
 			["capacity-ungrouped-limited", "capacity-other-1"],
-			capacityLimited.Select(static job => job.JobId.JobId),
+			capacityLimited.Select(static job => job.JobHandle.Value),
 			OrdinaryName,
 			"fair acquisition must preserve ungrouped priority while honoring queue and job capacities"
 		);
@@ -376,7 +376,7 @@ internal static class FairQueueStorageConformance
 			storage.AcquireDueJobsAsync(CreateRequest("concurrent-worker-a", 12, DefaultPolicy), cancellationToken).AsTask(),
 			storage.AcquireDueJobsAsync(CreateRequest("concurrent-worker-b", 12, DefaultPolicy), cancellationToken).AsTask()
 		).ConfigureAwait(false);
-		var ids = claims.SelectMany(static jobs => jobs).Select(static job => job.JobId.JobId).ToArray();
+		var ids = claims.SelectMany(static jobs => jobs).Select(static job => job.JobHandle.Value).ToArray();
 		ConformanceAssert.Equal(ids.Length, ids.Distinct(StringComparer.Ordinal).Count(), ConcurrencyName,
 			"concurrent fair acquisitions must never claim the same job twice");
 
@@ -384,7 +384,7 @@ internal static class FairQueueStorageConformance
 			CreateRequest("concurrent-drain-worker", 12, DefaultPolicy),
 			cancellationToken
 		).ConfigureAwait(false);
-		var allIds = ids.Concat(remaining.Select(static job => job.JobId.JobId)).ToArray();
+		var allIds = ids.Concat(remaining.Select(static job => job.JobHandle.Value)).ToArray();
 		ConformanceAssert.Equal(12, allIds.Length, ConcurrencyName,
 			"every eligible job must remain claimable after concurrent acquisition contention");
 		ConformanceAssert.Equal(12, allIds.Distinct(StringComparer.Ordinal).Count(), ConcurrencyName,
@@ -431,7 +431,7 @@ internal static class FairQueueStorageConformance
 		string jobName = "fair-job"
 	) => storage.EnqueueAsync(new()
 	{
-		JobId = JobHandle.FromString(id),
+		JobHandle = JobHandle.FromString(id),
 		JobName = jobName,
 		Payload = "{}",
 		GroupId = groupId,
@@ -448,7 +448,7 @@ internal static class FairQueueStorageConformance
 
 	private static string DefaultQueueName { get; } = new JobRecord
 	{
-		JobId = JobHandle.FromString("default-queue-probe"),
+		JobHandle = JobHandle.FromString("default-queue-probe"),
 		JobName = "default-queue-probe",
 		Payload = "{}",
 		State = JobState.Pending,

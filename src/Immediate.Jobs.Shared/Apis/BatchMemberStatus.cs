@@ -8,7 +8,7 @@ public sealed record BatchMemberStatus
 	/// <summary>
 	/// 	The invocation identifier.
 	/// </summary>
-	public required JobHandle JobId { get; init; }
+	public required JobHandle JobHandle { get; init; }
 
 	/// <summary>
 	/// 	The stable job name.

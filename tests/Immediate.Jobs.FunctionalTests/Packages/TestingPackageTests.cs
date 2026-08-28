@@ -31,7 +31,7 @@ public sealed class TestingPackageTests
 		);
 
 		var capture = Assert.Single(harness.Captures.Jobs);
-		Assert.Equal(id, capture.JobId);
+		Assert.Equal(id, capture.JobHandle);
 		Assert.Equal("tenant-a", capture.GroupId);
 		Assert.Equal(capture, harness.Captures.FindJob(id));
 		Assert.Equal(capture, await harness.GetJobAsync(id, TestContext.Current.CancellationToken));
@@ -164,7 +164,7 @@ public sealed class TestingPackageTests
 		await graphStorage.EnqueueAsync(parent, cancellationToken);
 		await graphStorage.EnqueueContinuationAsync(
 			child,
-			[new() { ChildJobId = child.JobId, ParentJobId = parent.JobId, Delay = TimeSpan.Zero }],
+			[new() { ChildJobHandle = child.JobHandle, ParentJobHandle = parent.JobHandle, Delay = TimeSpan.Zero }],
 			cancellationToken
 		);
 		_ = Assert.Single(await graphStorage.AcquireDueJobsAsync(new()
@@ -182,12 +182,12 @@ public sealed class TestingPackageTests
 				},
 			],
 		}, cancellationToken));
-		await graphStorage.FailAsync(parent.JobId, 1, "worker", "broken", nextRetryAt: null, cancellationToken);
+		await graphStorage.FailAsync(parent.JobHandle, 1, "worker", "broken", nextRetryAt: null, cancellationToken);
 
 		var exception = await Assert.ThrowsAsync<JobTestAssertionException>(
 			() => harness.AssertContinuationReleasedAfterAsync(
-				parent.JobId,
-				child.JobId,
+				parent.JobHandle,
+				child.JobHandle,
 				cancellationToken
 			).AsTask()
 		);
@@ -204,7 +204,7 @@ public sealed class TestingPackageTests
 	private static JobRecord CreateRawJob(string id) =>
 		new()
 		{
-			JobId = JobHandle.FromString(id),
+			JobHandle = JobHandle.FromString(id),
 			JobName = "raw-job",
 			Payload = "{}",
 			State = JobState.Pending,

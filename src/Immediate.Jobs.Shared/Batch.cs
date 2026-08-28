@@ -48,22 +48,22 @@ public sealed class Batch : IAsyncDisposable
 		_timeProvider = timeProvider;
 		_parents = parents;
 		_trigger = trigger;
-		BatchId = new() { BatchId = idGenerator.CreateId(IdKind.Batch) };
+		BatchHandle = new() { Value = idGenerator.CreateId(IdKind.Batch) };
 	}
 
 	/// <summary>
 	/// 	The identifier assigned to the batch.
 	/// </summary>
-	public BatchHandle BatchId { get; }
+	public BatchHandle BatchHandle { get; }
 
 	internal BatchJobHandle Add(JobRecord record)
 	{
 		EnsureOpenCore();
 
-		_jobs.Add(record with { BatchId = BatchId });
-		_rootJobs.Add(record.JobId);
+		_jobs.Add(record with { BatchHandle = BatchHandle });
+		_rootJobs.Add(record.JobHandle);
 
-		return new BatchJobHandle(batch: this, record.JobId);
+		return new BatchJobHandle(batch: this, record.JobHandle);
 	}
 
 	internal BatchJobHandle Add(JobRecord record, IReadOnlyList<BatchJobHandle> parents, ContinuationTrigger on, TimeSpan delay)
@@ -75,13 +75,13 @@ public sealed class Batch : IAsyncDisposable
 		{
 			if (!ReferenceEquals(parent.Batch, this))
 				throw new ImmediateJobException("Continuation handles must belong to the same open batch.");
-			if (!parentIds.Add(parent.RawJobId))
-				throw new ImmediateJobException($"Duplicate continuation parent '{parent.RawJobId.JobId}'.");
+			if (!parentIds.Add(parent.RawJobHandle))
+				throw new ImmediateJobException($"Duplicate continuation parent '{parent.RawJobHandle.Value}'.");
 		}
 
 		_jobs.Add(record with
 		{
-			BatchId = BatchId,
+			BatchHandle = BatchHandle,
 			State = JobState.AwaitingContinuation,
 			RemainingDependencies = parentIds.Count,
 		});
@@ -90,14 +90,14 @@ public sealed class Batch : IAsyncDisposable
 		{
 			_edges.Add(new()
 			{
-				ChildJobId = record.JobId,
-				ParentJobId = parent.RawJobId,
+				ChildJobHandle = record.JobHandle,
+				ParentJobHandle = parent.RawJobHandle,
 				Trigger = on,
 				Delay = delay,
 			});
 		}
 
-		return new BatchJobHandle(batch: this, record.JobId);
+		return new BatchJobHandle(batch: this, record.JobHandle);
 	}
 
 	/// <summary>
@@ -120,7 +120,7 @@ public sealed class Batch : IAsyncDisposable
 		{
 			foreach (ref var job in CollectionsMarshal.AsSpan(_jobs))
 			{
-				if (!_rootJobs.Contains(job.JobId))
+				if (!_rootJobs.Contains(job.JobHandle))
 					continue;
 
 				job = job with
@@ -133,8 +133,8 @@ public sealed class Batch : IAsyncDisposable
 				{
 					_edges.Add(new JobContinuationEdge
 					{
-						ChildJobId = job.JobId,
-						ParentBatchId = parentBatch,
+						ChildJobHandle = job.JobHandle,
+						ParentBatchHandle = parentBatch,
 						Trigger = _trigger,
 						Delay = TimeSpan.Zero,
 					});
@@ -144,7 +144,7 @@ public sealed class Batch : IAsyncDisposable
 
 		var record = new BatchRecord
 		{
-			BatchId = BatchId,
+			BatchHandle = BatchHandle,
 			CreatedAt = _timeProvider.GetUtcNow(),
 			TotalJobs = _jobs.Count,
 			PendingCount = _jobs.Count,
@@ -158,7 +158,7 @@ public sealed class Batch : IAsyncDisposable
 			await _storage.EnqueueBatchAsync(record, _jobs, _edges, cancellationToken).ConfigureAwait(false);
 			IsCommitted = true;
 
-			return BatchId;
+			return BatchHandle;
 		}
 		finally
 		{

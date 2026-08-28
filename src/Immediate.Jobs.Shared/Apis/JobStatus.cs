@@ -8,7 +8,7 @@ public sealed record JobStatus
 	/// <summary>
 	/// 	The invocation identifier.
 	/// </summary>
-	public required JobHandle JobId { get; init; }
+	public required JobHandle JobHandle { get; init; }
 
 	/// <summary>
 	/// 	The stable job name.
@@ -58,7 +58,7 @@ public sealed record JobStatus
 	/// <summary>
 	/// 	The containing batch identifier, if any.
 	/// </summary>
-	public BatchHandle? BatchId { get; init; }
+	public BatchHandle? BatchHandle { get; init; }
 
 	/// <summary>
 	/// 	The invocation's incoming dependency edges.

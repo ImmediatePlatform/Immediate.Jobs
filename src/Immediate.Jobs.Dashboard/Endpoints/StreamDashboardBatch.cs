@@ -9,7 +9,7 @@ using Microsoft.Extensions.Options;
 namespace Immediate.Jobs.Dashboard.Endpoints;
 
 [Handler]
-[MapGet("batches/{batchId}/stream")]
+[MapGet("batches/{batchHandle}/stream")]
 [MapGroup<DashboardApi>]
 internal static partial class StreamDashboardBatch
 {
@@ -17,7 +17,7 @@ internal static partial class StreamDashboardBatch
 	internal sealed partial record Query : IValidationTarget<Query>
 	{
 		[NotEmpty]
-		public required string BatchId { get; init; }
+		public required string BatchHandle { get; init; }
 	}
 
 	internal static EmptyHttpResult TransformResult() => TypedResults.Empty;
@@ -33,7 +33,7 @@ internal static partial class StreamDashboardBatch
 	{
 		await DashboardApiEndpointOperations.StreamBatchEventsAsync(
 			httpContextAccessor.HttpContext ?? throw new InvalidOperationException("No active dashboard HTTP request was found."),
-			query.BatchId,
+			query.BatchHandle,
 			monitor,
 			timeProvider,
 			options.Value.UpdateInterval,

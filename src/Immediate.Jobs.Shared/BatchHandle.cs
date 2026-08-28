@@ -14,7 +14,7 @@ public sealed record BatchHandle : ContinuationHandle
 	/// <summary>
 	/// 	The batch identifier.
 	/// </summary>
-	public required string BatchId
+	public required string Value
 	{
 		get; init { ArgumentException.ThrowIfNullOrWhiteSpace(value); field = value; }
 	}
@@ -32,7 +32,7 @@ public sealed record BatchHandle : ContinuationHandle
 	public static BatchHandle? FromString(string? value) =>
 		value switch
 		{
-			{ } => new() { BatchId = value },
+			{ } => new() { Value = value },
 			_ => null,
 		};
 }
@@ -62,6 +62,6 @@ public sealed class BatchHandleConverter : JsonConverter<BatchHandle>
 		ArgumentNullException.ThrowIfNull(writer);
 		ArgumentNullException.ThrowIfNull(value);
 
-		writer.WriteStringValue(value.BatchId);
+		writer.WriteStringValue(value.Value);
 	}
 }

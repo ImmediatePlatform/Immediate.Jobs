@@ -129,7 +129,7 @@ public sealed class ContextPropagationTests
 
 		await harness.DrainAsync(cancellationToken);
 
-		Assert.Equal(JobState.Succeeded, (await harness.GetJobAsync(record.JobId, cancellationToken)).State);
+		Assert.Equal(JobState.Succeeded, (await harness.GetJobAsync(record.JobHandle, cancellationToken)).State);
 		Assert.Contains(probe.Events, item => item.Contains("removed-extractor", StringComparison.Ordinal));
 	}
 
@@ -142,7 +142,7 @@ public sealed class ContextPropagationTests
 		var now = harness.TimeProvider.GetUtcNow();
 		var record = new JobRecord
 		{
-			JobId = JobHandle.FromString(Guid.NewGuid().ToString("N")),
+			JobHandle = JobHandle.FromString(Guid.NewGuid().ToString("N")),
 			JobName = "record-message",
 			QueueName = "messages",
 			Payload = "{\"message\":\"orphan\"}",
@@ -155,7 +155,7 @@ public sealed class ContextPropagationTests
 
 		await harness.DrainAsync(cancellationToken);
 
-		Assert.Equal(JobState.Succeeded, (await harness.GetJobAsync(record.JobId, cancellationToken)).State);
+		Assert.Equal(JobState.Succeeded, (await harness.GetJobAsync(record.JobHandle, cancellationToken)).State);
 		Assert.Contains(probe.Events, item => item.Contains("removed-extractor", StringComparison.Ordinal));
 	}
 
@@ -174,7 +174,7 @@ public sealed class ContextPropagationTests
 		await harness.DrainAsync(cancellationToken);
 
 		Assert.Contains("handler:legacy-tenant/legacy-correlation:legacy", probe.Events);
-		Assert.Equal(JobState.Succeeded, (await harness.GetJobAsync(record.JobId, cancellationToken)).State);
+		Assert.Equal(JobState.Succeeded, (await harness.GetJobAsync(record.JobHandle, cancellationToken)).State);
 	}
 
 	[Fact]
@@ -258,10 +258,10 @@ public sealed class ContextPropagationTests
 			await harness.QueryJobsAsync(cancellationToken: cancellationToken),
 			candidate => string.Equals(candidate.JobName, "context-cron", StringComparison.Ordinal));
 
-		Assert.StartsWith("job_", job.JobId, StringComparison.Ordinal);
-		Assert.StartsWith("job_", batchJob.JobId.JobId, StringComparison.Ordinal);
-		Assert.StartsWith("batch_", batchHandle.BatchId, StringComparison.Ordinal);
-		Assert.StartsWith("job_", recurring.JobId.JobId, StringComparison.Ordinal);
+		Assert.StartsWith("job_", job.Value, StringComparison.Ordinal);
+		Assert.StartsWith("job_", batchJob.JobHandle.Value, StringComparison.Ordinal);
+		Assert.StartsWith("batch_", batchHandle.Value, StringComparison.Ordinal);
+		Assert.StartsWith("job_", recurring.JobHandle.Value, StringComparison.Ordinal);
 	}
 
 	[Fact]
@@ -327,7 +327,7 @@ public sealed class ContextPropagationTests
 	private static JobRecord CreateContextRecord(JobTestHarness harness, [StringSyntax("json")] string context) =>
 		new()
 		{
-			JobId = JobHandle.FromString(Guid.NewGuid().ToString("N")),
+			JobHandle = JobHandle.FromString(Guid.NewGuid().ToString("N")),
 			JobName = "context-round-trip",
 			Payload = "{\"message\":\"legacy\"}",
 			State = JobState.Pending,
@@ -567,7 +567,7 @@ public sealed class ScopedSchedulerConsumer(IServiceScopeFactory scopeFactory)
 		state.TenantId = "singleton-tenant";
 		state.CorrelationId = "singleton-correlation";
 		var scheduler = scope.ServiceProvider.GetRequiredService<ContextRoundTripJob.Scheduler>();
-		return (await scheduler.EnqueueAsync(new("singleton"), cancellationToken)).JobId;
+		return (await scheduler.EnqueueAsync(new("singleton"), cancellationToken)).Value;
 	}
 }
 

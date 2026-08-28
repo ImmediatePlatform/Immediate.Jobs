@@ -9,10 +9,10 @@ import { formatDate } from '@/format';
 withDefaults(defineProps<{
 	rows: BatchStatus[];
 	selectedId?: string;
-	busyBatchId?: string;
+	busyBatchHandle?: string;
 }>(), {
 	selectedId: undefined,
-	busyBatchId: undefined,
+	busyBatchHandle: undefined,
 });
 
 const emit = defineEmits<{
@@ -42,10 +42,10 @@ function width(value: number, total: number): string {
 					</tr>
 				</thead>
 				<tbody>
-					<tr v-for="batch in rows" :key="batch.batchId" :data-selected="selectedId === batch.batchId">
+					<tr v-for="batch in rows" :key="batch.batchHandle" :data-selected="selectedId === batch.batchHandle">
 						<td>
-							<button class="table-link max-w-64 truncate" type="button" :title="batch.batchId" @click="emit('select', batch)">
-								{{ batch.batchId }}
+							<button class="table-link max-w-64 truncate" type="button" :title="batch.batchHandle" @click="emit('select', batch)">
+								{{ batch.batchHandle }}
 							</button>
 						</td>
 						<td><StateBadge :state="batch.state" /></td>
@@ -62,15 +62,15 @@ function width(value: number, total: number): string {
 						<td>{{ formatDate(batch.createdAt) }}</td>
 						<td>
 							<div class="row-actions">
-								<button class="icon-button" type="button" :aria-label="`View batch ${batch.batchId}`" @click="emit('select', batch)">
+								<button class="icon-button" type="button" :aria-label="`View batch ${batch.batchHandle}`" @click="emit('select', batch)">
 									<Eye :size="15" aria-hidden="true" />
 								</button>
 								<button
 									v-if="batch.state === 'Executing'"
 									class="icon-button danger"
 									type="button"
-									:disabled="busyBatchId === batch.batchId"
-									:aria-label="`Cancel batch ${batch.batchId}`"
+									:disabled="busyBatchHandle === batch.batchHandle"
+									:aria-label="`Cancel batch ${batch.batchHandle}`"
 									@click="emit('cancel', batch)"
 								>
 									<Ban :size="15" aria-hidden="true" />
@@ -79,8 +79,8 @@ function width(value: number, total: number): string {
 									v-else
 									class="icon-button danger"
 									type="button"
-									:disabled="busyBatchId === batch.batchId"
-									:aria-label="`Delete batch ${batch.batchId}`"
+									:disabled="busyBatchHandle === batch.batchHandle"
+									:aria-label="`Delete batch ${batch.batchHandle}`"
 									@click="emit('delete', batch)"
 								>
 									<Trash2 :size="15" aria-hidden="true" />

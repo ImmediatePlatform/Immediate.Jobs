@@ -14,8 +14,8 @@ namespace Immediate.Jobs.Shared.Internals;
 [EditorBrowsable(EditorBrowsableState.Never)]
 public static partial class JobContextEnvelope
 {
-	[LoggerMessage("Skipping orphaned context slice {ContextKey} for job {JobId}", Level = LogLevel.Warning)]
-	private static partial void LogOrphanedSlice(ILogger logger, string contextKey, JobHandle jobId);
+	[LoggerMessage("Skipping orphaned context slice {ContextKey} for job {JobHandle}", Level = LogLevel.Warning)]
+	private static partial void LogOrphanedSlice(ILogger logger, string contextKey, JobHandle jobHandle);
 
 	/// <summary>
 	/// 	Adds one serialized slice and rejects duplicate runtime keys.
@@ -126,6 +126,6 @@ public static partial class JobContextEnvelope
 
 		var logger = loggerFactory.CreateLogger("Immediate.Jobs.ContextPropagation");
 		foreach (var key in keys)
-			LogOrphanedSlice(logger, key, record.JobId);
+			LogOrphanedSlice(logger, key, record.JobHandle);
 	}
 }

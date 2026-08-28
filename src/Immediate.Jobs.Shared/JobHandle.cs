@@ -14,7 +14,7 @@ public sealed record JobHandle : ContinuationHandle
 	/// <summary>
 	/// 	The job identifier.
 	/// </summary>
-	public required string JobId
+	public required string Value
 	{
 		get; init { ArgumentException.ThrowIfNullOrWhiteSpace(value); field = value; }
 	}
@@ -32,7 +32,7 @@ public sealed record JobHandle : ContinuationHandle
 	public static JobHandle? FromString(string? value) =>
 		value switch
 		{
-			{ } => new() { JobId = value },
+			{ } => new() { Value = value },
 			_ => null,
 		};
 }
@@ -62,6 +62,6 @@ public sealed class JobHandleConverter : JsonConverter<JobHandle>
 		ArgumentNullException.ThrowIfNull(writer);
 		ArgumentNullException.ThrowIfNull(value);
 
-		writer.WriteStringValue(value.JobId);
+		writer.WriteStringValue(value.Value);
 	}
 }

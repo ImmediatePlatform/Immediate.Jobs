@@ -17,20 +17,20 @@ public sealed record JobDetails
 	{
 		ArgumentNullException.ThrowIfNull(execution);
 
-		JobId = execution.Record.JobId;
+		JobHandle = execution.Record.JobHandle;
 		JobName = execution.Record.JobName;
 		QueueName = execution.Record.QueueName;
 		Attempt = execution.Record.Attempt;
 		CreatedAt = execution.Record.CreatedAt;
 		ScheduledAt = execution.Record.DueAt;
-		BatchId = execution.Record.BatchId;
+		BatchHandle = execution.Record.BatchHandle;
 		Buffer = execution.Buffer;
 	}
 
 	/// <summary>
 	/// 	The unique invocation identifier.
 	/// </summary>
-	public JobHandle JobId { get; }
+	public JobHandle JobHandle { get; }
 
 	/// <summary>
 	/// 	The stable job name.
@@ -60,7 +60,7 @@ public sealed record JobDetails
 	/// <summary>
 	/// 	The containing batch identifier, if any.
 	/// </summary>
-	public BatchHandle? BatchId { get; }
+	public BatchHandle? BatchHandle { get; }
 
 	/// <summary>
 	/// 	Runtime continuation buffer for the current attempt.

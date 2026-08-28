@@ -37,7 +37,7 @@ export function useDashboardStream(): void {
 	onBeforeUnmount(() => events?.close());
 }
 
-export function useBatchStream(batchId: MaybeRefOrGetter<string | undefined>): void {
+export function useBatchStream(batchHandle: MaybeRefOrGetter<string | undefined>): void {
 	const queryClient = useQueryClient();
 	let events: EventSource | undefined;
 
@@ -57,9 +57,9 @@ export function useBatchStream(batchId: MaybeRefOrGetter<string | undefined>): v
 			readEvent<BatchStatus>(event, (status) => {
 				queryClient.setQueryData(queryKeys.batch(id), status);
 				queryClient.setQueryData<BatchStatus[]>(queryKeys.batches, (current = []) => {
-					const exists = current.some((batch) => batch.batchId === status.batchId);
+					const exists = current.some((batch) => batch.batchHandle === status.batchHandle);
 					return exists
-						? current.map((batch) => batch.batchId === status.batchId ? status : batch)
+						? current.map((batch) => batch.batchHandle === status.batchHandle ? status : batch)
 						: [status, ...current];
 				});
 			});
@@ -68,7 +68,7 @@ export function useBatchStream(batchId: MaybeRefOrGetter<string | undefined>): v
 			readEvent<BatchGraph>(event, (graph) => {
 				queryClient.setQueryData(queryKeys.batchGraph(id), graph);
 				for (const node of graph.nodes) {
-					queryClient.setQueryData(queryKeys.job(node.jobId), (current: unknown) => {
+					queryClient.setQueryData(queryKeys.job(node.jobHandle), (current: unknown) => {
 						if (!current || typeof current !== 'object') {
 							return current;
 						}
@@ -79,6 +79,6 @@ export function useBatchStream(batchId: MaybeRefOrGetter<string | undefined>): v
 		});
 	}
 
-	watch(() => toValue(batchId), connect, { immediate: true });
+	watch(() => toValue(batchHandle), connect, { immediate: true });
 	onBeforeUnmount(close);
 }

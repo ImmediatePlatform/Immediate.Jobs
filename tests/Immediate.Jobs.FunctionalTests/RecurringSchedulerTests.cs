@@ -182,7 +182,7 @@ public sealed class RecurringSchedulerTests
 		}, cancellationToken);
 		await storage.EnqueueAsync(new()
 		{
-			JobId = JobHandle.FromString("ordinary-job"),
+			JobHandle = JobHandle.FromString("ordinary-job"),
 			JobName = "ordinary",
 			QueueName = "default",
 			Payload = "{}",
@@ -219,7 +219,7 @@ public sealed class RecurringSchedulerTests
 		CancellationToken cancellationToken
 	) => storage.EnqueueAsync(new()
 	{
-		JobId = JobHandle.FromString(Guid.NewGuid().ToString("N")),
+		JobHandle = JobHandle.FromString(Guid.NewGuid().ToString("N")),
 		JobName = jobName,
 		QueueName = "default",
 		Payload = "{}",
@@ -238,7 +238,7 @@ public sealed class RecurringSchedulerTests
 		CancellationToken cancellationToken
 	) => storage.EnqueueAsync(new()
 	{
-		JobId = JobHandle.FromString(Guid.NewGuid().ToString("N")),
+		JobHandle = JobHandle.FromString(Guid.NewGuid().ToString("N")),
 		JobName = jobName,
 		QueueName = "default",
 		Payload = "{}",

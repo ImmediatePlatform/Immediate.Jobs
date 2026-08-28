@@ -148,14 +148,14 @@ public sealed class JobTestHarness : IAsyncDisposable, IDisposable
 	) => Storage.QueryJobsAsync(query ?? new() { Take = 1000 }, cancellationToken);
 
 	/// <summary>Finds an invocation by identifier, or throws a test assertion exception.</summary>
-	/// <param name="jobId">The invocation identifier.</param>
+	/// <param name="jobHandle">The invocation identifier.</param>
 	/// <param name="cancellationToken">A token that can cancel the query.</param>
 	/// <returns>The persisted job record.</returns>
-	public async ValueTask<JobRecord> GetJobAsync(string jobId, CancellationToken cancellationToken = default)
+	public async ValueTask<JobRecord> GetJobAsync(string jobHandle, CancellationToken cancellationToken = default)
 	{
 		var jobs = await Storage.QueryJobsAsync(new() { Take = 1000 }, cancellationToken).ConfigureAwait(false);
-		return jobs.FirstOrDefault(job => string.Equals(job.JobId.JobId, jobId, StringComparison.Ordinal))
-			?? throw new JobTestAssertionException($"Expected job '{jobId}' to have been enqueued, but it was not found.");
+		return jobs.FirstOrDefault(job => string.Equals(job.JobHandle.Value, jobHandle, StringComparison.Ordinal))
+			?? throw new JobTestAssertionException($"Expected job '{jobHandle}' to have been enqueued, but it was not found.");
 	}
 
 	/// <summary>Finds an invocation returned by a typed scheduler call.</summary>
@@ -165,26 +165,26 @@ public sealed class JobTestHarness : IAsyncDisposable, IDisposable
 	public ValueTask<JobRecord> GetJobAsync(JobHandle job, CancellationToken cancellationToken = default)
 	{
 		ArgumentNullException.ThrowIfNull(job);
-		return GetJobAsync(job.JobId, cancellationToken);
+		return GetJobAsync(job.Value, cancellationToken);
 	}
 
 	/// <summary>Asserts and deserializes the invocation returned by a typed scheduler call.</summary>
 	/// <typeparam name="TPayload">The expected payload type.</typeparam>
-	/// <param name="jobId">The invocation identifier.</param>
+	/// <param name="jobHandle">The invocation identifier.</param>
 	/// <param name="expectedState">The expected durable state, or <see langword="null"/> to accept any state.</param>
 	/// <param name="cancellationToken">A token that can cancel the query.</param>
 	/// <returns>The durable record paired with its deserialized payload.</returns>
 	public async ValueTask<EnqueuedJob<TPayload>> AssertEnqueuedAsync<TPayload>(
-		string jobId,
+		string jobHandle,
 		JobState? expectedState = null,
 		CancellationToken cancellationToken = default
 	)
 	{
-		var job = await GetJobAsync(jobId, cancellationToken).ConfigureAwait(false);
+		var job = await GetJobAsync(jobHandle, cancellationToken).ConfigureAwait(false);
 		if (expectedState is { } state && job.State != state)
 		{
 			throw new JobTestAssertionException(
-				$"Expected job '{jobId}' to be {state}, but it was {job.State}."
+				$"Expected job '{jobHandle}' to be {state}, but it was {job.State}."
 			);
 		}
 
@@ -196,7 +196,7 @@ public sealed class JobTestHarness : IAsyncDisposable, IDisposable
 		catch (Exception exception)
 		{
 			throw new JobTestAssertionException(
-				$"Job '{jobId}' did not contain a valid {typeof(TPayload).FullName} payload: {exception.Message}"
+				$"Job '{jobHandle}' did not contain a valid {typeof(TPayload).FullName} payload: {exception.Message}"
 			);
 		}
 
@@ -216,7 +216,7 @@ public sealed class JobTestHarness : IAsyncDisposable, IDisposable
 	)
 	{
 		ArgumentNullException.ThrowIfNull(job);
-		return AssertEnqueuedAsync<TPayload>(job.JobId, expectedState, cancellationToken);
+		return AssertEnqueuedAsync<TPayload>(job.Value, expectedState, cancellationToken);
 	}
 
 	/// <summary>Asserts that a committed batch and exactly the expected number of members are visible together.</summary>
@@ -259,7 +259,7 @@ public sealed class JobTestHarness : IAsyncDisposable, IDisposable
 	{
 		var childStatus = await Storage.GetJobStatusAsync(child, cancellationToken).ConfigureAwait(false)
 			?? throw new JobTestAssertionException($"Expected continuation '{child}', but it was not found.");
-		if (!childStatus.DependsOn.Any(edge => edge.ParentJobId == parent))
+		if (!childStatus.DependsOn.Any(edge => edge.ParentJobHandle == parent))
 		{
 			throw new JobTestAssertionException(
 				$"Expected job '{child}' to depend on '{parent}', but no such edge was persisted."
@@ -315,7 +315,7 @@ public sealed class JobTestHarness : IAsyncDisposable, IDisposable
 		var now = TimeProvider.GetUtcNow();
 		var record = new JobRecord
 		{
-			JobId = JobHandle.FromString(_serviceProvider.GetRequiredService<IIdGenerator>().CreateId(IdKind.Job)),
+			JobHandle = JobHandle.FromString(_serviceProvider.GetRequiredService<IIdGenerator>().CreateId(IdKind.Job)),
 			JobName = definition.Name,
 			QueueName = definition.Queue.Name,
 			Payload = _serviceProvider.GetRequiredService<IJobSerializer>().Serialize(payload),

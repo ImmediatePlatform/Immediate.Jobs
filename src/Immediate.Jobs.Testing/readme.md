@@ -67,7 +67,7 @@ var handle = await scheduler.EnqueueAsync(
 );
 
 var captured = harness.Captures.FindJob(handle)!;
-Assert.Equal(handle, captured.JobId);
+Assert.Equal(handle, captured.JobHandle);
 Assert.Equal("tenant-a", captured.GroupId);
 
 await scheduler.CancelAsync(handle, cancellationToken);

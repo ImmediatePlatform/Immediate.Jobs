@@ -23,11 +23,11 @@ public sealed class BatchScheduler(
 ) : IBatchScheduler
 {
 	/// <inheritdoc />
-	public ValueTask CancelAsync(BatchHandle batchId, CancellationToken cancellationToken = default)
+	public ValueTask CancelAsync(BatchHandle batchHandle, CancellationToken cancellationToken = default)
 	{
-		ArgumentNullException.ThrowIfNull(batchId);
+		ArgumentNullException.ThrowIfNull(batchHandle);
 
-		return JobStorageCapabilityGuards.RequireGraph(storage).CancelBatchAsync(batchId, cancellationToken);
+		return JobStorageCapabilityGuards.RequireGraph(storage).CancelBatchAsync(batchHandle, cancellationToken);
 	}
 
 	/// <inheritdoc />
@@ -43,30 +43,30 @@ public sealed class BatchScheduler(
 	}
 
 	/// <inheritdoc />
-	public Batch Begin(BatchHandle batchId, ContinuationTrigger on = ContinuationTrigger.Success)
+	public Batch Begin(BatchHandle batchHandle, ContinuationTrigger on = ContinuationTrigger.Success)
 	{
-		ArgumentNullException.ThrowIfNull(batchId);
+		ArgumentNullException.ThrowIfNull(batchHandle);
 		return new Batch(
 			JobStorageCapabilityGuards.RequireGraph(storage),
 			timeProvider,
 			idGenerator,
-			[batchId],
+			[batchHandle],
 			on
 		);
 	}
 
 	/// <inheritdoc />
-	public Batch Begin(IReadOnlyList<BatchHandle> batchId, ContinuationTrigger on = ContinuationTrigger.Success)
+	public Batch Begin(IReadOnlyList<BatchHandle> batchHandle, ContinuationTrigger on = ContinuationTrigger.Success)
 	{
-		ArgumentNullException.ThrowIfNull(batchId);
-		if (batchId is [])
-			ArgumentException.Throw(nameof(batchId), "No parent batches were provided");
+		ArgumentNullException.ThrowIfNull(batchHandle);
+		if (batchHandle is [])
+			ArgumentException.Throw(nameof(batchHandle), "No parent batches were provided");
 
 		return new Batch(
 			JobStorageCapabilityGuards.RequireGraph(storage),
 			timeProvider,
 			idGenerator,
-			batchId,
+			batchHandle,
 			on
 		);
 	}
