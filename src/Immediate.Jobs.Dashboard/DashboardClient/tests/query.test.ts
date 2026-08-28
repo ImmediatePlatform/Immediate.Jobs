@@ -29,7 +29,7 @@ describe('live dashboard cache', () => {
 		expect(queryClient.getQueryData(queryKeys.overview)).toEqual(state.snapshot);
 		expect(queryClient.getQueryData(queryKeys.recentJobs)).toEqual([completedJob]);
 		expect(queryClient.getQueryData(queryKeys.batches)).toEqual([executingBatch]);
-		expect(queryClient.getQueryData(queryKeys.job(completedJob.id))).toEqual(completedJob);
+		expect(queryClient.getQueryData(queryKeys.job(completedJob.jobId))).toEqual(completedJob);
 		expect(dashboardHistory.value).toEqual([{
 			capturedAt: state.snapshot.capturedAt,
 			complete: 9,

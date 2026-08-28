@@ -33,7 +33,7 @@ const filteredBatches = computed(() => {
 	const search = searchQuery.value.trim().toLocaleLowerCase();
 	return (batchesQuery.data.value ?? []).filter((batch) => {
 		return (!selectedState.value || batch.state === selectedState.value)
-			&& (!search || batch.id.toLocaleLowerCase().includes(search));
+			&& (!search || batch.batchId.toLocaleLowerCase().includes(search));
 	});
 });
 
@@ -44,7 +44,7 @@ watch(stateQuery, (value) => {
 }, { immediate: true });
 
 function openBatch(batch: BatchStatus): void {
-	void router.push({ name: 'batch-detail', params: { batchId: batch.id }, query: route.query });
+	void router.push({ name: 'batch-detail', params: { batchId: batch.batchId }, query: route.query });
 }
 
 async function confirmAction(): Promise<void> {
@@ -54,9 +54,9 @@ async function confirmAction(): Promise<void> {
 	const action = pendingAction.value;
 	try {
 		if (action.type === 'cancel') {
-			await batchMutations.cancelBatch(action.batch.id);
+			await batchMutations.cancelBatch(action.batch.batchId);
 		} else {
-			await batchMutations.deleteBatch(action.batch.id);
+			await batchMutations.deleteBatch(action.batch.batchId);
 		}
 		pendingAction.value = undefined;
 	} catch {

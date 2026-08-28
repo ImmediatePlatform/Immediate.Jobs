@@ -58,7 +58,7 @@ watch(pageQuery, (value) => {
 function openJob(job: JobRecord): void {
 	void router.push({
 		name: 'job-detail',
-		params: { jobId: job.id },
+		params: { jobId: job.jobId },
 		query: route.query,
 	});
 }
@@ -76,7 +76,7 @@ async function confirmCancel(): Promise<void> {
 		return;
 	}
 	try {
-		await jobMutations.cancelJob(cancelCandidate.value.id);
+		await jobMutations.cancelJob(cancelCandidate.value.jobId);
 		cancelCandidate.value = undefined;
 	} catch {
 		// The mutation displays the API error and leaves the confirmation open.
@@ -120,7 +120,7 @@ async function confirmCancel(): Promise<void> {
 				@select="openJob"
 				@open-batch="openBatch"
 				@cancel="cancelCandidate = $event"
-				@retry="(job) => jobMutations.retryJob(job.id)"
+				@retry="(job) => jobMutations.retryJob(job.jobId)"
 			/>
 			<div class="pagination" aria-label="Jobs pagination">
 				<button class="button button-secondary" type="button" :disabled="page === 1" @click="changePage(page - 1)">

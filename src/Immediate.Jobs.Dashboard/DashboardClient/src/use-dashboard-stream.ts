@@ -57,9 +57,9 @@ export function useBatchStream(batchId: MaybeRefOrGetter<string | undefined>): v
 			readEvent<BatchStatus>(event, (status) => {
 				queryClient.setQueryData(queryKeys.batch(id), status);
 				queryClient.setQueryData<BatchStatus[]>(queryKeys.batches, (current = []) => {
-					const exists = current.some((batch) => batch.id === status.id);
+					const exists = current.some((batch) => batch.batchId === status.batchId);
 					return exists
-						? current.map((batch) => batch.id === status.id ? status : batch)
+						? current.map((batch) => batch.batchId === status.batchId ? status : batch)
 						: [status, ...current];
 				});
 			});

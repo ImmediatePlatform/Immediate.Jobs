@@ -54,7 +54,7 @@ function count(state: JobState): number {
 }
 
 function openJob(job: JobRecord): void {
-	void router.push({ name: 'jobs', params: { jobId: job.id } });
+	void router.push({ name: 'jobs', params: { jobId: job.jobId } });
 }
 
 function openBatch(batchId: string): void {
@@ -66,7 +66,7 @@ async function confirmCancel(): Promise<void> {
 		return;
 	}
 	try {
-		await jobMutations.cancelJob(cancelCandidate.value.id);
+		await jobMutations.cancelJob(cancelCandidate.value.jobId);
 		cancelCandidate.value = undefined;
 	} catch {
 		// The mutation displays the API error and leaves the confirmation open.
@@ -119,7 +119,7 @@ async function confirmCancel(): Promise<void> {
 				@select="openJob"
 				@open-batch="openBatch"
 				@cancel="cancelCandidate = $event"
-				@retry="(job) => jobMutations.retryJob(job.id)"
+				@retry="(job) => jobMutations.retryJob(job.jobId)"
 			/>
 		</template>
 

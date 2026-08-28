@@ -156,7 +156,7 @@ export function applyDashboardState(queryClient: QueryClient, state: DashboardSt
 	queryClient.setQueryData(queryKeys.servers, state.snapshot.servers);
 
 	for (const job of state.jobs) {
-		queryClient.setQueryData(queryKeys.job(job.id), job);
+		queryClient.setQueryData(queryKeys.job(job.jobId), job);
 	}
 
 	void queryClient.invalidateQueries({ queryKey: queryKeys.jobPages, refetchType: 'active' });

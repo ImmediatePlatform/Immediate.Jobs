@@ -1,7 +1,7 @@
 import type { BatchGraph, BatchStatus, JobRecord } from '@/contracts';
 
 export const completedJob: JobRecord = {
-	id: '86bf8c31-d8e6-415b-8e92-45587a09fc52',
+	jobId: '86bf8c31-d8e6-415b-8e92-45587a09fc52',
 	batchId: 'batch-42',
 	jobName: 'SendGreeting',
 	queueName: 'default',
@@ -27,7 +27,7 @@ export const completedJob: JobRecord = {
 };
 
 export const executingBatch: BatchStatus = {
-	id: 'campaign-batch',
+	batchId: 'campaign-batch',
 	state: 'Executing',
 	total: 10,
 	succeeded: 6,

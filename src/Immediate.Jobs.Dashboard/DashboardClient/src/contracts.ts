@@ -20,7 +20,7 @@ export type IsoDateTime = string;
 
 export interface JobRecord {
 	queueName: string;
-	id: string;
+	jobId: string;
 	jobName: string;
 	groupId: string | null;
 	payload: string;
@@ -112,7 +112,7 @@ export interface DashboardJobExecutionPage {
 }
 
 export interface BatchStatus {
-	id: string;
+	batchId: string;
 	state: BatchState;
 	total: number;
 	succeeded: number;

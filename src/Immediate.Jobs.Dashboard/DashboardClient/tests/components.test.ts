@@ -51,7 +51,7 @@ describe('dashboard components', () => {
 
 		getJobExecutionsMock.mockResolvedValue({
 			items: [{
-				jobId: completedJob.id,
+				jobId: completedJob.jobId,
 				attempt: completedJob.attempt,
 				state: 'Succeeded',
 				workerId: 'worker-1',
@@ -92,7 +92,7 @@ describe('dashboard components', () => {
 		expect(detail.text()).toContain('Span ID');
 		expect(detail.text()).toContain(attemptSpanId);
 		expect(detail.text()).not.toContain(completedJob.executionTraceId);
-		expect(getJobExecutionTelemetryLinksMock).toHaveBeenCalledWith(completedJob.id, completedJob.attempt, expect.any(AbortSignal));
+		expect(getJobExecutionTelemetryLinksMock).toHaveBeenCalledWith(completedJob.jobId, completedJob.attempt, expect.any(AbortSignal));
 		expect(detail.get('a[href="https://telemetry.example/traces/4bf92f"]').attributes('target')).toBe('_blank');
 		expect(detail.get(`a[href="https://telemetry.example/traces/${attemptTraceId}"]`).attributes('target')).toBe('_blank');
 		expect(detail.get('a[aria-label="View all retry logs"]').text()).toContain('retry logs');
@@ -104,7 +104,7 @@ describe('dashboard components', () => {
 		const writeText = vi.fn().mockResolvedValue(undefined);
 		getJobExecutionsMock.mockResolvedValue({
 			items: [{
-				jobId: completedJob.id,
+				jobId: completedJob.jobId,
 				attempt: 3,
 				state: 'Succeeded',
 				workerId: 'worker-1',
@@ -135,7 +135,7 @@ describe('dashboard components', () => {
 
 	it('expands the newest execution and collapses older executions by default', async () => {
 		const execution = {
-			jobId: completedJob.id,
+			jobId: completedJob.jobId,
 			state: 'Failed' as const,
 			workerId: 'worker-1',
 			acquiredAt: '2026-07-21T12:01:00Z',
@@ -171,7 +171,7 @@ describe('dashboard components', () => {
 
 	it('preserves loaded executions when the cached job object is replaced', async () => {
 		const execution = {
-			jobId: completedJob.id,
+			jobId: completedJob.jobId,
 			state: 'Succeeded' as const,
 			workerId: 'worker-1',
 			acquiredAt: '2026-07-21T12:01:00Z',
@@ -221,7 +221,7 @@ describe('dashboard components', () => {
 	it('keeps execution history visible when a telemetry link fails', async () => {
 		getJobExecutionsMock.mockResolvedValue({
 			items: [{
-				jobId: completedJob.id,
+				jobId: completedJob.jobId,
 				attempt: completedJob.attempt,
 				state: 'Succeeded',
 				workerId: 'worker-1',
@@ -249,13 +249,13 @@ describe('dashboard components', () => {
 	it('can fast-forward scheduled jobs', async () => {
 		const scheduled = {
 			...completedJob,
-			id: 'scheduled-retry',
+			jobId: 'scheduled-retry',
 			jobName: 'retry-test',
 			state: 'Scheduled' as const,
 			attempt: 1,
 			completedAt: null,
 		};
-		const firstRun = { ...scheduled, id: 'scheduled-first-run', jobName: 'first-run', attempt: 0 };
+		const firstRun = { ...scheduled, jobId: 'scheduled-first-run', jobName: 'first-run', attempt: 0 };
 		const table = mount(JobTable, { props: { rows: [scheduled, firstRun] } });
 
 		expect(table.find('button[aria-label="Run first-run now"]').exists()).toBe(true);
@@ -275,7 +275,7 @@ describe('dashboard components', () => {
 	});
 
 	it('shows skipped branches', () => {
-		const skipped = { ...completedJob, id: 'skipped', state: 'Skipped' as const };
+		const skipped = { ...completedJob, jobId: 'skipped', state: 'Skipped' as const };
 		const table = mount(JobTable, { props: { rows: [skipped] } });
 
 		expect(table.text()).toContain('Skipped');

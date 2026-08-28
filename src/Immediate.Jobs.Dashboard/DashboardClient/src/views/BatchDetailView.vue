@@ -102,7 +102,7 @@ async function confirmJobCancel(): Promise<void> {
 		return;
 	}
 	try {
-		await jobMutations.cancelJob(jobCancelCandidate.value.id);
+		await jobMutations.cancelJob(jobCancelCandidate.value.jobId);
 		jobCancelCandidate.value = undefined;
 	} catch {
 		// The mutation displays the API error and leaves the confirmation open.
@@ -200,7 +200,7 @@ async function confirmJobCancel(): Promise<void> {
 							:pending="jobMutations.busyJobId.value === selectedJobId"
 							@close="closeGraphJob"
 							@cancel="jobCancelCandidate = $event"
-							@retry="(job) => jobMutations.retryJob(job.id)"
+							@retry="(job) => jobMutations.retryJob(job.jobId)"
 						/>
 					</div>
 				</div>
