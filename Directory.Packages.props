@@ -4,11 +4,11 @@
   </PropertyGroup>
 
   <ItemGroup>
-	<PackageVersion Include="Aspire.Hosting.PostgreSQL" Version="13.4.6" />
+	<PackageVersion Include="Aspire.Hosting.PostgreSQL" Version="13.5.3" />
 	<PackageVersion Include="AssemblyMetadata.Generators" Version="2.2.0" />
 	<PackageVersion Include="BenchmarkDotNet" Version="0.15.8" />
 	<PackageVersion Include="Cronos" Version="0.13.0" />
-	<PackageVersion Include="Hangfire.Core" Version="1.8.24" />
+	<PackageVersion Include="Hangfire.Core" Version="1.8.25" />
 	<PackageVersion Include="Hangfire.MemoryStorage" Version="1.8.1.2" />
 	<PackageVersion Include="Immediate.Apis" Version="6.3.0" />
 	<PackageVersion Include="Immediate.Handlers" Version="4.0.0" />
@@ -20,23 +20,23 @@
 	<PackageVersion Include="Microsoft.Testing.Extensions.CodeCoverage" Version="18.10.0" />
 	<PackageVersion Include="NodaTime" Version="3.3.3" />
 	<PackageVersion Include="NodaTime.Serialization.SystemTextJson" Version="1.4.0" />
-	<PackageVersion Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" Version="1.17.0" />
-	<PackageVersion Include="OpenTelemetry.Extensions.Hosting" Version="1.17.0" />
-	<PackageVersion Include="OpenTelemetry.Instrumentation.AspNetCore" Version="1.17.0" />
-	<PackageVersion Include="OpenTelemetry.Instrumentation.Http" Version="1.17.0" />
-	<PackageVersion Include="OpenTelemetry.Instrumentation.Runtime" Version="1.17.0" />
-	<PackageVersion Include="Quartz" Version="3.19.1" />
-	<PackageVersion Include="Scalar.AspNetCore" Version="2.16.20" />
+	<PackageVersion Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" Version="1.18.0" />
+	<PackageVersion Include="OpenTelemetry.Extensions.Hosting" Version="1.18.0" />
+	<PackageVersion Include="OpenTelemetry.Instrumentation.AspNetCore" Version="1.18.0" />
+	<PackageVersion Include="OpenTelemetry.Instrumentation.Http" Version="1.18.0" />
+	<PackageVersion Include="OpenTelemetry.Instrumentation.Runtime" Version="1.18.0" />
+	<PackageVersion Include="Quartz" Version="3.20.0" />
+	<PackageVersion Include="Scalar.AspNetCore" Version="2.17.2" />
 	<PackageVersion Include="Scriban" Version="7.2.6" />
 	<PackageVersion Include="SQLitePCLRaw.lib.e_sqlite3" Version="3.53.3" />
-	<PackageVersion Include="StackExchange.Redis" Version="3.1.13" />
+	<PackageVersion Include="StackExchange.Redis" Version="3.1.31" />
 	<PackageVersion Include="Testcontainers.MsSql" Version="4.14.0" />
 	<PackageVersion Include="Testcontainers.PostgreSql" Version="4.14.0" />
 	<PackageVersion Include="Testcontainers.Redis" Version="4.14.0" />
 	<PackageVersion Include="Swashbuckle.AspNetCore" Version="10.2.3" />
 	<PackageVersion Include="System.Threading.Tasks.Extensions" Version="4.6.3" />
 	<PackageVersion Include="Verify.SourceGenerators" Version="2.5.0" />
-	<PackageVersion Include="Verify.XunitV3" Version="31.28.0" />
+	<PackageVersion Include="Verify.XunitV3" Version="32.0.0" />
 	<PackageVersion Include="xunit.v3.mtp-v2" Version="4.0.0" />
   </ItemGroup>
 
@@ -152,8 +152,8 @@
 
   <ItemGroup>
 	<GlobalPackageReference Include="DotNet.ReproducibleBuilds" Version="2.0.5" PrivateAssets="All" />
-	<GlobalPackageReference Include="Meziantou.Analyzer" Version="3.0.163" PrivateAssets="All" />
-	<GlobalPackageReference Include="Meziantou.Polyfill" Version="1.0.160" PrivateAssets="All" />
+	<GlobalPackageReference Include="Meziantou.Analyzer" Version="3.0.190" PrivateAssets="All" />
+	<GlobalPackageReference Include="Meziantou.Polyfill" Version="1.0.164" PrivateAssets="All" />
 	<GlobalPackageReference Include="MinVer" Version="7.0.0" PrivateAssets="All" />
   </ItemGroup>
 </Project>
