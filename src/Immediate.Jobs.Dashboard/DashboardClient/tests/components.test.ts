@@ -51,7 +51,7 @@ describe('dashboard components', () => {
 
 		getJobExecutionsMock.mockResolvedValue({
 			items: [{
-				jobId: completedJob.id,
+				jobHandle: completedJob.jobHandle,
 				attempt: completedJob.attempt,
 				state: 'Succeeded',
 				workerId: 'worker-1',
@@ -92,7 +92,7 @@ describe('dashboard components', () => {
 		expect(detail.text()).toContain('Span ID');
 		expect(detail.text()).toContain(attemptSpanId);
 		expect(detail.text()).not.toContain(completedJob.executionTraceId);
-		expect(getJobExecutionTelemetryLinksMock).toHaveBeenCalledWith(completedJob.id, completedJob.attempt, expect.any(AbortSignal));
+		expect(getJobExecutionTelemetryLinksMock).toHaveBeenCalledWith(completedJob.jobHandle, completedJob.attempt, expect.any(AbortSignal));
 		expect(detail.get('a[href="https://telemetry.example/traces/4bf92f"]').attributes('target')).toBe('_blank');
 		expect(detail.get(`a[href="https://telemetry.example/traces/${attemptTraceId}"]`).attributes('target')).toBe('_blank');
 		expect(detail.get('a[aria-label="View all retry logs"]').text()).toContain('retry logs');
@@ -104,7 +104,7 @@ describe('dashboard components', () => {
 		const writeText = vi.fn().mockResolvedValue(undefined);
 		getJobExecutionsMock.mockResolvedValue({
 			items: [{
-				jobId: completedJob.id,
+				jobHandle: completedJob.jobHandle,
 				attempt: 3,
 				state: 'Succeeded',
 				workerId: 'worker-1',
@@ -135,7 +135,7 @@ describe('dashboard components', () => {
 
 	it('expands the newest execution and collapses older executions by default', async () => {
 		const execution = {
-			jobId: completedJob.id,
+			jobHandle: completedJob.jobHandle,
 			state: 'Failed' as const,
 			workerId: 'worker-1',
 			acquiredAt: '2026-07-21T12:01:00Z',
@@ -171,7 +171,7 @@ describe('dashboard components', () => {
 
 	it('preserves loaded executions when the cached job object is replaced', async () => {
 		const execution = {
-			jobId: completedJob.id,
+			jobHandle: completedJob.jobHandle,
 			state: 'Succeeded' as const,
 			workerId: 'worker-1',
 			acquiredAt: '2026-07-21T12:01:00Z',
@@ -221,7 +221,7 @@ describe('dashboard components', () => {
 	it('keeps execution history visible when a telemetry link fails', async () => {
 		getJobExecutionsMock.mockResolvedValue({
 			items: [{
-				jobId: completedJob.id,
+				jobHandle: completedJob.jobHandle,
 				attempt: completedJob.attempt,
 				state: 'Succeeded',
 				workerId: 'worker-1',
@@ -249,13 +249,13 @@ describe('dashboard components', () => {
 	it('can fast-forward scheduled jobs', async () => {
 		const scheduled = {
 			...completedJob,
-			id: 'scheduled-retry',
+			jobHandle: 'scheduled-retry',
 			jobName: 'retry-test',
 			state: 'Scheduled' as const,
 			attempt: 1,
 			completedAt: null,
 		};
-		const firstRun = { ...scheduled, id: 'scheduled-first-run', jobName: 'first-run', attempt: 0 };
+		const firstRun = { ...scheduled, jobHandle: 'scheduled-first-run', jobName: 'first-run', attempt: 0 };
 		const table = mount(JobTable, { props: { rows: [scheduled, firstRun] } });
 
 		expect(table.find('button[aria-label="Run first-run now"]').exists()).toBe(true);
@@ -275,7 +275,7 @@ describe('dashboard components', () => {
 	});
 
 	it('shows skipped branches', () => {
-		const skipped = { ...completedJob, id: 'skipped', state: 'Skipped' as const };
+		const skipped = { ...completedJob, jobHandle: 'skipped', state: 'Skipped' as const };
 		const table = mount(JobTable, { props: { rows: [skipped] } });
 
 		expect(table.text()).toContain('Skipped');
@@ -362,37 +362,37 @@ describe('dashboard components', () => {
 
 	it('orders connected workstreams together and vertically centers shorter ranks', () => {
 		const graph: BatchGraph = {
-			batchId: 'release',
+			batchHandle: 'release',
 			nodes: [
-				{ jobId: 'approved', jobName: 'Approved', state: 'Succeeded' },
-				{ jobId: 'client', jobName: 'Build client', state: 'Succeeded' },
-				{ jobId: 'services', jobName: 'Provision services', state: 'Succeeded' },
-				{ jobId: 'compatibility', jobName: 'Test compatibility', state: 'Succeeded' },
-				{ jobId: 'signing', jobName: 'Sign binaries', state: 'Succeeded' },
-				{ jobId: 'migration', jobName: 'Migrate data', state: 'Succeeded' },
-				{ jobId: 'load-test', jobName: 'Load-test services', state: 'Succeeded' },
-				{ jobId: 'client-ready', jobName: 'Certify client', state: 'Succeeded' },
-				{ jobId: 'services-ready', jobName: 'Certify services', state: 'Succeeded' },
-				{ jobId: 'candidate', jobName: 'Assemble candidate', state: 'Succeeded' },
+				{ jobHandle: 'approved', jobName: 'Approved', state: 'Succeeded' },
+				{ jobHandle: 'client', jobName: 'Build client', state: 'Succeeded' },
+				{ jobHandle: 'services', jobName: 'Provision services', state: 'Succeeded' },
+				{ jobHandle: 'compatibility', jobName: 'Test compatibility', state: 'Succeeded' },
+				{ jobHandle: 'signing', jobName: 'Sign binaries', state: 'Succeeded' },
+				{ jobHandle: 'migration', jobName: 'Migrate data', state: 'Succeeded' },
+				{ jobHandle: 'load-test', jobName: 'Load-test services', state: 'Succeeded' },
+				{ jobHandle: 'client-ready', jobName: 'Certify client', state: 'Succeeded' },
+				{ jobHandle: 'services-ready', jobName: 'Certify services', state: 'Succeeded' },
+				{ jobHandle: 'candidate', jobName: 'Assemble candidate', state: 'Succeeded' },
 			],
 			edges: [
-				{ childJobId: 'client', parentJobId: 'approved', parentBatchId: null, trigger: 'Success' },
-				{ childJobId: 'services', parentJobId: 'approved', parentBatchId: null, trigger: 'Success' },
-				{ childJobId: 'compatibility', parentJobId: 'client', parentBatchId: null, trigger: 'Success' },
-				{ childJobId: 'signing', parentJobId: 'client', parentBatchId: null, trigger: 'Success' },
-				{ childJobId: 'migration', parentJobId: 'services', parentBatchId: null, trigger: 'Success' },
-				{ childJobId: 'load-test', parentJobId: 'services', parentBatchId: null, trigger: 'Success' },
-				{ childJobId: 'client-ready', parentJobId: 'compatibility', parentBatchId: null, trigger: 'Success' },
-				{ childJobId: 'client-ready', parentJobId: 'signing', parentBatchId: null, trigger: 'Success' },
-				{ childJobId: 'services-ready', parentJobId: 'migration', parentBatchId: null, trigger: 'Success' },
-				{ childJobId: 'services-ready', parentJobId: 'load-test', parentBatchId: null, trigger: 'Success' },
-				{ childJobId: 'candidate', parentJobId: 'client-ready', parentBatchId: null, trigger: 'Success' },
-				{ childJobId: 'candidate', parentJobId: 'services-ready', parentBatchId: null, trigger: 'Success' },
+				{ childJobHandle: 'client', parentJobHandle: 'approved', parentBatchHandle: null, trigger: 'Success' },
+				{ childJobHandle: 'services', parentJobHandle: 'approved', parentBatchHandle: null, trigger: 'Success' },
+				{ childJobHandle: 'compatibility', parentJobHandle: 'client', parentBatchHandle: null, trigger: 'Success' },
+				{ childJobHandle: 'signing', parentJobHandle: 'client', parentBatchHandle: null, trigger: 'Success' },
+				{ childJobHandle: 'migration', parentJobHandle: 'services', parentBatchHandle: null, trigger: 'Success' },
+				{ childJobHandle: 'load-test', parentJobHandle: 'services', parentBatchHandle: null, trigger: 'Success' },
+				{ childJobHandle: 'client-ready', parentJobHandle: 'compatibility', parentBatchHandle: null, trigger: 'Success' },
+				{ childJobHandle: 'client-ready', parentJobHandle: 'signing', parentBatchHandle: null, trigger: 'Success' },
+				{ childJobHandle: 'services-ready', parentJobHandle: 'migration', parentBatchHandle: null, trigger: 'Success' },
+				{ childJobHandle: 'services-ready', parentJobHandle: 'load-test', parentBatchHandle: null, trigger: 'Success' },
+				{ childJobHandle: 'candidate', parentJobHandle: 'client-ready', parentBatchHandle: null, trigger: 'Success' },
+				{ childJobHandle: 'candidate', parentJobHandle: 'services-ready', parentBatchHandle: null, trigger: 'Success' },
 			],
 		};
 		const wrapper = mount(WorkflowGraph, { props: { graph } });
-		const nodeY = (jobId: string): number => {
-			const transform = wrapper.get(`[data-job-id="${jobId}"]`).attributes('transform');
+		const nodeY = (jobHandle: string): number => {
+			const transform = wrapper.get(`[data-job-id="${jobHandle}"]`).attributes('transform');
 			return Number(/translate\([^ ]+ ([^)]+)\)/.exec(transform)?.[1]);
 		};
 
@@ -426,16 +426,16 @@ describe('dashboard components', () => {
 
 	it('simplifies additive splice constraints and can reveal the persisted edges', async () => {
 		const graph = {
-			batchId: 'dynamic-workflow',
+			batchHandle: 'dynamic-workflow',
 			nodes: [
-				{ jobId: 'fraud-check', jobName: 'order-fraud-check', state: 'Succeeded' as const },
-				{ jobId: 'assessment', jobName: 'order-record-fraud-assessment', state: 'Succeeded' as const },
-				{ jobId: 'fulfillment', jobName: 'order-prepare-fulfillment', state: 'Succeeded' as const },
+				{ jobHandle: 'fraud-check', jobName: 'order-fraud-check', state: 'Succeeded' as const },
+				{ jobHandle: 'assessment', jobName: 'order-record-fraud-assessment', state: 'Succeeded' as const },
+				{ jobHandle: 'fulfillment', jobName: 'order-prepare-fulfillment', state: 'Succeeded' as const },
 			],
 			edges: [
-				{ childJobId: 'assessment', parentJobId: 'fraud-check', parentBatchId: null, trigger: 'Success' as const },
-				{ childJobId: 'fulfillment', parentJobId: 'fraud-check', parentBatchId: null, trigger: 'Success' as const },
-				{ childJobId: 'fulfillment', parentJobId: 'assessment', parentBatchId: null, trigger: 'Success' as const },
+				{ childJobHandle: 'assessment', parentJobHandle: 'fraud-check', parentBatchHandle: null, trigger: 'Success' as const },
+				{ childJobHandle: 'fulfillment', parentJobHandle: 'fraud-check', parentBatchHandle: null, trigger: 'Success' as const },
+				{ childJobHandle: 'fulfillment', parentJobHandle: 'assessment', parentBatchHandle: null, trigger: 'Success' as const },
 			],
 		};
 		const wrapper = mount(WorkflowGraph, { props: { graph } });
@@ -452,16 +452,16 @@ describe('dashboard components', () => {
 
 	it('keeps a success constraint when its alternate path allows failed parents', () => {
 		const graph = {
-			batchId: 'mixed-triggers',
+			batchHandle: 'mixed-triggers',
 			nodes: [
-				{ jobId: 'current', jobName: 'Current', state: 'Failed' as const },
-				{ jobId: 'inserted', jobName: 'Inserted', state: 'Succeeded' as const },
-				{ jobId: 'waiter', jobName: 'Waiter', state: 'Cancelled' as const },
+				{ jobHandle: 'current', jobName: 'Current', state: 'Failed' as const },
+				{ jobHandle: 'inserted', jobName: 'Inserted', state: 'Succeeded' as const },
+				{ jobHandle: 'waiter', jobName: 'Waiter', state: 'Cancelled' as const },
 			],
 			edges: [
-				{ childJobId: 'inserted', parentJobId: 'current', parentBatchId: null, trigger: 'Complete' as const },
-				{ childJobId: 'waiter', parentJobId: 'current', parentBatchId: null, trigger: 'Success' as const },
-				{ childJobId: 'waiter', parentJobId: 'inserted', parentBatchId: null, trigger: 'Success' as const },
+				{ childJobHandle: 'inserted', parentJobHandle: 'current', parentBatchHandle: null, trigger: 'Complete' as const },
+				{ childJobHandle: 'waiter', parentJobHandle: 'current', parentBatchHandle: null, trigger: 'Success' as const },
+				{ childJobHandle: 'waiter', parentJobHandle: 'inserted', parentBatchHandle: null, trigger: 'Success' as const },
 			],
 		};
 		const wrapper = mount(WorkflowGraph, { props: { graph } });

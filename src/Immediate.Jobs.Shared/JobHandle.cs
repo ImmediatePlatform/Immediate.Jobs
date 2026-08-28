@@ -1,66 +1,67 @@
+using System.ComponentModel;
+using System.Diagnostics.CodeAnalysis;
+using System.Text.Json;
+using System.Text.Json.Serialization;
+
 namespace Immediate.Jobs.Shared;
 
 /// <summary>
 /// 	An opaque reference to a durable job invocation.
 /// </summary>
-public readonly struct JobHandle : IEquatable<JobHandle>
+[JsonConverter(typeof(JobHandleConverter))]
+public sealed record JobHandle : ContinuationHandle
 {
 	/// <summary>
-	/// 	Creates a handle for an existing invocation identifier.
+	/// 	The job identifier.
 	/// </summary>
-	/// <param name="id">
-	/// 	The opaque invocation identifier.
-	/// </param>
-	public JobHandle(string id)
+	public required string Value
 	{
-		ArgumentException.ThrowIfNullOrWhiteSpace(id);
-		Id = id;
+		get; init { ArgumentException.ThrowIfNullOrWhiteSpace(value); field = value; }
 	}
 
 	/// <summary>
-	/// 	The opaque invocation identifier.
+	///		Converts a string job identifier to it's opaque reference
 	/// </summary>
-	public string Id { get; }
-
-	internal Batch? Batch { get; init; }
-
-	/// <inheritdoc />
-	public bool Equals(JobHandle other) => string.Equals(Id, other.Id, StringComparison.Ordinal);
-
-	/// <inheritdoc />
-	public override bool Equals(object? obj) => obj is JobHandle other && Equals(other);
-
-	/// <inheritdoc />
-	public override int GetHashCode() => Id is null ? 0 : StringComparer.Ordinal.GetHashCode(Id);
-
-	/// <summary>
-	/// 	Compares two handles by their opaque invocation identifier.
-	/// </summary>
-	/// <param name="left">
-	/// 	The first handle to compare.
-	/// </param>
-	/// <param name="right">
-	/// 	The second handle to compare.
+	/// <param name="value">
+	///		A job identifier
 	/// </param>
 	/// <returns>
-	///		<see langword="true"/> when the handles have the same invocation identifier; otherwise, <see langword="false"/>.
+	///		An opaque reference containing the provided job identifier.
 	/// </returns>
-	public static bool operator ==(JobHandle left, JobHandle right) => left.Equals(right);
+	[return: NotNullIfNotNull(nameof(value))]
+	public static JobHandle? FromString(string? value) =>
+		value switch
+		{
+			{ } => new() { Value = value },
+			_ => null,
+		};
+}
 
-	/// <summary>
-	/// 	Compares two handles by their opaque invocation identifier.
-	/// </summary>
-	/// <param name="left">
-	/// 	The first handle to compare.
-	/// </param>
-	/// <param name="right">
-	/// 	The second handle to compare.
-	/// </param>
-	/// <returns>
-	///		<see langword="true"/> when the handles have different invocation identifiers; otherwise, <see langword="false"/>.
-	/// </returns>
-	public static bool operator !=(JobHandle left, JobHandle right) => !left.Equals(right);
+/// <summary>
+///		Converter type used to serialize/deserialize <see cref="JobHandle"/>.
+/// </summary>
+[EditorBrowsable(EditorBrowsableState.Never)]
+public sealed class JobHandleConverter : JsonConverter<JobHandle>
+{
+	/// <inheritdoc />
+	public override JobHandle? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+	{
+		if (reader.TokenType is not JsonTokenType.String)
+			throw new InvalidOperationException($"Invalid token type for parsing a `BatchHandle`; type: {reader.TokenType}");
+
+		return reader.GetString() switch
+		{
+			{ } str => JobHandle.FromString(str),
+			_ => null,
+		};
+	}
 
 	/// <inheritdoc />
-	public override string ToString() => Id ?? string.Empty;
+	public override void Write(Utf8JsonWriter writer, JobHandle value, JsonSerializerOptions options)
+	{
+		ArgumentNullException.ThrowIfNull(writer);
+		ArgumentNullException.ThrowIfNull(value);
+
+		writer.WriteStringValue(value.Value);
+	}
 }

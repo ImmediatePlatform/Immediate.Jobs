@@ -33,7 +33,7 @@ public sealed class JobSchedulingServiceTests
 
 		await service.DrainAsync(cancellationToken);
 
-		var job = Assert.Single(await inner.QueryJobsAsync(new() { Id = handle.Id }, cancellationToken));
+		var job = Assert.Single(await inner.QueryJobsAsync(new() { JobHandle = handle }, cancellationToken));
 		Assert.Equal(JobState.Succeeded, job.State);
 		Assert.Equal(1, job.Attempt);
 		Assert.Equal(["telemetry-failure"], state.Events);
@@ -60,7 +60,7 @@ public sealed class JobSchedulingServiceTests
 		await service.ExecuteSingleAsync(
 			new()
 			{
-				Id = "unknown-job",
+				JobHandle = JobHandle.FromString("unknown-job"),
 				JobName = "unknown-definition",
 				Payload = "{}",
 				State = JobState.Active,
@@ -70,7 +70,7 @@ public sealed class JobSchedulingServiceTests
 			cancellationToken
 		);
 
-		Assert.Equal("unknown-job", proxyState.CapturedFailedJobId);
+		Assert.Equal("unknown-job", proxyState.CapturedFailedJobHandle?.Value);
 		var failure = Assert.IsType<string>(proxyState.CapturedFailure);
 		Assert.Contains("No generated job definition", failure, StringComparison.Ordinal);
 		Assert.Contains("unknown-definition", failure, StringComparison.Ordinal);
@@ -104,7 +104,7 @@ public sealed class JobSchedulingServiceTests
 			() => service.DrainAsync(shutdown.Token).AsTask()
 		);
 
-		var job = Assert.Single(await inner.QueryJobsAsync(new() { Id = handle.Id }, cancellationToken));
+		var job = Assert.Single(await inner.QueryJobsAsync(new() { JobHandle = handle }, cancellationToken));
 		Assert.Equal(JobState.Active, job.State);
 		Assert.Equal(1, job.Attempt);
 	}

@@ -20,8 +20,8 @@ app.MapPost("/welcome/{userId:guid}", async (
 	CancellationToken cancellationToken
 ) =>
 {
-	var jobId = await scheduler.EnqueueAsync(new(userId, "v2"), cancellationToken);
-	return Results.Accepted("/jobs/api/jobs?search=send-welcome-email", new { jobId = jobId.Id });
+	var jobHandle = await scheduler.EnqueueAsync(new(userId, "v2"), cancellationToken);
+	return Results.Accepted("/jobs/api/jobs?search=send-welcome-email", new { jobHandle = jobHandle.Value });
 });
 
 app.MapImmediateJobsDashboard("/jobs");
@@ -44,7 +44,7 @@ namespace Basic
 		private ValueTask HandleAsync(EmptyJobRequest request, CancellationToken cancellationToken)
 		{
 			cancellationToken.ThrowIfCancellationRequested();
-			logger.LogInformation("Cleaning expired sessions for job {JobId}", request.JobDetails?.JobId);
+			logger.LogInformation("Cleaning expired sessions for job {JobHandle}", request.JobDetails?.JobHandle);
 			return ValueTask.CompletedTask;
 		}
 	}

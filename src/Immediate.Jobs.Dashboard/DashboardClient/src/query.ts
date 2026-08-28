@@ -37,12 +37,12 @@ export const queryKeys = {
 	recentJobs: ['jobs', 'recent'] as const,
 	jobPages: ['jobs', 'page'] as const,
 	jobs: (filters: JobFilters) => ['jobs', 'page', filters] as const,
-	job: (jobId: string) => ['jobs', 'detail', jobId] as const,
-	jobTelemetryLinks: (jobId: string) => ['jobs', 'telemetry-links', jobId] as const,
+	job: (jobHandle: string) => ['jobs', 'detail', jobHandle] as const,
+	jobTelemetryLinks: (jobHandle: string) => ['jobs', 'telemetry-links', jobHandle] as const,
 	batchRoot: ['batches'] as const,
 	batches: ['batches', 'list'] as const,
-	batch: (batchId: string) => ['batches', 'detail', batchId] as const,
-	batchGraph: (batchId: string) => ['batches', 'graph', batchId] as const,
+	batch: (batchHandle: string) => ['batches', 'detail', batchHandle] as const,
+	batchGraph: (batchHandle: string) => ['batches', 'graph', batchHandle] as const,
 	recurring: ['recurring'] as const,
 	servers: ['servers'] as const,
 };
@@ -81,22 +81,22 @@ export function useJobsQuery(filters: MaybeRefOrGetter<JobFilters>): UseQueryRet
 	});
 }
 
-export function useJobQuery(jobId: MaybeRefOrGetter<string | undefined>): UseQueryReturnType<JobRecord, Error> {
+export function useJobQuery(jobHandle: MaybeRefOrGetter<string | undefined>): UseQueryReturnType<JobRecord, Error> {
 	return useQuery({
-		queryKey: computed(() => queryKeys.job(toValue(jobId) ?? '')),
-		queryFn: ({ signal }) => getJob(toValue(jobId) ?? '', signal),
-		enabled: computed(() => Boolean(toValue(jobId))),
+		queryKey: computed(() => queryKeys.job(toValue(jobHandle) ?? '')),
+		queryFn: ({ signal }) => getJob(toValue(jobHandle) ?? '', signal),
+		enabled: computed(() => Boolean(toValue(jobHandle))),
 		retry: shouldRetry,
 	});
 }
 
 export function useJobTelemetryLinksQuery(
-	jobId: MaybeRefOrGetter<string | undefined>,
+	jobHandle: MaybeRefOrGetter<string | undefined>,
 ): UseQueryReturnType<JobTelemetryLink[], Error> {
 	return useQuery({
-		queryKey: computed(() => queryKeys.jobTelemetryLinks(toValue(jobId) ?? '')),
-		queryFn: ({ signal }) => getJobTelemetryLinks(toValue(jobId) ?? '', signal),
-		enabled: computed(() => Boolean(toValue(jobId))),
+		queryKey: computed(() => queryKeys.jobTelemetryLinks(toValue(jobHandle) ?? '')),
+		queryFn: ({ signal }) => getJobTelemetryLinks(toValue(jobHandle) ?? '', signal),
+		enabled: computed(() => Boolean(toValue(jobHandle))),
 		retry: shouldRetry,
 		refetchInterval: 5_000,
 	});
@@ -111,20 +111,20 @@ export function useBatchesQuery(): UseQueryReturnType<BatchStatus[], Error> {
 	});
 }
 
-export function useBatchQuery(batchId: MaybeRefOrGetter<string | undefined>): UseQueryReturnType<BatchStatus, Error> {
+export function useBatchQuery(batchHandle: MaybeRefOrGetter<string | undefined>): UseQueryReturnType<BatchStatus, Error> {
 	return useQuery({
-		queryKey: computed(() => queryKeys.batch(toValue(batchId) ?? '')),
-		queryFn: ({ signal }) => getBatch(toValue(batchId) ?? '', signal),
-		enabled: computed(() => Boolean(toValue(batchId))),
+		queryKey: computed(() => queryKeys.batch(toValue(batchHandle) ?? '')),
+		queryFn: ({ signal }) => getBatch(toValue(batchHandle) ?? '', signal),
+		enabled: computed(() => Boolean(toValue(batchHandle))),
 		retry: shouldRetry,
 	});
 }
 
-export function useBatchGraphQuery(batchId: MaybeRefOrGetter<string | undefined>): UseQueryReturnType<BatchGraph, Error> {
+export function useBatchGraphQuery(batchHandle: MaybeRefOrGetter<string | undefined>): UseQueryReturnType<BatchGraph, Error> {
 	return useQuery({
-		queryKey: computed(() => queryKeys.batchGraph(toValue(batchId) ?? '')),
-		queryFn: ({ signal }) => getBatchGraph(toValue(batchId) ?? '', signal),
-		enabled: computed(() => Boolean(toValue(batchId))),
+		queryKey: computed(() => queryKeys.batchGraph(toValue(batchHandle) ?? '')),
+		queryFn: ({ signal }) => getBatchGraph(toValue(batchHandle) ?? '', signal),
+		enabled: computed(() => Boolean(toValue(batchHandle))),
 		retry: shouldRetry,
 	});
 }
@@ -156,7 +156,7 @@ export function applyDashboardState(queryClient: QueryClient, state: DashboardSt
 	queryClient.setQueryData(queryKeys.servers, state.snapshot.servers);
 
 	for (const job of state.jobs) {
-		queryClient.setQueryData(queryKeys.job(job.id), job);
+		queryClient.setQueryData(queryKeys.job(job.jobHandle), job);
 	}
 
 	void queryClient.invalidateQueries({ queryKey: queryKeys.jobPages, refetchType: 'active' });

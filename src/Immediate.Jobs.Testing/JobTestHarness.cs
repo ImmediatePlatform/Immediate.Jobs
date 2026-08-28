@@ -47,10 +47,13 @@ public sealed class JobTestHarness : IAsyncDisposable, IDisposable
 		_ = services.AddSingleton<TimeProvider>(TimeProvider);
 		_ = services.AddSingleton(TimeProvider);
 		_ = services.AddSingleton(typeof(ILogger<>), typeof(NullLogger<>));
+		_ = services.AddSingleton<CapturingJobStorage>();
 
 		_ = services.AddImmediateJobsCore()
 			.ConfigureWorkers(o => o.MaxParallelJobs = 1)
-			.ConfigureStorage(o => o.UseInMemory());
+			.ConfigureStorage(o => o
+				.UseStorage(static provider => provider.GetRequiredService<CapturingJobStorage>())
+				.UseDistributed());
 
 		_serviceProvider = services.BuildServiceProvider(new ServiceProviderOptions
 		{
@@ -60,6 +63,7 @@ public sealed class JobTestHarness : IAsyncDisposable, IDisposable
 
 		Services = _serviceProvider;
 		Storage = _serviceProvider.GetRequiredService<IJobStorage>();
+		Captures = _serviceProvider.GetRequiredService<CapturingJobStorage>();
 		_graphStorage = Storage as IJobGraphStorage
 			?? throw new NotSupportedException(
 				"Batches & continuations require a graph-capable storage provider (a SQL database). " +
@@ -84,6 +88,10 @@ public sealed class JobTestHarness : IAsyncDisposable, IDisposable
 	/// <summary>The in-memory durable-state abstraction.</summary>
 	/// <value>The storage provider used by the harness.</value>
 	public IJobStorage Storage { get; }
+
+	/// <summary>The storage capture log used by the harness.</summary>
+	/// <value>The capturing storage instance, also available from <see cref="Services"/>.</value>
+	public CapturingJobStorage Captures { get; }
 
 	/// <summary>Builds atomic batches against the harness storage and fake clock.</summary>
 	/// <value>The batch scheduler configured for the harness.</value>
@@ -140,40 +148,43 @@ public sealed class JobTestHarness : IAsyncDisposable, IDisposable
 	) => Storage.QueryJobsAsync(query ?? new() { Take = 1000 }, cancellationToken);
 
 	/// <summary>Finds an invocation by identifier, or throws a test assertion exception.</summary>
-	/// <param name="jobId">The invocation identifier.</param>
+	/// <param name="jobHandle">The invocation identifier.</param>
 	/// <param name="cancellationToken">A token that can cancel the query.</param>
 	/// <returns>The persisted job record.</returns>
-	public async ValueTask<JobRecord> GetJobAsync(string jobId, CancellationToken cancellationToken = default)
+	public async ValueTask<JobRecord> GetJobAsync(string jobHandle, CancellationToken cancellationToken = default)
 	{
 		var jobs = await Storage.QueryJobsAsync(new() { Take = 1000 }, cancellationToken).ConfigureAwait(false);
-		return jobs.FirstOrDefault(job => string.Equals(job.Id, jobId, StringComparison.Ordinal))
-			?? throw new JobTestAssertionException($"Expected job '{jobId}' to have been enqueued, but it was not found.");
+		return jobs.FirstOrDefault(job => string.Equals(job.JobHandle.Value, jobHandle, StringComparison.Ordinal))
+			?? throw new JobTestAssertionException($"Expected job '{jobHandle}' to have been enqueued, but it was not found.");
 	}
 
 	/// <summary>Finds an invocation returned by a typed scheduler call.</summary>
 	/// <param name="job">The handle returned by the scheduler.</param>
 	/// <param name="cancellationToken">A token that can cancel the query.</param>
 	/// <returns>The persisted job record.</returns>
-	public ValueTask<JobRecord> GetJobAsync(JobHandle job, CancellationToken cancellationToken = default) =>
-		GetJobAsync(job.Id, cancellationToken);
+	public ValueTask<JobRecord> GetJobAsync(JobHandle job, CancellationToken cancellationToken = default)
+	{
+		ArgumentNullException.ThrowIfNull(job);
+		return GetJobAsync(job.Value, cancellationToken);
+	}
 
 	/// <summary>Asserts and deserializes the invocation returned by a typed scheduler call.</summary>
 	/// <typeparam name="TPayload">The expected payload type.</typeparam>
-	/// <param name="jobId">The invocation identifier.</param>
+	/// <param name="jobHandle">The invocation identifier.</param>
 	/// <param name="expectedState">The expected durable state, or <see langword="null"/> to accept any state.</param>
 	/// <param name="cancellationToken">A token that can cancel the query.</param>
 	/// <returns>The durable record paired with its deserialized payload.</returns>
 	public async ValueTask<EnqueuedJob<TPayload>> AssertEnqueuedAsync<TPayload>(
-		string jobId,
+		string jobHandle,
 		JobState? expectedState = null,
 		CancellationToken cancellationToken = default
 	)
 	{
-		var job = await GetJobAsync(jobId, cancellationToken).ConfigureAwait(false);
+		var job = await GetJobAsync(jobHandle, cancellationToken).ConfigureAwait(false);
 		if (expectedState is { } state && job.State != state)
 		{
 			throw new JobTestAssertionException(
-				$"Expected job '{jobId}' to be {state}, but it was {job.State}."
+				$"Expected job '{jobHandle}' to be {state}, but it was {job.State}."
 			);
 		}
 
@@ -185,7 +196,7 @@ public sealed class JobTestHarness : IAsyncDisposable, IDisposable
 		catch (Exception exception)
 		{
 			throw new JobTestAssertionException(
-				$"Job '{jobId}' did not contain a valid {typeof(TPayload).FullName} payload: {exception.Message}"
+				$"Job '{jobHandle}' did not contain a valid {typeof(TPayload).FullName} payload: {exception.Message}"
 			);
 		}
 
@@ -202,7 +213,11 @@ public sealed class JobTestHarness : IAsyncDisposable, IDisposable
 		JobHandle job,
 		JobState? expectedState = null,
 		CancellationToken cancellationToken = default
-	) => AssertEnqueuedAsync<TPayload>(job.Id, expectedState, cancellationToken);
+	)
+	{
+		ArgumentNullException.ThrowIfNull(job);
+		return AssertEnqueuedAsync<TPayload>(job.Value, expectedState, cancellationToken);
+	}
 
 	/// <summary>Asserts that a committed batch and exactly the expected number of members are visible together.</summary>
 	/// <param name="batch">The committed batch handle.</param>
@@ -216,17 +231,17 @@ public sealed class JobTestHarness : IAsyncDisposable, IDisposable
 	)
 	{
 		ArgumentNullException.ThrowIfNull(batch);
-		var status = await _graphStorage.GetBatchStatusAsync(batch.Id, cancellationToken).ConfigureAwait(false)
-			?? throw new JobTestAssertionException($"Expected batch '{batch.Id}' to be committed, but it was not found.");
+		var status = await _graphStorage.GetBatchStatusAsync(batch, cancellationToken).ConfigureAwait(false)
+			?? throw new JobTestAssertionException($"Expected batch '{batch}' to be committed, but it was not found.");
 		var members = await _graphStorage.QueryBatchMembersAsync(
-			batch.Id,
+			batch,
 			new() { Take = Math.Max(1, expectedMembers + 1) },
 			cancellationToken
 		).ConfigureAwait(false);
 		if (status.Total != expectedMembers || members.Count != expectedMembers)
 		{
 			throw new JobTestAssertionException(
-				string.Create(CultureInfo.InvariantCulture, $"Expected batch '{batch.Id}' to contain {expectedMembers} jobs, but its header reports {status.Total} and {members.Count} members were found.")
+				string.Create(CultureInfo.InvariantCulture, $"Expected batch '{batch}' to contain {expectedMembers} jobs, but its header reports {status.Total} and {members.Count} members were found.")
 			);
 		}
 	}
@@ -242,19 +257,19 @@ public sealed class JobTestHarness : IAsyncDisposable, IDisposable
 		CancellationToken cancellationToken = default
 	)
 	{
-		var childStatus = await Storage.GetJobStatusAsync(child.Id, cancellationToken).ConfigureAwait(false)
-			?? throw new JobTestAssertionException($"Expected continuation '{child.Id}', but it was not found.");
-		if (!childStatus.DependsOn.Any(edge => string.Equals(edge.ParentJobId, parent.Id, StringComparison.Ordinal)))
+		var childStatus = await Storage.GetJobStatusAsync(child, cancellationToken).ConfigureAwait(false)
+			?? throw new JobTestAssertionException($"Expected continuation '{child}', but it was not found.");
+		if (!childStatus.DependsOn.Any(edge => edge.ParentJobHandle == parent))
 		{
 			throw new JobTestAssertionException(
-				$"Expected job '{child.Id}' to depend on '{parent.Id}', but no such edge was persisted."
+				$"Expected job '{child}' to depend on '{parent}', but no such edge was persisted."
 			);
 		}
 
 		if (childStatus.State is JobState.Cancelled or JobState.Skipped)
-			throw new JobTestAssertionException($"Expected continuation '{child.Id}' to be released, but it was {childStatus.State}.");
+			throw new JobTestAssertionException($"Expected continuation '{child}' to be released, but it was {childStatus.State}.");
 		if (childStatus.State == JobState.AwaitingContinuation)
-			throw new JobTestAssertionException($"Expected continuation '{child.Id}' to be released, but it is still waiting.");
+			throw new JobTestAssertionException($"Expected continuation '{child}' to be released, but it is still waiting.");
 	}
 
 	/// <summary>Asserts that every supplied invocation was skipped by a dependency cascade.</summary>
@@ -271,7 +286,7 @@ public sealed class JobTestHarness : IAsyncDisposable, IDisposable
 		{
 			var job = await GetJobAsync(handle, cancellationToken).ConfigureAwait(false);
 			if (job.State != JobState.Skipped)
-				throw new JobTestAssertionException($"Expected job '{handle.Id}' to be cascade-skipped, but it was {job.State}.");
+				throw new JobTestAssertionException($"Expected job '{handle}' to be cascade-skipped, but it was {job.State}.");
 		}
 	}
 
@@ -300,7 +315,7 @@ public sealed class JobTestHarness : IAsyncDisposable, IDisposable
 		var now = TimeProvider.GetUtcNow();
 		var record = new JobRecord
 		{
-			Id = _serviceProvider.GetRequiredService<IIdGenerator>().CreateId(IdKind.Job),
+			JobHandle = JobHandle.FromString(_serviceProvider.GetRequiredService<IIdGenerator>().CreateId(IdKind.Job)),
 			JobName = definition.Name,
 			QueueName = definition.Queue.Name,
 			Payload = _serviceProvider.GetRequiredService<IJobSerializer>().Serialize(payload),

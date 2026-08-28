@@ -82,7 +82,7 @@ public static class SampleApiEndpoints
 		var job = await scheduler.EnqueueAsync(new(name), cancellationToken);
 		return Results.Accepted(
 			"/jobs",
-			new EnqueueJobResponse(job.Id, new Uri("/jobs", UriKind.Relative))
+			new EnqueueJobResponse(job.Value, new Uri("/jobs", UriKind.Relative))
 		);
 	}
 
@@ -99,19 +99,20 @@ public static class SampleApiEndpoints
 		await using var batch = batches.Begin();
 		for (var sequence = 1; sequence <= BacklogJobs; sequence++)
 		{
-			_ = scheduler.AddToBatchInGroup(
-				batch,
+			scheduler.Enqueue(
 				new(runId, sequence, "backlog"),
+				batch,
 				groupId: backlogGroup
 			);
 		}
 
-		var quietJob = scheduler.AddToBatchInGroup(
-			batch,
+		var quietJob = scheduler.Schedule(
 			new(runId, 1, "quiet"),
-			groupId: quietGroup,
-			delay: TimeSpan.FromSeconds(5)
+			batch,
+			delay: TimeSpan.FromSeconds(5),
+			groupId: quietGroup
 		);
+
 		_ = await batch.CommitAsync(cancellationToken);
 
 		return Results.Accepted(
@@ -121,7 +122,7 @@ public static class SampleApiEndpoints
 				BacklogJobs,
 				backlogGroup,
 				quietGroup,
-				quietJob.Id,
+				quietJob.JobHandle.Value,
 				new Uri("/jobs", UriKind.Relative)
 			)
 		);
@@ -135,7 +136,7 @@ public static class SampleApiEndpoints
 		var job = await scheduler.EnqueueAsync(new(Guid.NewGuid()), cancellationToken);
 		return Results.Accepted(
 			"/jobs",
-			new EnqueueJobResponse(job.Id, new Uri("/jobs", UriKind.Relative))
+			new EnqueueJobResponse(job.Value, new Uri("/jobs", UriKind.Relative))
 		);
 	}
 
@@ -150,32 +151,34 @@ public static class SampleApiEndpoints
 	{
 		var runId = Guid.NewGuid();
 		await using var batch = batches.Begin();
-		var root = rootScheduler.AddToBatch(batch, new(runId, failRoot));
-		var success = await successScheduler.ScheduleAfterAsync(
-			root,
+
+		var root = rootScheduler.Enqueue(new(runId, failRoot), batch);
+
+		var success = successScheduler.ScheduleAfter(
 			new(runId),
-			ContinuationTrigger.Success,
-			cancellationToken: cancellationToken
-		);
-		var failure = await failureScheduler.ScheduleAfterAsync(
 			root,
-			new(runId),
-			ContinuationTrigger.Failure,
-			cancellationToken: cancellationToken
+			ContinuationTrigger.Success
 		);
+
+		var failure = failureScheduler.ScheduleAfter(
+			new(runId),
+			root,
+			ContinuationTrigger.Failure
+		);
+
 		var batchHandle = await batch.CommitAsync(cancellationToken);
 
 		return Results.Accepted(
-			$"/jobs/api/batches/{batchHandle.Id}",
+			$"/jobs/api/batches/{batchHandle.Value}",
 			new CreateContinuationBranchDemoResponse(
 				runId,
 				failRoot,
-				batchHandle.Id,
-				root.Id,
-				success.Id,
-				failure.Id,
+				batchHandle.Value,
+				root.JobHandle.Value,
+				success.JobHandle.Value,
+				failure.JobHandle.Value,
 				new Uri("/jobs", UriKind.Relative),
-				new Uri($"/jobs/api/batches/{batchHandle.Id}", UriKind.Relative)
+				new Uri($"/jobs/api/batches/{batchHandle.Value}", UriKind.Relative)
 			)
 		);
 	}
@@ -188,14 +191,14 @@ public static class SampleApiEndpoints
 		var orderId = Guid.NewGuid();
 		var batch = await workflow.CreateAsync(orderId, cancellationToken);
 		return Results.Accepted(
-			$"/jobs/api/batches/{batch.Id}",
+			$"/jobs/api/batches/{batch.Value}",
 			new CreateOrderBatchResponse(
 				orderId,
-				batch.Id,
+				batch.Value,
 				OrderFulfillmentWorkflow.InitialJobCount,
 				OrderFulfillmentWorkflow.ExpectedJobCount,
 				new Uri("/jobs", UriKind.Relative),
-				new Uri($"/jobs/api/batches/{batch.Id}", UriKind.Relative)
+				new Uri($"/jobs/api/batches/{batch.Value}", UriKind.Relative)
 			)
 		);
 	}
@@ -209,14 +212,14 @@ public static class SampleApiEndpoints
 		var releaseId = Guid.NewGuid();
 		var batch = await workflow.CreateAsync(releaseId, title, cancellationToken);
 		return Results.Accepted(
-			$"/jobs/api/batches/{batch.Id}",
+			$"/jobs/api/batches/{batch.Value}",
 			new CreateGameReleaseBatchResponse(
 				releaseId,
 				title,
-				batch.Id,
+				batch.Value,
 				GameReleaseWorkflow.JobCount,
 				new Uri("/jobs", UriKind.Relative),
-				new Uri($"/jobs/api/batches/{batch.Id}", UriKind.Relative)
+				new Uri($"/jobs/api/batches/{batch.Value}", UriKind.Relative)
 			)
 		);
 	}

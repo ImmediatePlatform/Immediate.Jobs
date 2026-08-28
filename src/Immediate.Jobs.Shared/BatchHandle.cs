@@ -1,24 +1,67 @@
+using System.ComponentModel;
+using System.Diagnostics.CodeAnalysis;
+using System.Text.Json;
+using System.Text.Json.Serialization;
+
 namespace Immediate.Jobs.Shared;
 
 /// <summary>
-/// 	An opaque reference to a committed atomic batch.
+/// 	An opaque reference to a durable batch invocation.
 /// </summary>
-public sealed record BatchHandle
+[JsonConverter(typeof(BatchHandleConverter))]
+public sealed record BatchHandle : ContinuationHandle
 {
 	/// <summary>
-	/// 	Creates a handle for an existing batch identifier.
+	/// 	The batch identifier.
 	/// </summary>
-	/// <param name="id">
-	/// 	The opaque batch identifier.
-	/// </param>
-	public BatchHandle(string id)
+	public required string Value
 	{
-		ArgumentException.ThrowIfNullOrWhiteSpace(id);
-		Id = id;
+		get; init { ArgumentException.ThrowIfNullOrWhiteSpace(value); field = value; }
 	}
 
 	/// <summary>
-	/// 	The opaque batch identifier.
+	///		Converts a string batch identifier to it's opaque reference
 	/// </summary>
-	public string Id { get; }
+	/// <param name="value">
+	///		A batch identifier
+	/// </param>
+	/// <returns>
+	///		An opaque reference containing the provided batch identifier.
+	/// </returns>
+	[return: NotNullIfNotNull(nameof(value))]
+	public static BatchHandle? FromString(string? value) =>
+		value switch
+		{
+			{ } => new() { Value = value },
+			_ => null,
+		};
+}
+
+/// <summary>
+///		Converter type used to serialize/deserialize <see cref="BatchHandle"/>.
+/// </summary>
+[EditorBrowsable(EditorBrowsableState.Never)]
+public sealed class BatchHandleConverter : JsonConverter<BatchHandle>
+{
+	/// <inheritdoc />
+	public override BatchHandle? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+	{
+		if (reader.TokenType is not JsonTokenType.String)
+			throw new InvalidOperationException($"Invalid token type for parsing a `BatchHandle`; type: {reader.TokenType}");
+
+		return reader.GetString() switch
+		{
+			{ } str => BatchHandle.FromString(str),
+			_ => null,
+		};
+	}
+
+	/// <inheritdoc />
+	public override void Write(Utf8JsonWriter writer, BatchHandle value, JsonSerializerOptions options)
+	{
+		ArgumentNullException.ThrowIfNull(writer);
+		ArgumentNullException.ThrowIfNull(value);
+
+		writer.WriteStringValue(value.Value);
+	}
 }

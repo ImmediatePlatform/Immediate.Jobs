@@ -84,31 +84,31 @@ export async function getRecentJobs(signal?: AbortSignal): Promise<JobRecord[]> 
 	return page.items;
 }
 
-export function getJob(jobId: string, signal?: AbortSignal): Promise<JobRecord> {
-	return request(`jobs/${encodeURIComponent(jobId)}`, { signal });
+export function getJob(jobHandle: string, signal?: AbortSignal): Promise<JobRecord> {
+	return request(`jobs/${encodeURIComponent(jobHandle)}`, { signal });
 }
 
-export function getJobTelemetryLinks(jobId: string, signal?: AbortSignal): Promise<JobTelemetryLink[]> {
-	return request(`jobs/${encodeURIComponent(jobId)}/telemetry-links`, { signal });
+export function getJobTelemetryLinks(jobHandle: string, signal?: AbortSignal): Promise<JobTelemetryLink[]> {
+	return request(`jobs/${encodeURIComponent(jobHandle)}/telemetry-links`, { signal });
 }
 
 export function getJobExecutions(
-	jobId: string,
+	jobHandle: string,
 	skip = 0,
 	take = 20,
 	signal?: AbortSignal,
 ): Promise<DashboardJobExecutionPage> {
 	const parameters = new URLSearchParams({ skip: String(skip), take: String(take) });
-	return request(`jobs/${encodeURIComponent(jobId)}/executions?${parameters}`, { signal });
+	return request(`jobs/${encodeURIComponent(jobHandle)}/executions?${parameters}`, { signal });
 }
 
 export function getJobExecutionTelemetryLinks(
-	jobId: string,
+	jobHandle: string,
 	executionNumber: number,
 	signal?: AbortSignal,
 ): Promise<JobTelemetryLink[]> {
 	return request(
-		`jobs/${encodeURIComponent(jobId)}/executions/${executionNumber}/telemetry-links`,
+		`jobs/${encodeURIComponent(jobHandle)}/executions/${executionNumber}/telemetry-links`,
 		{ signal },
 	);
 }
@@ -117,12 +117,12 @@ export function getBatches(signal?: AbortSignal): Promise<BatchStatus[]> {
 	return request('batches?skip=0&take=100', { signal });
 }
 
-export function getBatch(batchId: string, signal?: AbortSignal): Promise<BatchStatus> {
-	return request(`batches/${encodeURIComponent(batchId)}`, { signal });
+export function getBatch(batchHandle: string, signal?: AbortSignal): Promise<BatchStatus> {
+	return request(`batches/${encodeURIComponent(batchHandle)}`, { signal });
 }
 
-export function getBatchGraph(batchId: string, signal?: AbortSignal): Promise<BatchGraph> {
-	return request(`batches/${encodeURIComponent(batchId)}/graph`, { signal });
+export function getBatchGraph(batchHandle: string, signal?: AbortSignal): Promise<BatchGraph> {
+	return request(`batches/${encodeURIComponent(batchHandle)}/graph`, { signal });
 }
 
 export function getRecurring(signal?: AbortSignal): Promise<RecurringJobSchedule[]> {
@@ -133,20 +133,20 @@ export function getServers(signal?: AbortSignal): Promise<JobServerSnapshot[]> {
 	return request('servers', { signal });
 }
 
-export function retryJob(jobId: string): Promise<void> {
-	return request(`jobs/${encodeURIComponent(jobId)}/retry`, { method: 'POST' });
+export function retryJob(jobHandle: string): Promise<void> {
+	return request(`jobs/${encodeURIComponent(jobHandle)}/retry`, { method: 'POST' });
 }
 
-export function cancelJob(jobId: string): Promise<void> {
-	return request(`jobs/${encodeURIComponent(jobId)}/cancel`, { method: 'POST' });
+export function cancelJob(jobHandle: string): Promise<void> {
+	return request(`jobs/${encodeURIComponent(jobHandle)}/cancel`, { method: 'POST' });
 }
 
-export function cancelBatch(batchId: string): Promise<void> {
-	return request(`batches/${encodeURIComponent(batchId)}/cancel`, { method: 'POST' });
+export function cancelBatch(batchHandle: string): Promise<void> {
+	return request(`batches/${encodeURIComponent(batchHandle)}/cancel`, { method: 'POST' });
 }
 
-export function deleteBatch(batchId: string): Promise<void> {
-	return request(`batches/${encodeURIComponent(batchId)}`, { method: 'DELETE' });
+export function deleteBatch(batchHandle: string): Promise<void> {
+	return request(`batches/${encodeURIComponent(batchHandle)}`, { method: 'DELETE' });
 }
 
 export function triggerRecurring(name: string): Promise<void> {

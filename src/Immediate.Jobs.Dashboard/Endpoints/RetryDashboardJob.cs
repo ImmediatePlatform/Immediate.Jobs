@@ -8,7 +8,7 @@ using Microsoft.AspNetCore.Mvc;
 namespace Immediate.Jobs.Dashboard.Endpoints;
 
 [Handler]
-[MapPost("jobs/{jobId}/retry")]
+[MapPost("jobs/{jobHandle}/retry")]
 [MapGroup<DashboardApi>]
 internal static partial class RetryDashboardJob
 {
@@ -17,7 +17,7 @@ internal static partial class RetryDashboardJob
 	{
 		[FromRoute]
 		[NotEmpty]
-		public required string JobId { get; init; }
+		public required string JobHandle { get; init; }
 	}
 
 	internal static Results<NoContent, NotFound, ProblemHttpResult> TransformResult(
@@ -29,6 +29,6 @@ internal static partial class RetryDashboardJob
 		JobMonitor monitor,
 		CancellationToken cancellationToken
 	) => DashboardApiEndpointOperations.MutateJobAsync(
-		() => monitor.RetryJobAsync(command.JobId, cancellationToken)
+		() => monitor.RetryJobAsync(JobHandle.FromString(command.JobHandle), cancellationToken)
 	);
 }

@@ -13,7 +13,7 @@ public static class NodaTimeJobSchedulerExtensions
 	/// <param name="delay">The duration to wait before making the job due.</param>
 	/// <param name="cancellationToken">A token that can cancel the operation.</param>
 	/// <returns>A task whose result identifies the scheduled job.</returns>
-	public static ValueTask<JobHandle> ScheduleAsync<TPayload>(
+	public static async ValueTask<JobHandle> ScheduleAsync<TPayload>(
 		this IJobScheduler<TPayload> scheduler,
 		TPayload payload,
 		Duration delay,
@@ -21,7 +21,7 @@ public static class NodaTimeJobSchedulerExtensions
 	)
 	{
 		ArgumentNullException.ThrowIfNull(scheduler);
-		return scheduler.ScheduleAsync(payload, delay.ToTimeSpan(), cancellationToken);
+		return await scheduler.ScheduleAsync(payload, delay.ToTimeSpan(), cancellationToken);
 	}
 
 	/// <summary>Schedules grouped payload work after a NodaTime duration.</summary>
@@ -29,159 +29,352 @@ public static class NodaTimeJobSchedulerExtensions
 	/// <param name="scheduler">The typed job scheduler.</param>
 	/// <param name="payload">The payload to schedule.</param>
 	/// <param name="delay">The duration to wait before making the job due.</param>
-	/// <param name="groupId">The optional fair-queue group identifier.</param>
+	/// <param name="groupId">The fair-queue group identifier.</param>
 	/// <param name="cancellationToken">A token that can cancel the operation.</param>
 	/// <returns>A task whose result identifies the scheduled job.</returns>
-	public static ValueTask<JobHandle> ScheduleAsync<TPayload>(
+	public static async ValueTask<JobHandle> ScheduleAsync<TPayload>(
 		this IJobScheduler<TPayload> scheduler,
 		TPayload payload,
 		Duration delay,
-		string? groupId,
-		CancellationToken cancellationToken
+		string groupId,
+		CancellationToken cancellationToken = default
 	)
 	{
 		ArgumentNullException.ThrowIfNull(scheduler);
-		return scheduler.ScheduleAsync(payload, delay.ToTimeSpan(), groupId, cancellationToken);
+		return await scheduler.ScheduleAsync(payload, delay.ToTimeSpan(), groupId, cancellationToken);
+	}
+
+	/// <summary>Schedules a payload after a NodaTime duration.</summary>
+	/// <typeparam name="TPayload">The type of payload to schedule.</typeparam>
+	/// <param name="scheduler">The typed job scheduler.</param>
+	/// <param name="payload">The payload to schedule.</param>
+	/// <param name="currentJob">Details of the currently running job whose batch receives the new work.</param>
+	/// <param name="delay">The delay before the invocation becomes due.</param>
+	/// <param name="options">The new job's relationship to continuations of the current job.</param>
+	/// <param name="cancellationToken">A token that can cancel the scheduling operation.</param>
+	/// <returns>A task whose result identifies the scheduled job.</returns>
+	public static async ValueTask<JobHandle> ScheduleAsync<TPayload>(
+		this IJobScheduler<TPayload> scheduler,
+		TPayload payload,
+		JobDetails currentJob,
+		Duration delay,
+		ContinuationOptions options = ContinuationOptions.BeforeContinuations,
+		CancellationToken cancellationToken = default
+	)
+	{
+		ArgumentNullException.ThrowIfNull(scheduler);
+		return await scheduler.ScheduleAsync(payload, currentJob, delay.ToTimeSpan(), options, cancellationToken);
+	}
+
+	/// <summary>Schedules grouped payload work after a NodaTime duration.</summary>
+	/// <typeparam name="TPayload">The type of payload to schedule.</typeparam>
+	/// <param name="scheduler">The typed job scheduler.</param>
+	/// <param name="payload">The payload to schedule.</param>
+	/// <param name="currentJob">Details of the currently running job whose batch receives the new work.</param>
+	/// <param name="delay">The delay before the invocation becomes due.</param>
+	/// <param name="groupId">The fair-queue group identifier.</param>
+	/// <param name="options">The new job's relationship to continuations of the current job.</param>
+	/// <param name="cancellationToken">A token that can cancel the scheduling operation.</param>
+	/// <returns>A task whose result identifies the scheduled job.</returns>
+	public static async ValueTask<JobHandle> ScheduleAsync<TPayload>(
+		this IJobScheduler<TPayload> scheduler,
+		TPayload payload,
+		JobDetails currentJob,
+		Duration delay,
+		string groupId,
+		ContinuationOptions options = ContinuationOptions.BeforeContinuations,
+		CancellationToken cancellationToken = default
+	)
+	{
+		ArgumentNullException.ThrowIfNull(scheduler);
+		return await scheduler.ScheduleAsync(payload, currentJob, delay.ToTimeSpan(), groupId, options, cancellationToken);
 	}
 
 	/// <summary>Schedules a payload at a NodaTime instant.</summary>
 	/// <typeparam name="TPayload">The type of payload to schedule.</typeparam>
 	/// <param name="scheduler">The typed job scheduler.</param>
 	/// <param name="payload">The payload to schedule.</param>
-	/// <param name="runAt">The instant at which the job becomes due.</param>
+	/// <param name="at">The instant at which the job becomes due.</param>
 	/// <param name="cancellationToken">A token that can cancel the operation.</param>
 	/// <returns>A task whose result identifies the scheduled job.</returns>
-	public static ValueTask<JobHandle> ScheduleAtAsync<TPayload>(
+	public static async ValueTask<JobHandle> ScheduleAsync<TPayload>(
 		this IJobScheduler<TPayload> scheduler,
 		TPayload payload,
-		Instant runAt,
+		Instant at,
 		CancellationToken cancellationToken = default
 	)
 	{
 		ArgumentNullException.ThrowIfNull(scheduler);
-		return scheduler.ScheduleAtAsync(payload, runAt.ToDateTimeOffset(), cancellationToken);
+		return await scheduler.ScheduleAsync(payload, at.ToDateTimeOffset(), cancellationToken);
 	}
 
 	/// <summary>Schedules grouped payload work at a NodaTime instant.</summary>
 	/// <typeparam name="TPayload">The type of payload to schedule.</typeparam>
 	/// <param name="scheduler">The typed job scheduler.</param>
 	/// <param name="payload">The payload to schedule.</param>
-	/// <param name="runAt">The instant at which the job becomes due.</param>
-	/// <param name="groupId">The optional fair-queue group identifier.</param>
+	/// <param name="at">The instant at which the job becomes due.</param>
+	/// <param name="groupId">The fair-queue group identifier.</param>
 	/// <param name="cancellationToken">A token that can cancel the operation.</param>
 	/// <returns>A task whose result identifies the scheduled job.</returns>
-	public static ValueTask<JobHandle> ScheduleAtAsync<TPayload>(
+	public static async ValueTask<JobHandle> ScheduleAsync<TPayload>(
 		this IJobScheduler<TPayload> scheduler,
 		TPayload payload,
-		Instant runAt,
-		string? groupId,
-		CancellationToken cancellationToken
+		Instant at,
+		string groupId,
+		CancellationToken cancellationToken = default
 	)
 	{
 		ArgumentNullException.ThrowIfNull(scheduler);
-		return scheduler.ScheduleAtAsync(payload, runAt.ToDateTimeOffset(), groupId, cancellationToken);
+		return await scheduler.ScheduleAsync(payload, at.ToDateTimeOffset(), groupId, cancellationToken);
 	}
 
-	/// <summary>Adds a payload to an atomic batch after a NodaTime duration.</summary>
-	/// <typeparam name="TPayload">The type of payload to add.</typeparam>
+	/// <summary>Schedules a payload at a NodaTime instant.</summary>
+	/// <typeparam name="TPayload">The type of payload to schedule.</typeparam>
 	/// <param name="scheduler">The typed job scheduler.</param>
-	/// <param name="batch">The batch to add the job to.</param>
+	/// <param name="payload">The payload to schedule.</param>
+	/// <param name="currentJob">Details of the currently running job whose batch receives the new work.</param>
+	/// <param name="at">The instant at which the job becomes due.</param>
+	/// <param name="options">The new job's relationship to continuations of the current job.</param>
+	/// <param name="cancellationToken">A token that can cancel the scheduling operation.</param>
+	/// <returns>A task whose result identifies the scheduled job.</returns>
+	public static async ValueTask<JobHandle> ScheduleAsync<TPayload>(
+		this IJobScheduler<TPayload> scheduler,
+		TPayload payload,
+		JobDetails currentJob,
+		Instant at,
+		ContinuationOptions options = ContinuationOptions.BeforeContinuations,
+		CancellationToken cancellationToken = default
+	)
+	{
+		ArgumentNullException.ThrowIfNull(scheduler);
+		return await scheduler.ScheduleAsync(payload, currentJob, at.ToDateTimeOffset(), options, cancellationToken);
+	}
+
+	/// <summary>Schedules grouped payload work at a NodaTime instant.</summary>
+	/// <typeparam name="TPayload">The type of payload to schedule.</typeparam>
+	/// <param name="scheduler">The typed job scheduler.</param>
+	/// <param name="payload">The payload to schedule.</param>
+	/// <param name="currentJob">Details of the currently running job whose batch receives the new work.</param>
+	/// <param name="at">The instant at which the job becomes due.</param>
+	/// <param name="groupId">The fair-queue group identifier.</param>
+	/// <param name="options">The new job's relationship to continuations of the current job.</param>
+	/// <param name="cancellationToken">A token that can cancel the scheduling operation.</param>
+	/// <returns>A task whose result identifies the scheduled job.</returns>
+	public static async ValueTask<JobHandle> ScheduleAsync<TPayload>(
+		this IJobScheduler<TPayload> scheduler,
+		TPayload payload,
+		JobDetails currentJob,
+		Instant at,
+		string groupId,
+		ContinuationOptions options = ContinuationOptions.BeforeContinuations,
+		CancellationToken cancellationToken = default
+	)
+	{
+		ArgumentNullException.ThrowIfNull(scheduler);
+		return await scheduler.ScheduleAsync(payload, currentJob, at.ToDateTimeOffset(), groupId, options, cancellationToken);
+	}
+
+	/// <summary>Schedules a continuation after a NodaTime duration.</summary>
+	/// <typeparam name="TPayload">The type of payload to schedule.</typeparam>
+	/// <param name="scheduler">The typed job scheduler.</param>
+	/// <param name="payload">The continuation payload.</param>
+	/// <param name="parent">The activity that must complete before the continuation is released.</param>
+	/// <param name="delay">The delay applied when the continuation is released.</param>
+	/// <param name="on">The parent outcome that releases the continuation.</param>
+	/// <param name="cancellationToken">A token that can cancel the operation.</param>
+	/// <returns>A task whose result identifies the scheduled continuation.</returns>
+	public static async ValueTask<JobHandle> ScheduleAfterAsync<TPayload>(this IJobScheduler<TPayload> scheduler, TPayload payload, ContinuationHandle parent, Duration delay, ContinuationTrigger on = ContinuationTrigger.Success, CancellationToken cancellationToken = default)
+	{
+		ArgumentNullException.ThrowIfNull(scheduler);
+		return await scheduler.ScheduleAfterAsync(payload, parent, delay.ToTimeSpan(), on, cancellationToken);
+	}
+
+	/// <summary>Schedules a grouped continuation after a NodaTime duration.</summary>
+	/// <typeparam name="TPayload">The type of payload to schedule.</typeparam>
+	/// <param name="scheduler">The typed job scheduler.</param>
+	/// <param name="payload">The continuation payload.</param>
+	/// <param name="parent">The activity that must complete before the continuation is released.</param>
+	/// <param name="delay">The delay applied when the continuation is released.</param>
+	/// <param name="groupId">The fair-queue group identifier.</param>
+	/// <param name="on">The parent outcome that releases the continuation.</param>
+	/// <param name="cancellationToken">A token that can cancel the operation.</param>
+	/// <returns>A task whose result identifies the scheduled continuation.</returns>
+	public static async ValueTask<JobHandle> ScheduleAfterAsync<TPayload>(this IJobScheduler<TPayload> scheduler, TPayload payload, ContinuationHandle parent, Duration delay, string groupId, ContinuationTrigger on = ContinuationTrigger.Success, CancellationToken cancellationToken = default)
+	{
+		ArgumentNullException.ThrowIfNull(scheduler);
+		return await scheduler.ScheduleAfterAsync(payload, parent, delay.ToTimeSpan(), groupId, on, cancellationToken);
+	}
+
+	/// <summary>Schedules a fan-in continuation after a NodaTime duration.</summary>
+	/// <typeparam name="TPayload">The type of payload to schedule.</typeparam>
+	/// <param name="scheduler">The typed job scheduler.</param>
+	/// <param name="payload">The continuation payload.</param>
+	/// <param name="parents">The activities that must all complete before the continuation is released.</param>
+	/// <param name="delay">The delay applied when the continuation is released.</param>
+	/// <param name="on">The parent outcomes that release the continuation.</param>
+	/// <param name="cancellationToken">A token that can cancel the operation.</param>
+	/// <returns>A task whose result identifies the scheduled continuation.</returns>
+	public static async ValueTask<JobHandle> ScheduleAfterAsync<TPayload>(this IJobScheduler<TPayload> scheduler, TPayload payload, IReadOnlyList<ContinuationHandle> parents, Duration delay, ContinuationTrigger on = ContinuationTrigger.Success, CancellationToken cancellationToken = default)
+	{
+		ArgumentNullException.ThrowIfNull(scheduler);
+		return await scheduler.ScheduleAfterAsync(payload, parents, delay.ToTimeSpan(), on, cancellationToken);
+	}
+
+	/// <summary>Schedules a grouped fan-in continuation after a NodaTime duration.</summary>
+	/// <typeparam name="TPayload">The type of payload to schedule.</typeparam>
+	/// <param name="scheduler">The typed job scheduler.</param>
+	/// <param name="payload">The continuation payload.</param>
+	/// <param name="parents">The activities that must all complete before the continuation is released.</param>
+	/// <param name="delay">The delay applied when the continuation is released.</param>
+	/// <param name="groupId">The fair-queue group identifier.</param>
+	/// <param name="on">The parent outcomes that release the continuation.</param>
+	/// <param name="cancellationToken">A token that can cancel the operation.</param>
+	/// <returns>A task whose result identifies the scheduled continuation.</returns>
+	public static async ValueTask<JobHandle> ScheduleAfterAsync<TPayload>(this IJobScheduler<TPayload> scheduler, TPayload payload, IReadOnlyList<ContinuationHandle> parents, Duration delay, string groupId, ContinuationTrigger on = ContinuationTrigger.Success, CancellationToken cancellationToken = default)
+	{
+		ArgumentNullException.ThrowIfNull(scheduler);
+		return await scheduler.ScheduleAfterAsync(payload, parents, delay.ToTimeSpan(), groupId, on, cancellationToken);
+	}
+
+	/// <summary>Schedules an in-execution continuation after a NodaTime duration.</summary>
+	/// <typeparam name="TPayload">The type of payload to schedule.</typeparam>
+	/// <param name="scheduler">The typed job scheduler.</param>
+	/// <param name="payload">The continuation payload.</param>
+	/// <param name="currentJob">The currently executing job.</param>
+	/// <param name="delay">The delay before the continuation becomes due.</param>
+	/// <param name="options">The placement of the new work in the continuation graph.</param>
+	/// <returns>A handle for the scheduled continuation.</returns>
+	public static JobHandle ScheduleAfter<TPayload>(this IJobScheduler<TPayload> scheduler, TPayload payload, JobDetails currentJob, Duration delay, ContinuationOptions options = ContinuationOptions.BeforeContinuations)
+	{
+		ArgumentNullException.ThrowIfNull(scheduler);
+		return scheduler.ScheduleAfter(payload, currentJob, delay.ToTimeSpan(), options);
+	}
+
+	/// <summary>Schedules a grouped in-execution continuation after a NodaTime duration.</summary>
+	/// <typeparam name="TPayload">The type of payload to schedule.</typeparam>
+	/// <param name="scheduler">The typed job scheduler.</param>
+	/// <param name="payload">The continuation payload.</param>
+	/// <param name="currentJob">The currently executing job.</param>
+	/// <param name="delay">The delay before the continuation becomes due.</param>
+	/// <param name="groupId">The fair-queue group identifier.</param>
+	/// <param name="options">The placement of the new work in the continuation graph.</param>
+	/// <returns>A handle for the scheduled continuation.</returns>
+	public static JobHandle ScheduleAfter<TPayload>(this IJobScheduler<TPayload> scheduler, TPayload payload, JobDetails currentJob, Duration delay, string groupId, ContinuationOptions options = ContinuationOptions.BeforeContinuations)
+	{
+		ArgumentNullException.ThrowIfNull(scheduler);
+		return scheduler.ScheduleAfter(payload, currentJob, delay.ToTimeSpan(), groupId, options);
+	}
+
+	/// <summary>Adds delayed work to a batch using a NodaTime duration.</summary>
+	/// <typeparam name="TPayload">The type of payload to schedule.</typeparam>
+	/// <param name="scheduler">The typed job scheduler.</param>
 	/// <param name="payload">The payload to add.</param>
-	/// <param name="delay">The optional duration to wait before making the job due.</param>
-	/// <returns>A handle that identifies the job added to the batch.</returns>
-	public static JobHandle AddToBatch<TPayload>(
-		this JobScheduler<TPayload> scheduler,
-		Batch batch,
-		TPayload payload,
-		Duration? delay = null
-	)
+	/// <param name="batch">The open batch to which the job is added.</param>
+	/// <param name="delay">The delay before the job becomes due.</param>
+	/// <returns>A handle for the buffered batch job.</returns>
+	public static BatchJobHandle Schedule<TPayload>(this IJobScheduler<TPayload> scheduler, TPayload payload, Batch batch, Duration delay)
 	{
 		ArgumentNullException.ThrowIfNull(scheduler);
-		return scheduler.AddToBatch(batch, payload, delay?.ToTimeSpan());
+		return scheduler.Schedule(payload, batch, delay.ToTimeSpan());
 	}
 
-	/// <summary>Adds a payload to an atomic batch at a NodaTime instant.</summary>
-	/// <typeparam name="TPayload">The type of payload to add.</typeparam>
+	/// <summary>Adds grouped delayed work to a batch using a NodaTime duration.</summary>
+	/// <typeparam name="TPayload">The type of payload to schedule.</typeparam>
 	/// <param name="scheduler">The typed job scheduler.</param>
-	/// <param name="batch">The batch to add the job to.</param>
 	/// <param name="payload">The payload to add.</param>
-	/// <param name="runAt">The instant at which the job becomes due.</param>
-	/// <returns>A handle that identifies the job added to the batch.</returns>
-	public static JobHandle AddToBatchAt<TPayload>(
-		this JobScheduler<TPayload> scheduler,
-		Batch batch,
-		TPayload payload,
-		Instant runAt
-	)
+	/// <param name="batch">The open batch to which the job is added.</param>
+	/// <param name="delay">The delay before the job becomes due.</param>
+	/// <param name="groupId">The fair-queue group identifier.</param>
+	/// <returns>A handle for the buffered batch job.</returns>
+	public static BatchJobHandle Schedule<TPayload>(this IJobScheduler<TPayload> scheduler, TPayload payload, Batch batch, Duration delay, string groupId)
 	{
 		ArgumentNullException.ThrowIfNull(scheduler);
-		return scheduler.AddToBatchAt(batch, payload, runAt.ToDateTimeOffset());
+		return scheduler.Schedule(payload, batch, delay.ToTimeSpan(), groupId);
 	}
 
-	/// <summary>Schedules a payload after one parent job with an optional NodaTime delay.</summary>
+	/// <summary>Adds work to a batch at a NodaTime instant.</summary>
 	/// <typeparam name="TPayload">The type of payload to schedule.</typeparam>
 	/// <param name="scheduler">The typed job scheduler.</param>
-	/// <param name="parent">The parent job that controls the continuation.</param>
-	/// <param name="payload">The payload to schedule.</param>
-	/// <param name="on">The parent outcome that triggers the continuation.</param>
-	/// <param name="delay">The optional duration to wait after the continuation is triggered.</param>
-	/// <param name="cancellationToken">A token that can cancel the operation.</param>
-	/// <returns>A task whose result identifies the scheduled continuation.</returns>
-	public static ValueTask<JobHandle> ScheduleAfterAsync<TPayload>(
-		this JobScheduler<TPayload> scheduler,
-		JobHandle parent,
-		TPayload payload,
-		ContinuationTrigger on = ContinuationTrigger.Success,
-		Duration? delay = null,
-		CancellationToken cancellationToken = default
-	)
+	/// <param name="payload">The payload to add.</param>
+	/// <param name="batch">The open batch to which the job is added.</param>
+	/// <param name="at">The instant at which the job becomes due.</param>
+	/// <returns>A handle for the buffered batch job.</returns>
+	public static BatchJobHandle Schedule<TPayload>(this IJobScheduler<TPayload> scheduler, TPayload payload, Batch batch, Instant at)
 	{
 		ArgumentNullException.ThrowIfNull(scheduler);
-		return scheduler.ScheduleAfterAsync(parent, payload, on, delay?.ToTimeSpan(), cancellationToken);
+		return scheduler.Schedule(payload, batch, at.ToDateTimeOffset());
 	}
 
-	/// <summary>Schedules a payload after every supplied parent job with an optional NodaTime delay.</summary>
+	/// <summary>Adds grouped work to a batch at a NodaTime instant.</summary>
 	/// <typeparam name="TPayload">The type of payload to schedule.</typeparam>
 	/// <param name="scheduler">The typed job scheduler.</param>
-	/// <param name="parents">The parent jobs that control the continuation.</param>
-	/// <param name="payload">The payload to schedule.</param>
-	/// <param name="on">The parent outcome that triggers the continuation.</param>
-	/// <param name="delay">The optional duration to wait after the continuation is triggered.</param>
-	/// <param name="cancellationToken">A token that can cancel the operation.</param>
-	/// <returns>A task whose result identifies the scheduled continuation.</returns>
-	public static ValueTask<JobHandle> ScheduleAfterAsync<TPayload>(
-		this JobScheduler<TPayload> scheduler,
-		ReadOnlySpan<JobHandle> parents,
-		TPayload payload,
-		ContinuationTrigger on = ContinuationTrigger.Success,
-		Duration? delay = null,
-		CancellationToken cancellationToken = default
-	)
+	/// <param name="payload">The payload to add.</param>
+	/// <param name="batch">The open batch to which the job is added.</param>
+	/// <param name="at">The instant at which the job becomes due.</param>
+	/// <param name="groupId">The fair-queue group identifier.</param>
+	/// <returns>A handle for the buffered batch job.</returns>
+	public static BatchJobHandle Schedule<TPayload>(this IJobScheduler<TPayload> scheduler, TPayload payload, Batch batch, Instant at, string groupId)
 	{
 		ArgumentNullException.ThrowIfNull(scheduler);
-		return scheduler.ScheduleAfterAsync(parents, payload, on, delay?.ToTimeSpan(), cancellationToken);
+		return scheduler.Schedule(payload, batch, at.ToDateTimeOffset(), groupId);
 	}
 
-	/// <summary>Schedules a payload after a whole batch with an optional NodaTime delay.</summary>
+	/// <summary>Adds a delayed batch continuation using a NodaTime duration.</summary>
 	/// <typeparam name="TPayload">The type of payload to schedule.</typeparam>
 	/// <param name="scheduler">The typed job scheduler.</param>
-	/// <param name="parent">The parent batch that controls the continuation.</param>
-	/// <param name="payload">The payload to schedule.</param>
-	/// <param name="on">The batch outcome that triggers the continuation.</param>
-	/// <param name="delay">The optional duration to wait after the continuation is triggered.</param>
-	/// <param name="cancellationToken">A token that can cancel the operation.</param>
-	/// <returns>A task whose result identifies the scheduled continuation.</returns>
-	public static ValueTask<JobHandle> ScheduleAfterAsync<TPayload>(
-		this JobScheduler<TPayload> scheduler,
-		BatchHandle parent,
-		TPayload payload,
-		ContinuationTrigger on = ContinuationTrigger.Success,
-		Duration? delay = null,
-		CancellationToken cancellationToken = default
-	)
+	/// <param name="payload">The continuation payload.</param>
+	/// <param name="parent">The batch job that must complete before this work is released.</param>
+	/// <param name="delay">The delay applied when the continuation is released.</param>
+	/// <param name="on">The parent-job outcome that releases the continuation.</param>
+	/// <returns>A handle for the buffered batch continuation.</returns>
+	public static BatchJobHandle ScheduleAfter<TPayload>(this IJobScheduler<TPayload> scheduler, TPayload payload, BatchJobHandle parent, Duration delay, ContinuationTrigger on = ContinuationTrigger.Success)
 	{
 		ArgumentNullException.ThrowIfNull(scheduler);
-		return scheduler.ScheduleAfterAsync(parent, payload, on, delay?.ToTimeSpan(), cancellationToken);
+		return scheduler.ScheduleAfter(payload, parent, delay.ToTimeSpan(), on);
+	}
+
+	/// <summary>Adds a grouped delayed batch continuation using a NodaTime duration.</summary>
+	/// <typeparam name="TPayload">The type of payload to schedule.</typeparam>
+	/// <param name="scheduler">The typed job scheduler.</param>
+	/// <param name="payload">The continuation payload.</param>
+	/// <param name="parent">The batch job that must complete before this work is released.</param>
+	/// <param name="delay">The delay applied when the continuation is released.</param>
+	/// <param name="groupId">The fair-queue group identifier.</param>
+	/// <param name="on">The parent-job outcome that releases the continuation.</param>
+	/// <returns>A handle for the buffered batch continuation.</returns>
+	public static BatchJobHandle ScheduleAfter<TPayload>(this IJobScheduler<TPayload> scheduler, TPayload payload, BatchJobHandle parent, Duration delay, string groupId, ContinuationTrigger on = ContinuationTrigger.Success)
+	{
+		ArgumentNullException.ThrowIfNull(scheduler);
+		return scheduler.ScheduleAfter(payload, parent, delay.ToTimeSpan(), groupId, on);
+	}
+
+	/// <summary>Adds a delayed batch fan-in continuation using a NodaTime duration.</summary>
+	/// <typeparam name="TPayload">The type of payload to schedule.</typeparam>
+	/// <param name="scheduler">The typed job scheduler.</param>
+	/// <param name="payload">The continuation payload.</param>
+	/// <param name="parents">The batch jobs that must all complete before this work is released.</param>
+	/// <param name="delay">The delay applied when the continuation is released.</param>
+	/// <param name="on">The parent-job outcomes that release the continuation.</param>
+	/// <returns>A handle for the buffered batch continuation.</returns>
+	public static BatchJobHandle ScheduleAfter<TPayload>(this IJobScheduler<TPayload> scheduler, TPayload payload, IReadOnlyList<BatchJobHandle> parents, Duration delay, ContinuationTrigger on = ContinuationTrigger.Success)
+	{
+		ArgumentNullException.ThrowIfNull(scheduler);
+		return scheduler.ScheduleAfter(payload, parents, delay.ToTimeSpan(), on);
+	}
+
+	/// <summary>Adds a grouped delayed batch fan-in continuation using a NodaTime duration.</summary>
+	/// <typeparam name="TPayload">The type of payload to schedule.</typeparam>
+	/// <param name="scheduler">The typed job scheduler.</param>
+	/// <param name="payload">The continuation payload.</param>
+	/// <param name="parents">The batch jobs that must all complete before this work is released.</param>
+	/// <param name="delay">The delay applied when the continuation is released.</param>
+	/// <param name="groupId">The fair-queue group identifier.</param>
+	/// <param name="on">The parent-job outcomes that release the continuation.</param>
+	/// <returns>A handle for the buffered batch continuation.</returns>
+	public static BatchJobHandle ScheduleAfter<TPayload>(this IJobScheduler<TPayload> scheduler, TPayload payload, IReadOnlyList<BatchJobHandle> parents, Duration delay, string groupId, ContinuationTrigger on = ContinuationTrigger.Success)
+	{
+		ArgumentNullException.ThrowIfNull(scheduler);
+		return scheduler.ScheduleAfter(payload, parents, delay.ToTimeSpan(), groupId, on);
 	}
 
 	/// <summary>Adds or replaces a recurring schedule in the supplied NodaTime zone.</summary>
@@ -191,7 +384,7 @@ public static class NodaTimeJobSchedulerExtensions
 	/// <param name="timeZone">The time zone in which to evaluate the cron expression.</param>
 	/// <param name="cancellationToken">A token that can cancel the operation.</param>
 	/// <returns>A task that represents the asynchronous update operation.</returns>
-	public static ValueTask AddOrUpdateRecurringAsync(
+	public static async ValueTask AddOrUpdateRecurringAsync(
 		this IRecurringJobScheduler scheduler,
 		string name,
 		string cron,
@@ -201,6 +394,6 @@ public static class NodaTimeJobSchedulerExtensions
 	{
 		ArgumentNullException.ThrowIfNull(scheduler);
 		ArgumentNullException.ThrowIfNull(timeZone);
-		return scheduler.AddOrUpdateRecurringAsync(name, cron, timeZone.Id, cancellationToken);
+		await scheduler.AddOrUpdateRecurringAsync(name, cron, timeZone.Id, cancellationToken);
 	}
 }

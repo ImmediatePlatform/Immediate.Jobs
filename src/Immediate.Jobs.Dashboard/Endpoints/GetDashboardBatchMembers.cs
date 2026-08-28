@@ -8,7 +8,7 @@ using Microsoft.AspNetCore.Http.HttpResults;
 namespace Immediate.Jobs.Dashboard.Endpoints;
 
 [Handler]
-[MapGet("batches/{batchId}/members")]
+[MapGet("batches/{batchHandle}/members")]
 [MapGroup<DashboardApi>]
 internal static partial class GetDashboardBatchMembers
 {
@@ -16,7 +16,7 @@ internal static partial class GetDashboardBatchMembers
 	internal sealed partial record Query : IValidationTarget<Query>
 	{
 		[NotEmpty]
-		public required string BatchId { get; init; }
+		public required string BatchHandle { get; init; }
 		public JobState? State { get; init; }
 
 		[GreaterThanOrEqual(0)]
@@ -38,7 +38,7 @@ internal static partial class GetDashboardBatchMembers
 		CancellationToken cancellationToken
 	)
 	{
-		return await monitor.QueryBatchMembersAsync(query.BatchId, new()
+		return await monitor.QueryBatchMembersAsync(BatchHandle.FromString(query.BatchHandle), new()
 		{
 			State = query.State,
 			Skip = query.Skip ?? 0,

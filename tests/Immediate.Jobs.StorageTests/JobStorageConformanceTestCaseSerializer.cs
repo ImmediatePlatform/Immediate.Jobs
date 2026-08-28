@@ -1,7 +1,7 @@
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using Immediate.Jobs.StorageTests;
-using Immediate.Jobs.Testing;
+using Immediate.Jobs.Testing.Storage;
 using Xunit.Sdk;
 
 [assembly: RegisterXunitSerializer(typeof(JobStorageConformanceTestCaseSerializer), typeof(JobStorageConformanceTestCase))]

@@ -9,12 +9,6 @@ namespace Immediate.Jobs.Shared.Apis;
 public sealed partial record JobExecutionQuery : IValidationTarget<JobExecutionQuery>
 {
 	/// <summary>
-	/// 	The owning job identifier.
-	/// </summary>
-	[NotEmpty]
-	public required string JobId { get; init; }
-
-	/// <summary>
 	/// 	An exact execution ordinal, or <see langword="null"/> for newest-first history.
 	/// </summary>
 	[GreaterThan(0)]

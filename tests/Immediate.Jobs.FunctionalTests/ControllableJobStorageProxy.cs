@@ -14,7 +14,7 @@ public class ControllableJobStorageProxy : DispatchProxy
 	public bool FailTelemetry { get; set; }
 	public bool CaptureFailures { get; set; }
 	public CancellationTokenSource? CancelTelemetry { get; set; }
-	public string? CapturedFailedJobId { get; private set; }
+	public JobHandle? CapturedFailedJobHandle { get; private set; }
 	public string? CapturedFailure { get; private set; }
 	public TaskCompletionSource BatchEnqueueEntered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 	public TaskCompletionSource BatchEnqueueRelease { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -60,7 +60,7 @@ public class ControllableJobStorageProxy : DispatchProxy
 
 		if (string.Equals(targetMethod.Name, nameof(IJobStorage.FailAsync), StringComparison.Ordinal) && CaptureFailures)
 		{
-			CapturedFailedJobId = (string)args[0]!;
+			CapturedFailedJobHandle = (JobHandle)args[0]!;
 			CapturedFailure = (string)args[3]!;
 			return ValueTask.CompletedTask;
 		}

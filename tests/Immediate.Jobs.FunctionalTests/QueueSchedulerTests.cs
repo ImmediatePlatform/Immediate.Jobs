@@ -92,16 +92,20 @@ public sealed class QueueSchedulerTests
 		_ = execution.Release.TrySetResult();
 		await hostedService.StopAsync(cancellationToken);
 
-		ValueTask Enqueue(string queueName, string jobName, int order) => storage.EnqueueAsync(new()
-		{
-			Id = Guid.NewGuid().ToString("N"),
-			QueueName = queueName,
-			JobName = jobName,
-			Payload = "{}",
-			State = JobState.Pending,
-			DueAt = DateTimeOffset.UnixEpoch,
-			CreatedAt = DateTimeOffset.UnixEpoch.AddTicks(order),
-		}, cancellationToken);
+		ValueTask Enqueue(string queueName, string jobName, int order) =>
+			storage.EnqueueAsync(
+				new()
+				{
+					JobHandle = JobHandle.FromString(Guid.NewGuid().ToString("N")),
+					QueueName = queueName,
+					JobName = jobName,
+					Payload = "{}",
+					State = JobState.Pending,
+					DueAt = DateTimeOffset.UnixEpoch,
+					CreatedAt = DateTimeOffset.UnixEpoch.AddTicks(order),
+				},
+				cancellationToken
+			);
 	}
 
 	private sealed class BlockingExecution : IJobInvoker

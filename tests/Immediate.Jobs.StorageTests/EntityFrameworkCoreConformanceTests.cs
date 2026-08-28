@@ -3,7 +3,7 @@ using System.Text.RegularExpressions;
 using DotNet.Testcontainers.Containers;
 using Immediate.Jobs.EntityFrameworkCore;
 using Immediate.Jobs.Shared.Storage;
-using Immediate.Jobs.Testing;
+using Immediate.Jobs.Testing.Storage;
 using LinqToDB;
 using LinqToDB.Data;
 using Microsoft.Data.Sqlite;

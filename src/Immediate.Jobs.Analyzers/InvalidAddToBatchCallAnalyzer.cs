@@ -12,11 +12,11 @@ public sealed class InvalidAddToBatchCallAnalyzer : DiagnosticAnalyzer
 		new(
 			id: DiagnosticIds.IJOB0015DetachedJobCannotBeAddedToBatch,
 			title: "Detached work cannot be added to a batch",
-			messageFormat: "AddToBatchAsync(JobDetails, ...) cannot use ContinuationOptions.Detached; use ScheduleAfter for detached work",
+			messageFormat: "EnqueueAsync or ScheduleAsync with JobDetails cannot use ContinuationOptions.Detached; use ScheduleAfter or ScheduleAsync without JobDetails for detached work",
 			category: "ImmediateJobs",
 			defaultSeverity: DiagnosticSeverity.Warning,
 			isEnabledByDefault: true,
-			description: "AddToBatchAsync(JobDetails, ...) cannot use ContinuationOptions.Detached; use ScheduleAfter for detached work."
+			description: "EnqueueAsync or ScheduleAsync with JobDetails cannot use ContinuationOptions.Detached; use ScheduleAfter or ScheduleAsync without JobDetails for detached work."
 		);
 
 	/// <inheritdoc />
@@ -41,25 +41,26 @@ public sealed class InvalidAddToBatchCallAnalyzer : DiagnosticAnalyzer
 
 		if (invocation is not
 			{
-				TargetMethod.Name: "AddToBatchAsync",
-				Arguments: { Length: >= 3 } arguments,
+				TargetMethod.Name: "EnqueueAsync" or "ScheduleAsync",
+				Arguments:
+				[
+				_,
+				{ Parameter.Type.IsJobDetails: true },
+				..,
+				{
+					Parameter.Type.IsContinuationOptions: true,
+					IsImplicit: false,
+				} argument,
+				{ Parameter.Type.IsCancellationToken: true },
+				],
 			}
 		)
 		{
 			return;
 		}
 
-		if (!arguments.Any(a => a is { Parameter: { Name: "current", Type.IsJobDetails: true } }))
-			return;
-
-		if (arguments.FirstOrDefault(a => a is
+		if (argument is not
 			{
-				Parameter:
-				{
-					Type.IsContinuationOptions: true,
-					Name: "options",
-				},
-				IsImplicit: false,
 				Value: IFieldReferenceOperation
 				{
 					Field:
@@ -68,7 +69,7 @@ public sealed class InvalidAddToBatchCallAnalyzer : DiagnosticAnalyzer
 						ContainingType.IsContinuationOptions: true,
 					},
 				},
-			}) is not { } argument)
+			})
 		{
 			return;
 		}

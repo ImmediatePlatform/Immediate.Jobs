@@ -8,7 +8,7 @@ public sealed record JobStatus
 	/// <summary>
 	/// 	The invocation identifier.
 	/// </summary>
-	public required string JobId { get; init; }
+	public required JobHandle JobHandle { get; init; }
 
 	/// <summary>
 	/// 	The stable job name.
@@ -33,7 +33,7 @@ public sealed record JobStatus
 	/// <summary>
 	/// 	The total permitted execution attempts, if the job definition is available.
 	/// </summary>
-	public int? MaxAttempts { get; init; }
+	public int MaxAttempts { get; init; }
 
 	/// <summary>
 	/// 	The UTC invocation-creation time.
@@ -58,7 +58,7 @@ public sealed record JobStatus
 	/// <summary>
 	/// 	The containing batch identifier, if any.
 	/// </summary>
-	public string? BatchId { get; init; }
+	public BatchHandle? BatchHandle { get; init; }
 
 	/// <summary>
 	/// 	The invocation's incoming dependency edges.

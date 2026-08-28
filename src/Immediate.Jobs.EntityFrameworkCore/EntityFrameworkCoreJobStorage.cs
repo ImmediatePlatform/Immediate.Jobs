@@ -114,18 +114,18 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 		CancellationToken cancellationToken
 	)
 	{
-		var jobIds = jobs.Select(static job => job.Id).ToHashSet(StringComparer.Ordinal);
-		if (jobIds.Count != jobs.Count)
+		var jobHandles = jobs.Select(static job => job.JobHandle.Value).ToHashSet(StringComparer.Ordinal);
+		if (jobHandles.Count != jobs.Count)
 			throw new ImmediateJobException("A batch or continuation insert contains duplicate job identifiers.");
-		if (batch is not null && jobs.Any(job => !string.Equals(job.BatchId, batch.Id, StringComparison.Ordinal)))
+		if (batch is not null && jobs.Any(job => job.BatchHandle != batch.BatchHandle))
 			throw new ImmediateJobException("Every atomic batch member must carry the committed batch identifier.");
 
 		var edgeEntities = edges.Select(ToEntity).ToArray();
-		if (edgeEntities.Any(edge => !jobIds.Contains(edge.ChildJobId)))
+		if (edgeEntities.Any(edge => !jobHandles.Contains(edge.ChildJobHandle)))
 			throw new ImmediateJobException("Every continuation edge must target a job inserted by the same operation.");
-		if (edgeEntities.DistinctBy(static edge => (edge.ChildJobId, edge.ParentKind, edge.ParentId)).Count() != edgeEntities.Length)
+		if (edgeEntities.DistinctBy(static edge => (edge.ChildJobHandle, edge.ParentKind, edge.ParentId)).Count() != edgeEntities.Length)
 			throw new ImmediateJobException("Duplicate continuation edges are not allowed.");
-		ThrowIfCyclic(jobIds, edgeEntities);
+		ThrowIfCyclic(jobHandles, edgeEntities);
 
 		await using var context = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
 		await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
@@ -148,7 +148,7 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 			var skipped = terminal.Count(static job => job.State == JobState.Skipped);
 			_ = context.Add(new ImmediateJobBatchEntity
 			{
-				Id = batch.Id,
+				Id = batch.BatchHandle.Value,
 				CreatedAt = batch.CreatedAt,
 				TotalJobs = jobEntities.Count,
 				PendingCount = pending,
@@ -351,7 +351,7 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 								.Select(static cursor => cursor.LastServedSequence)
 								.FirstOrDefault()
 						))
-						.ToDictionaryAsync(static state => state.JobId, StringComparer.Ordinal, cancellationToken)
+						.ToDictionaryAsync(static state => state.JobHandle, StringComparer.Ordinal, cancellationToken)
 						.ConfigureAwait(false)
 					: await groupStateQuery
 						.Select(job => new FairQueueCandidateState(
@@ -359,7 +359,7 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 							activeQuery.Count(active => active.GroupId == job.GroupId),
 							0
 						))
-						.ToDictionaryAsync(static state => state.JobId, StringComparer.Ordinal, cancellationToken)
+						.ToDictionaryAsync(static state => state.JobHandle, StringComparer.Ordinal, cancellationToken)
 						.ConfigureAwait(false);
 				var nextSequence = 0L;
 				if (request.FairQueues.GroupRoundRobin)
@@ -573,10 +573,10 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 			}
 		}
 
-		if (entity.BatchId is { } batchId)
+		if (entity.BatchHandle is { } batchHandle)
 		{
 			var batch = await context.Set<ImmediateJobBatchEntity>()
-				.SingleOrDefaultAsync(item => item.Id == batchId, cancellationToken)
+				.SingleOrDefaultAsync(item => item.Id == batchHandle, cancellationToken)
 				.ConfigureAwait(false);
 			if (batch is not null && batch.StartedAt is null)
 			{
@@ -615,14 +615,14 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 	}
 
 	private sealed record FairQueueCandidateState(
-		string JobId,
+		string JobHandle,
 		int Inflight,
 		long LastServedSequence
 	);
 
 	/// <inheritdoc />
 	public async ValueTask<IReadOnlyList<JobRecord>> AcquireJobsAsync(
-		IReadOnlyCollection<string> jobIds,
+		IReadOnlyCollection<JobHandle> jobHandles,
 		string workerId,
 		TimeSpan lease,
 		CancellationToken cancellationToken = default
@@ -630,11 +630,11 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 	{
 		cancellationToken.ThrowIfCancellationRequested();
 
-		if (jobIds.Count == 0)
+		if (jobHandles.Count == 0)
 			return [];
 
 		var now = _timeProvider.GetUtcNow();
-		var ids = jobIds.ToArray();
+		var ids = jobHandles.Select(static job => job.Value).ToList();
 		await using var readContext = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
 		var candidates = await readContext.Set<ImmediateJobEntity>()
 			.AsNoTracking()
@@ -671,10 +671,10 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 			entity.ExecutionSpanId = null;
 			entity.ExecutionStartedAt = null;
 			entity.ConcurrencyStamp = Guid.NewGuid();
-			if (entity.BatchId is { } batchId)
+			if (entity.BatchHandle is { } batchHandle)
 			{
 				var batch = await context.Set<ImmediateJobBatchEntity>()
-					.SingleOrDefaultAsync(item => item.Id == batchId, cancellationToken)
+					.SingleOrDefaultAsync(item => item.Id == batchHandle, cancellationToken)
 					.ConfigureAwait(false);
 				if (batch is not null && batch.StartedAt is null)
 				{
@@ -723,7 +723,7 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 
 	/// <inheritdoc />
 	public async ValueTask SetExecutionTelemetryAsync(
-		string jobId,
+		JobHandle jobHandle,
 		int executionNumber,
 		string workerId,
 		string? traceId,
@@ -735,7 +735,7 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 		cancellationToken.ThrowIfCancellationRequested();
 
 		await MutateOwnedAsync(
-			jobId,
+			jobHandle,
 			executionNumber,
 			workerId,
 			(job, execution) =>
@@ -753,7 +753,7 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 
 	/// <inheritdoc />
 	public async ValueTask RenewLeaseAsync(
-		string jobId,
+		JobHandle jobHandle,
 		int executionNumber,
 		string workerId,
 		TimeSpan lease,
@@ -763,7 +763,7 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 		cancellationToken.ThrowIfCancellationRequested();
 
 		await MutateOwnedAsync(
-			jobId,
+			jobHandle,
 			executionNumber,
 			workerId,
 			(job, _) => job.LeaseExpiresAt = _timeProvider.GetUtcNow() + lease,
@@ -773,7 +773,7 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 
 	/// <inheritdoc />
 	public async ValueTask CompleteAsync(
-		string jobId,
+		JobHandle jobHandle,
 		int executionNumber,
 		string workerId,
 		CancellationToken cancellationToken = default
@@ -781,12 +781,12 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 	{
 		cancellationToken.ThrowIfCancellationRequested();
 
-		await CompleteWithContinuationsAsync(jobId, executionNumber, workerId, [], cancellationToken);
+		await CompleteWithContinuationsAsync(jobHandle, executionNumber, workerId, [], cancellationToken);
 	}
 
 	/// <inheritdoc />
 	public async ValueTask CompleteWithContinuationsAsync(
-		string jobId,
+		JobHandle jobHandle,
 		int executionNumber,
 		string workerId,
 		IReadOnlyList<JobContinuationAddition> additions,
@@ -796,7 +796,7 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 		cancellationToken.ThrowIfCancellationRequested();
 
 		await MutateOwnedWithDependenciesAsync(
-			jobId,
+			jobHandle,
 			executionNumber,
 			workerId,
 			error: null,
@@ -809,7 +809,7 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 
 	/// <inheritdoc />
 	public async ValueTask AddBatchJobAsync(
-		string currentJobId,
+		JobHandle currentJobHandle,
 		int executionNumber,
 		JobRecord job,
 		ContinuationOptions options,
@@ -820,7 +820,7 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 
 		await RetryConcurrencyAsync(
 			operationCancellationToken => AddBatchJobCoreAsync(
-				currentJobId,
+				currentJobHandle,
 				executionNumber,
 				job,
 				options,
@@ -832,7 +832,7 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 
 	/// <inheritdoc />
 	public async ValueTask FailAsync(
-		string jobId,
+		JobHandle jobHandle,
 		int executionNumber,
 		string workerId,
 		string error,
@@ -843,7 +843,7 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 		cancellationToken.ThrowIfCancellationRequested();
 
 		await MutateOwnedWithDependenciesAsync(
-			jobId,
+			jobHandle,
 			executionNumber,
 			workerId,
 			error,
@@ -949,6 +949,7 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 			{
 				Name = schedule.Name,
 				JobName = schedule.JobName,
+				QueueName = schedule.QueueName,
 				Cron = schedule.Cron,
 				TimeZone = schedule.TimeZone,
 				IsCodeDefined = schedule.IsCodeDefined,
@@ -1077,6 +1078,7 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 			{
 				Name = schedule.Name,
 				JobName = schedule.JobName,
+				QueueName = schedule.QueueName,
 				Cron = schedule.Cron,
 				TimeZone = schedule.TimeZone,
 				IsCodeDefined = schedule.IsCodeDefined,
@@ -1111,7 +1113,7 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 
 		await using var context = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
 		var jobs = context.Set<ImmediateJobEntity>().AsNoTracking();
-		if (query.Id is { } id)
+		if (query.JobHandle is { Value: { } id })
 			jobs = jobs.Where(job => job.Id == id);
 		if (query.State is { } state)
 			jobs = jobs.Where(job => job.State == state);
@@ -1139,6 +1141,7 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 
 	/// <inheritdoc />
 	public async ValueTask<IReadOnlyList<JobExecutionRecord>> QueryJobExecutionsAsync(
+		JobHandle jobHandle,
 		JobExecutionQuery query,
 		CancellationToken cancellationToken = default
 	)
@@ -1148,14 +1151,14 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 		await using var context = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
 		var job = await context.Set<ImmediateJobEntity>()
 			.AsNoTracking()
-			.SingleOrDefaultAsync(item => item.Id == query.JobId, cancellationToken)
+			.SingleOrDefaultAsync(item => item.Id == jobHandle.Value, cancellationToken)
 			.ConfigureAwait(false);
 		if (job is null)
 			return [];
 
 		var executions = context.Set<ImmediateJobExecutionEntity>()
 			.AsNoTracking()
-			.Where(execution => execution.JobId == query.JobId);
+			.Where(execution => execution.JobHandle == jobHandle.Value);
 		if (query.Attempt is { } attempt)
 			executions = executions.Where(execution => execution.Attempt == attempt);
 
@@ -1195,7 +1198,7 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 
 	/// <inheritdoc />
 	public async ValueTask<BatchStatus?> GetBatchStatusAsync(
-		string batchId,
+		BatchHandle batchHandle,
 		CancellationToken cancellationToken = default
 	)
 	{
@@ -1204,28 +1207,28 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 		await using var context = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
 		var batch = await context.Set<ImmediateJobBatchEntity>()
 			.AsNoTracking()
-			.SingleOrDefaultAsync(item => item.Id == batchId, cancellationToken)
+			.SingleOrDefaultAsync(item => item.Id == batchHandle.Value, cancellationToken)
 			.ConfigureAwait(false);
 		return batch is null ? null : ToStatus(batch);
 	}
 
 	/// <inheritdoc />
 	public async ValueTask<IReadOnlyList<JobContinuationEdge>> GetIncomingEdgesAsync(
-		IReadOnlyCollection<string> childJobIds,
+		IReadOnlyCollection<JobHandle> childJobHandles,
 		CancellationToken cancellationToken = default
 	)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
 
-		if (childJobIds.Count == 0)
+		if (childJobHandles.Count == 0)
 			return [];
 
-		var ids = childJobIds.Distinct(StringComparer.Ordinal).ToArray();
+		var ids = childJobHandles.Select(static job => job.Value).Distinct(StringComparer.Ordinal).ToList();
 		await using var context = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
 		var edges = await context.Set<ImmediateJobContinuationEntity>()
 			.AsNoTracking()
-			.Where(edge => ids.Contains(edge.ChildJobId))
-			.OrderBy(edge => edge.ChildJobId)
+			.Where(edge => ids.Contains(edge.ChildJobHandle))
+			.OrderBy(edge => edge.ChildJobHandle)
 			.ThenBy(edge => edge.ParentKind)
 			.ThenBy(edge => edge.ParentId)
 			.ToListAsync(cancellationToken)
@@ -1256,7 +1259,7 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 
 	/// <inheritdoc />
 	public async ValueTask<IReadOnlyList<BatchMemberStatus>> QueryBatchMembersAsync(
-		string batchId,
+		BatchHandle batchHandle,
 		BatchMemberQuery query,
 		CancellationToken cancellationToken = default
 	)
@@ -1266,7 +1269,7 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 		await using var context = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
 		var jobs = context.Set<ImmediateJobEntity>()
 			.AsNoTracking()
-			.Where(job => job.BatchId == batchId);
+			.Where(job => job.BatchHandle == batchHandle.Value);
 		if (query.State is { } state)
 			jobs = jobs.Where(job => job.State == state);
 		return await jobs.OrderBy(job => job.CreatedAt)
@@ -1275,7 +1278,7 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 			.Take(query.Take)
 			.Select(job => new BatchMemberStatus
 			{
-				JobId = job.Id,
+				JobHandle = JobHandle.FromString(job.Id),
 				JobName = job.JobName,
 				QueueName = job.QueueName,
 				State = job.State,
@@ -1290,7 +1293,7 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 
 	/// <inheritdoc />
 	public async ValueTask<BatchGraph?> GetBatchGraphAsync(
-		string batchId,
+		BatchHandle batchHandle,
 		CancellationToken cancellationToken = default
 	)
 	{
@@ -1298,7 +1301,7 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 
 		await using var context = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
 		if (!await context.Set<ImmediateJobBatchEntity>()
-			.AnyAsync(batch => batch.Id == batchId, cancellationToken)
+			.AnyAsync(batch => batch.Id == batchHandle.Value, cancellationToken)
 			.ConfigureAwait(false))
 		{
 			return null;
@@ -1306,29 +1309,29 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 
 		var jobs = await context.Set<ImmediateJobEntity>()
 			.AsNoTracking()
-			.Where(job => job.BatchId == batchId)
+			.Where(job => job.BatchHandle == batchHandle.Value)
 			.OrderBy(job => job.CreatedAt)
 			.ThenBy(job => job.Id)
-			.Select(job => new BatchGraphNode { JobId = job.Id, JobName = job.JobName, State = job.State })
+			.Select(job => new BatchGraphNode { JobHandle = JobHandle.FromString(job.Id), JobName = job.JobName, State = job.State })
 			.ToListAsync(cancellationToken)
 			.ConfigureAwait(false);
-		var ids = jobs.Select(static job => job.JobId).ToArray();
-		var edges = ids.Length == 0
+		var ids = jobs.Select(static job => job.JobHandle.Value).ToList();
+		var edges = ids.Count == 0
 			? []
 			: await context.Set<ImmediateJobContinuationEntity>()
 				.AsNoTracking()
-				.Where(edge => ids.Contains(edge.ChildJobId))
-				.OrderBy(edge => edge.ChildJobId)
+				.Where(edge => ids.Contains(edge.ChildJobHandle))
+				.OrderBy(edge => edge.ChildJobHandle)
 				.ThenBy(edge => edge.ParentKind)
 				.ThenBy(edge => edge.ParentId)
 				.ToListAsync(cancellationToken)
 				.ConfigureAwait(false);
-		return new BatchGraph { BatchId = batchId, Nodes = jobs, Edges = [.. edges.Select(ToGraphEdge)] };
+		return new BatchGraph { BatchHandle = batchHandle, Nodes = jobs, Edges = [.. edges.Select(ToGraphEdge)] };
 	}
 
 	/// <inheritdoc />
 	public async ValueTask<JobStatus?> GetJobStatusAsync(
-		string jobId,
+		JobHandle jobHandle,
 		CancellationToken cancellationToken = default
 	)
 	{
@@ -1337,59 +1340,59 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 		await using var context = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
 		var job = await context.Set<ImmediateJobEntity>()
 			.AsNoTracking()
-			.SingleOrDefaultAsync(item => item.Id == jobId, cancellationToken)
+			.SingleOrDefaultAsync(item => item.Id == jobHandle.Value, cancellationToken)
 			.ConfigureAwait(false);
 		if (job is null)
 			return null;
 		var edges = await context.Set<ImmediateJobContinuationEntity>()
 			.AsNoTracking()
-			.Where(edge => edge.ChildJobId == jobId)
+			.Where(edge => edge.ChildJobHandle == jobHandle.Value)
 			.OrderBy(edge => edge.ParentKind)
 			.ThenBy(edge => edge.ParentId)
 			.ToListAsync(cancellationToken)
 			.ConfigureAwait(false);
 		return new JobStatus
 		{
-			JobId = job.Id,
+			JobHandle = JobHandle.FromString(job.Id),
 			JobName = job.JobName,
 			QueueName = job.QueueName,
 			State = job.State,
 			Attempt = job.Attempt,
-			MaxAttempts = null,
+			MaxAttempts = 0,
 			CreatedAt = job.CreatedAt,
 			DueAt = job.DueAt,
 			CompletedAt = job.CompletedAt,
 			LastError = job.LastError,
-			BatchId = job.BatchId,
+			BatchHandle = BatchHandle.FromString(job.BatchHandle),
 			DependsOn = [.. edges.Select(ToGraphEdge)],
 		};
 	}
 
 	/// <inheritdoc />
-	public async ValueTask CancelBatchAsync(string batchId, CancellationToken cancellationToken = default)
+	public async ValueTask CancelBatchAsync(BatchHandle batchHandle, CancellationToken cancellationToken = default)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
 
 		await RetryConcurrencyAsync(
-			operationCancellationToken => CancelBatchCoreAsync(batchId, operationCancellationToken),
+			operationCancellationToken => CancelBatchCoreAsync(batchHandle, operationCancellationToken),
 			cancellationToken
 		);
 	}
 
-	private async Task CancelBatchCoreAsync(string batchId, CancellationToken cancellationToken)
+	private async Task CancelBatchCoreAsync(BatchHandle batchHandle, CancellationToken cancellationToken)
 	{
 		var now = _timeProvider.GetUtcNow();
 		await using var context = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
 		await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
 		var batch = await context.Set<ImmediateJobBatchEntity>()
-			.SingleOrDefaultAsync(item => item.Id == batchId, cancellationToken)
+			.SingleOrDefaultAsync(item => item.Id == batchHandle.Value, cancellationToken)
 			.ConfigureAwait(false)
-			?? throw new KeyNotFoundException($"Batch '{batchId}' was not found.");
+			?? throw new KeyNotFoundException($"Batch '{batchHandle}' was not found.");
 		if (batch.State != BatchState.Executing)
 			throw new ImmediateJobException("Only an executing batch can be cancelled.");
 
 		var jobs = await context.Set<ImmediateJobEntity>()
-			.Where(job => job.BatchId == batchId)
+			.Where(job => job.BatchHandle == batchHandle.Value)
 			.ToListAsync(cancellationToken)
 			.ConfigureAwait(false);
 		var jobsToCancel = jobs.Where(job => !IsTerminal(job.State)).ToArray();
@@ -1424,37 +1427,37 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 	}
 
 	/// <inheritdoc />
-	public async ValueTask DeleteBatchAsync(string batchId, CancellationToken cancellationToken = default)
+	public async ValueTask DeleteBatchAsync(BatchHandle batchHandle, CancellationToken cancellationToken = default)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
 
 		await ExecuteWithStrategyAsync(
-			operationCancellationToken => DeleteBatchCoreAsync(batchId, operationCancellationToken),
+			operationCancellationToken => DeleteBatchCoreAsync(batchHandle, operationCancellationToken),
 			cancellationToken
 		);
 	}
 
-	private async Task DeleteBatchCoreAsync(string batchId, CancellationToken cancellationToken)
+	private async Task DeleteBatchCoreAsync(BatchHandle batchHandle, CancellationToken cancellationToken)
 	{
 		await using var context = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
 		await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
 		var batch = await context.Set<ImmediateJobBatchEntity>()
-			.SingleOrDefaultAsync(item => item.Id == batchId, cancellationToken)
+			.SingleOrDefaultAsync(item => item.Id == batchHandle.Value, cancellationToken)
 			.ConfigureAwait(false)
-			?? throw new KeyNotFoundException($"Batch '{batchId}' was not found.");
+			?? throw new KeyNotFoundException($"Batch '{batchHandle}' was not found.");
 		if (batch.State == BatchState.Executing)
 			throw new ImmediateJobException("Only a terminal batch can be deleted.");
 
 		var jobs = await context.Set<ImmediateJobEntity>()
-			.Where(job => job.BatchId == batchId)
+			.Where(job => job.BatchHandle == batchHandle.Value)
 			.ToListAsync(cancellationToken)
 			.ConfigureAwait(false);
-		var jobIds = jobs.Select(static job => job.Id).ToArray();
+		var jobHandles = jobs.Select(static job => job.Id).ToArray();
 		var edges = await context.Set<ImmediateJobContinuationEntity>()
 			.Where(edge =>
-				jobIds.Contains(edge.ChildJobId)
-				|| (edge.ParentKind == ContinuationParentKind.Job && jobIds.Contains(edge.ParentId))
-				|| (edge.ParentKind == ContinuationParentKind.Batch && edge.ParentId == batchId))
+				jobHandles.Contains(edge.ChildJobHandle)
+				|| (edge.ParentKind == ContinuationParentKind.Job && jobHandles.Contains(edge.ParentId))
+				|| (edge.ParentKind == ContinuationParentKind.Batch && edge.ParentId == batchHandle.Value))
 			.ToListAsync(cancellationToken)
 			.ConfigureAwait(false);
 		context.RemoveRange(edges);
@@ -1465,25 +1468,25 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 	}
 
 	/// <inheritdoc />
-	public async ValueTask CancelAsync(string jobId, CancellationToken cancellationToken = default)
+	public async ValueTask CancelAsync(JobHandle jobHandle, CancellationToken cancellationToken = default)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
 
 		await RetryConcurrencyAsync(
-			operationCancellationToken => CancelCoreAsync(jobId, operationCancellationToken),
+			operationCancellationToken => CancelCoreAsync(jobHandle, operationCancellationToken),
 			cancellationToken
 		);
 	}
 
-	private async Task CancelCoreAsync(string jobId, CancellationToken cancellationToken)
+	private async Task CancelCoreAsync(JobHandle jobHandle, CancellationToken cancellationToken)
 	{
 		var now = _timeProvider.GetUtcNow();
 		await using var context = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
 		await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
 		var job = await context.Set<ImmediateJobEntity>()
-			.SingleOrDefaultAsync(item => item.Id == jobId, cancellationToken)
+			.SingleOrDefaultAsync(item => item.Id == jobHandle.Value, cancellationToken)
 			.ConfigureAwait(false)
-			?? throw new KeyNotFoundException($"Job '{jobId}' was not found.");
+			?? throw new KeyNotFoundException($"Job '{jobHandle}' was not found.");
 		if (IsTerminal(job.State))
 			throw new ImmediateJobException("Only a non-terminal job can be cancelled.");
 
@@ -1513,42 +1516,42 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 	}
 
 	/// <inheritdoc />
-	public async ValueTask RetryAsync(string jobId, CancellationToken cancellationToken = default)
+	public async ValueTask RetryAsync(JobHandle jobHandle, CancellationToken cancellationToken = default)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
 
 		await RetryConcurrencyAsync(
-			operationCancellationToken => RetryCoreAsync(jobId, operationCancellationToken),
+			operationCancellationToken => RetryCoreAsync(jobHandle, operationCancellationToken),
 			cancellationToken
 		);
 	}
 
-	private async Task RetryCoreAsync(string jobId, CancellationToken cancellationToken)
+	private async Task RetryCoreAsync(JobHandle jobHandle, CancellationToken cancellationToken)
 	{
 		await using var context = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
 		await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
 		var job = await context.Set<ImmediateJobEntity>()
-			.SingleOrDefaultAsync(item => item.Id == jobId &&
+			.SingleOrDefaultAsync(item => item.Id == jobHandle.Value &&
 				(item.State == JobState.Failed || item.State == JobState.Scheduled), cancellationToken)
 			.ConfigureAwait(false);
 		if (job is null)
 		{
 			if (await context.Set<ImmediateJobEntity>()
-				.AnyAsync(item => item.Id == jobId, cancellationToken)
+				.AnyAsync(item => item.Id == jobHandle.Value, cancellationToken)
 				.ConfigureAwait(false))
 			{
 				throw new ImmediateJobException("Only failed or scheduled jobs can be retried.");
 			}
 
-			throw new KeyNotFoundException($"Job '{jobId}' was not found.");
+			throw new KeyNotFoundException($"Job '{jobHandle}' was not found.");
 		}
 
 		var wasFailed = job.State == JobState.Failed;
 		_ = await GetOrMaterializeExecutionAsync(context, job, cancellationToken).ConfigureAwait(false);
-		if (wasFailed && job.BatchId is { } batchId)
+		if (wasFailed && job.BatchHandle is { } batchHandle)
 		{
 			var batch = await context.Set<ImmediateJobBatchEntity>()
-				.SingleAsync(item => item.Id == batchId, cancellationToken)
+				.SingleAsync(item => item.Id == batchHandle, cancellationToken)
 				.ConfigureAwait(false);
 			batch.PendingCount++;
 			batch.FailedCount = Math.Max(0, batch.FailedCount - 1);
@@ -1576,10 +1579,10 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 		{
 			if (!await context.Set<ImmediateJobEntity>()
 				.AsNoTracking()
-				.AnyAsync(item => item.Id == jobId, cancellationToken)
+				.AnyAsync(item => item.Id == jobHandle.Value, cancellationToken)
 				.ConfigureAwait(false))
 			{
-				throw new KeyNotFoundException($"Job '{jobId}' was not found.");
+				throw new KeyNotFoundException($"Job '{jobHandle}' was not found.");
 			}
 
 			throw new ImmediateJobException("Only failed or scheduled jobs can be retried.");
@@ -1589,59 +1592,59 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 	}
 
 	/// <inheritdoc />
-	public async ValueTask DeleteAsync(string jobId, CancellationToken cancellationToken = default)
+	public async ValueTask DeleteAsync(JobHandle jobHandle, CancellationToken cancellationToken = default)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
 
 		await ExecuteWithStrategyAsync(
-			operationCancellationToken => DeleteCoreAsync(jobId, operationCancellationToken),
+			operationCancellationToken => DeleteCoreAsync(jobHandle, operationCancellationToken),
 			cancellationToken
 		);
 	}
 
-	private async Task DeleteCoreAsync(string jobId, CancellationToken cancellationToken)
+	private async Task DeleteCoreAsync(JobHandle jobHandle, CancellationToken cancellationToken)
 	{
 		await using var context = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
 		await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
 		var job = await context.Set<ImmediateJobEntity>()
 			.AsNoTracking()
-			.SingleOrDefaultAsync(item => item.Id == jobId
+			.SingleOrDefaultAsync(item => item.Id == jobHandle.Value
 				&& (item.State == JobState.Succeeded || item.State == JobState.Failed || item.State == JobState.Cancelled || item.State == JobState.Skipped), cancellationToken)
 			.ConfigureAwait(false);
 		if (job is null)
 		{
 			if (await context.Set<ImmediateJobEntity>()
-				.AnyAsync(item => item.Id == jobId, cancellationToken)
+				.AnyAsync(item => item.Id == jobHandle.Value, cancellationToken)
 				.ConfigureAwait(false))
 			{
 				throw new ImmediateJobException("Only terminal jobs can be deleted.");
 			}
 
-			throw new KeyNotFoundException($"Job '{jobId}' was not found.");
+			throw new KeyNotFoundException($"Job '{jobHandle}' was not found.");
 		}
 
-		if (job.BatchId is not null)
+		if (job.BatchHandle is not null)
 			throw new ImmediateJobException("Batch members are deleted with their batch so the workflow remains coherent.");
 		_ = await context.Set<ImmediateJobContinuationEntity>()
-			.Where(edge => edge.ChildJobId == jobId ||
-				(edge.ParentKind == ContinuationParentKind.Job && edge.ParentId == jobId))
+			.Where(edge => edge.ChildJobHandle == jobHandle.Value ||
+				(edge.ParentKind == ContinuationParentKind.Job && edge.ParentId == jobHandle.Value))
 			.ExecuteDeleteAsync(cancellationToken)
 			.ConfigureAwait(false);
 		var removed = await context.Set<ImmediateJobEntity>()
-			.Where(item => item.Id == jobId &&
+			.Where(item => item.Id == jobHandle.Value &&
 				(item.State == JobState.Succeeded || item.State == JobState.Failed || item.State == JobState.Cancelled || item.State == JobState.Skipped))
 			.ExecuteDeleteAsync(cancellationToken)
 			.ConfigureAwait(false);
 		if (removed == 0)
 		{
 			if (await context.Set<ImmediateJobEntity>()
-				.AnyAsync(item => item.Id == jobId, cancellationToken)
+				.AnyAsync(item => item.Id == jobHandle.Value, cancellationToken)
 				.ConfigureAwait(false))
 			{
 				throw new ImmediateJobException("Only terminal jobs can be deleted.");
 			}
 
-			throw new KeyNotFoundException($"Job '{jobId}' was not found.");
+			throw new KeyNotFoundException($"Job '{jobHandle}' was not found.");
 		}
 
 		await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
@@ -1696,7 +1699,7 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 		await using var context = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
 		await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
 		var jobs = await context.Set<ImmediateJobEntity>()
-			.Where(job => job.BatchId == null
+			.Where(job => job.BatchHandle == null
 				&& ((job.State == JobState.Succeeded && job.CompletedAt < succeededBefore)
 				|| ((job.State == JobState.Failed || job.State == JobState.Cancelled || job.State == JobState.Skipped) && job.CompletedAt < failedBefore))
 			)
@@ -1704,11 +1707,11 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 			.ConfigureAwait(false);
 		if (jobs.Count != 0)
 		{
-			var jobIds = jobs.Select(static job => job.Id).ToArray();
+			var jobHandles = jobs.Select(static job => job.Id).ToArray();
 			var edges = await context.Set<ImmediateJobContinuationEntity>()
 				.Where(edge =>
-					jobIds.Contains(edge.ChildJobId)
-					|| (jobIds.Contains(edge.ParentId) && edge.ParentKind == ContinuationParentKind.Job)
+					jobHandles.Contains(edge.ChildJobHandle)
+					|| (jobHandles.Contains(edge.ParentId) && edge.ParentKind == ContinuationParentKind.Job)
 				)
 				.ToListAsync(cancellationToken)
 				.ConfigureAwait(false);
@@ -1736,16 +1739,16 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 			.ConfigureAwait(false);
 		if (batches.Count != 0)
 		{
-			var batchIds = batches.Select(static batch => batch.Id).ToArray();
+			var batchHandles = batches.Select(static batch => batch.Id).ToArray();
 			var memberIds = await context.Set<ImmediateJobEntity>()
-				.Where(job => job.BatchId != null && batchIds.Contains(job.BatchId))
+				.Where(job => job.BatchHandle != null && batchHandles.Contains(job.BatchHandle))
 				.Select(job => job.Id)
 				.ToListAsync(cancellationToken)
 				.ConfigureAwait(false);
 			var edges = await context.Set<ImmediateJobContinuationEntity>()
 				.Where(edge =>
-					(batchIds.Contains(edge.ParentId) && edge.ParentKind == ContinuationParentKind.Batch)
-					|| memberIds.Contains(edge.ChildJobId)
+					(batchHandles.Contains(edge.ParentId) && edge.ParentKind == ContinuationParentKind.Batch)
+					|| memberIds.Contains(edge.ChildJobHandle)
 					|| (memberIds.Contains(edge.ParentId) && edge.ParentKind == ContinuationParentKind.Job)
 				)
 				.ToListAsync(cancellationToken)
@@ -1807,7 +1810,7 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 	}
 
 	private ValueTask MutateOwnedWithDependenciesAsync(
-		string jobId,
+		JobHandle jobHandle,
 		int executionNumber,
 		string workerId,
 		string? error,
@@ -1817,7 +1820,7 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 		CancellationToken cancellationToken
 	) => RetryConcurrencyAsync(
 		operationCancellationToken => MutateOwnedCoreAsync(
-			jobId,
+			jobHandle,
 			executionNumber,
 			workerId,
 			error,
@@ -1874,7 +1877,7 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 			.Select(static entry => entry.Entity)
 			.OfType<ImmediateJobExecutionEntity>()
 			.Where(static execution => execution.IsSynthetic)
-			.DistinctBy(static execution => (execution.JobId, execution.Attempt))
+			.DistinctBy(static execution => (execution.JobHandle, execution.Attempt))
 			.ToArray();
 		if (syntheticExecutions.Length == 0)
 			return false;
@@ -1887,7 +1890,7 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 				if (!await context.Set<ImmediateJobExecutionEntity>()
 					.AsNoTracking()
 					.AnyAsync(
-						item => item.JobId == execution.JobId && item.Attempt == execution.Attempt,
+						item => item.JobHandle == execution.JobHandle && item.Attempt == execution.Attempt,
 						cancellationToken
 					)
 					.ConfigureAwait(false))
@@ -1907,14 +1910,14 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 	}
 
 	private ValueTask MutateOwnedAsync(
-		string jobId,
+		JobHandle jobHandle,
 		int executionNumber,
 		string workerId,
 		Action<ImmediateJobEntity, ImmediateJobExecutionEntity> mutate,
 		CancellationToken cancellationToken
 	) => RetryConcurrencyAsync(
 		operationCancellationToken => MutateOwnedOnceAsync(
-			jobId,
+			jobHandle,
 			executionNumber,
 			workerId,
 			mutate,
@@ -1924,7 +1927,7 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 	);
 
 	private async Task MutateOwnedOnceAsync(
-		string jobId,
+		JobHandle jobHandle,
 		int executionNumber,
 		string workerId,
 		Action<ImmediateJobEntity, ImmediateJobExecutionEntity> mutate,
@@ -1933,8 +1936,8 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 	{
 		await using var context = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
 		var job = await context.Set<ImmediateJobEntity>()
-			.SingleOrDefaultAsync(item => item.Id == jobId && item.Attempt == executionNumber && item.State == JobState.Active && item.WorkerId == workerId, cancellationToken)
-			.ConfigureAwait(false) ?? throw new ImmediateJobException($"Worker '{workerId}' does not own active job '{jobId}'.");
+			.SingleOrDefaultAsync(item => item.Id == jobHandle.Value && item.Attempt == executionNumber && item.State == JobState.Active && item.WorkerId == workerId, cancellationToken)
+			.ConfigureAwait(false) ?? throw new ImmediateJobException($"Worker '{workerId}' does not own active job '{jobHandle}'.");
 		var execution = await GetOrMaterializeExecutionAsync(context, job, cancellationToken).ConfigureAwait(false)
 			?? throw new ImmediateJobException($"Active job '{job.Id}' has no execution ordinal.");
 		mutate(job, execution);
@@ -1946,14 +1949,14 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 		catch (DbUpdateConcurrencyException exception)
 		{
 			throw new ImmediateJobException(
-				$"Worker '{workerId}' does not own active job '{jobId}'.",
+				$"Worker '{workerId}' does not own active job '{jobHandle}'.",
 				exception
 			);
 		}
 	}
 
 	private async Task MutateOwnedCoreAsync(
-		string jobId,
+		JobHandle jobHandle,
 		int executionNumber,
 		string workerId,
 		string? error,
@@ -1966,8 +1969,8 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 		await using var context = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
 		await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
 		var job = await context.Set<ImmediateJobEntity>()
-			.SingleOrDefaultAsync(item => item.Id == jobId && item.Attempt == executionNumber && item.State == JobState.Active && item.WorkerId == workerId, cancellationToken)
-			.ConfigureAwait(false) ?? throw new ImmediateJobException($"Worker '{workerId}' does not own active job '{jobId}'.");
+			.SingleOrDefaultAsync(item => item.Id == jobHandle.Value && item.Attempt == executionNumber && item.State == JobState.Active && item.WorkerId == workerId, cancellationToken)
+			.ConfigureAwait(false) ?? throw new ImmediateJobException($"Worker '{workerId}' does not own active job '{jobHandle}'.");
 		var now = _timeProvider.GetUtcNow();
 		var execution = await GetOrMaterializeExecutionAsync(context, job, cancellationToken).ConfigureAwait(false)
 			?? throw new ImmediateJobException($"Active job '{job.Id}' has no execution ordinal.");
@@ -2064,7 +2067,7 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 	);
 
 	private async Task AddBatchJobCoreAsync(
-		string currentJobId,
+		JobHandle currentJobHandle,
 		int executionNumber,
 		JobRecord record,
 		ContinuationOptions options,
@@ -2074,20 +2077,20 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 		await using var context = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
 		await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
 		var current = await context.Set<ImmediateJobEntity>()
-			.SingleOrDefaultAsync(job => job.Id == currentJobId && job.Attempt == executionNumber && job.State == JobState.Active, cancellationToken)
+			.SingleOrDefaultAsync(job => job.Id == currentJobHandle.Value && job.Attempt == executionNumber && job.State == JobState.Active, cancellationToken)
 			.ConfigureAwait(false)
-			?? throw new ImmediateJobException($"The current active job '{currentJobId}' was not found.");
-		if (current.BatchId is not { } batchId)
+			?? throw new ImmediateJobException($"The current active job '{currentJobHandle}' was not found.");
+		if (current.BatchHandle is not { } batchHandle)
 			throw new ImmediateJobException("The current job does not belong to a batch.");
 		if (options is not (ContinuationOptions.BesideContinuations or ContinuationOptions.BeforeContinuations))
 			throw new ArgumentOutOfRangeException(nameof(options));
-		if (!string.Equals(record.BatchId, batchId, StringComparison.Ordinal))
+		if (!string.Equals(record.BatchHandle?.Value, batchHandle, StringComparison.Ordinal))
 			throw new ImmediateJobException("The new job must belong to the current job's batch.");
 		if (record.State is JobState.Active or JobState.AwaitingContinuation || IsTerminal(record.State))
-			throw new ImmediateJobException($"Concurrent batch member '{record.Id}' has invalid state '{record.State}'.");
+			throw new ImmediateJobException($"Concurrent batch member '{record.JobHandle}' has invalid state '{record.State}'.");
 
 		var batch = await context.Set<ImmediateJobBatchEntity>()
-			.SingleAsync(item => item.Id == batchId && item.State == BatchState.Executing, cancellationToken)
+			.SingleAsync(item => item.Id == batchHandle && item.State == BatchState.Executing, cancellationToken)
 			.ConfigureAwait(false);
 		var job = ToEntity(record);
 		_ = context.Add(job);
@@ -2097,14 +2100,15 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 
 		if (options == ContinuationOptions.BeforeContinuations)
 		{
-			var waiters = await GetActiveWaitersAsync(context, currentJobId, cancellationToken).ConfigureAwait(false);
+			var waiters = await GetActiveWaitersAsync(context, currentJobHandle, cancellationToken).ConfigureAwait(false);
 			foreach (var waiter in waiters)
 			{
 				_ = context.Add(new ImmediateJobContinuationEntity
 				{
-					ChildJobId = waiter.Id,
+					ChildJobHandle = waiter.Id,
 					ParentKind = ContinuationParentKind.Job,
 					ParentId = job.Id,
+					Delay = 0,
 					Trigger = ContinuationTrigger.Success,
 				});
 				waiter.RemainingDependencies++;
@@ -2127,21 +2131,21 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 		var trackedAdditions = 0;
 		foreach (var addition in additions)
 		{
-			if (!ids.Add(addition.Job.Id))
+			if (!ids.Add(addition.Job.JobHandle.Value))
 				throw new ImmediateJobException("Buffered continuations contain duplicate job identifiers.");
 			if (!Enum.IsDefined(addition.Trigger))
 				throw new ArgumentOutOfRangeException(nameof(additions), "Unknown continuation trigger.");
 			if (addition.Job.State is not (JobState.Pending or JobState.Scheduled))
-				throw new ImmediateJobException($"Dynamic continuation '{addition.Job.Id}' has invalid state '{addition.Job.State}'.");
+				throw new ImmediateJobException($"Dynamic continuation '{addition.Job.JobHandle}' has invalid state '{addition.Job.State}'.");
 
 			if (addition.Options == ContinuationOptions.Detached)
 			{
-				if (addition.Job.BatchId is not null)
+				if (addition.Job.BatchHandle is not null)
 					throw new ImmediateJobException("A detached continuation cannot belong to a batch.");
 			}
 			else if (addition.Options is ContinuationOptions.BesideContinuations or ContinuationOptions.BeforeContinuations)
 			{
-				if (current.BatchId is null || !string.Equals(addition.Job.BatchId, current.BatchId, StringComparison.Ordinal))
+				if (current.BatchHandle is null || !string.Equals(addition.Job.BatchHandle?.Value, current.BatchHandle, StringComparison.Ordinal))
 					throw new ImmediateJobException("A batch-tracked continuation must belong to the current job's batch.");
 				trackedAdditions++;
 			}
@@ -2152,15 +2156,15 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 		}
 
 		var waiters = additions.Any(static addition => addition.Options == ContinuationOptions.BeforeContinuations)
-			? await GetActiveWaitersAsync(context, current.Id, cancellationToken).ConfigureAwait(false)
+			? await GetActiveWaitersAsync(context, JobHandle.FromString(current.Id), cancellationToken).ConfigureAwait(false)
 			: [];
 		ImmediateJobBatchEntity? batch = null;
 		if (trackedAdditions != 0)
 		{
-			if (current.BatchId is not { } batchId)
+			if (current.BatchHandle is not { } batchHandle)
 				throw new ImmediateJobException("The current job does not belong to a batch.");
 			batch = await context.Set<ImmediateJobBatchEntity>()
-				.SingleAsync(item => item.Id == batchId && item.State == BatchState.Executing, cancellationToken)
+				.SingleAsync(item => item.Id == batchHandle && item.State == BatchState.Executing, cancellationToken)
 				.ConfigureAwait(false);
 			batch.TotalJobs += trackedAdditions;
 			batch.PendingCount += trackedAdditions;
@@ -2177,9 +2181,10 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 			_ = context.Add(job);
 			_ = context.Add(new ImmediateJobContinuationEntity
 			{
-				ChildJobId = job.Id,
+				ChildJobHandle = job.Id,
 				ParentKind = ContinuationParentKind.Job,
 				ParentId = current.Id,
+				Delay = addition.Delay.Ticks,
 				Trigger = addition.Trigger,
 			});
 
@@ -2189,9 +2194,10 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 			{
 				_ = context.Add(new ImmediateJobContinuationEntity
 				{
-					ChildJobId = waiter.Id,
+					ChildJobHandle = waiter.Id,
 					ParentKind = ContinuationParentKind.Job,
 					ParentId = job.Id,
+					Delay = 0,
 					Trigger = ContinuationTrigger.Success,
 				});
 				waiter.RemainingDependencies++;
@@ -2202,13 +2208,13 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 
 	private static async Task<List<ImmediateJobEntity>> GetActiveWaitersAsync(
 		TContext context,
-		string currentJobId,
+		JobHandle currentJobHandle,
 		CancellationToken cancellationToken
 	)
 	{
 		var waiterIds = await context.Set<ImmediateJobContinuationEntity>()
-			.Where(edge => edge.ParentKind == ContinuationParentKind.Job && edge.ParentId == currentJobId)
-			.Select(edge => edge.ChildJobId)
+			.Where(edge => edge.ParentKind == ContinuationParentKind.Job && edge.ParentId == currentJobHandle.Value)
+			.Select(edge => edge.ChildJobHandle)
 			.Distinct()
 			.ToArrayAsync(cancellationToken)
 			.ConfigureAwait(false);
@@ -2250,7 +2256,7 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 			{
 				edge.ParentOutcome = parent.Outcome;
 				var child = await context.Set<ImmediateJobEntity>()
-					.SingleOrDefaultAsync(job => job.Id == edge.ChildJobId, cancellationToken)
+					.SingleOrDefaultAsync(job => job.Id == edge.ChildJobHandle, cancellationToken)
 					.ConfigureAwait(false);
 				if (child is null || IsTerminal(child.State))
 					continue;
@@ -2276,6 +2282,14 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 					}
 					else
 					{
+						var delay = await GetMaximumContinuationDelayAsync(
+							context,
+							child.Id,
+							cancellationToken
+						).ConfigureAwait(false);
+						var delayedDueAt = now + delay;
+						if (child.DueAt < delayedDueAt)
+							child.DueAt = delayedDueAt;
 						child.State = child.DueAt <= now ? JobState.Pending : JobState.Scheduled;
 					}
 				}
@@ -2285,14 +2299,30 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 		}
 	}
 
+	private static async Task<TimeSpan> GetMaximumContinuationDelayAsync(
+		TContext context,
+		string childJobHandle,
+		CancellationToken cancellationToken
+	)
+	{
+		var delays = await context.Set<ImmediateJobContinuationEntity>()
+			.Where(edge => edge.ChildJobHandle == childJobHandle)
+			.Select(edge => edge.Delay)
+			.ToListAsync(cancellationToken)
+			.ConfigureAwait(false);
+		return delays.Count == 0
+			? TimeSpan.Zero
+			: TimeSpan.FromTicks(delays.Max());
+	}
+
 	private static async Task<bool> ShouldSkipSettledContinuationAsync(
 		TContext context,
-		string childJobId,
+		string childJobHandle,
 		CancellationToken cancellationToken
 	)
 	{
 		var edges = await context.Set<ImmediateJobContinuationEntity>()
-			.Where(edge => edge.ChildJobId == childJobId)
+			.Where(edge => edge.ChildJobHandle == childJobHandle)
 			.ToListAsync(cancellationToken)
 			.ConfigureAwait(false);
 		var requiresFailure = false;
@@ -2320,10 +2350,10 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 		CancellationToken cancellationToken
 	)
 	{
-		if (job.BatchId is not { } batchId)
+		if (job.BatchHandle is not { } batchHandle)
 			return;
 		var batch = await context.Set<ImmediateJobBatchEntity>()
-			.SingleAsync(item => item.Id == batchId, cancellationToken)
+			.SingleAsync(item => item.Id == batchHandle, cancellationToken)
 			.ConfigureAwait(false);
 		batch.PendingCount = Math.Max(0, batch.PendingCount - 1);
 		switch (job.State)
@@ -2370,42 +2400,42 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 		CancellationToken cancellationToken
 	)
 	{
-		var externalJobIds = edges
+		var externalJobHandles = edges
 			.Where(edge => edge.ParentKind == ContinuationParentKind.Job && !jobs.ContainsKey(edge.ParentId))
 			.Select(static edge => edge.ParentId)
 			.Distinct(StringComparer.Ordinal)
 			.Order(StringComparer.Ordinal)
 			.ToArray();
-		var externalBatchIds = edges
+		var externalBatchHandles = edges
 			.Where(static edge => edge.ParentKind == ContinuationParentKind.Batch)
 			.Select(static edge => edge.ParentId)
 			.Distinct(StringComparer.Ordinal)
 			.Order(StringComparer.Ordinal)
 			.ToArray();
-		var externalJobEntities = externalJobIds.Length == 0
+		var externalJobEntities = externalJobHandles.Length == 0
 			? []
 			: await context.Set<ImmediateJobEntity>()
-				.Where(job => externalJobIds.Contains(job.Id))
+				.Where(job => externalJobHandles.Contains(job.Id))
 				.OrderBy(static job => job.Id)
 				.ToListAsync(cancellationToken)
 				.ConfigureAwait(false);
-		var externalBatchEntities = externalBatchIds.Length == 0
+		var externalBatchEntities = externalBatchHandles.Length == 0
 			? []
 			: await context.Set<ImmediateJobBatchEntity>()
-				.Where(batch => externalBatchIds.Contains(batch.Id))
+				.Where(batch => externalBatchHandles.Contains(batch.Id))
 				.OrderBy(static batch => batch.Id)
 				.ToListAsync(cancellationToken)
 				.ConfigureAwait(false);
 		var externalJobs = externalJobEntities.ToDictionary(job => job.Id, StringComparer.Ordinal);
 		var externalBatches = externalBatchEntities.ToDictionary(batch => batch.Id, StringComparer.Ordinal);
-		if (externalJobs.Count != externalJobIds.Length || externalBatches.Count != externalBatchIds.Length)
+		if (externalJobs.Count != externalJobHandles.Length || externalBatches.Count != externalBatchHandles.Length)
 			throw new ImmediateJobException("A continuation parent does not exist.");
 		foreach (var parent in externalJobEntities.Where(parent => !IsTerminal(parent.State)))
 			parent.ConcurrencyStamp = Guid.NewGuid();
 		foreach (var parent in externalBatchEntities.Where(parent => parent.State == BatchState.Executing))
 			parent.ConcurrencyStamp = Guid.NewGuid();
 
-		var incoming = edges.ToLookup(static edge => edge.ChildJobId, StringComparer.Ordinal);
+		var incoming = edges.ToLookup(static edge => edge.ChildJobHandle, StringComparer.Ordinal);
 		var changed = true;
 		while (changed)
 		{
@@ -2435,6 +2465,10 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 					}
 
 					edge.ParentOutcome = GetParentOutcome(parentSucceeded, parentFailed);
+
+					var delayedDueAt = now + TimeSpan.FromTicks(edge.Delay);
+					if (job.DueAt < delayedDueAt)
+						job.DueAt = delayedDueAt;
 
 					if (parentFailed)
 						failedDependencies++;
@@ -2482,19 +2516,19 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 	}
 
 	private static void ThrowIfCyclic(
-		HashSet<string> jobIds,
+		HashSet<string> jobHandles,
 		IReadOnlyList<ImmediateJobContinuationEntity> edges
 	)
 	{
-		var indegree = jobIds.ToDictionary(static id => id, static _ => 0, StringComparer.Ordinal);
+		var indegree = jobHandles.ToDictionary(static id => id, static _ => 0, StringComparer.Ordinal);
 		var children = new Dictionary<string, List<string>>(StringComparer.Ordinal);
 		foreach (var edge in edges.Where(edge =>
-			edge.ParentKind == ContinuationParentKind.Job && jobIds.Contains(edge.ParentId)))
+			edge.ParentKind == ContinuationParentKind.Job && jobHandles.Contains(edge.ParentId)))
 		{
-			indegree[edge.ChildJobId]++;
+			indegree[edge.ChildJobHandle]++;
 			if (!children.TryGetValue(edge.ParentId, out var values))
 				children[edge.ParentId] = values = [];
-			values.Add(edge.ChildJobId);
+			values.Add(edge.ChildJobHandle);
 		}
 
 		var ready = new Queue<string>(indegree.Where(static pair => pair.Value == 0).Select(static pair => pair.Key));
@@ -2511,7 +2545,7 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 			}
 		}
 
-		if (visited != jobIds.Count)
+		if (visited != jobHandles.Count)
 			throw new ImmediateJobException("The continuation graph contains a dependency cycle.");
 	}
 
@@ -2572,6 +2606,7 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 			.Where(entity => entity.Name == schedule.Name && (schedule.IsCodeDefined || !entity.IsCodeDefined))
 			.ExecuteUpdateAsync(setters => setters
 				.SetProperty(entity => entity.JobName, schedule.JobName)
+				.SetProperty(entity => entity.QueueName, schedule.QueueName)
 				.SetProperty(entity => entity.Cron, schedule.Cron)
 				.SetProperty(entity => entity.TimeZone, schedule.TimeZone)
 				.SetProperty(entity => entity.IsCodeDefined, schedule.IsCodeDefined)
@@ -2594,33 +2629,34 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 		}
 	}
 
-	private static ImmediateJobEntity ToEntity(JobRecord job) => new()
-	{
-		Id = job.Id,
-		QueueName = job.QueueName,
-		JobName = job.JobName,
-		GroupId = job.GroupId,
-		Payload = job.Payload,
-		Context = job.Context,
-		State = job.State,
-		DueAt = job.DueAt,
-		CreatedAt = job.CreatedAt,
-		Attempt = job.Attempt,
-		WorkerId = job.WorkerId,
-		LeaseExpiresAt = job.LeaseExpiresAt,
-		LastError = job.LastError,
-		CompletedAt = job.CompletedAt,
-		RecurringKey = job.RecurringKey,
-		TraceParent = job.TraceParent,
-		TraceState = job.TraceState,
-		ExecutionTraceId = job.ExecutionTraceId,
-		ExecutionSpanId = job.ExecutionSpanId,
-		ExecutionStartedAt = job.ExecutionStartedAt,
-		BatchId = job.BatchId,
-		RemainingDependencies = job.RemainingDependencies,
-		FailedDependencies = job.FailedDependencies,
-		ConcurrencyStamp = Guid.NewGuid(),
-	};
+	private static ImmediateJobEntity ToEntity(JobRecord job) =>
+		new()
+		{
+			Id = job.JobHandle.Value,
+			QueueName = job.QueueName,
+			JobName = job.JobName,
+			GroupId = job.GroupId,
+			Payload = job.Payload,
+			Context = job.Context,
+			State = job.State,
+			DueAt = job.DueAt,
+			CreatedAt = job.CreatedAt,
+			Attempt = job.Attempt,
+			WorkerId = job.WorkerId,
+			LeaseExpiresAt = job.LeaseExpiresAt,
+			LastError = job.LastError,
+			CompletedAt = job.CompletedAt,
+			RecurringKey = job.RecurringKey,
+			TraceParent = job.TraceParent,
+			TraceState = job.TraceState,
+			ExecutionTraceId = job.ExecutionTraceId,
+			ExecutionSpanId = job.ExecutionSpanId,
+			ExecutionStartedAt = job.ExecutionStartedAt,
+			BatchHandle = job.BatchHandle?.Value,
+			RemainingDependencies = job.RemainingDependencies,
+			FailedDependencies = job.FailedDependencies,
+			ConcurrencyStamp = Guid.NewGuid(),
+		};
 
 	private static async Task PrepareAcquisitionExecutionsAsync(
 		TContext context,
@@ -2640,7 +2676,7 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 
 		_ = context.Add(new ImmediateJobExecutionEntity
 		{
-			JobId = candidate.Id,
+			JobHandle = candidate.Id,
 			Attempt = candidate.Attempt + 1,
 			State = JobExecutionState.Active,
 			WorkerId = workerId,
@@ -2658,7 +2694,7 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 			return null;
 		var execution = await context.Set<ImmediateJobExecutionEntity>()
 			.SingleOrDefaultAsync(
-				item => item.JobId == job.Id && item.Attempt == job.Attempt,
+				item => item.JobHandle == job.Id && item.Attempt == job.Attempt,
 				cancellationToken
 			)
 			.ConfigureAwait(false);
@@ -2673,148 +2709,163 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 		return execution;
 	}
 
-	private static ImmediateJobExecutionEntity ToEntity(JobExecutionRecord execution) => new()
-	{
-		JobId = execution.JobId,
-		Attempt = execution.Attempt,
-		State = execution.State,
-		WorkerId = execution.WorkerId,
-		AcquiredAt = execution.AcquiredAt,
-		ExecutionStartedAt = execution.ExecutionStartedAt,
-		CompletedAt = execution.CompletedAt,
-		ExecutionTraceId = execution.ExecutionTraceId,
-		ExecutionSpanId = execution.ExecutionSpanId,
-		Error = execution.Error,
-		IsSynthetic = execution.IsSynthetic,
-	};
+	private static ImmediateJobExecutionEntity ToEntity(JobExecutionRecord execution) =>
+		new()
+		{
+			JobHandle = execution.JobHandle.Value,
+			Attempt = execution.Attempt,
+			State = execution.State,
+			WorkerId = execution.WorkerId,
+			AcquiredAt = execution.AcquiredAt,
+			ExecutionStartedAt = execution.ExecutionStartedAt,
+			CompletedAt = execution.CompletedAt,
+			ExecutionTraceId = execution.ExecutionTraceId,
+			ExecutionSpanId = execution.ExecutionSpanId,
+			Error = execution.Error,
+			IsSynthetic = execution.IsSynthetic,
+		};
 
-	private static JobExecutionRecord ToRecord(ImmediateJobExecutionEntity execution) => new()
-	{
-		JobId = execution.JobId,
-		Attempt = execution.Attempt,
-		State = execution.State,
-		WorkerId = execution.WorkerId,
-		AcquiredAt = execution.AcquiredAt,
-		ExecutionStartedAt = execution.ExecutionStartedAt,
-		CompletedAt = execution.CompletedAt,
-		ExecutionTraceId = execution.ExecutionTraceId,
-		ExecutionSpanId = execution.ExecutionSpanId,
-		Error = execution.Error,
-		IsSynthetic = execution.IsSynthetic,
-	};
+	private static JobExecutionRecord ToRecord(ImmediateJobExecutionEntity execution) =>
+		new()
+		{
+			JobHandle = JobHandle.FromString(execution.JobHandle),
+			Attempt = execution.Attempt,
+			State = execution.State,
+			WorkerId = execution.WorkerId,
+			AcquiredAt = execution.AcquiredAt,
+			ExecutionStartedAt = execution.ExecutionStartedAt,
+			CompletedAt = execution.CompletedAt,
+			ExecutionTraceId = execution.ExecutionTraceId,
+			ExecutionSpanId = execution.ExecutionSpanId,
+			Error = execution.Error,
+			IsSynthetic = execution.IsSynthetic,
+		};
 
 	private static ImmediateJobContinuationEntity ToEntity(JobContinuationEdge edge)
 	{
-		var hasJobParent = edge.ParentJobId is not null;
-		var hasBatchParent = edge.ParentBatchId is not null;
-		if (hasJobParent == hasBatchParent)
-			throw new ImmediateJobException("A continuation edge must identify exactly one parent job or batch.");
+		var (parentKind, parentId) = (edge.ParentJobHandle, edge.ParentBatchHandle) switch
+		{
+			({ Value: { } jobHandle }, null) => (ContinuationParentKind.Job, jobHandle),
+			(null, { Value: { } batchHandle }) => (ContinuationParentKind.Batch, batchHandle),
+			_ => throw new ImmediateJobException("A continuation edge must identify exactly one parent job or batch."),
+		};
+
 		return new()
 		{
-			ChildJobId = edge.ChildJobId,
-			ParentKind = hasJobParent ? ContinuationParentKind.Job : ContinuationParentKind.Batch,
-			ParentId = edge.ParentJobId ?? edge.ParentBatchId!,
+			ChildJobHandle = edge.ChildJobHandle.Value,
+			ParentKind = parentKind,
+			ParentId = parentId,
 			Trigger = edge.Trigger,
+			Delay = edge.Delay.Ticks,
 		};
 	}
 
-	private static ImmediateJobEntity Copy(ImmediateJobEntity job) => new()
-	{
-		Id = job.Id,
-		QueueName = job.QueueName,
-		JobName = job.JobName,
-		GroupId = job.GroupId,
-		Payload = job.Payload,
-		Context = job.Context,
-		State = job.State,
-		DueAt = job.DueAt,
-		CreatedAt = job.CreatedAt,
-		Attempt = job.Attempt,
-		WorkerId = job.WorkerId,
-		LeaseExpiresAt = job.LeaseExpiresAt,
-		LastError = job.LastError,
-		CompletedAt = job.CompletedAt,
-		RecurringKey = job.RecurringKey,
-		TraceParent = job.TraceParent,
-		TraceState = job.TraceState,
-		ExecutionTraceId = job.ExecutionTraceId,
-		ExecutionSpanId = job.ExecutionSpanId,
-		ExecutionStartedAt = job.ExecutionStartedAt,
-		BatchId = job.BatchId,
-		RemainingDependencies = job.RemainingDependencies,
-		FailedDependencies = job.FailedDependencies,
-		ConcurrencyStamp = job.ConcurrencyStamp,
-	};
+	private static ImmediateJobEntity Copy(ImmediateJobEntity job) =>
+		new()
+		{
+			Id = job.Id,
+			QueueName = job.QueueName,
+			JobName = job.JobName,
+			GroupId = job.GroupId,
+			Payload = job.Payload,
+			Context = job.Context,
+			State = job.State,
+			DueAt = job.DueAt,
+			CreatedAt = job.CreatedAt,
+			Attempt = job.Attempt,
+			WorkerId = job.WorkerId,
+			LeaseExpiresAt = job.LeaseExpiresAt,
+			LastError = job.LastError,
+			CompletedAt = job.CompletedAt,
+			RecurringKey = job.RecurringKey,
+			TraceParent = job.TraceParent,
+			TraceState = job.TraceState,
+			ExecutionTraceId = job.ExecutionTraceId,
+			ExecutionSpanId = job.ExecutionSpanId,
+			ExecutionStartedAt = job.ExecutionStartedAt,
+			BatchHandle = job.BatchHandle,
+			RemainingDependencies = job.RemainingDependencies,
+			FailedDependencies = job.FailedDependencies,
+			ConcurrencyStamp = job.ConcurrencyStamp,
+		};
 
-	private static JobRecord ToRecord(ImmediateJobEntity job) => new()
-	{
-		Id = job.Id,
-		QueueName = job.QueueName,
-		JobName = job.JobName,
-		GroupId = job.GroupId,
-		Payload = job.Payload,
-		Context = job.Context,
-		State = job.State,
-		DueAt = job.DueAt,
-		CreatedAt = job.CreatedAt,
-		Attempt = job.Attempt,
-		WorkerId = job.WorkerId,
-		LeaseExpiresAt = job.LeaseExpiresAt,
-		LastError = job.LastError,
-		CompletedAt = job.CompletedAt,
-		RecurringKey = job.RecurringKey,
-		TraceParent = job.TraceParent,
-		TraceState = job.TraceState,
-		ExecutionTraceId = job.ExecutionTraceId,
-		ExecutionSpanId = job.ExecutionSpanId,
-		ExecutionStartedAt = job.ExecutionStartedAt,
-		BatchId = job.BatchId,
-		RemainingDependencies = job.RemainingDependencies,
-		FailedDependencies = job.FailedDependencies,
-	};
+	private static JobRecord ToRecord(ImmediateJobEntity job) =>
+		new()
+		{
+			JobHandle = JobHandle.FromString(job.Id),
+			QueueName = job.QueueName,
+			JobName = job.JobName,
+			GroupId = job.GroupId,
+			Payload = job.Payload,
+			Context = job.Context,
+			State = job.State,
+			DueAt = job.DueAt,
+			CreatedAt = job.CreatedAt,
+			Attempt = job.Attempt,
+			WorkerId = job.WorkerId,
+			LeaseExpiresAt = job.LeaseExpiresAt,
+			LastError = job.LastError,
+			CompletedAt = job.CompletedAt,
+			RecurringKey = job.RecurringKey,
+			TraceParent = job.TraceParent,
+			TraceState = job.TraceState,
+			ExecutionTraceId = job.ExecutionTraceId,
+			ExecutionSpanId = job.ExecutionSpanId,
+			ExecutionStartedAt = job.ExecutionStartedAt,
+			BatchHandle = BatchHandle.FromString(job.BatchHandle),
+			RemainingDependencies = job.RemainingDependencies,
+			FailedDependencies = job.FailedDependencies,
+		};
 
-	private static BatchStatus ToStatus(ImmediateJobBatchEntity batch) => new()
-	{
-		Id = batch.Id,
-		State = batch.State,
-		Total = batch.TotalJobs,
-		Succeeded = batch.SucceededCount,
-		Failed = batch.FailedCount,
-		Cancelled = batch.CancelledCount,
-		Skipped = batch.SkippedCount,
-		Remaining = batch.PendingCount,
-		CreatedAt = batch.CreatedAt,
-		StartedAt = batch.StartedAt,
-		CompletedAt = batch.CompletedAt,
-		FractionSettled = BatchStatus.CalculateFractionSettled(batch.TotalJobs, batch.PendingCount),
-	};
+	private static BatchStatus ToStatus(ImmediateJobBatchEntity batch) =>
+		new()
+		{
+			BatchHandle = BatchHandle.FromString(batch.Id),
+			State = batch.State,
+			Total = batch.TotalJobs,
+			Succeeded = batch.SucceededCount,
+			Failed = batch.FailedCount,
+			Cancelled = batch.CancelledCount,
+			Skipped = batch.SkippedCount,
+			Remaining = batch.PendingCount,
+			CreatedAt = batch.CreatedAt,
+			StartedAt = batch.StartedAt,
+			CompletedAt = batch.CompletedAt,
+			FractionSettled = BatchStatus.CalculateFractionSettled(batch.TotalJobs, batch.PendingCount),
+		};
 
-	private static JobContinuationEdge ToContinuationEdge(ImmediateJobContinuationEntity edge) => new()
-	{
-		ChildJobId = edge.ChildJobId,
-		ParentJobId = edge.ParentKind == ContinuationParentKind.Job ? edge.ParentId : null,
-		ParentBatchId = edge.ParentKind == ContinuationParentKind.Batch ? edge.ParentId : null,
-		Trigger = edge.Trigger,
-	};
+	private static JobContinuationEdge ToContinuationEdge(ImmediateJobContinuationEntity edge) =>
+		new()
+		{
+			ChildJobHandle = JobHandle.FromString(edge.ChildJobHandle),
+			ParentJobHandle = edge.ParentKind == ContinuationParentKind.Job ? JobHandle.FromString(edge.ParentId) : null,
+			ParentBatchHandle = edge.ParentKind == ContinuationParentKind.Batch ? BatchHandle.FromString(edge.ParentId) : null,
+			Delay = TimeSpan.FromTicks(edge.Delay),
+			Trigger = edge.Trigger,
+		};
 
-	private static BatchGraphEdge ToGraphEdge(ImmediateJobContinuationEntity edge) => new()
-	{
-		ChildJobId = edge.ChildJobId,
-		ParentJobId = edge.ParentKind == ContinuationParentKind.Job ? edge.ParentId : null,
-		ParentBatchId = edge.ParentKind == ContinuationParentKind.Batch ? edge.ParentId : null,
-		Trigger = edge.Trigger,
-	};
+	private static BatchGraphEdge ToGraphEdge(ImmediateJobContinuationEntity edge) =>
+		new()
+		{
+			ChildJobHandle = JobHandle.FromString(edge.ChildJobHandle),
+			ParentJobHandle = edge.ParentKind == ContinuationParentKind.Job ? JobHandle.FromString(edge.ParentId) : null,
+			ParentBatchHandle = edge.ParentKind == ContinuationParentKind.Batch ? BatchHandle.FromString(edge.ParentId) : null,
+			Delay = TimeSpan.FromTicks(edge.Delay),
+			Trigger = edge.Trigger,
+		};
 
-	private static ImmediateRecurringJobEntity ToEntity(RecurringJobSchedule schedule) => new()
-	{
-		Name = schedule.Name,
-		JobName = schedule.JobName,
-		Cron = schedule.Cron,
-		TimeZone = schedule.TimeZone,
-		IsCodeDefined = schedule.IsCodeDefined,
-		IsPaused = schedule.IsPaused,
-		NextRunAt = schedule.NextRunAt,
-		LastRunAt = schedule.LastRunAt,
-		ConcurrencyStamp = Guid.NewGuid(),
-	};
+	private static ImmediateRecurringJobEntity ToEntity(RecurringJobSchedule schedule) =>
+		new()
+		{
+			Name = schedule.Name,
+			JobName = schedule.JobName,
+			QueueName = schedule.QueueName,
+			Cron = schedule.Cron,
+			TimeZone = schedule.TimeZone,
+			IsCodeDefined = schedule.IsCodeDefined,
+			IsPaused = schedule.IsPaused,
+			NextRunAt = schedule.NextRunAt,
+			LastRunAt = schedule.LastRunAt,
+			ConcurrencyStamp = Guid.NewGuid(),
+		};
 }

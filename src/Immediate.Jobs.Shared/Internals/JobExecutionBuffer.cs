@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using Immediate.Jobs.Shared.Storage;
 
 namespace Immediate.Jobs.Shared.Internals;
@@ -5,7 +6,7 @@ namespace Immediate.Jobs.Shared.Internals;
 /// <summary>
 /// 	Per-attempt buffer used by generated schedulers during job execution.
 /// </summary>
-[System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
+[EditorBrowsable(EditorBrowsableState.Never)]
 public sealed class JobExecutionBuffer
 {
 	private readonly Lock _gate = new();
@@ -29,9 +30,7 @@ public sealed class JobExecutionBuffer
 			if (_sealed)
 				throw new ImmediateJobException("The execution buffer has already been sealed.");
 			_sealed = true;
-			return _additions.Count == 0
-				? Array.Empty<JobContinuationAddition>()
-				: Array.AsReadOnly(_additions.ToArray());
+			return _additions.AsReadOnly();
 		}
 	}
 }

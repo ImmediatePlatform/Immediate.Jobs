@@ -42,7 +42,7 @@ let copyResetTimer: number | undefined;
 const executionPageSize = 20;
 
 watch(
-	[() => props.job.id, () => props.job.attempt, () => props.job.state],
+	[() => props.job.jobHandle, () => props.job.attempt, () => props.job.state],
 	() => void loadExecutions(),
 	{ immediate: true },
 );
@@ -61,7 +61,7 @@ async function loadExecutions(): Promise<void> {
 	executionsLoading.value = true;
 	executionsError.value = undefined;
 	try {
-		const page = await getJobExecutions(props.job.id, 0, executionPageSize, request.signal);
+		const page = await getJobExecutions(props.job.jobHandle, 0, executionPageSize, request.signal);
 		executions.value = page.items;
 		executionLinks.value = await loadExecutionLinks(page.items, request.signal);
 		hasOlderExecutions.value = page.hasNext;
@@ -85,7 +85,7 @@ async function showOlderExecutions(): Promise<void> {
 	olderExecutionsLoading.value = true;
 	try {
 		const page = await getJobExecutions(
-			props.job.id,
+			props.job.jobHandle,
 			executions.value.length,
 			executionPageSize,
 			executionRequest.signal,
@@ -108,7 +108,7 @@ async function loadExecutionLinks(
 ): Promise<Record<number, JobTelemetryLink[]>> {
 	const results = await Promise.allSettled(items.map(async execution => [
 		execution.attempt,
-		await getJobExecutionTelemetryLinks(execution.jobId, execution.attempt, signal),
+		await getJobExecutionTelemetryLinks(execution.jobHandle, execution.attempt, signal),
 	] as const));
 	return Object.fromEntries(results
 		.filter((result): result is PromiseFulfilledResult<readonly [number, JobTelemetryLink[]]> =>
@@ -203,7 +203,7 @@ function retryButtonLabel(job: JobRecord, pending: boolean): string {
 			<dl class="detail-list">
 				<div>
 					<dt>Invocation</dt>
-					<dd><code>{{ job.id }}</code></dd>
+					<dd><code>{{ job.jobHandle }}</code></dd>
 				</div>
 				<div>
 					<dt>Queue</dt>
@@ -213,9 +213,9 @@ function retryButtonLabel(job: JobRecord, pending: boolean): string {
 					<dt>Group</dt>
 					<dd><code>{{ job.groupId }}</code></dd>
 				</div>
-				<div v-if="job.batchId">
+				<div v-if="job.batchHandle">
 					<dt>Batch</dt>
-					<dd><code>{{ job.batchId }}</code></dd>
+					<dd><code>{{ job.batchHandle }}</code></dd>
 				</div>
 				<div>
 					<dt>Attempt</dt>

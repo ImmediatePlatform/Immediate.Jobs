@@ -82,7 +82,7 @@ public sealed class DashboardPackageTests
 	[Fact]
 	public async Task JobAndExecutionTelemetryApisSupplyTheExpectedCallbackContext()
 	{
-		const string JobId = "job:with retries";
+		var jobHandle = JobHandle.FromString("job:with retries");
 		const string TraceId = "4bf92f3577b34da6a3ce929d0e0e4736";
 
 		var timeProvider = new FakeTimeProvider(new DateTimeOffset(2026, 7, 21, 12, 0, 0, TimeSpan.Zero));
@@ -92,7 +92,7 @@ public sealed class DashboardPackageTests
 
 		await storage.EnqueueAsync(new()
 		{
-			Id = JobId,
+			JobHandle = jobHandle,
 			JobName = "SendGreeting",
 			Payload = "{}",
 			State = JobState.Succeeded,
@@ -126,7 +126,7 @@ public sealed class DashboardPackageTests
 				context => context.Execution is { } execution
 					? new(string.Create(
 						CultureInfo.InvariantCulture,
-						$"https://logs.example/search?jobId={Uri.EscapeDataString(context.Job.Id)}&attempt={execution.Attempt}"
+						$"https://logs.example/search?jobHandle={Uri.EscapeDataString(context.Job.JobHandle.Value)}&attempt={execution.Attempt}"
 					))
 					: null
 			)
@@ -134,7 +134,7 @@ public sealed class DashboardPackageTests
 				"View all retry logs",
 				JobTelemetryLinkKind.Logs,
 				context => context.Execution is null
-					? new($"https://logs.example/search?jobId={Uri.EscapeDataString(context.Job.Id)}")
+					? new($"https://logs.example/search?jobHandle={Uri.EscapeDataString(context.Job.JobHandle.Value)}")
 					: null
 			);
 
@@ -145,7 +145,7 @@ public sealed class DashboardPackageTests
 		await app.StartAsync(TestContext.Current.CancellationToken);
 
 		using var jobResponse = await app.GetTestClient().GetAsync(
-			new Uri($"/jobs/api/jobs/{Uri.EscapeDataString(JobId)}/telemetry-links", UriKind.Relative),
+			new Uri($"/jobs/api/jobs/{Uri.EscapeDataString(jobHandle.Value)}/telemetry-links", UriKind.Relative),
 			TestContext.Current.CancellationToken
 		);
 
@@ -158,7 +158,7 @@ public sealed class DashboardPackageTests
 		Assert.Contains("job%3Awith%20retries", jobLink.GetProperty("url").GetString(), StringComparison.Ordinal);
 
 		using var executionResponse = await app.GetTestClient().GetAsync(
-			new Uri($"/jobs/api/jobs/{Uri.EscapeDataString(JobId)}/executions/3/telemetry-links", UriKind.Relative),
+			new Uri($"/jobs/api/jobs/{Uri.EscapeDataString(jobHandle.Value)}/executions/3/telemetry-links", UriKind.Relative),
 			TestContext.Current.CancellationToken
 		);
 		_ = executionResponse.EnsureSuccessStatusCode();
@@ -174,7 +174,7 @@ public sealed class DashboardPackageTests
 		Assert.Contains("attempt=3", executionLinks[1].GetProperty("url").GetString(), StringComparison.Ordinal);
 
 		using var pageResponse = await app.GetTestClient().GetAsync(
-			new Uri($"/jobs/api/jobs/{Uri.EscapeDataString(JobId)}/executions?skip=0&take=1", UriKind.Relative),
+			new Uri($"/jobs/api/jobs/{Uri.EscapeDataString(jobHandle.Value)}/executions?skip=0&take=1", UriKind.Relative),
 			TestContext.Current.CancellationToken
 		);
 		_ = pageResponse.EnsureSuccessStatusCode();
@@ -190,7 +190,7 @@ public sealed class DashboardPackageTests
 	[Fact]
 	public async Task ExactExecutionTelemetryScopesLegacyJobProjectionToTheSelectedAttempt()
 	{
-		const string JobId = "job:legacy telemetry callback";
+		var jobHandle = JobHandle.FromString("job:legacy telemetry callback");
 		const string FirstTraceId = "11111111111111111111111111111111";
 		const string FirstSpanId = "1111111111111111";
 		const string LatestTraceId = "22222222222222222222222222222222";
@@ -203,7 +203,7 @@ public sealed class DashboardPackageTests
 
 		await storage.EnqueueAsync(new()
 		{
-			Id = JobId,
+			JobHandle = jobHandle,
 			JobName = "SendGreeting",
 			Payload = "{}",
 			State = JobState.Pending,
@@ -228,7 +228,7 @@ public sealed class DashboardPackageTests
 		};
 		var first = Assert.Single(await storage.AcquireDueJobsAsync(request, TestContext.Current.CancellationToken));
 		await storage.SetExecutionTelemetryAsync(
-			JobId,
+			jobHandle,
 			first.Attempt,
 			"worker",
 			FirstTraceId,
@@ -236,10 +236,10 @@ public sealed class DashboardPackageTests
 			now,
 			TestContext.Current.CancellationToken
 		);
-		await storage.FailAsync(JobId, first.Attempt, "worker", "first failure", now, TestContext.Current.CancellationToken);
+		await storage.FailAsync(jobHandle, first.Attempt, "worker", "first failure", now, TestContext.Current.CancellationToken);
 		var latest = Assert.Single(await storage.AcquireDueJobsAsync(request, TestContext.Current.CancellationToken));
 		await storage.SetExecutionTelemetryAsync(
-			JobId,
+			jobHandle,
 			latest.Attempt,
 			"worker",
 			LatestTraceId,
@@ -247,7 +247,7 @@ public sealed class DashboardPackageTests
 			now.AddSeconds(1),
 			TestContext.Current.CancellationToken
 		);
-		await storage.CompleteAsync(JobId, latest.Attempt, "worker", TestContext.Current.CancellationToken);
+		await storage.CompleteAsync(jobHandle, latest.Attempt, "worker", TestContext.Current.CancellationToken);
 
 		var builder = WebApplication.CreateBuilder(new WebApplicationOptions
 		{
@@ -284,7 +284,7 @@ public sealed class DashboardPackageTests
 		await app.StartAsync(TestContext.Current.CancellationToken);
 
 		using var executionResponse = await app.GetTestClient().GetAsync(
-			new Uri($"/jobs/api/jobs/{Uri.EscapeDataString(JobId)}/executions/1/telemetry-links", UriKind.Relative),
+			new Uri($"/jobs/api/jobs/{Uri.EscapeDataString(jobHandle.Value)}/executions/1/telemetry-links", UriKind.Relative),
 			TestContext.Current.CancellationToken
 		);
 		_ = executionResponse.EnsureSuccessStatusCode();
@@ -295,7 +295,7 @@ public sealed class DashboardPackageTests
 		Assert.Contains($"span={FirstSpanId}", executionLinks[1].GetProperty("url").GetString(), StringComparison.Ordinal);
 
 		using var jobResponse = await app.GetTestClient().GetAsync(
-			new Uri($"/jobs/api/jobs/{Uri.EscapeDataString(JobId)}/telemetry-links", UriKind.Relative),
+			new Uri($"/jobs/api/jobs/{Uri.EscapeDataString(jobHandle.Value)}/telemetry-links", UriKind.Relative),
 			TestContext.Current.CancellationToken
 		);
 		_ = jobResponse.EnsureSuccessStatusCode();
@@ -319,7 +319,7 @@ public sealed class DashboardPackageTests
 
 		await storage.EnqueueAsync(new()
 		{
-			Id = "job",
+			JobHandle = JobHandle.FromString("job"),
 			JobName = "validation",
 			Payload = "{}",
 			State = JobState.Pending,
@@ -455,7 +455,7 @@ public sealed class DashboardPackageTests
 
 		await storage.EnqueueAsync(new()
 		{
-			Id = "dashboard-cancel",
+			JobHandle = JobHandle.FromString("dashboard-cancel"),
 			JobName = "cancel-test",
 			Payload = "{}",
 			State = JobState.Pending,
@@ -489,7 +489,7 @@ public sealed class DashboardPackageTests
 		);
 
 		Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
-		Assert.Equal(JobState.Cancelled, (await storage.GetJobStatusAsync("dashboard-cancel", cancellationToken))!.State);
+		Assert.Equal(JobState.Cancelled, (await storage.GetJobStatusAsync(JobHandle.FromString("dashboard-cancel"), cancellationToken))!.State);
 		using var conflict = await app.GetTestClient().PostAsync(
 			new Uri("/jobs/api/jobs/dashboard-cancel/cancel", UriKind.Relative),
 			content: null,
@@ -663,7 +663,7 @@ public sealed class DashboardPackageTests
 
 		await storage.EnqueueAsync(new()
 		{
-			Id = "86bf8c31-d8e6-415b-8e92-45587a09fc52",
+			JobHandle = JobHandle.FromString("86bf8c31-d8e6-415b-8e92-45587a09fc52"),
 			JobName = "SendGreeting",
 			Payload = "{}",
 			State = JobState.Succeeded,
@@ -732,7 +732,7 @@ public sealed class DashboardPackageTests
 
 		await storage.EnqueueAsync(new()
 		{
-			Id = JobId,
+			JobHandle = JobHandle.FromString(JobId),
 			JobName = "SendGreeting",
 			GroupId = "tenant-a",
 			Payload = "{}",
@@ -767,7 +767,7 @@ public sealed class DashboardPackageTests
 
 		_ = response.EnsureSuccessStatusCode();
 		using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
-		Assert.Equal(JobId, document.RootElement.GetProperty("id").GetString());
+		Assert.Equal(JobId, document.RootElement.GetProperty("jobHandle").GetString());
 		Assert.Equal("tenant-a", document.RootElement.GetProperty("groupId").GetString());
 	}
 }

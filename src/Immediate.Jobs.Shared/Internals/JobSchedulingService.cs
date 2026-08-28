@@ -147,7 +147,7 @@ public sealed partial class JobSchedulingService : BackgroundService
 		// buffered records still drain, and only an exceeded drain deadline cancels a running job.
 		var workers = Enumerable.Range(0, _options.MaxParallelJobs)
 			.Select(_ => RunWorkerAsync(_workerCancellation.Token))
-			.ToArray();
+			.ToList();
 
 		try
 		{
@@ -315,7 +315,7 @@ public sealed partial class JobSchedulingService : BackgroundService
 				catch (Exception exception)
 #pragma warning restore CA1031
 				{
-					UnhandledWorkerError(_logger, exception, record.Id);
+					UnhandledWorkerError(_logger, exception, record.JobHandle);
 				}
 			}
 		}
@@ -338,7 +338,7 @@ public sealed partial class JobSchedulingService : BackgroundService
 			{
 				await _storage
 					.FailAsync(
-						record.Id,
+						record.JobHandle,
 						record.Attempt,
 						_workerId,
 						$"No generated job definition exists for '{record.JobName}'.",
@@ -363,7 +363,7 @@ public sealed partial class JobSchedulingService : BackgroundService
 			? _timeProvider.CreateTimer(static state => ((CancellationTokenSource)state!).Cancel(), timeout, timeoutValue, Timeout.InfiniteTimeSpan)
 			: null;
 		using var leaseCancellation = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
-		var leaseTask = RenewLeaseLoopAsync(record.Id, record.Attempt, leaseCancellation.Token);
+		var leaseTask = RenewLeaseLoopAsync(record.JobHandle, record.Attempt, leaseCancellation.Token);
 
 		var parent = default(ActivityContext);
 		if (record.TraceParent is not null)
@@ -377,7 +377,7 @@ public sealed partial class JobSchedulingService : BackgroundService
 			[
 				new("job.name", record.JobName),
 				new("job.queue", record.QueueName),
-				new("job.id", record.Id),
+				new("job.id", record.JobHandle),
 				new("job.attempt", record.Attempt),
 			],
 			links: links
@@ -386,7 +386,7 @@ public sealed partial class JobSchedulingService : BackgroundService
 		{
 			["JobName"] = record.JobName,
 			["QueueName"] = record.QueueName,
-			["JobId"] = record.Id,
+			["JobHandle"] = record.JobHandle,
 			["Attempt"] = record.Attempt,
 		});
 
@@ -400,7 +400,7 @@ public sealed partial class JobSchedulingService : BackgroundService
 			try
 			{
 				await _storage.SetExecutionTelemetryAsync(
-					record.Id,
+					record.JobHandle,
 					record.Attempt,
 					_workerId,
 					activity?.TraceId.ToString(),
@@ -430,7 +430,7 @@ public sealed partial class JobSchedulingService : BackgroundService
 			if (_graphStorage is not null)
 			{
 				await _graphStorage.CompleteWithContinuationsAsync(
-					record.Id,
+					record.JobHandle,
 					record.Attempt,
 					_workerId,
 					executionBuffer.SealAndSnapshot(),
@@ -439,7 +439,7 @@ public sealed partial class JobSchedulingService : BackgroundService
 			}
 			else
 			{
-				await _storage.CompleteAsync(record.Id, record.Attempt, _workerId, stoppingToken).ConfigureAwait(false);
+				await _storage.CompleteAsync(record.JobHandle, record.Attempt, _workerId, stoppingToken).ConfigureAwait(false);
 			}
 
 			var duration = _timeProvider.GetElapsedTime(started);
@@ -452,7 +452,7 @@ public sealed partial class JobSchedulingService : BackgroundService
 			var retry = record.Attempt < definition.MaxAttempts;
 			DateTimeOffset? nextRetryAt = retry ? _timeProvider.GetUtcNow() + GetRetryDelay(definition, record.Attempt) : null;
 			await _storage.FailAsync(
-				record.Id,
+				record.JobHandle,
 				record.Attempt,
 				_workerId,
 				exception.ToString(),
@@ -586,7 +586,7 @@ public sealed partial class JobSchedulingService : BackgroundService
 		_ = _jobReservations.AddOrUpdate(record.JobName, 0, static (_, count) => Math.Max(0, count - 1));
 	}
 
-	private async Task RenewLeaseLoopAsync(string jobId, int executionNumber, CancellationToken cancellationToken)
+	private async Task RenewLeaseLoopAsync(JobHandle jobHandle, int executionNumber, CancellationToken cancellationToken)
 	{
 		var interval = TimeSpan.FromTicks(Math.Max(1, _options.LeaseDuration.Ticks / 3));
 		while (true)
@@ -595,7 +595,7 @@ public sealed partial class JobSchedulingService : BackgroundService
 			try
 			{
 				await _storage.RenewLeaseAsync(
-					jobId,
+					jobHandle,
 					executionNumber,
 					_workerId,
 					_options.LeaseDuration,
@@ -610,7 +610,7 @@ public sealed partial class JobSchedulingService : BackgroundService
 			catch (Exception exception)
 #pragma warning restore CA1031
 			{
-				LeaseRenewalFailed(_logger, exception, jobId, executionNumber);
+				LeaseRenewalFailed(_logger, exception, jobHandle, executionNumber);
 			}
 		}
 	}
@@ -624,10 +624,11 @@ public sealed partial class JobSchedulingService : BackgroundService
 		var now = _timeProvider.GetUtcNow();
 		var codeDefinitions = _definitions.Values.Where(static definition => definition.Cron is not null).ToArray();
 		var persisted = codeDefinitions.Length == 0
-			? []
+			? [with(StringComparer.Ordinal)]
 			: (await _storage.GetMonitoringSnapshotAsync(cancellationToken).ConfigureAwait(false))
 				.Recurring
 				.ToDictionary(static schedule => schedule.Name, StringComparer.Ordinal);
+
 		foreach (var definition in codeDefinitions)
 		{
 			var zone = JobCron.GetTimeZone(definition.TimeZone);
@@ -645,6 +646,7 @@ public sealed partial class JobSchedulingService : BackgroundService
 				{
 					Name = definition.Name,
 					JobName = definition.Name,
+					QueueName = definition.Queue.Name,
 					Cron = definition.Cron!,
 					TimeZone = definition.TimeZone,
 					IsCodeDefined = true,
@@ -732,10 +734,10 @@ public sealed partial class JobSchedulingService : BackgroundService
 		var expression = JobCron.Parse(schedule.Cron);
 		var next = expression.GetNextOccurrence(schedule.NextRunAt, JobCron.GetTimeZone(schedule.TimeZone))
 			?? throw new ImmediateJobException($"Recurring schedule '{schedule.Name}' has no future occurrence.");
-		var (traceParent, traceState) = TraceContextCapture.Current();
+		var (traceParent, traceState) = Activity.Current;
 		var record = new JobRecord
 		{
-			Id = _idGenerator.CreateId(IdKind.Job),
+			JobHandle = JobHandle.FromString(_idGenerator.CreateId(IdKind.Job)),
 			JobName = schedule.JobName,
 			QueueName = definition.Queue.Name,
 			Payload = "{}",
@@ -799,8 +801,8 @@ public sealed partial class JobSchedulingService : BackgroundService
 	[LoggerMessage(EventId = 2, Level = LogLevel.Warning, Message = "Immediate.Jobs shutdown drain exceeded {shutdownTimeout}")]
 	private static partial void ShutdownDrainExceeded(ILogger logger, TimeSpan shutdownTimeout);
 
-	[LoggerMessage(EventId = 3, Level = LogLevel.Error, Message = "Unhandled worker error for job {jobId}; its lease will expire")]
-	private static partial void UnhandledWorkerError(ILogger logger, Exception exception, string jobId);
+	[LoggerMessage(EventId = 3, Level = LogLevel.Error, Message = "Unhandled worker error for job {jobHandle}; its lease will expire")]
+	private static partial void UnhandledWorkerError(ILogger logger, Exception exception, JobHandle jobHandle);
 
 	[LoggerMessage(EventId = 4, Level = LogLevel.Information, Message = "Job completed in {durationMs} ms")]
 	private static partial void JobCompleted(ILogger logger, double durationMs);
@@ -835,12 +837,12 @@ public sealed partial class JobSchedulingService : BackgroundService
 	[LoggerMessage(
 		EventId = 10,
 		Level = LogLevel.Warning,
-		Message = "Could not renew the lease for job {jobId} execution {executionNumber}; renewal will be retried until the attempt finishes"
+		Message = "Could not renew the lease for job {jobHandle} execution {executionNumber}; renewal will be retried until the attempt finishes"
 	)]
 	private static partial void LeaseRenewalFailed(
 		ILogger logger,
 		Exception exception,
-		string jobId,
+		JobHandle jobHandle,
 		int executionNumber
 	);
 

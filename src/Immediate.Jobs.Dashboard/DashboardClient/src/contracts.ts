@@ -20,7 +20,7 @@ export type IsoDateTime = string;
 
 export interface JobRecord {
 	queueName: string;
-	id: string;
+	jobHandle: string;
 	jobName: string;
 	groupId: string | null;
 	payload: string;
@@ -39,7 +39,7 @@ export interface JobRecord {
 	executionTraceId: string | null;
 	executionSpanId: string | null;
 	executionStartedAt: IsoDateTime | null;
-	batchId: string | null;
+	batchHandle: string | null;
 	remainingDependencies: number;
 	failedDependencies: number;
 }
@@ -91,7 +91,7 @@ export interface DashboardJobPage {
 export type JobExecutionState = 'Active' | 'Succeeded' | 'Failed' | 'Cancelled' | 'Interrupted';
 
 export interface JobExecutionRecord {
-	jobId: string;
+	jobHandle: string;
 	attempt: number;
 	state: JobExecutionState;
 	workerId: string | null;
@@ -112,7 +112,7 @@ export interface DashboardJobExecutionPage {
 }
 
 export interface BatchStatus {
-	id: string;
+	batchHandle: string;
 	state: BatchState;
 	total: number;
 	succeeded: number;
@@ -127,20 +127,20 @@ export interface BatchStatus {
 }
 
 export interface BatchGraphNode {
-	jobId: string;
+	jobHandle: string;
 	jobName: string;
 	state: JobState;
 }
 
 export interface BatchGraphEdge {
-	childJobId: string;
-	parentJobId: string | null;
-	parentBatchId: string | null;
+	childJobHandle: string;
+	parentJobHandle: string | null;
+	parentBatchHandle: string | null;
 	trigger: ContinuationTrigger;
 }
 
 export interface BatchGraph {
-	batchId: string;
+	batchHandle: string;
 	nodes: BatchGraphNode[];
 	edges: BatchGraphEdge[];
 }

@@ -5,7 +5,7 @@
 [![License](https://img.shields.io/github/license/ImmediatePlatform/Immediate.Jobs.svg)](https://github.com/ImmediatePlatform/Immediate.Jobs/blob/main/license.txt)
 
 Deterministic testing tools for [Immediate.Jobs](https://www.nuget.org/packages/Immediate.Jobs/): a harness with fake
-time, advance-and-drain helpers, capture-only typed schedulers, enqueue assertions, a single-job handler-pipeline runner,
+time, advance-and-drain helpers, capturing in-memory storage, enqueue assertions, a single-job handler-pipeline runner,
 and storage-provider conformance tests.
 
 ## Installation
@@ -51,13 +51,14 @@ Delayed work, scheduled occurrences, timeouts, and backoff tests do not need wal
 persisted-job queries and focused assertions for batches, continuations, and dependency cascades. Register generated
 jobs in the callback, but do not call `ConfigureStorage`; the harness installs its own in-memory provider and fake clock.
 
-## Capture-only schedulers
+## Capturing scheduler calls
 
-Use `CaptureOnlyJobScheduler<TPayload>` when the subject under test only needs an `IJobScheduler<TPayload>` and no
-handler execution or storage:
+`JobTestHarness` installs `CapturingJobStorage` behind the production schedulers. Calls are recorded without preventing
+jobs from being queried, cancelled, or executed normally:
 
 ```csharp
-var scheduler = new CaptureOnlyJobScheduler<SendWelcomeEmail.Payload>();
+await using var harness = new JobTestHarness(services => services.AddMyAppJobs());
+var scheduler = harness.Services.GetRequiredService<SendWelcomeEmail.Scheduler>();
 var payload = new SendWelcomeEmail.Payload(userId, "v2");
 var handle = await scheduler.EnqueueAsync(
 	payload,
@@ -65,24 +66,27 @@ var handle = await scheduler.EnqueueAsync(
 	cancellationToken: cancellationToken
 );
 
-var captured = scheduler.Last!;
-Assert.Equal(handle.Id, captured.Id);
-Assert.Equal(payload, captured.Payload);
+var captured = harness.Captures.FindJob(handle)!;
+Assert.Equal(handle, captured.JobHandle);
 Assert.Equal("tenant-a", captured.GroupId);
 
 await scheduler.CancelAsync(handle, cancellationToken);
-Assert.Contains(handle.Id, scheduler.CancelledIds);
+Assert.Equal(JobState.Cancelled, (await harness.GetJobAsync(handle, cancellationToken)).State);
 ```
 
-`Captures` preserves call order and records the generated ID, payload, absolute due time, and normalized fair-queue group
-ID. `CancelledIds` records cancellations of captured handles, and `Clear()` resets both collections.
-`CaptureOnlyRecurringJobScheduler` provides the equivalent test double for named recurring schedules.
+The same `CapturingJobStorage` instance is available from `harness.Captures` and dependency injection. Its snapshots
+preserve call order for jobs, continuations, batches, dynamic batch additions, recurring definitions, and recurring
+materializations. `Clear()` resets only the capture log; it does not remove persisted jobs.
+
+Use `Jobs`, `Continuations`, `Batches`, `BatchJobs`, `DynamicContinuations`, `RecurringSchedules`,
+`RecurringOperations`, and `RecurringMaterializations` when a test needs the complete call history rather than one job.
+Each property returns a snapshot, so assertions do not observe a collection changing underneath them.
 
 ## Storage-provider conformance
 
 If you are implementing a new `IJobStorage` provider, use `JobStorageConformanceSuite` to verify its shared behavior.
 Select the feature flags the provider supports, create a fresh service provider and backend for each case, and pass the
-service provider to `RunAsync`:
+service provider to `RunAsync`.
 
 ```csharp
 private const StorageCapabilities Capabilities =

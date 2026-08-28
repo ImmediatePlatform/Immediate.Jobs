@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Immediate.Handlers.Shared;
 using Immediate.Jobs.NodaTime;
 using Immediate.Jobs.Shared.Interfaces;
 using Immediate.Jobs.Testing;
@@ -15,8 +16,13 @@ public sealed class NodaTimeTests
 	{
 		var cancellationToken = TestContext.Current.CancellationToken;
 		var start = Instant.FromUtc(2026, 7, 20, 10, 0);
-		var clock = new Microsoft.Extensions.Time.Testing.FakeTimeProvider(start.ToDateTimeOffset());
-		var scheduler = new CaptureOnlyJobScheduler<SchedulerRequest>(clock);
+		await using var harness = new JobTestHarness(start.ToDateTimeOffset());
+		var scheduler = new BatchWorkflowJob.Scheduler(
+			harness.Storage,
+			harness.Services.GetRequiredService<IJobSerializer>(),
+			harness.TimeProvider,
+			harness.Services.GetRequiredService<IIdGenerator>()
+		);
 
 		_ = await scheduler.ScheduleAsync(
 			new("later"),
@@ -24,17 +30,17 @@ public sealed class NodaTimeTests
 			groupId: "tenant-a",
 			cancellationToken: cancellationToken
 		);
-		_ = await scheduler.ScheduleAtAsync(
+		_ = await scheduler.ScheduleAsync(
 			new("absolute"),
 			start + Duration.FromHours(2),
 			groupId: "tenant-b",
 			cancellationToken: cancellationToken
 		);
 
-		Assert.Equal(start + Duration.FromMinutes(5), Instant.FromDateTimeOffset(scheduler.Captures[0].RunAt));
-		Assert.Equal(start + Duration.FromHours(2), Instant.FromDateTimeOffset(scheduler.Captures[1].RunAt));
-		Assert.Equal("tenant-a", scheduler.Captures[0].GroupId);
-		Assert.Equal("tenant-b", scheduler.Captures[1].GroupId);
+		Assert.Equal(start + Duration.FromMinutes(5), Instant.FromDateTimeOffset(harness.Captures.Jobs[0].DueAt));
+		Assert.Equal(start + Duration.FromHours(2), Instant.FromDateTimeOffset(harness.Captures.Jobs[1].DueAt));
+		Assert.Equal("tenant-a", harness.Captures.Jobs[0].GroupId);
+		Assert.Equal("tenant-b", harness.Captures.Jobs[1].GroupId);
 	}
 
 	[Fact]
@@ -51,51 +57,55 @@ public sealed class NodaTimeTests
 		);
 		await using var batch = harness.Batches.Begin();
 
-		var delayedBatchMember = scheduler.AddToBatch(
-			batch,
+		var delayedBatchMember = scheduler.Schedule(
 			new("delayed-batch-member"),
+			batch,
 			Duration.FromMinutes(5)
 		);
-		var absoluteBatchMember = scheduler.AddToBatchAt(
-			batch,
+		var absoluteBatchMember = scheduler.Schedule(
 			new("absolute-batch-member"),
+			batch,
 			start + Duration.FromHours(2)
 		);
-		var firstParent = scheduler.AddToBatch(batch, new("first-parent"));
-		var secondParent = scheduler.AddToBatch(batch, new("second-parent"));
-		var jobContinuation = await scheduler.ScheduleAfterAsync(
-			firstParent,
+		var firstParent = scheduler.Enqueue(new("first-parent"), batch);
+		var secondParent = scheduler.Enqueue(new("second-parent"), batch);
+		var jobContinuation = scheduler.ScheduleAfter(
 			new("job-continuation"),
-			delay: Duration.FromMinutes(10),
-			cancellationToken: cancellationToken
+			firstParent,
+			delay: Duration.FromMinutes(10)
 		);
-		var fanInContinuation = await scheduler.ScheduleAfterAsync(
-			[firstParent, secondParent],
+		var fanInContinuation = scheduler.ScheduleAfter(
 			new("fan-in-continuation"),
-			delay: Duration.FromMinutes(15),
-			cancellationToken: cancellationToken
+			[firstParent, secondParent],
+			delay: Duration.FromMinutes(15)
 		);
 		var batchHandle = await batch.CommitAsync(cancellationToken);
 		var batchContinuation = await scheduler.ScheduleAfterAsync(
-			batchHandle,
 			new("batch-continuation"),
+			batchHandle,
 			delay: Duration.FromMinutes(20),
 			cancellationToken: cancellationToken
 		);
 
 		var jobs = (await harness.QueryJobsAsync(cancellationToken: cancellationToken))
-			.ToDictionary(static job => job.Id, StringComparer.Ordinal);
-		Assert.Equal(start + Duration.FromMinutes(5), Instant.FromDateTimeOffset(jobs[delayedBatchMember.Id].DueAt));
-		Assert.Equal(start + Duration.FromHours(2), Instant.FromDateTimeOffset(jobs[absoluteBatchMember.Id].DueAt));
-		Assert.Equal(start + Duration.FromMinutes(10), Instant.FromDateTimeOffset(jobs[jobContinuation.Id].DueAt));
-		Assert.Equal(start + Duration.FromMinutes(15), Instant.FromDateTimeOffset(jobs[fanInContinuation.Id].DueAt));
-		Assert.Equal(start + Duration.FromMinutes(20), Instant.FromDateTimeOffset(jobs[batchContinuation.Id].DueAt));
+			.ToDictionary(static job => job.JobHandle);
+		Assert.Equal(start + Duration.FromMinutes(5), Instant.FromDateTimeOffset(jobs[delayedBatchMember.JobHandle].DueAt));
+		Assert.Equal(start + Duration.FromHours(2), Instant.FromDateTimeOffset(jobs[absoluteBatchMember.JobHandle].DueAt));
+		Assert.Equal(start + Duration.FromMinutes(10), Instant.FromDateTimeOffset(jobs[jobContinuation.JobHandle].DueAt));
+		Assert.Equal(start + Duration.FromMinutes(15), Instant.FromDateTimeOffset(jobs[fanInContinuation.JobHandle].DueAt));
+		Assert.Equal(start + Duration.FromMinutes(20), Instant.FromDateTimeOffset(jobs[batchContinuation].DueAt));
 	}
 
 	[Fact]
 	public async Task RecurringOverloadUsesNodaTimeZoneId()
 	{
-		var scheduler = new CaptureOnlyRecurringJobScheduler();
+		await using var harness = new JobTestHarness();
+		var scheduler = new NodaRecurringJob.Scheduler(
+			harness.Storage,
+			harness.Services.GetRequiredService<IJobSerializer>(),
+			harness.TimeProvider,
+			harness.Services.GetRequiredService<IIdGenerator>()
+		);
 		var zone = DateTimeZoneProviders.Tzdb["Europe/Vienna"];
 
 		await scheduler.AddOrUpdateRecurringAsync(
@@ -105,8 +115,8 @@ public sealed class NodaTimeTests
 			TestContext.Current.CancellationToken
 		);
 
-		var capture = Assert.Single(scheduler.Captures);
-		Assert.Equal(RecurringJobOperation.AddOrUpdate, capture.Operation);
+		var capture = Assert.Single(harness.Captures.RecurringSchedules);
+		Assert.Equal("daily-report", capture.Name);
 		Assert.Equal(zone.Id, capture.TimeZone);
 	}
 
@@ -131,6 +141,17 @@ public sealed class NodaTimeTests
 	public sealed record NodaPayload(Instant Instant, Duration Duration, DateTimeZone Zone);
 
 	public sealed record SchedulerRequest(string Value);
+}
+
+[Handler, Job(Name = "noda-recurring")]
+public static partial class NodaRecurringJob
+{
+	private static ValueTask HandleAsync(EmptyJobRequest request, CancellationToken cancellationToken)
+	{
+		_ = request;
+		_ = cancellationToken;
+		return ValueTask.CompletedTask;
+	}
 }
 
 [JsonSerializable(typeof(NodaTimeTests.NodaPayload))]

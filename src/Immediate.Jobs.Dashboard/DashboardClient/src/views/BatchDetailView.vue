@@ -22,24 +22,24 @@ const pendingAction = ref<'cancel' | 'delete'>();
 const jobCancelCandidate = ref<JobRecord>();
 const graphJobDetail = ref<HTMLElement>();
 
-const batchId = computed(() => {
-	const value = route.params.batchId;
+const batchHandle = computed(() => {
+	const value = route.params.batchHandle;
 	return typeof value === 'string' ? value : undefined;
 });
-const selectedJobId = computed(() => {
-	const value = route.params.jobId;
+const selectedJobHandle = computed(() => {
+	const value = route.params.jobHandle;
 	return typeof value === 'string' ? value : undefined;
 });
-const batchQuery = useBatchQuery(batchId);
-const graphQuery = useBatchGraphQuery(batchId);
-const jobQuery = useJobQuery(selectedJobId);
-const telemetryLinksQuery = useJobTelemetryLinksQuery(selectedJobId);
+const batchQuery = useBatchQuery(batchHandle);
+const graphQuery = useBatchGraphQuery(batchHandle);
+const jobQuery = useJobQuery(selectedJobHandle);
+const telemetryLinksQuery = useJobTelemetryLinksQuery(selectedJobHandle);
 const batchMutations = useBatchMutations();
 const jobMutations = useJobMutations();
-useBatchStream(batchId);
+useBatchStream(batchHandle);
 
-watch([selectedJobId, () => jobQuery.isPending.value], ([jobId, isPending]) => {
-	if (jobId && !isPending) {
+watch([selectedJobHandle, () => jobQuery.isPending.value], ([jobHandle, isPending]) => {
+	if (jobHandle && !isPending) {
 		void scrollGraphJobDetailIntoView();
 	}
 }, { immediate: true, flush: 'post' });
@@ -59,37 +59,37 @@ function backToBatches(): void {
 	void router.push({ name: 'batches', query: route.query });
 }
 
-function openGraphJob(jobId: string): void {
-	if (!batchId.value) {
+function openGraphJob(jobHandle: string): void {
+	if (!batchHandle.value) {
 		return;
 	}
-	if (selectedJobId.value === jobId) {
+	if (selectedJobHandle.value === jobHandle) {
 		void scrollGraphJobDetailIntoView();
 		return;
 	}
 	void router.push({
 		name: 'batch-job',
-		params: { batchId: batchId.value, jobId },
+		params: { batchHandle: batchHandle.value, jobHandle },
 		query: route.query,
 	});
 }
 
 function closeGraphJob(): void {
-	if (batchId.value) {
-		void router.push({ name: 'batch-detail', params: { batchId: batchId.value }, query: route.query });
+	if (batchHandle.value) {
+		void router.push({ name: 'batch-detail', params: { batchHandle: batchHandle.value }, query: route.query });
 	}
 }
 
 async function confirmAction(): Promise<void> {
-	if (!pendingAction.value || !batchId.value) {
+	if (!pendingAction.value || !batchHandle.value) {
 		return;
 	}
 	try {
 		if (pendingAction.value === 'cancel') {
-			await batchMutations.cancelBatch(batchId.value);
+			await batchMutations.cancelBatch(batchHandle.value);
 			pendingAction.value = undefined;
 		} else {
-			await batchMutations.deleteBatch(batchId.value);
+			await batchMutations.deleteBatch(batchHandle.value);
 			backToBatches();
 		}
 	} catch {
@@ -102,7 +102,7 @@ async function confirmJobCancel(): Promise<void> {
 		return;
 	}
 	try {
-		await jobMutations.cancelJob(jobCancelCandidate.value.id);
+		await jobMutations.cancelJob(jobCancelCandidate.value.jobHandle);
 		jobCancelCandidate.value = undefined;
 	} catch {
 		// The mutation displays the API error and leaves the confirmation open.
@@ -135,11 +135,11 @@ async function confirmJobCancel(): Promise<void> {
 			title="Loading batch workflow"
 		/>
 		<template v-else-if="batchQuery.data.value">
-			<section class="batch-summary panel" :aria-label="`Summary for batch ${batchId}`">
+			<section class="batch-summary panel" :aria-label="`Summary for batch ${batchHandle}`">
 				<div class="batch-summary-heading">
 					<div class="min-w-0">
 						<span class="eyebrow">Batch</span>
-						<h2 class="truncate" :title="batchId"><code>{{ batchId }}</code></h2>
+						<h2 class="truncate" :title="batchHandle"><code>{{ batchHandle }}</code></h2>
 					</div>
 					<div class="batch-summary-actions">
 						<StateBadge :state="batchQuery.data.value.state" />
@@ -185,7 +185,7 @@ async function confirmJobCancel(): Promise<void> {
 				</div>
 				<div class="workflow-stack">
 					<WorkflowGraph :graph="graphQuery.data.value" @select="openGraphJob" />
-					<div v-if="selectedJobId" ref="graphJobDetail" class="workflow-job-detail">
+					<div v-if="selectedJobHandle" ref="graphJobDetail" class="workflow-job-detail">
 						<FeedbackState v-if="jobQuery.isPending.value" type="loading" title="Loading job details" />
 						<FeedbackState
 							v-else-if="jobQuery.error.value"
@@ -197,10 +197,10 @@ async function confirmJobCancel(): Promise<void> {
 							v-else-if="jobQuery.data.value"
 							:job="jobQuery.data.value"
 							:telemetry-links="telemetryLinksQuery.data.value ?? []"
-							:pending="jobMutations.busyJobId.value === selectedJobId"
+							:pending="jobMutations.busyJobHandle.value === selectedJobHandle"
 							@close="closeGraphJob"
 							@cancel="jobCancelCandidate = $event"
-							@retry="(job) => jobMutations.retryJob(job.id)"
+							@retry="(job) => jobMutations.retryJob(job.jobHandle)"
 						/>
 					</div>
 				</div>

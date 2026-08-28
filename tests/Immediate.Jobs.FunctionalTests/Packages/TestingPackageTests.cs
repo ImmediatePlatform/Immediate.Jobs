@@ -12,9 +12,16 @@ namespace Immediate.Jobs.FunctionalTests.Packages;
 public sealed class TestingPackageTests
 {
 	[Fact]
-	public async Task CaptureOnlySchedulerRecordsTypedCalls()
+	public async Task CapturingStorageRecordsTypedCallsWithoutInterruptingStorage()
 	{
-		var scheduler = new CaptureOnlyJobScheduler<TestPayload>();
+		await using var harness = new JobTestHarness();
+		Assert.Same(harness.Captures, harness.Services.GetRequiredService<CapturingJobStorage>());
+		var scheduler = new TestScheduler(
+			harness.Storage,
+			harness.Services.GetRequiredService<IJobSerializer>(),
+			harness.TimeProvider,
+			harness.Services.GetRequiredService<IIdGenerator>()
+		);
 		var payload = new TestPayload("hello");
 
 		var id = await scheduler.EnqueueAsync(
@@ -23,14 +30,14 @@ public sealed class TestingPackageTests
 			cancellationToken: TestContext.Current.CancellationToken
 		);
 
-		var capture = Assert.Single(scheduler.Captures);
-		Assert.Equal(id.Id, capture.Id);
-		Assert.Equal(payload, capture.Payload);
+		var capture = Assert.Single(harness.Captures.Jobs);
+		Assert.Equal(id, capture.JobHandle);
 		Assert.Equal("tenant-a", capture.GroupId);
+		Assert.Equal(capture, harness.Captures.FindJob(id));
+		Assert.Equal(capture, await harness.GetJobAsync(id, TestContext.Current.CancellationToken));
 
 		await scheduler.CancelAsync(id, TestContext.Current.CancellationToken);
-
-		Assert.Contains(id.Id, scheduler.CancelledIds);
+		Assert.Equal(JobState.Cancelled, (await harness.GetJobAsync(id, TestContext.Current.CancellationToken)).State);
 	}
 
 	[Fact]
@@ -157,7 +164,7 @@ public sealed class TestingPackageTests
 		await graphStorage.EnqueueAsync(parent, cancellationToken);
 		await graphStorage.EnqueueContinuationAsync(
 			child,
-			[new() { ChildJobId = child.Id, ParentJobId = parent.Id }],
+			[new() { ChildJobHandle = child.JobHandle, ParentJobHandle = parent.JobHandle, Delay = TimeSpan.Zero }],
 			cancellationToken
 		);
 		_ = Assert.Single(await graphStorage.AcquireDueJobsAsync(new()
@@ -175,10 +182,14 @@ public sealed class TestingPackageTests
 				},
 			],
 		}, cancellationToken));
-		await graphStorage.FailAsync(parent.Id, 1, "worker", "broken", nextRetryAt: null, cancellationToken);
+		await graphStorage.FailAsync(parent.JobHandle, 1, "worker", "broken", nextRetryAt: null, cancellationToken);
 
 		var exception = await Assert.ThrowsAsync<JobTestAssertionException>(
-			() => harness.AssertContinuationReleasedAfterAsync(new(parent.Id), new(child.Id), cancellationToken).AsTask()
+			() => harness.AssertContinuationReleasedAfterAsync(
+				parent.JobHandle,
+				child.JobHandle,
+				cancellationToken
+			).AsTask()
 		);
 		Assert.Contains("Skipped", exception.Message, StringComparison.Ordinal);
 	}
@@ -190,15 +201,16 @@ public sealed class TestingPackageTests
 		public int Count { get; set; }
 	}
 
-	private static JobRecord CreateRawJob(string id) => new()
-	{
-		Id = id,
-		JobName = "raw-job",
-		Payload = "{}",
-		State = JobState.Pending,
-		DueAt = DateTimeOffset.UnixEpoch,
-		CreatedAt = DateTimeOffset.UnixEpoch,
-	};
+	private static JobRecord CreateRawJob(string id) =>
+		new()
+		{
+			JobHandle = JobHandle.FromString(id),
+			JobName = "raw-job",
+			Payload = "{}",
+			State = JobState.Pending,
+			DueAt = DateTimeOffset.UnixEpoch,
+			CreatedAt = DateTimeOffset.UnixEpoch,
+		};
 
 	private sealed class TestScheduler(
 		IJobStorage storage,

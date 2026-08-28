@@ -14,7 +14,8 @@ public sealed class JobExecutionStorageTests
 		await using var storage = new InMemoryJobStorage(clock);
 		var now = clock.GetUtcNow();
 		var completedAt = now.AddMinutes(-1);
-		await storage.EnqueueAsync(CreateJob("legacy", now.AddMinutes(-2)) with
+		JobHandle jobHandle = new() { Value = "legacy" };
+		await storage.EnqueueAsync(CreateJob(jobHandle, now.AddMinutes(-2)) with
 		{
 			State = JobState.Failed,
 			Attempt = 4,
@@ -25,21 +26,21 @@ public sealed class JobExecutionStorageTests
 			ExecutionSpanId = "4444444444444444",
 		}, cancellationToken);
 
-		var synthetic = Assert.Single(await storage.QueryJobExecutionsAsync(new() { JobId = "legacy" }, cancellationToken));
+		var synthetic = Assert.Single(await storage.QueryJobExecutionsAsync(jobHandle, new() { }, cancellationToken));
 		Assert.True(synthetic.IsSynthetic);
 		Assert.Equal(4, synthetic.Attempt);
 		Assert.Equal(JobExecutionState.Failed, synthetic.State);
 		Assert.Equal("legacy failure", synthetic.Error);
 		Assert.Equal(completedAt, synthetic.CompletedAt);
 
-		await storage.RetryAsync("legacy", cancellationToken);
-		var retained = Assert.Single(await storage.QueryJobExecutionsAsync(new() { JobId = "legacy" }, cancellationToken));
+		await storage.RetryAsync(jobHandle, cancellationToken);
+		var retained = Assert.Single(await storage.QueryJobExecutionsAsync(jobHandle, new() { }, cancellationToken));
 		Assert.Equal(synthetic, retained);
 	}
 
-	private static JobRecord CreateJob(string id, DateTimeOffset now) => new()
+	private static JobRecord CreateJob(JobHandle id, DateTimeOffset now) => new()
 	{
-		Id = id,
+		JobHandle = id,
 		JobName = "execution-test",
 		Payload = "{}",
 		State = JobState.Pending,

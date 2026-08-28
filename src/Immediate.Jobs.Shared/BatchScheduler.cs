@@ -1,4 +1,5 @@
 using Immediate.Jobs.Shared.Interfaces;
+using Immediate.Jobs.Shared.Internals;
 using Immediate.Jobs.Shared.Storage;
 
 namespace Immediate.Jobs.Shared;
@@ -22,31 +23,50 @@ public sealed class BatchScheduler(
 ) : IBatchScheduler
 {
 	/// <inheritdoc />
-	public ValueTask CancelAsync(BatchHandle handle, CancellationToken cancellationToken = default)
+	public ValueTask CancelAsync(BatchHandle batchHandle, CancellationToken cancellationToken = default)
 	{
-		ArgumentNullException.ThrowIfNull(handle);
-		return JobStorageCapabilityGuards.RequireGraph(storage).CancelBatchAsync(handle.Id, cancellationToken);
+		ArgumentNullException.ThrowIfNull(batchHandle);
+
+		return JobStorageCapabilityGuards.RequireGraph(storage).CancelBatchAsync(batchHandle, cancellationToken);
 	}
 
 	/// <inheritdoc />
-	public Batch Begin() =>
-		new(
+	public Batch Begin()
+	{
+		return new Batch(
 			JobStorageCapabilityGuards.RequireGraph(storage),
 			timeProvider,
 			idGenerator,
-			after: null,
+			parents: null,
 			ContinuationTrigger.Success
 		);
+	}
 
 	/// <inheritdoc />
-	public Batch Begin(BatchHandle after, ContinuationTrigger on = ContinuationTrigger.Success)
+	public Batch Begin(BatchHandle batchHandle, ContinuationTrigger on = ContinuationTrigger.Success)
 	{
-		ArgumentNullException.ThrowIfNull(after);
-		return new(
+		ArgumentNullException.ThrowIfNull(batchHandle);
+		return new Batch(
 			JobStorageCapabilityGuards.RequireGraph(storage),
 			timeProvider,
 			idGenerator,
-			after,
+			[batchHandle],
+			on
+		);
+	}
+
+	/// <inheritdoc />
+	public Batch Begin(IReadOnlyList<BatchHandle> batchHandle, ContinuationTrigger on = ContinuationTrigger.Success)
+	{
+		ArgumentNullException.ThrowIfNull(batchHandle);
+		if (batchHandle is [])
+			ArgumentException.Throw(nameof(batchHandle), "No parent batches were provided");
+
+		return new Batch(
+			JobStorageCapabilityGuards.RequireGraph(storage),
+			timeProvider,
+			idGenerator,
+			batchHandle,
 			on
 		);
 	}

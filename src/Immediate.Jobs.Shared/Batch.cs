@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using Immediate.Jobs.Shared.Apis;
 using Immediate.Jobs.Shared.Interfaces;
 using Immediate.Jobs.Shared.Storage;
@@ -7,6 +8,10 @@ namespace Immediate.Jobs.Shared;
 /// <summary>
 /// 	An in-progress atomic batch buffer created by <see cref="IBatchScheduler"/>.
 /// </summary>
+/// <remarks>
+///		This class is a builder class and is not thread-safe; it is intended to be used
+///		in the context of a single thread with a short lifetime.
+/// </remarks>
 public sealed class Batch : IAsyncDisposable
 {
 	private enum Lifecycle
@@ -17,78 +22,82 @@ public sealed class Batch : IAsyncDisposable
 		Disposed,
 	}
 
-	private readonly Lock _gate = new();
 	private readonly List<JobRecord> _jobs = [];
+	private readonly HashSet<JobHandle> _rootJobs = [];
 	private readonly List<JobContinuationEdge> _edges = [];
 	private readonly IJobGraphStorage _storage;
 	private readonly TimeProvider _timeProvider;
-	private readonly BatchHandle? _after;
+	private readonly IReadOnlyList<BatchHandle>? _parents;
 	private readonly ContinuationTrigger _trigger;
 	private Lifecycle _lifecycle;
+
+	/// <summary>
+	///		Information on whether or not the current batch has been committed to storage.
+	/// </summary>
+	public bool IsCommitted { get; private set; }
 
 	internal Batch(
 		IJobGraphStorage storage,
 		TimeProvider timeProvider,
 		IIdGenerator idGenerator,
-		BatchHandle? after,
+		IReadOnlyList<BatchHandle>? parents,
 		ContinuationTrigger trigger
 	)
 	{
 		_storage = storage;
 		_timeProvider = timeProvider;
-		_after = after;
+		_parents = parents;
 		_trigger = trigger;
-		Id = idGenerator.CreateId(IdKind.Batch);
+		BatchHandle = new() { Value = idGenerator.CreateId(IdKind.Batch) };
 	}
 
 	/// <summary>
-	/// 	The client-generated batch identifier.
-	/// </summary>
-	/// <value>
 	/// 	The identifier assigned to the batch.
-	/// </value>
-	public string Id { get; }
+	/// </summary>
+	public BatchHandle BatchHandle { get; }
 
-	internal JobHandle Add(JobRecord record, ReadOnlySpan<JobHandle> parents, ContinuationTrigger on)
+	internal BatchJobHandle Add(JobRecord record)
 	{
-		lock (_gate)
+		EnsureOpenCore();
+
+		_jobs.Add(record with { BatchHandle = BatchHandle });
+		_rootJobs.Add(record.JobHandle);
+
+		return new BatchJobHandle(batch: this, record.JobHandle);
+	}
+
+	internal BatchJobHandle Add(JobRecord record, IReadOnlyList<BatchJobHandle> parents, ContinuationTrigger on, TimeSpan delay)
+	{
+		EnsureOpenCore();
+
+		var parentIds = new HashSet<JobHandle>();
+		foreach (var parent in parents)
 		{
-			EnsureOpenCore();
-			if (parents.IsEmpty)
-			{
-				_jobs.Add(record with { BatchId = Id });
-				return new(record.Id) { Batch = this };
-			}
-
-			var parentIds = new HashSet<string>(StringComparer.Ordinal);
-			foreach (var parent in parents)
-			{
-				if (string.IsNullOrWhiteSpace(parent.Id))
-					throw new ImmediateJobException("Continuation parent handles must have a non-empty identifier.");
-				if (!ReferenceEquals(parent.Batch, this))
-					throw new ImmediateJobException("Continuation handles must belong to the same open batch.");
-				if (!parentIds.Add(parent.Id))
-					throw new ImmediateJobException($"Duplicate continuation parent '{parent.Id}'.");
-			}
-
-			_jobs.Add(record with
-			{
-				BatchId = Id,
-				State = JobState.AwaitingContinuation,
-				RemainingDependencies = parentIds.Count,
-			});
-			foreach (var parentId in parentIds)
-			{
-				_edges.Add(new()
-				{
-					ChildJobId = record.Id,
-					ParentJobId = parentId,
-					Trigger = on,
-				});
-			}
-
-			return new(record.Id) { Batch = this };
+			if (!ReferenceEquals(parent.Batch, this))
+				throw new ImmediateJobException("Continuation handles must belong to the same open batch.");
+			if (!parentIds.Add(parent.RawJobHandle))
+				throw new ImmediateJobException($"Duplicate continuation parent '{parent.RawJobHandle.Value}'.");
 		}
+
+		_jobs.Add(record with
+		{
+			BatchHandle = BatchHandle,
+			State = JobState.AwaitingContinuation,
+			RemainingDependencies = parentIds.Count,
+		});
+
+		foreach (var parent in parents)
+		{
+			_edges.Add(new()
+			{
+				ChildJobHandle = record.JobHandle,
+				ParentJobHandle = parent.RawJobHandle,
+				Trigger = on,
+				Delay = delay,
+			});
+		}
+
+		return new BatchJobHandle(batch: this, record.JobHandle);
 	}
 
 	/// <summary>
@@ -98,95 +107,75 @@ public sealed class Batch : IAsyncDisposable
 	/// 	A token that can cancel the commit operation.
 	/// </param>
 	/// <returns>
-	/// 	A handle for the committed batch.
+	/// 	The dependency graph for the committed batch.
 	/// </returns>
 	public async ValueTask<BatchHandle> CommitAsync(CancellationToken cancellationToken = default)
 	{
-		BatchRecord record;
-		IReadOnlyList<JobRecord> jobs;
-		IReadOnlyList<JobContinuationEdge> edges;
-		lock (_gate)
+		EnsureOpenCore();
+
+		if (_jobs.Count == 0)
+			throw new ImmediateJobException("An atomic batch cannot be committed without jobs.");
+
+		if (_parents is { Count: > 0 } parentBatches)
 		{
-			EnsureOpenCore();
-			if (_jobs.Count == 0)
-				throw new ImmediateJobException("An atomic batch cannot be committed without jobs.");
-
-			if (_after is { } parentBatch)
+			foreach (ref var job in CollectionsMarshal.AsSpan(_jobs))
 			{
-				var children = _jobs.Select(static job => job.Id).ToHashSet(StringComparer.Ordinal);
-				foreach (var edge in _edges)
-					_ = children.Remove(edge.ChildJobId);
+				if (!_rootJobs.Contains(job.JobHandle))
+					continue;
 
-				foreach (var childId in children)
+				job = job with
 				{
-					var index = _jobs.FindIndex(job => string.Equals(job.Id, childId, StringComparison.Ordinal));
-					var job = _jobs[index];
-					_jobs[index] = job with
+					State = JobState.AwaitingContinuation,
+					RemainingDependencies = job.RemainingDependencies + parentBatches.Count,
+				};
+
+				foreach (var parentBatch in parentBatches)
+				{
+					_edges.Add(new JobContinuationEdge
 					{
-						State = JobState.AwaitingContinuation,
-						RemainingDependencies = job.RemainingDependencies + 1,
-					};
-					_edges.Add(new()
-					{
-						ChildJobId = childId,
-						ParentBatchId = parentBatch.Id,
+						ChildJobHandle = job.JobHandle,
+						ParentBatchHandle = parentBatch,
 						Trigger = _trigger,
+						Delay = TimeSpan.Zero,
 					});
 				}
 			}
-
-			record = new BatchRecord
-			{
-				Id = Id,
-				CreatedAt = _timeProvider.GetUtcNow(),
-				TotalJobs = _jobs.Count,
-				PendingCount = _jobs.Count,
-				State = BatchState.Executing,
-			};
-			jobs = Array.AsReadOnly(_jobs.ToArray());
-			edges = Array.AsReadOnly(_edges.ToArray());
-			_lifecycle = Lifecycle.Committing;
 		}
+
+		var record = new BatchRecord
+		{
+			BatchHandle = BatchHandle,
+			CreatedAt = _timeProvider.GetUtcNow(),
+			TotalJobs = _jobs.Count,
+			PendingCount = _jobs.Count,
+			State = BatchState.Executing,
+		};
+
+		_lifecycle = Lifecycle.Committing;
 
 		try
 		{
-			await _storage.EnqueueBatchAsync(record, jobs, edges, cancellationToken).ConfigureAwait(false);
-			return new(Id);
+			await _storage.EnqueueBatchAsync(record, _jobs, _edges, cancellationToken).ConfigureAwait(false);
+			IsCommitted = true;
+
+			return BatchHandle;
 		}
 		finally
 		{
-			lock (_gate)
-			{
-				if (_lifecycle == Lifecycle.Committing)
-					_lifecycle = Lifecycle.Finished;
-			}
+			if (_lifecycle == Lifecycle.Committing)
+				_lifecycle = Lifecycle.Finished;
 		}
 	}
 
 	/// <inheritdoc />
-	public ValueTask DisposeAsync()
+	public async ValueTask DisposeAsync()
 	{
-		lock (_gate)
-		{
-			if (_lifecycle == Lifecycle.Disposed)
-				return ValueTask.CompletedTask;
-			_lifecycle = Lifecycle.Disposed;
-			_jobs.Clear();
-			_edges.Clear();
-		}
-
-		return ValueTask.CompletedTask;
-	}
-
-	internal void EnsureOpen()
-	{
-		lock (_gate)
-			EnsureOpenCore();
+		_lifecycle = Lifecycle.Disposed;
 	}
 
 	private void EnsureOpenCore()
 	{
 		if (_lifecycle != Lifecycle.Open)
-			throw new ImmediateJobException("A batch or one of its handles was used after commit or disposal.");
+			ImmediateJobException.Throw("A batch or one of its handles was used after commit or disposal.");
 	}
 }

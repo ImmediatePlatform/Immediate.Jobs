@@ -52,6 +52,97 @@ public sealed class SignupService(SendWelcomeEmail.Scheduler welcomeEmail)
 Register the generated handlers and jobs methods in `Program.cs`, in that order. For an assembly named `MyApp`, these
 are `AddMyAppHandlers()` and `AddMyAppJobs()`.
 
+## Scheduling and handles
+
+Generated schedulers use one method name for relative and absolute scheduling. Pass a `TimeSpan` for a delay or a
+`DateTimeOffset` for a due time:
+
+```csharp
+JobHandle immediate = await welcomeEmail.EnqueueAsync(
+	new(userId, "v2"),
+	cancellationToken);
+
+JobHandle delayed = await welcomeEmail.ScheduleAsync(
+	new(userId, "reminder"),
+	TimeSpan.FromHours(1),
+	cancellationToken);
+
+JobHandle scheduled = await welcomeEmail.ScheduleAsync(
+	new(userId, "tomorrow"),
+	DateTimeOffset.UtcNow.AddDays(1),
+	cancellationToken);
+```
+
+`JobHandle` and `BatchHandle` keep job and batch identifiers separate in application code. Read their string values
+from `JobHandle.JobHandle` and `BatchHandle.BatchHandle`. Use `JobHandle.FromString(...)` or `BatchHandle.FromString(...)` when
+an identifier enters through a route, message, or another string-based boundary. Both handle types serialize to their
+string value with System.Text.Json.
+
+## Batches and continuations
+
+Build an atomic workflow with `BatchScheduler` and the generated scheduler methods. `Enqueue` creates a root job.
+`ScheduleAfter` accepts one or several earlier `BatchJobHandle` values, which supports fan-out and fan-in without
+persisting a partial graph:
+
+```csharp
+await using var batch = batches.Begin();
+
+var received = receiveOrder.Enqueue(new(orderId), batch);
+var inventory = reserveInventory.ScheduleAfter(new(orderId), received);
+var payment = capturePayment.ScheduleAfter(new(orderId), received);
+
+var dispatch = dispatchOrder.ScheduleAfter(
+	new(orderId),
+	[inventory, payment]);
+
+BatchHandle batchHandle = await batch.CommitAsync(cancellationToken);
+JobHandle dispatchHandle = dispatch.JobHandle;
+```
+
+The batch builder is short-lived and is not thread-safe. Nothing reaches storage until `CommitAsync` succeeds. A
+`BatchJobHandle` exposes its `JobHandle` only after that commit. Disposing an uncommitted batch discards its buffered jobs.
+
+Use `ScheduleAfterAsync` for a continuation created outside an open batch. Its parent may be a `JobHandle` or
+`BatchHandle`, and a list of handles creates a fan-in dependency. Delays start when the required parent outcome is
+reached:
+
+```csharp
+JobHandle followUp = await sendReceipt.ScheduleAfterAsync(
+	new(orderId),
+	batchHandle,
+	TimeSpan.FromMinutes(5),
+	cancellationToken: cancellationToken);
+```
+
+Jobs can also extend their current workflow. Implement `IJobRequest` on the payload to receive `JobDetails`, then call
+`ScheduleAfter` from the handler. The runtime writes the buffered additions only when that attempt succeeds, so a retry
+does not leave duplicate branches:
+
+```csharp
+public sealed record Payload(Guid OrderId) : IJobRequest
+{
+	public JobDetails? JobDetails { get; set; }
+}
+
+private ValueTask HandleAsync(Payload payload, CancellationToken cancellationToken)
+{
+	var currentJob = payload.JobDetails
+		?? throw new InvalidOperationException("Job details were not populated.");
+
+	recordAssessment.ScheduleAfter(
+		new(payload.OrderId),
+		currentJob,
+		ContinuationOptions.BeforeContinuations);
+
+	return ValueTask.CompletedTask;
+}
+```
+
+`BeforeContinuations` makes existing waiters depend on the new job. `BesideContinuations` adds a parallel branch, and
+`Detached` schedules outside the current batch. The asynchronous `EnqueueAsync` and `ScheduleAsync` overloads that
+accept `JobDetails` persist a new member in the current batch immediately when the work must not wait for the running
+attempt to finish.
+
 ## Packages
 
 Each package has focused installation and configuration guidance:

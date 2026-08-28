@@ -8,7 +8,7 @@ using Microsoft.AspNetCore.Mvc;
 namespace Immediate.Jobs.Dashboard.Endpoints;
 
 [Handler]
-[MapPost("jobs/{jobId}/cancel")]
+[MapPost("jobs/{jobHandle}/cancel")]
 [MapGroup<DashboardApi>]
 internal static partial class CancelDashboardJob
 {
@@ -17,7 +17,7 @@ internal static partial class CancelDashboardJob
 	{
 		[FromRoute]
 		[NotEmpty]
-		public required string JobId { get; init; }
+		public required string JobHandle { get; init; }
 	}
 
 	internal static Results<NoContent, NotFound, ProblemHttpResult> TransformResult(
@@ -29,6 +29,6 @@ internal static partial class CancelDashboardJob
 		JobMonitor monitor,
 		CancellationToken cancellationToken
 	) => DashboardApiEndpointOperations.MutateJobAsync(
-		() => monitor.CancelJobAsync(command.JobId, cancellationToken)
+		() => monitor.CancelJobAsync(JobHandle.FromString(command.JobHandle), cancellationToken)
 	);
 }

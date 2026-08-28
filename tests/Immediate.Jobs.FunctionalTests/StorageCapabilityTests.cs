@@ -61,8 +61,8 @@ public sealed class StorageCapabilityTests
 
 		var continuationException = await Assert.ThrowsAsync<NotSupportedException>(() =>
 			scheduler.ScheduleAfterAsync(
-				new JobHandle("parent"),
 				"payload",
+				JobHandle.FromString("parent"),
 				cancellationToken: TestContext.Current.CancellationToken
 			).AsTask());
 		Assert.Contains("SQL database", continuationException.Message, StringComparison.Ordinal);
@@ -93,7 +93,7 @@ public sealed class StorageCapabilityTests
 		await using var provider = services.BuildServiceProvider();
 		await storage.EnqueueAsync(new()
 		{
-			Id = "queue-only-job",
+			JobHandle = JobHandle.FromString("queue-only-job"),
 			JobName = "queue-only",
 			Payload = "{}",
 			State = JobState.Pending,
@@ -104,7 +104,7 @@ public sealed class StorageCapabilityTests
 		await provider.GetRequiredService<JobSchedulingService>().DrainAsync(cancellationToken);
 
 		Assert.Equal(1, storage.CompleteCalls);
-		Assert.Equal(JobState.Succeeded, (await storage.GetJobStatusAsync("queue-only-job", cancellationToken))!.State);
+		Assert.Equal(JobState.Succeeded, (await storage.GetJobStatusAsync(JobHandle.FromString("queue-only-job"), cancellationToken))!.State);
 		var snapshot = await storage.GetMonitoringSnapshotAsync(cancellationToken);
 		Assert.Empty(snapshot.Recurring);
 		Assert.Equal(StorageCapabilities.Queue, snapshot.Capabilities);
@@ -170,7 +170,7 @@ public sealed class StorageCapabilityTests
 		) => _inner.AcquireDueJobsAsync(request, cancellationToken);
 
 		public ValueTask SetExecutionTelemetryAsync(
-			string jobId,
+			JobHandle jobHandle,
 			int executionNumber,
 			string workerId,
 			string? traceId,
@@ -178,7 +178,7 @@ public sealed class StorageCapabilityTests
 			DateTimeOffset startedAt,
 			CancellationToken cancellationToken = default
 		) => _inner.SetExecutionTelemetryAsync(
-			jobId,
+			jobHandle,
 			executionNumber,
 			workerId,
 			traceId,
@@ -188,32 +188,32 @@ public sealed class StorageCapabilityTests
 		);
 
 		public ValueTask RenewLeaseAsync(
-			string jobId,
+			JobHandle jobHandle,
 			int executionNumber,
 			string workerId,
 			TimeSpan lease,
 			CancellationToken cancellationToken = default
-		) => _inner.RenewLeaseAsync(jobId, executionNumber, workerId, lease, cancellationToken);
+		) => _inner.RenewLeaseAsync(jobHandle, executionNumber, workerId, lease, cancellationToken);
 
 		public ValueTask CompleteAsync(
-			string jobId,
+			JobHandle jobHandle,
 			int executionNumber,
 			string workerId,
 			CancellationToken cancellationToken = default
 		)
 		{
 			CompleteCalls++;
-			return _inner.CompleteAsync(jobId, executionNumber, workerId, cancellationToken);
+			return _inner.CompleteAsync(jobHandle, executionNumber, workerId, cancellationToken);
 		}
 
 		public ValueTask FailAsync(
-			string jobId,
+			JobHandle jobHandle,
 			int executionNumber,
 			string workerId,
 			string error,
 			DateTimeOffset? nextRetryAt,
 			CancellationToken cancellationToken = default
-		) => _inner.FailAsync(jobId, executionNumber, workerId, error, nextRetryAt, cancellationToken);
+		) => _inner.FailAsync(jobHandle, executionNumber, workerId, error, nextRetryAt, cancellationToken);
 
 		public async ValueTask<JobMonitoringSnapshot> GetMonitoringSnapshotAsync(
 			CancellationToken cancellationToken = default
@@ -233,23 +233,24 @@ public sealed class StorageCapabilityTests
 		) => _inner.QueryJobsAsync(query, cancellationToken);
 
 		public ValueTask<IReadOnlyList<JobExecutionRecord>> QueryJobExecutionsAsync(
+			JobHandle jobHandle,
 			JobExecutionQuery query,
 			CancellationToken cancellationToken = default
-		) => _inner.QueryJobExecutionsAsync(query, cancellationToken);
+		) => _inner.QueryJobExecutionsAsync(jobHandle, query, cancellationToken);
 
 		public ValueTask<JobStatus?> GetJobStatusAsync(
-			string jobId,
+			JobHandle jobHandle,
 			CancellationToken cancellationToken = default
-		) => _inner.GetJobStatusAsync(jobId, cancellationToken);
+		) => _inner.GetJobStatusAsync(jobHandle, cancellationToken);
 
-		public ValueTask CancelAsync(string jobId, CancellationToken cancellationToken = default) =>
-			_inner.CancelAsync(jobId, cancellationToken);
+		public ValueTask CancelAsync(JobHandle jobHandle, CancellationToken cancellationToken = default) =>
+			_inner.CancelAsync(jobHandle, cancellationToken);
 
-		public ValueTask RetryAsync(string jobId, CancellationToken cancellationToken = default) =>
-			_inner.RetryAsync(jobId, cancellationToken);
+		public ValueTask RetryAsync(JobHandle jobHandle, CancellationToken cancellationToken = default) =>
+			_inner.RetryAsync(jobHandle, cancellationToken);
 
-		public ValueTask DeleteAsync(string jobId, CancellationToken cancellationToken = default) =>
-			_inner.DeleteAsync(jobId, cancellationToken);
+		public ValueTask DeleteAsync(JobHandle jobHandle, CancellationToken cancellationToken = default) =>
+			_inner.DeleteAsync(jobHandle, cancellationToken);
 
 		public ValueTask PurgeJobsAsync(
 			TimeSpan succeededRetention,

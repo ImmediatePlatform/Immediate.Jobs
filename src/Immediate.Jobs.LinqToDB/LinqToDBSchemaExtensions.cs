@@ -100,18 +100,18 @@ public static class LinqToDBSchemaExtensions
 			"Attempt" INTEGER NOT NULL, "WorkerId" TEXT NULL, "LeaseExpiresAt" INTEGER NULL, "LastError" TEXT NULL,
 			"CompletedAt" INTEGER NULL, "RecurringKey" TEXT NULL, "TraceParent" TEXT NULL, "TraceState" TEXT NULL,
 			"ExecutionTraceId" TEXT NULL, "ExecutionSpanId" TEXT NULL, "ExecutionStartedAt" INTEGER NULL,
-			"BatchId" TEXT NULL, "RemainingDependencies" INTEGER NOT NULL, "FailedDependencies" INTEGER NOT NULL,
+			"BatchHandle" TEXT NULL, "RemainingDependencies" INTEGER NOT NULL, "FailedDependencies" INTEGER NOT NULL,
 			"ConcurrencyStamp" TEXT NOT NULL,
-			CONSTRAINT "FK_immediate_jobs_immediate_job_batches_BatchId" FOREIGN KEY ("BatchId")
+			CONSTRAINT "FK_immediate_jobs_immediate_job_batches_BatchHandle" FOREIGN KEY ("BatchHandle")
 				REFERENCES "immediate_job_batches" ("Id") ON DELETE CASCADE
 		);
 		CREATE TABLE IF NOT EXISTS "immediate_job_executions" (
-			"JobId" TEXT NOT NULL, "Attempt" INTEGER NOT NULL, "State" INTEGER NOT NULL,
+			"JobHandle" TEXT NOT NULL, "Attempt" INTEGER NOT NULL, "State" INTEGER NOT NULL,
 			"WorkerId" TEXT NULL, "AcquiredAt" INTEGER NULL, "ExecutionStartedAt" INTEGER NULL,
 			"CompletedAt" INTEGER NULL, "ExecutionTraceId" TEXT NULL, "ExecutionSpanId" TEXT NULL,
 			"Error" TEXT NULL, "IsSynthetic" INTEGER NOT NULL DEFAULT 0,
-			CONSTRAINT "PK_immediate_job_executions" PRIMARY KEY ("JobId", "Attempt"),
-			CONSTRAINT "FK_immediate_job_executions_immediate_jobs_JobId" FOREIGN KEY ("JobId")
+			CONSTRAINT "PK_immediate_job_executions" PRIMARY KEY ("JobHandle", "Attempt"),
+			CONSTRAINT "FK_immediate_job_executions_immediate_jobs_JobHandle" FOREIGN KEY ("JobHandle")
 				REFERENCES "immediate_jobs" ("Id") ON DELETE CASCADE
 		);
 		CREATE TABLE IF NOT EXISTS "immediate_fair_queue_groups" (
@@ -120,15 +120,15 @@ public static class LinqToDBSchemaExtensions
 			CONSTRAINT "PK_immediate_fair_queue_groups" PRIMARY KEY ("QueueName", "GroupId")
 		);
 		CREATE TABLE IF NOT EXISTS "immediate_job_continuations" (
-			"ChildJobId" TEXT NOT NULL, "ParentKind" INTEGER NOT NULL, "ParentId" TEXT NOT NULL,
-			"Trigger" INTEGER NOT NULL, "ParentOutcome" INTEGER NOT NULL,
-			CONSTRAINT "PK_immediate_job_continuations" PRIMARY KEY ("ChildJobId", "ParentKind", "ParentId"),
-			CONSTRAINT "FK_immediate_job_continuations_immediate_jobs_ChildJobId" FOREIGN KEY ("ChildJobId")
+			"ChildJobHandle" TEXT NOT NULL, "ParentKind" INTEGER NOT NULL, "ParentId" TEXT NOT NULL,
+			"Delay" INTEGER NOT NULL, "Trigger" INTEGER NOT NULL, "ParentOutcome" INTEGER NOT NULL,
+			CONSTRAINT "PK_immediate_job_continuations" PRIMARY KEY ("ChildJobHandle", "ParentKind", "ParentId"),
+			CONSTRAINT "FK_immediate_job_continuations_immediate_jobs_ChildJobHandle" FOREIGN KEY ("ChildJobHandle")
 				REFERENCES "immediate_jobs" ("Id") ON DELETE CASCADE
 		);
 		CREATE TABLE IF NOT EXISTS "immediate_recurring_jobs" (
 			"Name" TEXT NOT NULL CONSTRAINT "PK_immediate_recurring_jobs" PRIMARY KEY,
-			"JobName" TEXT NOT NULL, "Cron" TEXT NOT NULL, "TimeZone" TEXT NOT NULL,
+			"JobName" TEXT NOT NULL, "QueueName" TEXT NOT NULL, "Cron" TEXT NOT NULL, "TimeZone" TEXT NOT NULL,
 			"IsCodeDefined" INTEGER NOT NULL, "IsPaused" INTEGER NOT NULL, "NextRunAt" INTEGER NOT NULL,
 			"LastRunAt" INTEGER NULL, "ConcurrencyStamp" TEXT NOT NULL
 		);
@@ -184,20 +184,20 @@ public static class LinqToDBSchemaExtensions
 				ALTER TABLE {{prefix}}"immediate_job_executions" ALTER COLUMN "IsSynthetic" SET DEFAULT FALSE;
 				DO $constraints$
 				BEGIN
-					IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'FK_immediate_jobs_immediate_job_batches_BatchId'
+					IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'FK_immediate_jobs_immediate_job_batches_BatchHandle'
 						AND conrelid = '{{prefix}}"immediate_jobs"'::regclass) THEN
-						ALTER TABLE {{prefix}}"immediate_jobs" ADD CONSTRAINT "FK_immediate_jobs_immediate_job_batches_BatchId"
-							FOREIGN KEY ("BatchId") REFERENCES {{prefix}}"immediate_job_batches" ("Id") ON DELETE CASCADE;
+						ALTER TABLE {{prefix}}"immediate_jobs" ADD CONSTRAINT "FK_immediate_jobs_immediate_job_batches_BatchHandle"
+							FOREIGN KEY ("BatchHandle") REFERENCES {{prefix}}"immediate_job_batches" ("Id") ON DELETE CASCADE;
 					END IF;
-					IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'FK_immediate_job_continuations_immediate_jobs_ChildJobId'
+					IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'FK_immediate_job_continuations_immediate_jobs_ChildJobHandle'
 						AND conrelid = '{{prefix}}"immediate_job_continuations"'::regclass) THEN
-						ALTER TABLE {{prefix}}"immediate_job_continuations" ADD CONSTRAINT "FK_immediate_job_continuations_immediate_jobs_ChildJobId"
-						FOREIGN KEY ("ChildJobId") REFERENCES {{prefix}}"immediate_jobs" ("Id") ON DELETE CASCADE;
+						ALTER TABLE {{prefix}}"immediate_job_continuations" ADD CONSTRAINT "FK_immediate_job_continuations_immediate_jobs_ChildJobHandle"
+						FOREIGN KEY ("ChildJobHandle") REFERENCES {{prefix}}"immediate_jobs" ("Id") ON DELETE CASCADE;
 					END IF;
-					IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'FK_immediate_job_executions_immediate_jobs_JobId'
+					IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'FK_immediate_job_executions_immediate_jobs_JobHandle'
 						AND conrelid = '{{prefix}}"immediate_job_executions"'::regclass) THEN
-						ALTER TABLE {{prefix}}"immediate_job_executions" ADD CONSTRAINT "FK_immediate_job_executions_immediate_jobs_JobId"
-							FOREIGN KEY ("JobId") REFERENCES {{prefix}}"immediate_jobs" ("Id") ON DELETE CASCADE;
+						ALTER TABLE {{prefix}}"immediate_job_executions" ADD CONSTRAINT "FK_immediate_job_executions_immediate_jobs_JobHandle"
+							FOREIGN KEY ("JobHandle") REFERENCES {{prefix}}"immediate_jobs" ("Id") ON DELETE CASCADE;
 					END IF;
 				END $constraints$;
 				""", cancellationToken);
@@ -222,18 +222,18 @@ public static class LinqToDBSchemaExtensions
 					JOIN sys.columns c ON c.default_object_id = dc.object_id
 					WHERE dc.parent_object_id = OBJECT_ID(N'{{qualifiedExecutions}}') AND c.name = N'IsSynthetic')
 					ALTER TABLE {{qualifiedExecutions}} ADD DEFAULT 0 FOR [IsSynthetic];
-				IF NOT EXISTS (SELECT 1 FROM sys.foreign_keys WHERE name = N'FK_immediate_jobs_immediate_job_batches_BatchId'
+				IF NOT EXISTS (SELECT 1 FROM sys.foreign_keys WHERE name = N'FK_immediate_jobs_immediate_job_batches_BatchHandle'
 					AND parent_object_id = OBJECT_ID(N'{{qualifiedJobs}}'))
-					ALTER TABLE {{qualifiedJobs}} ADD CONSTRAINT [FK_immediate_jobs_immediate_job_batches_BatchId]
-						FOREIGN KEY ([BatchId]) REFERENCES {{qualifiedBatches}} ([Id]) ON DELETE CASCADE;
-				IF NOT EXISTS (SELECT 1 FROM sys.foreign_keys WHERE name = N'FK_immediate_job_continuations_immediate_jobs_ChildJobId'
+					ALTER TABLE {{qualifiedJobs}} ADD CONSTRAINT [FK_immediate_jobs_immediate_job_batches_BatchHandle]
+						FOREIGN KEY ([BatchHandle]) REFERENCES {{qualifiedBatches}} ([Id]) ON DELETE CASCADE;
+				IF NOT EXISTS (SELECT 1 FROM sys.foreign_keys WHERE name = N'FK_immediate_job_continuations_immediate_jobs_ChildJobHandle'
 					AND parent_object_id = OBJECT_ID(N'{{qualifiedContinuations}}'))
-					ALTER TABLE {{qualifiedContinuations}} ADD CONSTRAINT [FK_immediate_job_continuations_immediate_jobs_ChildJobId]
-						FOREIGN KEY ([ChildJobId]) REFERENCES {{qualifiedJobs}} ([Id]) ON DELETE CASCADE;
-				IF NOT EXISTS (SELECT 1 FROM sys.foreign_keys WHERE name = N'FK_immediate_job_executions_immediate_jobs_JobId'
+					ALTER TABLE {{qualifiedContinuations}} ADD CONSTRAINT [FK_immediate_job_continuations_immediate_jobs_ChildJobHandle]
+						FOREIGN KEY ([ChildJobHandle]) REFERENCES {{qualifiedJobs}} ([Id]) ON DELETE CASCADE;
+				IF NOT EXISTS (SELECT 1 FROM sys.foreign_keys WHERE name = N'FK_immediate_job_executions_immediate_jobs_JobHandle'
 					AND parent_object_id = OBJECT_ID(N'{{qualifiedExecutions}}'))
-					ALTER TABLE {{qualifiedExecutions}} ADD CONSTRAINT [FK_immediate_job_executions_immediate_jobs_JobId]
-						FOREIGN KEY ([JobId]) REFERENCES {{qualifiedJobs}} ([Id]) ON DELETE CASCADE;
+					ALTER TABLE {{qualifiedExecutions}} ADD CONSTRAINT [FK_immediate_job_executions_immediate_jobs_JobHandle]
+						FOREIGN KEY ([JobHandle]) REFERENCES {{qualifiedJobs}} ([Id]) ON DELETE CASCADE;
 				""", cancellationToken);
 		}
 
@@ -251,7 +251,7 @@ public static class LinqToDBSchemaExtensions
 		{
 			("IX_immediate_job_batches_State_CompletedAt", "immediate_job_batches", "State, CompletedAt", false),
 			("IX_immediate_jobs_RecurringKey", "immediate_jobs", "RecurringKey", true),
-			("IX_immediate_jobs_BatchId", "immediate_jobs", "BatchId", false),
+			("IX_immediate_jobs_BatchHandle", "immediate_jobs", "BatchHandle", false),
 			("IX_immediate_jobs_State_DueAt", "immediate_jobs", "State, DueAt", false),
 			("IX_immediate_jobs_State_CreatedAt", "immediate_jobs", "State, CreatedAt", false),
 			("IX_immediate_jobs_QueueName_State_DueAt_CreatedAt", "immediate_jobs", "QueueName, State, DueAt, CreatedAt", false),

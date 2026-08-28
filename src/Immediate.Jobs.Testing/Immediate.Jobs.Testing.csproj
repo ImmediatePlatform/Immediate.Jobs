@@ -4,7 +4,7 @@
 	<IsPackable>true</IsPackable>
 
 	<Title>Immediate.Jobs.Testing</Title>
-	<Description>Deterministic harness, assertions, scheduler test doubles, and storage-provider conformance tests for Immediate.Jobs.</Description>
+	<Description>Deterministic harness, capturing storage, assertions, and storage-provider conformance tests for Immediate.Jobs.</Description>
 	<PackageTags>background-jobs;scheduler;testing;fake-time;storage-conformance</PackageTags>
   </PropertyGroup>
 

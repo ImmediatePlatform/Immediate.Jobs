@@ -27,60 +27,51 @@ public sealed class OrderFulfillmentWorkflow(
 	{
 		await using var batch = batches.Begin();
 
-		var received = receiveOrder.AddToBatch(
-			batch,
-			new(orderId)
+		var received = receiveOrder.Enqueue(
+			new(orderId),
+			batch
 		);
 
-		var inventory = await reserveInventory.ScheduleAfterAsync(
-			received,
+		var inventory = reserveInventory.ScheduleAfter(
 			new(orderId),
-			cancellationToken: cancellationToken
+			received
 		);
-		var fraud = await fraudCheck.ScheduleAfterAsync(
-			received,
+		var fraud = fraudCheck.ScheduleAfter(
 			new(orderId),
-			cancellationToken: cancellationToken
+			received
 		);
-		var payment = await capturePayment.ScheduleAfterAsync(
-			received,
+		var payment = capturePayment.ScheduleAfter(
 			new(orderId),
-			cancellationToken: cancellationToken
+			received
 		);
 
-		var fulfillment = await prepareFulfillment.ScheduleAfterAsync(
-			[inventory, fraud, payment],
+		var fulfillment = prepareFulfillment.ScheduleAfter(
 			new(orderId),
-			cancellationToken: cancellationToken
+			[inventory, fraud, payment]
 		);
 
-		var label = await createShippingLabel.ScheduleAfterAsync(
-			fulfillment,
+		var label = createShippingLabel.ScheduleAfter(
 			new(orderId),
-			cancellationToken: cancellationToken
+			fulfillment
 		);
-		var packed = await packOrder.ScheduleAfterAsync(
-			fulfillment,
+		var packed = packOrder.ScheduleAfter(
 			new(orderId),
-			cancellationToken: cancellationToken
+			fulfillment
 		);
 
-		var dispatched = await dispatchOrder.ScheduleAfterAsync(
-			[label, packed],
+		var dispatched = dispatchOrder.ScheduleAfter(
 			new(orderId),
-			cancellationToken: cancellationToken
+			[label, packed]
 		);
-		var notified = await notifyCustomer.ScheduleAfterAsync(
-			dispatched,
+		var notified = notifyCustomer.ScheduleAfter(
 			new(orderId),
-			cancellationToken: cancellationToken
+			dispatched
 		);
 
-		_ = await writeAudit.ScheduleAfterAsync(
+		writeAudit.ScheduleAfter(
+			new(orderId),
 			notified,
-			new(orderId),
-			ContinuationTrigger.Complete,
-			cancellationToken: cancellationToken
+			ContinuationTrigger.Complete
 		);
 
 		return await batch.CommitAsync(cancellationToken);
