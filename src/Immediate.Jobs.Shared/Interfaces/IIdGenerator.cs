@@ -1,3 +1,5 @@
+using System.Diagnostics.CodeAnalysis;
+
 namespace Immediate.Jobs.Shared.Interfaces;
 
 /// <summary>
@@ -33,6 +35,7 @@ public interface IIdGenerator
 	string CreateId(IdKind kind);
 }
 
+[SuppressMessage("Performance", "CA1812:Avoid uninstantiated internal classes", Justification = "Instantiated by MSDI")]
 internal sealed class GuidIdGenerator : IIdGenerator
 {
 	public string CreateId(IdKind kind) => Guid.NewGuid().ToString("N");
