@@ -869,7 +869,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 			return
 			[
 				.. batches.OrderByDescending(static batch => batch.CreatedAt)
-					.ThenBy(static batch => batch.BatchHandle)
+					.ThenBy(static batch => batch.BatchHandle.Value, StringComparer.Ordinal)
 					.Skip(query.Skip)
 					.Take(query.Take)
 					.Select(ToStatus),
