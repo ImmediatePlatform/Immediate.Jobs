@@ -68,6 +68,24 @@ The dashboard includes:
 
 Job search and filters are paged on the server in groups of 50. Batch members link back to their workflow.
 
+## Identifier fields
+
+Dashboard JSON uses `jobId` for job records and `batchId` for batch records. Their values remain opaque JSON strings.
+The .NET monitoring APIs use `JobHandle` and `BatchHandle` so a job ID cannot be passed to a batch operation by mistake:
+
+```csharp
+var job = await monitor.GetJobAsync(
+	JobHandle.FromString(jobId),
+	cancellationToken);
+
+var batch = await monitor.GetBatchAsync(
+	BatchHandle.FromString(batchId),
+	cancellationToken);
+```
+
+The handle converters keep the HTTP representation string-based. In .NET, first take the handle from the record, then
+read its `.JobId` or `.BatchId` string when building a route or an external-system query.
+
 ## Telemetry links
 
 Telemetry destinations are application-defined because Aspire, Jaeger, Grafana, Seq, Azure Monitor, and other systems
@@ -91,16 +109,24 @@ builder.Services.AddMyAppJobs()
 	.AddTelemetryLink(
 		"View execution logs",
 		JobTelemetryLinkKind.Logs,
-		context => context.Execution is { } execution
-			? new(logExplorer,
-				$"search?jobId={Uri.EscapeDataString(context.Job.Id)}&attempt={execution.Attempt}")
-			: null)
+		context =>
+		{
+			var jobHandle = context.Job.JobId;
+			return context.Execution is { } execution
+				? new(logExplorer,
+					$"search?jobId={Uri.EscapeDataString(jobHandle.JobId)}&attempt={execution.Attempt}")
+				: null;
+		})
 	.AddTelemetryLink(
 		"View all retry logs",
 		JobTelemetryLinkKind.Logs,
-		context => context.Execution is null
-			? new(logExplorer, $"search?jobId={Uri.EscapeDataString(context.Job.Id)}")
-			: null);
+		context =>
+		{
+			var jobHandle = context.Job.JobId;
+			return context.Execution is null
+				? new(logExplorer, $"search?jobId={Uri.EscapeDataString(jobHandle.JobId)}")
+				: null;
+		});
 ```
 
 Each execution attempt creates a distinct `Activity` linked to the enqueue context. Every acquired execution is

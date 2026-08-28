@@ -78,11 +78,15 @@ The same `CapturingJobStorage` instance is available from `harness.Captures` and
 preserve call order for jobs, continuations, batches, dynamic batch additions, recurring definitions, and recurring
 materializations. `Clear()` resets only the capture log; it does not remove persisted jobs.
 
+Use `Jobs`, `Continuations`, `Batches`, `BatchJobs`, `DynamicContinuations`, `RecurringSchedules`,
+`RecurringOperations`, and `RecurringMaterializations` when a test needs the complete call history rather than one job.
+Each property returns a snapshot, so assertions do not observe a collection changing underneath them.
+
 ## Storage-provider conformance
 
 If you are implementing a new `IJobStorage` provider, use `JobStorageConformanceSuite` to verify its shared behavior.
 Select the feature flags the provider supports, create a fresh service provider and backend for each case, and pass the
-service provider to `RunAsync`:
+service provider to `RunAsync`.
 
 ```csharp
 private const StorageCapabilities Capabilities =

@@ -29,10 +29,16 @@ JobHandle delayed = await scheduler.ScheduleAsync(
 	Duration.FromMinutes(15),
 	cancellationToken);
 
-JobHandle scheduled = await scheduler.ScheduleAtAsync(
+JobHandle scheduled = await scheduler.ScheduleAsync(
 	payload,
 	SystemClock.Instance.GetCurrentInstant() + Duration.FromHours(1),
 	cancellationToken);
+
+JobHandle continuation = await scheduler.ScheduleAfterAsync(
+	payload,
+	scheduled,
+	Duration.FromMinutes(5),
+	cancellationToken: cancellationToken);
 
 await recurringScheduler.AddOrUpdateRecurringAsync(
 	"tenant-cleanup",
@@ -41,7 +47,24 @@ await recurringScheduler.AddOrUpdateRecurringAsync(
 	cancellationToken);
 ```
 
-NodaTime overloads also cover fair-queue group IDs, batch due times, and delayed continuations.
+The same method family covers fair-queue group IDs and workflow construction. Inside an open batch, `Schedule` accepts
+an `Instant` or `Duration`; `ScheduleAfter` applies a `Duration` after one or several parent jobs reach the selected
+outcome:
+
+```csharp
+await using var batch = batches.Begin();
+
+var root = scheduler.Schedule(payload, batch, SystemClock.Instance.GetCurrentInstant());
+var child = scheduler.ScheduleAfter(
+	payload,
+	root,
+	Duration.FromMinutes(10));
+
+_ = await batch.CommitAsync(cancellationToken);
+```
+
+NodaTime overloads also accept `JobDetails` for work added by a running job. They follow the core scheduler's
+`ContinuationOptions` behavior.
 
 ## Payload serialization
 
