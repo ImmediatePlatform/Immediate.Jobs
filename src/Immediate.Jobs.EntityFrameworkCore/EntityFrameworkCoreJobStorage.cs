@@ -1736,14 +1736,14 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 				|| ((batch.State == BatchState.Failed || batch.State == BatchState.Cancelled)
 					&& batch.CompletedAt < batchFailedBefore))
 			.Select(batch => batch.Id)
-			.ToArrayAsync(cancellationToken)
+			.ToListAsync(cancellationToken)
 			.ConfigureAwait(false);
-		if (batchHandles.Length != 0)
+		if (batchHandles.Count != 0)
 		{
 			var memberIds = await context.Set<ImmediateJobEntity>()
 				.Where(job => job.BatchHandle != null && batchHandles.Contains(job.BatchHandle))
 				.Select(job => job.Id)
-				.ToArrayAsync(cancellationToken)
+				.ToListAsync(cancellationToken)
 				.ConfigureAwait(false);
 			_ = await context.Set<ImmediateJobContinuationEntity>()
 				.Where(edge =>
