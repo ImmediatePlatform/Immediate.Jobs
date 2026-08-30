@@ -29,6 +29,7 @@ internal sealed class SingleServerJobStorage(
 	private readonly TaskCompletionSource _initializationTask = new();
 	private bool _initialized;
 
+	private readonly SemaphoreSlim _recurringMaterialization = new(1, 1);
 
 	private bool _disposed;
 
@@ -324,23 +325,33 @@ internal sealed class SingleServerJobStorage(
 	{
 		await EnsureInitializedAsync(cancellationToken).ConfigureAwait(false);
 
-		var durableResult = await RecurringJobStorage
-			.MaterializeRecurringAsync(schedule, job, nextRunAt, cancellationToken)
-			.ConfigureAwait(false);
+		await _recurringMaterialization.WaitAsync(cancellationToken).ConfigureAwait(false);
 
-		var primaryResult = await PrimaryStorage
-			.MaterializeRecurringAsync(schedule, job, nextRunAt, cancellationToken)
-			.ConfigureAwait(false);
-
-		if (primaryResult != durableResult)
+		try
 		{
-			throw new ImmediateJobException(
-				"The durable recurring-job replica has drifted from the authoritative in-memory schedule."
-			);
-		}
+			var durableResult = await RecurringJobStorage
+				.MaterializeRecurringAsync(schedule, job, nextRunAt, cancellationToken)
+				.ConfigureAwait(false);
 
-		return primaryResult;
+			var primaryResult = await PrimaryStorage
+				.MaterializeRecurringAsync(schedule, job, nextRunAt, cancellationToken)
+				.ConfigureAwait(false);
+
+			if (primaryResult != durableResult)
+			{
+				throw new ImmediateJobException(
+					"The durable recurring-job replica has drifted from the authoritative in-memory schedule."
+				);
+			}
+
+			return primaryResult;
+		}
+		finally
+		{
+			_recurringMaterialization.Release();
+		}
 	}
+
 
 	/// <inheritdoc />
 	public async ValueTask<JobMonitoringSnapshot> GetMonitoringSnapshotAsync(CancellationToken cancellationToken = default)
