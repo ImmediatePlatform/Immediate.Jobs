@@ -1680,7 +1680,7 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 		cancellationToken.ThrowIfCancellationRequested();
 
 		var now = _timeProvider.GetUtcNow();
-		await ExecuteWithStrategyAsync(
+		await RetryConcurrencyAsync(
 			operationCancellationToken => PurgeBatchesCoreAsync(
 				now - batchSucceededRetention,
 				now - batchFailedRetention,
@@ -1731,15 +1731,15 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 	{
 		await using var context = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
 		await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
-		var batchHandles = await context.Set<ImmediateJobBatchEntity>()
+		var batches = await context.Set<ImmediateJobBatchEntity>()
 			.Where(batch => (batch.State == BatchState.Succeeded && batch.CompletedAt < batchSucceededBefore)
 				|| ((batch.State == BatchState.Failed || batch.State == BatchState.Cancelled)
 					&& batch.CompletedAt < batchFailedBefore))
-			.Select(batch => batch.Id)
 			.ToListAsync(cancellationToken)
 			.ConfigureAwait(false);
-		if (batchHandles.Count != 0)
+		if (batches.Count != 0)
 		{
+			var batchHandles = batches.Select(static batch => batch.Id).ToList();
 			var memberIds = await context.Set<ImmediateJobEntity>()
 				.Where(job => job.BatchHandle != null && batchHandles.Contains(job.BatchHandle))
 				.Select(job => job.Id)
@@ -1753,12 +1753,11 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 				)
 				.ExecuteDeleteAsync(cancellationToken)
 				.ConfigureAwait(false);
-			_ = await context.Set<ImmediateJobBatchEntity>()
-				.Where(batch => batchHandles.Contains(batch.Id))
-				.ExecuteDeleteAsync(cancellationToken)
-				.ConfigureAwait(false);
+			// A concurrent retry changes the batch stamp, causing SaveChanges to roll back the edge deletion.
+			context.RemoveRange(batches);
 		}
 
+		_ = await context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 		await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
 	}
 
