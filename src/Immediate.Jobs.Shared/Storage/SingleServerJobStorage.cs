@@ -27,7 +27,9 @@ internal sealed class SingleServerJobStorage(
 	private const int RecoveryBatchSize = 1000;
 
 	private readonly TaskCompletionSource _initializationTask = new();
-	private bool _initialized = false;
+	private bool _initialized;
+
+
 	private bool _disposed;
 
 	private InMemoryJobStorage PrimaryStorage { get; } = new(timeProvider);
@@ -530,9 +532,14 @@ internal sealed class SingleServerJobStorage(
 	/// <inheritdoc />
 	public async ValueTask DisposeAsync()
 	{
+		if (_disposed)
+			return;
+
+		_disposed = true;
+		_initializationTask.TrySetException(new ObjectDisposedException(nameof(SingleServerJobStorage)));
+
 		await PrimaryStorage.DisposeAsync().ConfigureAwait(false);
 		await DurableStorage.DisposeAsync().ConfigureAwait(false);
-		_disposed = true;
 	}
 
 	private async Task EnsureInitializedAsync(CancellationToken token)

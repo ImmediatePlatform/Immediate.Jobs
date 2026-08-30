@@ -87,7 +87,8 @@ public sealed class JobStorageConformanceTestCase
 
 		try
 		{
-			await _scenario(storage, timeProvider, cancellationToken).ConfigureAwait(false);
+			await storage.InitializeAsync(cancellationToken);
+			await _scenario(storage, timeProvider, cancellationToken);
 		}
 		catch (JobTestAssertionException)
 		{
