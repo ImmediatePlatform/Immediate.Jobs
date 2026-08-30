@@ -17,6 +17,7 @@ internal static class GraphStorageConformance
 	private const string TerminalParentName = "Graph.Dependencies.EvaluatesAlreadyTerminalParents";
 	private const string InvalidDynamicName = "Graph.Dynamic.RejectsInvalidBatchRelationshipsAtomically";
 	private const string CancellationName = "Graph.Maintenance.CancelsUnsettledDependencyChains";
+	private const string BatchPurgeName = "Graph.Maintenance.PurgesExpiredBatchesWithContinuations";
 
 	internal static IReadOnlyList<JobStorageConformanceTestCase> Cases { get; } =
 	[
@@ -31,6 +32,7 @@ internal static class GraphStorageConformance
 		new(TerminalParentName, StorageCapabilities.Graph, EvaluatesAlreadyTerminalParentsAsync),
 		new(InvalidDynamicName, StorageCapabilities.Graph, RejectsInvalidBatchRelationshipsAsync),
 		new(CancellationName, StorageCapabilities.Graph, CancelUnsettledChainAsync),
+		new(BatchPurgeName, StorageCapabilities.Graph, PurgeExpiredBatchAsync),
 	];
 
 	private static async ValueTask PropagationDelayAsync(
@@ -512,6 +514,66 @@ internal static class GraphStorageConformance
 			"a batch with only explicit cancellations must be Cancelled");
 		ConformanceAssert.Equal(2, status.Cancelled, CancellationName,
 			"every non-terminal member must be included in cancellation counters");
+	}
+
+	private static async ValueTask PurgeExpiredBatchAsync(
+		IJobStorage storage,
+		FakeTimeProvider timeProvider,
+		CancellationToken cancellationToken
+	)
+	{
+		var graph = GetGraph(storage, BatchPurgeName);
+		var batchHandle = BatchHandle.FromString("purge-batch");
+		var parent = CreateJob("purge-parent", batchHandle.Value);
+		var child = CreateJob("purge-child", batchHandle.Value) with
+		{
+			State = JobState.AwaitingContinuation,
+			RemainingDependencies = 1,
+		};
+		await graph.EnqueueBatchAsync(
+			CreateBatch(batchHandle, 2),
+			[parent, child],
+			[new() { ChildJobHandle = child.JobHandle, ParentJobHandle = parent.JobHandle, Delay = TimeSpan.Zero }],
+			cancellationToken
+		).ConfigureAwait(false);
+
+		var acquiredParent = ConformanceAssert.NotNull(
+			(await graph.AcquireDueJobsAsync(CreateRequest("purge-worker", parent.JobName), cancellationToken)
+				.ConfigureAwait(false)).SingleOrDefault(),
+			BatchPurgeName,
+			"the parent must be acquirable"
+		);
+		await graph.CompleteAsync(parent.JobHandle, acquiredParent.Attempt, "purge-worker", cancellationToken)
+			.ConfigureAwait(false);
+
+		var acquiredChild = ConformanceAssert.NotNull(
+			(await graph.AcquireDueJobsAsync(CreateRequest("purge-worker", child.JobName), cancellationToken)
+				.ConfigureAwait(false)).SingleOrDefault(),
+			BatchPurgeName,
+			"the released child must be acquirable"
+		);
+		await graph.CompleteAsync(child.JobHandle, acquiredChild.Attempt, "purge-worker", cancellationToken)
+			.ConfigureAwait(false);
+
+		timeProvider.Advance(TimeSpan.FromHours(2));
+		await graph.PurgeBatchesAsync(TimeSpan.FromHours(1), TimeSpan.FromHours(1), cancellationToken)
+			.ConfigureAwait(false);
+
+		ConformanceAssert.Null(
+			await graph.GetBatchStatusAsync(batchHandle, cancellationToken).ConfigureAwait(false),
+			BatchPurgeName,
+			"retention cleanup must remove the expired batch"
+		);
+		ConformanceAssert.Null(
+			await graph.GetJobStatusAsync(parent.JobHandle, cancellationToken).ConfigureAwait(false),
+			BatchPurgeName,
+			"retention cleanup must remove the expired batch members"
+		);
+		ConformanceAssert.Null(
+			await graph.GetJobStatusAsync(child.JobHandle, cancellationToken).ConfigureAwait(false),
+			BatchPurgeName,
+			"retention cleanup must remove continuation children in the expired batch"
+		);
 	}
 
 	private static async ValueTask RejectsStaleActiveExecutionAsync(

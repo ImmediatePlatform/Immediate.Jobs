@@ -1731,33 +1731,34 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 	{
 		await using var context = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
 		await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
-		var batches = await context.Set<ImmediateJobBatchEntity>()
+		var batchHandles = await context.Set<ImmediateJobBatchEntity>()
 			.Where(batch => (batch.State == BatchState.Succeeded && batch.CompletedAt < batchSucceededBefore)
 				|| ((batch.State == BatchState.Failed || batch.State == BatchState.Cancelled)
 					&& batch.CompletedAt < batchFailedBefore))
-			.ToListAsync(cancellationToken)
+			.Select(batch => batch.Id)
+			.ToArrayAsync(cancellationToken)
 			.ConfigureAwait(false);
-		if (batches.Count != 0)
+		if (batchHandles.Length != 0)
 		{
-			var batchHandles = batches.Select(static batch => batch.Id).ToArray();
 			var memberIds = await context.Set<ImmediateJobEntity>()
 				.Where(job => job.BatchHandle != null && batchHandles.Contains(job.BatchHandle))
 				.Select(job => job.Id)
-				.ToListAsync(cancellationToken)
+				.ToArrayAsync(cancellationToken)
 				.ConfigureAwait(false);
-			var edges = await context.Set<ImmediateJobContinuationEntity>()
+			_ = await context.Set<ImmediateJobContinuationEntity>()
 				.Where(edge =>
 					(batchHandles.Contains(edge.ParentId) && edge.ParentKind == ContinuationParentKind.Batch)
 					|| memberIds.Contains(edge.ChildJobHandle)
 					|| (memberIds.Contains(edge.ParentId) && edge.ParentKind == ContinuationParentKind.Job)
 				)
-				.ToListAsync(cancellationToken)
+				.ExecuteDeleteAsync(cancellationToken)
 				.ConfigureAwait(false);
-			context.RemoveRange(edges);
-			context.RemoveRange(batches);
+			_ = await context.Set<ImmediateJobBatchEntity>()
+				.Where(batch => batchHandles.Contains(batch.Id))
+				.ExecuteDeleteAsync(cancellationToken)
+				.ConfigureAwait(false);
 		}
 
-		_ = await context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 		await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
 	}
 
