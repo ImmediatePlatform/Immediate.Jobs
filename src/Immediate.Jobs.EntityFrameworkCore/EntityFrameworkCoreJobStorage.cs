@@ -1551,8 +1551,9 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 		if (wasFailed && job.BatchHandle is { } batchHandle)
 		{
 			var batch = await context.Set<ImmediateJobBatchEntity>()
-				.SingleAsync(item => item.Id == batchHandle, cancellationToken)
-				.ConfigureAwait(false);
+				.SingleOrDefaultAsync(item => item.Id == batchHandle, cancellationToken)
+				.ConfigureAwait(false)
+				?? throw new DbUpdateConcurrencyException();
 			batch.PendingCount++;
 			batch.FailedCount = Math.Max(0, batch.FailedCount - 1);
 			batch.State = BatchState.Executing;
@@ -1680,7 +1681,7 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 		cancellationToken.ThrowIfCancellationRequested();
 
 		var now = _timeProvider.GetUtcNow();
-		await ExecuteWithStrategyAsync(
+		await RetryConcurrencyAsync(
 			operationCancellationToken => PurgeBatchesCoreAsync(
 				now - batchSucceededRetention,
 				now - batchFailedRetention,
@@ -1739,21 +1740,21 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 			.ConfigureAwait(false);
 		if (batches.Count != 0)
 		{
-			var batchHandles = batches.Select(static batch => batch.Id).ToArray();
+			var batchHandles = batches.Select(static batch => batch.Id).ToList();
 			var memberIds = await context.Set<ImmediateJobEntity>()
 				.Where(job => job.BatchHandle != null && batchHandles.Contains(job.BatchHandle))
 				.Select(job => job.Id)
 				.ToListAsync(cancellationToken)
 				.ConfigureAwait(false);
-			var edges = await context.Set<ImmediateJobContinuationEntity>()
+			_ = await context.Set<ImmediateJobContinuationEntity>()
 				.Where(edge =>
 					(batchHandles.Contains(edge.ParentId) && edge.ParentKind == ContinuationParentKind.Batch)
 					|| memberIds.Contains(edge.ChildJobHandle)
 					|| (memberIds.Contains(edge.ParentId) && edge.ParentKind == ContinuationParentKind.Job)
 				)
-				.ToListAsync(cancellationToken)
+				.ExecuteDeleteAsync(cancellationToken)
 				.ConfigureAwait(false);
-			context.RemoveRange(edges);
+			// A concurrent retry changes the batch stamp, causing SaveChanges to roll back the edge deletion.
 			context.RemoveRange(batches);
 		}
 

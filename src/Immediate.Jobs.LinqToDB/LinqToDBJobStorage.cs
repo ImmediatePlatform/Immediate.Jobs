@@ -1603,10 +1603,11 @@ internal sealed class LinqToDBJobStorage<T>(
 		}
 
 		var wasFailed = job.State == JobState.Failed;
-		_ = await GetOrMaterializeExecutionAsync(connection, job, cancellationToken).ConfigureAwait(false);
 		if (wasFailed && job.BatchHandle is { } batchHandle)
 		{
-			var batch = await Batches(connection).SingleAsync(item => item.Id == batchHandle, cancellationToken).ConfigureAwait(false);
+			var batch = await Batches(connection).SingleOrDefaultAsync(item => item.Id == batchHandle, cancellationToken)
+				.ConfigureAwait(false)
+				?? throw new LostRaceException();
 			var batchStamp = batch.ConcurrencyStamp;
 			batch.PendingCount++;
 			batch.FailedCount = Math.Max(0, batch.FailedCount - 1);
@@ -1616,6 +1617,8 @@ internal sealed class LinqToDBJobStorage<T>(
 			if (!await UpdateBatchAsync(connection, batch, batchStamp, cancellationToken).ConfigureAwait(false))
 				throw new LostRaceException();
 		}
+
+		_ = await GetOrMaterializeExecutionAsync(connection, job, cancellationToken).ConfigureAwait(false);
 
 		var oldStamp = job.ConcurrencyStamp;
 		job.State = JobState.Pending;
@@ -1747,52 +1750,69 @@ internal sealed class LinqToDBJobStorage<T>(
 	{
 		cancellationToken.ThrowIfCancellationRequested();
 
-		await using var scope = contextScope.GetScope(out var connection);
-
 		var now = timeProvider.GetUtcNow();
-		_ = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+		await RetryConcurrencyAsync(
+			connection => PurgeBatchesCoreAsync(
+				connection,
+				(now - batchSucceededRetention).UtcTicks,
+				(now - batchFailedRetention).UtcTicks,
+				cancellationToken
+			),
+			cancellationToken
+		).ConfigureAwait(false);
+	}
 
-		try
-		{
-			var batchHandles = await Batches(connection)
-				.Where(batch =>
-					(
-						batch.State == BatchState.Succeeded
-						&& batch.CompletedAt < (now - batchSucceededRetention).UtcTicks
-					) || (
-						(batch.State == BatchState.Failed || batch.State == BatchState.Cancelled)
-						&& batch.CompletedAt < (now - batchFailedRetention).UtcTicks
-					)
+	private async Task PurgeBatchesCoreAsync(
+		DataConnection connection,
+		long batchSucceededBefore,
+		long batchFailedBefore,
+		CancellationToken cancellationToken
+	)
+	{
+		var batches = await Batches(connection)
+			.Where(batch =>
+				(
+					batch.State == BatchState.Succeeded
+					&& batch.CompletedAt < batchSucceededBefore
+				) || (
+					(batch.State == BatchState.Failed || batch.State == BatchState.Cancelled)
+					&& batch.CompletedAt < batchFailedBefore
 				)
-				.Select(batch => batch.Id)
-				.ToArrayAsync(cancellationToken)
-				.ConfigureAwait(false);
-			if (batchHandles.Length != 0)
-			{
-				var memberIds = await Jobs(connection).Where(job => job.BatchHandle != null && batchHandles.Contains(job.BatchHandle))
-					.Select(job => job.Id).ToArrayAsync(cancellationToken).ConfigureAwait(false);
-				_ = await Continuations(connection)
-					.Where(edge =>
-						(batchHandles.Contains(edge.ParentId) && edge.ParentKind == ContinuationParentKind.Batch)
-						|| memberIds.Contains(edge.ChildJobHandle)
-						|| (memberIds.Contains(edge.ParentId) && edge.ParentKind == ContinuationParentKind.Job)
-					)
-					.DeleteAsync(cancellationToken).ConfigureAwait(false);
-				_ = await Executions(connection).Where(execution => memberIds.Contains(execution.JobHandle))
-					.DeleteAsync(cancellationToken).ConfigureAwait(false);
-				_ = await Jobs(connection).Where(job => job.BatchHandle != null && batchHandles.Contains(job.BatchHandle))
-					.DeleteAsync(cancellationToken).ConfigureAwait(false);
-				_ = await Batches(connection).Where(batch => batchHandles.Contains(batch.Id)).DeleteAsync(cancellationToken)
-					.ConfigureAwait(false);
-			}
+			)
+			.OrderBy(batch => batch.Id)
+			.ToListAsync(cancellationToken)
+			.ConfigureAwait(false);
+		if (batches.Count == 0)
+			return;
 
-			await connection.CommitTransactionAsync(cancellationToken).ConfigureAwait(false);
-		}
-		catch
+		// Claim batches in ID order before touching dependent rows so retry and purge use the same lock order.
+		foreach (var batch in batches)
 		{
-			await connection.RollbackTransactionAsync(cancellationToken).ConfigureAwait(false);
-			throw;
+			var oldStamp = batch.ConcurrencyStamp;
+			batch.ConcurrencyStamp = Guid.NewGuid();
+			if (!await UpdateBatchAsync(connection, batch, oldStamp, cancellationToken).ConfigureAwait(false))
+				throw new LostRaceException();
 		}
+
+		var batchHandles = batches.Select(static batch => batch.Id).ToList();
+		var memberIds = await Jobs(connection)
+			.Where(job => job.BatchHandle != null && batchHandles.Contains(job.BatchHandle))
+			.Select(job => job.Id)
+			.ToListAsync(cancellationToken)
+			.ConfigureAwait(false);
+		_ = await Continuations(connection)
+			.Where(edge =>
+				(batchHandles.Contains(edge.ParentId) && edge.ParentKind == ContinuationParentKind.Batch)
+				|| memberIds.Contains(edge.ChildJobHandle)
+				|| (memberIds.Contains(edge.ParentId) && edge.ParentKind == ContinuationParentKind.Job)
+			)
+			.DeleteAsync(cancellationToken).ConfigureAwait(false);
+		_ = await Executions(connection).Where(execution => memberIds.Contains(execution.JobHandle))
+			.DeleteAsync(cancellationToken).ConfigureAwait(false);
+		_ = await Jobs(connection).Where(job => job.BatchHandle != null && batchHandles.Contains(job.BatchHandle))
+			.DeleteAsync(cancellationToken).ConfigureAwait(false);
+		_ = await Batches(connection).Where(batch => batchHandles.Contains(batch.Id)).DeleteAsync(cancellationToken)
+			.ConfigureAwait(false);
 	}
 
 	/// <inheritdoc />
