@@ -18,6 +18,7 @@ internal static class GraphStorageConformance
 	private const string InvalidDynamicName = "Graph.Dynamic.RejectsInvalidBatchRelationshipsAtomically";
 	private const string CancellationName = "Graph.Maintenance.CancelsUnsettledDependencyChains";
 	private const string BatchPurgeName = "Graph.Maintenance.PurgesExpiredBatchesWithContinuations";
+	private const string BatchPurgeRaceName = "Graph.Maintenance.SerializesBatchPurgeWithRetry";
 
 	internal static IReadOnlyList<JobStorageConformanceTestCase> Cases { get; } =
 	[
@@ -33,6 +34,7 @@ internal static class GraphStorageConformance
 		new(InvalidDynamicName, StorageCapabilities.Graph, RejectsInvalidBatchRelationshipsAsync),
 		new(CancellationName, StorageCapabilities.Graph, CancelUnsettledChainAsync),
 		new(BatchPurgeName, StorageCapabilities.Graph, PurgeExpiredBatchAsync),
+		new(BatchPurgeRaceName, StorageCapabilities.Graph, SerializeBatchPurgeWithRetryAsync),
 	];
 
 	private static async ValueTask PropagationDelayAsync(
@@ -574,6 +576,126 @@ internal static class GraphStorageConformance
 			BatchPurgeName,
 			"retention cleanup must remove continuation children in the expired batch"
 		);
+	}
+
+	private static async ValueTask SerializeBatchPurgeWithRetryAsync(
+		IJobStorage storage,
+		FakeTimeProvider timeProvider,
+		CancellationToken cancellationToken
+	)
+	{
+		var graph = GetGraph(storage, BatchPurgeRaceName);
+		var scenarios = new List<(BatchHandle BatchHandle, JobRecord Parent)>();
+		foreach (var suffix in new[] { "a", "b", "c", "d", "e", "f", "g", "h" })
+		{
+			var batchHandle = BatchHandle.FromString($"purge-race-batch-{suffix}");
+			var parent = CreateJob($"purge-race-parent-{suffix}", batchHandle.Value);
+			var child = CreateJob($"purge-race-child-{suffix}", batchHandle.Value) with
+			{
+				State = JobState.AwaitingContinuation,
+				RemainingDependencies = 1,
+			};
+			await graph.EnqueueBatchAsync(
+				CreateBatch(batchHandle, 2),
+				[parent, child],
+				[new() { ChildJobHandle = child.JobHandle, ParentJobHandle = parent.JobHandle, Delay = TimeSpan.Zero }],
+				cancellationToken
+			).ConfigureAwait(false);
+
+			var acquiredParent = ConformanceAssert.NotNull(
+				(await graph.AcquireDueJobsAsync(CreateRequest("purge-race-worker", parent.JobName), cancellationToken)
+					.ConfigureAwait(false)).SingleOrDefault(),
+				BatchPurgeRaceName,
+				"the parent must be acquirable",
+				$"jobHandle={parent.JobHandle}"
+			);
+			await graph.FailAsync(
+				parent.JobHandle,
+				acquiredParent.Attempt,
+				"purge-race-worker",
+				"expected failure",
+				nextRetryAt: null,
+				cancellationToken
+			).ConfigureAwait(false);
+			scenarios.Add((batchHandle, parent));
+		}
+
+		timeProvider.Advance(TimeSpan.FromHours(2));
+		var purgeTask = graph.PurgeBatchesAsync(
+			TimeSpan.FromHours(1),
+			TimeSpan.FromHours(1),
+			cancellationToken
+		).AsTask();
+		await Task.Yield();
+		var retryTasks = scenarios
+			.Select(scenario => TryRetryAsync(graph, scenario.Parent.JobHandle, cancellationToken))
+			.ToList();
+		var retryResults = await Task.WhenAll(retryTasks).ConfigureAwait(false);
+		await purgeTask.ConfigureAwait(false);
+
+		for (var index = 0; index < scenarios.Count; index++)
+		{
+			var (batchHandle, parent) = scenarios[index];
+			var batch = await graph.GetBatchStatusAsync(batchHandle, cancellationToken).ConfigureAwait(false);
+			if (retryResults[index])
+			{
+				ConformanceAssert.Equal(
+					BatchState.Executing,
+					ConformanceAssert.NotNull(batch, BatchPurgeRaceName, "a successfully retried batch must survive retention cleanup").State,
+					BatchPurgeRaceName,
+					"retry must restore the batch to executing",
+					$"batchHandle={batchHandle}"
+				);
+				ConformanceAssert.Equal(
+					JobState.Pending,
+					ConformanceAssert.NotNull(
+						await graph.GetJobStatusAsync(parent.JobHandle, cancellationToken).ConfigureAwait(false),
+						BatchPurgeRaceName,
+						"a successfully retried job must survive retention cleanup"
+					).State,
+					BatchPurgeRaceName,
+					"retry must restore the failed job to pending",
+					$"jobHandle={parent.JobHandle}"
+				);
+				ConformanceAssert.Equal(
+					1,
+					ConformanceAssert.NotNull(
+						await graph.GetBatchGraphAsync(batchHandle, cancellationToken).ConfigureAwait(false),
+						BatchPurgeRaceName,
+						"a successfully retried batch must retain its graph"
+					).Edges.Count,
+					BatchPurgeRaceName,
+					"a rolled-back purge must restore continuation edges",
+					$"batchHandle={batchHandle}"
+				);
+				continue;
+			}
+
+			ConformanceAssert.Null(batch, BatchPurgeRaceName, "a purge that wins the race must remove the batch");
+			ConformanceAssert.Null(
+				await graph.GetJobStatusAsync(parent.JobHandle, cancellationToken).ConfigureAwait(false),
+				BatchPurgeRaceName,
+				"a purge that wins the race must remove its members",
+				$"jobHandle={parent.JobHandle}"
+			);
+		}
+	}
+
+	private static async Task<bool> TryRetryAsync(
+		IJobStorage storage,
+		JobHandle jobHandle,
+		CancellationToken cancellationToken
+	)
+	{
+		try
+		{
+			await storage.RetryAsync(jobHandle, cancellationToken).ConfigureAwait(false);
+			return true;
+		}
+		catch (KeyNotFoundException)
+		{
+			return false;
+		}
 	}
 
 	private static async ValueTask RejectsStaleActiveExecutionAsync(

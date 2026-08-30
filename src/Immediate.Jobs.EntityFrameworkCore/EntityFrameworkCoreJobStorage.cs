@@ -1551,8 +1551,9 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 		if (wasFailed && job.BatchHandle is { } batchHandle)
 		{
 			var batch = await context.Set<ImmediateJobBatchEntity>()
-				.SingleAsync(item => item.Id == batchHandle, cancellationToken)
-				.ConfigureAwait(false);
+				.SingleOrDefaultAsync(item => item.Id == batchHandle, cancellationToken)
+				.ConfigureAwait(false)
+				?? throw new DbUpdateConcurrencyException();
 			batch.PendingCount++;
 			batch.FailedCount = Math.Max(0, batch.FailedCount - 1);
 			batch.State = BatchState.Executing;
