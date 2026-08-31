@@ -155,7 +155,7 @@ public sealed class Batch : IAsyncDisposable
 
 		try
 		{
-			await _storage.EnqueueBatchAsync(record, _jobs, _edges, cancellationToken).ConfigureAwait(false);
+			await _storage.EnqueueBatchAsync(record, _jobs, _edges, cancellationToken);
 			IsCommitted = true;
 
 			return BatchHandle;

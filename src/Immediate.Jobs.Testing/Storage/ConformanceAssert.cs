@@ -94,7 +94,7 @@ internal static class ConformanceAssert
 
 		try
 		{
-			await action().ConfigureAwait(false);
+			await action();
 		}
 		catch (TException exception)
 		{
@@ -125,7 +125,7 @@ internal static class ConformanceAssert
 
 		try
 		{
-			await action().ConfigureAwait(false);
+			await action();
 		}
 		catch (OperationCanceledException)
 		{
@@ -158,7 +158,7 @@ internal static class ConformanceAssert
 		T actual = default!;
 		for (var attempt = 0; attempt < maximumAttempts; attempt++)
 		{
-			actual = await observe().ConfigureAwait(false);
+			actual = await observe();
 			if (condition(actual))
 				return actual;
 		}

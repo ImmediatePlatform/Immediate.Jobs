@@ -79,7 +79,7 @@ public sealed class BatchScheduler(
 	{
 		ArgumentNullException.ThrowIfNull(body);
 		await using var batch = Begin();
-		await body(batch).ConfigureAwait(false);
-		return await batch.CommitAsync(cancellationToken).ConfigureAwait(false);
+		await body(batch);
+		return await batch.CommitAsync(cancellationToken);
 	}
 }

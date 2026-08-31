@@ -109,7 +109,7 @@ partial class {{ class_name }}
 			{{~ end ~}}
 
 			var handler = global::Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetRequiredService<{{ type_name }}.Handler>(scopedServices);
-			_ = await handler.HandleAsync(payload, execution.CancellationToken).ConfigureAwait(false);
+			_ = await handler.HandleAsync(payload, execution.CancellationToken);
 		}
 		{{~ if has_job_details ~}}
 

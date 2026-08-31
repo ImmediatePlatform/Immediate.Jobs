@@ -39,7 +39,7 @@ partial class PropertyBackedPayloadJob
 			var payload = serializer.Deserialize(execution.Record.Payload, static options => new PayloadJsonContext(options).Payload);
 
 			var handler = global::Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetRequiredService<global::PropertyBackedPayloadJob.Handler>(scopedServices);
-			_ = await handler.HandleAsync(payload, execution.CancellationToken).ConfigureAwait(false);
+			_ = await handler.HandleAsync(payload, execution.CancellationToken);
 		}
 	}
 

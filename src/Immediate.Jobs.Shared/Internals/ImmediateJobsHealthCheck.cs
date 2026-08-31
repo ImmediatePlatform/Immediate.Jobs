@@ -38,7 +38,7 @@ public sealed class ImmediateJobsHealthCheck(
 			["storageCapabilities"] = storage.GetCapabilities().ToString(),
 		};
 
-		if (!await storage.IsHealthyAsync(cancellationToken).ConfigureAwait(false))
+		if (!await storage.IsHealthyAsync(cancellationToken))
 		{
 			return new(
 				context.Registration.FailureStatus,

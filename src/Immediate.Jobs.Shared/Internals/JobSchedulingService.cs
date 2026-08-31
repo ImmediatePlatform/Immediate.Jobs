@@ -139,8 +139,8 @@ public sealed partial class JobSchedulingService : BackgroundService
 		if (!_options.IsJobSchedulingServiceEnabled)
 			return;
 
-		await _storage.InitializeAsync(stoppingToken).ConfigureAwait(false);
-		await EnsureCodeSchedulesAsync(stoppingToken).ConfigureAwait(false);
+		await _storage.InitializeAsync(stoppingToken);
+		await EnsureCodeSchedulesAsync(stoppingToken);
 		_state.MarkStarted(_timeProvider.GetUtcNow());
 
 		// Workers observe _workerCancellation rather than stoppingToken: shutdown completes the channel so
@@ -155,7 +155,7 @@ public sealed partial class JobSchedulingService : BackgroundService
 			{
 				try
 				{
-					await RunSchedulerIterationAsync(stoppingToken).ConfigureAwait(false);
+					await RunSchedulerIterationAsync(stoppingToken);
 				}
 				catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
 				{
@@ -168,7 +168,7 @@ public sealed partial class JobSchedulingService : BackgroundService
 					SchedulerIterationFailed(_logger, exception);
 				}
 
-				await Task.Delay(_options.PollingInterval, _timeProvider, stoppingToken).ConfigureAwait(false);
+				await Task.Delay(_options.PollingInterval, _timeProvider, stoppingToken);
 			}
 		}
 		finally
@@ -178,8 +178,7 @@ public sealed partial class JobSchedulingService : BackgroundService
 			{
 				// stoppingToken is already cancelled here; forwarding it would abort the drain immediately.
 				await Task.WhenAll(workers)
-					.WaitAsync(_options.ShutdownTimeout, _timeProvider, CancellationToken.None)
-					.ConfigureAwait(false);
+					.WaitAsync(_options.ShutdownTimeout, _timeProvider, CancellationToken.None);
 			}
 			catch (TimeoutException)
 			{
@@ -187,7 +186,7 @@ public sealed partial class JobSchedulingService : BackgroundService
 			}
 			finally
 			{
-				await _workerCancellation.CancelAsync().ConfigureAwait(false);
+				await _workerCancellation.CancelAsync();
 			}
 		}
 	}
@@ -223,15 +222,15 @@ public sealed partial class JobSchedulingService : BackgroundService
 	/// </returns>
 	public async ValueTask DrainAsync(CancellationToken cancellationToken = default)
 	{
-		await _storage.InitializeAsync(cancellationToken).ConfigureAwait(false);
-		await EnsureCodeSchedulesAsync(cancellationToken).ConfigureAwait(false);
+		await _storage.InitializeAsync(cancellationToken);
+		await EnsureCodeSchedulesAsync(cancellationToken);
 		while (true)
 		{
-			await MaterializeRecurringAsync(cancellationToken).ConfigureAwait(false);
+			await MaterializeRecurringAsync(cancellationToken);
 			var request = BuildAcquisitionRequest();
 			if (request is null)
 				return;
-			var jobs = await _storage.AcquireDueJobsAsync(request, cancellationToken).ConfigureAwait(false);
+			var jobs = await _storage.AcquireDueJobsAsync(request, cancellationToken);
 			if (jobs.Count == 0)
 				return;
 			WarnIfGroupedJobsAreInert(jobs);
@@ -239,7 +238,7 @@ public sealed partial class JobSchedulingService : BackgroundService
 			foreach (var job in jobs)
 			{
 				Reserve(job);
-				await ExecuteJobAsync(job, cancellationToken, releaseReservation: true).ConfigureAwait(false);
+				await ExecuteJobAsync(job, cancellationToken, releaseReservation: true);
 			}
 		}
 	}
@@ -252,14 +251,14 @@ public sealed partial class JobSchedulingService : BackgroundService
 		await _storage.HeartbeatAsync(
 			new JobServerSnapshot { WorkerId = _workerId, LastHeartbeat = now, ActiveWorkers = _state.ActiveWorkers, MaxWorkers = _options.MaxParallelJobs },
 			cancellationToken
-		).ConfigureAwait(false);
+		);
 		_state.MarkHeartbeat(now);
 
-		await MaterializeRecurringAsync(cancellationToken).ConfigureAwait(false);
+		await MaterializeRecurringAsync(cancellationToken);
 		var request = BuildAcquisitionRequest();
 		var acquired = request is null
 			? []
-			: await _storage.AcquireDueJobsAsync(request, cancellationToken).ConfigureAwait(false);
+			: await _storage.AcquireDueJobsAsync(request, cancellationToken);
 		WarnIfGroupedJobsAreInert(acquired);
 
 		foreach (var job in acquired)
@@ -268,7 +267,7 @@ public sealed partial class JobSchedulingService : BackgroundService
 			try
 			{
 				JobTelemetry.Acquired();
-				await _channel.Writer.WriteAsync(job, cancellationToken).ConfigureAwait(false);
+				await _channel.Writer.WriteAsync(job, cancellationToken);
 			}
 			catch
 			{
@@ -283,14 +282,14 @@ public sealed partial class JobSchedulingService : BackgroundService
 				_options.SucceededRetention,
 				_options.FailedRetention,
 				cancellationToken
-			).ConfigureAwait(false);
+			);
 			if (_graphStorage is not null)
 			{
 				await _graphStorage.PurgeBatchesAsync(
 					_options.BatchSucceededRetention,
 					_options.BatchFailedRetention,
 					cancellationToken
-				).ConfigureAwait(false);
+				);
 			}
 
 			_ = Interlocked.Exchange(ref _nextPurgeTimestamp, _timeProvider.GetTimestamp() + ToTimestampTicks(_options.PurgeInterval));
@@ -301,11 +300,11 @@ public sealed partial class JobSchedulingService : BackgroundService
 	{
 		try
 		{
-			await foreach (var record in _channel.Reader.ReadAllAsync(cancellationToken).ConfigureAwait(false))
+			await foreach (var record in _channel.Reader.ReadAllAsync(cancellationToken))
 			{
 				try
 				{
-					await ExecuteJobAsync(record, cancellationToken, releaseReservation: true).ConfigureAwait(false);
+					await ExecuteJobAsync(record, cancellationToken, releaseReservation: true);
 				}
 				catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
 				{
@@ -344,8 +343,7 @@ public sealed partial class JobSchedulingService : BackgroundService
 						$"No generated job definition exists for '{record.JobName}'.",
 						nextRetryAt: null,
 						stoppingToken
-					)
-					.ConfigureAwait(false);
+					);
 			}
 			finally
 			{
@@ -407,7 +405,7 @@ public sealed partial class JobSchedulingService : BackgroundService
 					activity?.SpanId.ToString(),
 					startedAt,
 					stoppingToken
-				).ConfigureAwait(false);
+				);
 			}
 			catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
 			{
@@ -426,7 +424,7 @@ public sealed partial class JobSchedulingService : BackgroundService
 			await definition.Invoker.InvokeAsync(
 				scope.ServiceProvider,
 				new JobExecution { Record = record, Definition = definition, CancellationToken = timeout.Token, Buffer = executionBuffer }
-			).ConfigureAwait(false);
+			);
 			if (_graphStorage is not null)
 			{
 				await _graphStorage.CompleteWithContinuationsAsync(
@@ -435,11 +433,11 @@ public sealed partial class JobSchedulingService : BackgroundService
 					_workerId,
 					executionBuffer.SealAndSnapshot(),
 					stoppingToken
-				).ConfigureAwait(false);
+				);
 			}
 			else
 			{
-				await _storage.CompleteAsync(record.JobHandle, record.Attempt, _workerId, stoppingToken).ConfigureAwait(false);
+				await _storage.CompleteAsync(record.JobHandle, record.Attempt, _workerId, stoppingToken);
 			}
 
 			var duration = _timeProvider.GetElapsedTime(started);
@@ -458,7 +456,7 @@ public sealed partial class JobSchedulingService : BackgroundService
 				exception.ToString(),
 				nextRetryAt,
 				stoppingToken
-			).ConfigureAwait(false);
+			);
 			var duration = _timeProvider.GetElapsedTime(started);
 			JobTelemetry.Failed(record.JobName, record.QueueName, duration);
 			_ = activity?.SetStatus(ActivityStatusCode.Error, exception.Message);
@@ -476,10 +474,10 @@ public sealed partial class JobSchedulingService : BackgroundService
 		finally
 		{
 			timeoutTimer?.Dispose();
-			await leaseCancellation.CancelAsync().ConfigureAwait(false);
+			await leaseCancellation.CancelAsync();
 			try
 			{
-				await leaseTask.ConfigureAwait(false);
+				await leaseTask;
 			}
 			catch (OperationCanceledException)
 			{
@@ -591,7 +589,7 @@ public sealed partial class JobSchedulingService : BackgroundService
 		var interval = TimeSpan.FromTicks(Math.Max(1, _options.LeaseDuration.Ticks / 3));
 		while (true)
 		{
-			await Task.Delay(interval, _timeProvider, cancellationToken).ConfigureAwait(false);
+			await Task.Delay(interval, _timeProvider, cancellationToken);
 			try
 			{
 				await _storage.RenewLeaseAsync(
@@ -600,7 +598,7 @@ public sealed partial class JobSchedulingService : BackgroundService
 					_workerId,
 					_options.LeaseDuration,
 					cancellationToken
-				).ConfigureAwait(false);
+				);
 			}
 			catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
 			{
@@ -625,7 +623,7 @@ public sealed partial class JobSchedulingService : BackgroundService
 		var codeDefinitions = _definitions.Values.Where(static definition => definition.Cron is not null).ToArray();
 		var persisted = codeDefinitions.Length == 0
 			? [with(StringComparer.Ordinal)]
-			: (await _storage.GetMonitoringSnapshotAsync(cancellationToken).ConfigureAwait(false))
+			: (await _storage.GetMonitoringSnapshotAsync(cancellationToken))
 				.Recurring
 				.ToDictionary(static schedule => schedule.Name, StringComparer.Ordinal);
 
@@ -653,14 +651,14 @@ public sealed partial class JobSchedulingService : BackgroundService
 					NextRunAt = next,
 				},
 				cancellationToken
-			).ConfigureAwait(false);
+			);
 		}
 
 		var activeScheduleNames = codeDefinitions.Select(static definition => definition.Name).ToArray();
 		await recurringStorage.RemoveObsoleteCodeDefinedRecurringAsync(
 			activeScheduleNames,
 			cancellationToken
-		).ConfigureAwait(false);
+		);
 	}
 
 	private async Task EnsureCodeSchedulesAsync(CancellationToken cancellationToken)
@@ -673,12 +671,12 @@ public sealed partial class JobSchedulingService : BackgroundService
 			return;
 		}
 
-		await _scheduleInitialization.WaitAsync(cancellationToken).ConfigureAwait(false);
+		await _scheduleInitialization.WaitAsync(cancellationToken);
 		try
 		{
 			if (_state.CodeSchedulesAsserted)
 				return;
-			await AssertCodeSchedulesAsync(cancellationToken).ConfigureAwait(false);
+			await AssertCodeSchedulesAsync(cancellationToken);
 			_state.MarkCodeSchedulesAsserted();
 		}
 		finally
@@ -694,7 +692,7 @@ public sealed partial class JobSchedulingService : BackgroundService
 			return;
 
 		var now = _timeProvider.GetUtcNow();
-		var schedules = await recurringStorage.GetDueRecurringAsync(now, _options.AcquisitionBatchSize, cancellationToken).ConfigureAwait(false);
+		var schedules = await recurringStorage.GetDueRecurringAsync(now, _options.AcquisitionBatchSize, cancellationToken);
 		foreach (var schedule in schedules)
 		{
 			if (!_definitions.TryGetValue(schedule.JobName, out var definition))
@@ -708,7 +706,7 @@ public sealed partial class JobSchedulingService : BackgroundService
 					definition,
 					now,
 					cancellationToken
-				).ConfigureAwait(false);
+				);
 			}
 			catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
 			{
@@ -754,16 +752,16 @@ public sealed partial class JobSchedulingService : BackgroundService
 			var active = await _storage.QueryJobsAsync(
 				new() { State = JobState.Active, JobName = definition.Name, Take = 1 },
 				cancellationToken
-			).ConfigureAwait(false);
+			);
 			var pending = await _storage.QueryJobsAsync(
 				new() { State = JobState.Pending, JobName = definition.Name, Take = 1 },
 				cancellationToken
-			).ConfigureAwait(false);
+			);
 			if (active.Count != 0 || pending.Count != 0)
 				record = record with { State = JobState.Skipped, CompletedAt = now };
 		}
 
-		if (await recurringStorage.MaterializeRecurringAsync(schedule, record, next, cancellationToken).ConfigureAwait(false)
+		if (await recurringStorage.MaterializeRecurringAsync(schedule, record, next, cancellationToken)
 			&& record.State == JobState.Pending)
 		{
 			JobTelemetry.Enqueued(record.JobName, record.QueueName);

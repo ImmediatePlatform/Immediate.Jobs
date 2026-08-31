@@ -85,9 +85,9 @@ internal sealed class SingleServerJobStorage :
 	/// <inheritdoc />
 	public async ValueTask EnqueueAsync(JobRecord job, CancellationToken cancellationToken = default)
 	{
-		await EnsureInitializedAsync(cancellationToken).ConfigureAwait(false);
-		await DurableStorage.EnqueueAsync(job, cancellationToken).ConfigureAwait(false);
-		await _primary.EnqueueAsync(job, cancellationToken).ConfigureAwait(false);
+		await EnsureInitializedAsync(cancellationToken);
+		await DurableStorage.EnqueueAsync(job, cancellationToken);
+		await _primary.EnqueueAsync(job, cancellationToken);
 	}
 
 	/// <inheritdoc />
@@ -97,9 +97,9 @@ internal sealed class SingleServerJobStorage :
 		CancellationToken cancellationToken = default
 	)
 	{
-		await EnsureInitializedAsync(cancellationToken).ConfigureAwait(false);
-		await _graphDurableStorage.EnqueueContinuationAsync(job, edges, cancellationToken).ConfigureAwait(false);
-		await _primary.EnqueueContinuationAsync(job, edges, cancellationToken).ConfigureAwait(false);
+		await EnsureInitializedAsync(cancellationToken);
+		await _graphDurableStorage.EnqueueContinuationAsync(job, edges, cancellationToken);
+		await _primary.EnqueueContinuationAsync(job, edges, cancellationToken);
 	}
 
 	/// <inheritdoc />
@@ -110,9 +110,9 @@ internal sealed class SingleServerJobStorage :
 		CancellationToken cancellationToken = default
 	)
 	{
-		await EnsureInitializedAsync(cancellationToken).ConfigureAwait(false);
-		await _graphDurableStorage.EnqueueBatchAsync(batch, jobs, edges, cancellationToken).ConfigureAwait(false);
-		await _primary.EnqueueBatchAsync(batch, jobs, edges, cancellationToken).ConfigureAwait(false);
+		await EnsureInitializedAsync(cancellationToken);
+		await _graphDurableStorage.EnqueueBatchAsync(batch, jobs, edges, cancellationToken);
+		await _primary.EnqueueBatchAsync(batch, jobs, edges, cancellationToken);
 	}
 
 	/// <inheritdoc />
@@ -121,8 +121,8 @@ internal sealed class SingleServerJobStorage :
 		CancellationToken cancellationToken = default
 	)
 	{
-		await EnsureInitializedAsync(cancellationToken).ConfigureAwait(false);
-		var acquired = await _primary.AcquireDueJobsAsync(request, cancellationToken).ConfigureAwait(false);
+		await EnsureInitializedAsync(cancellationToken);
+		var acquired = await _primary.AcquireDueJobsAsync(request, cancellationToken);
 		if (acquired.Count == 0)
 			return acquired;
 
@@ -132,7 +132,7 @@ internal sealed class SingleServerJobStorage :
 			request.WorkerId,
 			request.Lease,
 			cancellationToken
-		).ConfigureAwait(false);
+		);
 
 		var replicatedExecutions = replicated.ToDictionary(static job => job.JobHandle, static job => job.Attempt);
 		if (acquired.Count != replicated.Count ||
@@ -158,7 +158,7 @@ internal sealed class SingleServerJobStorage :
 		CancellationToken cancellationToken = default
 	)
 	{
-		await EnsureInitializedAsync(cancellationToken).ConfigureAwait(false);
+		await EnsureInitializedAsync(cancellationToken);
 		await DurableStorage.SetExecutionTelemetryAsync(
 			jobHandle,
 			executionNumber,
@@ -167,7 +167,7 @@ internal sealed class SingleServerJobStorage :
 			spanId,
 			startedAt,
 			cancellationToken
-		).ConfigureAwait(false);
+		);
 		await _primary.SetExecutionTelemetryAsync(
 			jobHandle,
 			executionNumber,
@@ -176,7 +176,7 @@ internal sealed class SingleServerJobStorage :
 			spanId,
 			startedAt,
 			cancellationToken
-		).ConfigureAwait(false);
+		);
 	}
 
 	/// <inheritdoc />
@@ -188,9 +188,9 @@ internal sealed class SingleServerJobStorage :
 		CancellationToken cancellationToken = default
 	)
 	{
-		await EnsureInitializedAsync(cancellationToken).ConfigureAwait(false);
-		await DurableStorage.RenewLeaseAsync(jobHandle, executionNumber, workerId, lease, cancellationToken).ConfigureAwait(false);
-		await _primary.RenewLeaseAsync(jobHandle, executionNumber, workerId, lease, cancellationToken).ConfigureAwait(false);
+		await EnsureInitializedAsync(cancellationToken);
+		await DurableStorage.RenewLeaseAsync(jobHandle, executionNumber, workerId, lease, cancellationToken);
+		await _primary.RenewLeaseAsync(jobHandle, executionNumber, workerId, lease, cancellationToken);
 	}
 
 	/// <inheritdoc />
@@ -201,9 +201,9 @@ internal sealed class SingleServerJobStorage :
 		CancellationToken cancellationToken = default
 	)
 	{
-		await EnsureInitializedAsync(cancellationToken).ConfigureAwait(false);
-		await DurableStorage.CompleteAsync(jobHandle, executionNumber, workerId, cancellationToken).ConfigureAwait(false);
-		await _primary.CompleteAsync(jobHandle, executionNumber, workerId, cancellationToken).ConfigureAwait(false);
+		await EnsureInitializedAsync(cancellationToken);
+		await DurableStorage.CompleteAsync(jobHandle, executionNumber, workerId, cancellationToken);
+		await _primary.CompleteAsync(jobHandle, executionNumber, workerId, cancellationToken);
 	}
 
 	/// <inheritdoc />
@@ -215,11 +215,9 @@ internal sealed class SingleServerJobStorage :
 		CancellationToken cancellationToken = default
 	)
 	{
-		await EnsureInitializedAsync(cancellationToken).ConfigureAwait(false);
-		await _graphDurableStorage.CompleteWithContinuationsAsync(jobHandle, executionNumber, workerId, additions, cancellationToken)
-			.ConfigureAwait(false);
-		await _primary.CompleteWithContinuationsAsync(jobHandle, executionNumber, workerId, additions, cancellationToken)
-			.ConfigureAwait(false);
+		await EnsureInitializedAsync(cancellationToken);
+		await _graphDurableStorage.CompleteWithContinuationsAsync(jobHandle, executionNumber, workerId, additions, cancellationToken);
+		await _primary.CompleteWithContinuationsAsync(jobHandle, executionNumber, workerId, additions, cancellationToken);
 	}
 
 	/// <inheritdoc />
@@ -231,9 +229,9 @@ internal sealed class SingleServerJobStorage :
 		CancellationToken cancellationToken = default
 	)
 	{
-		await EnsureInitializedAsync(cancellationToken).ConfigureAwait(false);
-		await _graphDurableStorage.AddBatchJobAsync(currentJobHandle, executionNumber, job, options, cancellationToken).ConfigureAwait(false);
-		await _primary.AddBatchJobAsync(currentJobHandle, executionNumber, job, options, cancellationToken).ConfigureAwait(false);
+		await EnsureInitializedAsync(cancellationToken);
+		await _graphDurableStorage.AddBatchJobAsync(currentJobHandle, executionNumber, job, options, cancellationToken);
+		await _primary.AddBatchJobAsync(currentJobHandle, executionNumber, job, options, cancellationToken);
 	}
 
 	/// <inheritdoc />
@@ -246,17 +244,17 @@ internal sealed class SingleServerJobStorage :
 		CancellationToken cancellationToken = default
 	)
 	{
-		await EnsureInitializedAsync(cancellationToken).ConfigureAwait(false);
-		await DurableStorage.FailAsync(jobHandle, executionNumber, workerId, error, nextRetryAt, cancellationToken).ConfigureAwait(false);
-		await _primary.FailAsync(jobHandle, executionNumber, workerId, error, nextRetryAt, cancellationToken).ConfigureAwait(false);
+		await EnsureInitializedAsync(cancellationToken);
+		await DurableStorage.FailAsync(jobHandle, executionNumber, workerId, error, nextRetryAt, cancellationToken);
+		await _primary.FailAsync(jobHandle, executionNumber, workerId, error, nextRetryAt, cancellationToken);
 	}
 
 	/// <inheritdoc />
 	public async ValueTask UpsertRecurringAsync(RecurringJobSchedule schedule, CancellationToken cancellationToken = default)
 	{
-		await EnsureInitializedAsync(cancellationToken).ConfigureAwait(false);
-		await _recurringDurableStorage.UpsertRecurringAsync(schedule, cancellationToken).ConfigureAwait(false);
-		await _primary.UpsertRecurringAsync(schedule, cancellationToken).ConfigureAwait(false);
+		await EnsureInitializedAsync(cancellationToken);
+		await _recurringDurableStorage.UpsertRecurringAsync(schedule, cancellationToken);
+		await _primary.UpsertRecurringAsync(schedule, cancellationToken);
 	}
 
 	/// <inheritdoc />
@@ -265,34 +263,33 @@ internal sealed class SingleServerJobStorage :
 		CancellationToken cancellationToken = default
 	)
 	{
-		await EnsureInitializedAsync(cancellationToken).ConfigureAwait(false);
-		await _recurringDurableStorage.RemoveObsoleteCodeDefinedRecurringAsync(activeScheduleNames, cancellationToken)
-			.ConfigureAwait(false);
-		await _primary.RemoveObsoleteCodeDefinedRecurringAsync(activeScheduleNames, cancellationToken).ConfigureAwait(false);
+		await EnsureInitializedAsync(cancellationToken);
+		await _recurringDurableStorage.RemoveObsoleteCodeDefinedRecurringAsync(activeScheduleNames, cancellationToken);
+		await _primary.RemoveObsoleteCodeDefinedRecurringAsync(activeScheduleNames, cancellationToken);
 	}
 
 	/// <inheritdoc />
 	public async ValueTask RemoveRecurringAsync(string name, CancellationToken cancellationToken = default)
 	{
-		await EnsureInitializedAsync(cancellationToken).ConfigureAwait(false);
-		await _recurringDurableStorage.RemoveRecurringAsync(name, cancellationToken).ConfigureAwait(false);
-		await _primary.RemoveRecurringAsync(name, cancellationToken).ConfigureAwait(false);
+		await EnsureInitializedAsync(cancellationToken);
+		await _recurringDurableStorage.RemoveRecurringAsync(name, cancellationToken);
+		await _primary.RemoveRecurringAsync(name, cancellationToken);
 	}
 
 	/// <inheritdoc />
 	public async ValueTask PauseRecurringAsync(string name, CancellationToken cancellationToken = default)
 	{
-		await EnsureInitializedAsync(cancellationToken).ConfigureAwait(false);
-		await _recurringDurableStorage.PauseRecurringAsync(name, cancellationToken).ConfigureAwait(false);
-		await _primary.PauseRecurringAsync(name, cancellationToken).ConfigureAwait(false);
+		await EnsureInitializedAsync(cancellationToken);
+		await _recurringDurableStorage.PauseRecurringAsync(name, cancellationToken);
+		await _primary.PauseRecurringAsync(name, cancellationToken);
 	}
 
 	/// <inheritdoc />
 	public async ValueTask ResumeRecurringAsync(string name, CancellationToken cancellationToken = default)
 	{
-		await EnsureInitializedAsync(cancellationToken).ConfigureAwait(false);
-		await _recurringDurableStorage.ResumeRecurringAsync(name, cancellationToken).ConfigureAwait(false);
-		await _primary.ResumeRecurringAsync(name, cancellationToken).ConfigureAwait(false);
+		await EnsureInitializedAsync(cancellationToken);
+		await _recurringDurableStorage.ResumeRecurringAsync(name, cancellationToken);
+		await _primary.ResumeRecurringAsync(name, cancellationToken);
 	}
 
 	/// <inheritdoc />
@@ -302,8 +299,8 @@ internal sealed class SingleServerJobStorage :
 		CancellationToken cancellationToken = default
 	)
 	{
-		await EnsureInitializedAsync(cancellationToken).ConfigureAwait(false);
-		return await _primary.GetDueRecurringAsync(now, batchSize, cancellationToken).ConfigureAwait(false);
+		await EnsureInitializedAsync(cancellationToken);
+		return await _primary.GetDueRecurringAsync(now, batchSize, cancellationToken);
 	}
 
 	/// <inheritdoc />
@@ -314,8 +311,8 @@ internal sealed class SingleServerJobStorage :
 		CancellationToken cancellationToken = default
 	)
 	{
-		await EnsureInitializedAsync(cancellationToken).ConfigureAwait(false);
-		await _recurringMaterialization.WaitAsync(cancellationToken).ConfigureAwait(false);
+		await EnsureInitializedAsync(cancellationToken);
+		await _recurringMaterialization.WaitAsync(cancellationToken);
 		try
 		{
 			ThrowIfDisposed();
@@ -324,9 +321,8 @@ internal sealed class SingleServerJobStorage :
 				job,
 				nextRunAt,
 				cancellationToken
-			).ConfigureAwait(false);
-			var primaryResult = await _primary.MaterializeRecurringAsync(schedule, job, nextRunAt, cancellationToken)
-				.ConfigureAwait(false);
+			);
+			var primaryResult = await _primary.MaterializeRecurringAsync(schedule, job, nextRunAt, cancellationToken);
 			if (primaryResult != durableResult)
 			{
 				throw new ImmediateJobException(
@@ -345,8 +341,8 @@ internal sealed class SingleServerJobStorage :
 	/// <inheritdoc />
 	public async ValueTask<JobMonitoringSnapshot> GetMonitoringSnapshotAsync(CancellationToken cancellationToken = default)
 	{
-		await EnsureInitializedAsync(cancellationToken).ConfigureAwait(false);
-		return await _primary.GetMonitoringSnapshotAsync(cancellationToken).ConfigureAwait(false);
+		await EnsureInitializedAsync(cancellationToken);
+		return await _primary.GetMonitoringSnapshotAsync(cancellationToken);
 	}
 
 	/// <inheritdoc />
@@ -355,8 +351,8 @@ internal sealed class SingleServerJobStorage :
 		CancellationToken cancellationToken = default
 	)
 	{
-		await EnsureInitializedAsync(cancellationToken).ConfigureAwait(false);
-		return await _primary.QueryJobsAsync(query, cancellationToken).ConfigureAwait(false);
+		await EnsureInitializedAsync(cancellationToken);
+		return await _primary.QueryJobsAsync(query, cancellationToken);
 	}
 
 	/// <inheritdoc />
@@ -366,9 +362,9 @@ internal sealed class SingleServerJobStorage :
 		CancellationToken cancellationToken = default
 	)
 	{
-		await EnsureInitializedAsync(cancellationToken).ConfigureAwait(false);
+		await EnsureInitializedAsync(cancellationToken);
 		// Recovery restores current jobs and related state into the primary, but not retained executions.
-		return await DurableStorage.QueryJobExecutionsAsync(jobHandle, query, cancellationToken).ConfigureAwait(false);
+		return await DurableStorage.QueryJobExecutionsAsync(jobHandle, query, cancellationToken);
 	}
 
 	/// <inheritdoc />
@@ -377,8 +373,8 @@ internal sealed class SingleServerJobStorage :
 		CancellationToken cancellationToken = default
 	)
 	{
-		await EnsureInitializedAsync(cancellationToken).ConfigureAwait(false);
-		return await _primary.GetBatchStatusAsync(batchHandle, cancellationToken).ConfigureAwait(false);
+		await EnsureInitializedAsync(cancellationToken);
+		return await _primary.GetBatchStatusAsync(batchHandle, cancellationToken);
 	}
 
 	/// <inheritdoc />
@@ -387,8 +383,8 @@ internal sealed class SingleServerJobStorage :
 		CancellationToken cancellationToken = default
 	)
 	{
-		await EnsureInitializedAsync(cancellationToken).ConfigureAwait(false);
-		return await _primary.QueryBatchesAsync(query, cancellationToken).ConfigureAwait(false);
+		await EnsureInitializedAsync(cancellationToken);
+		return await _primary.QueryBatchesAsync(query, cancellationToken);
 	}
 
 	/// <inheritdoc />
@@ -398,8 +394,8 @@ internal sealed class SingleServerJobStorage :
 		CancellationToken cancellationToken = default
 	)
 	{
-		await EnsureInitializedAsync(cancellationToken).ConfigureAwait(false);
-		return await _primary.QueryBatchMembersAsync(batchHandle, query, cancellationToken).ConfigureAwait(false);
+		await EnsureInitializedAsync(cancellationToken);
+		return await _primary.QueryBatchMembersAsync(batchHandle, query, cancellationToken);
 	}
 
 	/// <inheritdoc />
@@ -408,8 +404,8 @@ internal sealed class SingleServerJobStorage :
 		CancellationToken cancellationToken = default
 	)
 	{
-		await EnsureInitializedAsync(cancellationToken).ConfigureAwait(false);
-		return await _primary.GetBatchGraphAsync(batchHandle, cancellationToken).ConfigureAwait(false);
+		await EnsureInitializedAsync(cancellationToken);
+		return await _primary.GetBatchGraphAsync(batchHandle, cancellationToken);
 	}
 
 	/// <inheritdoc />
@@ -418,48 +414,48 @@ internal sealed class SingleServerJobStorage :
 		CancellationToken cancellationToken = default
 	)
 	{
-		await EnsureInitializedAsync(cancellationToken).ConfigureAwait(false);
-		return await _primary.GetJobStatusAsync(jobHandle, cancellationToken).ConfigureAwait(false);
+		await EnsureInitializedAsync(cancellationToken);
+		return await _primary.GetJobStatusAsync(jobHandle, cancellationToken);
 	}
 
 	/// <inheritdoc />
 	public async ValueTask CancelBatchAsync(BatchHandle batchHandle, CancellationToken cancellationToken = default)
 	{
-		await EnsureInitializedAsync(cancellationToken).ConfigureAwait(false);
-		await _graphDurableStorage.CancelBatchAsync(batchHandle, cancellationToken).ConfigureAwait(false);
-		await _primary.CancelBatchAsync(batchHandle, cancellationToken).ConfigureAwait(false);
+		await EnsureInitializedAsync(cancellationToken);
+		await _graphDurableStorage.CancelBatchAsync(batchHandle, cancellationToken);
+		await _primary.CancelBatchAsync(batchHandle, cancellationToken);
 	}
 
 	/// <inheritdoc />
 	public async ValueTask DeleteBatchAsync(BatchHandle batchHandle, CancellationToken cancellationToken = default)
 	{
-		await EnsureInitializedAsync(cancellationToken).ConfigureAwait(false);
-		await _graphDurableStorage.DeleteBatchAsync(batchHandle, cancellationToken).ConfigureAwait(false);
-		await _primary.DeleteBatchAsync(batchHandle, cancellationToken).ConfigureAwait(false);
+		await EnsureInitializedAsync(cancellationToken);
+		await _graphDurableStorage.DeleteBatchAsync(batchHandle, cancellationToken);
+		await _primary.DeleteBatchAsync(batchHandle, cancellationToken);
 	}
 
 	/// <inheritdoc />
 	public async ValueTask CancelAsync(JobHandle jobHandle, CancellationToken cancellationToken = default)
 	{
-		await EnsureInitializedAsync(cancellationToken).ConfigureAwait(false);
-		await DurableStorage.CancelAsync(jobHandle, cancellationToken).ConfigureAwait(false);
-		await _primary.CancelAsync(jobHandle, cancellationToken).ConfigureAwait(false);
+		await EnsureInitializedAsync(cancellationToken);
+		await DurableStorage.CancelAsync(jobHandle, cancellationToken);
+		await _primary.CancelAsync(jobHandle, cancellationToken);
 	}
 
 	/// <inheritdoc />
 	public async ValueTask RetryAsync(JobHandle jobHandle, CancellationToken cancellationToken = default)
 	{
-		await EnsureInitializedAsync(cancellationToken).ConfigureAwait(false);
-		await DurableStorage.RetryAsync(jobHandle, cancellationToken).ConfigureAwait(false);
-		await _primary.RetryAsync(jobHandle, cancellationToken).ConfigureAwait(false);
+		await EnsureInitializedAsync(cancellationToken);
+		await DurableStorage.RetryAsync(jobHandle, cancellationToken);
+		await _primary.RetryAsync(jobHandle, cancellationToken);
 	}
 
 	/// <inheritdoc />
 	public async ValueTask DeleteAsync(JobHandle jobHandle, CancellationToken cancellationToken = default)
 	{
-		await EnsureInitializedAsync(cancellationToken).ConfigureAwait(false);
-		await DurableStorage.DeleteAsync(jobHandle, cancellationToken).ConfigureAwait(false);
-		await _primary.DeleteAsync(jobHandle, cancellationToken).ConfigureAwait(false);
+		await EnsureInitializedAsync(cancellationToken);
+		await DurableStorage.DeleteAsync(jobHandle, cancellationToken);
+		await _primary.DeleteAsync(jobHandle, cancellationToken);
 	}
 
 	/// <inheritdoc />
@@ -469,17 +465,17 @@ internal sealed class SingleServerJobStorage :
 		CancellationToken cancellationToken = default
 	)
 	{
-		await EnsureInitializedAsync(cancellationToken).ConfigureAwait(false);
+		await EnsureInitializedAsync(cancellationToken);
 		await DurableStorage.PurgeJobsAsync(
 			succeededRetention,
 			failedRetention,
 			cancellationToken
-		).ConfigureAwait(false);
+		);
 		await _primary.PurgeJobsAsync(
 			succeededRetention,
 			failedRetention,
 			cancellationToken
-		).ConfigureAwait(false);
+		);
 	}
 
 	/// <inheritdoc />
@@ -489,31 +485,31 @@ internal sealed class SingleServerJobStorage :
 		CancellationToken cancellationToken = default
 	)
 	{
-		await EnsureInitializedAsync(cancellationToken).ConfigureAwait(false);
+		await EnsureInitializedAsync(cancellationToken);
 		await _graphDurableStorage.PurgeBatchesAsync(
 			batchSucceededRetention,
 			batchFailedRetention,
 			cancellationToken
-		).ConfigureAwait(false);
+		);
 		await _primary.PurgeBatchesAsync(
 			batchSucceededRetention,
 			batchFailedRetention,
 			cancellationToken
-		).ConfigureAwait(false);
+		);
 	}
 
 	/// <inheritdoc />
 	public async ValueTask HeartbeatAsync(JobServerSnapshot server, CancellationToken cancellationToken = default)
 	{
-		await EnsureInitializedAsync(cancellationToken).ConfigureAwait(false);
-		await _primary.HeartbeatAsync(server, cancellationToken).ConfigureAwait(false);
+		await EnsureInitializedAsync(cancellationToken);
+		await _primary.HeartbeatAsync(server, cancellationToken);
 	}
 
 	/// <inheritdoc />
 	public async ValueTask<bool> IsHealthyAsync(CancellationToken cancellationToken = default)
 	{
-		await EnsureInitializedAsync(cancellationToken).ConfigureAwait(false);
-		return await DurableStorage.IsHealthyAsync(cancellationToken).ConfigureAwait(false);
+		await EnsureInitializedAsync(cancellationToken);
+		return await DurableStorage.IsHealthyAsync(cancellationToken);
 	}
 
 	/// <inheritdoc />
@@ -529,14 +525,14 @@ internal sealed class SingleServerJobStorage :
 	private async Task DisposeCoreAsync()
 	{
 		Volatile.Write(ref _disposeStarted, 1);
-		await _initialization.WaitAsync(CancellationToken.None).ConfigureAwait(false);
+		await _initialization.WaitAsync(CancellationToken.None);
 		try
 		{
-			await _recurringMaterialization.WaitAsync(CancellationToken.None).ConfigureAwait(false);
+			await _recurringMaterialization.WaitAsync(CancellationToken.None);
 			try
 			{
-				await _primary.DisposeAsync().ConfigureAwait(false);
-				await DurableStorage.DisposeAsync().ConfigureAwait(false);
+				await _primary.DisposeAsync();
+				await DurableStorage.DisposeAsync();
 			}
 			finally
 			{
@@ -555,7 +551,7 @@ internal sealed class SingleServerJobStorage :
 		if (Volatile.Read(ref _initialized))
 			return;
 
-		await _initialization.WaitAsync(cancellationToken).ConfigureAwait(false);
+		await _initialization.WaitAsync(cancellationToken);
 		InMemoryJobStorage? recoveredPrimary = null;
 		try
 		{
@@ -563,9 +559,9 @@ internal sealed class SingleServerJobStorage :
 			if (Volatile.Read(ref _initialized))
 				return;
 
-			await DurableStorage.InitializeAsync(cancellationToken).ConfigureAwait(false);
+			await DurableStorage.InitializeAsync(cancellationToken);
 			recoveredPrimary = CreatePrimaryStorage();
-			await recoveredPrimary.InitializeAsync(cancellationToken).ConfigureAwait(false);
+			await recoveredPrimary.InitializeAsync(cancellationToken);
 
 			var recoveredJobs = new List<JobRecord>();
 			var recoveredIncomingEdges = new Dictionary<JobHandle, List<JobContinuationEdge>>();
@@ -578,7 +574,7 @@ internal sealed class SingleServerJobStorage :
 					var jobs = await DurableStorage.QueryJobsAsync(
 						new() { State = state, Skip = skip, Take = RecoveryBatchSize },
 						cancellationToken
-					).ConfigureAwait(false);
+					);
 					recoveredJobs.AddRange(jobs);
 
 					var standaloneJobs = jobs
@@ -593,7 +589,7 @@ internal sealed class SingleServerJobStorage :
 						var incomingEdges = await _graphDurableReplica.GetIncomingEdgesAsync(
 							standaloneJobs,
 							cancellationToken
-						).ConfigureAwait(false);
+						);
 
 						foreach (var edge in incomingEdges)
 						{
@@ -626,9 +622,9 @@ internal sealed class SingleServerJobStorage :
 
 			foreach (var batchHandle in batchHandles)
 			{
-				var status = await _graphDurableStorage.GetBatchStatusAsync(batchHandle, cancellationToken).ConfigureAwait(false)
+				var status = await _graphDurableStorage.GetBatchStatusAsync(batchHandle, cancellationToken)
 					?? throw new ImmediateJobException($"Batch '{batchHandle}' has members but no durable batch header.");
-				var graph = await _graphDurableStorage.GetBatchGraphAsync(batchHandle, cancellationToken).ConfigureAwait(false)
+				var graph = await _graphDurableStorage.GetBatchGraphAsync(batchHandle, cancellationToken)
 					?? throw new ImmediateJobException($"Batch '{batchHandle}' has members but no durable dependency graph.");
 
 				recoveredBatches.Add(batchHandle, new RecoveredBatch
@@ -678,7 +674,7 @@ internal sealed class SingleServerJobStorage :
 						batch.Jobs,
 						batch.Edges,
 						cancellationToken
-					).ConfigureAwait(false);
+					);
 					_ = recoveredBatches.Remove(batch.Record.BatchHandle);
 					_ = restoredBatchHandles.Add(batch.Record.BatchHandle);
 				}
@@ -703,7 +699,7 @@ internal sealed class SingleServerJobStorage :
 						);
 					}
 
-					await recoveredPrimary.EnqueueAsync(job, cancellationToken).ConfigureAwait(false);
+					await recoveredPrimary.EnqueueAsync(job, cancellationToken);
 					_ = restoredJobHandles.Add(job.JobHandle);
 				}
 				else
@@ -767,26 +763,26 @@ internal sealed class SingleServerJobStorage :
 						job,
 						recoveredIncomingEdges[job.JobHandle],
 						cancellationToken
-					).ConfigureAwait(false);
+					);
 					_ = standaloneContinuations.Remove(job.JobHandle);
 					_ = restoredJobHandles.Add(job.JobHandle);
 				}
 			}
 
-			var snapshot = await DurableStorage.GetMonitoringSnapshotAsync(cancellationToken).ConfigureAwait(false);
+			var snapshot = await DurableStorage.GetMonitoringSnapshotAsync(cancellationToken);
 			foreach (var schedule in snapshot.Recurring)
-				await recoveredPrimary.UpsertRecurringAsync(schedule, cancellationToken).ConfigureAwait(false);
+				await recoveredPrimary.UpsertRecurringAsync(schedule, cancellationToken);
 
 			var previousPrimary = _primary;
 			_primary = recoveredPrimary;
 			recoveredPrimary = null;
-			await previousPrimary.DisposeAsync().ConfigureAwait(false);
+			await previousPrimary.DisposeAsync();
 			Volatile.Write(ref _initialized, true);
 		}
 		finally
 		{
 			if (recoveredPrimary is not null)
-				await recoveredPrimary.DisposeAsync().ConfigureAwait(false);
+				await recoveredPrimary.DisposeAsync();
 			_ = _initialization.Release();
 		}
 	}

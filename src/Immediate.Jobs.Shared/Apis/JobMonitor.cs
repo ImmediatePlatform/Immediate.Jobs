@@ -31,7 +31,7 @@ public sealed class JobMonitor(
 
 	/// <inheritdoc />
 	public async ValueTask<JobMonitoringSnapshot> GetSnapshotAsync(CancellationToken cancellationToken = default) =>
-		await storage.GetMonitoringSnapshotAsync(cancellationToken).ConfigureAwait(false);
+		await storage.GetMonitoringSnapshotAsync(cancellationToken);
 
 	/// <summary>Cancels a non-terminal job.</summary>
 	/// <param name="jobHandle">The invocation identifier.</param>
@@ -63,7 +63,7 @@ public sealed class JobMonitor(
 		if (storage is not IJobGraphStorage graphStorage)
 			throw new KeyNotFoundException($"Batch '{batchHandle}' is not available.");
 
-		await graphStorage.CancelBatchAsync(batchHandle, cancellationToken).ConfigureAwait(false);
+		await graphStorage.CancelBatchAsync(batchHandle, cancellationToken);
 	}
 
 	/// <summary>Deletes a terminal batch and its retained graph.</summary>
@@ -76,7 +76,7 @@ public sealed class JobMonitor(
 		if (storage is not IJobGraphStorage graphStorage)
 			throw new KeyNotFoundException($"Batch '{batchHandle}' is not available.");
 
-		await graphStorage.DeleteBatchAsync(batchHandle, cancellationToken).ConfigureAwait(false);
+		await graphStorage.DeleteBatchAsync(batchHandle, cancellationToken);
 	}
 
 	/// <summary>Pauses a recurring schedule.</summary>
@@ -89,7 +89,7 @@ public sealed class JobMonitor(
 		if (storage is not IRecurringJobStorage recurringStorage)
 			throw new KeyNotFoundException($"Recurring schedule '{name}' is not available.");
 
-		await recurringStorage.PauseRecurringAsync(name, cancellationToken).ConfigureAwait(false);
+		await recurringStorage.PauseRecurringAsync(name, cancellationToken);
 	}
 
 	/// <summary>Resumes a recurring schedule.</summary>
@@ -102,7 +102,7 @@ public sealed class JobMonitor(
 		if (storage is not IRecurringJobStorage recurringStorage)
 			throw new KeyNotFoundException($"Recurring schedule '{name}' is not available.");
 
-		await recurringStorage.ResumeRecurringAsync(name, cancellationToken).ConfigureAwait(false);
+		await recurringStorage.ResumeRecurringAsync(name, cancellationToken);
 	}
 
 	/// <summary>Creates an immediate invocation from a recurring schedule.</summary>
@@ -112,7 +112,7 @@ public sealed class JobMonitor(
 	{
 		ArgumentException.ThrowIfNullOrWhiteSpace(name);
 
-		var snapshot = await GetSnapshotAsync(cancellationToken).ConfigureAwait(false);
+		var snapshot = await GetSnapshotAsync(cancellationToken);
 
 		var schedule = snapshot.Recurring
 			.FirstOrDefault(candidate => string.Equals(candidate.Name, name, StringComparison.Ordinal))
@@ -134,7 +134,7 @@ public sealed class JobMonitor(
 				CreatedAt = now,
 			},
 			cancellationToken
-		).ConfigureAwait(false);
+		);
 	}
 
 	/// <inheritdoc />
@@ -222,7 +222,7 @@ public sealed class JobMonitor(
 	{
 		ArgumentNullException.ThrowIfNull(jobHandle);
 
-		var status = await storage.GetJobStatusAsync(jobHandle, cancellationToken).ConfigureAwait(false);
+		var status = await storage.GetJobStatusAsync(jobHandle, cancellationToken);
 		if (status is null)
 			return null;
 

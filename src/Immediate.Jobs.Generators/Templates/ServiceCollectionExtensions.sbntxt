@@ -101,7 +101,7 @@ public sealed class RecurringJobs
 		if (scheduler is null)
 			throw new global::Immediate.Jobs.Shared.ImmediateJobException($"Recurring job '{typeof(T).Name}' was not registered.");
 
-		await scheduler.TriggerNowAsync(token).ConfigureAwait(false);
+		await scheduler.TriggerNowAsync(token);
 	}
 
 	public async global::System.Threading.Tasks.ValueTask TriggerNowAsync(string name, global::System.Threading.CancellationToken cancellationToken = default)
@@ -109,6 +109,6 @@ public sealed class RecurringJobs
 		if (!_jobsByName.TryGetValue(name, out var job))
 			throw new global::Immediate.Jobs.Shared.ImmediateJobException($"Recurring job '{name}' was not found.");
 
-		await job(cancellationToken).ConfigureAwait(false);
+		await job(cancellationToken);
 	}
 }

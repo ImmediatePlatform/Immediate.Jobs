@@ -29,7 +29,7 @@ internal sealed class OwnedScope<T> : IAsyncDisposable
 	/// <inheritdoc />
 	public async ValueTask DisposeAsync()
 	{
-		await _disposable.DisposeAsync().ConfigureAwait(false);
+		await _disposable.DisposeAsync();
 	}
 }
 

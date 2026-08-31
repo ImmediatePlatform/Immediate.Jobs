@@ -120,7 +120,7 @@ public sealed class JobTestHarness : IAsyncDisposable, IDisposable
 			throw new ArgumentOutOfRangeException(nameof(amount), "Fake time cannot move backwards.");
 
 		TimeProvider.Advance(amount);
-		await DrainAsync(cancellationToken).ConfigureAwait(false);
+		await DrainAsync(cancellationToken);
 	}
 
 	/// <summary>Advances fake time to an absolute instant and drains newly due work.</summary>
@@ -153,7 +153,7 @@ public sealed class JobTestHarness : IAsyncDisposable, IDisposable
 	/// <returns>The persisted job record.</returns>
 	public async ValueTask<JobRecord> GetJobAsync(string jobHandle, CancellationToken cancellationToken = default)
 	{
-		var jobs = await Storage.QueryJobsAsync(new() { Take = 1000 }, cancellationToken).ConfigureAwait(false);
+		var jobs = await Storage.QueryJobsAsync(new() { Take = 1000 }, cancellationToken);
 		return jobs.FirstOrDefault(job => string.Equals(job.JobHandle.Value, jobHandle, StringComparison.Ordinal))
 			?? throw new JobTestAssertionException($"Expected job '{jobHandle}' to have been enqueued, but it was not found.");
 	}
@@ -180,7 +180,7 @@ public sealed class JobTestHarness : IAsyncDisposable, IDisposable
 		CancellationToken cancellationToken = default
 	)
 	{
-		var job = await GetJobAsync(jobHandle, cancellationToken).ConfigureAwait(false);
+		var job = await GetJobAsync(jobHandle, cancellationToken);
 		if (expectedState is { } state && job.State != state)
 		{
 			throw new JobTestAssertionException(
@@ -231,13 +231,13 @@ public sealed class JobTestHarness : IAsyncDisposable, IDisposable
 	)
 	{
 		ArgumentNullException.ThrowIfNull(batch);
-		var status = await _graphStorage.GetBatchStatusAsync(batch, cancellationToken).ConfigureAwait(false)
+		var status = await _graphStorage.GetBatchStatusAsync(batch, cancellationToken)
 			?? throw new JobTestAssertionException($"Expected batch '{batch}' to be committed, but it was not found.");
 		var members = await _graphStorage.QueryBatchMembersAsync(
 			batch,
 			new() { Take = Math.Max(1, expectedMembers + 1) },
 			cancellationToken
-		).ConfigureAwait(false);
+		);
 		if (status.Total != expectedMembers || members.Count != expectedMembers)
 		{
 			throw new JobTestAssertionException(
@@ -257,7 +257,7 @@ public sealed class JobTestHarness : IAsyncDisposable, IDisposable
 		CancellationToken cancellationToken = default
 	)
 	{
-		var childStatus = await Storage.GetJobStatusAsync(child, cancellationToken).ConfigureAwait(false)
+		var childStatus = await Storage.GetJobStatusAsync(child, cancellationToken)
 			?? throw new JobTestAssertionException($"Expected continuation '{child}', but it was not found.");
 		if (!childStatus.DependsOn.Any(edge => edge.ParentJobHandle == parent))
 		{
@@ -284,7 +284,7 @@ public sealed class JobTestHarness : IAsyncDisposable, IDisposable
 		ArgumentNullException.ThrowIfNull(subtree);
 		foreach (var handle in subtree)
 		{
-			var job = await GetJobAsync(handle, cancellationToken).ConfigureAwait(false);
+			var job = await GetJobAsync(handle, cancellationToken);
 			if (job.State != JobState.Skipped)
 				throw new JobTestAssertionException($"Expected job '{handle}' to be cascade-skipped, but it was {job.State}.");
 		}
@@ -328,7 +328,7 @@ public sealed class JobTestHarness : IAsyncDisposable, IDisposable
 		await definition.Invoker.InvokeAsync(
 			scope.ServiceProvider,
 			new JobExecution { Record = record, Definition = definition, CancellationToken = cancellationToken }
-		).ConfigureAwait(false);
+		);
 	}
 
 	/// <inheritdoc />
@@ -346,7 +346,7 @@ public sealed class JobTestHarness : IAsyncDisposable, IDisposable
 		if (_disposed)
 			return;
 		_disposed = true;
-		await _serviceProvider.DisposeAsync().ConfigureAwait(false);
+		await _serviceProvider.DisposeAsync();
 	}
 }
 

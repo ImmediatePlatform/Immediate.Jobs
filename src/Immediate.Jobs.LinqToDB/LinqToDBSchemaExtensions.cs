@@ -27,61 +27,60 @@ public static class LinqToDBSchemaExtensions
 
 		if (provider.Contains("SQLite", StringComparison.OrdinalIgnoreCase))
 		{
-			_ = await context.ExecuteAsync(SqliteSchema, cancellationToken).ConfigureAwait(false);
-			await CreateIndexesAsync(context, provider, schema, cancellationToken).ConfigureAwait(false);
+			_ = await context.ExecuteAsync(SqliteSchema, cancellationToken);
+			await CreateIndexesAsync(context, provider, schema, cancellationToken);
 			return;
 		}
 
 		if (schema is not null)
-			_ = await CreateSchemaAsync(context, provider, schema, cancellationToken).ConfigureAwait(false);
+			_ = await CreateSchemaAsync(context, provider, schema, cancellationToken);
 
 		const TableOptions CreateIfMissing = TableOptions.CreateIfNotExists;
 		_ = await context.CreateTableAsync<ImmediateJobBatchEntity>(
 			schemaName: schema,
 			tableOptions: CreateIfMissing,
 			token: cancellationToken
-		).ConfigureAwait(false);
+		);
 
 		_ = await context.CreateTableAsync<ImmediateJobEntity>(
 			schemaName: schema,
 			tableOptions: CreateIfMissing,
 			token: cancellationToken
-		).ConfigureAwait(false);
+		);
 
 		_ = await context.CreateTableAsync<ImmediateJobExecutionEntity>(
 			schemaName: schema,
 			tableOptions: CreateIfMissing,
 			token: cancellationToken
-		).ConfigureAwait(false);
+		);
 
 		_ = await context.CreateTableAsync<ImmediateFairQueueGroupEntity>(
 			schemaName: schema,
 			tableOptions: CreateIfMissing,
 			token: cancellationToken
-		).ConfigureAwait(false);
+		);
 
 		_ = await context.CreateTableAsync<ImmediateJobContinuationEntity>(
 			schemaName: schema,
 			tableOptions: CreateIfMissing,
 			token: cancellationToken
-		).ConfigureAwait(false);
+		);
 
 		_ = await context.CreateTableAsync<ImmediateRecurringJobEntity>(
 			schemaName: schema,
 			tableOptions: CreateIfMissing,
 			token: cancellationToken
-		).ConfigureAwait(false);
+		);
 
 		_ = await context.CreateTableAsync<ImmediateJobServerEntity>(
 			schemaName: schema,
 			tableOptions: CreateIfMissing,
 			token: cancellationToken
-		).ConfigureAwait(false);
+		);
 
-		_ = await CreateConstraintsAndDefaultsAsync(context, provider, schema, cancellationToken)
-			.ConfigureAwait(false);
+		_ = await CreateConstraintsAndDefaultsAsync(context, provider, schema, cancellationToken);
 
-		await CreateIndexesAsync(context, provider, schema, cancellationToken).ConfigureAwait(false);
+		await CreateIndexesAsync(context, provider, schema, cancellationToken);
 	}
 
 	private const string SqliteSchema = """
@@ -264,7 +263,7 @@ public static class LinqToDBSchemaExtensions
 		foreach (var (name, table, columns, unique) in definitions)
 		{
 			var sql = CreateIndexSql(provider, schema, name, table, columns, unique);
-			_ = await connection.ExecuteAsync(sql, cancellationToken).ConfigureAwait(false);
+			_ = await connection.ExecuteAsync(sql, cancellationToken);
 		}
 	}
 

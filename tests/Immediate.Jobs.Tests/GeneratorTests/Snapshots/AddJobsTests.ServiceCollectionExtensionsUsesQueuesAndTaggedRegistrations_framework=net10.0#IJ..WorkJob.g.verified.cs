@@ -81,7 +81,7 @@ partial class WorkJob
 			);
 
 			var handler = global::Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetRequiredService<global::WorkJob.Handler>(scopedServices);
-			_ = await handler.HandleAsync(payload, execution.CancellationToken).ConfigureAwait(false);
+			_ = await handler.HandleAsync(payload, execution.CancellationToken);
 		}
 
 		/// <summary>Generic reified method to support `struct`s with explicitly implemented properties</summary>
