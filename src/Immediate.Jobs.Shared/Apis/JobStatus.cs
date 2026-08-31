@@ -63,5 +63,5 @@ public sealed record JobStatus
 	/// <summary>
 	/// 	The invocation's incoming dependency edges.
 	/// </summary>
-	public required IReadOnlyList<BatchGraphEdge> DependsOn { get; init; }
+	public required IReadOnlyList<JobContinuationEdge> DependsOn { get; init; }
 }

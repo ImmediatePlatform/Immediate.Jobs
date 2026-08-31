@@ -978,7 +978,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 			{
 				BatchHandle = batchHandle,
 				Nodes = [.. members.Select(static job => new BatchGraphNode { JobHandle = job.JobHandle, JobName = job.JobName, State = job.State })],
-				Edges = [.. _edges.Where(edge => memberIds.Contains(edge.ChildJobHandle)).Select(ToGraphEdge)],
+				Edges = [.. _edges.Where(edge => memberIds.Contains(edge.ChildJobHandle))],
 			};
 		}
 	}
@@ -1010,7 +1010,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 				CompletedAt = job.CompletedAt,
 				LastError = job.LastError,
 				BatchHandle = job.BatchHandle,
-				DependsOn = [.. _edges.Where(edge => edge.ChildJobHandle == jobHandle).Select(ToGraphEdge)],
+				DependsOn = [.. _edges.Where(edge => edge.ChildJobHandle == jobHandle)],
 			};
 		}
 	}
@@ -1742,16 +1742,6 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 			StartedAt = batch.StartedAt,
 			CompletedAt = batch.CompletedAt,
 			FractionSettled = BatchStatus.CalculateFractionSettled(batch.TotalJobs, batch.PendingCount),
-		};
-
-	private static BatchGraphEdge ToGraphEdge(JobContinuationEdge edge) =>
-		new()
-		{
-			ChildJobHandle = edge.ChildJobHandle,
-			ParentJobHandle = edge.ParentJobHandle,
-			ParentBatchHandle = edge.ParentBatchHandle,
-			Delay = edge.Delay,
-			Trigger = edge.Trigger,
 		};
 
 	private void RemoveEdgesForJobs(

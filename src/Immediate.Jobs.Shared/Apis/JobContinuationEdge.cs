@@ -1,4 +1,4 @@
-namespace Immediate.Jobs.Shared.Storage;
+namespace Immediate.Jobs.Shared.Apis;
 
 /// <summary>
 /// 	A durable dependency edge from a job or batch to a child job.

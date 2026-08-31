@@ -1319,7 +1319,7 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 				.ThenBy(edge => edge.ParentKind)
 				.ThenBy(edge => edge.ParentId)
 				.ToListAsync(cancellationToken);
-		return new BatchGraph { BatchHandle = batchHandle, Nodes = jobs, Edges = [.. edges.Select(ToGraphEdge)] };
+		return new BatchGraph { BatchHandle = batchHandle, Nodes = jobs, Edges = [.. edges.Select(ToContinuationEdge)] };
 	}
 
 	/// <inheritdoc />
@@ -1356,7 +1356,7 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 			CompletedAt = job.CompletedAt,
 			LastError = job.LastError,
 			BatchHandle = BatchHandle.FromString(job.BatchHandle),
-			DependsOn = [.. edges.Select(ToGraphEdge)],
+			DependsOn = [.. edges.Select(ToContinuationEdge)],
 		};
 	}
 
@@ -2798,16 +2798,6 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 		};
 
 	private static JobContinuationEdge ToContinuationEdge(ImmediateJobContinuationEntity edge) =>
-		new()
-		{
-			ChildJobHandle = JobHandle.FromString(edge.ChildJobHandle),
-			ParentJobHandle = edge.ParentKind == ContinuationParentKind.Job ? JobHandle.FromString(edge.ParentId) : null,
-			ParentBatchHandle = edge.ParentKind == ContinuationParentKind.Batch ? BatchHandle.FromString(edge.ParentId) : null,
-			Delay = TimeSpan.FromTicks(edge.Delay),
-			Trigger = edge.Trigger,
-		};
-
-	private static BatchGraphEdge ToGraphEdge(ImmediateJobContinuationEntity edge) =>
 		new()
 		{
 			ChildJobHandle = JobHandle.FromString(edge.ChildJobHandle),
