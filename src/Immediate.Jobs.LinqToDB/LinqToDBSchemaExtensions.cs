@@ -21,6 +21,8 @@ public static class LinqToDBSchemaExtensions
 		ArgumentNullException.ThrowIfNull(context);
 		ValidateSchema(schema);
 
+		await TaskScheduler.Yield();
+
 		var provider = context.DataProvider.Name;
 		if (schema is not null && provider.Contains("SQLite", StringComparison.OrdinalIgnoreCase))
 			throw new ArgumentException("SQLite does not support named schemas.", nameof(schema));

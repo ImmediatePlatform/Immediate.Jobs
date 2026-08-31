@@ -20,12 +20,13 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 	private readonly TimeProvider _timeProvider = timeProvider ?? TimeProvider.System;
 
 	/// <inheritdoc />
-	public async ValueTask DisposeAsync() { }
+	public async ValueTask DisposeAsync() { await TaskScheduler.Yield(); }
 
 	/// <inheritdoc />
 	public async ValueTask InitializeAsync(CancellationToken cancellationToken = default)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 		_ = context.Model.FindEntityType(typeof(ImmediateJobEntity))
@@ -36,6 +37,7 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 	public async ValueTask EnqueueAsync(JobRecord job, CancellationToken cancellationToken = default)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		await ExecuteWithStrategyAsync(
 			operationCancellationToken => EnqueueCoreAsync(job, operationCancellationToken),
@@ -79,6 +81,7 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 	)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		await ExecuteGraphInsertAsync(batch: null, [job], edges, cancellationToken);
 	}
@@ -92,6 +95,7 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 	)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		await ExecuteGraphInsertAsync(batch, jobs, edges, cancellationToken);
 	}
@@ -175,6 +179,7 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 	)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		if (request.FairQueues is not null)
 			return await AcquireDueJobsFairAsync(request, cancellationToken);
@@ -617,6 +622,7 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 	)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		if (jobHandles.Count == 0)
 			return [];
@@ -718,6 +724,7 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 	)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		await MutateOwnedAsync(
 			jobHandle,
@@ -746,6 +753,7 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 	)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		await MutateOwnedAsync(
 			jobHandle,
@@ -765,6 +773,7 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 	)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		await CompleteWithContinuationsAsync(jobHandle, executionNumber, workerId, [], cancellationToken);
 	}
@@ -779,6 +788,7 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 	)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		await MutateOwnedWithDependenciesAsync(
 			jobHandle,
@@ -802,6 +812,7 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 	)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		await RetryConcurrencyAsync(
 			operationCancellationToken => AddBatchJobCoreAsync(
@@ -826,6 +837,7 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 	)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		await MutateOwnedWithDependenciesAsync(
 			jobHandle,
@@ -843,6 +855,7 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 	public async ValueTask UpsertRecurringAsync(RecurringJobSchedule schedule, CancellationToken cancellationToken = default)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 		if (await UpdateRecurringAsync(context, schedule, cancellationToken) != 0)
@@ -872,6 +885,7 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 	)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 		var schedules = context.Set<ImmediateRecurringJobEntity>()
@@ -885,6 +899,7 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 	public async ValueTask RemoveRecurringAsync(string name, CancellationToken cancellationToken = default)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 		var removed = await context.Set<ImmediateRecurringJobEntity>()
@@ -905,6 +920,7 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 	public async ValueTask PauseRecurringAsync(string name, CancellationToken cancellationToken = default)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		await MutateRecurringAsync(name, schedule => schedule.IsPaused = true, cancellationToken);
 	}
@@ -913,6 +929,7 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 	public async ValueTask ResumeRecurringAsync(string name, CancellationToken cancellationToken = default)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		await MutateRecurringAsync(name, schedule => schedule.IsPaused = false, cancellationToken);
 	}
@@ -921,6 +938,7 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 	public async ValueTask<IReadOnlyList<RecurringJobSchedule>> GetDueRecurringAsync(DateTimeOffset now, int batchSize, CancellationToken cancellationToken = default)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 		return await context.Set<ImmediateRecurringJobEntity>()
@@ -952,6 +970,7 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 	)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		await using var strategyContext = await contextFactory.CreateDbContextAsync(cancellationToken);
 		var strategy = strategyContext.Database.CreateExecutionStrategy();
@@ -1038,6 +1057,7 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 	public async ValueTask<JobMonitoringSnapshot> GetMonitoringSnapshotAsync(CancellationToken cancellationToken = default)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 		var rawCounts = await context.Set<ImmediateJobEntity>()
@@ -1086,6 +1106,7 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 	public async ValueTask<IReadOnlyList<JobRecord>> QueryJobsAsync(JobQuery query, CancellationToken cancellationToken = default)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 		var jobs = context.Set<ImmediateJobEntity>().AsNoTracking();
@@ -1122,6 +1143,7 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 	)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 		var job = await context.Set<ImmediateJobEntity>()
@@ -1176,6 +1198,7 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 	)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 		var batch = await context.Set<ImmediateJobBatchEntity>()
@@ -1191,6 +1214,7 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 	)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		if (childJobHandles.Count == 0)
 			return [];
@@ -1214,6 +1238,7 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 	)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 		var batches = context.Set<ImmediateJobBatchEntity>().AsNoTracking();
@@ -1235,6 +1260,7 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 	)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 		var jobs = context.Set<ImmediateJobEntity>()
@@ -1267,6 +1293,7 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 	)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 		if (!await context.Set<ImmediateJobBatchEntity>()
@@ -1302,6 +1329,7 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 	)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 		var job = await context.Set<ImmediateJobEntity>()
@@ -1336,6 +1364,7 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 	public async ValueTask CancelBatchAsync(BatchHandle batchHandle, CancellationToken cancellationToken = default)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		await RetryConcurrencyAsync(
 			operationCancellationToken => CancelBatchCoreAsync(batchHandle, operationCancellationToken),
@@ -1392,6 +1421,7 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 	public async ValueTask DeleteBatchAsync(BatchHandle batchHandle, CancellationToken cancellationToken = default)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		await ExecuteWithStrategyAsync(
 			operationCancellationToken => DeleteBatchCoreAsync(batchHandle, operationCancellationToken),
@@ -1430,6 +1460,7 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 	public async ValueTask CancelAsync(JobHandle jobHandle, CancellationToken cancellationToken = default)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		await RetryConcurrencyAsync(
 			operationCancellationToken => CancelCoreAsync(jobHandle, operationCancellationToken),
@@ -1477,6 +1508,7 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 	public async ValueTask RetryAsync(JobHandle jobHandle, CancellationToken cancellationToken = default)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		await RetryConcurrencyAsync(
 			operationCancellationToken => RetryCoreAsync(jobHandle, operationCancellationToken),
@@ -1550,6 +1582,7 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 	public async ValueTask DeleteAsync(JobHandle jobHandle, CancellationToken cancellationToken = default)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		await ExecuteWithStrategyAsync(
 			operationCancellationToken => DeleteCoreAsync(jobHandle, operationCancellationToken),
@@ -1608,6 +1641,7 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 	)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		var now = _timeProvider.GetUtcNow();
 		await ExecuteWithStrategyAsync(
@@ -1628,6 +1662,7 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 	)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		var now = _timeProvider.GetUtcNow();
 		await RetryConcurrencyAsync(
@@ -1710,6 +1745,7 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 	public async ValueTask HeartbeatAsync(JobServerSnapshot server, CancellationToken cancellationToken = default)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 		var cutoff = _timeProvider.GetUtcNow() - TimeSpan.FromMinutes(2);
@@ -1741,6 +1777,7 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 	public async ValueTask<bool> IsHealthyAsync(CancellationToken cancellationToken = default)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		try
 		{

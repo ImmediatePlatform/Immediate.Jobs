@@ -111,6 +111,7 @@ public sealed class Batch : IAsyncDisposable
 	/// </returns>
 	public async ValueTask<BatchHandle> CommitAsync(CancellationToken cancellationToken = default)
 	{
+		await TaskScheduler.Yield();
 		EnsureOpenCore();
 
 		if (_jobs.Count == 0)
@@ -170,6 +171,7 @@ public sealed class Batch : IAsyncDisposable
 	/// <inheritdoc />
 	public async ValueTask DisposeAsync()
 	{
+		await TaskScheduler.Yield();
 		_lifecycle = Lifecycle.Disposed;
 	}
 

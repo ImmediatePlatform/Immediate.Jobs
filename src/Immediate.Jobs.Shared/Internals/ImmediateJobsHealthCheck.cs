@@ -33,6 +33,8 @@ public sealed class ImmediateJobsHealthCheck(
 	)
 	{
 		ArgumentNullException.ThrowIfNull(context);
+		await TaskScheduler.Yield();
+
 		var data = new Dictionary<string, object>(StringComparer.Ordinal)
 		{
 			["storageCapabilities"] = storage.GetCapabilities().ToString(),

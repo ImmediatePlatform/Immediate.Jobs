@@ -33,19 +33,25 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 	private readonly Dictionary<(string QueueName, string GroupId), long> _fairQueueLastServed = [];
 
 	/// <inheritdoc />
-	public ValueTask DisposeAsync() => ValueTask.CompletedTask;
-
-	/// <inheritdoc />
-	public ValueTask InitializeAsync(CancellationToken cancellationToken = default)
+	public async ValueTask DisposeAsync()
 	{
-		cancellationToken.ThrowIfCancellationRequested();
-		return ValueTask.CompletedTask;
+		await TaskScheduler.Yield();
+		await ValueTask.CompletedTask;
 	}
 
 	/// <inheritdoc />
-	public ValueTask EnqueueAsync(JobRecord job, CancellationToken cancellationToken = default)
+	public async ValueTask InitializeAsync(CancellationToken cancellationToken = default)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
+		return;
+	}
+
+	/// <inheritdoc />
+	public async ValueTask EnqueueAsync(JobRecord job, CancellationToken cancellationToken = default)
+	{
+		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		lock (_gate)
 		{
@@ -53,17 +59,18 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 				throw new ImmediateJobException($"Job '{job.JobHandle}' already exists.");
 		}
 
-		return ValueTask.CompletedTask;
+		return;
 	}
 
 	/// <inheritdoc />
-	public ValueTask EnqueueContinuationAsync(
+	public async ValueTask EnqueueContinuationAsync(
 		JobRecord job,
 		IReadOnlyList<JobContinuationEdge> edges,
 		CancellationToken cancellationToken = default
 	)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		lock (_gate)
 		{
@@ -80,11 +87,11 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 				EvaluateAlreadyTerminalParents(edges);
 		}
 
-		return ValueTask.CompletedTask;
+		return;
 	}
 
 	/// <inheritdoc />
-	public ValueTask EnqueueBatchAsync(
+	public async ValueTask EnqueueBatchAsync(
 		BatchRecord batch,
 		IReadOnlyList<JobRecord> jobs,
 		IReadOnlyList<JobContinuationEdge> edges,
@@ -92,6 +99,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 	)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		lock (_gate)
 		{
@@ -123,7 +131,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 				EvaluateAlreadyTerminalParents(edges);
 		}
 
-		return ValueTask.CompletedTask;
+		return;
 	}
 
 	/// <inheritdoc />
@@ -133,6 +141,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 	)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		var now = timeProvider.GetUtcNow();
 		lock (_gate)
@@ -419,7 +428,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 	}
 
 	/// <inheritdoc />
-	public ValueTask SetExecutionTelemetryAsync(
+	public async ValueTask SetExecutionTelemetryAsync(
 		JobHandle jobHandle,
 		int executionNumber,
 		string workerId,
@@ -430,6 +439,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 	)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 		lock (_gate)
 		{
 			var job = GetOwnedActive(jobHandle, executionNumber, workerId);
@@ -448,11 +458,11 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 			});
 		}
 
-		return ValueTask.CompletedTask;
+		return;
 	}
 
 	/// <inheritdoc />
-	public ValueTask RenewLeaseAsync(
+	public async ValueTask RenewLeaseAsync(
 		JobHandle jobHandle,
 		int executionNumber,
 		string workerId,
@@ -461,25 +471,30 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 	)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 		lock (_gate)
 		{
 			var job = GetOwnedActive(jobHandle, executionNumber, workerId);
 			_jobs[jobHandle] = job with { LeaseExpiresAt = timeProvider.GetUtcNow() + lease };
 		}
 
-		return ValueTask.CompletedTask;
+		return;
 	}
 
 	/// <inheritdoc />
-	public ValueTask CompleteAsync(
+	public async ValueTask CompleteAsync(
 		JobHandle jobHandle,
 		int executionNumber,
 		string workerId,
 		CancellationToken cancellationToken = default
-	) => CompleteWithContinuationsAsync(jobHandle, executionNumber, workerId, [], cancellationToken);
+	)
+	{
+		await TaskScheduler.Yield();
+		await CompleteWithContinuationsAsync(jobHandle, executionNumber, workerId, [], cancellationToken);
+	}
 
 	/// <inheritdoc />
-	public ValueTask CompleteWithContinuationsAsync(
+	public async ValueTask CompleteWithContinuationsAsync(
 		JobHandle jobHandle,
 		int executionNumber,
 		string workerId,
@@ -488,6 +503,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 	)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		lock (_gate)
 		{
@@ -551,11 +567,11 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 			TransitionToTerminal(jobHandle, JobState.Succeeded, error: null, completedAt);
 		}
 
-		return ValueTask.CompletedTask;
+		return;
 	}
 
 	/// <inheritdoc />
-	public ValueTask AddBatchJobAsync(
+	public async ValueTask AddBatchJobAsync(
 		JobHandle currentJobHandle,
 		int executionNumber,
 		JobRecord job,
@@ -564,6 +580,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 	)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		lock (_gate)
 		{
@@ -599,11 +616,11 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 				SpliceBeforeWaiters(job.JobHandle, existingWaiters);
 		}
 
-		return ValueTask.CompletedTask;
+		return;
 	}
 
 	/// <inheritdoc />
-	public ValueTask FailAsync(
+	public async ValueTask FailAsync(
 		JobHandle jobHandle,
 		int executionNumber,
 		string workerId,
@@ -613,6 +630,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 	)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		lock (_gate)
 		{
@@ -638,13 +656,14 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 			}
 		}
 
-		return ValueTask.CompletedTask;
+		return;
 	}
 
 	/// <inheritdoc />
-	public ValueTask UpsertRecurringAsync(RecurringJobSchedule schedule, CancellationToken cancellationToken = default)
+	public async ValueTask UpsertRecurringAsync(RecurringJobSchedule schedule, CancellationToken cancellationToken = default)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		lock (_gate)
 		{
@@ -659,16 +678,17 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 			_recurring[schedule.Name] = schedule;
 		}
 
-		return ValueTask.CompletedTask;
+		return;
 	}
 
 	/// <inheritdoc />
-	public ValueTask RemoveObsoleteCodeDefinedRecurringAsync(
+	public async ValueTask RemoveObsoleteCodeDefinedRecurringAsync(
 		IReadOnlyCollection<string> activeScheduleNames,
 		CancellationToken cancellationToken = default
 	)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		var activeNames = activeScheduleNames.ToHashSet(StringComparer.Ordinal);
 		lock (_gate)
@@ -682,13 +702,14 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 				_ = _recurring.Remove(name);
 		}
 
-		return ValueTask.CompletedTask;
+		return;
 	}
 
 	/// <inheritdoc />
-	public ValueTask RemoveRecurringAsync(string name, CancellationToken cancellationToken = default)
+	public async ValueTask RemoveRecurringAsync(string name, CancellationToken cancellationToken = default)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		lock (_gate)
 		{
@@ -700,16 +721,22 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 			_ = _recurring.Remove(name);
 		}
 
-		return ValueTask.CompletedTask;
+		return;
 	}
 
 	/// <inheritdoc />
-	public ValueTask PauseRecurringAsync(string name, CancellationToken cancellationToken = default) =>
-		SetRecurringPausedAsync(name, isPaused: true, cancellationToken);
+	public async ValueTask PauseRecurringAsync(string name, CancellationToken cancellationToken = default)
+	{
+		await TaskScheduler.Yield();
+		await SetRecurringPausedAsync(name, isPaused: true, cancellationToken);
+	}
 
 	/// <inheritdoc />
-	public ValueTask ResumeRecurringAsync(string name, CancellationToken cancellationToken = default) =>
-		SetRecurringPausedAsync(name, isPaused: false, cancellationToken);
+	public async ValueTask ResumeRecurringAsync(string name, CancellationToken cancellationToken = default)
+	{
+		await TaskScheduler.Yield();
+		await SetRecurringPausedAsync(name, isPaused: false, cancellationToken);
+	}
 
 	/// <inheritdoc />
 	public async ValueTask<IReadOnlyList<RecurringJobSchedule>> GetDueRecurringAsync(
@@ -719,6 +746,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 	)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		lock (_gate)
 		{
@@ -738,6 +766,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 	)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		lock (_gate)
 		{
@@ -756,6 +785,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 	public async ValueTask<JobMonitoringSnapshot> GetMonitoringSnapshotAsync(CancellationToken cancellationToken = default)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		lock (_gate)
 		{
@@ -777,6 +807,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 	public async ValueTask<IReadOnlyList<JobRecord>> QueryJobsAsync(JobQuery query, CancellationToken cancellationToken = default)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		lock (_gate)
 		{
@@ -811,6 +842,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 	)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		lock (_gate)
 		{
@@ -840,6 +872,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 	)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		lock (_gate)
 		{
@@ -856,6 +889,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 		CancellationToken cancellationToken = default
 	)
 	{
+		await TaskScheduler.Yield();
 		ArgumentNullException.ThrowIfNull(query);
 		ArgumentOutOfRangeException.ThrowIfNegative(query.Skip, nameof(query));
 		ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(query.Take, 0, nameof(query));
@@ -885,6 +919,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 	)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		lock (_gate)
 		{
@@ -924,6 +959,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 	)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		lock (_gate)
 		{
@@ -954,6 +990,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 	)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		lock (_gate)
 		{
@@ -979,9 +1016,10 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 	}
 
 	/// <inheritdoc />
-	public ValueTask CancelBatchAsync(BatchHandle batchHandle, CancellationToken cancellationToken = default)
+	public async ValueTask CancelBatchAsync(BatchHandle batchHandle, CancellationToken cancellationToken = default)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		lock (_gate)
 		{
@@ -1006,13 +1044,14 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 				ProcessTerminalJob(jobHandle);
 		}
 
-		return ValueTask.CompletedTask;
+		return;
 	}
 
 	/// <inheritdoc />
-	public ValueTask DeleteBatchAsync(BatchHandle batchHandle, CancellationToken cancellationToken = default)
+	public async ValueTask DeleteBatchAsync(BatchHandle batchHandle, CancellationToken cancellationToken = default)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		lock (_gate)
 		{
@@ -1036,13 +1075,14 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 			RemoveEdgesForJobs(jobHandles, [batchHandle]);
 		}
 
-		return ValueTask.CompletedTask;
+		return;
 	}
 
 	/// <inheritdoc />
-	public ValueTask CancelAsync(JobHandle jobHandle, CancellationToken cancellationToken = default)
+	public async ValueTask CancelAsync(JobHandle jobHandle, CancellationToken cancellationToken = default)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		lock (_gate)
 		{
@@ -1057,13 +1097,14 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 			TransitionToTerminal(jobHandle, JobState.Cancelled, error: null, now);
 		}
 
-		return ValueTask.CompletedTask;
+		return;
 	}
 
 	/// <inheritdoc />
-	public ValueTask RetryAsync(JobHandle jobHandle, CancellationToken cancellationToken = default)
+	public async ValueTask RetryAsync(JobHandle jobHandle, CancellationToken cancellationToken = default)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 		lock (_gate)
 		{
 			if (!_jobs.TryGetValue(jobHandle, out var job))
@@ -1092,13 +1133,14 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 			}
 		}
 
-		return ValueTask.CompletedTask;
+		return;
 	}
 
 	/// <inheritdoc />
-	public ValueTask DeleteAsync(JobHandle jobHandle, CancellationToken cancellationToken = default)
+	public async ValueTask DeleteAsync(JobHandle jobHandle, CancellationToken cancellationToken = default)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 		lock (_gate)
 		{
 			if (!_jobs.TryGetValue(jobHandle, out var job))
@@ -1115,17 +1157,18 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 			RemoveEdgesForJobs([jobHandle]);
 		}
 
-		return ValueTask.CompletedTask;
+		return;
 	}
 
 	/// <inheritdoc />
-	public ValueTask PurgeJobsAsync(
+	public async ValueTask PurgeJobsAsync(
 		TimeSpan succeededRetention,
 		TimeSpan failedRetention,
 		CancellationToken cancellationToken = default
 	)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 		var now = timeProvider.GetUtcNow();
 		lock (_gate)
 		{
@@ -1153,17 +1196,18 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 			RemoveEdgesForJobs(standaloneJobHandles);
 		}
 
-		return ValueTask.CompletedTask;
+		return;
 	}
 
 	/// <inheritdoc />
-	public ValueTask PurgeBatchesAsync(
+	public async ValueTask PurgeBatchesAsync(
 		TimeSpan batchSucceededRetention,
 		TimeSpan batchFailedRetention,
 		CancellationToken cancellationToken = default
 	)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 		var now = timeProvider.GetUtcNow();
 		lock (_gate)
 		{
@@ -1195,23 +1239,25 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 			RemoveEdgesForJobs(batchJobHandles, batchHandles);
 		}
 
-		return ValueTask.CompletedTask;
+		return;
 	}
 
 	/// <inheritdoc />
-	public ValueTask HeartbeatAsync(JobServerSnapshot server, CancellationToken cancellationToken = default)
+	public async ValueTask HeartbeatAsync(JobServerSnapshot server, CancellationToken cancellationToken = default)
 	{
+		await TaskScheduler.Yield();
 		ArgumentNullException.ThrowIfNull(server);
 		cancellationToken.ThrowIfCancellationRequested();
 		lock (_gate)
 			_servers[server.WorkerId] = server;
-		return ValueTask.CompletedTask;
+		return;
 	}
 
 	/// <inheritdoc />
 	public async ValueTask<bool> IsHealthyAsync(CancellationToken cancellationToken = default)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 		return true;
 	}
 

@@ -23,15 +23,24 @@ internal sealed class LinqToDBJobStorage<T>(
 	private readonly string? _schema = options.Value.Schema;
 
 	/// <inheritdoc />
-	public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+	public async ValueTask DisposeAsync()
+	{
+		await TaskScheduler.Yield();
+		await ValueTask.CompletedTask;
+	}
 
 	/// <inheritdoc />
-	public ValueTask InitializeAsync(CancellationToken cancellationToken = default) => ValueTask.CompletedTask;
+	public async ValueTask InitializeAsync(CancellationToken cancellationToken = default)
+	{
+		await TaskScheduler.Yield();
+		await ValueTask.CompletedTask;
+	}
 
 	/// <inheritdoc />
 	public async ValueTask EnqueueAsync(JobRecord job, CancellationToken cancellationToken = default)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		await using var scope = contextScope.GetScope(out var connection);
 
@@ -56,6 +65,7 @@ internal sealed class LinqToDBJobStorage<T>(
 	)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		var ids = childJobHandles.Select(i => i.Value).Distinct(StringComparer.Ordinal).ToList();
 
@@ -78,6 +88,7 @@ internal sealed class LinqToDBJobStorage<T>(
 	)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		await ExecuteGraphInsertAsync(batch: null, [job], edges, cancellationToken);
 	}
@@ -91,6 +102,7 @@ internal sealed class LinqToDBJobStorage<T>(
 	)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		await ExecuteGraphInsertAsync(batch, jobs, edges, cancellationToken);
 	}
@@ -173,6 +185,7 @@ internal sealed class LinqToDBJobStorage<T>(
 	)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		if (request.FairQueues is not null)
 			return await AcquireDueJobsFairAsync(request, cancellationToken);
@@ -677,6 +690,7 @@ internal sealed class LinqToDBJobStorage<T>(
 	)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		if (jobHandles.Count == 0)
 			return [];
@@ -774,6 +788,7 @@ internal sealed class LinqToDBJobStorage<T>(
 	)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		await RetryConcurrencyAsync(async connection =>
 		{
@@ -811,6 +826,7 @@ internal sealed class LinqToDBJobStorage<T>(
 	)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		await using var scope = contextScope.GetScope(out var connection);
 
@@ -832,6 +848,7 @@ internal sealed class LinqToDBJobStorage<T>(
 	)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		await CompleteWithContinuationsAsync(jobHandle, executionNumber, workerId, [], cancellationToken);
 	}
@@ -846,6 +863,7 @@ internal sealed class LinqToDBJobStorage<T>(
 	)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		await MutateOwnedWithDependenciesAsync(
 			jobHandle,
@@ -869,6 +887,7 @@ internal sealed class LinqToDBJobStorage<T>(
 	)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		await RetryConcurrencyAsync(
 			connection => AddBatchJobCoreAsync(connection, currentJobHandle, executionNumber, job, options, cancellationToken),
@@ -887,6 +906,7 @@ internal sealed class LinqToDBJobStorage<T>(
 	)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		await MutateOwnedWithDependenciesAsync(
 			jobHandle,
@@ -907,6 +927,7 @@ internal sealed class LinqToDBJobStorage<T>(
 	)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		for (var attempt = 0; attempt < MaxConcurrencyAttempts; attempt++)
 		{
@@ -954,6 +975,7 @@ internal sealed class LinqToDBJobStorage<T>(
 	)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		await using var scope = contextScope.GetScope(out var connection);
 
@@ -967,6 +989,7 @@ internal sealed class LinqToDBJobStorage<T>(
 	public async ValueTask RemoveRecurringAsync(string name, CancellationToken cancellationToken = default)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		await using var scope = contextScope.GetScope(out var connection);
 
@@ -984,6 +1007,7 @@ internal sealed class LinqToDBJobStorage<T>(
 	public async ValueTask PauseRecurringAsync(string name, CancellationToken cancellationToken = default)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		await SetRecurringPausedAsync(name, paused: true, cancellationToken);
 	}
@@ -992,6 +1016,7 @@ internal sealed class LinqToDBJobStorage<T>(
 	public async ValueTask ResumeRecurringAsync(string name, CancellationToken cancellationToken = default)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		await SetRecurringPausedAsync(name, paused: false, cancellationToken);
 	}
@@ -1019,6 +1044,7 @@ internal sealed class LinqToDBJobStorage<T>(
 	)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		await using var scope = contextScope.GetScope(out var connection);
 
@@ -1039,6 +1065,7 @@ internal sealed class LinqToDBJobStorage<T>(
 	)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		await using var scope = contextScope.GetScope(out var connection);
 
@@ -1111,6 +1138,7 @@ internal sealed class LinqToDBJobStorage<T>(
 	)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		await using var scope = contextScope.GetScope(out var connection);
 
@@ -1153,6 +1181,7 @@ internal sealed class LinqToDBJobStorage<T>(
 	)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		await using var scope = contextScope.GetScope(out var connection);
 
@@ -1189,6 +1218,7 @@ internal sealed class LinqToDBJobStorage<T>(
 	)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		await using var scope = contextScope.GetScope(out var connection);
 
@@ -1244,6 +1274,7 @@ internal sealed class LinqToDBJobStorage<T>(
 	)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		await using var scope = contextScope.GetScope(out var connection);
 
@@ -1258,6 +1289,7 @@ internal sealed class LinqToDBJobStorage<T>(
 	)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		await using var scope = contextScope.GetScope(out var connection);
 
@@ -1280,6 +1312,7 @@ internal sealed class LinqToDBJobStorage<T>(
 	)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		await using var scope = contextScope.GetScope(out var connection);
 
@@ -1315,6 +1348,7 @@ internal sealed class LinqToDBJobStorage<T>(
 	)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		await using var scope = contextScope.GetScope(out var connection);
 
@@ -1344,6 +1378,7 @@ internal sealed class LinqToDBJobStorage<T>(
 	)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		await using var scope = contextScope.GetScope(out var connection);
 
@@ -1376,6 +1411,7 @@ internal sealed class LinqToDBJobStorage<T>(
 	public async ValueTask CancelBatchAsync(BatchHandle batchHandle, CancellationToken cancellationToken = default)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		var terminalGroups = new HashSet<(string QueueName, string GroupId)>();
 		await RetryConcurrencyAsync(
@@ -1449,6 +1485,7 @@ internal sealed class LinqToDBJobStorage<T>(
 	public async ValueTask DeleteBatchAsync(BatchHandle batchHandle, CancellationToken cancellationToken = default)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		await using var scope = contextScope.GetScope(out var connection);
 
@@ -1485,6 +1522,7 @@ internal sealed class LinqToDBJobStorage<T>(
 	public async ValueTask CancelAsync(JobHandle jobHandle, CancellationToken cancellationToken = default)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		var terminalGroups = new HashSet<(string QueueName, string GroupId)>();
 		await RetryConcurrencyAsync(
@@ -1534,6 +1572,7 @@ internal sealed class LinqToDBJobStorage<T>(
 	public async ValueTask RetryAsync(JobHandle jobHandle, CancellationToken cancellationToken = default)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		await RetryConcurrencyAsync(
 			connection => RetryCoreAsync(connection, jobHandle, cancellationToken),
@@ -1590,6 +1629,7 @@ internal sealed class LinqToDBJobStorage<T>(
 	public async ValueTask DeleteAsync(JobHandle jobHandle, CancellationToken cancellationToken = default)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		await using var scope = contextScope.GetScope(out var connection);
 
@@ -1641,6 +1681,7 @@ internal sealed class LinqToDBJobStorage<T>(
 	)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		await using var scope = contextScope.GetScope(out var connection);
 
@@ -1694,6 +1735,7 @@ internal sealed class LinqToDBJobStorage<T>(
 	)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		var now = timeProvider.GetUtcNow();
 		await RetryConcurrencyAsync(
@@ -1761,6 +1803,7 @@ internal sealed class LinqToDBJobStorage<T>(
 	public async ValueTask HeartbeatAsync(JobServerSnapshot server, CancellationToken cancellationToken = default)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		await using var scope = contextScope.GetScope(out var connection);
 
@@ -1801,6 +1844,7 @@ internal sealed class LinqToDBJobStorage<T>(
 	public async ValueTask<bool> IsHealthyAsync(CancellationToken cancellationToken = default)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		try
 		{

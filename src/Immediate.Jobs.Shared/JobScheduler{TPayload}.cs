@@ -92,12 +92,14 @@ public abstract class JobScheduler<TPayload>(
 	/// <inheritdoc />
 	public async ValueTask<JobHandle> EnqueueAsync(TPayload payload, CancellationToken cancellationToken = default)
 	{
+		await TaskScheduler.Yield();
 		return await ScheduleJobAsync(payload, TimeSpan.Zero, groupId: null, cancellationToken);
 	}
 
 	/// <inheritdoc />
 	public async ValueTask<JobHandle> EnqueueAsync(TPayload payload, string groupId, CancellationToken cancellationToken = default)
 	{
+		await TaskScheduler.Yield();
 		return await ScheduleJobAsync(payload, TimeSpan.Zero, groupId, cancellationToken);
 	}
 
@@ -109,6 +111,8 @@ public abstract class JobScheduler<TPayload>(
 		CancellationToken cancellationToken = default
 	)
 	{
+		ArgumentNullException.ThrowIfNull(currentJob);
+		await TaskScheduler.Yield();
 		return await AddCurrentBatchJobAsync(payload, currentJob, TimeSpan.Zero, groupId: null, options, cancellationToken);
 	}
 
@@ -121,12 +125,19 @@ public abstract class JobScheduler<TPayload>(
 		CancellationToken cancellationToken = default
 	)
 	{
+		ArgumentNullException.ThrowIfNull(currentJob);
+		await TaskScheduler.Yield();
 		return await AddCurrentBatchJobAsync(payload, currentJob, TimeSpan.Zero, groupId, options, cancellationToken);
 	}
 
 	/// <inheritdoc />
-	public async ValueTask<JobHandle> ScheduleAsync(TPayload payload, TimeSpan delay, CancellationToken cancellationToken = default)
+	public async ValueTask<JobHandle> ScheduleAsync(
+		TPayload payload,
+		TimeSpan delay,
+		CancellationToken cancellationToken = default
+	)
 	{
+		await TaskScheduler.Yield();
 		return await ScheduleJobAsync(payload, delay, groupId: null, cancellationToken);
 	}
 
@@ -138,6 +149,7 @@ public abstract class JobScheduler<TPayload>(
 		CancellationToken cancellationToken = default
 	)
 	{
+		await TaskScheduler.Yield();
 		return await ScheduleJobAsync(payload, delay, groupId, cancellationToken);
 	}
 
@@ -150,6 +162,8 @@ public abstract class JobScheduler<TPayload>(
 		CancellationToken cancellationToken = default
 	)
 	{
+		ArgumentNullException.ThrowIfNull(currentJob);
+		await TaskScheduler.Yield();
 		return await AddCurrentBatchJobAsync(payload, currentJob, delay, groupId: null, options, cancellationToken);
 	}
 
@@ -163,12 +177,19 @@ public abstract class JobScheduler<TPayload>(
 		CancellationToken cancellationToken = default
 	)
 	{
+		ArgumentNullException.ThrowIfNull(currentJob);
+		await TaskScheduler.Yield();
 		return await AddCurrentBatchJobAsync(payload, currentJob, delay, groupId, options, cancellationToken);
 	}
 
 	/// <inheritdoc />
-	public async ValueTask<JobHandle> ScheduleAsync(TPayload payload, DateTimeOffset at, CancellationToken cancellationToken = default)
+	public async ValueTask<JobHandle> ScheduleAsync(
+		TPayload payload,
+		DateTimeOffset at,
+		CancellationToken cancellationToken = default
+	)
 	{
+		await TaskScheduler.Yield();
 		return await ScheduleJobAsync(payload, at, groupId: null, cancellationToken);
 	}
 
@@ -180,6 +201,7 @@ public abstract class JobScheduler<TPayload>(
 		CancellationToken cancellationToken = default
 	)
 	{
+		await TaskScheduler.Yield();
 		return await ScheduleJobAsync(payload, at, groupId, cancellationToken);
 	}
 
@@ -192,6 +214,8 @@ public abstract class JobScheduler<TPayload>(
 		CancellationToken cancellationToken = default
 	)
 	{
+		ArgumentNullException.ThrowIfNull(currentJob);
+		await TaskScheduler.Yield();
 		return await AddCurrentBatchJobAsync(payload, currentJob, at, groupId: null, options, cancellationToken);
 	}
 
@@ -205,6 +229,8 @@ public abstract class JobScheduler<TPayload>(
 		CancellationToken cancellationToken = default
 	)
 	{
+		ArgumentNullException.ThrowIfNull(currentJob);
+		await TaskScheduler.Yield();
 		return await AddCurrentBatchJobAsync(payload, currentJob, at, groupId, options, cancellationToken);
 	}
 
@@ -217,6 +243,7 @@ public abstract class JobScheduler<TPayload>(
 	)
 	{
 		ArgumentNullException.ThrowIfNull(parent);
+		await TaskScheduler.Yield();
 		return await ScheduleAfterCoreAsync(payload, TimeSpan.Zero, groupId: null, parents: [parent], on: on, cancellationToken: cancellationToken);
 	}
 
@@ -230,6 +257,7 @@ public abstract class JobScheduler<TPayload>(
 	)
 	{
 		ArgumentNullException.ThrowIfNull(parent);
+		await TaskScheduler.Yield();
 		return await ScheduleAfterCoreAsync(payload, TimeSpan.Zero, groupId, [parent], on, cancellationToken);
 	}
 
@@ -243,6 +271,7 @@ public abstract class JobScheduler<TPayload>(
 	)
 	{
 		ArgumentNullException.ThrowIfNull(parent);
+		await TaskScheduler.Yield();
 		return await ScheduleAfterCoreAsync(payload, delay, groupId: null, parents: [parent], on: on, cancellationToken: cancellationToken);
 	}
 
@@ -257,6 +286,7 @@ public abstract class JobScheduler<TPayload>(
 	)
 	{
 		ArgumentNullException.ThrowIfNull(parent);
+		await TaskScheduler.Yield();
 		return await ScheduleAfterCoreAsync(payload, delay, groupId, [parent], on, cancellationToken);
 	}
 
@@ -268,6 +298,7 @@ public abstract class JobScheduler<TPayload>(
 		CancellationToken cancellationToken = default
 	)
 	{
+		await TaskScheduler.Yield();
 		ArgumentNullException.ThrowIfNull(parents);
 		return await ScheduleAfterCoreAsync(payload, TimeSpan.Zero, groupId: null, parents, on, cancellationToken);
 	}
@@ -282,6 +313,7 @@ public abstract class JobScheduler<TPayload>(
 	)
 	{
 		ArgumentNullException.ThrowIfNull(parents);
+		await TaskScheduler.Yield();
 		return await ScheduleAfterCoreAsync(payload, TimeSpan.Zero, groupId, parents, on, cancellationToken);
 	}
 
@@ -294,6 +326,7 @@ public abstract class JobScheduler<TPayload>(
 		CancellationToken cancellationToken = default
 	)
 	{
+		await TaskScheduler.Yield();
 		ArgumentNullException.ThrowIfNull(parents);
 		return await ScheduleAfterCoreAsync(payload, delay, groupId: null, parents, on, cancellationToken);
 	}
@@ -308,6 +341,7 @@ public abstract class JobScheduler<TPayload>(
 		CancellationToken cancellationToken = default
 	)
 	{
+		await TaskScheduler.Yield();
 		ArgumentNullException.ThrowIfNull(parents);
 		return await ScheduleAfterCoreAsync(payload, delay, groupId, parents, on, cancellationToken);
 	}
@@ -484,6 +518,7 @@ public abstract class JobScheduler<TPayload>(
 	public async ValueTask CancelAsync(JobHandle job, CancellationToken cancellationToken = default)
 	{
 		ArgumentNullException.ThrowIfNull(job);
+		await TaskScheduler.Yield();
 
 		await Storage.CancelAsync(job, cancellationToken);
 	}

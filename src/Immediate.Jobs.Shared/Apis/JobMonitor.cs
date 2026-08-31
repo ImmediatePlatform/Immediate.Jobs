@@ -30,27 +30,32 @@ public sealed class JobMonitor(
 	private readonly Dictionary<string, JobDefinition> _definitionsByName = definitions.ToDictionary(x => x.Name, StringComparer.Ordinal);
 
 	/// <inheritdoc />
-	public async ValueTask<JobMonitoringSnapshot> GetSnapshotAsync(CancellationToken cancellationToken = default) =>
-		await storage.GetMonitoringSnapshotAsync(cancellationToken);
+	public async ValueTask<JobMonitoringSnapshot> GetSnapshotAsync(CancellationToken cancellationToken = default)
+	{
+		await TaskScheduler.Yield();
+		return await storage.GetMonitoringSnapshotAsync(cancellationToken);
+	}
 
 	/// <summary>Cancels a non-terminal job.</summary>
 	/// <param name="jobHandle">The invocation identifier.</param>
 	/// <param name="cancellationToken">A token that can cancel the operation.</param>
-	public ValueTask CancelJobAsync(JobHandle jobHandle, CancellationToken cancellationToken = default)
+	public async ValueTask CancelJobAsync(JobHandle jobHandle, CancellationToken cancellationToken = default)
 	{
+		await TaskScheduler.Yield();
 		ArgumentNullException.ThrowIfNull(jobHandle);
 
-		return storage.CancelAsync(jobHandle, cancellationToken);
+		await storage.CancelAsync(jobHandle, cancellationToken);
 	}
 
 	/// <summary>Moves a terminal job back to pending.</summary>
 	/// <param name="jobHandle">The invocation identifier.</param>
 	/// <param name="cancellationToken">A token that can cancel the operation.</param>
-	public ValueTask RetryJobAsync(JobHandle jobHandle, CancellationToken cancellationToken = default)
+	public async ValueTask RetryJobAsync(JobHandle jobHandle, CancellationToken cancellationToken = default)
 	{
+		await TaskScheduler.Yield();
 		ArgumentNullException.ThrowIfNull(jobHandle);
 
-		return storage.RetryAsync(jobHandle, cancellationToken);
+		await storage.RetryAsync(jobHandle, cancellationToken);
 	}
 
 	/// <summary>Cancels a batch and its non-terminal members.</summary>
@@ -58,6 +63,7 @@ public sealed class JobMonitor(
 	/// <param name="cancellationToken">A token that can cancel the operation.</param>
 	public async ValueTask CancelBatchAsync(BatchHandle batchHandle, CancellationToken cancellationToken = default)
 	{
+		await TaskScheduler.Yield();
 		ArgumentNullException.ThrowIfNull(batchHandle);
 
 		if (storage is not IJobGraphStorage graphStorage)
@@ -71,6 +77,7 @@ public sealed class JobMonitor(
 	/// <param name="cancellationToken">A token that can cancel the operation.</param>
 	public async ValueTask DeleteBatchAsync(BatchHandle batchHandle, CancellationToken cancellationToken = default)
 	{
+		await TaskScheduler.Yield();
 		ArgumentNullException.ThrowIfNull(batchHandle);
 
 		if (storage is not IJobGraphStorage graphStorage)
@@ -84,6 +91,7 @@ public sealed class JobMonitor(
 	/// <param name="cancellationToken">A token that can cancel the operation.</param>
 	public async ValueTask PauseRecurringAsync(string name, CancellationToken cancellationToken = default)
 	{
+		await TaskScheduler.Yield();
 		ArgumentException.ThrowIfNullOrWhiteSpace(name);
 
 		if (storage is not IRecurringJobStorage recurringStorage)
@@ -97,6 +105,7 @@ public sealed class JobMonitor(
 	/// <param name="cancellationToken">A token that can cancel the operation.</param>
 	public async ValueTask ResumeRecurringAsync(string name, CancellationToken cancellationToken = default)
 	{
+		await TaskScheduler.Yield();
 		ArgumentException.ThrowIfNullOrWhiteSpace(name);
 
 		if (storage is not IRecurringJobStorage recurringStorage)
@@ -110,6 +119,7 @@ public sealed class JobMonitor(
 	/// <param name="cancellationToken">A token that can cancel the operation.</param>
 	public async ValueTask TriggerRecurringAsync(string name, CancellationToken cancellationToken = default)
 	{
+		await TaskScheduler.Yield();
 		ArgumentException.ThrowIfNullOrWhiteSpace(name);
 
 		var snapshot = await GetSnapshotAsync(cancellationToken);
@@ -143,6 +153,7 @@ public sealed class JobMonitor(
 		CancellationToken cancellationToken = default
 	)
 	{
+		await TaskScheduler.Yield();
 		ValidationException.ThrowIfInvalid(query, $"Invalid argument \"{nameof(query)}\"");
 
 		return await storage.QueryJobsAsync(query, cancellationToken);
@@ -155,6 +166,7 @@ public sealed class JobMonitor(
 		CancellationToken cancellationToken = default
 	)
 	{
+		await TaskScheduler.Yield();
 		ArgumentNullException.ThrowIfNull(jobHandle);
 		ValidationException.ThrowIfInvalid(query, $"Invalid argument \"{nameof(query)}\"");
 
@@ -167,6 +179,7 @@ public sealed class JobMonitor(
 		CancellationToken cancellationToken = default
 	)
 	{
+		await TaskScheduler.Yield();
 		ValidationException.ThrowIfInvalid(query, $"Invalid argument \"{nameof(query)}\"");
 
 		return storage switch
@@ -179,6 +192,7 @@ public sealed class JobMonitor(
 	/// <inheritdoc />
 	public async ValueTask<BatchStatus?> GetBatchAsync(BatchHandle batchHandle, CancellationToken cancellationToken = default)
 	{
+		await TaskScheduler.Yield();
 		ArgumentNullException.ThrowIfNull(batchHandle);
 
 		return storage switch
@@ -195,6 +209,7 @@ public sealed class JobMonitor(
 		CancellationToken cancellationToken = default
 	)
 	{
+		await TaskScheduler.Yield();
 		ArgumentNullException.ThrowIfNull(batchHandle);
 		ValidationException.ThrowIfInvalid(query, $"Invalid argument \"{nameof(query)}\"");
 
@@ -208,6 +223,7 @@ public sealed class JobMonitor(
 	/// <inheritdoc />
 	public async ValueTask<BatchGraph?> GetBatchGraphAsync(BatchHandle batchHandle, CancellationToken cancellationToken = default)
 	{
+		await TaskScheduler.Yield();
 		ArgumentNullException.ThrowIfNull(batchHandle);
 
 		return storage switch
@@ -220,6 +236,7 @@ public sealed class JobMonitor(
 	/// <inheritdoc />
 	public async ValueTask<JobStatus?> GetJobAsync(JobHandle jobHandle, CancellationToken cancellationToken = default)
 	{
+		await TaskScheduler.Yield();
 		ArgumentNullException.ThrowIfNull(jobHandle);
 
 		var status = await storage.GetJobStatusAsync(jobHandle, cancellationToken);

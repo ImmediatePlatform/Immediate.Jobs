@@ -23,11 +23,12 @@ public sealed class BatchScheduler(
 ) : IBatchScheduler
 {
 	/// <inheritdoc />
-	public ValueTask CancelAsync(BatchHandle batchHandle, CancellationToken cancellationToken = default)
+	public async ValueTask CancelAsync(BatchHandle batchHandle, CancellationToken cancellationToken = default)
 	{
+		await TaskScheduler.Yield();
 		ArgumentNullException.ThrowIfNull(batchHandle);
 
-		return JobStorageCapabilityGuards.RequireGraph(storage).CancelBatchAsync(batchHandle, cancellationToken);
+		await JobStorageCapabilityGuards.RequireGraph(storage).CancelBatchAsync(batchHandle, cancellationToken);
 	}
 
 	/// <inheritdoc />
@@ -77,6 +78,7 @@ public sealed class BatchScheduler(
 		CancellationToken cancellationToken = default
 	)
 	{
+		await TaskScheduler.Yield();
 		ArgumentNullException.ThrowIfNull(body);
 		await using var batch = Begin();
 		await body(batch);

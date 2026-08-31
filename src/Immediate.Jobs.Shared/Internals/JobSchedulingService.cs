@@ -203,10 +203,11 @@ public sealed partial class JobSchedulingService : BackgroundService
 	/// <returns>
 	/// 	A task that completes when the job attempt finishes.
 	/// </returns>
-	public ValueTask ExecuteSingleAsync(JobRecord record, CancellationToken cancellationToken = default)
+	public async ValueTask ExecuteSingleAsync(JobRecord record, CancellationToken cancellationToken = default)
 	{
+		await TaskScheduler.Yield();
 		ArgumentNullException.ThrowIfNull(record);
-		return ExecuteJobAsync(record, cancellationToken);
+		await ExecuteJobAsync(record, cancellationToken);
 	}
 
 	/// <summary>
@@ -222,6 +223,7 @@ public sealed partial class JobSchedulingService : BackgroundService
 	/// </returns>
 	public async ValueTask DrainAsync(CancellationToken cancellationToken = default)
 	{
+		await TaskScheduler.Yield();
 		await _storage.InitializeAsync(cancellationToken);
 		await EnsureCodeSchedulesAsync(cancellationToken);
 		while (true)

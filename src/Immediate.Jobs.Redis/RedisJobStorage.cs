@@ -63,6 +63,7 @@ internal sealed class RedisJobStorage(
 	public async ValueTask InitializeAsync(CancellationToken cancellationToken = default)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 		await Database.PingAsync().WaitAsync(cancellationToken);
 	}
 
@@ -70,6 +71,7 @@ internal sealed class RedisJobStorage(
 	public async ValueTask EnqueueAsync(JobRecord job, CancellationToken cancellationToken = default)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		ValidateQueueJob(job);
 		var result = await EvaluateInt64Async(
@@ -89,6 +91,7 @@ internal sealed class RedisJobStorage(
 	)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		if (request.FairQueues is not null)
 		{
@@ -153,6 +156,7 @@ internal sealed class RedisJobStorage(
 	)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		var result = await EvaluateInt64Async(
 			RedisScripts.SetTelemetry,
@@ -173,6 +177,7 @@ internal sealed class RedisJobStorage(
 	)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		var expiresAt = _timeProvider.GetUtcNow() + lease;
 		var result = await EvaluateInt64Async(
@@ -193,6 +198,7 @@ internal sealed class RedisJobStorage(
 	)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		var now = _timeProvider.GetUtcNow();
 		var result = await EvaluateInt64Async(
@@ -223,6 +229,7 @@ internal sealed class RedisJobStorage(
 	)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		var now = _timeProvider.GetUtcNow();
 		var nextTicks = nextRetryAt is { } retryAt ? Ticks(retryAt) : "";
@@ -263,6 +270,7 @@ internal sealed class RedisJobStorage(
 	)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		var states = Enum.GetValues<JobState>();
 		var countTasks = states
@@ -293,6 +301,7 @@ internal sealed class RedisJobStorage(
 	)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		var take = Math.Min(query.Take, MaximumQueryTake);
 		if (query.JobHandle is { } id)
@@ -343,6 +352,7 @@ internal sealed class RedisJobStorage(
 	)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		var job = await ReadJobAsync(jobHandle, cancellationToken);
 		if (job is null)
@@ -401,6 +411,7 @@ internal sealed class RedisJobStorage(
 	)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		var job = await ReadJobAsync(jobHandle, cancellationToken);
 		return job is null
@@ -426,6 +437,7 @@ internal sealed class RedisJobStorage(
 	public async ValueTask CancelAsync(JobHandle jobHandle, CancellationToken cancellationToken = default)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		var now = _timeProvider.GetUtcNow();
 		var result = await EvaluateInt64Async(
@@ -444,6 +456,7 @@ internal sealed class RedisJobStorage(
 	public async ValueTask RetryAsync(JobHandle jobHandle, CancellationToken cancellationToken = default)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		var now = _timeProvider.GetUtcNow();
 		var result = await EvaluateInt64Async(
@@ -470,6 +483,7 @@ internal sealed class RedisJobStorage(
 	public async ValueTask DeleteAsync(JobHandle jobHandle, CancellationToken cancellationToken = default)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		var result = await EvaluateInt64Async(
 			RedisScripts.Delete,
@@ -491,6 +505,7 @@ internal sealed class RedisJobStorage(
 	)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		var now = _timeProvider.GetUtcNow();
 		await PurgeStateAsync(JobState.Succeeded, now - succeededRetention, cancellationToken);
@@ -506,6 +521,7 @@ internal sealed class RedisJobStorage(
 	)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		_ = await EvaluateInt64Async(
 			RedisScripts.Heartbeat,
@@ -526,6 +542,7 @@ internal sealed class RedisJobStorage(
 	public async ValueTask<bool> IsHealthyAsync(CancellationToken cancellationToken = default)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		try
 		{
@@ -549,6 +566,7 @@ internal sealed class RedisJobStorage(
 	)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		var result = await EvaluateInt64Async(
 			RedisScripts.UpsertRecurring,
@@ -576,6 +594,7 @@ internal sealed class RedisJobStorage(
 	)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		var values = new RedisValue[activeScheduleNames.Count + 1];
 		values[0] = _root;
@@ -594,6 +613,7 @@ internal sealed class RedisJobStorage(
 	public async ValueTask RemoveRecurringAsync(string name, CancellationToken cancellationToken = default)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		var result = await EvaluateInt64Async(
 			RedisScripts.RemoveRecurring,
@@ -611,6 +631,7 @@ internal sealed class RedisJobStorage(
 	public async ValueTask PauseRecurringAsync(string name, CancellationToken cancellationToken = default)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		await SetRecurringPausedAsync(name, isPaused: true, cancellationToken);
 	}
@@ -619,6 +640,7 @@ internal sealed class RedisJobStorage(
 	public async ValueTask ResumeRecurringAsync(string name, CancellationToken cancellationToken = default)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		await SetRecurringPausedAsync(name, isPaused: false, cancellationToken);
 	}
@@ -631,6 +653,7 @@ internal sealed class RedisJobStorage(
 	)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		var values = await Database.SortedSetRangeByScoreAsync(
 			RecurringDueKey,
@@ -679,6 +702,7 @@ internal sealed class RedisJobStorage(
 	)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		ValidateMaterializedJob(job);
 		var jobArguments = CreateMaterializeArguments(schedule, job, nextRunAt, _timeProvider.GetUtcNow());
@@ -703,7 +727,7 @@ internal sealed class RedisJobStorage(
 	}
 
 	/// <inheritdoc />
-	public async ValueTask DisposeAsync() { }
+	public async ValueTask DisposeAsync() { await TaskScheduler.Yield(); }
 
 	private async ValueTask SetRecurringPausedAsync(
 		string name,
