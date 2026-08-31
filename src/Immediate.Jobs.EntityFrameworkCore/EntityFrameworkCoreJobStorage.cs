@@ -900,6 +900,18 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 	}
 
 	/// <inheritdoc />
+	public async ValueTask MergeRecurringSchedulesListAsync(
+		IReadOnlyList<RecurringJobSchedule> schedules,
+		CancellationToken cancellationToken = default
+	)
+	{
+		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
+
+
+	}
+
+	/// <inheritdoc />
 	public async ValueTask UpsertRecurringAsync(RecurringJobSchedule schedule, CancellationToken cancellationToken = default)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
@@ -924,23 +936,6 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 			await ThrowIfReplacingCodeDefinedScheduleAsync(retryContext, schedule, cancellationToken);
 			throw;
 		}
-	}
-
-	/// <inheritdoc />
-	public async ValueTask RemoveObsoleteCodeDefinedRecurringAsync(
-		IReadOnlyCollection<string> activeScheduleNames,
-		CancellationToken cancellationToken = default
-	)
-	{
-		cancellationToken.ThrowIfCancellationRequested();
-		await TaskScheduler.Yield();
-
-		await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
-		var schedules = context.Set<ImmediateRecurringJobEntity>()
-			.Where(schedule => schedule.IsCodeDefined);
-		if (activeScheduleNames.Count != 0)
-			schedules = schedules.Where(schedule => !activeScheduleNames.Contains(schedule.Name));
-		_ = await schedules.ExecuteDeleteAsync(cancellationToken);
 	}
 
 	/// <inheritdoc />

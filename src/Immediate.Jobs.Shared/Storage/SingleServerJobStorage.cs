@@ -263,28 +263,24 @@ internal sealed class SingleServerJobStorage(
 	}
 
 	/// <inheritdoc />
+	public async ValueTask MergeRecurringSchedulesListAsync(
+		IReadOnlyList<RecurringJobSchedule> schedules,
+		CancellationToken cancellationToken = default
+	)
+	{
+		await TaskScheduler.Yield();
+		await EnsureInitializedAsync(cancellationToken);
+		await RecurringJobStorage.MergeRecurringSchedulesListAsync(schedules, cancellationToken);
+		await PrimaryStorage.MergeRecurringSchedulesListAsync(schedules, cancellationToken);
+	}
+
+	/// <inheritdoc />
 	public async ValueTask UpsertRecurringAsync(RecurringJobSchedule schedule, CancellationToken cancellationToken = default)
 	{
 		await TaskScheduler.Yield();
 		await EnsureInitializedAsync(cancellationToken);
 		await RecurringJobStorage.UpsertRecurringAsync(schedule, cancellationToken);
 		await PrimaryStorage.UpsertRecurringAsync(schedule, cancellationToken);
-	}
-
-	/// <inheritdoc />
-	public async ValueTask RemoveObsoleteCodeDefinedRecurringAsync(
-		IReadOnlyCollection<string> activeScheduleNames,
-		CancellationToken cancellationToken = default
-	)
-	{
-		await TaskScheduler.Yield();
-		await EnsureInitializedAsync(cancellationToken);
-
-		await RecurringJobStorage
-			.RemoveObsoleteCodeDefinedRecurringAsync(activeScheduleNames, cancellationToken);
-
-		await PrimaryStorage
-			.RemoveObsoleteCodeDefinedRecurringAsync(activeScheduleNames, cancellationToken);
 	}
 
 	/// <inheritdoc />

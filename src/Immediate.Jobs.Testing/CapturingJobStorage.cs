@@ -167,6 +167,15 @@ public sealed class CapturingJobStorage(TimeProvider timeProvider) :
 	}
 
 	/// <inheritdoc />
+	public async ValueTask MergeRecurringSchedulesListAsync(
+		IReadOnlyList<RecurringJobSchedule> schedules,
+		CancellationToken cancellationToken = default
+	)
+	{
+		await _inner.MergeRecurringSchedulesListAsync(schedules, cancellationToken);
+	}
+
+	/// <inheritdoc />
 	public ValueTask UpsertRecurringAsync(RecurringJobSchedule schedule, CancellationToken cancellationToken = default)
 	{
 		ArgumentNullException.ThrowIfNull(schedule);
@@ -201,8 +210,6 @@ public sealed class CapturingJobStorage(TimeProvider timeProvider) :
 	public ValueTask CompleteAsync(JobHandle jobHandle, int executionNumber, string workerId, CancellationToken cancellationToken = default) => _inner.CompleteAsync(jobHandle, executionNumber, workerId, cancellationToken);
 	/// <inheritdoc />
 	public ValueTask FailAsync(JobHandle jobHandle, int executionNumber, string workerId, string error, DateTimeOffset? nextRetryAt, CancellationToken cancellationToken = default) => _inner.FailAsync(jobHandle, executionNumber, workerId, error, nextRetryAt, cancellationToken);
-	/// <inheritdoc />
-	public ValueTask RemoveObsoleteCodeDefinedRecurringAsync(IReadOnlyCollection<string> activeScheduleNames, CancellationToken cancellationToken = default) => _inner.RemoveObsoleteCodeDefinedRecurringAsync(activeScheduleNames, cancellationToken);
 	/// <inheritdoc />
 	public ValueTask RemoveRecurringAsync(string name, CancellationToken cancellationToken = default)
 	{

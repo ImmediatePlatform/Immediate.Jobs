@@ -5,6 +5,7 @@ using LinqToDB;
 using LinqToDB.Async;
 using LinqToDB.Data;
 using Microsoft.Extensions.Options;
+using static LinqToDB.Common.Configuration;
 
 namespace Immediate.Jobs.LinqToDB;
 
@@ -975,6 +976,52 @@ internal sealed class LinqToDBJobStorage<T>(
 	}
 
 	/// <inheritdoc />
+	public async ValueTask MergeRecurringSchedulesListAsync(
+		IReadOnlyList<RecurringJobSchedule> schedules,
+		CancellationToken cancellationToken = default
+	)
+	{
+		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
+
+		await using var scope = contextScope.GetScope(out var connection);
+		await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+
+		var existing = await Recurring(connection)
+			.Where(r => r.Cron != null)
+			.ToDictionaryAsync(r => r.Name, StringComparer.Ordinal, cancellationToken);
+
+		foreach (var schedule in schedules)
+		{
+			var entity = ToEntity(schedule);
+
+			if (!existing.TryGetValue(schedule.Name, out var current))
+			{
+				await connection.InsertAsync(entity, schemaName: _schema, token: cancellationToken);
+				continue;
+			}
+
+			var oldStamp = current.ConcurrencyStamp;
+			current.JobName = schedule.JobName;
+			current.QueueName = schedule.QueueName;
+			current.Cron = schedule.Cron;
+			current.TimeZone = schedule.TimeZone;
+			current.IsCodeDefined = schedule.IsCodeDefined;
+			current.NextRunAt = schedule.NextRunAt;
+			current.ConcurrencyStamp = Guid.NewGuid();
+
+			if (!await UpdateRecurringAsync(connection, current, oldStamp, cancellationToken))
+				throw new ImmediateJobException("Failure saving updated schedule.");
+		}
+
+		await Recurring(connection)
+			.Where(r => r.Name.In(existing.Keys))
+			.DeleteAsync(cancellationToken);
+
+		await transaction.CommitAsync(cancellationToken);
+	}
+
+	/// <inheritdoc />
 	public async ValueTask UpsertRecurringAsync(
 		RecurringJobSchedule schedule,
 		CancellationToken cancellationToken = default
@@ -983,10 +1030,13 @@ internal sealed class LinqToDBJobStorage<T>(
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 
-		for (var attempt = 0; attempt < MaxConcurrencyAttempts; attempt++)
-		{
-			await using var scope = contextScope.GetScope(out var connection);
+		await RetryConcurrencyAsync(
+			Core,
+			cancellationToken
+		);
 
+		async Task Core(T connection)
+		{
 			var existing = await Recurring(connection).SingleOrDefaultAsync(item => item.Name == schedule.Name, cancellationToken);
 			if (existing is null)
 			{
@@ -1005,6 +1055,7 @@ internal sealed class LinqToDBJobStorage<T>(
 
 			if (!schedule.IsCodeDefined && existing.IsCodeDefined)
 				throw new ImmediateJobException("Code-defined recurring schedules cannot be replaced by dynamic schedules.");
+
 			var oldStamp = existing.ConcurrencyStamp;
 			existing.JobName = schedule.JobName;
 			existing.QueueName = schedule.QueueName;
@@ -1013,30 +1064,10 @@ internal sealed class LinqToDBJobStorage<T>(
 			existing.IsCodeDefined = schedule.IsCodeDefined;
 			existing.NextRunAt = schedule.NextRunAt;
 			existing.ConcurrencyStamp = Guid.NewGuid();
-			if (await UpdateRecurringAsync(connection, existing, oldStamp, cancellationToken))
-				return;
-			if (attempt + 1 < MaxConcurrencyAttempts)
-				await DelayConcurrencyRetryAsync(cancellationToken);
+
+			if (!await UpdateRecurringAsync(connection, existing, oldStamp, cancellationToken))
+				throw new ImmediateJobException("Failure saving updated schedule.");
 		}
-
-		throw new ImmediateJobException($"Recurring schedule '{schedule.Name}' could not be upserted under contention.");
-	}
-
-	/// <inheritdoc />
-	public async ValueTask RemoveObsoleteCodeDefinedRecurringAsync(
-		IReadOnlyCollection<string> activeScheduleNames,
-		CancellationToken cancellationToken = default
-	)
-	{
-		cancellationToken.ThrowIfCancellationRequested();
-		await TaskScheduler.Yield();
-
-		await using var scope = contextScope.GetScope(out var connection);
-
-		var schedules = Recurring(connection).Where(schedule => schedule.IsCodeDefined);
-		if (activeScheduleNames.Count != 0)
-			schedules = schedules.Where(schedule => !activeScheduleNames.Contains(schedule.Name));
-		_ = await schedules.DeleteAsync(cancellationToken);
 	}
 
 	/// <inheritdoc />
@@ -2549,7 +2580,7 @@ internal sealed class LinqToDBJobStorage<T>(
 	}
 
 	private async ValueTask RetryConcurrencyAsync(
-		Func<DataConnection, Task> operation,
+		Func<T, Task> operation,
 		CancellationToken cancellationToken,
 		int maxAttempts = MaxConcurrencyAttempts
 	)

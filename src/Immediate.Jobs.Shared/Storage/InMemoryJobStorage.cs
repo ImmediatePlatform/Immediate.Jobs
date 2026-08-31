@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
+using System.Runtime.InteropServices;
 using Immediate.Jobs.Shared.Apis;
 
 namespace Immediate.Jobs.Shared.Storage;
@@ -635,6 +636,47 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 	}
 
 	/// <inheritdoc />
+	public async ValueTask MergeRecurringSchedulesListAsync(
+		IReadOnlyList<RecurringJobSchedule> schedules,
+		CancellationToken cancellationToken = default
+	)
+	{
+		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
+
+		lock (_gate)
+		{
+			var existingStaticDefinitions = _recurring
+				.Where(kvp => kvp.Value.IsCodeDefined)
+				.ToDictionary(StringComparer.Ordinal);
+
+			foreach (var schedule in schedules)
+			{
+				ref var current = ref CollectionsMarshal.GetValueRefOrAddDefault(_recurring, schedule.Name, out _);
+
+				current = current switch
+				{
+					{ } when
+						string.Equals(current.Cron, schedule.Cron, StringComparison.Ordinal)
+						&& string.Equals(current.TimeZone, schedule.TimeZone, StringComparison.Ordinal) =>
+						current with
+						{
+							JobName = schedule.Name,
+							QueueName = schedule.QueueName,
+						},
+
+					_ => schedule,
+				};
+
+				existingStaticDefinitions.Remove(schedule.Name);
+			}
+
+			foreach (var s in existingStaticDefinitions)
+				_recurring.Remove(s.Key);
+		}
+	}
+
+	/// <inheritdoc />
 	public async ValueTask UpsertRecurringAsync(RecurringJobSchedule schedule, CancellationToken cancellationToken = default)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
@@ -642,37 +684,18 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 
 		lock (_gate)
 		{
-			if (_recurring.TryGetValue(schedule.Name, out var current))
+			ref var current = ref CollectionsMarshal.GetValueRefOrAddDefault(_recurring, schedule.Name, out _);
+
+			current = current switch
 			{
-				if (current.IsCodeDefined && !schedule.IsCodeDefined)
-					throw new ImmediateJobException("Code-defined recurring schedules cannot be replaced by dynamic schedules.");
+				{ IsCodeDefined: true } =>
+					throw new ImmediateJobException("Code-defined recurring schedules cannot be replaced by dynamic schedules."),
 
-				schedule = schedule with { IsPaused = current.IsPaused, LastRunAt = current.LastRunAt };
-			}
+				{ } =>
+					schedule with { IsPaused = current.IsPaused, LastRunAt = current.LastRunAt },
 
-			_recurring[schedule.Name] = schedule;
-		}
-	}
-
-	/// <inheritdoc />
-	public async ValueTask RemoveObsoleteCodeDefinedRecurringAsync(
-		IReadOnlyCollection<string> activeScheduleNames,
-		CancellationToken cancellationToken = default
-	)
-	{
-		cancellationToken.ThrowIfCancellationRequested();
-		await TaskScheduler.Yield();
-
-		var activeNames = activeScheduleNames.ToHashSet(StringComparer.Ordinal);
-		lock (_gate)
-		{
-			var obsoleteNames = _recurring
-				.Where(schedule => schedule.Value.IsCodeDefined && !activeNames.Contains(schedule.Key))
-				.Select(static schedule => schedule.Key)
-				.ToList();
-
-			foreach (var name in obsoleteNames)
-				_ = _recurring.Remove(name);
+				_ => schedule,
+			};
 		}
 	}
 
