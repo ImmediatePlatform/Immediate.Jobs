@@ -33,12 +33,14 @@ public sealed class ImmediateJobsHealthCheck(
 	)
 	{
 		ArgumentNullException.ThrowIfNull(context);
+		await TaskScheduler.Yield();
+
 		var data = new Dictionary<string, object>(StringComparer.Ordinal)
 		{
 			["storageCapabilities"] = storage.GetCapabilities().ToString(),
 		};
 
-		if (!await storage.IsHealthyAsync(cancellationToken).ConfigureAwait(false))
+		if (!await storage.IsHealthyAsync(cancellationToken))
 		{
 			return new(
 				context.Registration.FailureStatus,

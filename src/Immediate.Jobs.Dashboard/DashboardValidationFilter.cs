@@ -16,6 +16,7 @@ internal sealed class DashboardValidationFilter : IEndpointFilter
 		}
 		catch (ValidationException exception)
 		{
+#pragma warning disable RS0030 // `ValidationProblem` demands an array
 			var errors = exception.Errors
 				.GroupBy(error => error.PropertyName, StringComparer.OrdinalIgnoreCase)
 				.ToDictionary(
@@ -23,6 +24,8 @@ internal sealed class DashboardValidationFilter : IEndpointFilter
 					group => group.Select(error => error.ErrorMessage).ToArray(),
 					StringComparer.OrdinalIgnoreCase
 				);
+#pragma warning restore RS0030
+
 			return TypedResults.ValidationProblem(errors, title: exception.Title);
 		}
 	}

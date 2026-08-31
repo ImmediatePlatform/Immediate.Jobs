@@ -23,28 +23,37 @@ internal sealed class LinqToDBJobStorage<T>(
 	private readonly string? _schema = options.Value.Schema;
 
 	/// <inheritdoc />
-	public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+	public async ValueTask DisposeAsync()
+	{
+		await TaskScheduler.Yield();
+		await ValueTask.CompletedTask;
+	}
 
 	/// <inheritdoc />
-	public ValueTask InitializeAsync(CancellationToken cancellationToken = default) => ValueTask.CompletedTask;
+	public async ValueTask InitializeAsync(CancellationToken cancellationToken = default)
+	{
+		await TaskScheduler.Yield();
+		await ValueTask.CompletedTask;
+	}
 
 	/// <inheritdoc />
 	public async ValueTask EnqueueAsync(JobRecord job, CancellationToken cancellationToken = default)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		await using var scope = contextScope.GetScope(out var connection);
 
-		_ = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+		_ = await connection.BeginTransactionAsync(cancellationToken);
 		try
 		{
-			await ResetReturningGroupCursorsAsync(connection, [job], cancellationToken).ConfigureAwait(false);
-			_ = await InsertAsync(connection, ToEntity(job), cancellationToken).ConfigureAwait(false);
-			await connection.CommitTransactionAsync(cancellationToken).ConfigureAwait(false);
+			await ResetReturningGroupCursorsAsync(connection, [job], cancellationToken);
+			_ = await InsertAsync(connection, ToEntity(job), cancellationToken);
+			await connection.CommitTransactionAsync(cancellationToken);
 		}
 		catch
 		{
-			await connection.RollbackTransactionAsync(cancellationToken).ConfigureAwait(false);
+			await connection.RollbackTransactionAsync(cancellationToken);
 			throw;
 		}
 	}
@@ -56,6 +65,7 @@ internal sealed class LinqToDBJobStorage<T>(
 	)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		var ids = childJobHandles.Select(i => i.Value).Distinct(StringComparer.Ordinal).ToList();
 
@@ -66,8 +76,7 @@ internal sealed class LinqToDBJobStorage<T>(
 			.OrderBy(edge => edge.ChildJobHandle)
 			.ThenBy(edge => edge.ParentKind)
 			.ThenBy(edge => edge.ParentId)
-			.ToListAsync(cancellationToken)
-			.ConfigureAwait(false);
+			.ToListAsync(cancellationToken);
 		return [.. edges.Select(ToContinuationEdge)];
 	}
 
@@ -79,6 +88,7 @@ internal sealed class LinqToDBJobStorage<T>(
 	)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		await ExecuteGraphInsertAsync(batch: null, [job], edges, cancellationToken);
 	}
@@ -92,6 +102,7 @@ internal sealed class LinqToDBJobStorage<T>(
 	)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		await ExecuteGraphInsertAsync(batch, jobs, edges, cancellationToken);
 	}
@@ -120,27 +131,27 @@ internal sealed class LinqToDBJobStorage<T>(
 		if (batch is not null && jobs.Any(job => job.BatchHandle != batch.BatchHandle))
 			throw new ImmediateJobException("Every atomic batch member must carry the committed batch identifier.");
 
-		var edgeEntities = edges.Select(ToEntity).ToArray();
+		var edgeEntities = edges.Select(ToEntity).ToList();
 		if (edgeEntities.Any(edge => !jobHandles.Contains(edge.ChildJobHandle)))
 			throw new ImmediateJobException("Every continuation edge must target a job inserted by the same operation.");
-		if (edgeEntities.DistinctBy(static edge => (edge.ChildJobHandle, edge.ParentKind, edge.ParentId)).Count() != edgeEntities.Length)
+		if (edgeEntities.DistinctBy(static edge => (edge.ChildJobHandle, edge.ParentKind, edge.ParentId)).Count() != edgeEntities.Count)
 			throw new ImmediateJobException("Duplicate continuation edges are not allowed.");
 		ThrowIfCyclic(jobHandles, edgeEntities);
 
 		var jobEntities = jobs.Select(ToEntity).ToDictionary(static job => job.Id, StringComparer.Ordinal);
-		await ResetReturningGroupCursorsAsync(connection, jobs, cancellationToken).ConfigureAwait(false);
+		await ResetReturningGroupCursorsAsync(connection, jobs, cancellationToken);
 		await EvaluateInitialDependenciesAsync(
 			connection,
 			jobEntities,
 			edgeEntities,
 			timeProvider.GetUtcNow().UtcTicks,
 			cancellationToken
-		).ConfigureAwait(false);
+		);
 
 		if (batch is not null)
 		{
-			var terminal = jobEntities.Values.Where(static job => IsTerminal(job.State)).ToArray();
-			var pending = jobEntities.Count - terminal.Length;
+			var terminal = jobEntities.Values.Where(static job => IsTerminal(job.State)).ToList();
+			var pending = jobEntities.Count - terminal.Count;
 			var failed = terminal.Count(static job => job.State == JobState.Failed);
 			var cancelled = terminal.Count(static job => job.State == JobState.Cancelled);
 			var skipped = terminal.Count(static job => job.State == JobState.Skipped);
@@ -158,13 +169,13 @@ internal sealed class LinqToDBJobStorage<T>(
 				CompletedAt = pending == 0 ? Ticks(batch.CompletedAt ?? timeProvider.GetUtcNow()) : null,
 				State = pending == 0 ? GetTerminalBatchState(failed, cancelled) : BatchState.Executing,
 				ConcurrencyStamp = Guid.NewGuid(),
-			}, cancellationToken).ConfigureAwait(false);
+			}, cancellationToken);
 		}
 
 		foreach (var entity in jobEntities.Values)
-			_ = await InsertAsync(connection, entity, cancellationToken).ConfigureAwait(false);
+			_ = await InsertAsync(connection, entity, cancellationToken);
 		foreach (var edge in edgeEntities)
-			_ = await InsertAsync(connection, edge, cancellationToken).ConfigureAwait(false);
+			_ = await InsertAsync(connection, edge, cancellationToken);
 	}
 
 	/// <inheritdoc />
@@ -174,9 +185,10 @@ internal sealed class LinqToDBJobStorage<T>(
 	)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		if (request.FairQueues is not null)
-			return await AcquireDueJobsFairAsync(request, cancellationToken).ConfigureAwait(false);
+			return await AcquireDueJobsFairAsync(request, cancellationToken);
 
 		var now = timeProvider.GetUtcNow().UtcTicks;
 		var acquired = new List<JobRecord>(request.BatchSize);
@@ -189,8 +201,8 @@ internal sealed class LinqToDBJobStorage<T>(
 			var jobCapacities = queue.JobCapacities.ToDictionary(static pair => pair.Key, static pair => pair.Value, StringComparer.Ordinal);
 			while (queueCapacity > 0)
 			{
-				var eligibleNames = jobCapacities.Where(static pair => pair.Value > 0).Select(static pair => pair.Key).ToArray();
-				if (eligibleNames.Length == 0)
+				var eligibleNames = jobCapacities.Where(static pair => pair.Value > 0).Select(static pair => pair.Key).ToList();
+				if (eligibleNames.Count == 0)
 					break;
 
 				await using var scope = contextScope.GetScope(out var readConnection);
@@ -203,15 +215,13 @@ internal sealed class LinqToDBJobStorage<T>(
 					.ThenBy(job => job.CreatedAt)
 					.ThenBy(job => job.Id)
 					.Take(queueCapacity)
-					.ToListAsync(cancellationToken)
-					.ConfigureAwait(false);
+					.ToListAsync(cancellationToken);
 				if (candidates.Count == 0)
 					break;
 
 				var selectionCapacities = new Dictionary<string, int>(jobCapacities, StringComparer.Ordinal);
 				var selected = candidates.Where(candidate => selectionCapacities[candidate.JobName]-- > 0).ToList();
-				var claimed = await AcquireCandidatesAsync(selected, request.WorkerId, request.Lease, now, cancellationToken)
-					.ConfigureAwait(false);
+				var claimed = await AcquireCandidatesAsync(selected, request.WorkerId, request.Lease, now, cancellationToken);
 				foreach (var job in claimed)
 				{
 					jobCapacities[job.JobName]--;
@@ -251,8 +261,8 @@ internal sealed class LinqToDBJobStorage<T>(
 				var eligibleNames = jobCapacities
 					.Where(static pair => pair.Value > 0)
 					.Select(static pair => pair.Key)
-					.ToArray();
-				if (eligibleNames.Length == 0)
+					.ToList();
+				if (eligibleNames.Count == 0)
 					break;
 
 				await using var scope = contextScope.GetScope(out var readConnection);
@@ -261,7 +271,7 @@ internal sealed class LinqToDBJobStorage<T>(
 					.Where(job => job.QueueName == queue.QueueName && eligibleNames.Contains(job.JobName) &&
 						(((job.State == JobState.Scheduled || job.State == JobState.Pending) && job.DueAt <= now)
 							|| (job.State == JobState.Active && job.LeaseExpiresAt <= now)));
-				if (!await eligibleQuery.AnyAsync(static job => job.GroupId != null, cancellationToken).ConfigureAwait(false))
+				if (!await eligibleQuery.AnyAsync(static job => job.GroupId != null, cancellationToken))
 				{
 					var fastPath = await AcquireFairFastPathAsync(
 						queue.QueueName,
@@ -271,7 +281,7 @@ internal sealed class LinqToDBJobStorage<T>(
 						request.Lease,
 						now,
 						cancellationToken
-					).ConfigureAwait(false);
+					);
 					queueCapacity -= fastPath.Count;
 					acquired.AddRange(fastPath);
 					break;
@@ -285,15 +295,13 @@ internal sealed class LinqToDBJobStorage<T>(
 						.ThenBy(job => job.CreatedAt)
 						.ThenBy(job => job.Id)
 						.First())
-					.ToListAsync(cancellationToken)
-					.ConfigureAwait(false);
+					.ToListAsync(cancellationToken);
 				var ungroupedHead = await eligibleQuery
 					.Where(static job => job.GroupId == null)
 					.OrderBy(job => job.DueAt)
 					.ThenBy(job => job.CreatedAt)
 					.ThenBy(job => job.Id)
-					.FirstOrDefaultAsync(cancellationToken)
-					.ConfigureAwait(false);
+					.FirstOrDefaultAsync(cancellationToken);
 				if (groupedHeads.Count == 0)
 				{
 					var fastPath = await AcquireFairFastPathAsync(
@@ -304,7 +312,7 @@ internal sealed class LinqToDBJobStorage<T>(
 						request.Lease,
 						now,
 						cancellationToken
-					).ConfigureAwait(false);
+					);
 					queueCapacity -= fastPath.Count;
 					acquired.AddRange(fastPath);
 					break;
@@ -314,8 +322,8 @@ internal sealed class LinqToDBJobStorage<T>(
 					.Where(job => job.QueueName == queue.QueueName
 						&& job.State == JobState.Active
 						&& job.LeaseExpiresAt > now);
-				var totalInflight = await activeQuery.CountAsync(cancellationToken).ConfigureAwait(false);
-				var groupedHeadIds = groupedHeads.Select(static job => job.Id).ToArray();
+				var totalInflight = await activeQuery.CountAsync(cancellationToken);
+				var groupedHeadIds = groupedHeads.Select(static job => job.Id).ToList();
 				var cursorQuery = FairQueueGroups(readConnection)
 					.Where(group => group.QueueName == queue.QueueName);
 				var groupStateQuery = eligibleQuery
@@ -331,22 +339,19 @@ internal sealed class LinqToDBJobStorage<T>(
 								.FirstOrDefault()
 						))
 						.ToDictionaryAsync(static state => state.JobHandle, StringComparer.Ordinal, cancellationToken)
-						.ConfigureAwait(false)
 					: await groupStateQuery
 						.Select(job => new FairQueueCandidateState(
 							job.Id,
 							activeQuery.Count(active => active.GroupId == job.GroupId),
 							0
 						))
-						.ToDictionaryAsync(static state => state.JobHandle, StringComparer.Ordinal, cancellationToken)
-						.ConfigureAwait(false);
+						.ToDictionaryAsync(static state => state.JobHandle, StringComparer.Ordinal, cancellationToken);
 				var nextSequence = 0L;
 				if (request.FairQueues.GroupRoundRobin)
 				{
 					var maxSequence = await cursorQuery
 						.Select(static group => (long?)group.LastServedSequence)
-						.MaxAsync(cancellationToken)
-						.ConfigureAwait(false);
+						.MaxAsync(cancellationToken);
 					nextSequence = checked((maxSequence ?? 0) + 1);
 				}
 
@@ -384,14 +389,14 @@ internal sealed class LinqToDBJobStorage<T>(
 						now,
 						nextSequence,
 						cancellationToken
-					).ConfigureAwait(false)
+					)
 					: GetFirstOrDefault(await AcquireCandidatesAsync(
 							[selected],
 							request.WorkerId,
 							request.Lease,
 							now,
 							cancellationToken
-						).ConfigureAwait(false));
+						));
 				if (claimedJob is null)
 				{
 					if (++consecutiveFailedClaims >= MaxConsecutiveFailedFairClaims)
@@ -425,8 +430,8 @@ internal sealed class LinqToDBJobStorage<T>(
 			var eligibleNames = jobCapacities
 				.Where(static pair => pair.Value > 0)
 				.Select(static pair => pair.Key)
-				.ToArray();
-			if (eligibleNames.Length == 0)
+				.ToList();
+			if (eligibleNames.Count == 0)
 				break;
 
 			await using var scope = contextScope.GetScope(out var readConnection);
@@ -439,8 +444,7 @@ internal sealed class LinqToDBJobStorage<T>(
 				.ThenBy(job => job.CreatedAt)
 				.ThenBy(job => job.Id)
 				.Take(queueCapacity)
-				.ToListAsync(cancellationToken)
-				.ConfigureAwait(false);
+				.ToListAsync(cancellationToken);
 			if (candidates.Count == 0)
 				break;
 
@@ -460,7 +464,7 @@ internal sealed class LinqToDBJobStorage<T>(
 				lease,
 				now,
 				cancellationToken
-			).ConfigureAwait(false);
+			);
 			foreach (var job in claimed)
 			{
 				jobCapacities[job.JobName]--;
@@ -486,7 +490,7 @@ internal sealed class LinqToDBJobStorage<T>(
 	{
 		await using var scope = contextScope.GetScope(out var connection);
 
-		_ = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+		_ = await connection.BeginTransactionAsync(cancellationToken);
 		Guid? observedCursorStamp = null;
 		var cursorWasMissing = false;
 		try
@@ -502,20 +506,19 @@ internal sealed class LinqToDBJobStorage<T>(
 			candidate.ExecutionSpanId = null;
 			candidate.ExecutionStartedAt = null;
 			candidate.ConcurrencyStamp = Guid.NewGuid();
-			if (!await UpdateJobAsync(connection, candidate, oldStamp, cancellationToken).ConfigureAwait(false))
+			if (!await UpdateJobAsync(connection, candidate, oldStamp, cancellationToken))
 				throw new LostRaceException();
-			await PrepareAcquisitionExecutionsAsync(connection, previous, workerId, now, cancellationToken).ConfigureAwait(false);
+			await PrepareAcquisitionExecutionsAsync(connection, previous, workerId, now, cancellationToken);
 
 			if (candidate.BatchHandle is { } batchHandle)
 			{
-				var batch = await Batches(connection).SingleOrDefaultAsync(item => item.Id == batchHandle, cancellationToken)
-					.ConfigureAwait(false);
+				var batch = await Batches(connection).SingleOrDefaultAsync(item => item.Id == batchHandle, cancellationToken);
 				if (batch is not null && batch.StartedAt is null)
 				{
 					var batchStamp = batch.ConcurrencyStamp;
 					batch.StartedAt = now;
 					batch.ConcurrencyStamp = Guid.NewGuid();
-					if (!await UpdateBatchAsync(connection, batch, batchStamp, cancellationToken).ConfigureAwait(false))
+					if (!await UpdateBatchAsync(connection, batch, batchStamp, cancellationToken))
 						throw new LostRaceException();
 				}
 			}
@@ -526,8 +529,7 @@ internal sealed class LinqToDBJobStorage<T>(
 					.SingleOrDefaultAsync(
 						group => group.QueueName == candidate.QueueName && group.GroupId == groupId,
 						cancellationToken
-					)
-					.ConfigureAwait(false);
+					);
 				if (cursor is null)
 				{
 					cursorWasMissing = true;
@@ -537,7 +539,7 @@ internal sealed class LinqToDBJobStorage<T>(
 						GroupId = groupId,
 						LastServedSequence = nextSequence,
 						ConcurrencyStamp = Guid.NewGuid(),
-					}, cancellationToken).ConfigureAwait(false);
+					}, cancellationToken);
 				}
 				else if (cursor.LastServedSequence >= nextSequence)
 				{
@@ -549,34 +551,33 @@ internal sealed class LinqToDBJobStorage<T>(
 					observedCursorStamp = cursorStamp;
 					cursor.LastServedSequence = nextSequence;
 					cursor.ConcurrencyStamp = Guid.NewGuid();
-					if (!await UpdateFairQueueGroupAsync(connection, cursor, cursorStamp, cancellationToken)
-						.ConfigureAwait(false))
+					if (!await UpdateFairQueueGroupAsync(connection, cursor, cursorStamp, cancellationToken))
 					{
 						throw new LostRaceException();
 					}
 				}
 			}
 
-			await connection.CommitTransactionAsync(cancellationToken).ConfigureAwait(false);
+			await connection.CommitTransactionAsync(cancellationToken);
 			return ToRecord(candidate);
 		}
 		catch (SyntheticExecutionInsertFailedException exception)
 		{
-			await connection.RollbackTransactionAsync(cancellationToken).ConfigureAwait(false);
-			if (await SyntheticExecutionExistsAsync(exception.JobHandle, exception.Attempt, cancellationToken).ConfigureAwait(false))
+			await connection.RollbackTransactionAsync(cancellationToken);
+			if (await SyntheticExecutionExistsAsync(exception.JobHandle, exception.Attempt, cancellationToken))
 				return null;
 			throw exception.DatabaseException;
 		}
 		catch (LostRaceException)
 		{
-			await connection.RollbackTransactionAsync(cancellationToken).ConfigureAwait(false);
+			await connection.RollbackTransactionAsync(cancellationToken);
 			return null;
 		}
 		catch (DbException)
 		{
 			try
 			{
-				await connection.RollbackTransactionAsync(cancellationToken).ConfigureAwait(false);
+				await connection.RollbackTransactionAsync(cancellationToken);
 			}
 			catch (DbException)
 			{
@@ -589,7 +590,7 @@ internal sealed class LinqToDBJobStorage<T>(
 				observedCursorStamp,
 				cursorWasMissing,
 				cancellationToken
-			).ConfigureAwait(false))
+			))
 			{
 				return null;
 			}
@@ -614,8 +615,7 @@ internal sealed class LinqToDBJobStorage<T>(
 		var currentStamp = await FairQueueGroups(connection)
 			.Where(group => group.QueueName == queueName && group.GroupId == groupId)
 			.Select(static group => (Guid?)group.ConcurrencyStamp)
-			.SingleOrDefaultAsync(cancellationToken)
-			.ConfigureAwait(false);
+			.SingleOrDefaultAsync(cancellationToken);
 
 		return cursorWasMissing
 			? currentStamp is not null
@@ -648,7 +648,7 @@ internal sealed class LinqToDBJobStorage<T>(
 			.Where(static job => job.GroupId is not null)
 			.Select(static job => (job.QueueName, job.GroupId))
 			.Distinct()
-			.ToArray();
+			.ToList();
 		foreach (var (queueName, groupId) in groups)
 		{
 			var hasLiveJobs = await Jobs(connection)
@@ -659,15 +659,13 @@ internal sealed class LinqToDBJobStorage<T>(
 							|| job.State == JobState.Scheduled
 							|| job.State == JobState.Active),
 					cancellationToken
-				)
-				.ConfigureAwait(false);
+				);
 			if (hasLiveJobs)
 				continue;
 
 			_ = await FairQueueGroups(connection)
 				.Where(group => group.QueueName == queueName && group.GroupId == groupId)
-				.DeleteAsync(cancellationToken)
-				.ConfigureAwait(false);
+				.DeleteAsync(cancellationToken);
 		}
 	}
 
@@ -692,6 +690,7 @@ internal sealed class LinqToDBJobStorage<T>(
 	)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		if (jobHandles.Count == 0)
 			return [];
@@ -704,10 +703,9 @@ internal sealed class LinqToDBJobStorage<T>(
 			.Where(job => job.Id.In(jobHandles.Select(static job => job.Value)) &&
 				(((job.State == JobState.Scheduled || job.State == JobState.Pending) && job.DueAt <= now)
 					|| (job.State == JobState.Active && job.LeaseExpiresAt <= now)))
-			.ToListAsync(cancellationToken)
-			.ConfigureAwait(false);
+			.ToListAsync(cancellationToken);
 
-		return await AcquireCandidatesAsync(candidates, workerId, lease, now, cancellationToken).ConfigureAwait(false);
+		return await AcquireCandidatesAsync(candidates, workerId, lease, now, cancellationToken);
 	}
 
 	private async ValueTask<IReadOnlyList<JobRecord>> AcquireCandidatesAsync(
@@ -723,7 +721,7 @@ internal sealed class LinqToDBJobStorage<T>(
 		{
 			await using var scope = contextScope.GetScope(out var connection);
 
-			_ = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+			_ = await connection.BeginTransactionAsync(cancellationToken);
 			try
 			{
 				var previous = ToRecord(candidate);
@@ -737,43 +735,41 @@ internal sealed class LinqToDBJobStorage<T>(
 				candidate.ExecutionSpanId = null;
 				candidate.ExecutionStartedAt = null;
 				candidate.ConcurrencyStamp = Guid.NewGuid();
-				if (!await UpdateJobAsync(connection, candidate, oldStamp, cancellationToken).ConfigureAwait(false))
+				if (!await UpdateJobAsync(connection, candidate, oldStamp, cancellationToken))
 				{
-					await connection.RollbackTransactionAsync(cancellationToken).ConfigureAwait(false);
+					await connection.RollbackTransactionAsync(cancellationToken);
 					continue;
 				}
 
-				await PrepareAcquisitionExecutionsAsync(connection, previous, workerId, now, cancellationToken).ConfigureAwait(false);
+				await PrepareAcquisitionExecutionsAsync(connection, previous, workerId, now, cancellationToken);
 
 				if (candidate.BatchHandle is { } batchHandle)
 				{
-					var batch = await Batches(connection).SingleOrDefaultAsync(item => item.Id == batchHandle, cancellationToken)
-						.ConfigureAwait(false);
+					var batch = await Batches(connection).SingleOrDefaultAsync(item => item.Id == batchHandle, cancellationToken);
 					if (batch is not null && batch.StartedAt is null)
 					{
 						var batchStamp = batch.ConcurrencyStamp;
 						batch.StartedAt = now;
 						batch.ConcurrencyStamp = Guid.NewGuid();
-						if (!await UpdateBatchAsync(connection, batch, batchStamp, cancellationToken).ConfigureAwait(false))
+						if (!await UpdateBatchAsync(connection, batch, batchStamp, cancellationToken))
 							throw new LostRaceException();
 					}
 				}
 
-				await connection.CommitTransactionAsync(cancellationToken).ConfigureAwait(false);
+				await connection.CommitTransactionAsync(cancellationToken);
 				acquired.Add(ToRecord(candidate));
 			}
 			catch (SyntheticExecutionInsertFailedException exception)
 			{
-				await connection.RollbackTransactionAsync(cancellationToken).ConfigureAwait(false);
-				if (!await SyntheticExecutionExistsAsync(exception.JobHandle, exception.Attempt, cancellationToken)
-					.ConfigureAwait(false))
+				await connection.RollbackTransactionAsync(cancellationToken);
+				if (!await SyntheticExecutionExistsAsync(exception.JobHandle, exception.Attempt, cancellationToken))
 				{
 					throw exception.DatabaseException;
 				}
 			}
 			catch (LostRaceException)
 			{
-				await connection.RollbackTransactionAsync(cancellationToken).ConfigureAwait(false);
+				await connection.RollbackTransactionAsync(cancellationToken);
 			}
 		}
 
@@ -792,32 +788,32 @@ internal sealed class LinqToDBJobStorage<T>(
 	)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		await RetryConcurrencyAsync(async connection =>
 		{
 			var job = await Jobs(connection).SingleOrDefaultAsync(
 				item => item.Id == jobHandle.Value && item.Attempt == executionNumber && item.State == JobState.Active && item.WorkerId == workerId,
 				cancellationToken
-			).ConfigureAwait(false) ?? throw new ImmediateJobException($"Worker '{workerId}' does not own active job '{jobHandle}'.");
-			_ = await GetOrMaterializeExecutionAsync(connection, job, cancellationToken).ConfigureAwait(false)
+			) ?? throw new ImmediateJobException($"Worker '{workerId}' does not own active job '{jobHandle}'.");
+			_ = await GetOrMaterializeExecutionAsync(connection, job, cancellationToken)
 				?? throw new ImmediateJobException($"Active job '{job.Id}' has no execution ordinal.");
 			var oldStamp = job.ConcurrencyStamp;
 			job.ExecutionTraceId = traceId;
 			job.ExecutionSpanId = spanId;
 			job.ExecutionStartedAt = startedAt.UtcTicks;
 			job.ConcurrencyStamp = Guid.NewGuid();
-			if (!await UpdateJobAsync(connection, job, oldStamp, cancellationToken).ConfigureAwait(false))
+			if (!await UpdateJobAsync(connection, job, oldStamp, cancellationToken))
 				throw new LostRaceException();
 			var executionUpdated = await Executions(connection)
 				.Where(execution => execution.JobHandle == jobHandle.Value && execution.Attempt == executionNumber && execution.State == JobExecutionState.Active)
 				.Set(execution => execution.ExecutionTraceId, traceId)
 				.Set(execution => execution.ExecutionSpanId, spanId)
 				.Set(execution => execution.ExecutionStartedAt, startedAt.UtcTicks)
-				.UpdateAsync(cancellationToken)
-				.ConfigureAwait(false);
+				.UpdateAsync(cancellationToken);
 			if (executionUpdated == 0)
 				throw new LostRaceException();
-		}, cancellationToken).ConfigureAwait(false);
+		}, cancellationToken);
 	}
 
 	/// <inheritdoc />
@@ -830,6 +826,7 @@ internal sealed class LinqToDBJobStorage<T>(
 	)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		await using var scope = contextScope.GetScope(out var connection);
 
@@ -837,8 +834,7 @@ internal sealed class LinqToDBJobStorage<T>(
 			.Where(job => job.Id == jobHandle.Value && job.Attempt == executionNumber && job.State == JobState.Active && job.WorkerId == workerId)
 			.Set(job => job.LeaseExpiresAt, timeProvider.GetUtcNow().UtcTicks + lease.Ticks)
 			.Set(job => job.ConcurrencyStamp, Guid.NewGuid())
-			.UpdateAsync(cancellationToken)
-			.ConfigureAwait(false);
+			.UpdateAsync(cancellationToken);
 		if (updated == 0)
 			throw new ImmediateJobException($"Worker '{workerId}' does not own active job '{jobHandle}'.");
 	}
@@ -852,6 +848,7 @@ internal sealed class LinqToDBJobStorage<T>(
 	)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		await CompleteWithContinuationsAsync(jobHandle, executionNumber, workerId, [], cancellationToken);
 	}
@@ -866,6 +863,7 @@ internal sealed class LinqToDBJobStorage<T>(
 	)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		await MutateOwnedWithDependenciesAsync(
 			jobHandle,
@@ -889,6 +887,7 @@ internal sealed class LinqToDBJobStorage<T>(
 	)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		await RetryConcurrencyAsync(
 			connection => AddBatchJobCoreAsync(connection, currentJobHandle, executionNumber, job, options, cancellationToken),
@@ -907,17 +906,18 @@ internal sealed class LinqToDBJobStorage<T>(
 	)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		await MutateOwnedWithDependenciesAsync(
-		jobHandle,
-		executionNumber,
-		workerId,
-		error,
-		nextRetryAt,
-		succeeded: false,
-		[],
-		cancellationToken
-	);
+			jobHandle,
+			executionNumber,
+			workerId,
+			error,
+			nextRetryAt,
+			succeeded: false,
+			[],
+			cancellationToken
+		);
 	}
 
 	/// <inheritdoc />
@@ -927,24 +927,23 @@ internal sealed class LinqToDBJobStorage<T>(
 	)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		for (var attempt = 0; attempt < MaxConcurrencyAttempts; attempt++)
 		{
 			await using var scope = contextScope.GetScope(out var connection);
 
-			var existing = await Recurring(connection).SingleOrDefaultAsync(item => item.Name == schedule.Name, cancellationToken)
-				.ConfigureAwait(false);
+			var existing = await Recurring(connection).SingleOrDefaultAsync(item => item.Name == schedule.Name, cancellationToken);
 			if (existing is null)
 			{
 				try
 				{
-					_ = await InsertAsync(connection, ToEntity(schedule), cancellationToken).ConfigureAwait(false);
+					_ = await InsertAsync(connection, ToEntity(schedule), cancellationToken);
 					return;
 				}
 				catch (DbException)
 				{
-					existing = await Recurring(connection).SingleOrDefaultAsync(item => item.Name == schedule.Name, cancellationToken)
-						.ConfigureAwait(false);
+					existing = await Recurring(connection).SingleOrDefaultAsync(item => item.Name == schedule.Name, cancellationToken);
 					if (existing is null)
 						throw;
 				}
@@ -960,10 +959,10 @@ internal sealed class LinqToDBJobStorage<T>(
 			existing.IsCodeDefined = schedule.IsCodeDefined;
 			existing.NextRunAt = schedule.NextRunAt.UtcTicks;
 			existing.ConcurrencyStamp = Guid.NewGuid();
-			if (await UpdateRecurringAsync(connection, existing, oldStamp, cancellationToken).ConfigureAwait(false))
+			if (await UpdateRecurringAsync(connection, existing, oldStamp, cancellationToken))
 				return;
 			if (attempt + 1 < MaxConcurrencyAttempts)
-				await DelayConcurrencyRetryAsync(cancellationToken).ConfigureAwait(false);
+				await DelayConcurrencyRetryAsync(cancellationToken);
 		}
 
 		throw new ImmediateJobException($"Recurring schedule '{schedule.Name}' could not be upserted under contention.");
@@ -976,29 +975,30 @@ internal sealed class LinqToDBJobStorage<T>(
 	)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		await using var scope = contextScope.GetScope(out var connection);
 
 		var schedules = Recurring(connection).Where(schedule => schedule.IsCodeDefined);
 		if (activeScheduleNames.Count != 0)
 			schedules = schedules.Where(schedule => !activeScheduleNames.Contains(schedule.Name));
-		_ = await schedules.DeleteAsync(cancellationToken).ConfigureAwait(false);
+		_ = await schedules.DeleteAsync(cancellationToken);
 	}
 
 	/// <inheritdoc />
 	public async ValueTask RemoveRecurringAsync(string name, CancellationToken cancellationToken = default)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		await using var scope = contextScope.GetScope(out var connection);
 
 		var removed = await Recurring(connection)
 			.Where(schedule => schedule.Name == name && !schedule.IsCodeDefined)
-			.DeleteAsync(cancellationToken)
-			.ConfigureAwait(false);
+			.DeleteAsync(cancellationToken);
 		if (removed != 0)
 			return;
-		if (await Recurring(connection).AnyAsync(schedule => schedule.Name == name, cancellationToken).ConfigureAwait(false))
+		if (await Recurring(connection).AnyAsync(schedule => schedule.Name == name, cancellationToken))
 			throw new ImmediateJobException("Code-defined recurring schedules cannot be deleted.");
 		throw new KeyNotFoundException($"Recurring schedule '{name}' was not found.");
 	}
@@ -1007,6 +1007,7 @@ internal sealed class LinqToDBJobStorage<T>(
 	public async ValueTask PauseRecurringAsync(string name, CancellationToken cancellationToken = default)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		await SetRecurringPausedAsync(name, paused: true, cancellationToken);
 	}
@@ -1015,8 +1016,9 @@ internal sealed class LinqToDBJobStorage<T>(
 	public async ValueTask ResumeRecurringAsync(string name, CancellationToken cancellationToken = default)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
-		await SetRecurringPausedAsync(name, paused: false, cancellationToken).ConfigureAwait(false);
+		await SetRecurringPausedAsync(name, paused: false, cancellationToken);
 	}
 
 	private async ValueTask SetRecurringPausedAsync(string name, bool paused, CancellationToken cancellationToken)
@@ -1029,8 +1031,7 @@ internal sealed class LinqToDBJobStorage<T>(
 			.Where(schedule => schedule.Name == name)
 			.Set(schedule => schedule.IsPaused, paused)
 			.Set(schedule => schedule.ConcurrencyStamp, Guid.NewGuid())
-			.UpdateAsync(cancellationToken)
-			.ConfigureAwait(false);
+			.UpdateAsync(cancellationToken);
 		if (updated == 0)
 			throw new KeyNotFoundException($"Recurring schedule '{name}' was not found.");
 	}
@@ -1043,6 +1044,7 @@ internal sealed class LinqToDBJobStorage<T>(
 	)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		await using var scope = contextScope.GetScope(out var connection);
 
@@ -1050,8 +1052,7 @@ internal sealed class LinqToDBJobStorage<T>(
 			.Where(schedule => !schedule.IsPaused && schedule.NextRunAt <= now.UtcTicks)
 			.OrderBy(schedule => schedule.NextRunAt)
 			.Take(batchSize)
-			.ToListAsync(cancellationToken)
-			.ConfigureAwait(false);
+			.ToListAsync(cancellationToken);
 		return [.. schedules.Select(ToRecord)];
 	}
 
@@ -1064,17 +1065,17 @@ internal sealed class LinqToDBJobStorage<T>(
 	)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		await using var scope = contextScope.GetScope(out var connection);
 
-		_ = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+		_ = await connection.BeginTransactionAsync(cancellationToken);
 		try
 		{
-			var entity = await Recurring(connection).SingleOrDefaultAsync(item => item.Name == schedule.Name, cancellationToken)
-				.ConfigureAwait(false);
+			var entity = await Recurring(connection).SingleOrDefaultAsync(item => item.Name == schedule.Name, cancellationToken);
 			if (entity is null || entity.IsPaused || entity.NextRunAt != schedule.NextRunAt.UtcTicks)
 			{
-				await connection.RollbackTransactionAsync(cancellationToken).ConfigureAwait(false);
+				await connection.RollbackTransactionAsync(cancellationToken);
 				return false;
 			}
 
@@ -1082,15 +1083,15 @@ internal sealed class LinqToDBJobStorage<T>(
 			entity.LastRunAt = schedule.NextRunAt.UtcTicks;
 			entity.NextRunAt = nextRunAt.UtcTicks;
 			entity.ConcurrencyStamp = Guid.NewGuid();
-			if (!await UpdateRecurringAsync(connection, entity, oldStamp, cancellationToken).ConfigureAwait(false))
+			if (!await UpdateRecurringAsync(connection, entity, oldStamp, cancellationToken))
 				throw new LostRaceException();
-			_ = await InsertAsync(connection, ToEntity(job), cancellationToken).ConfigureAwait(false);
-			await connection.CommitTransactionAsync(cancellationToken).ConfigureAwait(false);
+			_ = await InsertAsync(connection, ToEntity(job), cancellationToken);
+			await connection.CommitTransactionAsync(cancellationToken);
 			return true;
 		}
 		catch (Exception exception) when (exception is LostRaceException or DbException)
 		{
-			await connection.RollbackTransactionAsync(cancellationToken).ConfigureAwait(false);
+			await connection.RollbackTransactionAsync(cancellationToken);
 			if (exception is DbException && job.RecurringKey is not null)
 			{
 				await AdvanceRecurringAfterDedupeAsync(
@@ -1098,7 +1099,7 @@ internal sealed class LinqToDBJobStorage<T>(
 					job.RecurringKey,
 					nextRunAt,
 					cancellationToken
-				).ConfigureAwait(false);
+				);
 			}
 
 			return false;
@@ -1115,8 +1116,7 @@ internal sealed class LinqToDBJobStorage<T>(
 		await using var scope = contextScope.GetScope(out var connection);
 
 		if (!await Jobs(connection)
-			.AnyAsync(job => job.RecurringKey == recurringKey, cancellationToken)
-			.ConfigureAwait(false))
+			.AnyAsync(job => job.RecurringKey == recurringKey, cancellationToken))
 		{
 			return;
 		}
@@ -1129,8 +1129,7 @@ internal sealed class LinqToDBJobStorage<T>(
 			.Set(entity => entity.LastRunAt, schedule.NextRunAt.UtcTicks)
 			.Set(entity => entity.NextRunAt, nextRunAt.UtcTicks)
 			.Set(entity => entity.ConcurrencyStamp, Guid.NewGuid())
-			.UpdateAsync(cancellationToken)
-			.ConfigureAwait(false);
+			.UpdateAsync(cancellationToken);
 	}
 
 	/// <inheritdoc />
@@ -1139,28 +1138,26 @@ internal sealed class LinqToDBJobStorage<T>(
 	)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		await using var scope = contextScope.GetScope(out var connection);
 
 		var rawCounts = await Jobs(connection)
 			.GroupBy(job => job.State)
 			.Select(group => new { State = group.Key, Count = group.LongCount() })
-			.ToListAsync(cancellationToken)
-			.ConfigureAwait(false);
+			.ToListAsync(cancellationToken);
 		var counts = Enum.GetValues<JobState>().ToDictionary(static state => state, static _ => 0L);
 		foreach (var item in rawCounts)
 			counts[item.State] = item.Count;
 
 		var recurringEntities = await Recurring(connection)
 			.OrderBy(schedule => schedule.Name)
-			.ToListAsync(cancellationToken)
-			.ConfigureAwait(false);
+			.ToListAsync(cancellationToken);
 		var cutoff = (timeProvider.GetUtcNow() - TimeSpan.FromMinutes(2)).UtcTicks;
 		var serverEntities = await Servers(connection)
 			.Where(server => server.LastHeartbeat >= cutoff)
 			.OrderBy(server => server.WorkerId)
-			.ToListAsync(cancellationToken)
-			.ConfigureAwait(false);
+			.ToListAsync(cancellationToken);
 		return new JobMonitoringSnapshot
 		{
 			CapturedAt = timeProvider.GetUtcNow(),
@@ -1184,6 +1181,7 @@ internal sealed class LinqToDBJobStorage<T>(
 	)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		await using var scope = contextScope.GetScope(out var connection);
 
@@ -1208,8 +1206,7 @@ internal sealed class LinqToDBJobStorage<T>(
 			.ThenBy(job => job.Id)
 			.Skip(query.Skip)
 			.Take(query.Take)
-			.ToListAsync(cancellationToken)
-			.ConfigureAwait(false);
+			.ToListAsync(cancellationToken);
 		return [.. entities.Select(ToRecord)];
 	}
 
@@ -1221,12 +1218,12 @@ internal sealed class LinqToDBJobStorage<T>(
 	)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		await using var scope = contextScope.GetScope(out var connection);
 
 		var job = await Jobs(connection)
-			.SingleOrDefaultAsync(item => item.Id == jobHandle.Value, cancellationToken)
-			.ConfigureAwait(false);
+			.SingleOrDefaultAsync(item => item.Id == jobHandle.Value, cancellationToken);
 
 		if (job is null)
 			return [];
@@ -1243,7 +1240,7 @@ internal sealed class LinqToDBJobStorage<T>(
 			&& !await executions.AnyAsync(
 				execution => execution.Attempt == synthetic.Attempt,
 				cancellationToken
-			).ConfigureAwait(false);
+			);
 		var skip = query.Skip;
 		var take = query.Take;
 		var result = new List<JobExecutionRecord>(take);
@@ -1263,8 +1260,7 @@ internal sealed class LinqToDBJobStorage<T>(
 				.OrderByDescending(execution => execution.Attempt)
 				.Skip(skip)
 				.Take(take)
-				.ToListAsync(cancellationToken)
-				.ConfigureAwait(false);
+				.ToListAsync(cancellationToken);
 			result.AddRange(persisted.Select(ToRecord));
 		}
 
@@ -1278,11 +1274,11 @@ internal sealed class LinqToDBJobStorage<T>(
 	)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		await using var scope = contextScope.GetScope(out var connection);
 
-		var batch = await Batches(connection).SingleOrDefaultAsync(item => item.Id == batchHandle.Value, cancellationToken)
-			.ConfigureAwait(false);
+		var batch = await Batches(connection).SingleOrDefaultAsync(item => item.Id == batchHandle.Value, cancellationToken);
 		return batch is null ? null : ToStatus(batch);
 	}
 
@@ -1293,6 +1289,7 @@ internal sealed class LinqToDBJobStorage<T>(
 	)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		await using var scope = contextScope.GetScope(out var connection);
 
@@ -1303,8 +1300,7 @@ internal sealed class LinqToDBJobStorage<T>(
 			.ThenBy(batch => batch.Id)
 			.Skip(query.Skip)
 			.Take(query.Take)
-			.ToListAsync(cancellationToken)
-			.ConfigureAwait(false);
+			.ToListAsync(cancellationToken);
 		return [.. entities.Select(ToStatus)];
 	}
 
@@ -1316,6 +1312,7 @@ internal sealed class LinqToDBJobStorage<T>(
 	)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		await using var scope = contextScope.GetScope(out var connection);
 
@@ -1327,8 +1324,7 @@ internal sealed class LinqToDBJobStorage<T>(
 			.ThenBy(job => job.Id)
 			.Skip(query.Skip)
 			.Take(query.Take)
-			.ToListAsync(cancellationToken)
-			.ConfigureAwait(false);
+			.ToListAsync(cancellationToken);
 
 		return entities
 			.Select(job => new BatchMemberStatus
@@ -1352,18 +1348,18 @@ internal sealed class LinqToDBJobStorage<T>(
 	)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		await using var scope = contextScope.GetScope(out var connection);
 
-		if (!await Batches(connection).AnyAsync(batch => batch.Id == batchHandle.Value, cancellationToken).ConfigureAwait(false))
+		if (!await Batches(connection).AnyAsync(batch => batch.Id == batchHandle.Value, cancellationToken))
 			return null;
 		var entities = await Jobs(connection)
 			.Where(job => job.BatchHandle == batchHandle.Value)
 			.OrderBy(job => job.CreatedAt)
 			.ThenBy(job => job.Id)
-			.ToListAsync(cancellationToken)
-			.ConfigureAwait(false);
-		var jobs = entities.Select(job => new BatchGraphNode { JobHandle = JobHandle.FromString(job.Id), JobName = job.JobName, State = job.State }).ToArray();
+			.ToListAsync(cancellationToken);
+		var jobs = entities.Select(job => new BatchGraphNode { JobHandle = JobHandle.FromString(job.Id), JobName = job.JobName, State = job.State }).ToList();
 		var edges = entities.Count == 0
 			? []
 			: await Continuations(connection)
@@ -1371,8 +1367,7 @@ internal sealed class LinqToDBJobStorage<T>(
 				.OrderBy(edge => edge.ChildJobHandle)
 				.ThenBy(edge => edge.ParentKind)
 				.ThenBy(edge => edge.ParentId)
-				.ToListAsync(cancellationToken)
-				.ConfigureAwait(false);
+				.ToListAsync(cancellationToken);
 		return new BatchGraph { BatchHandle = batchHandle, Nodes = jobs, Edges = [.. edges.Select(ToGraphEdge)] };
 	}
 
@@ -1383,19 +1378,18 @@ internal sealed class LinqToDBJobStorage<T>(
 	)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		await using var scope = contextScope.GetScope(out var connection);
 
-		var job = await Jobs(connection).SingleOrDefaultAsync(item => item.Id == jobHandle.Value, cancellationToken)
-			.ConfigureAwait(false);
+		var job = await Jobs(connection).SingleOrDefaultAsync(item => item.Id == jobHandle.Value, cancellationToken);
 		if (job is null)
 			return null;
 		var edges = await Continuations(connection)
 			.Where(edge => edge.ChildJobHandle == jobHandle.Value)
 			.OrderBy(edge => edge.ParentKind)
 			.ThenBy(edge => edge.ParentId)
-			.ToListAsync(cancellationToken)
-			.ConfigureAwait(false);
+			.ToListAsync(cancellationToken);
 		return new JobStatus
 		{
 			JobHandle = JobHandle.FromString(job.Id),
@@ -1417,6 +1411,7 @@ internal sealed class LinqToDBJobStorage<T>(
 	public async ValueTask CancelBatchAsync(BatchHandle batchHandle, CancellationToken cancellationToken = default)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		var terminalGroups = new HashSet<(string QueueName, string GroupId)>();
 		await RetryConcurrencyAsync(
@@ -1427,8 +1422,8 @@ internal sealed class LinqToDBJobStorage<T>(
 				cancellationToken
 			),
 			cancellationToken
-		).ConfigureAwait(false);
-		await CleanupFairQueueGroupsAsync(terminalGroups).ConfigureAwait(false);
+		);
+		await CleanupFairQueueGroupsAsync(terminalGroups);
 	}
 
 	private async Task CancelBatchCoreAsync(
@@ -1440,30 +1435,27 @@ internal sealed class LinqToDBJobStorage<T>(
 	{
 		var now = timeProvider.GetUtcNow().UtcTicks;
 		var batch = await Batches(connection).SingleOrDefaultAsync(item => item.Id == batchHandle.Value, cancellationToken)
-			.ConfigureAwait(false)
 			?? throw new KeyNotFoundException($"Batch '{batchHandle}' was not found.");
 		if (batch.State != BatchState.Executing)
 			throw new ImmediateJobException("Only an executing batch can be cancelled.");
 		var jobHandles = await Jobs(connection).Where(job => job.BatchHandle == batchHandle.Value).Select(job => job.Id)
-			.ToArrayAsync(cancellationToken).ConfigureAwait(false);
-		var jobsToCancel = new List<ImmediateJobEntity>(jobHandles.Length);
+			.ToListAsync(cancellationToken);
+		var jobsToCancel = new List<ImmediateJobEntity>(jobHandles.Count);
 		foreach (var jobHandle in jobHandles)
 		{
-			var job = await Jobs(connection).SingleOrDefaultAsync(item => item.Id == jobHandle, cancellationToken)
-				.ConfigureAwait(false);
+			var job = await Jobs(connection).SingleOrDefaultAsync(item => item.Id == jobHandle, cancellationToken);
 			if (job is null || IsTerminal(job.State))
 				continue;
 			if (job.State == JobState.Active)
 			{
-				_ = await GetOrMaterializeExecutionAsync(connection, job, cancellationToken).ConfigureAwait(false)
+				_ = await GetOrMaterializeExecutionAsync(connection, job, cancellationToken)
 					?? throw new ImmediateJobException($"Active job '{job.Id}' has no execution ordinal.");
 				_ = await Executions(connection)
 					.Where(execution => execution.JobHandle == job.Id && execution.Attempt == job.Attempt)
 					.Set(execution => execution.State, JobExecutionState.Cancelled)
 					.Set(execution => execution.CompletedAt, now)
 					.Set(execution => execution.Error, (string?)null)
-						.UpdateAsync(cancellationToken)
-						.ConfigureAwait(false);
+						.UpdateAsync(cancellationToken);
 			}
 
 			var oldStamp = job.ConcurrencyStamp;
@@ -1472,7 +1464,7 @@ internal sealed class LinqToDBJobStorage<T>(
 			job.WorkerId = null;
 			job.LeaseExpiresAt = null;
 			job.ConcurrencyStamp = Guid.NewGuid();
-			if (!await UpdateJobAsync(connection, job, oldStamp, cancellationToken).ConfigureAwait(false))
+			if (!await UpdateJobAsync(connection, job, oldStamp, cancellationToken))
 				throw new LostRaceException();
 			jobsToCancel.Add(job);
 		}
@@ -1485,7 +1477,7 @@ internal sealed class LinqToDBJobStorage<T>(
 				now,
 				terminalGroups,
 				cancellationToken
-			).ConfigureAwait(false);
+			);
 		}
 	}
 
@@ -1493,36 +1485,35 @@ internal sealed class LinqToDBJobStorage<T>(
 	public async ValueTask DeleteBatchAsync(BatchHandle batchHandle, CancellationToken cancellationToken = default)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		await using var scope = contextScope.GetScope(out var connection);
 
-		_ = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+		_ = await connection.BeginTransactionAsync(cancellationToken);
 		try
 		{
 			var batch = await Batches(connection).SingleOrDefaultAsync(item => item.Id == batchHandle.Value, cancellationToken)
-				.ConfigureAwait(false)
 				?? throw new KeyNotFoundException($"Batch '{batchHandle}' was not found.");
 			if (batch.State == BatchState.Executing)
 				throw new ImmediateJobException("Only a terminal batch can be deleted.");
 			var jobHandles = await Jobs(connection).Where(job => job.BatchHandle == batchHandle.Value).Select(job => job.Id)
-				.ToArrayAsync(cancellationToken).ConfigureAwait(false);
+				.ToListAsync(cancellationToken);
 			_ = await Continuations(connection)
 				.Where(edge =>
 					jobHandles.Contains(edge.ChildJobHandle)
 					|| (edge.ParentKind == ContinuationParentKind.Job && jobHandles.Contains(edge.ParentId))
 					|| (edge.ParentKind == ContinuationParentKind.Batch && edge.ParentId == batchHandle.Value)
 				)
-				.DeleteAsync(cancellationToken)
-				.ConfigureAwait(false);
+				.DeleteAsync(cancellationToken);
 			_ = await Executions(connection).Where(execution => jobHandles.Contains(execution.JobHandle))
-				.DeleteAsync(cancellationToken).ConfigureAwait(false);
-			_ = await Jobs(connection).Where(job => job.BatchHandle == batchHandle.Value).DeleteAsync(cancellationToken).ConfigureAwait(false);
-			_ = await Batches(connection).Where(item => item.Id == batchHandle.Value).DeleteAsync(cancellationToken).ConfigureAwait(false);
-			await connection.CommitTransactionAsync(cancellationToken).ConfigureAwait(false);
+				.DeleteAsync(cancellationToken);
+			_ = await Jobs(connection).Where(job => job.BatchHandle == batchHandle.Value).DeleteAsync(cancellationToken);
+			_ = await Batches(connection).Where(item => item.Id == batchHandle.Value).DeleteAsync(cancellationToken);
+			await connection.CommitTransactionAsync(cancellationToken);
 		}
 		catch
 		{
-			await connection.RollbackTransactionAsync(cancellationToken).ConfigureAwait(false);
+			await connection.RollbackTransactionAsync(cancellationToken);
 			throw;
 		}
 	}
@@ -1531,13 +1522,14 @@ internal sealed class LinqToDBJobStorage<T>(
 	public async ValueTask CancelAsync(JobHandle jobHandle, CancellationToken cancellationToken = default)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		var terminalGroups = new HashSet<(string QueueName, string GroupId)>();
 		await RetryConcurrencyAsync(
 			connection => CancelCoreAsync(connection, jobHandle, terminalGroups, cancellationToken),
 			cancellationToken
-		).ConfigureAwait(false);
-		await CleanupFairQueueGroupsAsync(terminalGroups).ConfigureAwait(false);
+		);
+		await CleanupFairQueueGroupsAsync(terminalGroups);
 	}
 
 	private async Task CancelCoreAsync(
@@ -1548,7 +1540,6 @@ internal sealed class LinqToDBJobStorage<T>(
 	)
 	{
 		var job = await Jobs(connection).SingleOrDefaultAsync(item => item.Id == jobHandle.Value, cancellationToken)
-			.ConfigureAwait(false)
 			?? throw new KeyNotFoundException($"Job '{jobHandle}' was not found.");
 		if (IsTerminal(job.State))
 			throw new ImmediateJobException("Only a non-terminal job can be cancelled.");
@@ -1556,15 +1547,14 @@ internal sealed class LinqToDBJobStorage<T>(
 		var now = timeProvider.GetUtcNow().UtcTicks;
 		if (job.State == JobState.Active)
 		{
-			_ = await GetOrMaterializeExecutionAsync(connection, job, cancellationToken).ConfigureAwait(false)
+			_ = await GetOrMaterializeExecutionAsync(connection, job, cancellationToken)
 				?? throw new ImmediateJobException($"Active job '{job.Id}' has no execution ordinal.");
 			_ = await Executions(connection)
 				.Where(execution => execution.JobHandle == job.Id && execution.Attempt == job.Attempt)
 				.Set(execution => execution.State, JobExecutionState.Cancelled)
 				.Set(execution => execution.CompletedAt, now)
 				.Set(execution => execution.Error, (string?)null)
-				.UpdateAsync(cancellationToken)
-				.ConfigureAwait(false);
+				.UpdateAsync(cancellationToken);
 		}
 
 		var oldStamp = job.ConcurrencyStamp;
@@ -1573,15 +1563,16 @@ internal sealed class LinqToDBJobStorage<T>(
 		job.WorkerId = null;
 		job.LeaseExpiresAt = null;
 		job.ConcurrencyStamp = Guid.NewGuid();
-		if (!await UpdateJobAsync(connection, job, oldStamp, cancellationToken).ConfigureAwait(false))
+		if (!await UpdateJobAsync(connection, job, oldStamp, cancellationToken))
 			throw new LostRaceException();
-		await PropagateTerminalAsync(connection, job, now, terminalGroups, cancellationToken).ConfigureAwait(false);
+		await PropagateTerminalAsync(connection, job, now, terminalGroups, cancellationToken);
 	}
 
 	/// <inheritdoc />
 	public async ValueTask RetryAsync(JobHandle jobHandle, CancellationToken cancellationToken = default)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		await RetryConcurrencyAsync(
 			connection => RetryCoreAsync(connection, jobHandle, cancellationToken),
@@ -1593,11 +1584,10 @@ internal sealed class LinqToDBJobStorage<T>(
 	{
 		var job = await Jobs(connection)
 			.SingleOrDefaultAsync(item => item.Id == jobHandle.Value &&
-				(item.State == JobState.Failed || item.State == JobState.Scheduled), cancellationToken)
-			.ConfigureAwait(false);
+				(item.State == JobState.Failed || item.State == JobState.Scheduled), cancellationToken);
 		if (job is null)
 		{
-			if (await Jobs(connection).AnyAsync(item => item.Id == jobHandle.Value, cancellationToken).ConfigureAwait(false))
+			if (await Jobs(connection).AnyAsync(item => item.Id == jobHandle.Value, cancellationToken))
 				throw new ImmediateJobException("Only failed or scheduled jobs can be retried.");
 			throw new KeyNotFoundException($"Job '{jobHandle}' was not found.");
 		}
@@ -1606,7 +1596,6 @@ internal sealed class LinqToDBJobStorage<T>(
 		if (wasFailed && job.BatchHandle is { } batchHandle)
 		{
 			var batch = await Batches(connection).SingleOrDefaultAsync(item => item.Id == batchHandle, cancellationToken)
-				.ConfigureAwait(false)
 				?? throw new LostRaceException();
 			var batchStamp = batch.ConcurrencyStamp;
 			batch.PendingCount++;
@@ -1614,11 +1603,11 @@ internal sealed class LinqToDBJobStorage<T>(
 			batch.State = BatchState.Executing;
 			batch.CompletedAt = null;
 			batch.ConcurrencyStamp = Guid.NewGuid();
-			if (!await UpdateBatchAsync(connection, batch, batchStamp, cancellationToken).ConfigureAwait(false))
+			if (!await UpdateBatchAsync(connection, batch, batchStamp, cancellationToken))
 				throw new LostRaceException();
 		}
 
-		_ = await GetOrMaterializeExecutionAsync(connection, job, cancellationToken).ConfigureAwait(false);
+		_ = await GetOrMaterializeExecutionAsync(connection, job, cancellationToken);
 
 		var oldStamp = job.ConcurrencyStamp;
 		job.State = JobState.Pending;
@@ -1632,7 +1621,7 @@ internal sealed class LinqToDBJobStorage<T>(
 		}
 
 		job.ConcurrencyStamp = Guid.NewGuid();
-		if (!await UpdateJobAsync(connection, job, oldStamp, cancellationToken).ConfigureAwait(false))
+		if (!await UpdateJobAsync(connection, job, oldStamp, cancellationToken))
 			throw new LostRaceException();
 	}
 
@@ -1640,18 +1629,18 @@ internal sealed class LinqToDBJobStorage<T>(
 	public async ValueTask DeleteAsync(JobHandle jobHandle, CancellationToken cancellationToken = default)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		await using var scope = contextScope.GetScope(out var connection);
 
-		_ = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+		_ = await connection.BeginTransactionAsync(cancellationToken);
 		try
 		{
 			var job = await Jobs(connection).SingleOrDefaultAsync(item => item.Id == jobHandle.Value &&
-				(item.State == JobState.Succeeded || item.State == JobState.Failed || item.State == JobState.Cancelled || item.State == JobState.Skipped), cancellationToken)
-				.ConfigureAwait(false);
+				(item.State == JobState.Succeeded || item.State == JobState.Failed || item.State == JobState.Cancelled || item.State == JobState.Skipped), cancellationToken);
 			if (job is null)
 			{
-				if (await Jobs(connection).AnyAsync(item => item.Id == jobHandle.Value, cancellationToken).ConfigureAwait(false))
+				if (await Jobs(connection).AnyAsync(item => item.Id == jobHandle.Value, cancellationToken))
 					throw new ImmediateJobException("Only terminal jobs can be deleted.");
 				throw new KeyNotFoundException($"Job '{jobHandle}' was not found.");
 			}
@@ -1661,27 +1650,25 @@ internal sealed class LinqToDBJobStorage<T>(
 			_ = await Continuations(connection)
 				.Where(edge => edge.ChildJobHandle == jobHandle.Value ||
 					(edge.ParentKind == ContinuationParentKind.Job && edge.ParentId == jobHandle.Value))
-				.DeleteAsync(cancellationToken)
-				.ConfigureAwait(false);
+				.DeleteAsync(cancellationToken);
 			_ = await Executions(connection).Where(execution => execution.JobHandle == jobHandle.Value)
-				.DeleteAsync(cancellationToken).ConfigureAwait(false);
+				.DeleteAsync(cancellationToken);
 			var removed = await Jobs(connection)
 				.Where(item => item.Id == jobHandle.Value &&
 					(item.State == JobState.Succeeded || item.State == JobState.Failed || item.State == JobState.Cancelled || item.State == JobState.Skipped))
-				.DeleteAsync(cancellationToken)
-				.ConfigureAwait(false);
+				.DeleteAsync(cancellationToken);
 			if (removed == 0)
 			{
-				if (await Jobs(connection).AnyAsync(item => item.Id == jobHandle.Value, cancellationToken).ConfigureAwait(false))
+				if (await Jobs(connection).AnyAsync(item => item.Id == jobHandle.Value, cancellationToken))
 					throw new ImmediateJobException("Only terminal jobs can be deleted.");
 				throw new KeyNotFoundException($"Job '{jobHandle}' was not found.");
 			}
 
-			await connection.CommitTransactionAsync(cancellationToken).ConfigureAwait(false);
+			await connection.CommitTransactionAsync(cancellationToken);
 		}
 		catch
 		{
-			await connection.RollbackTransactionAsync(cancellationToken).ConfigureAwait(false);
+			await connection.RollbackTransactionAsync(cancellationToken);
 			throw;
 		}
 	}
@@ -1694,11 +1681,12 @@ internal sealed class LinqToDBJobStorage<T>(
 	)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		await using var scope = contextScope.GetScope(out var connection);
 
 		var now = timeProvider.GetUtcNow();
-		_ = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+		_ = await connection.BeginTransactionAsync(cancellationToken);
 		try
 		{
 			var jobHandles = await Jobs(connection)
@@ -1715,28 +1703,26 @@ internal sealed class LinqToDBJobStorage<T>(
 					)
 				)
 				.Select(job => job.Id)
-				.ToArrayAsync(cancellationToken)
-				.ConfigureAwait(false);
+				.ToListAsync(cancellationToken);
 
-			if (jobHandles.Length != 0)
+			if (jobHandles.Count != 0)
 			{
 				_ = await Continuations(connection)
 					.Where(edge =>
 						jobHandles.Contains(edge.ChildJobHandle)
 						|| (jobHandles.Contains(edge.ParentId) && edge.ParentKind == ContinuationParentKind.Job)
 					)
-					.DeleteAsync(cancellationToken).ConfigureAwait(false);
+					.DeleteAsync(cancellationToken);
 				_ = await Executions(connection).Where(execution => jobHandles.Contains(execution.JobHandle))
-					.DeleteAsync(cancellationToken).ConfigureAwait(false);
-				_ = await Jobs(connection).Where(job => jobHandles.Contains(job.Id)).DeleteAsync(cancellationToken)
-					.ConfigureAwait(false);
+					.DeleteAsync(cancellationToken);
+				_ = await Jobs(connection).Where(job => jobHandles.Contains(job.Id)).DeleteAsync(cancellationToken);
 			}
 
-			await connection.CommitTransactionAsync(cancellationToken).ConfigureAwait(false);
+			await connection.CommitTransactionAsync(cancellationToken);
 		}
 		catch
 		{
-			await connection.RollbackTransactionAsync(cancellationToken).ConfigureAwait(false);
+			await connection.RollbackTransactionAsync(cancellationToken);
 			throw;
 		}
 	}
@@ -1749,6 +1735,7 @@ internal sealed class LinqToDBJobStorage<T>(
 	)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		var now = timeProvider.GetUtcNow();
 		await RetryConcurrencyAsync(
@@ -1759,7 +1746,7 @@ internal sealed class LinqToDBJobStorage<T>(
 				cancellationToken
 			),
 			cancellationToken
-		).ConfigureAwait(false);
+		);
 	}
 
 	private async Task PurgeBatchesCoreAsync(
@@ -1780,8 +1767,7 @@ internal sealed class LinqToDBJobStorage<T>(
 				)
 			)
 			.OrderBy(batch => batch.Id)
-			.ToListAsync(cancellationToken)
-			.ConfigureAwait(false);
+			.ToListAsync(cancellationToken);
 		if (batches.Count == 0)
 			return;
 
@@ -1790,7 +1776,7 @@ internal sealed class LinqToDBJobStorage<T>(
 		{
 			var oldStamp = batch.ConcurrencyStamp;
 			batch.ConcurrencyStamp = Guid.NewGuid();
-			if (!await UpdateBatchAsync(connection, batch, oldStamp, cancellationToken).ConfigureAwait(false))
+			if (!await UpdateBatchAsync(connection, batch, oldStamp, cancellationToken))
 				throw new LostRaceException();
 		}
 
@@ -1798,42 +1784,39 @@ internal sealed class LinqToDBJobStorage<T>(
 		var memberIds = await Jobs(connection)
 			.Where(job => job.BatchHandle != null && batchHandles.Contains(job.BatchHandle))
 			.Select(job => job.Id)
-			.ToListAsync(cancellationToken)
-			.ConfigureAwait(false);
+			.ToListAsync(cancellationToken);
 		_ = await Continuations(connection)
 			.Where(edge =>
 				(batchHandles.Contains(edge.ParentId) && edge.ParentKind == ContinuationParentKind.Batch)
 				|| memberIds.Contains(edge.ChildJobHandle)
 				|| (memberIds.Contains(edge.ParentId) && edge.ParentKind == ContinuationParentKind.Job)
 			)
-			.DeleteAsync(cancellationToken).ConfigureAwait(false);
+			.DeleteAsync(cancellationToken);
 		_ = await Executions(connection).Where(execution => memberIds.Contains(execution.JobHandle))
-			.DeleteAsync(cancellationToken).ConfigureAwait(false);
+			.DeleteAsync(cancellationToken);
 		_ = await Jobs(connection).Where(job => job.BatchHandle != null && batchHandles.Contains(job.BatchHandle))
-			.DeleteAsync(cancellationToken).ConfigureAwait(false);
-		_ = await Batches(connection).Where(batch => batchHandles.Contains(batch.Id)).DeleteAsync(cancellationToken)
-			.ConfigureAwait(false);
+			.DeleteAsync(cancellationToken);
+		_ = await Batches(connection).Where(batch => batchHandles.Contains(batch.Id)).DeleteAsync(cancellationToken);
 	}
 
 	/// <inheritdoc />
 	public async ValueTask HeartbeatAsync(JobServerSnapshot server, CancellationToken cancellationToken = default)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		await using var scope = contextScope.GetScope(out var connection);
 
 		var cutoff = (timeProvider.GetUtcNow() - TimeSpan.FromMinutes(2)).UtcTicks;
 		_ = await Servers(connection)
 			.Where(entity => entity.LastHeartbeat < cutoff)
-			.DeleteAsync(cancellationToken)
-			.ConfigureAwait(false);
+			.DeleteAsync(cancellationToken);
 		var updated = await Servers(connection)
 			.Where(entity => entity.WorkerId == server.WorkerId)
 			.Set(entity => entity.LastHeartbeat, server.LastHeartbeat.UtcTicks)
 			.Set(entity => entity.ActiveWorkers, server.ActiveWorkers)
 			.Set(entity => entity.MaxWorkers, server.MaxWorkers)
-			.UpdateAsync(cancellationToken)
-			.ConfigureAwait(false);
+			.UpdateAsync(cancellationToken);
 		if (updated != 0)
 			return;
 		try
@@ -1844,7 +1827,7 @@ internal sealed class LinqToDBJobStorage<T>(
 				LastHeartbeat = server.LastHeartbeat.UtcTicks,
 				ActiveWorkers = server.ActiveWorkers,
 				MaxWorkers = server.MaxWorkers,
-			}, cancellationToken).ConfigureAwait(false);
+			}, cancellationToken);
 		}
 		catch (DbException)
 		{
@@ -1853,8 +1836,7 @@ internal sealed class LinqToDBJobStorage<T>(
 				.Set(entity => entity.LastHeartbeat, server.LastHeartbeat.UtcTicks)
 				.Set(entity => entity.ActiveWorkers, server.ActiveWorkers)
 				.Set(entity => entity.MaxWorkers, server.MaxWorkers)
-				.UpdateAsync(cancellationToken)
-				.ConfigureAwait(false);
+				.UpdateAsync(cancellationToken);
 		}
 	}
 
@@ -1862,12 +1844,13 @@ internal sealed class LinqToDBJobStorage<T>(
 	public async ValueTask<bool> IsHealthyAsync(CancellationToken cancellationToken = default)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
 
 		try
 		{
 			await using var scope = contextScope.GetScope(out var connection);
 
-			_ = await connection.ExecuteAsync("SELECT 1", cancellationToken).ConfigureAwait(false);
+			_ = await connection.ExecuteAsync("SELECT 1", cancellationToken);
 			return true;
 		}
 		catch (Exception exception) when (exception is DbException or InvalidOperationException)
@@ -1903,8 +1886,8 @@ internal sealed class LinqToDBJobStorage<T>(
 			),
 			cancellationToken,
 			maxAttempts: MaxContendedCompletionAttempts
-		).ConfigureAwait(false);
-		await CleanupFairQueueGroupsAsync(terminalGroups).ConfigureAwait(false);
+		);
+		await CleanupFairQueueGroupsAsync(terminalGroups);
 	}
 
 	private async Task CleanupFairQueueGroupsAsync(
@@ -1925,16 +1908,14 @@ internal sealed class LinqToDBJobStorage<T>(
 								|| item.State == JobState.Scheduled
 								|| item.State == JobState.Active),
 						CancellationToken.None
-					)
-					.ConfigureAwait(false))
+					))
 				{
 					continue;
 				}
 
 				_ = await FairQueueGroups(connection)
 					.Where(group => group.QueueName == queueName && group.GroupId == groupId)
-					.DeleteAsync(CancellationToken.None)
-					.ConfigureAwait(false);
+					.DeleteAsync(CancellationToken.None);
 			}
 #pragma warning disable CA1031 // Cleanup cannot make an already committed job transition appear to fail.
 			catch (Exception)
@@ -1962,19 +1943,17 @@ internal sealed class LinqToDBJobStorage<T>(
 			.SingleOrDefaultAsync(
 				item => item.Id == jobHandle.Value && item.Attempt == executionNumber && item.State == JobState.Active && item.WorkerId == workerId,
 				cancellationToken
-			)
-			.ConfigureAwait(false) ?? throw new ImmediateJobException($"Worker '{workerId}' does not own active job '{jobHandle}'.");
+			) ?? throw new ImmediateJobException($"Worker '{workerId}' does not own active job '{jobHandle}'.");
 		var oldStamp = job.ConcurrencyStamp;
 		var now = timeProvider.GetUtcNow().UtcTicks;
-		_ = await GetOrMaterializeExecutionAsync(connection, job, cancellationToken).ConfigureAwait(false)
+		_ = await GetOrMaterializeExecutionAsync(connection, job, cancellationToken)
 			?? throw new ImmediateJobException($"Active job '{job.Id}' has no execution ordinal.");
 		var executionUpdated = await Executions(connection)
 			.Where(execution => execution.JobHandle == jobHandle.Value && execution.Attempt == executionNumber && execution.State == JobExecutionState.Active)
 			.Set(execution => execution.State, succeeded ? JobExecutionState.Succeeded : JobExecutionState.Failed)
 			.Set(execution => execution.CompletedAt, now)
 			.Set(execution => execution.Error, error)
-			.UpdateAsync(cancellationToken)
-			.ConfigureAwait(false);
+			.UpdateAsync(cancellationToken);
 		if (executionUpdated == 0)
 			throw new LostRaceException();
 		job.WorkerId = null;
@@ -1986,16 +1965,16 @@ internal sealed class LinqToDBJobStorage<T>(
 			job.State = retryAt.UtcTicks <= now ? JobState.Pending : JobState.Scheduled;
 			job.DueAt = retryAt.UtcTicks;
 			job.CompletedAt = null;
-			if (!await UpdateJobAsync(connection, job, oldStamp, cancellationToken).ConfigureAwait(false))
+			if (!await UpdateJobAsync(connection, job, oldStamp, cancellationToken))
 				throw new LostRaceException();
 			return;
 		}
 
 		if (succeeded && additions.Count != 0)
-			await FlushContinuationAdditionsAsync(connection, job, additions, cancellationToken).ConfigureAwait(false);
+			await FlushContinuationAdditionsAsync(connection, job, additions, cancellationToken);
 		job.State = succeeded ? JobState.Succeeded : JobState.Failed;
 		job.CompletedAt = now;
-		if (!await UpdateJobAsync(connection, job, oldStamp, cancellationToken).ConfigureAwait(false))
+		if (!await UpdateJobAsync(connection, job, oldStamp, cancellationToken))
 			throw new LostRaceException();
 		await PropagateTerminalAsync(
 			connection,
@@ -2003,7 +1982,7 @@ internal sealed class LinqToDBJobStorage<T>(
 			now,
 			terminalGroups,
 			cancellationToken
-		).ConfigureAwait(false);
+		);
 	}
 
 	private async Task AddBatchJobCoreAsync(
@@ -2017,7 +1996,6 @@ internal sealed class LinqToDBJobStorage<T>(
 	{
 		var current = await Jobs(connection)
 			.SingleOrDefaultAsync(job => job.Id == currentJobHandle.Value && job.Attempt == executionNumber && job.State == JobState.Active, cancellationToken)
-			.ConfigureAwait(false)
 			?? throw new ImmediateJobException($"The current active job '{currentJobHandle}' was not found.");
 		if (current.BatchHandle is not { } batchHandle)
 			throw new ImmediateJobException("The current job does not belong to a batch.");
@@ -2025,21 +2003,20 @@ internal sealed class LinqToDBJobStorage<T>(
 		if (!string.Equals(record.BatchHandle?.Value, batchHandle, StringComparison.Ordinal))
 			throw new ImmediateJobException("The new job must belong to the current job's batch.");
 		var batch = await Batches(connection)
-			.SingleAsync(item => item.Id == batchHandle && item.State == BatchState.Executing, cancellationToken)
-			.ConfigureAwait(false);
-		await ResetReturningGroupCursorsAsync(connection, [record], cancellationToken).ConfigureAwait(false);
+			.SingleAsync(item => item.Id == batchHandle && item.State == BatchState.Executing, cancellationToken);
+		await ResetReturningGroupCursorsAsync(connection, [record], cancellationToken);
 		var job = ToEntity(record);
-		_ = await InsertAsync(connection, job, cancellationToken).ConfigureAwait(false);
+		_ = await InsertAsync(connection, job, cancellationToken);
 		var batchStamp = batch.ConcurrencyStamp;
 		batch.TotalJobs++;
 		batch.PendingCount++;
 		batch.ConcurrencyStamp = Guid.NewGuid();
-		if (!await UpdateBatchAsync(connection, batch, batchStamp, cancellationToken).ConfigureAwait(false))
+		if (!await UpdateBatchAsync(connection, batch, batchStamp, cancellationToken))
 			throw new LostRaceException();
 
 		if (options != ContinuationOptions.BeforeContinuations)
 			return;
-		var waiters = await GetActiveWaitersAsync(connection, currentJobHandle, cancellationToken).ConfigureAwait(false);
+		var waiters = await GetActiveWaitersAsync(connection, currentJobHandle, cancellationToken);
 		foreach (var waiter in waiters)
 		{
 			_ = await InsertAsync(connection, new ImmediateJobContinuationEntity
@@ -2049,11 +2026,11 @@ internal sealed class LinqToDBJobStorage<T>(
 				ParentId = job.Id,
 				Delay = 0,
 				Trigger = ContinuationTrigger.Success,
-			}, cancellationToken).ConfigureAwait(false);
+			}, cancellationToken);
 			var waiterStamp = waiter.ConcurrencyStamp;
 			waiter.RemainingDependencies++;
 			waiter.ConcurrencyStamp = Guid.NewGuid();
-			if (!await UpdateJobAsync(connection, waiter, waiterStamp, cancellationToken).ConfigureAwait(false))
+			if (!await UpdateJobAsync(connection, waiter, waiterStamp, cancellationToken))
 				throw new LostRaceException();
 		}
 	}
@@ -2093,20 +2070,19 @@ internal sealed class LinqToDBJobStorage<T>(
 		}
 
 		var waiters = additions.Any(static addition => addition.Options == ContinuationOptions.BeforeContinuations)
-			? await GetActiveWaitersAsync(connection, JobHandle.FromString(current.Id), cancellationToken).ConfigureAwait(false)
+			? await GetActiveWaitersAsync(connection, JobHandle.FromString(current.Id), cancellationToken)
 			: [];
 		if (trackedAdditions != 0)
 		{
 			if (current.BatchHandle is not { } batchHandle)
 				throw new ImmediateJobException("The current job does not belong to a batch.");
 			var batch = await Batches(connection)
-				.SingleAsync(item => item.Id == batchHandle && item.State == BatchState.Executing, cancellationToken)
-				.ConfigureAwait(false);
+				.SingleAsync(item => item.Id == batchHandle && item.State == BatchState.Executing, cancellationToken);
 			var batchStamp = batch.ConcurrencyStamp;
 			batch.TotalJobs += trackedAdditions;
 			batch.PendingCount += trackedAdditions;
 			batch.ConcurrencyStamp = Guid.NewGuid();
-			if (!await UpdateBatchAsync(connection, batch, batchStamp, cancellationToken).ConfigureAwait(false))
+			if (!await UpdateBatchAsync(connection, batch, batchStamp, cancellationToken))
 				throw new LostRaceException();
 		}
 
@@ -2114,7 +2090,7 @@ internal sealed class LinqToDBJobStorage<T>(
 			connection,
 			[.. additions.Select(static addition => addition.Job)],
 			cancellationToken
-		).ConfigureAwait(false);
+		);
 
 		foreach (var addition in additions)
 		{
@@ -2123,7 +2099,7 @@ internal sealed class LinqToDBJobStorage<T>(
 				State = JobState.AwaitingContinuation,
 				RemainingDependencies = 1,
 			});
-			_ = await InsertAsync(connection, job, cancellationToken).ConfigureAwait(false);
+			_ = await InsertAsync(connection, job, cancellationToken);
 			_ = await InsertAsync(connection, new ImmediateJobContinuationEntity
 			{
 				ChildJobHandle = job.Id,
@@ -2131,7 +2107,7 @@ internal sealed class LinqToDBJobStorage<T>(
 				ParentId = current.Id,
 				Delay = addition.Delay.Ticks,
 				Trigger = addition.Trigger,
-			}, cancellationToken).ConfigureAwait(false);
+			}, cancellationToken);
 
 			if (addition.Options != ContinuationOptions.BeforeContinuations)
 				continue;
@@ -2144,11 +2120,11 @@ internal sealed class LinqToDBJobStorage<T>(
 					ParentId = job.Id,
 					Delay = 0,
 					Trigger = ContinuationTrigger.Success,
-				}, cancellationToken).ConfigureAwait(false);
+				}, cancellationToken);
 				var waiterStamp = waiter.ConcurrencyStamp;
 				waiter.RemainingDependencies++;
 				waiter.ConcurrencyStamp = Guid.NewGuid();
-				if (!await UpdateJobAsync(connection, waiter, waiterStamp, cancellationToken).ConfigureAwait(false))
+				if (!await UpdateJobAsync(connection, waiter, waiterStamp, cancellationToken))
 					throw new LostRaceException();
 			}
 		}
@@ -2164,14 +2140,12 @@ internal sealed class LinqToDBJobStorage<T>(
 			.Where(edge => edge.ParentKind == ContinuationParentKind.Job && edge.ParentId == currentJobHandle.Value)
 			.Select(edge => edge.ChildJobHandle)
 			.Distinct()
-			.ToArrayAsync(cancellationToken)
-			.ConfigureAwait(false);
-		return waiterIds.Length == 0
+			.ToListAsync(cancellationToken);
+		return waiterIds.Count == 0
 			? []
 			: await Jobs(connection)
 				.Where(job => waiterIds.Contains(job.Id) && job.State == JobState.AwaitingContinuation)
-				.ToListAsync(cancellationToken)
-				.ConfigureAwait(false);
+				.ToListAsync(cancellationToken);
 	}
 
 	private async Task PropagateTerminalAsync(
@@ -2190,8 +2164,7 @@ internal sealed class LinqToDBJobStorage<T>(
 			terminalJob.Id,
 			GetParentOutcome(terminalJob.State)
 		));
-		await UpdateBatchForTerminalJobAsync(connection, terminalJob, now, parents, cancellationToken)
-			.ConfigureAwait(false);
+		await UpdateBatchForTerminalJobAsync(connection, terminalJob, now, parents, cancellationToken);
 
 		while (parents.TryDequeue(out var parent))
 		{
@@ -2201,8 +2174,7 @@ internal sealed class LinqToDBJobStorage<T>(
 				.Where(edge => edge.ParentKind == parent.Kind
 					&& edge.ParentId == parent.Id
 					&& edge.ParentOutcome == ContinuationParentOutcome.Unsettled)
-				.ToListAsync(cancellationToken)
-				.ConfigureAwait(false);
+				.ToListAsync(cancellationToken);
 			foreach (var edge in edges)
 			{
 				var settled = await Continuations(connection)
@@ -2211,12 +2183,10 @@ internal sealed class LinqToDBJobStorage<T>(
 						&& entity.ParentId == edge.ParentId
 						&& entity.ParentOutcome == ContinuationParentOutcome.Unsettled)
 					.Set(entity => entity.ParentOutcome, parent.Outcome)
-					.UpdateAsync(cancellationToken)
-					.ConfigureAwait(false);
+					.UpdateAsync(cancellationToken);
 				if (settled == 0)
 					continue;
-				var child = await Jobs(connection).SingleOrDefaultAsync(job => job.Id == edge.ChildJobHandle, cancellationToken)
-					.ConfigureAwait(false);
+				var child = await Jobs(connection).SingleOrDefaultAsync(job => job.Id == edge.ChildJobHandle, cancellationToken);
 				if (child is null || IsTerminal(child.State))
 					continue;
 				var childStamp = child.ConcurrencyStamp;
@@ -2227,7 +2197,7 @@ internal sealed class LinqToDBJobStorage<T>(
 					child.FailedDependencies++;
 				if (child.RemainingDependencies == 0)
 				{
-					if (await ShouldSkipSettledContinuationAsync(connection, child.Id, cancellationToken).ConfigureAwait(false))
+					if (await ShouldSkipSettledContinuationAsync(connection, child.Id, cancellationToken))
 					{
 						child.State = JobState.Skipped;
 						child.CompletedAt = now;
@@ -2235,8 +2205,7 @@ internal sealed class LinqToDBJobStorage<T>(
 						child.LeaseExpiresAt = null;
 						AddFairQueueGroup(terminalGroups, child);
 						parents.Enqueue((ContinuationParentKind.Job, child.Id, ContinuationParentOutcome.Other));
-						await UpdateBatchForTerminalJobAsync(connection, child, now, parents, cancellationToken)
-							.ConfigureAwait(false);
+						await UpdateBatchForTerminalJobAsync(connection, child, now, parents, cancellationToken);
 					}
 					else
 					{
@@ -2244,7 +2213,7 @@ internal sealed class LinqToDBJobStorage<T>(
 							connection,
 							child.Id,
 							cancellationToken
-						).ConfigureAwait(false);
+						);
 						var delayedDueAt = now + delay.Ticks;
 						if (child.DueAt < delayedDueAt)
 							child.DueAt = delayedDueAt;
@@ -2253,7 +2222,7 @@ internal sealed class LinqToDBJobStorage<T>(
 				}
 
 				child.ConcurrencyStamp = Guid.NewGuid();
-				if (!await UpdateJobAsync(connection, child, childStamp, cancellationToken).ConfigureAwait(false))
+				if (!await UpdateJobAsync(connection, child, childStamp, cancellationToken))
 					throw new LostRaceException();
 			}
 		}
@@ -2268,8 +2237,7 @@ internal sealed class LinqToDBJobStorage<T>(
 		var delays = await Continuations(connection)
 			.Where(edge => edge.ChildJobHandle == childJobHandle)
 			.Select(edge => edge.Delay)
-			.ToListAsync(cancellationToken)
-			.ConfigureAwait(false);
+			.ToListAsync(cancellationToken);
 		return delays.Count == 0
 			? TimeSpan.Zero
 			: TimeSpan.FromTicks(delays.Max());
@@ -2283,8 +2251,7 @@ internal sealed class LinqToDBJobStorage<T>(
 	{
 		var edges = await Continuations(connection)
 			.Where(edge => edge.ChildJobHandle == childJobHandle)
-			.ToListAsync(cancellationToken)
-			.ConfigureAwait(false);
+			.ToListAsync(cancellationToken);
 		var requiresFailure = false;
 		var anyParentFailed = false;
 		foreach (var edge in edges)
@@ -2321,8 +2288,7 @@ internal sealed class LinqToDBJobStorage<T>(
 	{
 		if (job.BatchHandle is not { } batchHandle)
 			return;
-		var batch = await Batches(connection).SingleAsync(item => item.Id == batchHandle, cancellationToken)
-			.ConfigureAwait(false);
+		var batch = await Batches(connection).SingleAsync(item => item.Id == batchHandle, cancellationToken);
 		var oldStamp = batch.ConcurrencyStamp;
 		batch.PendingCount = Math.Max(0, batch.PendingCount - 1);
 		switch (job.State)
@@ -2361,14 +2327,14 @@ internal sealed class LinqToDBJobStorage<T>(
 			));
 		}
 
-		if (!await UpdateBatchAsync(connection, batch, oldStamp, cancellationToken).ConfigureAwait(false))
+		if (!await UpdateBatchAsync(connection, batch, oldStamp, cancellationToken))
 			throw new LostRaceException();
 	}
 
 	private async Task EvaluateInitialDependenciesAsync(
 		DataConnection connection,
 		Dictionary<string, ImmediateJobEntity> jobs,
-		ImmediateJobContinuationEntity[] edges,
+		List<ImmediateJobContinuationEntity> edges,
 		long now,
 		CancellationToken cancellationToken
 	)
@@ -2378,22 +2344,20 @@ internal sealed class LinqToDBJobStorage<T>(
 			.Select(static edge => edge.ParentId)
 			.Distinct(StringComparer.Ordinal)
 			.Order(StringComparer.Ordinal)
-			.ToArray();
+			.ToList();
 		var externalBatchHandles = edges
 			.Where(static edge => edge.ParentKind == ContinuationParentKind.Batch)
 			.Select(static edge => edge.ParentId)
 			.Distinct(StringComparer.Ordinal)
 			.Order(StringComparer.Ordinal)
-			.ToArray();
-		var externalJobEntities = externalJobHandles.Length == 0
+			.ToList();
+		var externalJobEntities = externalJobHandles.Count == 0
 			? [with(StringComparer.Ordinal)]
-			: (await Jobs(connection).Where(job => externalJobHandles.Contains(job.Id)).ToListAsync(cancellationToken)
-				.ConfigureAwait(false)).ToDictionary(job => job.Id, StringComparer.Ordinal);
-		var externalBatchEntities = externalBatchHandles.Length == 0
+			: (await Jobs(connection).Where(job => externalJobHandles.Contains(job.Id)).ToListAsync(cancellationToken)).ToDictionary(job => job.Id, StringComparer.Ordinal);
+		var externalBatchEntities = externalBatchHandles.Count == 0
 			? [with(StringComparer.Ordinal)]
-			: (await Batches(connection).Where(batch => externalBatchHandles.Contains(batch.Id)).ToListAsync(cancellationToken)
-				.ConfigureAwait(false)).ToDictionary(batch => batch.Id, StringComparer.Ordinal);
-		if (externalJobEntities.Count != externalJobHandles.Length || externalBatchEntities.Count != externalBatchHandles.Length)
+			: (await Batches(connection).Where(batch => externalBatchHandles.Contains(batch.Id)).ToListAsync(cancellationToken)).ToDictionary(batch => batch.Id, StringComparer.Ordinal);
+		if (externalJobEntities.Count != externalJobHandles.Count || externalBatchEntities.Count != externalBatchHandles.Count)
 			throw new ImmediateJobException("A continuation parent does not exist.");
 		foreach (var parentId in externalJobHandles)
 		{
@@ -2402,7 +2366,7 @@ internal sealed class LinqToDBJobStorage<T>(
 				continue;
 			var oldStamp = parent.ConcurrencyStamp;
 			parent.ConcurrencyStamp = Guid.NewGuid();
-			if (!await UpdateJobAsync(connection, parent, oldStamp, cancellationToken).ConfigureAwait(false))
+			if (!await UpdateJobAsync(connection, parent, oldStamp, cancellationToken))
 				throw new LostRaceException();
 		}
 
@@ -2413,7 +2377,7 @@ internal sealed class LinqToDBJobStorage<T>(
 				continue;
 			var oldStamp = parent.ConcurrencyStamp;
 			parent.ConcurrencyStamp = Guid.NewGuid();
-			if (!await UpdateBatchAsync(connection, parent, oldStamp, cancellationToken).ConfigureAwait(false))
+			if (!await UpdateBatchAsync(connection, parent, oldStamp, cancellationToken))
 				throw new LostRaceException();
 		}
 
@@ -2541,34 +2505,32 @@ internal sealed class LinqToDBJobStorage<T>(
 		{
 			await using var scope = contextScope.GetScope(out var connection);
 
-			_ = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+			_ = await connection.BeginTransactionAsync(cancellationToken);
 			try
 			{
-				await operation(connection).ConfigureAwait(false);
-				await connection.CommitTransactionAsync(cancellationToken).ConfigureAwait(false);
+				await operation(connection);
+				await connection.CommitTransactionAsync(cancellationToken);
 				return;
 			}
 			catch (SyntheticExecutionInsertFailedException exception) when (++concurrencyAttempt < maxAttempts)
 			{
-				await connection.RollbackTransactionAsync(cancellationToken).ConfigureAwait(false);
-				if (!await SyntheticExecutionExistsAsync(exception.JobHandle, exception.Attempt, cancellationToken)
-					.ConfigureAwait(false))
+				await connection.RollbackTransactionAsync(cancellationToken);
+				if (!await SyntheticExecutionExistsAsync(exception.JobHandle, exception.Attempt, cancellationToken))
 				{
 					throw exception.DatabaseException;
 				}
 				// Retry in a new transaction and re-read the execution inserted by the winner.
-				await DelayConcurrencyRetryAsync(cancellationToken).ConfigureAwait(false);
+				await DelayConcurrencyRetryAsync(cancellationToken);
 			}
 			catch (LostRaceException) when (++concurrencyAttempt < maxAttempts)
 			{
-				await connection.RollbackTransactionAsync(cancellationToken).ConfigureAwait(false);
-				await DelayConcurrencyRetryAsync(cancellationToken).ConfigureAwait(false);
+				await connection.RollbackTransactionAsync(cancellationToken);
+				await DelayConcurrencyRetryAsync(cancellationToken);
 			}
 			catch (SyntheticExecutionInsertFailedException exception)
 			{
-				await connection.RollbackTransactionAsync(cancellationToken).ConfigureAwait(false);
-				if (!await SyntheticExecutionExistsAsync(exception.JobHandle, exception.Attempt, cancellationToken)
-					.ConfigureAwait(false))
+				await connection.RollbackTransactionAsync(cancellationToken);
+				if (!await SyntheticExecutionExistsAsync(exception.JobHandle, exception.Attempt, cancellationToken))
 				{
 					throw exception.DatabaseException;
 				}
@@ -2580,7 +2542,7 @@ internal sealed class LinqToDBJobStorage<T>(
 			}
 			catch (LostRaceException exception)
 			{
-				await connection.RollbackTransactionAsync(cancellationToken).ConfigureAwait(false);
+				await connection.RollbackTransactionAsync(cancellationToken);
 				throw new ImmediateJobException(
 					"The job operation could not be completed after repeated concurrency conflicts.",
 					exception
@@ -2588,7 +2550,7 @@ internal sealed class LinqToDBJobStorage<T>(
 			}
 			catch
 			{
-				await connection.RollbackTransactionAsync(cancellationToken).ConfigureAwait(false);
+				await connection.RollbackTransactionAsync(cancellationToken);
 				throw;
 			}
 		}
@@ -2608,8 +2570,7 @@ internal sealed class LinqToDBJobStorage<T>(
 				.AnyAsync(
 					execution => execution.JobHandle == jobHandle.Value && execution.Attempt == attempt,
 					cancellationToken
-				)
-				.ConfigureAwait(false);
+				);
 		}
 		catch (DbException)
 		{
@@ -2652,8 +2613,7 @@ internal sealed class LinqToDBJobStorage<T>(
 			.Set(entity => entity.RemainingDependencies, job.RemainingDependencies)
 			.Set(entity => entity.FailedDependencies, job.FailedDependencies)
 			.Set(entity => entity.ConcurrencyStamp, job.ConcurrencyStamp)
-			.UpdateAsync(cancellationToken)
-			.ConfigureAwait(false);
+			.UpdateAsync(cancellationToken);
 		return updated != 0;
 	}
 
@@ -2670,8 +2630,7 @@ internal sealed class LinqToDBJobStorage<T>(
 				&& entity.ConcurrencyStamp == oldStamp)
 			.Set(entity => entity.LastServedSequence, group.LastServedSequence)
 			.Set(entity => entity.ConcurrencyStamp, group.ConcurrencyStamp)
-			.UpdateAsync(cancellationToken)
-			.ConfigureAwait(false);
+			.UpdateAsync(cancellationToken);
 		return updated != 0;
 	}
 
@@ -2695,8 +2654,7 @@ internal sealed class LinqToDBJobStorage<T>(
 			.Set(entity => entity.CompletedAt, batch.CompletedAt)
 			.Set(entity => entity.State, batch.State)
 			.Set(entity => entity.ConcurrencyStamp, batch.ConcurrencyStamp)
-			.UpdateAsync(cancellationToken)
-			.ConfigureAwait(false);
+			.UpdateAsync(cancellationToken);
 		return updated != 0;
 	}
 
@@ -2718,8 +2676,7 @@ internal sealed class LinqToDBJobStorage<T>(
 			.Set(entity => entity.NextRunAt, schedule.NextRunAt)
 			.Set(entity => entity.LastRunAt, schedule.LastRunAt)
 			.Set(entity => entity.ConcurrencyStamp, schedule.ConcurrencyStamp)
-			.UpdateAsync(cancellationToken)
-			.ConfigureAwait(false);
+			.UpdateAsync(cancellationToken);
 		return updated != 0;
 	}
 
@@ -2834,8 +2791,7 @@ internal sealed class LinqToDBJobStorage<T>(
 		CancellationToken cancellationToken
 	)
 	{
-		var priorExecution = await GetOrMaterializeExecutionAsync(connection, ToEntity(previous), cancellationToken)
-			.ConfigureAwait(false);
+		var priorExecution = await GetOrMaterializeExecutionAsync(connection, ToEntity(previous), cancellationToken);
 		if (previous.State == JobState.Active && priorExecution is not null)
 		{
 			_ = await Executions(connection)
@@ -2843,8 +2799,7 @@ internal sealed class LinqToDBJobStorage<T>(
 				.Set(execution => execution.State, JobExecutionState.Interrupted)
 				.Set(execution => execution.CompletedAt, Ticks(previous.LeaseExpiresAt))
 				.Set(execution => execution.Error, (string?)null)
-				.UpdateAsync(cancellationToken)
-				.ConfigureAwait(false);
+				.UpdateAsync(cancellationToken);
 		}
 
 		_ = await InsertAsync(connection, new ImmediateJobExecutionEntity
@@ -2854,7 +2809,7 @@ internal sealed class LinqToDBJobStorage<T>(
 			State = JobExecutionState.Active,
 			WorkerId = workerId,
 			AcquiredAt = acquiredAt,
-		}, cancellationToken).ConfigureAwait(false);
+		}, cancellationToken);
 	}
 
 	private async Task<ImmediateJobExecutionEntity?> GetOrMaterializeExecutionAsync(
@@ -2869,8 +2824,7 @@ internal sealed class LinqToDBJobStorage<T>(
 			.SingleOrDefaultAsync(
 				item => item.JobHandle == job.Id && item.Attempt == job.Attempt,
 				cancellationToken
-			)
-			.ConfigureAwait(false);
+			);
 		if (execution is not null)
 			return execution;
 
@@ -2880,7 +2834,7 @@ internal sealed class LinqToDBJobStorage<T>(
 		execution = ToEntity(synthetic);
 		try
 		{
-			_ = await InsertAsync(connection, execution, cancellationToken).ConfigureAwait(false);
+			_ = await InsertAsync(connection, execution, cancellationToken);
 		}
 		catch (DbException exception)
 		{

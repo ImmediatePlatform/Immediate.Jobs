@@ -95,7 +95,7 @@ public sealed class CapturingJobStorage(TimeProvider timeProvider) :
 	/// <inheritdoc />
 	public ValueTask EnqueueContinuationAsync(JobRecord job, IReadOnlyList<JobContinuationEdge> edges, CancellationToken cancellationToken = default)
 	{
-		var edgeSnapshot = edges.ToArray();
+		var edgeSnapshot = edges.ToList();
 		lock (_gate)
 		{
 			_jobs.Add(job);
@@ -108,8 +108,8 @@ public sealed class CapturingJobStorage(TimeProvider timeProvider) :
 	/// <inheritdoc />
 	public ValueTask EnqueueBatchAsync(BatchRecord batch, IReadOnlyList<JobRecord> jobs, IReadOnlyList<JobContinuationEdge> edges, CancellationToken cancellationToken = default)
 	{
-		var jobSnapshot = jobs.ToArray();
-		var edgeSnapshot = edges.ToArray();
+		var jobSnapshot = jobs.ToList();
+		var edgeSnapshot = edges.ToList();
 		lock (_gate)
 		{
 			_jobs.AddRange(jobSnapshot);
@@ -134,7 +134,7 @@ public sealed class CapturingJobStorage(TimeProvider timeProvider) :
 	/// <inheritdoc />
 	public ValueTask CompleteWithContinuationsAsync(JobHandle jobHandle, int executionNumber, string workerId, IReadOnlyList<JobContinuationAddition> additions, CancellationToken cancellationToken = default)
 	{
-		var snapshot = additions.ToArray();
+		var snapshot = additions.ToList();
 		lock (_gate)
 		{
 			_jobs.AddRange(snapshot.Select(static addition => addition.Job));

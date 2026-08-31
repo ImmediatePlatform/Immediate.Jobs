@@ -22,7 +22,7 @@ public sealed class QueueSchedulerTests
 		_ = services.AddImmediateJobsCore();
 
 		await using var provider = services.BuildServiceProvider();
-		var hostedServices = provider.GetServices<IHostedService>().ToArray();
+		var hostedServices = provider.GetServices<IHostedService>().ToList();
 
 		Assert.Collection(
 			hostedServices,

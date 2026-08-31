@@ -46,7 +46,7 @@
 	<Net10PackageVersion>10.0.11</Net10PackageVersion>
 	<Net11PackageVersion>11.0.0-preview.7.26381.103</Net11PackageVersion>
   </PropertyGroup>
-  
+
   <ItemGroup Condition="'$(TargetFramework)' == 'net11.0'">
 	<PackageVersion Include="Basic.Reference.Assemblies.Net110" Version="1.8.11" />
 	<PackageVersion Include="Microsoft.AspNetCore.TestHost" Version="$(Net11PackageVersion)" />
@@ -154,6 +154,7 @@
 	<GlobalPackageReference Include="DotNet.ReproducibleBuilds" Version="2.0.5" PrivateAssets="All" />
 	<GlobalPackageReference Include="Meziantou.Analyzer" Version="3.0.190" PrivateAssets="All" />
 	<GlobalPackageReference Include="Meziantou.Polyfill" Version="1.0.164" PrivateAssets="All" />
+	<GlobalPackageReference Include="Microsoft.CodeAnalysis.BannedApiAnalyzers" Version="5.6.0" PrivateAssets="All" />
 	<GlobalPackageReference Include="MinVer" Version="7.0.0" PrivateAssets="All" />
   </ItemGroup>
 </Project>

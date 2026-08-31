@@ -54,42 +54,36 @@ internal static class FairQueueStorageConformance
 	{
 		_ = GetFairStorage(storage, RotationName);
 		var clock = timeProvider;
-		await EnqueueAsync(storage, clock, "rotation-a-1", 0, "group-a", cancellationToken).ConfigureAwait(false);
-		await EnqueueAsync(storage, clock, "rotation-a-2", 1, "group-a", cancellationToken).ConfigureAwait(false);
+		await EnqueueAsync(storage, clock, "rotation-a-1", 0, "group-a", cancellationToken);
+		await EnqueueAsync(storage, clock, "rotation-a-2", 1, "group-a", cancellationToken);
 		var first = Single(
-			await storage.AcquireDueJobsAsync(CreateRequest("rotation-worker-a", 1, DefaultPolicy), cancellationToken)
-				.ConfigureAwait(false), RotationName, "the first fair acquisition must claim one job");
-		await storage.CompleteAsync(first.JobHandle, first.Attempt, "rotation-worker-a", cancellationToken).ConfigureAwait(false);
-		await EnqueueAsync(storage, clock, "rotation-b-1", 2, "group-b", cancellationToken).ConfigureAwait(false);
+			await storage.AcquireDueJobsAsync(CreateRequest("rotation-worker-a", 1, DefaultPolicy), cancellationToken), RotationName, "the first fair acquisition must claim one job");
+		await storage.CompleteAsync(first.JobHandle, first.Attempt, "rotation-worker-a", cancellationToken);
+		await EnqueueAsync(storage, clock, "rotation-b-1", 2, "group-b", cancellationToken);
 		var second = Single(
-			await storage.AcquireDueJobsAsync(CreateRequest("rotation-worker-b", 1, DefaultPolicy), cancellationToken)
-				.ConfigureAwait(false), RotationName, "the second fair acquisition must claim one job");
+			await storage.AcquireDueJobsAsync(CreateRequest("rotation-worker-b", 1, DefaultPolicy), cancellationToken), RotationName, "the second fair acquisition must claim one job");
 		ConformanceAssert.Equal("rotation-a-1", first.JobHandle.Value, RotationName, "ordinary due order selects the first group initially");
 		ConformanceAssert.Equal("rotation-b-1", second.JobHandle.Value, RotationName,
 			"a newly arrived group must advance ahead of previously served backlog");
 
 		const string ExistingJobName = "fair-existing-groups";
-		await EnqueueAsync(storage, clock, "existing-a-1", 3, "existing-a", cancellationToken, ExistingJobName)
-			.ConfigureAwait(false);
-		await EnqueueAsync(storage, clock, "existing-a-2", 4, "existing-a", cancellationToken, ExistingJobName)
-			.ConfigureAwait(false);
-		await EnqueueAsync(storage, clock, "existing-b-1", 5, "existing-b", cancellationToken, ExistingJobName)
-			.ConfigureAwait(false);
+		await EnqueueAsync(storage, clock, "existing-a-1", 3, "existing-a", cancellationToken, ExistingJobName);
+		await EnqueueAsync(storage, clock, "existing-a-2", 4, "existing-a", cancellationToken, ExistingJobName);
+		await EnqueueAsync(storage, clock, "existing-b-1", 5, "existing-b", cancellationToken, ExistingJobName);
 		var existingFirst = Single(
 			await storage.AcquireDueJobsAsync(
 				CreateRequest("existing-worker-a", 1, DefaultPolicy, jobName: ExistingJobName),
 				cancellationToken
-			).ConfigureAwait(false),
+			),
 			RotationName,
 			"capacity-one fair acquisition must claim one existing-group job"
 		);
-		await storage.CompleteAsync(existingFirst.JobHandle, existingFirst.Attempt, "existing-worker-a", cancellationToken)
-			.ConfigureAwait(false);
+		await storage.CompleteAsync(existingFirst.JobHandle, existingFirst.Attempt, "existing-worker-a", cancellationToken);
 		var existingSecond = Single(
 			await storage.AcquireDueJobsAsync(
 				CreateRequest("existing-worker-b", 1, DefaultPolicy, jobName: ExistingJobName),
 				cancellationToken
-			).ConfigureAwait(false),
+			),
 			RotationName,
 			"the next fair acquisition must claim one existing-group job"
 		);
@@ -101,39 +95,33 @@ internal static class FairQueueStorageConformance
 		);
 
 		const string ReturningJobName = "fair-returning-group";
-		await EnqueueAsync(storage, clock, "returning-a-1", 6, "returning-a", cancellationToken, ReturningJobName)
-			.ConfigureAwait(false);
-		await EnqueueAsync(storage, clock, "returning-a-2", 7, "returning-a", cancellationToken, ReturningJobName)
-			.ConfigureAwait(false);
-		await EnqueueAsync(storage, clock, "returning-b-1", 8, "returning-b", cancellationToken, ReturningJobName)
-			.ConfigureAwait(false);
+		await EnqueueAsync(storage, clock, "returning-a-1", 6, "returning-a", cancellationToken, ReturningJobName);
+		await EnqueueAsync(storage, clock, "returning-a-2", 7, "returning-a", cancellationToken, ReturningJobName);
+		await EnqueueAsync(storage, clock, "returning-b-1", 8, "returning-b", cancellationToken, ReturningJobName);
 		var returningFirst = Single(
 			await storage.AcquireDueJobsAsync(
 				CreateRequest("returning-worker-a", 1, DefaultPolicy, jobName: ReturningJobName),
 				cancellationToken
-			).ConfigureAwait(false),
+			),
 			RotationName,
 			"returning-group setup must claim its first job"
 		);
-		await storage.CompleteAsync(returningFirst.JobHandle, returningFirst.Attempt, "returning-worker-a", cancellationToken)
-			.ConfigureAwait(false);
+		await storage.CompleteAsync(returningFirst.JobHandle, returningFirst.Attempt, "returning-worker-a", cancellationToken);
 		var returningSecond = Single(
 			await storage.AcquireDueJobsAsync(
 				CreateRequest("returning-worker-b", 1, DefaultPolicy, jobName: ReturningJobName),
 				cancellationToken
-			).ConfigureAwait(false),
+			),
 			RotationName,
 			"returning-group setup must rotate to the second group"
 		);
-		await storage.CompleteAsync(returningSecond.JobHandle, returningSecond.Attempt, "returning-worker-b", cancellationToken)
-			.ConfigureAwait(false);
-		await EnqueueAsync(storage, clock, "returning-b-2", 9, "returning-b", cancellationToken, ReturningJobName)
-			.ConfigureAwait(false);
+		await storage.CompleteAsync(returningSecond.JobHandle, returningSecond.Attempt, "returning-worker-b", cancellationToken);
+		await EnqueueAsync(storage, clock, "returning-b-2", 9, "returning-b", cancellationToken, ReturningJobName);
 		var returned = Single(
 			await storage.AcquireDueJobsAsync(
 				CreateRequest("returning-worker-c", 1, DefaultPolicy, jobName: ReturningJobName),
 				cancellationToken
-			).ConfigureAwait(false),
+			),
 			RotationName,
 			"a returning group must rejoin fair rotation"
 		);
@@ -153,12 +141,12 @@ internal static class FairQueueStorageConformance
 	{
 		_ = GetFairStorage(storage, InterleaveName);
 		var clock = timeProvider;
-		await EnqueueAsync(storage, clock, "interleave-a-1", 0, "group-a", cancellationToken).ConfigureAwait(false);
-		await EnqueueAsync(storage, clock, "interleave-a-2", 1, "group-a", cancellationToken).ConfigureAwait(false);
-		await EnqueueAsync(storage, clock, "interleave-b-1", 2, "group-b", cancellationToken).ConfigureAwait(false);
-		await EnqueueAsync(storage, clock, "interleave-b-2", 3, "group-b", cancellationToken).ConfigureAwait(false);
+		await EnqueueAsync(storage, clock, "interleave-a-1", 0, "group-a", cancellationToken);
+		await EnqueueAsync(storage, clock, "interleave-a-2", 1, "group-a", cancellationToken);
+		await EnqueueAsync(storage, clock, "interleave-b-1", 2, "group-b", cancellationToken);
+		await EnqueueAsync(storage, clock, "interleave-b-2", 3, "group-b", cancellationToken);
 		var acquired = await storage.AcquireDueJobsAsync(
-			CreateRequest("interleave-worker", 4, DefaultPolicy), cancellationToken).ConfigureAwait(false);
+			CreateRequest("interleave-worker", 4, DefaultPolicy), cancellationToken);
 		ConformanceAssert.SequenceEqual(
 			["interleave-a-1", "interleave-b-1", "interleave-a-2", "interleave-b-2"],
 			acquired.Select(static job => job.JobHandle.Value),
@@ -176,13 +164,13 @@ internal static class FairQueueStorageConformance
 	{
 		_ = GetFairStorage(storage, NoisyName);
 		var clock = timeProvider;
-		await EnqueueAsync(storage, clock, "noisy-active-1", 0, "noisy", cancellationToken).ConfigureAwait(false);
-		await EnqueueAsync(storage, clock, "noisy-active-2", 1, "noisy", cancellationToken).ConfigureAwait(false);
+		await EnqueueAsync(storage, clock, "noisy-active-1", 0, "noisy", cancellationToken);
+		await EnqueueAsync(storage, clock, "noisy-active-2", 1, "noisy", cancellationToken);
 		var active = await storage.AcquireDueJobsAsync(
-			CreateRequest("existing-worker", 2, policy: null), cancellationToken).ConfigureAwait(false);
+			CreateRequest("existing-worker", 2, policy: null), cancellationToken);
 		ConformanceAssert.Equal(2, active.Count, NoisyName, "the noisy group setup must create two active jobs");
-		await EnqueueAsync(storage, clock, "noisy-waiting", 2, "noisy", cancellationToken).ConfigureAwait(false);
-		await EnqueueAsync(storage, clock, "quiet-waiting", 3, "quiet", cancellationToken).ConfigureAwait(false);
+		await EnqueueAsync(storage, clock, "noisy-waiting", 2, "noisy", cancellationToken);
+		await EnqueueAsync(storage, clock, "quiet-waiting", 3, "quiet", cancellationToken);
 		var acquired = Single(
 			await storage.AcquireDueJobsAsync(
 				CreateRequest("quiet-worker", 1, new()
@@ -190,7 +178,7 @@ internal static class FairQueueStorageConformance
 					ConcurrencyShareThreshold = 0.50,
 					MinInflightForNoisy = 2,
 					GroupRoundRobin = true,
-				}), cancellationToken).ConfigureAwait(false),
+				}), cancellationToken),
 			NoisyName,
 			"the noisy-neighbor acquisition must claim one job"
 		);
@@ -206,18 +194,14 @@ internal static class FairQueueStorageConformance
 	{
 		_ = GetFairStorage(storage, ExpiredName);
 		var clock = timeProvider;
-		await EnqueueAsync(storage, clock, "expired-1", 0, "formerly-noisy", cancellationToken, "expired-setup")
-			.ConfigureAwait(false);
-		await EnqueueAsync(storage, clock, "expired-2", 1, "formerly-noisy", cancellationToken, "expired-setup")
-			.ConfigureAwait(false);
+		await EnqueueAsync(storage, clock, "expired-1", 0, "formerly-noisy", cancellationToken, "expired-setup");
+		await EnqueueAsync(storage, clock, "expired-2", 1, "formerly-noisy", cancellationToken, "expired-setup");
 		var active = await storage.AcquireDueJobsAsync(
 			CreateRequest("expired-worker", 2, policy: null, lease: TimeSpan.FromSeconds(1), jobName: "expired-setup"),
-			cancellationToken)
-			.ConfigureAwait(false);
+			cancellationToken);
 		ConformanceAssert.Equal(2, active.Count, ExpiredName, "the expired-lease setup must claim two jobs");
-		await EnqueueAsync(storage, clock, "formerly-noisy-waiting", 2, "formerly-noisy", cancellationToken)
-			.ConfigureAwait(false);
-		await EnqueueAsync(storage, clock, "quiet-after-expiry", 3, "quiet", cancellationToken).ConfigureAwait(false);
+		await EnqueueAsync(storage, clock, "formerly-noisy-waiting", 2, "formerly-noisy", cancellationToken);
+		await EnqueueAsync(storage, clock, "quiet-after-expiry", 3, "quiet", cancellationToken);
 		clock.Advance(TimeSpan.FromSeconds(2));
 		var acquired = Single(
 			await storage.AcquireDueJobsAsync(
@@ -226,7 +210,7 @@ internal static class FairQueueStorageConformance
 					ConcurrencyShareThreshold = 0.50,
 					MinInflightForNoisy = 2,
 					GroupRoundRobin = true,
-				}), cancellationToken).ConfigureAwait(false),
+				}), cancellationToken),
 			ExpiredName,
 			"the post-expiry acquisition must claim one job"
 		);
@@ -242,16 +226,14 @@ internal static class FairQueueStorageConformance
 	{
 		_ = GetFairStorage(storage, OrdinaryName);
 		var clock = timeProvider;
-		await EnqueueAsync(storage, clock, "ordinary-a-1", 0, "group-a", cancellationToken).ConfigureAwait(false);
-		await EnqueueAsync(storage, clock, "ordinary-a-2", 1, "group-a", cancellationToken).ConfigureAwait(false);
-		await EnqueueAsync(storage, clock, "ordinary-b-1", 2, "group-b", cancellationToken).ConfigureAwait(false);
+		await EnqueueAsync(storage, clock, "ordinary-a-1", 0, "group-a", cancellationToken);
+		await EnqueueAsync(storage, clock, "ordinary-a-2", 1, "group-a", cancellationToken);
+		await EnqueueAsync(storage, clock, "ordinary-b-1", 2, "group-b", cancellationToken);
 		var first = Single(
-			await storage.AcquireDueJobsAsync(CreateRequest("ordinary-worker-a", 1, policy: null), cancellationToken)
-				.ConfigureAwait(false), OrdinaryName, "ordinary acquisition must claim one job");
-		await storage.CompleteAsync(first.JobHandle, first.Attempt, "ordinary-worker-a", cancellationToken).ConfigureAwait(false);
+			await storage.AcquireDueJobsAsync(CreateRequest("ordinary-worker-a", 1, policy: null), cancellationToken), OrdinaryName, "ordinary acquisition must claim one job");
+		await storage.CompleteAsync(first.JobHandle, first.Attempt, "ordinary-worker-a", cancellationToken);
 		var second = Single(
-			await storage.AcquireDueJobsAsync(CreateRequest("ordinary-worker-b", 1, policy: null), cancellationToken)
-				.ConfigureAwait(false), OrdinaryName, "second ordinary acquisition must claim one job");
+			await storage.AcquireDueJobsAsync(CreateRequest("ordinary-worker-b", 1, policy: null), cancellationToken), OrdinaryName, "second ordinary acquisition must claim one job");
 		ConformanceAssert.SequenceEqual(
 			["ordinary-a-1", "ordinary-a-2"],
 			[first.JobHandle.Value, second.JobHandle.Value],
@@ -261,16 +243,13 @@ internal static class FairQueueStorageConformance
 		);
 
 		const string UngroupedJobName = "fair-ungrouped";
-		await EnqueueAsync(storage, clock, "ungrouped-newer", 5, groupId: null, cancellationToken, UngroupedJobName)
-			.ConfigureAwait(false);
-		await EnqueueAsync(storage, clock, "ungrouped-oldest", 3, groupId: null, cancellationToken, UngroupedJobName)
-			.ConfigureAwait(false);
-		await EnqueueAsync(storage, clock, "ungrouped-middle", 4, groupId: null, cancellationToken, UngroupedJobName)
-			.ConfigureAwait(false);
+		await EnqueueAsync(storage, clock, "ungrouped-newer", 5, groupId: null, cancellationToken, UngroupedJobName);
+		await EnqueueAsync(storage, clock, "ungrouped-oldest", 3, groupId: null, cancellationToken, UngroupedJobName);
+		await EnqueueAsync(storage, clock, "ungrouped-middle", 4, groupId: null, cancellationToken, UngroupedJobName);
 		var ungrouped = await storage.AcquireDueJobsAsync(
 			CreateRequest("ungrouped-worker", 3, DefaultPolicy, jobName: UngroupedJobName),
 			cancellationToken
-		).ConfigureAwait(false);
+		);
 		ConformanceAssert.SequenceEqual(
 			["ungrouped-oldest", "ungrouped-middle", "ungrouped-newer"],
 			ungrouped.Select(static job => job.JobHandle.Value),
@@ -279,22 +258,18 @@ internal static class FairQueueStorageConformance
 		);
 
 		const string NoRoundRobinJobName = "fair-no-round-robin";
-		await EnqueueAsync(storage, clock, "no-rr-a-1", 6, "no-rr-a", cancellationToken, NoRoundRobinJobName)
-			.ConfigureAwait(false);
-		await EnqueueAsync(storage, clock, "no-rr-a-2", 7, "no-rr-a", cancellationToken, NoRoundRobinJobName)
-			.ConfigureAwait(false);
-		await EnqueueAsync(storage, clock, "no-rr-b-1", 8, "no-rr-b", cancellationToken, NoRoundRobinJobName)
-			.ConfigureAwait(false);
+		await EnqueueAsync(storage, clock, "no-rr-a-1", 6, "no-rr-a", cancellationToken, NoRoundRobinJobName);
+		await EnqueueAsync(storage, clock, "no-rr-a-2", 7, "no-rr-a", cancellationToken, NoRoundRobinJobName);
+		await EnqueueAsync(storage, clock, "no-rr-b-1", 8, "no-rr-b", cancellationToken, NoRoundRobinJobName);
 		var roundRobinFirst = Single(
 			await storage.AcquireDueJobsAsync(
 				CreateRequest("no-rr-worker-a", 1, DefaultPolicy, jobName: NoRoundRobinJobName),
 				cancellationToken
-			).ConfigureAwait(false),
+			),
 			OrdinaryName,
 			"round-robin setup must claim one job"
 		);
-		await storage.CompleteAsync(roundRobinFirst.JobHandle, roundRobinFirst.Attempt, "no-rr-worker-a", cancellationToken)
-			.ConfigureAwait(false);
+		await storage.CompleteAsync(roundRobinFirst.JobHandle, roundRobinFirst.Attempt, "no-rr-worker-a", cancellationToken);
 		var roundRobinDisabled = Single(
 			await storage.AcquireDueJobsAsync(
 				CreateRequest("no-rr-worker-b", 1, new()
@@ -304,7 +279,7 @@ internal static class FairQueueStorageConformance
 					GroupRoundRobin = false,
 				}, jobName: NoRoundRobinJobName),
 				cancellationToken
-			).ConfigureAwait(false),
+			),
 			OrdinaryName,
 			"disabling group round-robin must still claim one job"
 		);
@@ -315,14 +290,10 @@ internal static class FairQueueStorageConformance
 			"disabling group round-robin must restore ordinary due order"
 		);
 
-		await EnqueueAsync(storage, clock, "capacity-ungrouped-limited", 9, groupId: null, cancellationToken, "limited")
-			.ConfigureAwait(false);
-		await EnqueueAsync(storage, clock, "capacity-grouped-limited", 10, "capacity-a", cancellationToken, "limited")
-			.ConfigureAwait(false);
-		await EnqueueAsync(storage, clock, "capacity-other-1", 11, "capacity-b", cancellationToken, "other")
-			.ConfigureAwait(false);
-		await EnqueueAsync(storage, clock, "capacity-other-2", 12, "capacity-c", cancellationToken, "other")
-			.ConfigureAwait(false);
+		await EnqueueAsync(storage, clock, "capacity-ungrouped-limited", 9, groupId: null, cancellationToken, "limited");
+		await EnqueueAsync(storage, clock, "capacity-grouped-limited", 10, "capacity-a", cancellationToken, "limited");
+		await EnqueueAsync(storage, clock, "capacity-other-1", 11, "capacity-b", cancellationToken, "other");
+		await EnqueueAsync(storage, clock, "capacity-other-2", 12, "capacity-c", cancellationToken, "other");
 		var capacityLimited = await storage.AcquireDueJobsAsync(new()
 		{
 			WorkerId = "capacity-worker",
@@ -342,7 +313,7 @@ internal static class FairQueueStorageConformance
 					},
 				},
 			],
-		}, cancellationToken).ConfigureAwait(false);
+		}, cancellationToken);
 		ConformanceAssert.SequenceEqual(
 			["capacity-ungrouped-limited", "capacity-other-1"],
 			capacityLimited.Select(static job => job.JobHandle.Value),
@@ -368,24 +339,23 @@ internal static class FairQueueStorageConformance
 				index,
 				string.Create(CultureInfo.InvariantCulture, $"group-{index % 3}"),
 				cancellationToken
-			)
-				.ConfigureAwait(false);
+			);
 		}
 
 		var claims = await Task.WhenAll(
 			storage.AcquireDueJobsAsync(CreateRequest("concurrent-worker-a", 12, DefaultPolicy), cancellationToken).AsTask(),
 			storage.AcquireDueJobsAsync(CreateRequest("concurrent-worker-b", 12, DefaultPolicy), cancellationToken).AsTask()
-		).ConfigureAwait(false);
-		var ids = claims.SelectMany(static jobs => jobs).Select(static job => job.JobHandle.Value).ToArray();
-		ConformanceAssert.Equal(ids.Length, ids.Distinct(StringComparer.Ordinal).Count(), ConcurrencyName,
+		);
+		var ids = claims.SelectMany(static jobs => jobs).Select(static job => job.JobHandle.Value).ToList();
+		ConformanceAssert.Equal(ids.Count, ids.Distinct(StringComparer.Ordinal).Count(), ConcurrencyName,
 			"concurrent fair acquisitions must never claim the same job twice");
 
 		var remaining = await storage.AcquireDueJobsAsync(
 			CreateRequest("concurrent-drain-worker", 12, DefaultPolicy),
 			cancellationToken
-		).ConfigureAwait(false);
-		var allIds = ids.Concat(remaining.Select(static job => job.JobHandle.Value)).ToArray();
-		ConformanceAssert.Equal(12, allIds.Length, ConcurrencyName,
+		);
+		var allIds = ids.Concat(remaining.Select(static job => job.JobHandle.Value)).ToList();
+		ConformanceAssert.Equal(12, allIds.Count, ConcurrencyName,
 			"every eligible job must remain claimable after concurrent acquisition contention");
 		ConformanceAssert.Equal(12, allIds.Distinct(StringComparer.Ordinal).Count(), ConcurrencyName,
 			"concurrent and follow-up acquisitions must never claim the same job twice");

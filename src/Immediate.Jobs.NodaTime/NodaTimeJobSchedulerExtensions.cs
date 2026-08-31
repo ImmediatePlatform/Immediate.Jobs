@@ -21,6 +21,7 @@ public static class NodaTimeJobSchedulerExtensions
 	)
 	{
 		ArgumentNullException.ThrowIfNull(scheduler);
+		await TaskScheduler.Yield();
 		return await scheduler.ScheduleAsync(payload, delay.ToTimeSpan(), cancellationToken);
 	}
 
@@ -41,6 +42,7 @@ public static class NodaTimeJobSchedulerExtensions
 	)
 	{
 		ArgumentNullException.ThrowIfNull(scheduler);
+		await TaskScheduler.Yield();
 		return await scheduler.ScheduleAsync(payload, delay.ToTimeSpan(), groupId, cancellationToken);
 	}
 
@@ -63,6 +65,7 @@ public static class NodaTimeJobSchedulerExtensions
 	)
 	{
 		ArgumentNullException.ThrowIfNull(scheduler);
+		await TaskScheduler.Yield();
 		return await scheduler.ScheduleAsync(payload, currentJob, delay.ToTimeSpan(), options, cancellationToken);
 	}
 
@@ -87,6 +90,7 @@ public static class NodaTimeJobSchedulerExtensions
 	)
 	{
 		ArgumentNullException.ThrowIfNull(scheduler);
+		await TaskScheduler.Yield();
 		return await scheduler.ScheduleAsync(payload, currentJob, delay.ToTimeSpan(), groupId, options, cancellationToken);
 	}
 
@@ -105,6 +109,7 @@ public static class NodaTimeJobSchedulerExtensions
 	)
 	{
 		ArgumentNullException.ThrowIfNull(scheduler);
+		await TaskScheduler.Yield();
 		return await scheduler.ScheduleAsync(payload, at.ToDateTimeOffset(), cancellationToken);
 	}
 
@@ -147,6 +152,7 @@ public static class NodaTimeJobSchedulerExtensions
 	)
 	{
 		ArgumentNullException.ThrowIfNull(scheduler);
+		await TaskScheduler.Yield();
 		return await scheduler.ScheduleAsync(payload, currentJob, at.ToDateTimeOffset(), options, cancellationToken);
 	}
 
@@ -171,6 +177,7 @@ public static class NodaTimeJobSchedulerExtensions
 	)
 	{
 		ArgumentNullException.ThrowIfNull(scheduler);
+		await TaskScheduler.Yield();
 		return await scheduler.ScheduleAsync(payload, currentJob, at.ToDateTimeOffset(), groupId, options, cancellationToken);
 	}
 
@@ -186,6 +193,7 @@ public static class NodaTimeJobSchedulerExtensions
 	public static async ValueTask<JobHandle> ScheduleAfterAsync<TPayload>(this IJobScheduler<TPayload> scheduler, TPayload payload, ContinuationHandle parent, Duration delay, ContinuationTrigger on = ContinuationTrigger.Success, CancellationToken cancellationToken = default)
 	{
 		ArgumentNullException.ThrowIfNull(scheduler);
+		await TaskScheduler.Yield();
 		return await scheduler.ScheduleAfterAsync(payload, parent, delay.ToTimeSpan(), on, cancellationToken);
 	}
 
@@ -202,6 +210,7 @@ public static class NodaTimeJobSchedulerExtensions
 	public static async ValueTask<JobHandle> ScheduleAfterAsync<TPayload>(this IJobScheduler<TPayload> scheduler, TPayload payload, ContinuationHandle parent, Duration delay, string groupId, ContinuationTrigger on = ContinuationTrigger.Success, CancellationToken cancellationToken = default)
 	{
 		ArgumentNullException.ThrowIfNull(scheduler);
+		await TaskScheduler.Yield();
 		return await scheduler.ScheduleAfterAsync(payload, parent, delay.ToTimeSpan(), groupId, on, cancellationToken);
 	}
 
@@ -217,6 +226,7 @@ public static class NodaTimeJobSchedulerExtensions
 	public static async ValueTask<JobHandle> ScheduleAfterAsync<TPayload>(this IJobScheduler<TPayload> scheduler, TPayload payload, IReadOnlyList<ContinuationHandle> parents, Duration delay, ContinuationTrigger on = ContinuationTrigger.Success, CancellationToken cancellationToken = default)
 	{
 		ArgumentNullException.ThrowIfNull(scheduler);
+		await TaskScheduler.Yield();
 		return await scheduler.ScheduleAfterAsync(payload, parents, delay.ToTimeSpan(), on, cancellationToken);
 	}
 
@@ -233,6 +243,7 @@ public static class NodaTimeJobSchedulerExtensions
 	public static async ValueTask<JobHandle> ScheduleAfterAsync<TPayload>(this IJobScheduler<TPayload> scheduler, TPayload payload, IReadOnlyList<ContinuationHandle> parents, Duration delay, string groupId, ContinuationTrigger on = ContinuationTrigger.Success, CancellationToken cancellationToken = default)
 	{
 		ArgumentNullException.ThrowIfNull(scheduler);
+		await TaskScheduler.Yield();
 		return await scheduler.ScheduleAfterAsync(payload, parents, delay.ToTimeSpan(), groupId, on, cancellationToken);
 	}
 
@@ -394,6 +405,7 @@ public static class NodaTimeJobSchedulerExtensions
 	{
 		ArgumentNullException.ThrowIfNull(scheduler);
 		ArgumentNullException.ThrowIfNull(timeZone);
+		await TaskScheduler.Yield();
 		await scheduler.AddOrUpdateRecurringAsync(name, cron, timeZone.Id, cancellationToken);
 	}
 }
