@@ -42,7 +42,7 @@ partial class GetUsersQuery
 			var payload = serializer.Deserialize(execution.Record.Payload, static options => new PayloadJsonContext(options).Payload);
 
 			var handler = global::Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetRequiredService<global::Dummy.GetUsersQuery.Handler>(scopedServices);
-			_ = await handler.HandleAsync(payload, execution.CancellationToken);
+			_ = await handler.HandleAsync(payload, execution.CancellationToken).ConfigureAwait(false);
 		}
 	}
 
