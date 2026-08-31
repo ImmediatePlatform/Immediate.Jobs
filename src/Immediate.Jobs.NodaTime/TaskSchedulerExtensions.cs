@@ -31,7 +31,7 @@ internal static class TaskSchedulerExtensions
 			public bool IsCompleted
 			{
 				[MethodImpl(MethodImplOptions.AggressiveInlining)]
-				get => Thread.CurrentThread.IsThreadPoolThread;
+				get => TaskScheduler.Current == TaskScheduler.Default;
 			}
 
 			[MethodImpl(MethodImplOptions.AggressiveInlining)]
