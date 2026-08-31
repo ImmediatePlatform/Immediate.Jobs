@@ -24,8 +24,8 @@ internal sealed class ImmediateJobBatchEntity
 {
 	[PrimaryKey, Column(Length = 256, CanBeNull = false)]
 	public string Id { get; set; } = null!;
-	[Column(DataType = DataType.Int64)]
-	public long CreatedAt { get; set; }
+	[Column(DataType = DataType.DateTimeOffset)]
+	public DateTimeOffset CreatedAt { get; set; }
 	[Column]
 	public int TotalJobs { get; set; }
 	[Column]
@@ -38,10 +38,10 @@ internal sealed class ImmediateJobBatchEntity
 	public int CancelledCount { get; set; }
 	[Column]
 	public int SkippedCount { get; set; }
-	[Column(DataType = DataType.Int64, CanBeNull = true)]
-	public long? StartedAt { get; set; }
-	[Column(DataType = DataType.Int64, CanBeNull = true)]
-	public long? CompletedAt { get; set; }
+	[Column(DataType = DataType.DateTimeOffset, CanBeNull = true)]
+	public DateTimeOffset? StartedAt { get; set; }
+	[Column(DataType = DataType.DateTimeOffset, CanBeNull = true)]
+	public DateTimeOffset? CompletedAt { get; set; }
 	[Column(DataType = DataType.Int16)]
 	public BatchState State { get; set; }
 	[Column(DataType = DataType.Guid)]
@@ -65,20 +65,20 @@ internal sealed class ImmediateJobEntity
 	public string? Context { get; set; }
 	[Column(DataType = DataType.Int16)]
 	public JobState State { get; set; }
-	[Column(DataType = DataType.Int64)]
-	public long DueAt { get; set; }
-	[Column(DataType = DataType.Int64)]
-	public long CreatedAt { get; set; }
+	[Column(DataType = DataType.DateTimeOffset)]
+	public DateTimeOffset DueAt { get; set; }
+	[Column(DataType = DataType.DateTimeOffset)]
+	public DateTimeOffset CreatedAt { get; set; }
 	[Column]
 	public int Attempt { get; set; }
 	[Column(Length = 256, CanBeNull = true)]
 	public string? WorkerId { get; set; }
-	[Column(DataType = DataType.Int64, CanBeNull = true)]
-	public long? LeaseExpiresAt { get; set; }
+	[Column(DataType = DataType.DateTimeOffset, CanBeNull = true)]
+	public DateTimeOffset? LeaseExpiresAt { get; set; }
 	[Column(DataType = DataType.Text, CanBeNull = true)]
 	public string? LastError { get; set; }
-	[Column(DataType = DataType.Int64, CanBeNull = true)]
-	public long? CompletedAt { get; set; }
+	[Column(DataType = DataType.DateTimeOffset, CanBeNull = true)]
+	public DateTimeOffset? CompletedAt { get; set; }
 	[Column(Length = 512, CanBeNull = true)]
 	public string? RecurringKey { get; set; }
 	[Column(Length = 256, CanBeNull = true)]
@@ -89,8 +89,8 @@ internal sealed class ImmediateJobEntity
 	public string? ExecutionTraceId { get; set; }
 	[Column(Length = 16, CanBeNull = true)]
 	public string? ExecutionSpanId { get; set; }
-	[Column(DataType = DataType.Int64, CanBeNull = true)]
-	public long? ExecutionStartedAt { get; set; }
+	[Column(DataType = DataType.DateTimeOffset, CanBeNull = true)]
+	public DateTimeOffset? ExecutionStartedAt { get; set; }
 	[Column(Length = 256, CanBeNull = true)]
 	public string? BatchHandle { get; set; }
 	[Column]
@@ -112,12 +112,12 @@ internal sealed class ImmediateJobExecutionEntity
 	public JobExecutionState State { get; set; }
 	[Column(Length = 256, CanBeNull = true)]
 	public string? WorkerId { get; set; }
-	[Column(DataType = DataType.Int64, CanBeNull = true)]
-	public long? AcquiredAt { get; set; }
-	[Column(DataType = DataType.Int64, CanBeNull = true)]
-	public long? ExecutionStartedAt { get; set; }
-	[Column(DataType = DataType.Int64, CanBeNull = true)]
-	public long? CompletedAt { get; set; }
+	[Column(DataType = DataType.DateTimeOffset, CanBeNull = true)]
+	public DateTimeOffset? AcquiredAt { get; set; }
+	[Column(DataType = DataType.DateTimeOffset, CanBeNull = true)]
+	public DateTimeOffset? ExecutionStartedAt { get; set; }
+	[Column(DataType = DataType.DateTimeOffset, CanBeNull = true)]
+	public DateTimeOffset? CompletedAt { get; set; }
 	[Column(Length = 32, CanBeNull = true)]
 	public string? ExecutionTraceId { get; set; }
 	[Column(Length = 16, CanBeNull = true)]
@@ -175,10 +175,10 @@ internal sealed class ImmediateRecurringJobEntity
 	public bool IsCodeDefined { get; set; }
 	[Column]
 	public bool IsPaused { get; set; }
-	[Column(DataType = DataType.Int64)]
-	public long NextRunAt { get; set; }
-	[Column(DataType = DataType.Int64, CanBeNull = true)]
-	public long? LastRunAt { get; set; }
+	[Column(DataType = DataType.DateTimeOffset)]
+	public DateTimeOffset NextRunAt { get; set; }
+	[Column(DataType = DataType.DateTimeOffset, CanBeNull = true)]
+	public DateTimeOffset? LastRunAt { get; set; }
 	[Column(DataType = DataType.Guid)]
 	public Guid ConcurrencyStamp { get; set; }
 }
@@ -188,8 +188,8 @@ internal sealed class ImmediateJobServerEntity
 {
 	[PrimaryKey, Column(Length = 256, CanBeNull = false)]
 	public string WorkerId { get; set; } = null!;
-	[Column(DataType = DataType.Int64)]
-	public long LastHeartbeat { get; set; }
+	[Column(DataType = DataType.DateTimeOffset)]
+	public DateTimeOffset LastHeartbeat { get; set; }
 	[Column]
 	public int ActiveWorkers { get; set; }
 	[Column]

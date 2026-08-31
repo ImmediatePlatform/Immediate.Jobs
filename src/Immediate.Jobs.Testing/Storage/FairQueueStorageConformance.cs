@@ -407,7 +407,8 @@ internal static class FairQueueStorageConformance
 		GroupId = groupId,
 		State = JobState.Pending,
 		DueAt = clock.GetUtcNow(),
-		CreatedAt = clock.GetUtcNow().AddTicks(order),
+		// pgsql precision at 1us is smaller than tick at 100ns...
+		CreatedAt = clock.GetUtcNow().AddTicks(order * 10),
 	}, cancellationToken);
 
 	private static JobRecord Single(IReadOnlyList<JobRecord> jobs, string caseName, string invariant)
