@@ -580,9 +580,9 @@ internal sealed class SingleServerJobStorage :
 					var standaloneJobs = jobs
 						.Where(static job => job.BatchHandle is null)
 						.Select(static job => job.JobHandle)
-						.ToArray();
+						.ToList();
 
-					if (standaloneJobs.Length != 0)
+					if (standaloneJobs.Count != 0)
 					{
 						// Standalone continuation edges are not represented by a batch graph, so recovery must
 						// load them explicitly before it can restore dependency-gated jobs into the primary queue.
@@ -616,9 +616,9 @@ internal sealed class SingleServerJobStorage :
 				.Where(static job => job.BatchHandle is not null)
 				.Select(static job => job.BatchHandle!)
 				.Distinct()
-				.ToArray();
+				.ToList();
 
-			var recoveredBatches = new Dictionary<BatchHandle, RecoveredBatch>(batchHandles.Length);
+			var recoveredBatches = new Dictionary<BatchHandle, RecoveredBatch>(batchHandles.Count);
 
 			foreach (var batchHandle in batchHandles)
 			{
@@ -657,9 +657,9 @@ internal sealed class SingleServerJobStorage :
 						.All(edge => restoredBatchHandles.Contains(edge.ParentBatchHandle!)))
 					.OrderBy(static batch => batch.Record.CreatedAt)
 					.ThenBy(static batch => batch.Record.BatchHandle)
-					.ToArray();
+					.ToList();
 
-				if (ready.Length == 0)
+				if (ready.Count == 0)
 				{
 					var unresolved = string.Join(", ", recoveredBatches.Keys.Order());
 					throw new ImmediateJobException(
@@ -719,9 +719,9 @@ internal sealed class SingleServerJobStorage :
 					.Where(AreContinuationParentsRestored)
 					.OrderBy(static job => job.CreatedAt)
 					.ThenBy(static job => job.JobHandle)
-					.ToArray();
+					.ToList();
 
-				if (ready.Length == 0)
+				if (ready.Count == 0)
 				{
 					var missingParents = standaloneContinuations.Values
 						.SelectMany(job => recoveredIncomingEdges[job.JobHandle])

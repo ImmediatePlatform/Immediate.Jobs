@@ -119,10 +119,10 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 		if (batch is not null && jobs.Any(job => job.BatchHandle != batch.BatchHandle))
 			throw new ImmediateJobException("Every atomic batch member must carry the committed batch identifier.");
 
-		var edgeEntities = edges.Select(ToEntity).ToArray();
+		var edgeEntities = edges.Select(ToEntity).ToList();
 		if (edgeEntities.Any(edge => !jobHandles.Contains(edge.ChildJobHandle)))
 			throw new ImmediateJobException("Every continuation edge must target a job inserted by the same operation.");
-		if (edgeEntities.DistinctBy(static edge => (edge.ChildJobHandle, edge.ParentKind, edge.ParentId)).Count() != edgeEntities.Length)
+		if (edgeEntities.DistinctBy(static edge => (edge.ChildJobHandle, edge.ParentKind, edge.ParentId)).Count() != edgeEntities.Count)
 			throw new ImmediateJobException("Duplicate continuation edges are not allowed.");
 		ThrowIfCyclic(jobHandles, edgeEntities);
 
@@ -139,8 +139,8 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 
 		if (batch is not null)
 		{
-			var terminal = jobEntities.Values.Where(static job => IsTerminal(job.State)).ToArray();
-			var pending = jobEntities.Count - terminal.Length;
+			var terminal = jobEntities.Values.Where(static job => IsTerminal(job.State)).ToList();
+			var pending = jobEntities.Count - terminal.Count;
 			var succeeded = terminal.Count(static job => job.State == JobState.Succeeded);
 			var failed = terminal.Count(static job => job.State == JobState.Failed);
 			var cancelled = terminal.Count(static job => job.State == JobState.Cancelled);
@@ -190,8 +190,8 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 			var jobCapacities = queue.JobCapacities.ToDictionary(static pair => pair.Key, static pair => pair.Value, StringComparer.Ordinal);
 			while (queueCapacity > 0)
 			{
-				var eligibleNames = jobCapacities.Where(static pair => pair.Value > 0).Select(static pair => pair.Key).ToArray();
-				if (eligibleNames.Length == 0)
+				var eligibleNames = jobCapacities.Where(static pair => pair.Value > 0).Select(static pair => pair.Key).ToList();
+				if (eligibleNames.Count == 0)
 					break;
 
 				await using var readContext = await contextFactory.CreateDbContextAsync(cancellationToken);
@@ -264,8 +264,8 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 				var eligibleNames = jobCapacities
 					.Where(static pair => pair.Value > 0)
 					.Select(static pair => pair.Key)
-					.ToArray();
-				if (eligibleNames.Length == 0)
+					.ToList();
+				if (eligibleNames.Count == 0)
 					break;
 
 				await using var readContext = await contextFactory.CreateDbContextAsync(cancellationToken);
@@ -329,7 +329,7 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 						&& job.LeaseExpiresAt > now);
 				var totalInflight = await activeQuery
 					.CountAsync(cancellationToken);
-				var groupedHeadIds = groupedHeads.Select(static job => job.Id).ToArray();
+				var groupedHeadIds = groupedHeads.Select(static job => job.Id).ToList();
 				var cursorQuery = readContext.Set<ImmediateFairQueueGroupEntity>()
 					.AsNoTracking()
 					.Where(group => group.QueueName == queue.QueueName);
@@ -436,8 +436,8 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 			var eligibleNames = jobCapacities
 				.Where(static pair => pair.Value > 0)
 				.Select(static pair => pair.Key)
-				.ToArray();
-			if (eligibleNames.Length == 0)
+				.ToList();
+			if (eligibleNames.Count == 0)
 				break;
 
 			await using var readContext = await contextFactory.CreateDbContextAsync(cancellationToken);
@@ -1357,7 +1357,7 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 		var jobs = await context.Set<ImmediateJobEntity>()
 			.Where(job => job.BatchHandle == batchHandle.Value)
 			.ToListAsync(cancellationToken);
-		var jobsToCancel = jobs.Where(job => !IsTerminal(job.State)).ToArray();
+		var jobsToCancel = jobs.Where(job => !IsTerminal(job.State)).ToList();
 		foreach (var job in jobsToCancel)
 		{
 			if (job.State == JobState.Active)
@@ -1412,7 +1412,7 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 		var jobs = await context.Set<ImmediateJobEntity>()
 			.Where(job => job.BatchHandle == batchHandle.Value)
 			.ToListAsync(cancellationToken);
-		var jobHandles = jobs.Select(static job => job.Id).ToArray();
+		var jobHandles = jobs.Select(static job => job.Id).ToList();
 		var edges = await context.Set<ImmediateJobContinuationEntity>()
 			.Where(edge =>
 				jobHandles.Contains(edge.ChildJobHandle)
@@ -1656,7 +1656,7 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 			.ToListAsync(cancellationToken);
 		if (jobs.Count != 0)
 		{
-			var jobHandles = jobs.Select(static job => job.Id).ToArray();
+			var jobHandles = jobs.Select(static job => job.Id).ToList();
 			var edges = await context.Set<ImmediateJobContinuationEntity>()
 				.Where(edge =>
 					jobHandles.Contains(edge.ChildJobHandle)
@@ -1822,8 +1822,8 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 			.OfType<ImmediateJobExecutionEntity>()
 			.Where(static execution => execution.IsSynthetic)
 			.DistinctBy(static execution => (execution.JobHandle, execution.Attempt))
-			.ToArray();
-		if (syntheticExecutions.Length == 0)
+			.ToList();
+		if (syntheticExecutions.Count == 0)
 			return false;
 
 		try
@@ -2153,8 +2153,8 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 			.Where(edge => edge.ParentKind == ContinuationParentKind.Job && edge.ParentId == currentJobHandle.Value)
 			.Select(edge => edge.ChildJobHandle)
 			.Distinct()
-			.ToArrayAsync(cancellationToken);
-		return waiterIds.Length == 0
+			.ToListAsync(cancellationToken);
+		return waiterIds.Count == 0
 			? []
 			: await context.Set<ImmediateJobEntity>()
 				.Where(job => waiterIds.Contains(job.Id) && job.State == JobState.AwaitingContinuation)
@@ -2325,7 +2325,7 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 	private static async Task EvaluateInitialDependenciesAsync(
 		TContext context,
 		Dictionary<string, ImmediateJobEntity> jobs,
-		ImmediateJobContinuationEntity[] edges,
+		List<ImmediateJobContinuationEntity> edges,
 		DateTimeOffset now,
 		CancellationToken cancellationToken
 	)
@@ -2335,20 +2335,20 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 			.Select(static edge => edge.ParentId)
 			.Distinct(StringComparer.Ordinal)
 			.Order(StringComparer.Ordinal)
-			.ToArray();
+			.ToList();
 		var externalBatchHandles = edges
 			.Where(static edge => edge.ParentKind == ContinuationParentKind.Batch)
 			.Select(static edge => edge.ParentId)
 			.Distinct(StringComparer.Ordinal)
 			.Order(StringComparer.Ordinal)
-			.ToArray();
-		var externalJobEntities = externalJobHandles.Length == 0
+			.ToList();
+		var externalJobEntities = externalJobHandles.Count == 0
 			? []
 			: await context.Set<ImmediateJobEntity>()
 				.Where(job => externalJobHandles.Contains(job.Id))
 				.OrderBy(static job => job.Id)
 				.ToListAsync(cancellationToken);
-		var externalBatchEntities = externalBatchHandles.Length == 0
+		var externalBatchEntities = externalBatchHandles.Count == 0
 			? []
 			: await context.Set<ImmediateJobBatchEntity>()
 				.Where(batch => externalBatchHandles.Contains(batch.Id))
@@ -2356,7 +2356,7 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 				.ToListAsync(cancellationToken);
 		var externalJobs = externalJobEntities.ToDictionary(job => job.Id, StringComparer.Ordinal);
 		var externalBatches = externalBatchEntities.ToDictionary(batch => batch.Id, StringComparer.Ordinal);
-		if (externalJobs.Count != externalJobHandles.Length || externalBatches.Count != externalBatchHandles.Length)
+		if (externalJobs.Count != externalJobHandles.Count || externalBatches.Count != externalBatchHandles.Count)
 			throw new ImmediateJobException("A continuation parent does not exist.");
 		foreach (var parent in externalJobEntities.Where(parent => !IsTerminal(parent.State)))
 			parent.ConcurrencyStamp = Guid.NewGuid();

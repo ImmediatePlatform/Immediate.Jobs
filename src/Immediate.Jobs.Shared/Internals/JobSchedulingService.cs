@@ -504,11 +504,11 @@ public sealed partial class JobSchedulingService : BackgroundService
 			.GroupBy(static queue => queue.Priority)
 			.OrderByDescending(static group => group.Key))
 		{
-			var priorityQueues = priorityGroup.OrderBy(static queue => queue.Name, StringComparer.Ordinal).ToArray();
-			var offset = _priorityOffsets.GetValueOrDefault(priorityGroup.Key) % priorityQueues.Length;
-			for (var index = 0; index < priorityQueues.Length; index++)
+			var priorityQueues = priorityGroup.OrderBy(static queue => queue.Name, StringComparer.Ordinal).ToList();
+			var offset = _priorityOffsets.GetValueOrDefault(priorityGroup.Key) % priorityQueues.Count;
+			for (var index = 0; index < priorityQueues.Count; index++)
 			{
-				var queue = priorityQueues[(index + offset) % priorityQueues.Length];
+				var queue = priorityQueues[(index + offset) % priorityQueues.Count];
 				var queueCapacity = queue.Concurrency == 0
 					? capacity
 					: queue.Concurrency - _queueReservations.GetValueOrDefault(queue.Name);
@@ -620,8 +620,8 @@ public sealed partial class JobSchedulingService : BackgroundService
 			return;
 
 		var now = _timeProvider.GetUtcNow();
-		var codeDefinitions = _definitions.Values.Where(static definition => definition.Cron is not null).ToArray();
-		var persisted = codeDefinitions.Length == 0
+		var codeDefinitions = _definitions.Values.Where(static definition => definition.Cron is not null).ToList();
+		var persisted = codeDefinitions.Count == 0
 			? [with(StringComparer.Ordinal)]
 			: (await _storage.GetMonitoringSnapshotAsync(cancellationToken))
 				.Recurring
@@ -654,7 +654,7 @@ public sealed partial class JobSchedulingService : BackgroundService
 			);
 		}
 
-		var activeScheduleNames = codeDefinitions.Select(static definition => definition.Name).ToArray();
+		var activeScheduleNames = codeDefinitions.Select(static definition => definition.Name).ToList();
 		await recurringStorage.RemoveObsoleteCodeDefinedRecurringAsync(
 			activeScheduleNames,
 			cancellationToken

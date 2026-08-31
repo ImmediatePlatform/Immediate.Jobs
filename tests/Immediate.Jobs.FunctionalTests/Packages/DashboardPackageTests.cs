@@ -165,8 +165,8 @@ public sealed class DashboardPackageTests
 		using var executionDocument = JsonDocument.Parse(
 			await executionResponse.Content.ReadAsStringAsync(TestContext.Current.CancellationToken)
 		);
-		var executionLinks = executionDocument.RootElement.EnumerateArray().ToArray();
-		Assert.Equal(2, executionLinks.Length);
+		var executionLinks = executionDocument.RootElement.EnumerateArray().ToList();
+		Assert.Equal(2, executionLinks.Count);
 		Assert.Equal("View execution trace", executionLinks[0].GetProperty("label").GetString());
 		Assert.Equal("Trace", executionLinks[0].GetProperty("kind").GetString());
 		Assert.Equal($"https://traces.example/trace/{TraceId}", executionLinks[0].GetProperty("url").GetString());
@@ -289,7 +289,7 @@ public sealed class DashboardPackageTests
 		);
 		_ = executionResponse.EnsureSuccessStatusCode();
 		using var executionDocument = JsonDocument.Parse(await executionResponse.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
-		var executionLinks = executionDocument.RootElement.EnumerateArray().ToArray();
+		var executionLinks = executionDocument.RootElement.EnumerateArray().ToList();
 		Assert.Equal($"https://traces.example/trace/{FirstTraceId}", executionLinks[0].GetProperty("url").GetString());
 		Assert.Contains("attempt=1", executionLinks[1].GetProperty("url").GetString(), StringComparison.Ordinal);
 		Assert.Contains($"span={FirstSpanId}", executionLinks[1].GetProperty("url").GetString(), StringComparison.Ordinal);
@@ -300,7 +300,7 @@ public sealed class DashboardPackageTests
 		);
 		_ = jobResponse.EnsureSuccessStatusCode();
 		using var jobDocument = JsonDocument.Parse(await jobResponse.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
-		var jobLinks = jobDocument.RootElement.EnumerateArray().ToArray();
+		var jobLinks = jobDocument.RootElement.EnumerateArray().ToList();
 		Assert.Equal($"https://traces.example/trace/{LatestTraceId}", jobLinks[0].GetProperty("url").GetString());
 		Assert.Contains("attempt=2", jobLinks[1].GetProperty("url").GetString(), StringComparison.Ordinal);
 		Assert.Contains($"span={LatestSpanId}", jobLinks[1].GetProperty("url").GetString(), StringComparison.Ordinal);

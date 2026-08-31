@@ -449,7 +449,7 @@ public sealed class BatchesAndContinuationsTests
 
 		var jobs = (await harness.QueryJobsAsync(cancellationToken: cancellationToken))
 			.Where(job => job.BatchHandle == batchHandle)
-			.ToArray();
+			.ToList();
 		Assert.Equal(
 			["batch-workflow-test", "batch-workflow-test", "dynamic-expansion-test"],
 			jobs.Select(static job => job.JobName).Order(StringComparer.Ordinal)
@@ -481,8 +481,8 @@ public sealed class BatchesAndContinuationsTests
 
 		var jobs = (await harness.QueryJobsAsync(cancellationToken: cancellationToken))
 			.Where(job => job.BatchHandle == batchHandle)
-			.ToArray();
-		Assert.Equal(3, jobs.Length);
+			.ToList();
+		Assert.Equal(3, jobs.Count);
 		Assert.All(jobs, static job => Assert.Equal(JobState.Succeeded, job.State));
 		Assert.Equal(["expanding", "inserted", "waiter"], workflow.Events);
 		Assert.Equal(JobState.Succeeded, (await harness.GetJobAsync(waiter.JobHandle, cancellationToken)).State);
@@ -550,9 +550,9 @@ public sealed class BatchesAndContinuationsTests
 
 	private static void AssertBefore(IList<string> events, string first, string second)
 	{
-		var observed = events.ToArray();
-		var firstIndex = Array.IndexOf(observed, first);
-		var secondIndex = Array.IndexOf(observed, second);
+		var observed = events.ToList();
+		var firstIndex = observed.IndexOf(first);
+		var secondIndex = observed.IndexOf(second);
 		Assert.True(firstIndex >= 0, $"Expected to observe '{first}', but observed: {string.Join(", ", events)}");
 		Assert.True(secondIndex >= 0, $"Expected to observe '{second}', but observed: {string.Join(", ", events)}");
 		Assert.True(

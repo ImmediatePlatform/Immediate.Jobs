@@ -1,0 +1,6 @@
+M:LinqToDB.Async.AsyncExtensions.ToArrayAsync``1(System.Linq.IQueryable{``0},System.Threading.CancellationToken)
+M:Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.ToArrayAsync``1(System.Linq.IQueryable{``0},System.Threading.CancellationToken)
+M:System.Activator.CreateInstance(System.String, System.String);Avoid using reflection.
+M:System.Activator.CreateInstance`1();Avoid using reflection.
+M:System.Linq.Enumerable.ToArray``1(System.Collections.Generic.IEnumerable{``0})
+T:System.DateTime

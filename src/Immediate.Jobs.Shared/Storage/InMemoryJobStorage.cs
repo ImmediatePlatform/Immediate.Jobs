@@ -137,7 +137,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 		var now = timeProvider.GetUtcNow();
 		lock (_gate)
 		{
-			foreach (var expired in _jobs.Values.Where(x => x.State == JobState.Active && x.LeaseExpiresAt <= now).ToArray())
+			foreach (var expired in _jobs.Values.Where(x => x.State == JobState.Active && x.LeaseExpiresAt <= now).ToList())
 			{
 				InterruptExecution(expired);
 				_jobs[expired.JobHandle] = expired with
@@ -268,8 +268,8 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 					capacity > 0 &&
 					job.State is JobState.Pending or JobState.Scheduled &&
 					job.DueAt <= now)
-				.ToArray();
-			if (eligible.Length == 0)
+				.ToList();
+			if (eligible.Count == 0)
 				break;
 
 			var activeCounts = _jobs.Values
@@ -934,7 +934,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 				.Where(job => job.BatchHandle == batchHandle)
 				.OrderBy(job => job.CreatedAt)
 				.ThenBy(job => job.JobHandle.Value, StringComparer.Ordinal)
-				.ToArray();
+				.ToList();
 
 			var memberIds = members.Select(static job => job.JobHandle).ToHashSet();
 
@@ -994,7 +994,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 			var jobHandles = _jobs.Values
 				.Where(job => job.BatchHandle == batchHandle && !IsTerminal(job.State))
 				.Select(static job => job.JobHandle)
-				.ToArray();
+				.ToList();
 			foreach (var jobHandle in jobHandles)
 			{
 				if (_jobs.TryGetValue(jobHandle, out var job) && job.State == JobState.Active)
@@ -1413,7 +1413,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 			.Select(static edge => edge.ParentJobHandle!)
 			.Distinct()
 			.Where(parentId => _jobs.TryGetValue(parentId, out var parent) && IsTerminal(parent.State))
-			.ToArray())
+			.ToList())
 		{
 			ProcessTerminalJob(parentId);
 		}
@@ -1423,7 +1423,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 			.Select(static edge => edge.ParentBatchHandle!)
 			.Distinct()
 			.Where(parentId => _batches.TryGetValue(parentId, out var parent) && IsTerminal(parent.State))
-			.ToArray())
+			.ToList())
 		{
 			ProcessTerminalBatch(parentId);
 		}
@@ -1507,7 +1507,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 
 		foreach (var edge in _edges
 			.Where(edge => edge.ParentJobHandle == parentJobHandle && !_settledEdges.Contains(edge))
-			.ToArray())
+			.ToList())
 		{
 			_ = _settledEdges.Add(edge);
 			SettleEdge(edge, parentFailed: parent.State == JobState.Failed);
@@ -1521,7 +1521,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 
 		foreach (var edge in _edges
 			.Where(edge => edge.ParentBatchHandle == parentBatchHandle && !_settledEdges.Contains(edge))
-			.ToArray())
+			.ToList())
 		{
 			_ = _settledEdges.Add(edge);
 			SettleEdge(edge, parentFailed: parent.State == BatchState.Failed);

@@ -119,10 +119,10 @@ internal sealed class LinqToDBJobStorage<T>(
 		if (batch is not null && jobs.Any(job => job.BatchHandle != batch.BatchHandle))
 			throw new ImmediateJobException("Every atomic batch member must carry the committed batch identifier.");
 
-		var edgeEntities = edges.Select(ToEntity).ToArray();
+		var edgeEntities = edges.Select(ToEntity).ToList();
 		if (edgeEntities.Any(edge => !jobHandles.Contains(edge.ChildJobHandle)))
 			throw new ImmediateJobException("Every continuation edge must target a job inserted by the same operation.");
-		if (edgeEntities.DistinctBy(static edge => (edge.ChildJobHandle, edge.ParentKind, edge.ParentId)).Count() != edgeEntities.Length)
+		if (edgeEntities.DistinctBy(static edge => (edge.ChildJobHandle, edge.ParentKind, edge.ParentId)).Count() != edgeEntities.Count)
 			throw new ImmediateJobException("Duplicate continuation edges are not allowed.");
 		ThrowIfCyclic(jobHandles, edgeEntities);
 
@@ -138,8 +138,8 @@ internal sealed class LinqToDBJobStorage<T>(
 
 		if (batch is not null)
 		{
-			var terminal = jobEntities.Values.Where(static job => IsTerminal(job.State)).ToArray();
-			var pending = jobEntities.Count - terminal.Length;
+			var terminal = jobEntities.Values.Where(static job => IsTerminal(job.State)).ToList();
+			var pending = jobEntities.Count - terminal.Count;
 			var failed = terminal.Count(static job => job.State == JobState.Failed);
 			var cancelled = terminal.Count(static job => job.State == JobState.Cancelled);
 			var skipped = terminal.Count(static job => job.State == JobState.Skipped);
@@ -188,8 +188,8 @@ internal sealed class LinqToDBJobStorage<T>(
 			var jobCapacities = queue.JobCapacities.ToDictionary(static pair => pair.Key, static pair => pair.Value, StringComparer.Ordinal);
 			while (queueCapacity > 0)
 			{
-				var eligibleNames = jobCapacities.Where(static pair => pair.Value > 0).Select(static pair => pair.Key).ToArray();
-				if (eligibleNames.Length == 0)
+				var eligibleNames = jobCapacities.Where(static pair => pair.Value > 0).Select(static pair => pair.Key).ToList();
+				if (eligibleNames.Count == 0)
 					break;
 
 				await using var scope = contextScope.GetScope(out var readConnection);
@@ -248,8 +248,8 @@ internal sealed class LinqToDBJobStorage<T>(
 				var eligibleNames = jobCapacities
 					.Where(static pair => pair.Value > 0)
 					.Select(static pair => pair.Key)
-					.ToArray();
-				if (eligibleNames.Length == 0)
+					.ToList();
+				if (eligibleNames.Count == 0)
 					break;
 
 				await using var scope = contextScope.GetScope(out var readConnection);
@@ -310,7 +310,7 @@ internal sealed class LinqToDBJobStorage<T>(
 						&& job.State == JobState.Active
 						&& job.LeaseExpiresAt > now);
 				var totalInflight = await activeQuery.CountAsync(cancellationToken);
-				var groupedHeadIds = groupedHeads.Select(static job => job.Id).ToArray();
+				var groupedHeadIds = groupedHeads.Select(static job => job.Id).ToList();
 				var cursorQuery = FairQueueGroups(readConnection)
 					.Where(group => group.QueueName == queue.QueueName);
 				var groupStateQuery = eligibleQuery
@@ -417,8 +417,8 @@ internal sealed class LinqToDBJobStorage<T>(
 			var eligibleNames = jobCapacities
 				.Where(static pair => pair.Value > 0)
 				.Select(static pair => pair.Key)
-				.ToArray();
-			if (eligibleNames.Length == 0)
+				.ToList();
+			if (eligibleNames.Count == 0)
 				break;
 
 			await using var scope = contextScope.GetScope(out var readConnection);
@@ -635,7 +635,7 @@ internal sealed class LinqToDBJobStorage<T>(
 			.Where(static job => job.GroupId is not null)
 			.Select(static job => (job.QueueName, job.GroupId))
 			.Distinct()
-			.ToArray();
+			.ToList();
 		foreach (var (queueName, groupId) in groups)
 		{
 			var hasLiveJobs = await Jobs(connection)
@@ -1325,7 +1325,7 @@ internal sealed class LinqToDBJobStorage<T>(
 			.OrderBy(job => job.CreatedAt)
 			.ThenBy(job => job.Id)
 			.ToListAsync(cancellationToken);
-		var jobs = entities.Select(job => new BatchGraphNode { JobHandle = JobHandle.FromString(job.Id), JobName = job.JobName, State = job.State }).ToArray();
+		var jobs = entities.Select(job => new BatchGraphNode { JobHandle = JobHandle.FromString(job.Id), JobName = job.JobName, State = job.State }).ToList();
 		var edges = entities.Count == 0
 			? []
 			: await Continuations(connection)
@@ -1403,8 +1403,8 @@ internal sealed class LinqToDBJobStorage<T>(
 		if (batch.State != BatchState.Executing)
 			throw new ImmediateJobException("Only an executing batch can be cancelled.");
 		var jobHandles = await Jobs(connection).Where(job => job.BatchHandle == batchHandle.Value).Select(job => job.Id)
-			.ToArrayAsync(cancellationToken);
-		var jobsToCancel = new List<ImmediateJobEntity>(jobHandles.Length);
+			.ToListAsync(cancellationToken);
+		var jobsToCancel = new List<ImmediateJobEntity>(jobHandles.Count);
 		foreach (var jobHandle in jobHandles)
 		{
 			var job = await Jobs(connection).SingleOrDefaultAsync(item => item.Id == jobHandle, cancellationToken);
@@ -1460,7 +1460,7 @@ internal sealed class LinqToDBJobStorage<T>(
 			if (batch.State == BatchState.Executing)
 				throw new ImmediateJobException("Only a terminal batch can be deleted.");
 			var jobHandles = await Jobs(connection).Where(job => job.BatchHandle == batchHandle.Value).Select(job => job.Id)
-				.ToArrayAsync(cancellationToken);
+				.ToListAsync(cancellationToken);
 			_ = await Continuations(connection)
 				.Where(edge =>
 					jobHandles.Contains(edge.ChildJobHandle)
@@ -1662,9 +1662,9 @@ internal sealed class LinqToDBJobStorage<T>(
 					)
 				)
 				.Select(job => job.Id)
-				.ToArrayAsync(cancellationToken);
+				.ToListAsync(cancellationToken);
 
-			if (jobHandles.Length != 0)
+			if (jobHandles.Count != 0)
 			{
 				_ = await Continuations(connection)
 					.Where(edge =>
@@ -2096,8 +2096,8 @@ internal sealed class LinqToDBJobStorage<T>(
 			.Where(edge => edge.ParentKind == ContinuationParentKind.Job && edge.ParentId == currentJobHandle.Value)
 			.Select(edge => edge.ChildJobHandle)
 			.Distinct()
-			.ToArrayAsync(cancellationToken);
-		return waiterIds.Length == 0
+			.ToListAsync(cancellationToken);
+		return waiterIds.Count == 0
 			? []
 			: await Jobs(connection)
 				.Where(job => waiterIds.Contains(job.Id) && job.State == JobState.AwaitingContinuation)
@@ -2290,7 +2290,7 @@ internal sealed class LinqToDBJobStorage<T>(
 	private async Task EvaluateInitialDependenciesAsync(
 		DataConnection connection,
 		Dictionary<string, ImmediateJobEntity> jobs,
-		ImmediateJobContinuationEntity[] edges,
+		List<ImmediateJobContinuationEntity> edges,
 		long now,
 		CancellationToken cancellationToken
 	)
@@ -2300,20 +2300,20 @@ internal sealed class LinqToDBJobStorage<T>(
 			.Select(static edge => edge.ParentId)
 			.Distinct(StringComparer.Ordinal)
 			.Order(StringComparer.Ordinal)
-			.ToArray();
+			.ToList();
 		var externalBatchHandles = edges
 			.Where(static edge => edge.ParentKind == ContinuationParentKind.Batch)
 			.Select(static edge => edge.ParentId)
 			.Distinct(StringComparer.Ordinal)
 			.Order(StringComparer.Ordinal)
-			.ToArray();
-		var externalJobEntities = externalJobHandles.Length == 0
+			.ToList();
+		var externalJobEntities = externalJobHandles.Count == 0
 			? [with(StringComparer.Ordinal)]
 			: (await Jobs(connection).Where(job => externalJobHandles.Contains(job.Id)).ToListAsync(cancellationToken)).ToDictionary(job => job.Id, StringComparer.Ordinal);
-		var externalBatchEntities = externalBatchHandles.Length == 0
+		var externalBatchEntities = externalBatchHandles.Count == 0
 			? [with(StringComparer.Ordinal)]
 			: (await Batches(connection).Where(batch => externalBatchHandles.Contains(batch.Id)).ToListAsync(cancellationToken)).ToDictionary(batch => batch.Id, StringComparer.Ordinal);
-		if (externalJobEntities.Count != externalJobHandles.Length || externalBatchEntities.Count != externalBatchHandles.Length)
+		if (externalJobEntities.Count != externalJobHandles.Count || externalBatchEntities.Count != externalBatchHandles.Count)
 			throw new ImmediateJobException("A continuation parent does not exist.");
 		foreach (var parentId in externalJobHandles)
 		{

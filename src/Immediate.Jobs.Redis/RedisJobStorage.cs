@@ -137,7 +137,7 @@ internal sealed class RedisJobStorage(
 		).WaitAsync(cancellationToken);
 		var ids = ((RedisResult[])result!)
 			.Select(static value => (string)value!)
-			.ToArray();
+			.ToList();
 		return await ReadJobsAsync(ids, cancellationToken);
 	}
 
@@ -267,7 +267,7 @@ internal sealed class RedisJobStorage(
 		var states = Enum.GetValues<JobState>();
 		var countTasks = states
 			.Select(state => Database.SetLengthAsync(StateKey(state)))
-			.ToArray();
+			.ToList();
 		var recurringTask = ReadAllRecurringAsync(cancellationToken);
 		var serversTask = ReadLiveServersAsync(cancellationToken);
 		_ = await Task.WhenAll(countTasks).WaitAsync(cancellationToken);
@@ -637,8 +637,8 @@ internal sealed class RedisJobStorage(
 			stop: Score(now),
 			take: batchSize
 		).WaitAsync(cancellationToken);
-		var members = values.Select(static value => (string)value!).ToArray();
-		var names = members.Select(static member => member[20..]).Distinct(StringComparer.Ordinal).ToArray();
+		var members = values.Select(static value => (string)value!).ToList();
+		var names = members.Select(static member => member[20..]).Distinct(StringComparer.Ordinal).ToList();
 		var schedules = await ReadRecurringAsync(
 			names,
 			cancellationToken
@@ -776,7 +776,7 @@ internal sealed class RedisJobStorage(
 		).WaitAsync(cancellationToken);
 		var tasks = ids
 			.Select(id => Database.HashGetAsync(ServerKey((string)id!), ["last", "active", "max"]))
-			.ToArray();
+			.ToList();
 		_ = await Task.WhenAll(tasks).WaitAsync(cancellationToken);
 		return
 		[
@@ -808,7 +808,7 @@ internal sealed class RedisJobStorage(
 		CancellationToken cancellationToken
 	)
 	{
-		var tasks = names.Select(name => ReadRecurringAsync(name, cancellationToken).AsTask()).ToArray();
+		var tasks = names.Select(name => ReadRecurringAsync(name, cancellationToken).AsTask()).ToList();
 		var schedules = await Task.WhenAll(tasks).WaitAsync(cancellationToken);
 		return [.. schedules.OfType<RecurringJobSchedule>().OrderBy(schedule => schedule.NextRunAt).ThenBy(schedule => schedule.Name, StringComparer.Ordinal)];
 	}
@@ -839,7 +839,7 @@ internal sealed class RedisJobStorage(
 		CancellationToken cancellationToken
 	)
 	{
-		var tasks = ids.Select(id => ReadJobAsync(new() { Value = id }, cancellationToken).AsTask()).ToArray();
+		var tasks = ids.Select(id => ReadJobAsync(new() { Value = id }, cancellationToken).AsTask()).ToList();
 		var jobs = await Task.WhenAll(tasks).WaitAsync(cancellationToken);
 		return [.. jobs.OfType<JobRecord>()];
 	}

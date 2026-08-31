@@ -3,6 +3,7 @@
     <File Path=".editorconfig" />
     <File Path=".github/dependabot.yml" />
     <File Path=".gitignore" />
+    <File Path="BannedSymbols.txt" />
     <File Path="coderabbit.yml" />
     <File Path="coverage-settings.xml" />
     <File Path="Directory.Build.props" />

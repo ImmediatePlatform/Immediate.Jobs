@@ -217,13 +217,13 @@ internal static class ReplicaStorageConformance
 				TimeSpan.FromMinutes(1),
 				cancellationToken
 			).AsTask())
-			.ToArray();
+			.ToList();
 
 		var results = await Task.WhenAll(contenders);
-		var claims = results.SelectMany(static result => result).ToArray();
+		var claims = results.SelectMany(static result => result).ToList();
 		ConformanceAssert.Equal(
 			1,
-			claims.Length,
+			claims.Count,
 			ContentionName,
 			"concurrent exact-id acquisitions must claim one invocation version at most once",
 			$"job={job.JobHandle}"

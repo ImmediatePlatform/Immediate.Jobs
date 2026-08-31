@@ -44,6 +44,10 @@
 	<MeziantouPolyfill_IncludedPolyfills>$(Polyfill)</MeziantouPolyfill_IncludedPolyfills>
   </PropertyGroup>
 
+  <ItemGroup>
+	<AdditionalFiles Include="$(MSBuildThisFileDirectory)/BannedSymbols.txt" Visible="false" />
+  </ItemGroup>
+
   <PropertyGroup Label="Nuget">
 	<Authors>Immediate.Jobs Developers</Authors>
 	<Copyright>© 2026 Immediate.Jobs Developers</Copyright>
