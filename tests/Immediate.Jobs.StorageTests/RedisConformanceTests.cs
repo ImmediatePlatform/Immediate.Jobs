@@ -1,4 +1,5 @@
 using Immediate.Jobs.Redis;
+using Immediate.Jobs.Shared.Apis;
 using Immediate.Jobs.Shared.Storage;
 using Immediate.Jobs.Testing.Storage;
 using Microsoft.Extensions.DependencyInjection;
@@ -26,7 +27,7 @@ public sealed class RedisConformanceTests(RedisStorageFixture redis)
 
 		await using var fixture = await RedisConformanceFixture.CreateAsync(
 			redis.Container.GetConnectionString(),
-			TestContext.Current.CancellationToken
+			testCase.PersistedJobState
 		);
 
 		await testCase.RunAsync(fixture.Services, TestContext.Current.CancellationToken);
@@ -53,16 +54,18 @@ file sealed class RedisConformanceFixture : IAsyncDisposable
 
 	internal static async ValueTask<RedisConformanceFixture> CreateAsync(
 		string connectionString,
-		CancellationToken cancellationToken
+		PersistedJobState persistedJobState
 	)
 	{
-		cancellationToken.ThrowIfCancellationRequested();
 		var connection = await ConnectionMultiplexer.ConnectAsync(connectionString);
+
 		try
 		{
 			var keyPrefix = "immediate-jobs-conformance-" + Guid.NewGuid().ToString("N");
 			var clock = new FakeTimeProvider(new DateTimeOffset(2026, 8, 8, 10, 0, 0, TimeSpan.Zero));
+
 			var serviceCollection = new ServiceCollection();
+
 			serviceCollection.AddLogging();
 			serviceCollection.AddSingleton<TimeProvider>(clock);
 			serviceCollection.AddSingleton(clock);
@@ -75,11 +78,16 @@ file sealed class RedisConformanceFixture : IAsyncDisposable
 						.ConfigureRedis(storage => storage.KeyPrefix = keyPrefix)
 				);
 
-			var services = serviceCollection.BuildServiceProvider(new ServiceProviderOptions
-			{
-				ValidateOnBuild = true,
-				ValidateScopes = true,
-			});
+			var services = serviceCollection.BuildServiceProvider(
+				new ServiceProviderOptions
+				{
+					ValidateOnBuild = true,
+					ValidateScopes = true,
+				}
+			);
+
+			await LoadJobs(services, persistedJobState.Jobs);
+
 			return new(connection, keyPrefix, services);
 		}
 		catch
@@ -87,6 +95,17 @@ file sealed class RedisConformanceFixture : IAsyncDisposable
 			await connection.DisposeAsync();
 			throw;
 		}
+	}
+
+	private static async ValueTask LoadJobs(IServiceProvider serviceProvider, IReadOnlyList<JobRecord> jobs)
+	{
+		if (jobs is [])
+			return;
+
+		var storage = serviceProvider.GetRequiredService<IJobStorage>();
+
+		foreach (var job in jobs)
+			await storage.EnqueueAsync(job);
 	}
 
 	public async ValueTask DisposeAsync()

@@ -33,6 +33,54 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 			?? throw new ImmediateJobException("Immediate.Jobs entities are not configured. Call modelBuilder.AddImmediateJobs() from OnModelCreating.");
 	}
 
+	/// <summary>
+	///		Used for testing to pre-load various values to the storage before the test starts.
+	/// </summary>
+	/// <param name="jobs">
+	///		The jobs that should be loaded in the database.
+	/// </param>
+	/// <param name="batches">
+	///		The batches that should be loaded in the database.
+	/// </param>
+	/// <param name="edges">
+	///		The continuation edges that should be loaded in the database.
+	/// </param>
+	/// <remarks>
+	///	    This method should run before any other methods run to initialize test state. Use in regular app code is not
+	///	    supported.
+	/// </remarks>
+	public async ValueTask LoadPersistedJobState(
+		IReadOnlyList<JobRecord> jobs,
+		IReadOnlyList<BatchRecord> batches,
+		IReadOnlyList<JobContinuationEdge> edges
+	)
+	{
+		await using var context = await contextFactory.CreateDbContextAsync();
+
+		context.AddRange(
+			batches.Select(batch => new ImmediateJobBatchEntity
+			{
+				Id = batch.BatchHandle.Value,
+				CreatedAt = batch.CreatedAt,
+				TotalJobs = batch.TotalJobs,
+				PendingCount = batch.PendingCount,
+				SucceededCount = 0,
+				FailedCount = 0,
+				CancelledCount = 0,
+				SkippedCount = 0,
+				StartedAt = batch.StartedAt,
+				CompletedAt = null,
+				State = BatchState.Executing,
+				ConcurrencyStamp = Guid.NewGuid(),
+			})
+		);
+
+		context.AddRange(jobs.Select(ToEntity));
+		context.AddRange(edges.Select(ToEntity));
+
+		await context.SaveChangesAsync();
+	}
+
 	/// <inheritdoc />
 	public async ValueTask EnqueueAsync(JobRecord job, CancellationToken cancellationToken = default)
 	{

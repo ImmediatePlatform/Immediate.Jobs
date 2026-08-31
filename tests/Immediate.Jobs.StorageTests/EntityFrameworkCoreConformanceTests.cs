@@ -55,7 +55,8 @@ public sealed class EntityFrameworkCorePgSQLConformanceTests(EntityFrameworkCore
 		await using var fixture = await RelationalConformanceFixture.CreateAsync(
 			ConformanceDatabase.PostgreSql,
 			useDistributedTopology: topology == ConformanceTopology.Distributed,
-			container: container.PostgreSql
+			container: container.PostgreSql,
+			testCase.PersistedJobState
 		);
 
 		await testCase.RunAsync(fixture.Services, TestContext.Current.CancellationToken);
@@ -75,7 +76,8 @@ public sealed class EntityFrameworkCoreMsSQLConformanceTests(EntityFrameworkCore
 		await using var fixture = await RelationalConformanceFixture.CreateAsync(
 			ConformanceDatabase.SqlServer,
 			useDistributedTopology: topology == ConformanceTopology.Distributed,
-			container: container.SqlServer
+			container: container.SqlServer,
+			testCase.PersistedJobState
 		);
 
 		await testCase.RunAsync(fixture.Services, TestContext.Current.CancellationToken);
@@ -95,7 +97,8 @@ public sealed class EntityFrameworkCoreSQLiteConformanceTests
 		await using var fixture = await RelationalConformanceFixture.CreateAsync(
 			ConformanceDatabase.Sqlite,
 			useDistributedTopology: topology == ConformanceTopology.Distributed,
-			container: null
+			container: null,
+			testCase.PersistedJobState
 		);
 
 		await testCase.RunAsync(fixture.Services, TestContext.Current.CancellationToken);
@@ -126,7 +129,8 @@ file sealed class RelationalConformanceFixture(
 	internal static async ValueTask<RelationalConformanceFixture> CreateAsync(
 		ConformanceDatabase database,
 		bool useDistributedTopology,
-		IDatabaseContainer? container
+		IDatabaseContainer? container,
+		PersistedJobState persistedJobState
 	)
 	{
 		var schema = database == ConformanceDatabase.Sqlite ? null : "jobs_" + Guid.NewGuid().ToString("N");
@@ -200,6 +204,13 @@ file sealed class RelationalConformanceFixture(
 				if (!string.IsNullOrWhiteSpace(batch))
 					await context.Database.ExecuteSqlRawAsync(batch, TestContext.Current.CancellationToken);
 			}
+
+			var storage = servicesProvider.GetRequiredService<EntityFrameworkCoreJobStorage<ConformanceDbContext>>();
+			await storage.LoadPersistedJobState(
+				persistedJobState.Jobs,
+				persistedJobState.Batches,
+				persistedJobState.Edges
+			);
 
 			return fixture;
 		}

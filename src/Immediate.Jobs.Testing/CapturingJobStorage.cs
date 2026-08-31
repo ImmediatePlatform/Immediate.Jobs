@@ -85,6 +85,28 @@ public sealed class CapturingJobStorage(TimeProvider timeProvider) :
 	/// <inheritdoc />
 	public ValueTask InitializeAsync(CancellationToken cancellationToken = default) => _inner.InitializeAsync(cancellationToken);
 
+	/// <summary>
+	///	    Used for testing to pre-load various values to the storage before the test starts.
+	/// </summary>
+	/// <param name="jobs">
+	///	    The jobs that should be loaded in the database.
+	/// </param>
+	/// <param name="batches">
+	///	    The batches that should be loaded in the database.
+	/// </param>
+	/// <param name="edges">
+	///	    The continuation edges that should be loaded in the database.
+	/// </param>
+	/// <remarks>
+	///	    This method should run before any other methods run to initialize test state. Use in regular app code is not
+	///	    supported.
+	/// </remarks>
+	public void LoadPersistedJobState(
+		IReadOnlyList<JobRecord> jobs,
+		IReadOnlyList<BatchRecord> batches,
+		IReadOnlyList<JobContinuationEdge> edges
+	) => _inner.LoadPersistedJobState(jobs, batches, edges);
+
 	/// <inheritdoc />
 	public ValueTask EnqueueAsync(JobRecord job, CancellationToken cancellationToken = default)
 	{

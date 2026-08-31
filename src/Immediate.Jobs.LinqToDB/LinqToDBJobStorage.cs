@@ -5,6 +5,7 @@ using LinqToDB;
 using LinqToDB.Async;
 using LinqToDB.Data;
 using Microsoft.Extensions.Options;
+using static System.Net.WebRequestMethods;
 
 namespace Immediate.Jobs.LinqToDB;
 
@@ -34,6 +35,60 @@ internal sealed class LinqToDBJobStorage<T>(
 	{
 		await TaskScheduler.Yield();
 		await ValueTask.CompletedTask;
+	}
+
+	/// <summary>
+	///		Used for testing to pre-load various values to the storage before the test starts.
+	/// </summary>
+	/// <param name="jobs">
+	///		The jobs that should be loaded in the database.
+	/// </param>
+	/// <param name="batches">
+	///		The batches that should be loaded in the database.
+	/// </param>
+	/// <param name="edges">
+	///		The continuation edges that should be loaded in the database.
+	/// </param>
+	/// <remarks>
+	///	    This method should run before any other methods run to initialize test state. Use in regular app code is not
+	///	    supported.
+	/// </remarks>
+	public async ValueTask LoadPersistedJobState(
+		IReadOnlyList<JobRecord> jobs,
+		IReadOnlyList<BatchRecord> batches,
+		IReadOnlyList<JobContinuationEdge> edges
+	)
+	{
+		await using var scope = contextScope.GetScope(out var connection);
+
+		await connection.BulkCopyAsync(
+			new BulkCopyOptions { SchemaName = _schema },
+			batches.Select(batch => new ImmediateJobBatchEntity
+			{
+				Id = batch.BatchHandle.Value,
+				CreatedAt = batch.CreatedAt.UtcTicks,
+				TotalJobs = batch.TotalJobs,
+				PendingCount = batch.PendingCount,
+				SucceededCount = 0,
+				FailedCount = 0,
+				CancelledCount = 0,
+				SkippedCount = 0,
+				StartedAt = Ticks(batch.StartedAt),
+				CompletedAt = null,
+				State = BatchState.Executing,
+				ConcurrencyStamp = Guid.NewGuid(),
+			})
+		);
+
+		await connection.BulkCopyAsync(
+			new BulkCopyOptions { SchemaName = _schema },
+			jobs.Select(ToEntity)
+		);
+
+		await connection.BulkCopyAsync(
+			new BulkCopyOptions { SchemaName = _schema },
+			edges.Select(ToEntity)
+		);
 	}
 
 	/// <inheritdoc />

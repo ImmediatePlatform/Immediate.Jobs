@@ -14,12 +14,28 @@ public sealed class JobStorageConformanceTestCase
 	internal JobStorageConformanceTestCase(
 		string name,
 		StorageCapabilities requiredCapabilities,
-		JobStorageConformanceScenario scenario
+		JobStorageConformanceScenario scenario,
+		PersistedJobState? persistedJobState = null
 	)
 	{
 		Name = name;
 		RequiredCapabilities = requiredCapabilities;
 		_scenario = scenario;
+
+		if (!requiredCapabilities.HasFlag(StorageCapabilities.Graph)
+			&& persistedJobState is { Batches.Count: > 0 } or { Edges.Count: > 0 })
+		{
+			throw new ImmediateJobException("Cannot have pre-configured batches or edges on non-graph storages.");
+		}
+
+		PersistedJobState =
+			persistedJobState
+			?? new()
+			{
+				Jobs = [],
+				Batches = [],
+				Edges = [],
+			};
 	}
 
 	/// <summary>
@@ -31,6 +47,11 @@ public sealed class JobStorageConformanceTestCase
 	/// 	Gets the capabilities required by this case.
 	/// </summary>
 	public StorageCapabilities RequiredCapabilities { get; }
+
+	/// <summary>
+	///		
+	/// </summary>
+	public PersistedJobState PersistedJobState { get; }
 
 	/// <summary>
 	/// 	Resolves the registered storage, verifies its advertised capabilities, and runs this case.

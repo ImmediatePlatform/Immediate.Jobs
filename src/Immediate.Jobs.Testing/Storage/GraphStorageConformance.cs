@@ -8,6 +8,7 @@ internal static class GraphStorageConformance
 {
 	private const string CapabilityName = "Graph.Capability.ResolvesAdvertisedStorage";
 	private const string BatchLifecycleName = "Graph.Batches.CommitsProjectsAndDeletesAtomically";
+	private const string ExistingGraphName = "Graph.Batches.LoadsExistingGraphWithDependencyMetadata";
 	private const string InvalidBatchName = "Graph.Batches.RollbackInvalidBatchWithoutPartialWrites";
 	private const string TriggerName = "Graph.Dependencies.ReleasesAndSkipsConditionalBranches";
 	private const string FanInName = "Graph.Dependencies.FanInWaitsForEveryParent";
@@ -24,6 +25,7 @@ internal static class GraphStorageConformance
 	[
 		new(CapabilityName, StorageCapabilities.Graph, ResolvesAdvertisedStorage),
 		new(BatchLifecycleName, StorageCapabilities.Graph, BatchLifecycleAsync),
+		new(ExistingGraphName, StorageCapabilities.Graph, LoadsExistingGraphAsync, ExistingGraphJobState()),
 		new(InvalidBatchName, StorageCapabilities.Graph, InvalidBatchRollsBackAsync),
 		new(TriggerName, StorageCapabilities.Graph, ConditionalTriggersAsync),
 		new(FanInName, StorageCapabilities.Graph, FanInAsync),
@@ -36,6 +38,78 @@ internal static class GraphStorageConformance
 		new(BatchPurgeName, StorageCapabilities.Graph, PurgeExpiredBatchAsync),
 		new(BatchPurgeRaceName, StorageCapabilities.Graph, SerializeBatchPurgeWithRetryAsync),
 	];
+
+	private static PersistedJobState ExistingGraphJobState()
+	{
+		var batchHandle = BatchHandle.FromString("existing-graph-batch");
+		var parent = CreateJob("existing-graph-parent", batchHandle);
+		var child = CreateJob("existing-graph-child", batchHandle) with
+		{
+			State = JobState.AwaitingContinuation,
+			RemainingDependencies = 1,
+		};
+		var edge = new JobContinuationEdge
+		{
+			ChildJobHandle = child.JobHandle,
+			ParentJobHandle = parent.JobHandle,
+			Delay = TimeSpan.FromMinutes(7),
+			Trigger = ContinuationTrigger.Complete,
+		};
+
+		return new PersistedJobState
+		{
+			Jobs = [parent, child],
+			Batches = [CreateBatch(batchHandle, 2)],
+			Edges = [edge],
+		};
+	}
+
+	private static async ValueTask LoadsExistingGraphAsync(
+		IJobStorage storage,
+		FakeTimeProvider timeProvider,
+		CancellationToken cancellationToken
+	)
+	{
+		var graph = GetGraph(storage, ExistingGraphName);
+		var batchHandle = BatchHandle.FromString("existing-graph-batch");
+		var parent = CreateJob("existing-graph-parent", batchHandle);
+		var child = CreateJob("existing-graph-child", batchHandle) with
+		{
+			State = JobState.AwaitingContinuation,
+			RemainingDependencies = 1,
+		};
+		var edge = new JobContinuationEdge
+		{
+			ChildJobHandle = child.JobHandle,
+			ParentJobHandle = parent.JobHandle,
+			Delay = TimeSpan.FromMinutes(7),
+			Trigger = ContinuationTrigger.Complete,
+		};
+
+		var loaded = ConformanceAssert.NotNull(
+			await graph.GetBatchGraphAsync(batchHandle, cancellationToken).ConfigureAwait(false),
+			ExistingGraphName,
+			"an existing batch graph must be loadable from storage"
+		);
+		ConformanceAssert.Equal(batchHandle, loaded.BatchHandle, ExistingGraphName,
+			"the loaded graph must preserve its batch identity");
+		ConformanceAssert.SequenceEqual(
+			new[] { child.JobHandle.Value, parent.JobHandle.Value }.Order(StringComparer.Ordinal),
+			loaded.Nodes.Select(static node => node.JobHandle.Value).Order(StringComparer.Ordinal),
+			ExistingGraphName,
+			"the loaded graph must contain all persisted nodes"
+		);
+		var loadedEdge = ConformanceAssert.NotNull(loaded.Edges.SingleOrDefault(), ExistingGraphName,
+			"the loaded graph must contain its persisted dependency");
+		ConformanceAssert.Equal(child.JobHandle, loadedEdge.ChildJobHandle, ExistingGraphName,
+			"the loaded edge must preserve its child");
+		ConformanceAssert.Equal(parent.JobHandle, loadedEdge.ParentJobHandle, ExistingGraphName,
+			"the loaded edge must preserve its parent");
+		ConformanceAssert.Equal(edge.Delay, loadedEdge.Delay, ExistingGraphName,
+			"the loaded edge must preserve its delay");
+		ConformanceAssert.Equal(edge.Trigger, loadedEdge.Trigger, ExistingGraphName,
+			"the loaded edge must preserve its trigger");
+	}
 
 	private static async ValueTask PropagationDelayAsync(
 		IJobStorage storage,
@@ -820,19 +894,22 @@ internal static class GraphStorageConformance
 		);
 
 	private static JobRecord CreateJob(string id, string? batchHandle = null) =>
+		CreateJob(JobHandle.FromString(id), BatchHandle.FromString(batchHandle));
+
+	private static JobRecord CreateJob(string id, BatchHandle? batchHandle) =>
+		CreateJob(JobHandle.FromString(id), batchHandle);
+
+	private static JobRecord CreateJob(JobHandle id, BatchHandle? batchHandle) =>
 		new()
 		{
-			JobHandle = JobHandle.FromString(id),
-			JobName = id,
+			JobHandle = id,
+			JobName = id.Value,
 			Payload = "{}",
 			State = JobState.Pending,
 			DueAt = DateTimeOffset.UnixEpoch,
 			CreatedAt = DateTimeOffset.UnixEpoch,
-			BatchHandle = BatchHandle.FromString(batchHandle),
+			BatchHandle = batchHandle,
 		};
-
-	private static JobRecord CreateJob(JobHandle id, BatchHandle? batchHandle = null) =>
-		CreateJob(id.Value, batchHandle?.Value);
 
 	private static JobRecord CreateWaitingJob(string id, int dependencies) =>
 		CreateJob(id) with

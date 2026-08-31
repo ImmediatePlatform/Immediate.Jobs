@@ -54,7 +54,8 @@ public sealed class LinqToDBPgSQLConformanceTests(LinqToDBPgSQLContainer contain
 		await using var fixture = await RelationalConformanceFixture.CreateAsync(
 			ConformanceDatabase.PostgreSql,
 			useDistributedTopology: topology == ConformanceTopology.Distributed,
-			container: container.PostgreSql
+			container: container.PostgreSql,
+			testCase.PersistedJobState
 		);
 
 		await testCase.RunAsync(fixture.Services, TestContext.Current.CancellationToken);
@@ -74,7 +75,8 @@ public sealed class LinqToDBMsSQLConformanceTests(LinqToDBMsSQLContainer contain
 		await using var fixture = await RelationalConformanceFixture.CreateAsync(
 			ConformanceDatabase.SqlServer,
 			useDistributedTopology: topology == ConformanceTopology.Distributed,
-			container: container.SqlServer
+			container: container.SqlServer,
+			testCase.PersistedJobState
 		);
 
 		await testCase.RunAsync(fixture.Services, TestContext.Current.CancellationToken);
@@ -94,7 +96,8 @@ public sealed class LinqToDBSQLiteConformanceTests
 		await using var fixture = await RelationalConformanceFixture.CreateAsync(
 			ConformanceDatabase.Sqlite,
 			useDistributedTopology: topology == ConformanceTopology.Distributed,
-			container: null
+			container: null,
+			testCase.PersistedJobState
 		);
 
 		await testCase.RunAsync(fixture.Services, TestContext.Current.CancellationToken);
@@ -125,7 +128,8 @@ file sealed class RelationalConformanceFixture(
 	internal static async ValueTask<RelationalConformanceFixture> CreateAsync(
 		ConformanceDatabase database,
 		bool useDistributedTopology,
-		IDatabaseContainer? container
+		IDatabaseContainer? container,
+		PersistedJobState persistedJobState
 	)
 	{
 		var schema = database == ConformanceDatabase.Sqlite ? null : "jobs_" + Guid.NewGuid().ToString("N");
@@ -179,6 +183,13 @@ file sealed class RelationalConformanceFixture(
 		{
 			await using (var context = new ConformanceDbContext(dataOptions))
 				await context.CreateImmediateJobsSchemaAsync(schema, TestContext.Current.CancellationToken);
+
+			var storage = servicesProvider.GetRequiredService<LinqToDBJobStorage<ConformanceDbContext>>();
+			await storage.LoadPersistedJobState(
+				persistedJobState.Jobs,
+				persistedJobState.Batches,
+				persistedJobState.Edges
+			);
 
 			return fixture;
 		}
