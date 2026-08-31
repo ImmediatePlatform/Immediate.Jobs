@@ -65,15 +65,15 @@ internal sealed class LinqToDBJobStorage<T>(
 			batches.Select(batch => new ImmediateJobBatchEntity
 			{
 				Id = batch.BatchHandle.Value,
-				CreatedAt = batch.CreatedAt.UtcTicks,
+				CreatedAt = batch.CreatedAt,
 				TotalJobs = batch.TotalJobs,
 				PendingCount = batch.PendingCount,
 				SucceededCount = batch.SucceededCount,
 				FailedCount = batch.FailedCount,
 				CancelledCount = batch.CancelledCount,
 				SkippedCount = batch.SkippedCount,
-				StartedAt = Ticks(batch.StartedAt),
-				CompletedAt = Ticks(batch.CompletedAt),
+				StartedAt = batch.StartedAt,
+				CompletedAt = batch.CompletedAt,
 				State = batch.State,
 				ConcurrencyStamp = Guid.NewGuid(),
 			})
@@ -198,7 +198,7 @@ internal sealed class LinqToDBJobStorage<T>(
 			connection,
 			jobEntities,
 			edgeEntities,
-			timeProvider.GetUtcNow().UtcTicks,
+			timeProvider.GetUtcNow(),
 			cancellationToken
 		);
 
@@ -212,15 +212,15 @@ internal sealed class LinqToDBJobStorage<T>(
 			_ = await InsertAsync(connection, new ImmediateJobBatchEntity
 			{
 				Id = batch.BatchHandle.Value,
-				CreatedAt = batch.CreatedAt.UtcTicks,
+				CreatedAt = batch.CreatedAt,
 				TotalJobs = jobEntities.Count,
 				PendingCount = pending,
 				SucceededCount = terminal.Count(static job => job.State == JobState.Succeeded),
 				FailedCount = failed,
 				CancelledCount = cancelled,
 				SkippedCount = skipped,
-				StartedAt = Ticks(batch.StartedAt),
-				CompletedAt = pending == 0 ? Ticks(batch.CompletedAt ?? timeProvider.GetUtcNow()) : null,
+				StartedAt = batch.StartedAt,
+				CompletedAt = pending == 0 ? batch.CompletedAt ?? timeProvider.GetUtcNow() : null,
 				State = pending == 0 ? GetTerminalBatchState(failed, cancelled) : BatchState.Executing,
 				ConcurrencyStamp = Guid.NewGuid(),
 			}, cancellationToken);
@@ -244,7 +244,7 @@ internal sealed class LinqToDBJobStorage<T>(
 		if (request.FairQueues is not null)
 			return await AcquireDueJobsFairAsync(request, cancellationToken);
 
-		var now = timeProvider.GetUtcNow().UtcTicks;
+		var now = timeProvider.GetUtcNow();
 		var acquired = new List<JobRecord>(request.BatchSize);
 		foreach (var queue in request.Queues)
 		{
@@ -296,7 +296,7 @@ internal sealed class LinqToDBJobStorage<T>(
 		CancellationToken cancellationToken
 	)
 	{
-		var now = timeProvider.GetUtcNow().UtcTicks;
+		var now = timeProvider.GetUtcNow();
 		var acquired = new List<JobRecord>(request.BatchSize);
 		foreach (var queue in request.Queues)
 		{
@@ -474,7 +474,7 @@ internal sealed class LinqToDBJobStorage<T>(
 		int queueCapacity,
 		string workerId,
 		TimeSpan lease,
-		long now,
+		DateTimeOffset now,
 		CancellationToken cancellationToken
 	)
 	{
@@ -537,7 +537,7 @@ internal sealed class LinqToDBJobStorage<T>(
 		ImmediateJobEntity candidate,
 		string workerId,
 		TimeSpan lease,
-		long now,
+		DateTimeOffset now,
 		long nextSequence,
 		CancellationToken cancellationToken
 	)
@@ -553,7 +553,7 @@ internal sealed class LinqToDBJobStorage<T>(
 			var oldStamp = candidate.ConcurrencyStamp;
 			candidate.State = JobState.Active;
 			candidate.WorkerId = workerId;
-			candidate.LeaseExpiresAt = now + lease.Ticks;
+			candidate.LeaseExpiresAt = now + lease;
 			candidate.Attempt++;
 			candidate.CompletedAt = null;
 			candidate.ExecutionTraceId = null;
@@ -749,7 +749,7 @@ internal sealed class LinqToDBJobStorage<T>(
 		if (jobHandles.Count == 0)
 			return [];
 
-		var now = timeProvider.GetUtcNow().UtcTicks;
+		var now = timeProvider.GetUtcNow();
 
 		await using var scope = contextScope.GetScope(out var connection);
 
@@ -766,7 +766,7 @@ internal sealed class LinqToDBJobStorage<T>(
 		List<ImmediateJobEntity> candidates,
 		string workerId,
 		TimeSpan lease,
-		long now,
+		DateTimeOffset now,
 		CancellationToken cancellationToken
 	)
 	{
@@ -782,7 +782,7 @@ internal sealed class LinqToDBJobStorage<T>(
 				var oldStamp = candidate.ConcurrencyStamp;
 				candidate.State = JobState.Active;
 				candidate.WorkerId = workerId;
-				candidate.LeaseExpiresAt = now + lease.Ticks;
+				candidate.LeaseExpiresAt = now + lease;
 				candidate.Attempt++;
 				candidate.CompletedAt = null;
 				candidate.ExecutionTraceId = null;
@@ -855,7 +855,7 @@ internal sealed class LinqToDBJobStorage<T>(
 			var oldStamp = job.ConcurrencyStamp;
 			job.ExecutionTraceId = traceId;
 			job.ExecutionSpanId = spanId;
-			job.ExecutionStartedAt = startedAt.UtcTicks;
+			job.ExecutionStartedAt = startedAt;
 			job.ConcurrencyStamp = Guid.NewGuid();
 			if (!await UpdateJobAsync(connection, job, oldStamp, cancellationToken))
 				throw new LostRaceException();
@@ -863,7 +863,7 @@ internal sealed class LinqToDBJobStorage<T>(
 				.Where(execution => execution.JobHandle == jobHandle.Value && execution.Attempt == executionNumber && execution.State == JobExecutionState.Active)
 				.Set(execution => execution.ExecutionTraceId, traceId)
 				.Set(execution => execution.ExecutionSpanId, spanId)
-				.Set(execution => execution.ExecutionStartedAt, startedAt.UtcTicks)
+				.Set(execution => execution.ExecutionStartedAt, startedAt)
 				.UpdateAsync(cancellationToken);
 			if (executionUpdated == 0)
 				throw new LostRaceException();
@@ -886,7 +886,7 @@ internal sealed class LinqToDBJobStorage<T>(
 
 		var updated = await Jobs(connection)
 			.Where(job => job.Id == jobHandle.Value && job.Attempt == executionNumber && job.State == JobState.Active && job.WorkerId == workerId)
-			.Set(job => job.LeaseExpiresAt, timeProvider.GetUtcNow().UtcTicks + lease.Ticks)
+			.Set(job => job.LeaseExpiresAt, timeProvider.GetUtcNow() + lease)
 			.Set(job => job.ConcurrencyStamp, Guid.NewGuid())
 			.UpdateAsync(cancellationToken);
 		if (updated == 0)
@@ -1011,7 +1011,7 @@ internal sealed class LinqToDBJobStorage<T>(
 			existing.Cron = schedule.Cron;
 			existing.TimeZone = schedule.TimeZone;
 			existing.IsCodeDefined = schedule.IsCodeDefined;
-			existing.NextRunAt = schedule.NextRunAt.UtcTicks;
+			existing.NextRunAt = schedule.NextRunAt;
 			existing.ConcurrencyStamp = Guid.NewGuid();
 			if (await UpdateRecurringAsync(connection, existing, oldStamp, cancellationToken))
 				return;
@@ -1103,7 +1103,7 @@ internal sealed class LinqToDBJobStorage<T>(
 		await using var scope = contextScope.GetScope(out var connection);
 
 		var schedules = await Recurring(connection)
-			.Where(schedule => !schedule.IsPaused && schedule.NextRunAt <= now.UtcTicks)
+			.Where(schedule => !schedule.IsPaused && schedule.NextRunAt <= now)
 			.OrderBy(schedule => schedule.NextRunAt)
 			.Take(batchSize)
 			.ToListAsync(cancellationToken);
@@ -1127,15 +1127,15 @@ internal sealed class LinqToDBJobStorage<T>(
 		try
 		{
 			var entity = await Recurring(connection).SingleOrDefaultAsync(item => item.Name == schedule.Name, cancellationToken);
-			if (entity is null || entity.IsPaused || entity.NextRunAt != schedule.NextRunAt.UtcTicks)
+			if (entity is null || entity.IsPaused || entity.NextRunAt != schedule.NextRunAt)
 			{
 				await connection.RollbackTransactionAsync(cancellationToken);
 				return false;
 			}
 
 			var oldStamp = entity.ConcurrencyStamp;
-			entity.LastRunAt = schedule.NextRunAt.UtcTicks;
-			entity.NextRunAt = nextRunAt.UtcTicks;
+			entity.LastRunAt = schedule.NextRunAt;
+			entity.NextRunAt = nextRunAt;
 			entity.ConcurrencyStamp = Guid.NewGuid();
 			if (!await UpdateRecurringAsync(connection, entity, oldStamp, cancellationToken))
 				throw new LostRaceException();
@@ -1179,9 +1179,9 @@ internal sealed class LinqToDBJobStorage<T>(
 			.Where(entity =>
 				entity.Name == schedule.Name &&
 				!entity.IsPaused &&
-				entity.NextRunAt == schedule.NextRunAt.UtcTicks)
-			.Set(entity => entity.LastRunAt, schedule.NextRunAt.UtcTicks)
-			.Set(entity => entity.NextRunAt, nextRunAt.UtcTicks)
+				entity.NextRunAt == schedule.NextRunAt)
+			.Set(entity => entity.LastRunAt, schedule.NextRunAt)
+			.Set(entity => entity.NextRunAt, nextRunAt)
 			.Set(entity => entity.ConcurrencyStamp, Guid.NewGuid())
 			.UpdateAsync(cancellationToken);
 	}
@@ -1207,7 +1207,7 @@ internal sealed class LinqToDBJobStorage<T>(
 		var recurringEntities = await Recurring(connection)
 			.OrderBy(schedule => schedule.Name)
 			.ToListAsync(cancellationToken);
-		var cutoff = (timeProvider.GetUtcNow() - TimeSpan.FromMinutes(2)).UtcTicks;
+		var cutoff = timeProvider.GetUtcNow() - TimeSpan.FromMinutes(2);
 		var serverEntities = await Servers(connection)
 			.Where(server => server.LastHeartbeat >= cutoff)
 			.OrderBy(server => server.WorkerId)
@@ -1220,7 +1220,7 @@ internal sealed class LinqToDBJobStorage<T>(
 			Servers = [.. serverEntities.Select(server => new JobServerSnapshot
 			{
 				WorkerId = server.WorkerId,
-				LastHeartbeat = FromTicks(server.LastHeartbeat),
+				LastHeartbeat = server.LastHeartbeat,
 				ActiveWorkers = server.ActiveWorkers,
 				MaxWorkers = server.MaxWorkers,
 			})],
@@ -1388,8 +1388,8 @@ internal sealed class LinqToDBJobStorage<T>(
 				QueueName = job.QueueName,
 				State = job.State,
 				Attempt = job.Attempt,
-				CreatedAt = LinqToDBJobStorage<T>.FromTicks(job.CreatedAt),
-				CompletedAt = LinqToDBJobStorage<T>.FromTicks(job.CompletedAt),
+				CreatedAt = job.CreatedAt,
+				CompletedAt = job.CompletedAt,
 				LastError = job.LastError,
 			})
 			.ToList();
@@ -1452,9 +1452,9 @@ internal sealed class LinqToDBJobStorage<T>(
 			State = job.State,
 			Attempt = job.Attempt,
 			MaxAttempts = 0,
-			CreatedAt = FromTicks(job.CreatedAt),
-			DueAt = FromTicks(job.DueAt),
-			CompletedAt = FromTicks(job.CompletedAt),
+			CreatedAt = job.CreatedAt,
+			DueAt = job.DueAt,
+			CompletedAt = job.CompletedAt,
 			LastError = job.LastError,
 			BatchHandle = BatchHandle.FromString(job.BatchHandle),
 			DependsOn = [.. edges.Select(ToContinuationEdge)],
@@ -1487,7 +1487,7 @@ internal sealed class LinqToDBJobStorage<T>(
 		CancellationToken cancellationToken
 	)
 	{
-		var now = timeProvider.GetUtcNow().UtcTicks;
+		var now = timeProvider.GetUtcNow();
 		var batch = await Batches(connection).SingleOrDefaultAsync(item => item.Id == batchHandle.Value, cancellationToken)
 			?? throw new KeyNotFoundException($"Batch '{batchHandle}' was not found.");
 		if (batch.State != BatchState.Executing)
@@ -1598,7 +1598,7 @@ internal sealed class LinqToDBJobStorage<T>(
 		if (IsTerminal(job.State))
 			throw new ImmediateJobException("Only a non-terminal job can be cancelled.");
 
-		var now = timeProvider.GetUtcNow().UtcTicks;
+		var now = timeProvider.GetUtcNow();
 		if (job.State == JobState.Active)
 		{
 			_ = await GetOrMaterializeExecutionAsync(connection, job, cancellationToken)
@@ -1665,7 +1665,7 @@ internal sealed class LinqToDBJobStorage<T>(
 
 		var oldStamp = job.ConcurrencyStamp;
 		job.State = JobState.Pending;
-		job.DueAt = timeProvider.GetUtcNow().UtcTicks;
+		job.DueAt = timeProvider.GetUtcNow();
 		job.WorkerId = null;
 		job.LeaseExpiresAt = null;
 		if (wasFailed)
@@ -1749,10 +1749,10 @@ internal sealed class LinqToDBJobStorage<T>(
 					&& (
 						(
 							job.State == JobState.Succeeded
-							&& job.CompletedAt < (now - succeededRetention).UtcTicks
+							&& job.CompletedAt < (now - succeededRetention)
 						) || (
 							(job.State == JobState.Failed || job.State == JobState.Cancelled || job.State == JobState.Skipped)
-							&& job.CompletedAt < (now - failedRetention).UtcTicks
+							&& job.CompletedAt < (now - failedRetention)
 						)
 					)
 				)
@@ -1795,8 +1795,8 @@ internal sealed class LinqToDBJobStorage<T>(
 		await RetryConcurrencyAsync(
 			connection => PurgeBatchesCoreAsync(
 				connection,
-				(now - batchSucceededRetention).UtcTicks,
-				(now - batchFailedRetention).UtcTicks,
+				now - batchSucceededRetention,
+				now - batchFailedRetention,
 				cancellationToken
 			),
 			cancellationToken
@@ -1805,8 +1805,8 @@ internal sealed class LinqToDBJobStorage<T>(
 
 	private async Task PurgeBatchesCoreAsync(
 		DataConnection connection,
-		long batchSucceededBefore,
-		long batchFailedBefore,
+		DateTimeOffset batchSucceededBefore,
+		DateTimeOffset batchFailedBefore,
 		CancellationToken cancellationToken
 	)
 	{
@@ -1861,13 +1861,13 @@ internal sealed class LinqToDBJobStorage<T>(
 
 		await using var scope = contextScope.GetScope(out var connection);
 
-		var cutoff = (timeProvider.GetUtcNow() - TimeSpan.FromMinutes(2)).UtcTicks;
+		var cutoff = timeProvider.GetUtcNow() - TimeSpan.FromMinutes(2);
 		_ = await Servers(connection)
 			.Where(entity => entity.LastHeartbeat < cutoff)
 			.DeleteAsync(cancellationToken);
 		var updated = await Servers(connection)
 			.Where(entity => entity.WorkerId == server.WorkerId)
-			.Set(entity => entity.LastHeartbeat, server.LastHeartbeat.UtcTicks)
+			.Set(entity => entity.LastHeartbeat, server.LastHeartbeat)
 			.Set(entity => entity.ActiveWorkers, server.ActiveWorkers)
 			.Set(entity => entity.MaxWorkers, server.MaxWorkers)
 			.UpdateAsync(cancellationToken);
@@ -1878,7 +1878,7 @@ internal sealed class LinqToDBJobStorage<T>(
 			_ = await InsertAsync(connection, new ImmediateJobServerEntity
 			{
 				WorkerId = server.WorkerId,
-				LastHeartbeat = server.LastHeartbeat.UtcTicks,
+				LastHeartbeat = server.LastHeartbeat,
 				ActiveWorkers = server.ActiveWorkers,
 				MaxWorkers = server.MaxWorkers,
 			}, cancellationToken);
@@ -1887,7 +1887,7 @@ internal sealed class LinqToDBJobStorage<T>(
 		{
 			_ = await Servers(connection)
 				.Where(entity => entity.WorkerId == server.WorkerId)
-				.Set(entity => entity.LastHeartbeat, server.LastHeartbeat.UtcTicks)
+				.Set(entity => entity.LastHeartbeat, server.LastHeartbeat)
 				.Set(entity => entity.ActiveWorkers, server.ActiveWorkers)
 				.Set(entity => entity.MaxWorkers, server.MaxWorkers)
 				.UpdateAsync(cancellationToken);
@@ -1999,7 +1999,7 @@ internal sealed class LinqToDBJobStorage<T>(
 				cancellationToken
 			) ?? throw new ImmediateJobException($"Worker '{workerId}' does not own active job '{jobHandle}'.");
 		var oldStamp = job.ConcurrencyStamp;
-		var now = timeProvider.GetUtcNow().UtcTicks;
+		var now = timeProvider.GetUtcNow();
 		_ = await GetOrMaterializeExecutionAsync(connection, job, cancellationToken)
 			?? throw new ImmediateJobException($"Active job '{job.Id}' has no execution ordinal.");
 		var executionUpdated = await Executions(connection)
@@ -2016,8 +2016,8 @@ internal sealed class LinqToDBJobStorage<T>(
 		job.ConcurrencyStamp = Guid.NewGuid();
 		if (!succeeded && nextRetryAt is { } retryAt)
 		{
-			job.State = retryAt.UtcTicks <= now ? JobState.Pending : JobState.Scheduled;
-			job.DueAt = retryAt.UtcTicks;
+			job.State = retryAt <= now ? JobState.Pending : JobState.Scheduled;
+			job.DueAt = retryAt;
 			job.CompletedAt = null;
 			if (!await UpdateJobAsync(connection, job, oldStamp, cancellationToken))
 				throw new LostRaceException();
@@ -2205,7 +2205,7 @@ internal sealed class LinqToDBJobStorage<T>(
 	private async Task PropagateTerminalAsync(
 		DataConnection connection,
 		ImmediateJobEntity terminalJob,
-		long now,
+		DateTimeOffset now,
 		ISet<(string QueueName, string GroupId)> terminalGroups,
 		CancellationToken cancellationToken
 	)
@@ -2268,7 +2268,7 @@ internal sealed class LinqToDBJobStorage<T>(
 							child.Id,
 							cancellationToken
 						);
-						var delayedDueAt = now + delay.Ticks;
+						var delayedDueAt = now + TimeSpan.FromTicks(delay.Ticks);
 						if (child.DueAt < delayedDueAt)
 							child.DueAt = delayedDueAt;
 						child.State = child.DueAt <= now ? JobState.Pending : JobState.Scheduled;
@@ -2335,7 +2335,7 @@ internal sealed class LinqToDBJobStorage<T>(
 	private async Task UpdateBatchForTerminalJobAsync(
 		DataConnection connection,
 		ImmediateJobEntity job,
-		long now,
+		DateTimeOffset now,
 		Queue<(ContinuationParentKind Kind, string Id, ContinuationParentOutcome Outcome)> parents,
 		CancellationToken cancellationToken
 	)
@@ -2389,7 +2389,7 @@ internal sealed class LinqToDBJobStorage<T>(
 		DataConnection connection,
 		Dictionary<string, ImmediateJobEntity> jobs,
 		List<ImmediateJobContinuationEntity> edges,
-		long now,
+		DateTimeOffset now,
 		CancellationToken cancellationToken
 	)
 	{
@@ -2465,7 +2465,7 @@ internal sealed class LinqToDBJobStorage<T>(
 					}
 
 					edge.ParentOutcome = GetParentOutcome(parentSucceeded, parentFailed);
-					var delayedDueAt = now + edge.Delay;
+					var delayedDueAt = now + TimeSpan.FromTicks(edge.Delay);
 					if (job.DueAt < delayedDueAt)
 						job.DueAt = delayedDueAt;
 
@@ -2801,13 +2801,6 @@ internal sealed class LinqToDBJobStorage<T>(
 		return cancelled != 0 ? BatchState.Cancelled : BatchState.Succeeded;
 	}
 
-	private static long? Ticks(DateTimeOffset? value) => value?.UtcTicks;
-
-	private static DateTimeOffset FromTicks(long value) => new(value, TimeSpan.Zero);
-
-	private static DateTimeOffset? FromTicks(long? value) =>
-		value is { } ticks ? new DateTimeOffset(ticks, TimeSpan.Zero) : null;
-
 	private static ImmediateJobEntity ToEntity(JobRecord job) =>
 		new()
 		{
@@ -2818,19 +2811,19 @@ internal sealed class LinqToDBJobStorage<T>(
 			Context = job.Context,
 			GroupId = job.GroupId,
 			State = job.State,
-			DueAt = job.DueAt.UtcTicks,
-			CreatedAt = job.CreatedAt.UtcTicks,
+			DueAt = job.DueAt,
+			CreatedAt = job.CreatedAt,
 			Attempt = job.Attempt,
 			WorkerId = job.WorkerId,
-			LeaseExpiresAt = Ticks(job.LeaseExpiresAt),
+			LeaseExpiresAt = job.LeaseExpiresAt,
 			LastError = job.LastError,
-			CompletedAt = Ticks(job.CompletedAt),
+			CompletedAt = job.CompletedAt,
 			RecurringKey = job.RecurringKey,
 			TraceParent = job.TraceParent,
 			TraceState = job.TraceState,
 			ExecutionTraceId = job.ExecutionTraceId,
 			ExecutionSpanId = job.ExecutionSpanId,
-			ExecutionStartedAt = Ticks(job.ExecutionStartedAt),
+			ExecutionStartedAt = job.ExecutionStartedAt,
 			BatchHandle = job.BatchHandle?.Value,
 			RemainingDependencies = job.RemainingDependencies,
 			FailedDependencies = job.FailedDependencies,
@@ -2841,7 +2834,7 @@ internal sealed class LinqToDBJobStorage<T>(
 		DataConnection connection,
 		JobRecord previous,
 		string workerId,
-		long acquiredAt,
+		DateTimeOffset acquiredAt,
 		CancellationToken cancellationToken
 	)
 	{
@@ -2851,7 +2844,7 @@ internal sealed class LinqToDBJobStorage<T>(
 			_ = await Executions(connection)
 				.Where(execution => execution.JobHandle == previous.JobHandle.Value && execution.Attempt == previous.Attempt)
 				.Set(execution => execution.State, JobExecutionState.Interrupted)
-				.Set(execution => execution.CompletedAt, Ticks(previous.LeaseExpiresAt))
+				.Set(execution => execution.CompletedAt, previous.LeaseExpiresAt)
 				.Set(execution => execution.Error, (string?)null)
 				.UpdateAsync(cancellationToken);
 		}
@@ -2905,9 +2898,9 @@ internal sealed class LinqToDBJobStorage<T>(
 			Attempt = execution.Attempt,
 			State = execution.State,
 			WorkerId = execution.WorkerId,
-			AcquiredAt = Ticks(execution.AcquiredAt),
-			ExecutionStartedAt = Ticks(execution.ExecutionStartedAt),
-			CompletedAt = Ticks(execution.CompletedAt),
+			AcquiredAt = execution.AcquiredAt,
+			ExecutionStartedAt = execution.ExecutionStartedAt,
+			CompletedAt = execution.CompletedAt,
 			ExecutionTraceId = execution.ExecutionTraceId,
 			ExecutionSpanId = execution.ExecutionSpanId,
 			Error = execution.Error,
@@ -2921,9 +2914,9 @@ internal sealed class LinqToDBJobStorage<T>(
 			Attempt = execution.Attempt,
 			State = execution.State,
 			WorkerId = execution.WorkerId,
-			AcquiredAt = FromTicks(execution.AcquiredAt),
-			ExecutionStartedAt = FromTicks(execution.ExecutionStartedAt),
-			CompletedAt = FromTicks(execution.CompletedAt),
+			AcquiredAt = execution.AcquiredAt,
+			ExecutionStartedAt = execution.ExecutionStartedAt,
+			CompletedAt = execution.CompletedAt,
 			ExecutionTraceId = execution.ExecutionTraceId,
 			ExecutionSpanId = execution.ExecutionSpanId,
 			Error = execution.Error,
@@ -2959,19 +2952,19 @@ internal sealed class LinqToDBJobStorage<T>(
 			Context = job.Context,
 			GroupId = job.GroupId,
 			State = job.State,
-			DueAt = FromTicks(job.DueAt),
-			CreatedAt = FromTicks(job.CreatedAt),
+			DueAt = job.DueAt,
+			CreatedAt = job.CreatedAt,
 			Attempt = job.Attempt,
 			WorkerId = job.WorkerId,
-			LeaseExpiresAt = FromTicks(job.LeaseExpiresAt),
+			LeaseExpiresAt = job.LeaseExpiresAt,
 			LastError = job.LastError,
-			CompletedAt = FromTicks(job.CompletedAt),
+			CompletedAt = job.CompletedAt,
 			RecurringKey = job.RecurringKey,
 			TraceParent = job.TraceParent,
 			TraceState = job.TraceState,
 			ExecutionTraceId = job.ExecutionTraceId,
 			ExecutionSpanId = job.ExecutionSpanId,
-			ExecutionStartedAt = FromTicks(job.ExecutionStartedAt),
+			ExecutionStartedAt = job.ExecutionStartedAt,
 			BatchHandle = BatchHandle.FromString(job.BatchHandle),
 			RemainingDependencies = job.RemainingDependencies,
 			FailedDependencies = job.FailedDependencies,
@@ -2987,8 +2980,8 @@ internal sealed class LinqToDBJobStorage<T>(
 			TimeZone = schedule.TimeZone,
 			IsCodeDefined = schedule.IsCodeDefined,
 			IsPaused = schedule.IsPaused,
-			NextRunAt = schedule.NextRunAt.UtcTicks,
-			LastRunAt = Ticks(schedule.LastRunAt),
+			NextRunAt = schedule.NextRunAt,
+			LastRunAt = schedule.LastRunAt,
 			ConcurrencyStamp = Guid.NewGuid(),
 		};
 
@@ -3002,8 +2995,8 @@ internal sealed class LinqToDBJobStorage<T>(
 			TimeZone = schedule.TimeZone,
 			IsCodeDefined = schedule.IsCodeDefined,
 			IsPaused = schedule.IsPaused,
-			NextRunAt = FromTicks(schedule.NextRunAt),
-			LastRunAt = FromTicks(schedule.LastRunAt),
+			NextRunAt = schedule.NextRunAt,
+			LastRunAt = schedule.LastRunAt,
 		};
 
 	private static BatchStatus ToStatus(ImmediateJobBatchEntity batch) =>
@@ -3017,9 +3010,9 @@ internal sealed class LinqToDBJobStorage<T>(
 			Cancelled = batch.CancelledCount,
 			Skipped = batch.SkippedCount,
 			Remaining = batch.PendingCount,
-			CreatedAt = FromTicks(batch.CreatedAt),
-			StartedAt = FromTicks(batch.StartedAt),
-			CompletedAt = FromTicks(batch.CompletedAt),
+			CreatedAt = batch.CreatedAt,
+			StartedAt = batch.StartedAt,
+			CompletedAt = batch.CompletedAt,
 			FractionSettled = BatchStatus.CalculateFractionSettled(batch.TotalJobs, batch.PendingCount),
 		};
 

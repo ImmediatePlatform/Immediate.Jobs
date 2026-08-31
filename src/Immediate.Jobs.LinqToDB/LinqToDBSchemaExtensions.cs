@@ -27,117 +27,55 @@ public static class LinqToDBSchemaExtensions
 		if (schema is not null && provider.Contains("SQLite", StringComparison.OrdinalIgnoreCase))
 			throw new ArgumentException("SQLite does not support named schemas.", nameof(schema));
 
-		if (provider.Contains("SQLite", StringComparison.OrdinalIgnoreCase))
-		{
-			_ = await context.ExecuteAsync(SqliteSchema, cancellationToken);
-			await CreateIndexesAsync(context, provider, schema, cancellationToken);
-			return;
-		}
-
 		if (schema is not null)
-			_ = await CreateSchemaAsync(context, provider, schema, cancellationToken);
+			await CreateSchemaAsync(context, provider, schema, cancellationToken);
 
-		const TableOptions CreateIfMissing = TableOptions.CreateIfNotExists;
-		_ = await context.CreateTableAsync<ImmediateJobBatchEntity>(
+		await context.CreateTableAsync<ImmediateJobBatchEntity>(
 			schemaName: schema,
-			tableOptions: CreateIfMissing,
+			tableOptions: TableOptions.CreateIfNotExists,
 			token: cancellationToken
 		);
 
-		_ = await context.CreateTableAsync<ImmediateJobEntity>(
+		await context.CreateTableAsync<ImmediateJobEntity>(
 			schemaName: schema,
-			tableOptions: CreateIfMissing,
+			tableOptions: TableOptions.CreateIfNotExists,
 			token: cancellationToken
 		);
 
-		_ = await context.CreateTableAsync<ImmediateJobExecutionEntity>(
+		await context.CreateTableAsync<ImmediateJobExecutionEntity>(
 			schemaName: schema,
-			tableOptions: CreateIfMissing,
+			tableOptions: TableOptions.CreateIfNotExists,
 			token: cancellationToken
 		);
 
-		_ = await context.CreateTableAsync<ImmediateFairQueueGroupEntity>(
+		await context.CreateTableAsync<ImmediateFairQueueGroupEntity>(
 			schemaName: schema,
-			tableOptions: CreateIfMissing,
+			tableOptions: TableOptions.CreateIfNotExists,
 			token: cancellationToken
 		);
 
-		_ = await context.CreateTableAsync<ImmediateJobContinuationEntity>(
+		await context.CreateTableAsync<ImmediateJobContinuationEntity>(
 			schemaName: schema,
-			tableOptions: CreateIfMissing,
+			tableOptions: TableOptions.CreateIfNotExists,
 			token: cancellationToken
 		);
 
-		_ = await context.CreateTableAsync<ImmediateRecurringJobEntity>(
+		await context.CreateTableAsync<ImmediateRecurringJobEntity>(
 			schemaName: schema,
-			tableOptions: CreateIfMissing,
+			tableOptions: TableOptions.CreateIfNotExists,
 			token: cancellationToken
 		);
 
-		_ = await context.CreateTableAsync<ImmediateJobServerEntity>(
+		await context.CreateTableAsync<ImmediateJobServerEntity>(
 			schemaName: schema,
-			tableOptions: CreateIfMissing,
+			tableOptions: TableOptions.CreateIfNotExists,
 			token: cancellationToken
 		);
 
-		_ = await CreateConstraintsAndDefaultsAsync(context, provider, schema, cancellationToken);
+		await CreateConstraintsAndDefaultsAsync(context, provider, schema, cancellationToken);
 
 		await CreateIndexesAsync(context, provider, schema, cancellationToken);
 	}
-
-	private const string SqliteSchema = """
-		CREATE TABLE IF NOT EXISTS "immediate_job_batches" (
-			"Id" TEXT NOT NULL CONSTRAINT "PK_immediate_job_batches" PRIMARY KEY,
-			"CreatedAt" INTEGER NOT NULL, "TotalJobs" INTEGER NOT NULL, "PendingCount" INTEGER NOT NULL,
-			"SucceededCount" INTEGER NOT NULL, "FailedCount" INTEGER NOT NULL, "CancelledCount" INTEGER NOT NULL,
-			"SkippedCount" INTEGER NOT NULL,
-			"StartedAt" INTEGER NULL, "CompletedAt" INTEGER NULL, "State" INTEGER NOT NULL,
-			"ConcurrencyStamp" TEXT NOT NULL
-		);
-		CREATE TABLE IF NOT EXISTS "immediate_jobs" (
-			"Id" TEXT NOT NULL CONSTRAINT "PK_immediate_jobs" PRIMARY KEY,
-			"QueueName" TEXT NOT NULL DEFAULT 'default', "JobName" TEXT NOT NULL, "Payload" TEXT NOT NULL,
-			"Context" TEXT NULL, "GroupId" TEXT NULL, "State" INTEGER NOT NULL, "DueAt" INTEGER NOT NULL, "CreatedAt" INTEGER NOT NULL,
-			"Attempt" INTEGER NOT NULL, "WorkerId" TEXT NULL, "LeaseExpiresAt" INTEGER NULL, "LastError" TEXT NULL,
-			"CompletedAt" INTEGER NULL, "RecurringKey" TEXT NULL, "TraceParent" TEXT NULL, "TraceState" TEXT NULL,
-			"ExecutionTraceId" TEXT NULL, "ExecutionSpanId" TEXT NULL, "ExecutionStartedAt" INTEGER NULL,
-			"BatchHandle" TEXT NULL, "RemainingDependencies" INTEGER NOT NULL, "FailedDependencies" INTEGER NOT NULL,
-			"ConcurrencyStamp" TEXT NOT NULL,
-			CONSTRAINT "FK_immediate_jobs_immediate_job_batches_BatchHandle" FOREIGN KEY ("BatchHandle")
-				REFERENCES "immediate_job_batches" ("Id") ON DELETE CASCADE
-		);
-		CREATE TABLE IF NOT EXISTS "immediate_job_executions" (
-			"JobHandle" TEXT NOT NULL, "Attempt" INTEGER NOT NULL, "State" INTEGER NOT NULL,
-			"WorkerId" TEXT NULL, "AcquiredAt" INTEGER NULL, "ExecutionStartedAt" INTEGER NULL,
-			"CompletedAt" INTEGER NULL, "ExecutionTraceId" TEXT NULL, "ExecutionSpanId" TEXT NULL,
-			"Error" TEXT NULL, "IsSynthetic" INTEGER NOT NULL DEFAULT 0,
-			CONSTRAINT "PK_immediate_job_executions" PRIMARY KEY ("JobHandle", "Attempt"),
-			CONSTRAINT "FK_immediate_job_executions_immediate_jobs_JobHandle" FOREIGN KEY ("JobHandle")
-				REFERENCES "immediate_jobs" ("Id") ON DELETE CASCADE
-		);
-		CREATE TABLE IF NOT EXISTS "immediate_fair_queue_groups" (
-			"QueueName" TEXT NOT NULL, "GroupId" TEXT NOT NULL, "LastServedSequence" INTEGER NOT NULL,
-			"ConcurrencyStamp" TEXT NOT NULL,
-			CONSTRAINT "PK_immediate_fair_queue_groups" PRIMARY KEY ("QueueName", "GroupId")
-		);
-		CREATE TABLE IF NOT EXISTS "immediate_job_continuations" (
-			"ChildJobHandle" TEXT NOT NULL, "ParentKind" INTEGER NOT NULL, "ParentId" TEXT NOT NULL,
-			"Delay" INTEGER NOT NULL, "Trigger" INTEGER NOT NULL, "ParentOutcome" INTEGER NOT NULL,
-			CONSTRAINT "PK_immediate_job_continuations" PRIMARY KEY ("ChildJobHandle", "ParentKind", "ParentId"),
-			CONSTRAINT "FK_immediate_job_continuations_immediate_jobs_ChildJobHandle" FOREIGN KEY ("ChildJobHandle")
-				REFERENCES "immediate_jobs" ("Id") ON DELETE CASCADE
-		);
-		CREATE TABLE IF NOT EXISTS "immediate_recurring_jobs" (
-			"Name" TEXT NOT NULL CONSTRAINT "PK_immediate_recurring_jobs" PRIMARY KEY,
-			"JobName" TEXT NOT NULL, "QueueName" TEXT NOT NULL, "Cron" TEXT NOT NULL, "TimeZone" TEXT NOT NULL,
-			"IsCodeDefined" INTEGER NOT NULL, "IsPaused" INTEGER NOT NULL, "NextRunAt" INTEGER NOT NULL,
-			"LastRunAt" INTEGER NULL, "ConcurrencyStamp" TEXT NOT NULL
-		);
-		CREATE TABLE IF NOT EXISTS "immediate_job_servers" (
-			"WorkerId" TEXT NOT NULL CONSTRAINT "PK_immediate_job_servers" PRIMARY KEY,
-			"LastHeartbeat" INTEGER NOT NULL, "ActiveWorkers" INTEGER NOT NULL, "MaxWorkers" INTEGER NOT NULL
-		);
-		""";
 
 	internal static void ValidateSchema(string? schema)
 	{
@@ -170,17 +108,21 @@ public static class LinqToDBSchemaExtensions
 		throw new NotSupportedException($"Immediate.Jobs schema bootstrap does not support provider '{provider}'.");
 	}
 
-	private static Task<int> CreateConstraintsAndDefaultsAsync(
+	private static async Task CreateConstraintsAndDefaultsAsync(
 		DataConnection connection,
 		string provider,
 		string? schema,
 		CancellationToken cancellationToken
 	)
 	{
+		if (provider.Contains("SQLite", StringComparison.OrdinalIgnoreCase))
+			return;
+
 		if (provider.Contains("PostgreSQL", StringComparison.OrdinalIgnoreCase))
 		{
 			var prefix = schema is null ? string.Empty : $"\"{schema}\".";
-			return connection.ExecuteAsync($$"""
+
+			await connection.ExecuteAsync($$"""
 				ALTER TABLE {{prefix}}"immediate_jobs" ALTER COLUMN "QueueName" SET DEFAULT 'default';
 				ALTER TABLE {{prefix}}"immediate_job_executions" ALTER COLUMN "IsSynthetic" SET DEFAULT FALSE;
 				DO $constraints$
@@ -202,6 +144,8 @@ public static class LinqToDBSchemaExtensions
 					END IF;
 				END $constraints$;
 				""", cancellationToken);
+
+			return;
 		}
 
 		if (provider.Contains("SqlServer", StringComparison.OrdinalIgnoreCase))
@@ -214,7 +158,8 @@ public static class LinqToDBSchemaExtensions
 			var qualifiedExecutions = schema is null
 				? "[dbo].[immediate_job_executions]"
 				: $"[{schema}].[immediate_job_executions]";
-			return connection.ExecuteAsync($$"""
+
+			await connection.ExecuteAsync($$"""
 				IF NOT EXISTS (SELECT 1 FROM sys.default_constraints dc
 					JOIN sys.columns c ON c.default_object_id = dc.object_id
 					WHERE dc.parent_object_id = OBJECT_ID(N'{{qualifiedJobs}}') AND c.name = N'QueueName')
@@ -236,6 +181,8 @@ public static class LinqToDBSchemaExtensions
 					ALTER TABLE {{qualifiedExecutions}} ADD CONSTRAINT [FK_immediate_job_executions_immediate_jobs_JobHandle]
 						FOREIGN KEY ([JobHandle]) REFERENCES {{qualifiedJobs}} ([Id]) ON DELETE CASCADE;
 				""", cancellationToken);
+
+			return;
 		}
 
 		throw new NotSupportedException($"Immediate.Jobs schema bootstrap does not support provider '{provider}'.");
@@ -265,7 +212,7 @@ public static class LinqToDBSchemaExtensions
 		foreach (var (name, table, columns, unique) in definitions)
 		{
 			var sql = CreateIndexSql(provider, schema, name, table, columns, unique);
-			_ = await connection.ExecuteAsync(sql, cancellationToken);
+			await connection.ExecuteAsync(sql, cancellationToken);
 		}
 	}
 
@@ -283,9 +230,7 @@ public static class LinqToDBSchemaExtensions
 		{
 			var qualified = schema is null ? $"[dbo].[{table}]" : $"[{schema}].[{table}]";
 			var filter = string.Equals(name, "IX_immediate_jobs_RecurringKey", StringComparison.Ordinal) ? " WHERE [RecurringKey] IS NOT NULL" : string.Empty;
-			return FormattableString.Invariant(
-				$"IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'{name}' AND object_id = OBJECT_ID(N'{qualified}')) CREATE {uniqueness}INDEX [{name}] ON {qualified} ({string.Join(", ", columns.Split(", ").Select(static column => $"[{column}]"))}){filter}"
-			);
+			return $"IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'{name}' AND object_id = OBJECT_ID(N'{qualified}')) CREATE {uniqueness}INDEX [{name}] ON {qualified} ({string.Join(", ", columns.Split(", ").Select(static column => $"[{column}]"))}){filter}";
 		}
 
 		if (provider.Contains("PostgreSQL", StringComparison.OrdinalIgnoreCase))
