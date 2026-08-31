@@ -61,6 +61,7 @@ internal static class GraphStorageConformance
 			Jobs = [parent, child],
 			Batches = [CreateBatch(batchHandle, 2)],
 			Edges = [edge],
+			RecurringSchedules = [],
 		};
 	}
 

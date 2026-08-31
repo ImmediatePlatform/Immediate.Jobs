@@ -35,6 +35,7 @@ public sealed class JobStorageConformanceTestCase
 				Jobs = [],
 				Batches = [],
 				Edges = [],
+				RecurringSchedules = [],
 			};
 	}
 

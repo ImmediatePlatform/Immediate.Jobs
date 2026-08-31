@@ -97,6 +97,9 @@ public sealed class CapturingJobStorage(TimeProvider timeProvider) :
 	/// <param name="edges">
 	///	    The continuation edges that should be loaded in the database.
 	/// </param>
+	/// <param name="recurringSchedules">
+	///	    The recurring schedules that should be loaded in the database.
+	/// </param>
 	/// <remarks>
 	///	    This method should run before any other methods run to initialize test state. Use in regular app code is not
 	///	    supported.
@@ -104,8 +107,9 @@ public sealed class CapturingJobStorage(TimeProvider timeProvider) :
 	public void LoadPersistedJobState(
 		IReadOnlyList<JobRecord> jobs,
 		IReadOnlyList<BatchRecord> batches,
-		IReadOnlyList<JobContinuationEdge> edges
-	) => _inner.LoadPersistedJobState(jobs, batches, edges);
+		IReadOnlyList<JobContinuationEdge> edges,
+		IReadOnlyList<RecurringJobSchedule> recurringSchedules
+	) => _inner.LoadPersistedJobState(jobs, batches, edges, recurringSchedules);
 
 	/// <inheritdoc />
 	public ValueTask EnqueueAsync(JobRecord job, CancellationToken cancellationToken = default)

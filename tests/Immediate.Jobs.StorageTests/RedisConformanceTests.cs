@@ -87,6 +87,7 @@ file sealed class RedisConformanceFixture : IAsyncDisposable
 			);
 
 			await LoadJobs(services, persistedJobState.Jobs);
+			await LoadRecurringSchedules(services, persistedJobState.RecurringSchedules);
 
 			return new(connection, keyPrefix, services);
 		}
@@ -106,6 +107,19 @@ file sealed class RedisConformanceFixture : IAsyncDisposable
 
 		foreach (var job in jobs)
 			await storage.EnqueueAsync(job);
+	}
+
+	private static async ValueTask LoadRecurringSchedules(
+		IServiceProvider serviceProvider,
+		IReadOnlyList<RecurringJobSchedule> schedules
+	)
+	{
+		if (schedules is [])
+			return;
+
+		var storage = (IRecurringJobStorage)serviceProvider.GetRequiredService<IJobStorage>();
+		foreach (var schedule in schedules)
+			await storage.UpsertRecurringAsync(schedule);
 	}
 
 	public async ValueTask DisposeAsync()

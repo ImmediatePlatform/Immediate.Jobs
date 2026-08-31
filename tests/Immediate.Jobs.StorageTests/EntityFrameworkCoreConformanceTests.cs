@@ -209,7 +209,8 @@ file sealed class RelationalConformanceFixture(
 			await storage.LoadPersistedJobState(
 				persistedJobState.Jobs,
 				persistedJobState.Batches,
-				persistedJobState.Edges
+				persistedJobState.Edges,
+				persistedJobState.RecurringSchedules
 			);
 
 			return fixture;

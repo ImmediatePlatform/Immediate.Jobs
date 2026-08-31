@@ -560,6 +560,24 @@ internal sealed class RedisJobStorage(
 	}
 
 	/// <inheritdoc />
+	public async ValueTask MergeRecurringSchedulesListAsync(
+		IReadOnlyList<RecurringJobSchedule> schedules,
+		CancellationToken cancellationToken = default
+	)
+	{
+		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
+
+		foreach (var schedule in schedules)
+			await UpsertRecurringAsync(schedule, cancellationToken);
+
+		await RemoveObsoleteCodeDefinedRecurringAsync(
+			schedules.Select(static schedule => schedule.Name).ToList(),
+			cancellationToken
+		);
+	}
+
+	/// <inheritdoc />
 	public async ValueTask UpsertRecurringAsync(
 		RecurringJobSchedule schedule,
 		CancellationToken cancellationToken = default
@@ -587,20 +605,18 @@ internal sealed class RedisJobStorage(
 			throw new ImmediateJobException("Code-defined recurring schedules cannot be replaced by dynamic schedules.");
 	}
 
-	/// <inheritdoc />
-	public async ValueTask RemoveObsoleteCodeDefinedRecurringAsync(
-		IReadOnlyCollection<string> activeScheduleNames,
+	private async ValueTask RemoveObsoleteCodeDefinedRecurringAsync(
+		List<string> activeScheduleNames,
 		CancellationToken cancellationToken = default
 	)
 	{
-		cancellationToken.ThrowIfCancellationRequested();
-		await TaskScheduler.Yield();
-
 		var values = new RedisValue[activeScheduleNames.Count + 1];
 		values[0] = _root;
+
 		var index = 1;
 		foreach (var name in activeScheduleNames)
 			values[index++] = name;
+
 		_ = await EvaluateInt64Async(
 			RedisScripts.RemoveObsoleteRecurring,
 			[RecurringNamesKey, RecurringDueKey],

@@ -45,6 +45,9 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 	/// <param name="edges">
 	///		The continuation edges that should be loaded in the database.
 	/// </param>
+	/// <param name="recurringSchedules">
+	///		The recurring schedules that should be loaded in the database.
+	/// </param>
 	/// <remarks>
 	///	    This method should run before any other methods run to initialize test state. Use in regular app code is not
 	///	    supported.
@@ -52,7 +55,8 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 	public async ValueTask LoadPersistedJobState(
 		IReadOnlyList<JobRecord> jobs,
 		IReadOnlyList<BatchRecord> batches,
-		IReadOnlyList<JobContinuationEdge> edges
+		IReadOnlyList<JobContinuationEdge> edges,
+		IReadOnlyList<RecurringJobSchedule> recurringSchedules
 	)
 	{
 		await using var context = await contextFactory.CreateDbContextAsync();
@@ -77,6 +81,7 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 
 		context.AddRange(jobs.Select(ToEntity));
 		context.AddRange(edges.Select(ToEntity));
+		context.AddRange(recurringSchedules.Select(ToEntity));
 
 		await context.SaveChangesAsync();
 	}
@@ -907,8 +912,37 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 	{
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
+		await using var strategyContext = await contextFactory.CreateDbContextAsync(cancellationToken);
+		var strategy = strategyContext.Database.CreateExecutionStrategy();
+		await strategy.ExecuteAsync(async operationCancellationToken =>
+		{
+			await using var context = await contextFactory.CreateDbContextAsync(operationCancellationToken);
+			await using var transaction = await context.Database.BeginTransactionAsync(operationCancellationToken);
+			var existingCodeDefined = await context.Set<ImmediateRecurringJobEntity>()
+				.Where(schedule => schedule.IsCodeDefined)
+				.ToDictionaryAsync(schedule => schedule.Name, StringComparer.Ordinal, operationCancellationToken);
 
+			foreach (var schedule in schedules)
+			{
+				if (!existingCodeDefined.Remove(schedule.Name, out var entity))
+				{
+					_ = context.Add(ToEntity(schedule));
+					continue;
+				}
 
+				entity.JobName = schedule.JobName;
+				entity.QueueName = schedule.QueueName;
+				entity.Cron = schedule.Cron;
+				entity.TimeZone = schedule.TimeZone;
+				entity.IsCodeDefined = schedule.IsCodeDefined;
+				entity.NextRunAt = schedule.NextRunAt;
+				entity.ConcurrencyStamp = Guid.NewGuid();
+			}
+
+			context.RemoveRange(existingCodeDefined.Values);
+			_ = await context.SaveChangesAsync(operationCancellationToken);
+			await transaction.CommitAsync(operationCancellationToken);
+		}, cancellationToken);
 	}
 
 	/// <inheritdoc />

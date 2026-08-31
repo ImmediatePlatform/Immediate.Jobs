@@ -8,6 +8,11 @@ namespace Immediate.Jobs.Testing.Storage;
 public sealed class PersistedJobState
 {
 	/// <summary>
+	///		The set of recurring schedules that should be pre-loaded.
+	/// </summary>
+	public required IReadOnlyList<RecurringJobSchedule> RecurringSchedules { get; init; }
+
+	/// <summary>
 	///		The set of jobs that should be pre-loaded.
 	/// </summary>
 	public required IReadOnlyList<JobRecord> Jobs { get; init; }

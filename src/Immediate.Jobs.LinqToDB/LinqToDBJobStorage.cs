@@ -5,7 +5,6 @@ using LinqToDB;
 using LinqToDB.Async;
 using LinqToDB.Data;
 using Microsoft.Extensions.Options;
-using static LinqToDB.Common.Configuration;
 
 namespace Immediate.Jobs.LinqToDB;
 
@@ -49,6 +48,9 @@ internal sealed class LinqToDBJobStorage<T>(
 	/// <param name="edges">
 	///		The continuation edges that should be loaded in the database.
 	/// </param>
+	/// <param name="recurringSchedules">
+	///		The recurring schedules that should be loaded in the database.
+	/// </param>
 	/// <remarks>
 	///	    This method should run before any other methods run to initialize test state. Use in regular app code is not
 	///	    supported.
@@ -56,7 +58,8 @@ internal sealed class LinqToDBJobStorage<T>(
 	public async ValueTask LoadPersistedJobState(
 		IReadOnlyList<JobRecord> jobs,
 		IReadOnlyList<BatchRecord> batches,
-		IReadOnlyList<JobContinuationEdge> edges
+		IReadOnlyList<JobContinuationEdge> edges,
+		IReadOnlyList<RecurringJobSchedule> recurringSchedules
 	)
 	{
 		await using var scope = contextScope.GetScope(out var connection);
@@ -88,6 +91,11 @@ internal sealed class LinqToDBJobStorage<T>(
 		await connection.BulkCopyAsync(
 			new BulkCopyOptions { SchemaName = _schema },
 			edges.Select(ToEntity)
+		);
+
+		await connection.BulkCopyAsync(
+			new BulkCopyOptions { SchemaName = _schema },
+			recurringSchedules.Select(ToEntity)
 		);
 	}
 
@@ -988,7 +996,7 @@ internal sealed class LinqToDBJobStorage<T>(
 		await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
 
 		var existing = await Recurring(connection)
-			.Where(r => r.Cron != null)
+			.Where(r => r.IsCodeDefined)
 			.ToDictionaryAsync(r => r.Name, StringComparer.Ordinal, cancellationToken);
 
 		foreach (var schedule in schedules)
@@ -1000,6 +1008,8 @@ internal sealed class LinqToDBJobStorage<T>(
 				await connection.InsertAsync(entity, schemaName: _schema, token: cancellationToken);
 				continue;
 			}
+
+			existing.Remove(schedule.Name);
 
 			var oldStamp = current.ConcurrencyStamp;
 			current.JobName = schedule.JobName;
@@ -1014,9 +1024,12 @@ internal sealed class LinqToDBJobStorage<T>(
 				throw new ImmediateJobException("Failure saving updated schedule.");
 		}
 
-		await Recurring(connection)
-			.Where(r => r.Name.In(existing.Keys))
-			.DeleteAsync(cancellationToken);
+		if (existing.Count != 0)
+		{
+			await Recurring(connection)
+				.Where(r => r.Name.In(existing.Keys))
+				.DeleteAsync(cancellationToken);
+		}
 
 		await transaction.CommitAsync(cancellationToken);
 	}

@@ -56,6 +56,9 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 	/// <param name="edges">
 	///	    The continuation edges that should be loaded in the database.
 	/// </param>
+	/// <param name="recurringSchedules">
+	///	    The recurring schedules that should be loaded in the database.
+	/// </param>
 	/// <remarks>
 	///	    This method should run before any other methods run to initialize test state. Use in regular app code is not
 	///	    supported.
@@ -63,7 +66,8 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 	public void LoadPersistedJobState(
 		IReadOnlyList<JobRecord> jobs,
 		IReadOnlyList<BatchRecord> batches,
-		IReadOnlyList<JobContinuationEdge> edges
+		IReadOnlyList<JobContinuationEdge> edges,
+		IReadOnlyList<RecurringJobSchedule> recurringSchedules
 	)
 	{
 		lock (_gate)
@@ -75,6 +79,9 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 				_jobs[j.JobHandle] = j;
 
 			_edges.AddRange(edges);
+
+			foreach (var schedule in recurringSchedules)
+				_recurring[schedule.Name] = schedule;
 		}
 	}
 
@@ -654,19 +661,9 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 			{
 				ref var current = ref CollectionsMarshal.GetValueRefOrAddDefault(_recurring, schedule.Name, out _);
 
-				current = current switch
-				{
-					{ } when
-						string.Equals(current.Cron, schedule.Cron, StringComparison.Ordinal)
-						&& string.Equals(current.TimeZone, schedule.TimeZone, StringComparison.Ordinal) =>
-						current with
-						{
-							JobName = schedule.Name,
-							QueueName = schedule.QueueName,
-						},
-
-					_ => schedule,
-				};
+				current = current is { } existing
+					? schedule with { IsPaused = existing.IsPaused, LastRunAt = existing.LastRunAt }
+					: schedule;
 
 				existingStaticDefinitions.Remove(schedule.Name);
 			}
@@ -688,7 +685,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 
 			current = current switch
 			{
-				{ IsCodeDefined: true } =>
+				{ IsCodeDefined: true } when !schedule.IsCodeDefined =>
 					throw new ImmediateJobException("Code-defined recurring schedules cannot be replaced by dynamic schedules."),
 
 				{ } =>

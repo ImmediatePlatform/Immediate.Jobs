@@ -41,7 +41,8 @@ public sealed class InMemoryStorageConformanceTests
 		storage.LoadPersistedJobState(
 			testCase.PersistedJobState.Jobs,
 			testCase.PersistedJobState.Batches,
-			testCase.PersistedJobState.Edges
+			testCase.PersistedJobState.Edges,
+			testCase.PersistedJobState.RecurringSchedules
 		);
 
 		await testCase.RunAsync(provider, TestContext.Current.CancellationToken);
