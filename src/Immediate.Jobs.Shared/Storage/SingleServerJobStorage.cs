@@ -352,7 +352,6 @@ internal sealed class SingleServerJobStorage(
 		}
 	}
 
-
 	/// <inheritdoc />
 	public async ValueTask<JobMonitoringSnapshot> GetMonitoringSnapshotAsync(CancellationToken cancellationToken = default)
 	{
@@ -549,6 +548,8 @@ internal sealed class SingleServerJobStorage(
 		_disposed = true;
 		_initializationTask.TrySetException(new ObjectDisposedException(nameof(SingleServerJobStorage)));
 
+		_recurringMaterialization.Dispose();
+
 		await PrimaryStorage.DisposeAsync().ConfigureAwait(false);
 		await DurableStorage.DisposeAsync().ConfigureAwait(false);
 	}
@@ -556,7 +557,7 @@ internal sealed class SingleServerJobStorage(
 	private async Task EnsureInitializedAsync(CancellationToken token)
 	{
 		ObjectDisposedException.ThrowIf(_disposed, this);
-		await _initializationTask.Task.WaitAsync(token);
+		await _initializationTask.Task.WaitAsync(token).ConfigureAwait(false);
 	}
 
 	private async Task InitializeCoreAsync(CancellationToken cancellationToken)
@@ -564,237 +565,247 @@ internal sealed class SingleServerJobStorage(
 		if (_initialized)
 			return;
 
-		await DurableStorage.InitializeAsync(cancellationToken).ConfigureAwait(false);
-		await PrimaryStorage.InitializeAsync(cancellationToken).ConfigureAwait(false);
-
-		var recoveredJobs = new List<JobRecord>();
-		var recoveredIncomingEdges = new Dictionary<JobHandle, List<JobContinuationEdge>>();
-
-		foreach (var state in Enum.GetValues<JobState>())
+		try
 		{
-			var skip = 0;
+			await DurableStorage.InitializeAsync(cancellationToken).ConfigureAwait(false);
+			await PrimaryStorage.InitializeAsync(cancellationToken).ConfigureAwait(false);
 
-			while (true)
+			var recoveredJobs = new List<JobRecord>();
+			var recoveredIncomingEdges = new Dictionary<JobHandle, List<JobContinuationEdge>>();
+
+			foreach (var state in Enum.GetValues<JobState>())
 			{
-				var jobs = await DurableStorage
-					.QueryJobsAsync(
-						new() { State = state, Skip = skip, Take = RecoveryBatchSize },
-						cancellationToken
-					)
-					.ConfigureAwait(false);
+				var skip = 0;
 
-				recoveredJobs.AddRange(jobs);
-
-				var standaloneJobs = jobs
-					.Where(static job => job.BatchHandle is null)
-					.Select(static job => job.JobHandle)
-					.ToList();
-
-				if (standaloneJobs.Count != 0)
+				while (true)
 				{
-					// Standalone continuation edges are not represented by a batch graph, so recovery must
-					// load them explicitly before it can restore dependency-gated jobs into the primary queue.
-					var incomingEdges = await JobGraphStorageReplica
-						.GetIncomingEdgesAsync(
-							standaloneJobs,
+					var jobs = await DurableStorage
+						.QueryJobsAsync(
+							new() { State = state, Skip = skip, Take = RecoveryBatchSize },
 							cancellationToken
 						)
 						.ConfigureAwait(false);
 
-					foreach (var edge in incomingEdges)
+					recoveredJobs.AddRange(jobs);
+
+					var standaloneJobs = jobs
+						.Where(static job => job.BatchHandle is null)
+						.Select(static job => job.JobHandle)
+						.ToList();
+
+					if (standaloneJobs.Count != 0)
 					{
-						if (!standaloneJobs.Contains(edge.ChildJobHandle))
+						// Standalone continuation edges are not represented by a batch graph, so recovery must
+						// load them explicitly before it can restore dependency-gated jobs into the primary queue.
+						var incomingEdges = await JobGraphStorageReplica
+							.GetIncomingEdgesAsync(
+								standaloneJobs,
+								cancellationToken
+							)
+							.ConfigureAwait(false);
+
+						foreach (var edge in incomingEdges)
 						{
-							throw new ImmediateJobException(
-								$"Durable storage returned an incoming edge for unrequested job '{edge.ChildJobHandle}'."
-							);
+							if (!standaloneJobs.Contains(edge.ChildJobHandle))
+							{
+								throw new ImmediateJobException(
+									$"Durable storage returned an incoming edge for unrequested job '{edge.ChildJobHandle}'."
+								);
+							}
+
+							if (!recoveredIncomingEdges.TryGetValue(edge.ChildJobHandle, out var edges))
+								recoveredIncomingEdges.Add(edge.ChildJobHandle, edges = []);
+
+							edges.Add(edge);
 						}
-
-						if (!recoveredIncomingEdges.TryGetValue(edge.ChildJobHandle, out var edges))
-							recoveredIncomingEdges.Add(edge.ChildJobHandle, edges = []);
-
-						edges.Add(edge);
 					}
+
+					if (jobs.Count < RecoveryBatchSize)
+						break;
+
+					skip += jobs.Count;
 				}
-
-				if (jobs.Count < RecoveryBatchSize)
-					break;
-
-				skip += jobs.Count;
 			}
-		}
 
-		var batchHandles = recoveredJobs
-			.Where(static job => job.BatchHandle is not null)
-			.Select(static job => job.BatchHandle!)
-			.Distinct()
-			.ToList();
-
-		var recoveredBatches = new Dictionary<BatchHandle, RecoveredBatch>(batchHandles.Count);
-
-		foreach (var batchHandle in batchHandles)
-		{
-			var status = await JobGraphStorage.GetBatchStatusAsync(batchHandle, cancellationToken).ConfigureAwait(false)
-				?? throw new ImmediateJobException($"Batch '{batchHandle}' has members but no durable batch header.");
-			var graph = await JobGraphStorage.GetBatchGraphAsync(batchHandle, cancellationToken).ConfigureAwait(false)
-				?? throw new ImmediateJobException($"Batch '{batchHandle}' has members but no durable dependency graph.");
-
-			recoveredBatches.Add(batchHandle, new RecoveredBatch
-			{
-				Record = new()
-				{
-					BatchHandle = status.BatchHandle,
-					CreatedAt = status.CreatedAt,
-					TotalJobs = status.Total,
-					PendingCount = status.Remaining,
-					SucceededCount = status.Succeeded,
-					FailedCount = status.Failed,
-					CancelledCount = status.Cancelled,
-					SkippedCount = status.Skipped,
-					StartedAt = status.StartedAt,
-					CompletedAt = status.CompletedAt,
-					State = status.State,
-				},
-				Jobs = [.. recoveredJobs.Where(job => job.BatchHandle == batchHandle)],
-				Edges = [.. graph.Edges.Select(ToContinuationEdge)],
-			});
-		}
-
-		var restoredBatchHandles = new HashSet<BatchHandle>();
-		while (recoveredBatches.Count != 0)
-		{
-			var ready = recoveredBatches.Values
-				.Where(batch => batch.Edges
-					.Where(static edge => edge.ParentBatchHandle is not null)
-					.All(edge => restoredBatchHandles.Contains(edge.ParentBatchHandle!)))
-				.OrderBy(static batch => batch.Record.CreatedAt)
-				.ThenBy(static batch => batch.Record.BatchHandle)
+			var batchHandles = recoveredJobs
+				.Where(static job => job.BatchHandle is not null)
+				.Select(static job => job.BatchHandle!)
+				.Distinct()
 				.ToList();
 
-			if (ready.Count == 0)
+			var recoveredBatches = new Dictionary<BatchHandle, RecoveredBatch>(batchHandles.Count);
+
+			foreach (var batchHandle in batchHandles)
 			{
-				var unresolved = string.Join(", ", recoveredBatches.Keys.Order());
-				throw new ImmediateJobException(
-					$"Durable batches have cyclic or missing parent-batch dependencies: {unresolved}."
-				);
-			}
+				var status = await JobGraphStorage.GetBatchStatusAsync(batchHandle, cancellationToken).ConfigureAwait(false)
+					?? throw new ImmediateJobException($"Batch '{batchHandle}' has members but no durable batch header.");
+				var graph = await JobGraphStorage.GetBatchGraphAsync(batchHandle, cancellationToken).ConfigureAwait(false)
+					?? throw new ImmediateJobException($"Batch '{batchHandle}' has members but no durable dependency graph.");
 
-			foreach (var batch in ready)
-			{
-				await PrimaryStorage
-					.EnqueueBatchAsync(
-						batch.Record,
-						batch.Jobs,
-						batch.Edges,
-						cancellationToken
-					)
-					.ConfigureAwait(false);
-
-				recoveredBatches.Remove(batch.Record.BatchHandle);
-				restoredBatchHandles.Add(batch.Record.BatchHandle);
-			}
-		}
-
-		var restoredJobHandles = recoveredJobs
-			.Where(static job => job.BatchHandle is not null)
-			.Select(static job => job.JobHandle)
-			.ToHashSet();
-
-		var allRecoveredJobHandles = recoveredJobs.Select(static job => job.JobHandle).ToHashSet();
-		var standaloneContinuations = new Dictionary<JobHandle, JobRecord>();
-
-		foreach (var job in recoveredJobs.Where(static job => job.BatchHandle is null))
-		{
-			if (!recoveredIncomingEdges.TryGetValue(job.JobHandle, out var incomingEdges))
-			{
-				if (job.State == JobState.AwaitingContinuation || job.RemainingDependencies != 0)
+				recoveredBatches.Add(batchHandle, new RecoveredBatch
 				{
-					throw new ImmediateJobException(
-						$"Job '{job.JobHandle}' has continuation dependencies but no durable dependency graph."
-					);
-				}
-
-				await PrimaryStorage.EnqueueAsync(job, cancellationToken).ConfigureAwait(false);
-				restoredJobHandles.Add(job.JobHandle);
+					Record = new()
+					{
+						BatchHandle = status.BatchHandle,
+						CreatedAt = status.CreatedAt,
+						TotalJobs = status.Total,
+						PendingCount = status.Remaining,
+						SucceededCount = status.Succeeded,
+						FailedCount = status.Failed,
+						CancelledCount = status.Cancelled,
+						SkippedCount = status.Skipped,
+						StartedAt = status.StartedAt,
+						CompletedAt = status.CompletedAt,
+						State = status.State,
+					},
+					Jobs = [.. recoveredJobs.Where(job => job.BatchHandle == batchHandle)],
+					Edges = [.. graph.Edges.Select(ToContinuationEdge)],
+				});
 			}
-			else
+
+			var restoredBatchHandles = new HashSet<BatchHandle>();
+			while (recoveredBatches.Count != 0)
 			{
-				standaloneContinuations.Add(job.JobHandle, job);
-			}
-		}
-
-		bool AreContinuationParentsRestored(JobRecord job) =>
-			recoveredIncomingEdges[job.JobHandle]
-				.TrueForAll(edge =>
-					(edge.ParentJobHandle is null || restoredJobHandles.Contains(edge.ParentJobHandle))
-					&& (edge.ParentBatchHandle is null || restoredBatchHandles.Contains(edge.ParentBatchHandle))
-				);
-
-		while (standaloneContinuations.Count != 0)
-		{
-			var ready = standaloneContinuations.Values
-				.Where(AreContinuationParentsRestored)
-				.OrderBy(static job => job.CreatedAt)
-				.ThenBy(static job => job.JobHandle)
-				.ToList();
-
-			if (ready.Count == 0)
-			{
-				var missingParents = standaloneContinuations.Values
-					.SelectMany(job => recoveredIncomingEdges[job.JobHandle])
-					.Where(edge => edge.ParentJobHandle is { } parentId && !allRecoveredJobHandles.Contains(parentId))
-					.Select(static edge => edge.ParentJobHandle!)
-					.Distinct()
-					.Order()
+				var ready = recoveredBatches.Values
+					.Where(batch => batch.Edges
+						.Where(static edge => edge.ParentBatchHandle is not null)
+						.All(edge => restoredBatchHandles.Contains(edge.ParentBatchHandle!)))
+					.OrderBy(static batch => batch.Record.CreatedAt)
+					.ThenBy(static batch => batch.Record.BatchHandle)
 					.ToList();
 
-				var missingParentBatches = standaloneContinuations.Values
-					.SelectMany(job => recoveredIncomingEdges[job.JobHandle])
-					.Where(edge => edge.ParentBatchHandle is { } parentId && !restoredBatchHandles.Contains(parentId))
-					.Select(static edge => edge.ParentBatchHandle!)
-					.Distinct()
-					.Order()
+				if (ready.Count == 0)
+				{
+					var unresolved = string.Join(", ", recoveredBatches.Keys.Order());
+					throw new ImmediateJobException(
+						$"Durable batches have cyclic or missing parent-batch dependencies: {unresolved}."
+					);
+				}
+
+				foreach (var batch in ready)
+				{
+					await PrimaryStorage
+						.EnqueueBatchAsync(
+							batch.Record,
+							batch.Jobs,
+							batch.Edges,
+							cancellationToken
+						)
+						.ConfigureAwait(false);
+
+					recoveredBatches.Remove(batch.Record.BatchHandle);
+					restoredBatchHandles.Add(batch.Record.BatchHandle);
+				}
+			}
+
+			var restoredJobHandles = recoveredJobs
+				.Where(static job => job.BatchHandle is not null)
+				.Select(static job => job.JobHandle)
+				.ToHashSet();
+
+			var allRecoveredJobHandles = recoveredJobs.Select(static job => job.JobHandle).ToHashSet();
+			var standaloneContinuations = new Dictionary<JobHandle, JobRecord>();
+
+			foreach (var job in recoveredJobs.Where(static job => job.BatchHandle is null))
+			{
+				if (!recoveredIncomingEdges.TryGetValue(job.JobHandle, out var incomingEdges))
+				{
+					if (job.State == JobState.AwaitingContinuation || job.RemainingDependencies != 0)
+					{
+						throw new ImmediateJobException(
+							$"Job '{job.JobHandle}' has continuation dependencies but no durable dependency graph."
+						);
+					}
+
+					await PrimaryStorage.EnqueueAsync(job, cancellationToken).ConfigureAwait(false);
+					restoredJobHandles.Add(job.JobHandle);
+				}
+				else
+				{
+					standaloneContinuations.Add(job.JobHandle, job);
+				}
+			}
+
+			bool AreContinuationParentsRestored(JobRecord job) =>
+				recoveredIncomingEdges[job.JobHandle]
+					.TrueForAll(edge =>
+						(edge.ParentJobHandle is null || restoredJobHandles.Contains(edge.ParentJobHandle))
+						&& (edge.ParentBatchHandle is null || restoredBatchHandles.Contains(edge.ParentBatchHandle))
+					);
+
+			while (standaloneContinuations.Count != 0)
+			{
+				var ready = standaloneContinuations.Values
+					.Where(AreContinuationParentsRestored)
+					.OrderBy(static job => job.CreatedAt)
+					.ThenBy(static job => job.JobHandle)
 					.ToList();
 
-				var unresolved = string.Join(", ", standaloneContinuations.Keys.Order());
-				if (missingParents.Count != 0)
+				if (ready.Count == 0)
 				{
-					throw new ImmediateJobException(
-						$"Durable standalone continuations reference missing parent jobs: {string.Join(", ", missingParents)}."
-					);
+					var missingParents = standaloneContinuations.Values
+						.SelectMany(job => recoveredIncomingEdges[job.JobHandle])
+						.Where(edge => edge.ParentJobHandle is { } parentId && !allRecoveredJobHandles.Contains(parentId))
+						.Select(static edge => edge.ParentJobHandle!)
+						.Distinct()
+						.Order()
+						.ToList();
+
+					var missingParentBatches = standaloneContinuations.Values
+						.SelectMany(job => recoveredIncomingEdges[job.JobHandle])
+						.Where(edge => edge.ParentBatchHandle is { } parentId && !restoredBatchHandles.Contains(parentId))
+						.Select(static edge => edge.ParentBatchHandle!)
+						.Distinct()
+						.Order()
+						.ToList();
+
+					var unresolved = string.Join(", ", standaloneContinuations.Keys.Order());
+					if (missingParents.Count != 0)
+					{
+						throw new ImmediateJobException(
+							$"Durable standalone continuations reference missing parent jobs: {string.Join(", ", missingParents)}."
+						);
+					}
+
+					if (missingParentBatches.Count != 0)
+					{
+						throw new ImmediateJobException(
+							$"Durable standalone continuations reference missing parent batches: {string.Join(", ", missingParentBatches)}."
+						);
+					}
+
+					throw new ImmediateJobException($"Durable standalone continuations contain a cycle: {unresolved}.");
 				}
 
-				if (missingParentBatches.Count != 0)
+				foreach (var job in ready)
 				{
-					throw new ImmediateJobException(
-						$"Durable standalone continuations reference missing parent batches: {string.Join(", ", missingParentBatches)}."
-					);
+					await PrimaryStorage
+						.EnqueueContinuationAsync(
+							job,
+							recoveredIncomingEdges[job.JobHandle],
+							cancellationToken
+						)
+						.ConfigureAwait(false);
+
+					standaloneContinuations.Remove(job.JobHandle);
+					restoredJobHandles.Add(job.JobHandle);
 				}
-
-				throw new ImmediateJobException($"Durable standalone continuations contain a cycle: {unresolved}.");
 			}
 
-			foreach (var job in ready)
-			{
-				await PrimaryStorage
-					.EnqueueContinuationAsync(
-						job,
-						recoveredIncomingEdges[job.JobHandle],
-						cancellationToken
-					)
-					.ConfigureAwait(false);
+			var snapshot = await DurableStorage.GetMonitoringSnapshotAsync(cancellationToken).ConfigureAwait(false);
+			foreach (var schedule in snapshot.Recurring)
+				await PrimaryStorage.UpsertRecurringAsync(schedule, cancellationToken).ConfigureAwait(false);
 
-				standaloneContinuations.Remove(job.JobHandle);
-				restoredJobHandles.Add(job.JobHandle);
-			}
+			_initializationTask.SetResult();
+			_initialized = true;
 		}
+		catch (Exception ex)
+		{
+			_initializationTask.SetException(ex);
+			_initialized = true;
 
-		var snapshot = await DurableStorage.GetMonitoringSnapshotAsync(cancellationToken).ConfigureAwait(false);
-		foreach (var schedule in snapshot.Recurring)
-			await PrimaryStorage.UpsertRecurringAsync(schedule, cancellationToken).ConfigureAwait(false);
-
-		_initializationTask.SetResult();
-		_initialized = true;
+			throw;
+		}
 	}
 
 	private static JobContinuationEdge ToContinuationEdge(BatchGraphEdge edge) =>
