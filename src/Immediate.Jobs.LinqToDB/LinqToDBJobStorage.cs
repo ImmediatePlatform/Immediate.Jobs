@@ -5,7 +5,6 @@ using LinqToDB;
 using LinqToDB.Async;
 using LinqToDB.Data;
 using Microsoft.Extensions.Options;
-using static System.Net.WebRequestMethods;
 
 namespace Immediate.Jobs.LinqToDB;
 
@@ -69,13 +68,13 @@ internal sealed class LinqToDBJobStorage<T>(
 				CreatedAt = batch.CreatedAt.UtcTicks,
 				TotalJobs = batch.TotalJobs,
 				PendingCount = batch.PendingCount,
-				SucceededCount = 0,
-				FailedCount = 0,
-				CancelledCount = 0,
-				SkippedCount = 0,
+				SucceededCount = batch.SucceededCount,
+				FailedCount = batch.FailedCount,
+				CancelledCount = batch.CancelledCount,
+				SkippedCount = batch.SkippedCount,
 				StartedAt = Ticks(batch.StartedAt),
-				CompletedAt = null,
-				State = BatchState.Executing,
+				CompletedAt = Ticks(batch.CompletedAt),
+				State = batch.State,
 				ConcurrencyStamp = Guid.NewGuid(),
 			})
 		);

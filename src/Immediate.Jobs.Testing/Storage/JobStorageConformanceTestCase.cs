@@ -49,8 +49,12 @@ public sealed class JobStorageConformanceTestCase
 	public StorageCapabilities RequiredCapabilities { get; }
 
 	/// <summary>
-	///		
+	///	    Represents the data that should be pre-loaded to the durable storage before the test runs.
 	/// </summary>
+	/// <remarks>
+	///	    This is frequently implemented as part of the storage itself, in order to use the convenience methods that
+	///	    already exist in the storage. See <see cref="InMemoryJobStorage.LoadPersistedJobState"/> for example.
+	/// </remarks>
 	public PersistedJobState PersistedJobState { get; }
 
 	/// <summary>
