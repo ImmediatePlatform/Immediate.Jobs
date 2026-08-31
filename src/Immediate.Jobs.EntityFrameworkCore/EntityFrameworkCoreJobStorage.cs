@@ -33,6 +33,54 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 			?? throw new ImmediateJobException("Immediate.Jobs entities are not configured. Call modelBuilder.AddImmediateJobs() from OnModelCreating.");
 	}
 
+	/// <summary>
+	///		Used for testing to pre-load various values to the storage before the test starts.
+	/// </summary>
+	/// <param name="jobs">
+	///		The jobs that should be loaded in the database.
+	/// </param>
+	/// <param name="batches">
+	///		The batches that should be loaded in the database.
+	/// </param>
+	/// <param name="edges">
+	///		The continuation edges that should be loaded in the database.
+	/// </param>
+	/// <remarks>
+	///	    This method should run before any other methods run to initialize test state. Use in regular app code is not
+	///	    supported.
+	/// </remarks>
+	public async ValueTask LoadPersistedJobState(
+		IReadOnlyList<JobRecord> jobs,
+		IReadOnlyList<BatchRecord> batches,
+		IReadOnlyList<JobContinuationEdge> edges
+	)
+	{
+		await using var context = await contextFactory.CreateDbContextAsync();
+
+		context.AddRange(
+			batches.Select(batch => new ImmediateJobBatchEntity
+			{
+				Id = batch.BatchHandle.Value,
+				CreatedAt = batch.CreatedAt,
+				TotalJobs = batch.TotalJobs,
+				PendingCount = batch.PendingCount,
+				SucceededCount = batch.SucceededCount,
+				FailedCount = batch.FailedCount,
+				CancelledCount = batch.CancelledCount,
+				SkippedCount = batch.SkippedCount,
+				StartedAt = batch.StartedAt,
+				CompletedAt = batch.CompletedAt,
+				State = batch.State,
+				ConcurrencyStamp = Guid.NewGuid(),
+			})
+		);
+
+		context.AddRange(jobs.Select(ToEntity));
+		context.AddRange(edges.Select(ToEntity));
+
+		await context.SaveChangesAsync();
+	}
+
 	/// <inheritdoc />
 	public async ValueTask EnqueueAsync(JobRecord job, CancellationToken cancellationToken = default)
 	{
@@ -1319,7 +1367,7 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 				.ThenBy(edge => edge.ParentKind)
 				.ThenBy(edge => edge.ParentId)
 				.ToListAsync(cancellationToken);
-		return new BatchGraph { BatchHandle = batchHandle, Nodes = jobs, Edges = [.. edges.Select(ToGraphEdge)] };
+		return new BatchGraph { BatchHandle = batchHandle, Nodes = jobs, Edges = [.. edges.Select(ToContinuationEdge)] };
 	}
 
 	/// <inheritdoc />
@@ -1356,7 +1404,7 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 			CompletedAt = job.CompletedAt,
 			LastError = job.LastError,
 			BatchHandle = BatchHandle.FromString(job.BatchHandle),
-			DependsOn = [.. edges.Select(ToGraphEdge)],
+			DependsOn = [.. edges.Select(ToContinuationEdge)],
 		};
 	}
 
@@ -2798,16 +2846,6 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 		};
 
 	private static JobContinuationEdge ToContinuationEdge(ImmediateJobContinuationEntity edge) =>
-		new()
-		{
-			ChildJobHandle = JobHandle.FromString(edge.ChildJobHandle),
-			ParentJobHandle = edge.ParentKind == ContinuationParentKind.Job ? JobHandle.FromString(edge.ParentId) : null,
-			ParentBatchHandle = edge.ParentKind == ContinuationParentKind.Batch ? BatchHandle.FromString(edge.ParentId) : null,
-			Delay = TimeSpan.FromTicks(edge.Delay),
-			Trigger = edge.Trigger,
-		};
-
-	private static BatchGraphEdge ToGraphEdge(ImmediateJobContinuationEntity edge) =>
 		new()
 		{
 			ChildJobHandle = JobHandle.FromString(edge.ChildJobHandle),

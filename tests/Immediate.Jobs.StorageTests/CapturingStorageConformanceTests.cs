@@ -21,16 +21,36 @@ public sealed class CapturingStorageConformanceTests
 	[MemberData(nameof(Cases))]
 	public async Task CapturingStorageConforms(JobStorageConformanceTestCase testCase)
 	{
-		ArgumentNullException.ThrowIfNull(testCase);
 		var clock = new FakeTimeProvider(DateTimeOffset.UnixEpoch);
+
 		var services = new ServiceCollection();
-		_ = services.AddSingleton<TimeProvider>(clock);
-		_ = services.AddSingleton(clock);
-		_ = services.AddSingleton<CapturingJobStorage>();
-		_ = services.AddImmediateJobsCore().ConfigureStorage(options => options
-			.UseStorage(static provider => provider.GetRequiredService<CapturingJobStorage>())
-			.UseDistributed());
-		await using var provider = services.BuildServiceProvider(validateScopes: true);
+		services.AddLogging();
+		services.AddSingleton<TimeProvider>(clock);
+		services.AddSingleton(clock);
+		services.AddSingleton<CapturingJobStorage>();
+
+		services
+			.AddImmediateJobsCore()
+			.ConfigureStorage(options => options
+				.UseStorage(static provider => provider.GetRequiredService<CapturingJobStorage>())
+				.UseDistributed()
+			);
+
+		await using var provider = services.BuildServiceProvider(
+			new ServiceProviderOptions
+			{
+				ValidateOnBuild = true,
+				ValidateScopes = true,
+			}
+		);
+
+		var storage = provider.GetRequiredService<CapturingJobStorage>();
+
+		storage.LoadPersistedJobState(
+			testCase.PersistedJobState.Jobs,
+			testCase.PersistedJobState.Batches,
+			testCase.PersistedJobState.Edges
+		);
 
 		await testCase.RunAsync(provider, TestContext.Current.CancellationToken);
 	}

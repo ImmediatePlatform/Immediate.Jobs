@@ -35,16 +35,46 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 	/// <inheritdoc />
 	public async ValueTask DisposeAsync()
 	{
-		await TaskScheduler.Yield();
-		await ValueTask.CompletedTask;
 	}
 
 	/// <inheritdoc />
 	public async ValueTask InitializeAsync(CancellationToken cancellationToken = default)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
-		await TaskScheduler.Yield();
-		return;
+	}
+
+	/// <summary>
+	///	    Used for testing to pre-load various values to the storage before the test starts.
+	/// </summary>
+	/// <param name="jobs">
+	///	    The jobs that should be loaded in the database.
+	/// </param>
+	/// <param name="batches">
+	///	    The batches that should be loaded in the database.
+	/// </param>
+	/// <param name="edges">
+	///	    The continuation edges that should be loaded in the database.
+	/// </param>
+	/// <remarks>
+	///	    This method should run before any other methods run to initialize test state. Use in regular app code is not
+	///	    supported.
+	/// </remarks>
+	public void LoadPersistedJobState(
+		IReadOnlyList<JobRecord> jobs,
+		IReadOnlyList<BatchRecord> batches,
+		IReadOnlyList<JobContinuationEdge> edges
+	)
+	{
+		lock (_gate)
+		{
+			foreach (var b in batches)
+				_batches[b.BatchHandle] = b;
+
+			foreach (var j in jobs)
+				_jobs[j.JobHandle] = j;
+
+			_edges.AddRange(edges);
+		}
 	}
 
 	/// <inheritdoc />
@@ -58,8 +88,6 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 			if (!_jobs.TryAdd(job.JobHandle, job))
 				throw new ImmediateJobException($"Job '{job.JobHandle}' already exists.");
 		}
-
-		return;
 	}
 
 	/// <inheritdoc />
@@ -86,8 +114,6 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 			else
 				EvaluateAlreadyTerminalParents(edges);
 		}
-
-		return;
 	}
 
 	/// <inheritdoc />
@@ -130,8 +156,6 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 			else
 				EvaluateAlreadyTerminalParents(edges);
 		}
-
-		return;
 	}
 
 	/// <inheritdoc />
@@ -330,32 +354,40 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 		Dictionary<string, int> activeCounts,
 		int totalActive,
 		FairQueuePolicy policy
-	) =>
-		groupId is not null &&
-		totalActive > 0 &&
-		activeCounts.TryGetValue(groupId, out var groupActive) &&
-		groupActive >= policy.MinInflightForNoisy &&
-		(double)groupActive / totalActive > policy.ConcurrencyShareThreshold;
+	)
+	{
+		return groupId is not null &&
+			totalActive > 0 &&
+			activeCounts.TryGetValue(groupId, out var groupActive) &&
+			groupActive >= policy.MinInflightForNoisy &&
+			(double)groupActive / totalActive > policy.ConcurrencyShareThreshold;
+	}
 
 	private static int GetNoisyInflight(
 		string? groupId,
 		Dictionary<string, int> activeCounts,
 		int totalActive,
 		FairQueuePolicy policy
-	) =>
-		IsNoisy(groupId, activeCounts, totalActive, policy) ? activeCounts[groupId!] : 0;
+	)
+	{
+		return IsNoisy(groupId, activeCounts, totalActive, policy) ? activeCounts[groupId!] : 0;
+	}
 
-	private long GetLastServed(string queueName, string? groupId) =>
-		groupId is not null && _fairQueueLastServed.TryGetValue((queueName, groupId), out var sequence)
+	private long GetLastServed(string queueName, string? groupId)
+	{
+		return groupId is not null && _fairQueueLastServed.TryGetValue((queueName, groupId), out var sequence)
 			? sequence
 			: 0;
+	}
 
-	private long GetNextSequence(string queueName) =>
-		_fairQueueLastServed
+	private long GetNextSequence(string queueName)
+	{
+		return _fairQueueLastServed
 			.Where(pair => string.Equals(pair.Key.QueueName, queueName, StringComparison.Ordinal))
 			.Select(static pair => pair.Value)
 			.DefaultIfEmpty()
 			.Max() + 1;
+	}
 
 	private JobRecord Acquire(JobRecord candidate, JobAcquisitionRequest request, DateTimeOffset now)
 	{
@@ -376,57 +408,6 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 		return job;
 	}
 
-	// Used by the storage tests' durable-replica proxy. InMemoryJobStorage itself is never a durable replica.
-	internal async ValueTask<IReadOnlyList<JobRecord>> AcquireJobsAsync(
-		IReadOnlyCollection<JobHandle> jobHandles,
-		string workerId,
-		TimeSpan lease,
-		CancellationToken cancellationToken = default
-	)
-	{
-		ArgumentNullException.ThrowIfNull(jobHandles);
-		ArgumentException.ThrowIfNullOrWhiteSpace(workerId);
-		ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(lease, TimeSpan.Zero);
-		cancellationToken.ThrowIfCancellationRequested();
-		var now = timeProvider.GetUtcNow();
-		lock (_gate)
-		{
-			var acquired = new List<JobRecord>(jobHandles.Count);
-			foreach (var id in jobHandles)
-			{
-				if (!_jobs.TryGetValue(id, out var job))
-					continue;
-				if (job.State == JobState.Active && job.LeaseExpiresAt <= now)
-				{
-					InterruptExecution(job);
-					job = job with { State = JobState.Pending, WorkerId = null, LeaseExpiresAt = null };
-					_jobs[id] = job;
-				}
-
-				if (job.State is not (JobState.Pending or JobState.Scheduled) || job.DueAt > now)
-					continue;
-
-				MaterializeSyntheticExecution(job);
-				job = job with
-				{
-					State = JobState.Active,
-					Attempt = job.Attempt + 1,
-					WorkerId = workerId,
-					LeaseExpiresAt = now + lease,
-					ExecutionTraceId = null,
-					ExecutionSpanId = null,
-					ExecutionStartedAt = null,
-				};
-				_jobs[id] = job;
-				CreateExecution(job, now);
-				MarkBatchStarted(job.BatchHandle, now);
-				acquired.Add(job);
-			}
-
-			return acquired;
-		}
-	}
-
 	/// <inheritdoc />
 	public async ValueTask SetExecutionTelemetryAsync(
 		JobHandle jobHandle,
@@ -440,6 +421,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 	{
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
+
 		lock (_gate)
 		{
 			var job = GetOwnedActive(jobHandle, executionNumber, workerId);
@@ -457,8 +439,6 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 				ExecutionStartedAt = startedAt,
 			});
 		}
-
-		return;
 	}
 
 	/// <inheritdoc />
@@ -472,13 +452,12 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 	{
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
+
 		lock (_gate)
 		{
 			var job = GetOwnedActive(jobHandle, executionNumber, workerId);
 			_jobs[jobHandle] = job with { LeaseExpiresAt = timeProvider.GetUtcNow() + lease };
 		}
-
-		return;
 	}
 
 	/// <inheritdoc />
@@ -489,7 +468,9 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 		CancellationToken cancellationToken = default
 	)
 	{
+		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
+
 		await CompleteWithContinuationsAsync(jobHandle, executionNumber, workerId, [], cancellationToken);
 	}
 
@@ -566,8 +547,6 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 			CompleteExecution(current, JobExecutionState.Succeeded, completedAt);
 			TransitionToTerminal(jobHandle, JobState.Succeeded, error: null, completedAt);
 		}
-
-		return;
 	}
 
 	/// <inheritdoc />
@@ -615,8 +594,6 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 			if (options == ContinuationOptions.BeforeContinuations)
 				SpliceBeforeWaiters(job.JobHandle, existingWaiters);
 		}
-
-		return;
 	}
 
 	/// <inheritdoc />
@@ -655,8 +632,6 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 				TransitionToTerminal(jobHandle, JobState.Failed, error, completedAt);
 			}
 		}
-
-		return;
 	}
 
 	/// <inheritdoc />
@@ -677,8 +652,6 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 
 			_recurring[schedule.Name] = schedule;
 		}
-
-		return;
 	}
 
 	/// <inheritdoc />
@@ -701,8 +674,6 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 			foreach (var name in obsoleteNames)
 				_ = _recurring.Remove(name);
 		}
-
-		return;
 	}
 
 	/// <inheritdoc />
@@ -720,21 +691,23 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 
 			_ = _recurring.Remove(name);
 		}
-
-		return;
 	}
 
 	/// <inheritdoc />
 	public async ValueTask PauseRecurringAsync(string name, CancellationToken cancellationToken = default)
 	{
+		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
+
 		await SetRecurringPausedAsync(name, isPaused: true, cancellationToken);
 	}
 
 	/// <inheritdoc />
 	public async ValueTask ResumeRecurringAsync(string name, CancellationToken cancellationToken = default)
 	{
+		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
+
 		await SetRecurringPausedAsync(name, isPaused: false, cancellationToken);
 	}
 
@@ -890,11 +863,8 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 	)
 	{
 		await TaskScheduler.Yield();
-		ArgumentNullException.ThrowIfNull(query);
-		ArgumentOutOfRangeException.ThrowIfNegative(query.Skip, nameof(query));
-		ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(query.Take, 0, nameof(query));
-
 		cancellationToken.ThrowIfCancellationRequested();
+
 		lock (_gate)
 		{
 			var batches = _batches.Values.AsEnumerable();
@@ -978,7 +948,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 			{
 				BatchHandle = batchHandle,
 				Nodes = [.. members.Select(static job => new BatchGraphNode { JobHandle = job.JobHandle, JobName = job.JobName, State = job.State })],
-				Edges = [.. _edges.Where(edge => memberIds.Contains(edge.ChildJobHandle)).Select(ToGraphEdge)],
+				Edges = [.. _edges.Where(edge => memberIds.Contains(edge.ChildJobHandle))],
 			};
 		}
 	}
@@ -1010,7 +980,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 				CompletedAt = job.CompletedAt,
 				LastError = job.LastError,
 				BatchHandle = job.BatchHandle,
-				DependsOn = [.. _edges.Where(edge => edge.ChildJobHandle == jobHandle).Select(ToGraphEdge)],
+				DependsOn = [.. _edges.Where(edge => edge.ChildJobHandle == jobHandle)],
 			};
 		}
 	}
@@ -1043,8 +1013,6 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 			foreach (var jobHandle in jobHandles)
 				ProcessTerminalJob(jobHandle);
 		}
-
-		return;
 	}
 
 	/// <inheritdoc />
@@ -1074,8 +1042,6 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 			_ = _batches.Remove(batchHandle);
 			RemoveEdgesForJobs(jobHandles, [batchHandle]);
 		}
-
-		return;
 	}
 
 	/// <inheritdoc />
@@ -1096,8 +1062,6 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 				CompleteExecution(job, JobExecutionState.Cancelled, now);
 			TransitionToTerminal(jobHandle, JobState.Cancelled, error: null, now);
 		}
-
-		return;
 	}
 
 	/// <inheritdoc />
@@ -1105,6 +1069,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 	{
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
+
 		lock (_gate)
 		{
 			if (!_jobs.TryGetValue(jobHandle, out var job))
@@ -1132,8 +1097,6 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 				};
 			}
 		}
-
-		return;
 	}
 
 	/// <inheritdoc />
@@ -1141,6 +1104,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 	{
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
+
 		lock (_gate)
 		{
 			if (!_jobs.TryGetValue(jobHandle, out var job))
@@ -1156,8 +1120,6 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 				_ = _recurringKeys.Remove(recurringKey);
 			RemoveEdgesForJobs([jobHandle]);
 		}
-
-		return;
 	}
 
 	/// <inheritdoc />
@@ -1169,6 +1131,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 	{
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
+
 		var now = timeProvider.GetUtcNow();
 		lock (_gate)
 		{
@@ -1195,8 +1158,6 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 
 			RemoveEdgesForJobs(standaloneJobHandles);
 		}
-
-		return;
 	}
 
 	/// <inheritdoc />
@@ -1208,6 +1169,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 	{
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
+
 		var now = timeProvider.GetUtcNow();
 		lock (_gate)
 		{
@@ -1238,19 +1200,16 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 				_ = _batches.Remove(batchHandle);
 			RemoveEdgesForJobs(batchJobHandles, batchHandles);
 		}
-
-		return;
 	}
 
 	/// <inheritdoc />
 	public async ValueTask HeartbeatAsync(JobServerSnapshot server, CancellationToken cancellationToken = default)
 	{
-		await TaskScheduler.Yield();
-		ArgumentNullException.ThrowIfNull(server);
 		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
+
 		lock (_gate)
 			_servers[server.WorkerId] = server;
-		return;
 	}
 
 	/// <inheritdoc />
@@ -1258,6 +1217,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 	{
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
+
 		return true;
 	}
 
@@ -1742,16 +1702,6 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 			StartedAt = batch.StartedAt,
 			CompletedAt = batch.CompletedAt,
 			FractionSettled = BatchStatus.CalculateFractionSettled(batch.TotalJobs, batch.PendingCount),
-		};
-
-	private static BatchGraphEdge ToGraphEdge(JobContinuationEdge edge) =>
-		new()
-		{
-			ChildJobHandle = edge.ChildJobHandle,
-			ParentJobHandle = edge.ParentJobHandle,
-			ParentBatchHandle = edge.ParentBatchHandle,
-			Delay = edge.Delay,
-			Trigger = edge.Trigger,
 		};
 
 	private void RemoveEdgesForJobs(

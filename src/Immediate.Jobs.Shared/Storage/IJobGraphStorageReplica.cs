@@ -1,3 +1,5 @@
+using Immediate.Jobs.Shared.Apis;
+
 namespace Immediate.Jobs.Shared.Storage;
 
 /// <summary>

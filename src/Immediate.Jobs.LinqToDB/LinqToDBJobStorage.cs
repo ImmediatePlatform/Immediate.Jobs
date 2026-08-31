@@ -36,6 +36,60 @@ internal sealed class LinqToDBJobStorage<T>(
 		await ValueTask.CompletedTask;
 	}
 
+	/// <summary>
+	///		Used for testing to pre-load various values to the storage before the test starts.
+	/// </summary>
+	/// <param name="jobs">
+	///		The jobs that should be loaded in the database.
+	/// </param>
+	/// <param name="batches">
+	///		The batches that should be loaded in the database.
+	/// </param>
+	/// <param name="edges">
+	///		The continuation edges that should be loaded in the database.
+	/// </param>
+	/// <remarks>
+	///	    This method should run before any other methods run to initialize test state. Use in regular app code is not
+	///	    supported.
+	/// </remarks>
+	public async ValueTask LoadPersistedJobState(
+		IReadOnlyList<JobRecord> jobs,
+		IReadOnlyList<BatchRecord> batches,
+		IReadOnlyList<JobContinuationEdge> edges
+	)
+	{
+		await using var scope = contextScope.GetScope(out var connection);
+
+		await connection.BulkCopyAsync(
+			new BulkCopyOptions { SchemaName = _schema },
+			batches.Select(batch => new ImmediateJobBatchEntity
+			{
+				Id = batch.BatchHandle.Value,
+				CreatedAt = batch.CreatedAt.UtcTicks,
+				TotalJobs = batch.TotalJobs,
+				PendingCount = batch.PendingCount,
+				SucceededCount = batch.SucceededCount,
+				FailedCount = batch.FailedCount,
+				CancelledCount = batch.CancelledCount,
+				SkippedCount = batch.SkippedCount,
+				StartedAt = Ticks(batch.StartedAt),
+				CompletedAt = Ticks(batch.CompletedAt),
+				State = batch.State,
+				ConcurrencyStamp = Guid.NewGuid(),
+			})
+		);
+
+		await connection.BulkCopyAsync(
+			new BulkCopyOptions { SchemaName = _schema },
+			jobs.Select(ToEntity)
+		);
+
+		await connection.BulkCopyAsync(
+			new BulkCopyOptions { SchemaName = _schema },
+			edges.Select(ToEntity)
+		);
+	}
+
 	/// <inheritdoc />
 	public async ValueTask EnqueueAsync(JobRecord job, CancellationToken cancellationToken = default)
 	{
@@ -1368,7 +1422,7 @@ internal sealed class LinqToDBJobStorage<T>(
 				.ThenBy(edge => edge.ParentKind)
 				.ThenBy(edge => edge.ParentId)
 				.ToListAsync(cancellationToken);
-		return new BatchGraph { BatchHandle = batchHandle, Nodes = jobs, Edges = [.. edges.Select(ToGraphEdge)] };
+		return new BatchGraph { BatchHandle = batchHandle, Nodes = jobs, Edges = [.. edges.Select(ToContinuationEdge)] };
 	}
 
 	/// <inheritdoc />
@@ -1403,7 +1457,7 @@ internal sealed class LinqToDBJobStorage<T>(
 			CompletedAt = FromTicks(job.CompletedAt),
 			LastError = job.LastError,
 			BatchHandle = BatchHandle.FromString(job.BatchHandle),
-			DependsOn = [.. edges.Select(ToGraphEdge)],
+			DependsOn = [.. edges.Select(ToContinuationEdge)],
 		};
 	}
 
@@ -2970,16 +3024,6 @@ internal sealed class LinqToDBJobStorage<T>(
 		};
 
 	private static JobContinuationEdge ToContinuationEdge(ImmediateJobContinuationEntity edge) =>
-		new()
-		{
-			ChildJobHandle = JobHandle.FromString(edge.ChildJobHandle),
-			ParentJobHandle = edge.ParentKind == ContinuationParentKind.Job ? JobHandle.FromString(edge.ParentId) : null,
-			ParentBatchHandle = edge.ParentKind == ContinuationParentKind.Batch ? BatchHandle.FromString(edge.ParentId) : null,
-			Delay = TimeSpan.FromTicks(edge.Delay),
-			Trigger = edge.Trigger,
-		};
-
-	private static BatchGraphEdge ToGraphEdge(ImmediateJobContinuationEntity edge) =>
 		new()
 		{
 			ChildJobHandle = JobHandle.FromString(edge.ChildJobHandle),

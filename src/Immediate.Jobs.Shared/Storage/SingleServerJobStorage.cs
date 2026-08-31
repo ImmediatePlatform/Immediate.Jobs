@@ -681,7 +681,7 @@ internal sealed class SingleServerJobStorage(
 						State = status.State,
 					},
 					Jobs = [.. recoveredJobs.Where(job => job.BatchHandle == batchHandle)],
-					Edges = [.. graph.Edges.Select(ToContinuationEdge)],
+					Edges = [.. graph.Edges],
 				});
 			}
 
@@ -827,16 +827,6 @@ internal sealed class SingleServerJobStorage(
 			throw;
 		}
 	}
-
-	private static JobContinuationEdge ToContinuationEdge(BatchGraphEdge edge) =>
-		new()
-		{
-			ChildJobHandle = edge.ChildJobHandle,
-			ParentJobHandle = edge.ParentJobHandle,
-			ParentBatchHandle = edge.ParentBatchHandle,
-			Trigger = edge.Trigger,
-			Delay = edge.Delay,
-		};
 
 	private sealed record RecoveredBatch
 	{
