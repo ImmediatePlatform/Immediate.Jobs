@@ -996,7 +996,6 @@ internal sealed class LinqToDBJobStorage<T>(
 		await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
 
 		var existing = await Recurring(connection)
-			.Where(r => r.IsCodeDefined)
 			.ToDictionaryAsync(r => r.Name, StringComparer.Ordinal, cancellationToken);
 
 		foreach (var schedule in schedules)
@@ -1016,7 +1015,7 @@ internal sealed class LinqToDBJobStorage<T>(
 			current.QueueName = schedule.QueueName;
 			current.Cron = schedule.Cron;
 			current.TimeZone = schedule.TimeZone;
-			current.IsCodeDefined = schedule.IsCodeDefined;
+			current.IsCodeDefined = true;
 			current.NextRunAt = schedule.NextRunAt;
 			current.ConcurrencyStamp = Guid.NewGuid();
 
@@ -1026,8 +1025,13 @@ internal sealed class LinqToDBJobStorage<T>(
 
 		if (existing.Count != 0)
 		{
+			var toRemove = existing
+				.Where(kvp => kvp.Value.IsCodeDefined)
+				.Select(kvp => kvp.Key)
+				.ToList();
+
 			await Recurring(connection)
-				.Where(r => r.Name.In(existing.Keys))
+				.Where(r => r.Name.In(toRemove))
 				.DeleteAsync(cancellationToken);
 		}
 

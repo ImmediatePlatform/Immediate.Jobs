@@ -918,13 +918,12 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 		{
 			await using var context = await contextFactory.CreateDbContextAsync(operationCancellationToken);
 			await using var transaction = await context.Database.BeginTransactionAsync(operationCancellationToken);
-			var existingCodeDefined = await context.Set<ImmediateRecurringJobEntity>()
-				.Where(schedule => schedule.IsCodeDefined)
+			var existing = await context.Set<ImmediateRecurringJobEntity>()
 				.ToDictionaryAsync(schedule => schedule.Name, StringComparer.Ordinal, operationCancellationToken);
 
 			foreach (var schedule in schedules)
 			{
-				if (!existingCodeDefined.Remove(schedule.Name, out var entity))
+				if (!existing.Remove(schedule.Name, out var entity))
 				{
 					_ = context.Add(ToEntity(schedule));
 					continue;
@@ -934,13 +933,22 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 				entity.QueueName = schedule.QueueName;
 				entity.Cron = schedule.Cron;
 				entity.TimeZone = schedule.TimeZone;
-				entity.IsCodeDefined = schedule.IsCodeDefined;
+				entity.IsCodeDefined = true;
 				entity.NextRunAt = schedule.NextRunAt;
 				entity.ConcurrencyStamp = Guid.NewGuid();
 			}
 
-			context.RemoveRange(existingCodeDefined.Values);
-			_ = await context.SaveChangesAsync(operationCancellationToken);
+			if (existing.Count != 0)
+			{
+				var toRemove = existing
+					.Where(kvp => kvp.Value.IsCodeDefined)
+					.Select(kvp => kvp.Value)
+					.ToList();
+
+				context.RemoveRange(toRemove);
+			}
+
+			await context.SaveChangesAsync(operationCancellationToken);
 			await transaction.CommitAsync(operationCancellationToken);
 		}, cancellationToken);
 	}
