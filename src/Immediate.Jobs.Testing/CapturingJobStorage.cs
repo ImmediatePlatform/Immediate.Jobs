@@ -1,16 +1,17 @@
+using System.Diagnostics.CodeAnalysis;
 using Immediate.Jobs.Shared.Apis;
 using Immediate.Jobs.Shared.Storage;
 
 namespace Immediate.Jobs.Testing;
 
 /// <summary>
-/// An in-memory storage provider that records the data written by job and batch schedulers.
+///	    An in-memory storage provider that records the data written by job and batch schedulers.
 /// </summary>
 /// <remarks>
-/// Capturing does not alter storage behavior: every operation is forwarded to an
-/// <see cref="InMemoryJobStorage"/> after its input has been recorded.
+///	    Capturing does not alter storage behavior: every operation is forwarded to an <see cref="InMemoryJobStorage"/>
+///     after its input has been recorded.
 /// </remarks>
-public sealed class CapturingJobStorage(TimeProvider timeProvider) :
+public class CapturingJobStorage(TimeProvider timeProvider) :
 	IRecurringJobStorage,
 	IJobGraphStorage,
 	IFairQueueStorage
@@ -81,9 +82,8 @@ public sealed class CapturingJobStorage(TimeProvider timeProvider) :
 	}
 
 	/// <inheritdoc />
-	public ValueTask DisposeAsync() => _inner.DisposeAsync();
-	/// <inheritdoc />
-	public ValueTask InitializeAsync(CancellationToken cancellationToken = default) => _inner.InitializeAsync(cancellationToken);
+	[SuppressMessage("Usage", "CA1816:Dispose methods should call SuppressFinalize", Justification = "Class is only used for testing; shouldn't need to worry about this.")]
+	public virtual async ValueTask DisposeAsync() => await _inner.DisposeAsync();
 
 	/// <summary>
 	///	    Used for testing to pre-load various values to the storage before the test starts.
@@ -112,14 +112,17 @@ public sealed class CapturingJobStorage(TimeProvider timeProvider) :
 	) => _inner.LoadPersistedJobState(jobs, batches, edges, recurringSchedules);
 
 	/// <inheritdoc />
-	public ValueTask EnqueueAsync(JobRecord job, CancellationToken cancellationToken = default)
+	public virtual async ValueTask InitializeAsync(CancellationToken cancellationToken = default) => await _inner.InitializeAsync(cancellationToken);
+
+	/// <inheritdoc />
+	public virtual async ValueTask EnqueueAsync(JobRecord job, CancellationToken cancellationToken = default)
 	{
 		Capture(job);
-		return _inner.EnqueueAsync(job, cancellationToken);
+		await _inner.EnqueueAsync(job, cancellationToken);
 	}
 
 	/// <inheritdoc />
-	public ValueTask EnqueueContinuationAsync(JobRecord job, IReadOnlyList<JobContinuationEdge> edges, CancellationToken cancellationToken = default)
+	public virtual async ValueTask EnqueueContinuationAsync(JobRecord job, IReadOnlyList<JobContinuationEdge> edges, CancellationToken cancellationToken = default)
 	{
 		var edgeSnapshot = edges.ToList();
 		lock (_gate)
@@ -128,11 +131,11 @@ public sealed class CapturingJobStorage(TimeProvider timeProvider) :
 			_continuations.Add(new(job, edgeSnapshot));
 		}
 
-		return _inner.EnqueueContinuationAsync(job, edges, cancellationToken);
+		await _inner.EnqueueContinuationAsync(job, edges, cancellationToken);
 	}
 
 	/// <inheritdoc />
-	public ValueTask EnqueueBatchAsync(BatchRecord batch, IReadOnlyList<JobRecord> jobs, IReadOnlyList<JobContinuationEdge> edges, CancellationToken cancellationToken = default)
+	public virtual async ValueTask EnqueueBatchAsync(BatchRecord batch, IReadOnlyList<JobRecord> jobs, IReadOnlyList<JobContinuationEdge> edges, CancellationToken cancellationToken = default)
 	{
 		var jobSnapshot = jobs.ToList();
 		var edgeSnapshot = edges.ToList();
@@ -142,11 +145,11 @@ public sealed class CapturingJobStorage(TimeProvider timeProvider) :
 			_batches.Add(new(batch, jobSnapshot, edgeSnapshot));
 		}
 
-		return _inner.EnqueueBatchAsync(batch, jobs, edges, cancellationToken);
+		await _inner.EnqueueBatchAsync(batch, jobs, edges, cancellationToken);
 	}
 
 	/// <inheritdoc />
-	public ValueTask AddBatchJobAsync(JobHandle currentJobHandle, int executionNumber, JobRecord job, ContinuationOptions options, CancellationToken cancellationToken = default)
+	public virtual async ValueTask AddBatchJobAsync(JobHandle currentJobHandle, int executionNumber, JobRecord job, ContinuationOptions options, CancellationToken cancellationToken = default)
 	{
 		lock (_gate)
 		{
@@ -154,11 +157,11 @@ public sealed class CapturingJobStorage(TimeProvider timeProvider) :
 			_batchJobs.Add(new(currentJobHandle, executionNumber, job, options));
 		}
 
-		return _inner.AddBatchJobAsync(currentJobHandle, executionNumber, job, options, cancellationToken);
+		await _inner.AddBatchJobAsync(currentJobHandle, executionNumber, job, options, cancellationToken);
 	}
 
 	/// <inheritdoc />
-	public ValueTask CompleteWithContinuationsAsync(JobHandle jobHandle, int executionNumber, string workerId, IReadOnlyList<JobContinuationAddition> additions, CancellationToken cancellationToken = default)
+	public virtual async ValueTask CompleteWithContinuationsAsync(JobHandle jobHandle, int executionNumber, string workerId, IReadOnlyList<JobContinuationAddition> additions, CancellationToken cancellationToken = default)
 	{
 		var snapshot = additions.ToList();
 		lock (_gate)
@@ -167,11 +170,11 @@ public sealed class CapturingJobStorage(TimeProvider timeProvider) :
 			_dynamicContinuations.Add(new(jobHandle, executionNumber, workerId, snapshot));
 		}
 
-		return _inner.CompleteWithContinuationsAsync(jobHandle, executionNumber, workerId, additions, cancellationToken);
+		await _inner.CompleteWithContinuationsAsync(jobHandle, executionNumber, workerId, additions, cancellationToken);
 	}
 
 	/// <inheritdoc />
-	public async ValueTask MergeRecurringSchedulesListAsync(
+	public virtual async ValueTask MergeRecurringSchedulesListAsync(
 		IReadOnlyList<RecurringJobSchedule> schedules,
 		CancellationToken cancellationToken = default
 	)
@@ -180,7 +183,7 @@ public sealed class CapturingJobStorage(TimeProvider timeProvider) :
 	}
 
 	/// <inheritdoc />
-	public ValueTask UpsertRecurringAsync(RecurringJobSchedule schedule, CancellationToken cancellationToken = default)
+	public virtual async ValueTask UpsertRecurringAsync(RecurringJobSchedule schedule, CancellationToken cancellationToken = default)
 	{
 		ArgumentNullException.ThrowIfNull(schedule);
 		lock (_gate)
@@ -189,11 +192,11 @@ public sealed class CapturingJobStorage(TimeProvider timeProvider) :
 			_recurringOperations.Add(new(RecurringOperation.Upsert, schedule.Name));
 		}
 
-		return _inner.UpsertRecurringAsync(schedule, cancellationToken);
+		await _inner.UpsertRecurringAsync(schedule, cancellationToken);
 	}
 
 	/// <inheritdoc />
-	public ValueTask<bool> MaterializeRecurringAsync(RecurringJobSchedule schedule, JobRecord job, DateTimeOffset nextRunAt, CancellationToken cancellationToken = default)
+	public virtual async ValueTask<bool> MaterializeRecurringAsync(RecurringJobSchedule schedule, JobRecord job, DateTimeOffset nextRunAt, CancellationToken cancellationToken = default)
 	{
 		lock (_gate)
 		{
@@ -201,73 +204,73 @@ public sealed class CapturingJobStorage(TimeProvider timeProvider) :
 			_recurringMaterializations.Add(new(schedule, job, nextRunAt));
 		}
 
-		return _inner.MaterializeRecurringAsync(schedule, job, nextRunAt, cancellationToken);
+		return await _inner.MaterializeRecurringAsync(schedule, job, nextRunAt, cancellationToken);
 	}
 
 	/// <inheritdoc />
-	public ValueTask<IReadOnlyList<JobRecord>> AcquireDueJobsAsync(JobAcquisitionRequest request, CancellationToken cancellationToken = default) => _inner.AcquireDueJobsAsync(request, cancellationToken);
+	public virtual async ValueTask<IReadOnlyList<JobRecord>> AcquireDueJobsAsync(JobAcquisitionRequest request, CancellationToken cancellationToken = default) => await _inner.AcquireDueJobsAsync(request, cancellationToken);
 	/// <inheritdoc />
-	public ValueTask SetExecutionTelemetryAsync(JobHandle jobHandle, int executionNumber, string workerId, string? traceId, string? spanId, DateTimeOffset startedAt, CancellationToken cancellationToken = default) => _inner.SetExecutionTelemetryAsync(jobHandle, executionNumber, workerId, traceId, spanId, startedAt, cancellationToken);
+	public virtual async ValueTask SetExecutionTelemetryAsync(JobHandle jobHandle, int executionNumber, string workerId, string? traceId, string? spanId, DateTimeOffset startedAt, CancellationToken cancellationToken = default) => await _inner.SetExecutionTelemetryAsync(jobHandle, executionNumber, workerId, traceId, spanId, startedAt, cancellationToken);
 	/// <inheritdoc />
-	public ValueTask RenewLeaseAsync(JobHandle jobHandle, int executionNumber, string workerId, TimeSpan lease, CancellationToken cancellationToken = default) => _inner.RenewLeaseAsync(jobHandle, executionNumber, workerId, lease, cancellationToken);
+	public virtual async ValueTask RenewLeaseAsync(JobHandle jobHandle, int executionNumber, string workerId, TimeSpan lease, CancellationToken cancellationToken = default) => await _inner.RenewLeaseAsync(jobHandle, executionNumber, workerId, lease, cancellationToken);
 	/// <inheritdoc />
-	public ValueTask CompleteAsync(JobHandle jobHandle, int executionNumber, string workerId, CancellationToken cancellationToken = default) => _inner.CompleteAsync(jobHandle, executionNumber, workerId, cancellationToken);
+	public virtual async ValueTask CompleteAsync(JobHandle jobHandle, int executionNumber, string workerId, CancellationToken cancellationToken = default) => await _inner.CompleteAsync(jobHandle, executionNumber, workerId, cancellationToken);
 	/// <inheritdoc />
-	public ValueTask FailAsync(JobHandle jobHandle, int executionNumber, string workerId, string error, DateTimeOffset? nextRetryAt, CancellationToken cancellationToken = default) => _inner.FailAsync(jobHandle, executionNumber, workerId, error, nextRetryAt, cancellationToken);
+	public virtual async ValueTask FailAsync(JobHandle jobHandle, int executionNumber, string workerId, string error, DateTimeOffset? nextRetryAt, CancellationToken cancellationToken = default) => await _inner.FailAsync(jobHandle, executionNumber, workerId, error, nextRetryAt, cancellationToken);
 	/// <inheritdoc />
-	public ValueTask RemoveRecurringAsync(string name, CancellationToken cancellationToken = default)
+	public virtual async ValueTask RemoveRecurringAsync(string name, CancellationToken cancellationToken = default)
 	{
 		lock (_gate) _recurringOperations.Add(new(RecurringOperation.Remove, name));
-		return _inner.RemoveRecurringAsync(name, cancellationToken);
+		await _inner.RemoveRecurringAsync(name, cancellationToken);
 	}
 	/// <inheritdoc />
-	public ValueTask PauseRecurringAsync(string name, CancellationToken cancellationToken = default)
+	public virtual async ValueTask PauseRecurringAsync(string name, CancellationToken cancellationToken = default)
 	{
 		lock (_gate) _recurringOperations.Add(new(RecurringOperation.Pause, name));
-		return _inner.PauseRecurringAsync(name, cancellationToken);
+		await _inner.PauseRecurringAsync(name, cancellationToken);
 	}
 	/// <inheritdoc />
-	public ValueTask ResumeRecurringAsync(string name, CancellationToken cancellationToken = default)
+	public virtual async ValueTask ResumeRecurringAsync(string name, CancellationToken cancellationToken = default)
 	{
 		lock (_gate) _recurringOperations.Add(new(RecurringOperation.Resume, name));
-		return _inner.ResumeRecurringAsync(name, cancellationToken);
+		await _inner.ResumeRecurringAsync(name, cancellationToken);
 	}
 	/// <inheritdoc />
-	public ValueTask<IReadOnlyList<RecurringJobSchedule>> GetDueRecurringAsync(DateTimeOffset now, int batchSize, CancellationToken cancellationToken = default) => _inner.GetDueRecurringAsync(now, batchSize, cancellationToken);
+	public virtual async ValueTask<IReadOnlyList<RecurringJobSchedule>> GetDueRecurringAsync(DateTimeOffset now, int batchSize, CancellationToken cancellationToken = default) => await _inner.GetDueRecurringAsync(now, batchSize, cancellationToken);
 	/// <inheritdoc />
-	public ValueTask<JobMonitoringSnapshot> GetMonitoringSnapshotAsync(CancellationToken cancellationToken = default) => _inner.GetMonitoringSnapshotAsync(cancellationToken);
+	public virtual async ValueTask<JobMonitoringSnapshot> GetMonitoringSnapshotAsync(CancellationToken cancellationToken = default) => await _inner.GetMonitoringSnapshotAsync(cancellationToken);
 	/// <inheritdoc />
-	public ValueTask<IReadOnlyList<JobRecord>> QueryJobsAsync(JobQuery query, CancellationToken cancellationToken = default) => _inner.QueryJobsAsync(query, cancellationToken);
+	public virtual async ValueTask<IReadOnlyList<JobRecord>> QueryJobsAsync(JobQuery query, CancellationToken cancellationToken = default) => await _inner.QueryJobsAsync(query, cancellationToken);
 	/// <inheritdoc />
-	public ValueTask<IReadOnlyList<JobExecutionRecord>> QueryJobExecutionsAsync(JobHandle jobHandle, JobExecutionQuery query, CancellationToken cancellationToken = default) => _inner.QueryJobExecutionsAsync(jobHandle, query, cancellationToken);
+	public virtual async ValueTask<IReadOnlyList<JobExecutionRecord>> QueryJobExecutionsAsync(JobHandle jobHandle, JobExecutionQuery query, CancellationToken cancellationToken = default) => await _inner.QueryJobExecutionsAsync(jobHandle, query, cancellationToken);
 	/// <inheritdoc />
-	public ValueTask<BatchStatus?> GetBatchStatusAsync(BatchHandle batchHandle, CancellationToken cancellationToken = default) => _inner.GetBatchStatusAsync(batchHandle, cancellationToken);
+	public virtual async ValueTask<BatchStatus?> GetBatchStatusAsync(BatchHandle batchHandle, CancellationToken cancellationToken = default) => await _inner.GetBatchStatusAsync(batchHandle, cancellationToken);
 	/// <inheritdoc />
-	public ValueTask<IReadOnlyList<BatchStatus>> QueryBatchesAsync(BatchQuery query, CancellationToken cancellationToken = default) => _inner.QueryBatchesAsync(query, cancellationToken);
+	public virtual async ValueTask<IReadOnlyList<BatchStatus>> QueryBatchesAsync(BatchQuery query, CancellationToken cancellationToken = default) => await _inner.QueryBatchesAsync(query, cancellationToken);
 	/// <inheritdoc />
-	public ValueTask<IReadOnlyList<BatchMemberStatus>> QueryBatchMembersAsync(BatchHandle batchHandle, BatchMemberQuery query, CancellationToken cancellationToken = default) => _inner.QueryBatchMembersAsync(batchHandle, query, cancellationToken);
+	public virtual async ValueTask<IReadOnlyList<BatchMemberStatus>> QueryBatchMembersAsync(BatchHandle batchHandle, BatchMemberQuery query, CancellationToken cancellationToken = default) => await _inner.QueryBatchMembersAsync(batchHandle, query, cancellationToken);
 	/// <inheritdoc />
-	public ValueTask<BatchGraph?> GetBatchGraphAsync(BatchHandle batchHandle, CancellationToken cancellationToken = default) => _inner.GetBatchGraphAsync(batchHandle, cancellationToken);
+	public virtual async ValueTask<BatchGraph?> GetBatchGraphAsync(BatchHandle batchHandle, CancellationToken cancellationToken = default) => await _inner.GetBatchGraphAsync(batchHandle, cancellationToken);
 	/// <inheritdoc />
-	public ValueTask<JobStatus?> GetJobStatusAsync(JobHandle jobHandle, CancellationToken cancellationToken = default) => _inner.GetJobStatusAsync(jobHandle, cancellationToken);
+	public virtual async ValueTask<JobStatus?> GetJobStatusAsync(JobHandle jobHandle, CancellationToken cancellationToken = default) => await _inner.GetJobStatusAsync(jobHandle, cancellationToken);
 	/// <inheritdoc />
-	public ValueTask CancelBatchAsync(BatchHandle batchHandle, CancellationToken cancellationToken = default) => _inner.CancelBatchAsync(batchHandle, cancellationToken);
+	public virtual async ValueTask CancelBatchAsync(BatchHandle batchHandle, CancellationToken cancellationToken = default) => await _inner.CancelBatchAsync(batchHandle, cancellationToken);
 	/// <inheritdoc />
-	public ValueTask DeleteBatchAsync(BatchHandle batchHandle, CancellationToken cancellationToken = default) => _inner.DeleteBatchAsync(batchHandle, cancellationToken);
+	public virtual async ValueTask DeleteBatchAsync(BatchHandle batchHandle, CancellationToken cancellationToken = default) => await _inner.DeleteBatchAsync(batchHandle, cancellationToken);
 	/// <inheritdoc />
-	public ValueTask CancelAsync(JobHandle jobHandle, CancellationToken cancellationToken = default) => _inner.CancelAsync(jobHandle, cancellationToken);
+	public virtual async ValueTask CancelAsync(JobHandle jobHandle, CancellationToken cancellationToken = default) => await _inner.CancelAsync(jobHandle, cancellationToken);
 	/// <inheritdoc />
-	public ValueTask RetryAsync(JobHandle jobHandle, CancellationToken cancellationToken = default) => _inner.RetryAsync(jobHandle, cancellationToken);
+	public virtual async ValueTask RetryAsync(JobHandle jobHandle, CancellationToken cancellationToken = default) => await _inner.RetryAsync(jobHandle, cancellationToken);
 	/// <inheritdoc />
-	public ValueTask DeleteAsync(JobHandle jobHandle, CancellationToken cancellationToken = default) => _inner.DeleteAsync(jobHandle, cancellationToken);
+	public virtual async ValueTask DeleteAsync(JobHandle jobHandle, CancellationToken cancellationToken = default) => await _inner.DeleteAsync(jobHandle, cancellationToken);
 	/// <inheritdoc />
-	public ValueTask PurgeJobsAsync(TimeSpan succeededRetention, TimeSpan failedRetention, CancellationToken cancellationToken = default) => _inner.PurgeJobsAsync(succeededRetention, failedRetention, cancellationToken);
+	public virtual async ValueTask PurgeJobsAsync(TimeSpan succeededRetention, TimeSpan failedRetention, CancellationToken cancellationToken = default) => await _inner.PurgeJobsAsync(succeededRetention, failedRetention, cancellationToken);
 	/// <inheritdoc />
-	public ValueTask PurgeBatchesAsync(TimeSpan batchSucceededRetention, TimeSpan batchFailedRetention, CancellationToken cancellationToken = default) => _inner.PurgeBatchesAsync(batchSucceededRetention, batchFailedRetention, cancellationToken);
+	public virtual async ValueTask PurgeBatchesAsync(TimeSpan batchSucceededRetention, TimeSpan batchFailedRetention, CancellationToken cancellationToken = default) => await _inner.PurgeBatchesAsync(batchSucceededRetention, batchFailedRetention, cancellationToken);
 	/// <inheritdoc />
-	public ValueTask HeartbeatAsync(JobServerSnapshot server, CancellationToken cancellationToken = default) => _inner.HeartbeatAsync(server, cancellationToken);
+	public virtual async ValueTask HeartbeatAsync(JobServerSnapshot server, CancellationToken cancellationToken = default) => await _inner.HeartbeatAsync(server, cancellationToken);
 	/// <inheritdoc />
-	public ValueTask<bool> IsHealthyAsync(CancellationToken cancellationToken = default) => _inner.IsHealthyAsync(cancellationToken);
+	public virtual async ValueTask<bool> IsHealthyAsync(CancellationToken cancellationToken = default) => await _inner.IsHealthyAsync(cancellationToken);
 
 	private void Capture(JobRecord job)
 	{
