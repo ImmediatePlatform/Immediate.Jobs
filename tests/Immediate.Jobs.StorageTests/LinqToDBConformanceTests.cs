@@ -1,4 +1,3 @@
-using System.Diagnostics.CodeAnalysis;
 using DotNet.Testcontainers.Containers;
 using Immediate.Jobs.LinqToDB;
 using Immediate.Jobs.Shared.Storage;
@@ -234,7 +233,6 @@ file sealed class RelationalConformanceFixture(
 	}
 }
 
-[SuppressMessage("Performance", "CA1812", Justification = "Used via attribute")]
 file sealed class ConformanceDbContext(
 	DataOptions dataOptions
 ) : DataConnection(dataOptions);

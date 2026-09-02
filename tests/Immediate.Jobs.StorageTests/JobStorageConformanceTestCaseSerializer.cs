@@ -8,7 +8,6 @@ using Xunit.Sdk;
 
 namespace Immediate.Jobs.StorageTests;
 
-[SuppressMessage("Performance", "CA1812", Justification = "Used via attribute")]
 internal sealed class JobStorageConformanceTestCaseSerializer : IXunitSerializer
 {
 	public object Deserialize(Type type, string serializedValue) =>
