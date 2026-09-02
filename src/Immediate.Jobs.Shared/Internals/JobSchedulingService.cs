@@ -385,7 +385,7 @@ public sealed partial class JobSchedulingService : BackgroundService
 			// intentionally not waiting on the returned Task; will report it's own exceptions
 			state => _ = RenewLeaseAsync((JobRecord)state!),
 			record,
-			Timeout.InfiniteTimeSpan,
+			TimeSpan.FromTicks(Math.Max(100_000, _options.LeaseDuration.Ticks / 3)),
 			TimeSpan.FromTicks(Math.Max(100_000, _options.LeaseDuration.Ticks / 3))
 		);
 
@@ -584,23 +584,12 @@ public sealed partial class JobSchedulingService : BackgroundService
 
 	private int GetJobAcquisitionCapacity(JobDefinition definition, int availableCapacity)
 	{
+		// we trust MaterializeRecurringAsync to ensure queue and skip to have only one outstanding
 		return Math.Max(
-			definition switch
+			definition.MaxConcurrency switch
 			{
-				{ OverlapPolicy: OverlapPolicy.Concurrent, MaxConcurrency: 0 } =>
-					availableCapacity,
-
-				{ OverlapPolicy: OverlapPolicy.Concurrent } =>
-					Math.Min(definition.MaxConcurrency - _jobReservations.GetValueOrDefault(definition.Name), availableCapacity),
-
-				{ OverlapPolicy: OverlapPolicy.Queue } =>
-					1,
-
-				{ OverlapPolicy: OverlapPolicy.Skip } =>
-					1 - _jobReservations.GetValueOrDefault(definition.Name),
-
-				// TODO: remove when `closed enums` feature is introduced in C# 16
-				_ => 0,
+				0 => availableCapacity,
+				_ => Math.Min(definition.MaxConcurrency - _jobReservations.GetValueOrDefault(definition.Name), availableCapacity),
 			},
 			0
 		);
@@ -687,8 +676,12 @@ public sealed partial class JobSchedulingService : BackgroundService
 						Cron = d.Cron!,
 						TimeZone = d.TimeZone,
 						IsCodeDefined = true,
-						NextRunAt = JobCron.Parse(d.Cron!).GetNextOccurrence(now, JobCron.GetTimeZone(d.TimeZone))
-							?? throw new ImmediateJobException($"Cron for '{d.Name}' has no future occurrence."),
+						NextRunAt = GetNextOccurence(
+							now,
+							d.Cron!,
+							d.TimeZone,
+							d.Name
+						),
 					})
 					.ToList(),
 				cancellationToken
@@ -738,6 +731,17 @@ public sealed partial class JobSchedulingService : BackgroundService
 		}
 	}
 
+	private static DateTimeOffset GetNextOccurence(DateTimeOffset from, string cron, string timeZone, string jobName)
+	{
+		var expression = JobCron.Parse(cron);
+		var tzi = JobCron.GetTimeZone(timeZone);
+		return expression.GetNextOccurrence(from, tzi, inclusive: false) switch
+		{
+			{ } next => next,
+			_ => throw new ImmediateJobException($"Recurring schedule '{jobName}' has no future occurrence."),
+		};
+	}
+
 	private async Task MaterializeRecurringScheduleAsync(
 		IRecurringJobStorage recurringStorage,
 		RecurringJobSchedule schedule,
@@ -746,9 +750,13 @@ public sealed partial class JobSchedulingService : BackgroundService
 		CancellationToken cancellationToken
 	)
 	{
-		var expression = JobCron.Parse(schedule.Cron);
-		var next = expression.GetNextOccurrence(schedule.NextRunAt, JobCron.GetTimeZone(schedule.TimeZone))
-			?? throw new ImmediateJobException($"Recurring schedule '{schedule.Name}' has no future occurrence.");
+		var next = GetNextOccurence(
+			schedule.NextRunAt,
+			schedule.Cron,
+			schedule.TimeZone,
+			schedule.Name
+		);
+
 		var (traceParent, traceState) = Activity.Current;
 		var record = new JobRecord
 		{
@@ -764,24 +772,90 @@ public sealed partial class JobSchedulingService : BackgroundService
 			TraceState = traceState,
 		};
 
-		if (definition.OverlapPolicy == OverlapPolicy.Skip)
+		switch (definition.OverlapPolicy)
 		{
-			var active = await _storage.QueryJobsAsync(
-				new() { State = JobState.Active, JobName = definition.Name, Take = 1 },
-				cancellationToken
-			);
-			var pending = await _storage.QueryJobsAsync(
-				new() { State = JobState.Pending, JobName = definition.Name, Take = 1 },
-				cancellationToken
-			);
-			if (active.Count != 0 || pending.Count != 0)
-				record = record with { State = JobState.Skipped, CompletedAt = now };
-		}
+			case OverlapPolicy.Skip:
+			{
+				var active = await _storage.QueryJobsAsync(
+					new() { State = JobState.Active, JobName = definition.Name, Take = 1 },
+					cancellationToken
+				);
 
-		if (await recurringStorage.MaterializeRecurringAsync(schedule, record, next, cancellationToken)
-			&& record.State == JobState.Pending)
-		{
-			JobTelemetry.Enqueued(record.JobName, record.QueueName);
+				var pending = await _storage.QueryJobsAsync(
+					new() { State = JobState.Pending, JobName = definition.Name, Take = 1 },
+					cancellationToken
+				);
+
+				if (active.Count != 0 || pending.Count != 0)
+					record = record with { State = JobState.Skipped, CompletedAt = now };
+
+				if (await recurringStorage.MaterializeRecurringAsync(schedule, record, next, dependencies: null, cancellationToken)
+					&& record.State == JobState.Pending)
+				{
+					JobTelemetry.Enqueued(record.JobName, record.QueueName);
+				}
+
+				return;
+			}
+
+			case OverlapPolicy.Queue:
+			{
+				if (recurringStorage is not IJobGraphStorage)
+					throw new ImmediateJobException("Unable to queue recurring job without graph support.");
+
+				var active = await _storage.QueryJobsAsync(
+					new() { State = JobState.Active, JobName = definition.Name, Take = 1000 },
+					cancellationToken
+				);
+
+				var pending = await _storage.QueryJobsAsync(
+					new() { State = JobState.Pending, JobName = definition.Name, Take = 1000 },
+					cancellationToken
+				);
+
+				if (active.Count != 0 || pending.Count != 0)
+				{
+					record = record with
+					{
+						State = JobState.AwaitingContinuation,
+						CompletedAt = now,
+						RemainingDependencies = active.Count + pending.Count,
+					};
+				}
+
+				var dependencies = active.Concat(pending)
+					.Select(d => new JobContinuationEdge
+					{
+						ChildJobHandle = record.JobHandle,
+						ParentJobHandle = d.JobHandle,
+						Delay = TimeSpan.Zero,
+					})
+					.ToList();
+
+				if (await recurringStorage.MaterializeRecurringAsync(
+						schedule,
+						record,
+						next,
+						dependencies,
+						cancellationToken
+					)
+					&& record.State == JobState.Pending)
+				{
+					JobTelemetry.Enqueued(record.JobName, record.QueueName);
+				}
+
+				break;
+			}
+
+			case OverlapPolicy.Concurrent:
+			default:
+			{
+
+				if (await recurringStorage.MaterializeRecurringAsync(schedule, record, next, dependencies: null, cancellationToken))
+					JobTelemetry.Enqueued(record.JobName, record.QueueName);
+
+				return;
+			}
 		}
 	}
 

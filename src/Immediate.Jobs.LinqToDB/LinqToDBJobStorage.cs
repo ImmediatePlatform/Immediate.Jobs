@@ -1,4 +1,5 @@
 using System.Data.Common;
+using System.Diagnostics.CodeAnalysis;
 using Immediate.Jobs.Shared.Apis;
 using Immediate.Jobs.Shared.Storage;
 using LinqToDB;
@@ -19,7 +20,10 @@ internal sealed partial class LinqToDBJobStorage<T>(
 ) : IRecurringJobStorage, IJobGraphStorage, IFairQueueStorage, IJobStorageReplica, IJobGraphStorageReplica
 	where T : DataConnection
 {
+	[SuppressMessage("Performance", "CA1823:Avoid unused private fields", Justification = "Used by generated logger methods")]
+	[SuppressMessage("Style", "IDE0052:Remove unread private members", Justification = "Used by generated logger methods")]
 	private readonly ILogger _logger = logger ?? NullLogger<LinqToDBJobStorage<T>>.Instance;
+
 	private const int MaxContendedCompletionAttempts = 50;
 	private const int MaxConcurrencyAttempts = 5;
 	private const int MaxConsecutiveFailedFairClaims = 5;
@@ -1194,6 +1198,7 @@ internal sealed partial class LinqToDBJobStorage<T>(
 		RecurringJobSchedule schedule,
 		JobRecord job,
 		DateTimeOffset nextRunAt,
+		IReadOnlyList<JobContinuationEdge>? dependencies = null,
 		CancellationToken cancellationToken = default
 	)
 	{
@@ -1203,13 +1208,12 @@ internal sealed partial class LinqToDBJobStorage<T>(
 
 		await using var scope = contextScope.GetScope(out var connection);
 
-		_ = await connection.BeginTransactionAsync(cancellationToken);
+		await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
 		try
 		{
 			var entity = await Recurring(connection).SingleOrDefaultAsync(item => item.Name == schedule.Name, cancellationToken);
 			if (entity is null || entity.IsPaused || entity.NextRunAt != schedule.NextRunAt)
 			{
-				await connection.RollbackTransactionAsync(cancellationToken);
 				return false;
 			}
 
@@ -1217,9 +1221,18 @@ internal sealed partial class LinqToDBJobStorage<T>(
 			entity.LastRunAt = schedule.NextRunAt;
 			entity.NextRunAt = nextRunAt;
 			entity.ConcurrencyStamp = Guid.NewGuid();
+
 			if (!await UpdateRecurringAsync(connection, entity, oldStamp, cancellationToken))
 				throw new LostRaceException();
-			_ = await InsertAsync(connection, ToEntity(job), cancellationToken);
+
+			await InsertAsync(connection, ToEntity(job), cancellationToken);
+
+			if (dependencies is { })
+			{
+				foreach (var d in dependencies)
+					await InsertAsync(connection, ToEntity(d), cancellationToken);
+			}
+
 			await connection.CommitTransactionAsync(cancellationToken);
 			return true;
 		}

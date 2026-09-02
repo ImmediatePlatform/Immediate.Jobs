@@ -21,7 +21,10 @@ internal sealed partial class RedisJobStorage(
 	ILogger<RedisJobStorage>? logger = null
 ) : IRecurringJobStorage
 {
+	[SuppressMessage("Performance", "CA1823:Avoid unused private fields", Justification = "Used by generated logger methods")]
+	[SuppressMessage("Style", "IDE0052:Remove unread private members", Justification = "Used by generated logger methods")]
 	private readonly ILogger _logger = logger ?? NullLogger<RedisJobStorage>.Instance;
+
 	private const int QueryWindowSize = 256;
 	private const int MaximumQueryTake = 1000;
 
@@ -753,10 +756,18 @@ internal sealed partial class RedisJobStorage(
 		RecurringJobSchedule schedule,
 		JobRecord job,
 		DateTimeOffset nextRunAt,
+		IReadOnlyList<JobContinuationEdge>? dependencies = null,
 		CancellationToken cancellationToken = default
 	)
 	{
 		MaterializeRecurringAsyncCalled(job.JobHandle, schedule.Name);
+
+		if (dependencies != null)
+		{
+			MaterializeRecurringAsyncCalledWithDependencies(job.JobHandle, schedule.Name);
+			throw new ImmediateJobException("Unable to process recurring jobs with dependencies.");
+		}
+
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 
@@ -1351,6 +1362,14 @@ internal sealed partial class RedisJobStorage(
 		Message = "MaterializeRecurringAsync called (JobHandle={JobHandle}, Schedule={Schedule})"
 	)]
 	private partial void MaterializeRecurringAsyncCalled(JobHandle jobHandle, string schedule);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.MaterializeRecurringAsyncCalledWithDependencies,
+		EventName = "Immediate.Jobs.Redis.MaterializeRecurringAsyncCalledWithDependencies",
+		Level = LogLevel.Warning,
+		Message = "MaterializeRecurringAsync invalidly called with dependencies (JobHandle={JobHandle}, Schedule={Schedule})"
+	)]
+	private partial void MaterializeRecurringAsyncCalledWithDependencies(JobHandle jobHandle, string schedule);
 
 	[LoggerMessage(
 		EventId = LibraryEventIds.DisposeAsyncCalled,

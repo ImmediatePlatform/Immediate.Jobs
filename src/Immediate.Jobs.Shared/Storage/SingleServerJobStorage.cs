@@ -1,5 +1,7 @@
+using System.Diagnostics.CodeAnalysis;
 using Immediate.Jobs.Shared.Apis;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Immediate.Jobs.Shared.Storage;
 
@@ -22,7 +24,7 @@ namespace Immediate.Jobs.Shared.Storage;
 internal sealed partial class SingleServerJobStorage(
 	IJobStorage durableStorage,
 	TimeProvider timeProvider,
-	ILogger<SingleServerJobStorage> logger
+	ILogger<SingleServerJobStorage>? logger
 ) :
 	IRecurringJobStorage,
 	IJobGraphStorage,
@@ -31,7 +33,9 @@ internal sealed partial class SingleServerJobStorage(
 {
 	private const int RecoveryBatchSize = 1000;
 
-	private readonly ILogger _logger = logger;
+	[SuppressMessage("Performance", "CA1823:Avoid unused private fields", Justification = "Used by generated logger methods")]
+	[SuppressMessage("Style", "IDE0052:Remove unread private members", Justification = "Used by generated logger methods")]
+	private readonly ILogger _logger = logger ?? NullLogger<SingleServerJobStorage>.Instance;
 
 	private readonly TaskCompletionSource _initializationTask = new();
 	private bool _initialized;
@@ -351,6 +355,7 @@ internal sealed partial class SingleServerJobStorage(
 		RecurringJobSchedule schedule,
 		JobRecord job,
 		DateTimeOffset nextRunAt,
+		IReadOnlyList<JobContinuationEdge>? dependencies = null,
 		CancellationToken cancellationToken = default
 	)
 	{
@@ -363,10 +368,10 @@ internal sealed partial class SingleServerJobStorage(
 		try
 		{
 			var durableResult = await RecurringJobStorage
-				.MaterializeRecurringAsync(schedule, job, nextRunAt, cancellationToken);
+				.MaterializeRecurringAsync(schedule, job, nextRunAt, dependencies, cancellationToken);
 
 			var primaryResult = await PrimaryStorage
-				.MaterializeRecurringAsync(schedule, job, nextRunAt, cancellationToken);
+				.MaterializeRecurringAsync(schedule, job, nextRunAt, dependencies, cancellationToken);
 
 			if (primaryResult != durableResult)
 			{

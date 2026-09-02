@@ -196,7 +196,7 @@ public class CapturingJobStorage(TimeProvider timeProvider) :
 	}
 
 	/// <inheritdoc />
-	public virtual async ValueTask<bool> MaterializeRecurringAsync(RecurringJobSchedule schedule, JobRecord job, DateTimeOffset nextRunAt, CancellationToken cancellationToken = default)
+	public virtual async ValueTask<bool> MaterializeRecurringAsync(RecurringJobSchedule schedule, JobRecord job, DateTimeOffset nextRunAt, IReadOnlyList<JobContinuationEdge>? dependencies = null, CancellationToken cancellationToken = default)
 	{
 		lock (_gate)
 		{
@@ -204,7 +204,7 @@ public class CapturingJobStorage(TimeProvider timeProvider) :
 			_recurringMaterializations.Add(new(schedule, job, nextRunAt));
 		}
 
-		return await _inner.MaterializeRecurringAsync(schedule, job, nextRunAt, cancellationToken);
+		return await _inner.MaterializeRecurringAsync(schedule, job, nextRunAt, dependencies, cancellationToken);
 	}
 
 	/// <inheritdoc />

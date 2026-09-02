@@ -1,3 +1,5 @@
+using Immediate.Jobs.Shared.Storage;
+
 namespace Immediate.Jobs.Shared;
 
 /// <summary>
@@ -88,10 +90,15 @@ public enum OverlapPolicy
 	/// 	Do not create a recurring job invocation while an earlier invocation of the same schedule is being processed.
 	/// </summary>
 	Skip,
+
 	/// <summary>
 	/// 	Create the scheduled occurrence and run it after the earlier invocation.
 	/// </summary>
+	/// <remarks>
+	///		Requires that the underlying storage is both <see cref="IRecurringJobStorage"/> and <see cref="IJobGraphStorage"/>.
+	/// </remarks>
 	Queue,
+
 	/// <summary>
 	/// 	Allow overlapping invocations.
 	/// </summary>

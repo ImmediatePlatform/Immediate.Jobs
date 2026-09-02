@@ -117,15 +117,20 @@ public interface IRecurringJobStorage : IJobStorage
 	/// <param name="nextRunAt">
 	/// 	The next UTC occurrence for the schedule.
 	/// </param>
+	/// <param name="dependencies">
+	///		A list of continuation edges for use with <see cref="OverlapPolicy.Queue"/>.
+	/// </param>
 	/// <param name="cancellationToken">
 	/// 	A token that can cancel the storage operation.
 	/// </param>
-	/// <returns><see langword="true"/> when the occurrence was materialized; otherwise, <see langword="false"/>.
+	/// <returns>
+	///		<see langword="true"/> when the occurrence was materialized; otherwise, <see langword="false"/>.
 	/// </returns>
 	ValueTask<bool> MaterializeRecurringAsync(
 		RecurringJobSchedule schedule,
 		JobRecord job,
 		DateTimeOffset nextRunAt,
+		IReadOnlyList<JobContinuationEdge>? dependencies = null,
 		CancellationToken cancellationToken = default
 	);
 }

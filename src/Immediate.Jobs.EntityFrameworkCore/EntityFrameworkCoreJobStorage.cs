@@ -1,4 +1,5 @@
 using System.Data.Common;
+using System.Diagnostics.CodeAnalysis;
 using Immediate.Jobs.Shared.Apis;
 using Immediate.Jobs.Shared.Storage;
 using Microsoft.EntityFrameworkCore;
@@ -19,7 +20,10 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>(
 ) : IRecurringJobStorage, IJobGraphStorage, IFairQueueStorage, IJobStorageReplica, IJobGraphStorageReplica
 	where TContext : DbContext
 {
+	[SuppressMessage("Performance", "CA1823:Avoid unused private fields", Justification = "Used by generated logger methods")]
+	[SuppressMessage("Style", "IDE0052:Remove unread private members", Justification = "Used by generated logger methods")]
 	private readonly ILogger _logger = logger ?? NullLogger<EntityFrameworkCoreJobStorage<TContext>>.Instance;
+
 	private const int MaxConcurrencyAttempts = 5;
 	private const int MaxConsecutiveFailedFairClaims = 5;
 	private readonly TimeProvider _timeProvider = timeProvider ?? TimeProvider.System;
@@ -1084,6 +1088,7 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>(
 		RecurringJobSchedule schedule,
 		JobRecord job,
 		DateTimeOffset nextRunAt,
+		IReadOnlyList<JobContinuationEdge>? dependencies = null,
 		CancellationToken cancellationToken = default
 	)
 	{
@@ -1098,6 +1103,7 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>(
 				schedule,
 				job,
 				nextRunAt,
+				dependencies,
 				operationCancellationToken
 			),
 			cancellationToken
@@ -1108,6 +1114,7 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>(
 		RecurringJobSchedule schedule,
 		JobRecord job,
 		DateTimeOffset nextRunAt,
+		IReadOnlyList<JobContinuationEdge>? dependencies,
 		CancellationToken cancellationToken
 	)
 	{
@@ -1115,16 +1122,23 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>(
 		await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
 		var entity = await context.Set<ImmediateRecurringJobEntity>()
 			.SingleOrDefaultAsync(item => item.Name == schedule.Name, cancellationToken);
+
 		if (entity is null || entity.IsPaused || entity.NextRunAt != schedule.NextRunAt)
 			return false;
 
 		entity.LastRunAt = schedule.NextRunAt;
 		entity.NextRunAt = nextRunAt;
 		entity.ConcurrencyStamp = Guid.NewGuid();
-		_ = context.Add(ToEntity(job));
+		context.Add(ToEntity(job));
+
+		if (dependencies is { })
+		{
+			context.AddRange(dependencies.Select(ToEntity));
+		}
+
 		try
 		{
-			_ = await context.SaveChangesAsync(cancellationToken);
+			await context.SaveChangesAsync(cancellationToken);
 			await transaction.CommitAsync(cancellationToken);
 			return true;
 		}

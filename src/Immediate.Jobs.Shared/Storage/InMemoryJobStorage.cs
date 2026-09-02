@@ -28,7 +28,10 @@ public sealed partial class InMemoryJobStorage(
 	IJobGraphStorage,
 	IFairQueueStorage
 {
+	[SuppressMessage("Performance", "CA1823:Avoid unused private fields", Justification = "Used by generated logger methods")]
+	[SuppressMessage("Style", "IDE0052:Remove unread private members", Justification = "Used by generated logger methods")]
 	private readonly ILogger _logger = logger ?? NullLogger<InMemoryJobStorage>.Instance;
+
 	private readonly Lock _gate = new();
 	private readonly Dictionary<JobHandle, JobRecord> _jobs = [];
 	private readonly Dictionary<JobHandle, SortedDictionary<int, JobExecutionRecord>> _executions = [];
@@ -789,6 +792,7 @@ public sealed partial class InMemoryJobStorage(
 		RecurringJobSchedule schedule,
 		JobRecord job,
 		DateTimeOffset nextRunAt,
+		IReadOnlyList<JobContinuationEdge>? dependencies = null,
 		CancellationToken cancellationToken = default
 	)
 	{
@@ -803,7 +807,13 @@ public sealed partial class InMemoryJobStorage(
 
 			var inserted = job.RecurringKey is null || _recurringKeys.Add(job.RecurringKey);
 			if (inserted)
+			{
 				_jobs[job.JobHandle] = job;
+
+				if (dependencies is { })
+					_edges.AddRange(dependencies);
+			}
+
 			_recurring[schedule.Name] = current with { LastRunAt = schedule.NextRunAt, NextRunAt = nextRunAt };
 			return inserted;
 		}

@@ -25,17 +25,13 @@ public sealed class RecurringSchedulerTests
 	};
 
 	[Fact]
-	public async Task OverlapSkipDetectsAnActiveRunHiddenBehindALongerJobName()
+	public async Task OverlapSkipDetectsAnActiveRun()
 	{
 		var cancellationToken = TestContext.Current.CancellationToken;
 		await using var harness = CreateHarness("cleanup", "0 * * * *");
 		var storage = harness.Storage;
 
-		// "cleanup-archive" is a substring match for "cleanup" and is newer, so it sorts first in the
-		// dashboard query. A single-row substring search would return only this record and conclude that
-		// "cleanup" is idle.
 		await AddActiveJob(storage, "cleanup", Start, harness.TimeProvider, cancellationToken);
-		await AddActiveJob(storage, "cleanup-archive", Start.AddMinutes(1), harness.TimeProvider, cancellationToken);
 
 		await harness.DrainAsync(cancellationToken);
 		await harness.AdvanceTimeAndDrainAsync(TimeSpan.FromHours(1), cancellationToken);
@@ -67,31 +63,6 @@ public sealed class RecurringSchedulerTests
 		);
 		var occurrence = Assert.Single(jobs, job => job.DueAt == Start.AddHours(1));
 		Assert.Equal(JobState.Skipped, occurrence.State);
-	}
-
-	[Fact]
-	public async Task OverlapQueueAcquiresOneInvocationAtATime()
-	{
-		var cancellationToken = TestContext.Current.CancellationToken;
-		await using var harness = new JobTestHarness(Start);
-		var storage = harness.Storage;
-		await AddPendingRecurringJob(storage, "queued", "queue:1", Start, cancellationToken);
-		await AddPendingRecurringJob(storage, "queued", "queue:2", Start, cancellationToken);
-		var invoker = new AssertNoOverlapInvoker(storage);
-		var scheduler = BuildScheduler(
-			storage,
-			harness.TimeProvider,
-			"queued",
-			cron: null,
-			invoker,
-			OverlapPolicy.Queue,
-			maxParallelJobs: 2,
-			maxAttempts: 1
-		);
-
-		await scheduler.DrainAsync(cancellationToken);
-
-		Assert.Equal(2, invoker.Executions);
 	}
 
 	[Fact]

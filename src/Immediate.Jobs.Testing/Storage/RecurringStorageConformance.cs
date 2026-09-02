@@ -228,7 +228,7 @@ internal static class RecurringStorageConformance
 		var occurrence = Occurrence("materialize-atomic-job", schedule, JobState.Pending, now);
 		await recurring.UpsertRecurringAsync(schedule, cancellationToken);
 
-		var inserted = await recurring.MaterializeRecurringAsync(schedule, occurrence, nextRunAt, cancellationToken);
+		var inserted = await recurring.MaterializeRecurringAsync(schedule, occurrence, nextRunAt, dependencies: null, cancellationToken);
 		ConformanceAssert.True(inserted, MaterializeName, "the current due occurrence must be materialized");
 		var persistedJob = await GetJobAsync(storage, occurrence.JobHandle, MaterializeName, cancellationToken);
 		ConformanceAssert.Equal(
@@ -258,8 +258,8 @@ internal static class RecurringStorageConformance
 		var second = Occurrence("materialize-concurrent-b", schedule, JobState.Pending, now);
 
 		var results = await Task.WhenAll(
-			recurring.MaterializeRecurringAsync(schedule, first, nextRunAt, cancellationToken).AsTask(),
-			recurring.MaterializeRecurringAsync(schedule, second, nextRunAt, cancellationToken).AsTask()
+			recurring.MaterializeRecurringAsync(schedule, first, nextRunAt, dependencies: null, cancellationToken).AsTask(),
+			recurring.MaterializeRecurringAsync(schedule, second, nextRunAt, dependencies: null, cancellationToken).AsTask()
 		);
 		ConformanceAssert.Equal(
 			1,
@@ -286,7 +286,7 @@ internal static class RecurringStorageConformance
 		var original = Occurrence("materialize-dedupe-original", schedule, JobState.Pending, now);
 		await recurring.UpsertRecurringAsync(schedule, cancellationToken);
 		ConformanceAssert.True(
-			await recurring.MaterializeRecurringAsync(schedule, original, nextRunAt, cancellationToken),
+			await recurring.MaterializeRecurringAsync(schedule, original, nextRunAt, dependencies: null, cancellationToken),
 			DedupeAdvanceName,
 			"the first occurrence must be materialized"
 		);
@@ -294,7 +294,7 @@ internal static class RecurringStorageConformance
 
 		var duplicate = original with { JobHandle = JobHandle.FromString("materialize-dedupe-duplicate") };
 		ConformanceAssert.False(
-			await recurring.MaterializeRecurringAsync(schedule, duplicate, nextRunAt, cancellationToken),
+			await recurring.MaterializeRecurringAsync(schedule, duplicate, nextRunAt, dependencies: null, cancellationToken),
 			DedupeAdvanceName,
 			"a retained occurrence key must reject a duplicate job"
 		);
@@ -324,7 +324,7 @@ internal static class RecurringStorageConformance
 				schedule,
 				Occurrence("materialize-stale-current", schedule, JobState.Pending, now),
 				nextRunAt,
-				cancellationToken
+				dependencies: null, cancellationToken
 			),
 			StaleName,
 			"the current occurrence must be materialized"
@@ -332,7 +332,7 @@ internal static class RecurringStorageConformance
 
 		var staleJob = Occurrence("materialize-stale-replay", schedule, JobState.Pending, now);
 		ConformanceAssert.False(
-			await recurring.MaterializeRecurringAsync(schedule, staleJob, now.AddDays(1), cancellationToken),
+			await recurring.MaterializeRecurringAsync(schedule, staleJob, now.AddDays(1), dependencies: null, cancellationToken),
 			StaleName,
 			"a stale due snapshot must not materialize another occurrence"
 		);
@@ -361,7 +361,7 @@ internal static class RecurringStorageConformance
 		};
 		await recurring.UpsertRecurringAsync(schedule, cancellationToken);
 		ConformanceAssert.True(
-			await recurring.MaterializeRecurringAsync(schedule, skipped, now.AddHours(1), cancellationToken),
+			await recurring.MaterializeRecurringAsync(schedule, skipped, now.AddHours(1), dependencies: null, cancellationToken),
 			SkippedName,
 			"a skipped occurrence must still be durably materialized"
 		);
@@ -383,7 +383,7 @@ internal static class RecurringStorageConformance
 		var original = Occurrence("materialize-purge-original", schedule, JobState.Pending, now);
 		await recurring.UpsertRecurringAsync(schedule, cancellationToken);
 		ConformanceAssert.True(
-			await recurring.MaterializeRecurringAsync(schedule, original, now.AddHours(1), cancellationToken),
+			await recurring.MaterializeRecurringAsync(schedule, original, now.AddHours(1), dependencies: null, cancellationToken),
 			PurgeName,
 			"the occurrence used by the retention scenario must be inserted"
 		);
@@ -408,7 +408,7 @@ internal static class RecurringStorageConformance
 		await recurring.UpsertRecurringAsync(schedule, cancellationToken);
 		var replacement = original with { JobHandle = JobHandle.FromString("materialize-purge-replacement") };
 		ConformanceAssert.True(
-			await recurring.MaterializeRecurringAsync(schedule, replacement, now.AddHours(1), cancellationToken),
+			await recurring.MaterializeRecurringAsync(schedule, replacement, now.AddHours(1), dependencies: null, cancellationToken),
 			PurgeName,
 			"purging an occurrence must release its provider-owned deduplication key"
 		);
