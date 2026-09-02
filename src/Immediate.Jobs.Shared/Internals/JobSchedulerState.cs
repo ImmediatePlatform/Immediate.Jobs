@@ -42,15 +42,12 @@ public sealed class JobSchedulerState
 	/// </value>
 	public int ActiveWorkers => checked((int)Interlocked.Read(ref _activeWorkers));
 
-	internal bool CodeSchedulesAsserted { get; private set; }
-
 	internal void MarkStarted(DateTimeOffset timestamp) =>
 		Interlocked.Exchange(ref _startedAtTicks, timestamp.UtcTicks);
 
 	internal void MarkHeartbeat(DateTimeOffset timestamp) =>
 		Interlocked.Exchange(ref _lastHeartbeatTicks, timestamp.UtcTicks);
 
-	internal void MarkCodeSchedulesAsserted() => CodeSchedulesAsserted = true;
 	internal void IncrementActive() => Interlocked.Increment(ref _activeWorkers);
 	internal void DecrementActive() => Interlocked.Decrement(ref _activeWorkers);
 }

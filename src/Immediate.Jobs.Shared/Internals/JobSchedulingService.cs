@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Globalization;
 using System.Threading.Channels;
@@ -15,6 +16,7 @@ namespace Immediate.Jobs.Shared.Internals;
 /// <summary>
 /// 	Coordinates recurring schedules, durable leases, and the bounded worker pool.
 /// </summary>
+[EditorBrowsable(EditorBrowsableState.Never)]
 public sealed partial class JobSchedulingService : BackgroundService
 {
 	private readonly IServiceScopeFactory _scopeFactory;
@@ -37,6 +39,7 @@ public sealed partial class JobSchedulingService : BackgroundService
 	private int _reservations;
 	private int _fairQueuesDisabledWarningLogged;
 	private long _nextPurgeTimestamp;
+	private bool _initialized;
 
 	/// <summary>
 	/// 	Creates the hosted scheduler from generated definitions.
@@ -132,7 +135,7 @@ public sealed partial class JobSchedulingService : BackgroundService
 			return;
 
 		await _storage.InitializeAsync(stoppingToken);
-		await EnsureCodeSchedulesAsync(stoppingToken);
+		await InitializeAsync(stoppingToken);
 		_state.MarkStarted(_timeProvider.GetUtcNow());
 
 		// Workers observe _workerCancellation rather than stoppingToken: shutdown completes the channel so
@@ -165,7 +168,8 @@ public sealed partial class JobSchedulingService : BackgroundService
 		}
 		finally
 		{
-			_ = _channel.Writer.TryComplete();
+			_channel.Writer.TryComplete();
+
 			try
 			{
 				// stoppingToken is already cancelled here; forwarding it would abort the drain immediately.
@@ -184,49 +188,33 @@ public sealed partial class JobSchedulingService : BackgroundService
 	}
 
 	/// <summary>
-	/// 	Executes one already-acquired record. Intended for deterministic test harnesses.
-	/// </summary>
-	/// <param name="record">
-	/// 	The acquired job record to execute.
-	/// </param>
-	/// <param name="cancellationToken">
-	/// 	A token that can cancel execution.
-	/// </param>
-	/// <returns>
-	/// 	A task that completes when the job attempt finishes.
-	/// </returns>
-	public async ValueTask ExecuteSingleAsync(JobRecord record, CancellationToken cancellationToken = default)
-	{
-		await TaskScheduler.Yield();
-		ArgumentNullException.ThrowIfNull(record);
-		await ExecuteJobAsync(record, cancellationToken);
-	}
-
-	/// <summary>
-	/// Materializes and executes all work currently due, returning when the due queue is empty.
-	/// Delayed work is left in storage. This method is intended for deterministic test harnesses.
-	/// 
+	///	    Materializes and executes all work currently due, returning when the due queue is empty. Delayed work is
+	///     left in storage. This method is intended for deterministic test harnesses.
 	/// </summary>
 	/// <param name="cancellationToken">
-	/// 	A token that can cancel draining.
+	///     A token that can cancel draining.
 	/// </param>
 	/// <returns>
-	/// 	A task that completes when no currently due work remains.
+	///     A task that completes when no currently due work remains.
 	/// </returns>
 	public async ValueTask DrainAsync(CancellationToken cancellationToken = default)
 	{
 		await TaskScheduler.Yield();
 		await _storage.InitializeAsync(cancellationToken);
-		await EnsureCodeSchedulesAsync(cancellationToken);
+		await InitializeAsync(cancellationToken);
+
 		while (true)
 		{
 			await MaterializeRecurringAsync(cancellationToken);
+
 			var request = BuildAcquisitionRequest();
 			if (request is null)
 				return;
+
 			var jobs = await _storage.AcquireDueJobsAsync(request, cancellationToken);
 			if (jobs.Count == 0)
 				return;
+
 			WarnIfGroupedJobsAreInert(jobs);
 
 			foreach (var job in jobs)
@@ -242,10 +230,13 @@ public sealed partial class JobSchedulingService : BackgroundService
 		// The heartbeat runs first so that a failure in any later stage cannot make a polling scheduler
 		// look dead to ImmediateJobsHealthCheck.
 		var now = _timeProvider.GetUtcNow();
-		await _storage.HeartbeatAsync(
-			new JobServerSnapshot { WorkerId = _workerId, LastHeartbeat = now, ActiveWorkers = _state.ActiveWorkers, MaxWorkers = _options.MaxParallelJobs },
-			cancellationToken
-		);
+
+		await _storage
+			.HeartbeatAsync(
+				new JobServerSnapshot { WorkerId = _workerId, LastHeartbeat = now, ActiveWorkers = _state.ActiveWorkers, MaxWorkers = _options.MaxParallelJobs },
+				cancellationToken
+			);
+
 		_state.MarkHeartbeat(now);
 
 		await MaterializeRecurringAsync(cancellationToken);
@@ -609,48 +600,44 @@ public sealed partial class JobSchedulingService : BackgroundService
 		}
 	}
 
-	private async Task AssertCodeSchedulesAsync(CancellationToken cancellationToken)
+	private async Task InitializeAsync(CancellationToken cancellationToken)
 	{
+		if (_initialized)
+			return;
+
 		if (_storage is not IRecurringJobStorage recurringStorage)
-			return;
-
-		var now = _timeProvider.GetUtcNow();
-		await recurringStorage.MergeRecurringSchedulesListAsync(
-			_definitions.Values
-				.Where(d => d.Cron is not null)
-				.Select(d => new RecurringJobSchedule
-				{
-					Name = d.Name,
-					JobName = d.Name,
-					QueueName = d.Queue.Name,
-					Cron = d.Cron!,
-					TimeZone = d.TimeZone,
-					IsCodeDefined = true,
-					NextRunAt = JobCron.Parse(d.Cron!).GetNextOccurrence(now, JobCron.GetTimeZone(d.TimeZone))
-						?? throw new ImmediateJobException($"Cron for '{d.Name}' has no future occurrence."),
-				})
-				.ToList(),
-			cancellationToken
-		);
-	}
-
-	private async Task EnsureCodeSchedulesAsync(CancellationToken cancellationToken)
-	{
-		if (_state.CodeSchedulesAsserted)
-			return;
-		if (_storage is not IRecurringJobStorage)
 		{
-			_state.MarkCodeSchedulesAsserted();
+			_initialized = true;
 			return;
 		}
 
 		await _scheduleInitialization.WaitAsync(cancellationToken);
 		try
 		{
-			if (_state.CodeSchedulesAsserted)
+			if (_initialized)
 				return;
-			await AssertCodeSchedulesAsync(cancellationToken);
-			_state.MarkCodeSchedulesAsserted();
+
+			var now = _timeProvider.GetUtcNow();
+
+			await recurringStorage.MergeRecurringSchedulesListAsync(
+				_definitions.Values
+					.Where(d => d.Cron is not null)
+					.Select(d => new RecurringJobSchedule
+					{
+						Name = d.Name,
+						JobName = d.Name,
+						QueueName = d.Queue.Name,
+						Cron = d.Cron!,
+						TimeZone = d.TimeZone,
+						IsCodeDefined = true,
+						NextRunAt = JobCron.Parse(d.Cron!).GetNextOccurrence(now, JobCron.GetTimeZone(d.TimeZone))
+							?? throw new ImmediateJobException($"Cron for '{d.Name}' has no future occurrence."),
+					})
+					.ToList(),
+				cancellationToken
+			);
+
+			_initialized = true;
 		}
 		finally
 		{
