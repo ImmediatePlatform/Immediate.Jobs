@@ -9,7 +9,7 @@ internal static class RecurringStorageConformance
 {
 	private const string CapabilityName = "Recurring.Capability.ResolvesAdvertisedStorage";
 	private const string LifecycleName = "Recurring.Lifecycle.UpdatesPausesResumesAndRemovesDynamicSchedule";
-	private const string DefinitionsName = "Recurring.Definitions.ProtectsCodeDefinedAndRemovesOnlyObsoleteSchedules";
+	private const string MergeDefinitionsName = "Recurring.Definitions.MergesCodeDefinedSchedulesAndPreservesDynamicSchedules";
 	private const string DueScanName = "Recurring.DueScanning.FiltersOrdersAndBatchesSchedules";
 	private const string MaterializeName = "Recurring.Materialization.CreatesOccurrenceAndAdvancesScheduleAtomically";
 	private const string ConcurrentName = "Recurring.Materialization.DeduplicatesConcurrentOccurrence";
@@ -25,7 +25,7 @@ internal static class RecurringStorageConformance
 	[
 		new(CapabilityName, StorageCapabilities.Recurring, ResolvesAdvertisedStorage),
 		new(LifecycleName, StorageCapabilities.Recurring, DynamicLifecycleAsync),
-		new(DefinitionsName, StorageCapabilities.Recurring, ProtectsDefinitionsAsync),
+		new(MergeDefinitionsName, StorageCapabilities.Recurring, MergesDefinitionsAsync, ExistingRecurringSchedules()),
 		new(DueScanName, StorageCapabilities.Recurring, FiltersDueSchedulesAsync),
 		new(MaterializeName, StorageCapabilities.Recurring, MaterializesAtomicallyAsync),
 		new(ConcurrentName, StorageCapabilities.Recurring, DeduplicatesConcurrentOccurrenceAsync),
@@ -93,46 +93,94 @@ internal static class RecurringStorageConformance
 		);
 	}
 
-	private static async ValueTask ProtectsDefinitionsAsync(
+	private static PersistedJobState ExistingRecurringSchedules()
+	{
+		var now = new DateTimeOffset(2026, 8, 8, 10, 0, 0, TimeSpan.Zero);
+		return new PersistedJobState
+		{
+			Jobs = [],
+			Batches = [],
+			Edges = [],
+			RecurringSchedules =
+			[
+				Schedule("merge-update", now.AddHours(1), isCodeDefined: true) with
+				{
+					IsPaused = true,
+					LastRunAt = now.AddHours(-1),
+				},
+				Schedule("preserve-next-run", now.AddHours(-1), isCodeDefined: true),
+				Schedule("merge-remove", now.AddHours(2), isCodeDefined: true),
+				Schedule("merge-dynamic-to-static", now.AddHours(3), isCodeDefined: false),
+				Schedule("merge-dynamic", now.AddHours(3), isCodeDefined: false),
+			],
+		};
+	}
+
+	private static async ValueTask MergesDefinitionsAsync(
 		IJobStorage storage,
 		FakeTimeProvider timeProvider,
 		CancellationToken cancellationToken
 	)
 	{
-		var recurring = Recurring(storage, DefinitionsName);
+		var recurring = Recurring(storage, MergeDefinitionsName);
 		var now = timeProvider.GetUtcNow();
-		var current = Schedule("code-current", now.AddHours(1), isCodeDefined: true) with { IsPaused = true };
-		var obsolete = Schedule("code-obsolete", now.AddHours(2), isCodeDefined: true);
-		var dynamic = Schedule("dynamic-preserved", now.AddHours(3), isCodeDefined: false);
-		await recurring.UpsertRecurringAsync(current, cancellationToken);
-		await recurring.UpsertRecurringAsync(obsolete, cancellationToken);
-		await recurring.UpsertRecurringAsync(dynamic, cancellationToken);
+		var persistedAt = new DateTimeOffset(2026, 8, 8, 10, 0, 0, TimeSpan.Zero);
+		var updatedDefinition = Schedule("merge-update", now.AddHours(4), isCodeDefined: true) with
+		{
+			JobName = "merge-updated-job",
+			QueueName = "merge-updated-queue",
+			Cron = "30 * * * *",
+			TimeZone = "Europe/Vienna",
+		};
+		var insertedDefinition = Schedule("merge-insert", now.AddHours(5), isCodeDefined: true);
+		var upgradeToStatic = Schedule("merge-dynamic-to-static", now.AddHours(3), isCodeDefined: true);
+		var preserve = Schedule("preserve-next-run", persistedAt.AddHours(12), isCodeDefined: true);
 
-		_ = await ConformanceAssert.ThrowsAsync<ImmediateJobException>(
-			() => recurring.UpsertRecurringAsync(current with { IsCodeDefined = false }, cancellationToken),
-			DefinitionsName,
-			"a dynamic schedule must not replace a code-defined schedule",
-			$"schedule={current.Name}"
-		);
+		await recurring.MergeRecurringSchedulesListAsync([updatedDefinition, insertedDefinition, upgradeToStatic, preserve], cancellationToken);
 
-		await recurring.UpsertRecurringAsync(current with { Cron = "30 * * * *", IsPaused = false }, cancellationToken);
-		var updated = await GetScheduleAsync(storage, current.Name, DefinitionsName, cancellationToken);
-		ConformanceAssert.Equal("30 * * * *", updated.Cron, DefinitionsName, "a code-defined schedule must remain updateable");
+		var schedules = (await storage.GetMonitoringSnapshotAsync(cancellationToken)).Recurring;
+		var updated = schedules.Single(schedule => string.Equals(schedule.Name, "merge-update", StringComparison.Ordinal));
+		ConformanceAssert.Equal(updatedDefinition.JobName, updated.JobName, MergeDefinitionsName, "merge must update the job name");
+		ConformanceAssert.Equal(updatedDefinition.QueueName, updated.QueueName, MergeDefinitionsName, "merge must update the queue name");
+		ConformanceAssert.Equal(updatedDefinition.Cron, updated.Cron, MergeDefinitionsName, "merge must update the cron expression");
+		ConformanceAssert.Equal(updatedDefinition.TimeZone, updated.TimeZone, MergeDefinitionsName, "merge must update the time zone");
+		ConformanceAssert.Equal(updatedDefinition.NextRunAt, updated.NextRunAt, MergeDefinitionsName, "merge must update the next run time");
 		ConformanceAssert.True(
 			updated.IsPaused,
-			DefinitionsName,
-			"an upsert must not silently resume an administratively paused schedule"
+			MergeDefinitionsName,
+			"merge must preserve an administratively paused state"
 		);
+		ConformanceAssert.Equal(persistedAt.AddHours(-1), updated.LastRunAt, MergeDefinitionsName, "merge must preserve the last run time");
 
-		await recurring.RemoveObsoleteCodeDefinedRecurringAsync([current.Name], cancellationToken);
-		var names = (await storage.GetMonitoringSnapshotAsync(cancellationToken)).Recurring
+		var names = schedules
 			.Select(static schedule => schedule.Name)
 			.Order(StringComparer.Ordinal);
 		ConformanceAssert.SequenceEqual(
-			new[] { current.Name, dynamic.Name }.Order(StringComparer.Ordinal),
+			new[] { updatedDefinition.Name, insertedDefinition.Name, "merge-dynamic", upgradeToStatic.Name, preserve.Name }.Order(StringComparer.Ordinal),
 			names,
-			DefinitionsName,
-			"obsolete removal must preserve active code-defined and all dynamic schedules"
+			MergeDefinitionsName,
+			"merge must insert new definitions, remove obsolete definitions, and preserve dynamic schedules"
+		);
+		var dynamic = schedules.Single(schedule => string.Equals(schedule.Name, "merge-dynamic", StringComparison.Ordinal));
+		AssertSchedule(
+			Schedule("merge-dynamic", persistedAt.AddHours(3), isCodeDefined: false),
+			dynamic,
+			MergeDefinitionsName,
+			"merge must leave existing dynamic schedules untouched"
+		);
+
+		AssertSchedule(
+			upgradeToStatic with { NextRunAt = persistedAt.AddHours(3) },
+			schedules.Single(schedule => string.Equals(schedule.Name, "merge-dynamic-to-static", StringComparison.Ordinal)),
+			MergeDefinitionsName,
+			"merge must upgrade to static safely"
+		);
+
+		ConformanceAssert.Equal(
+			persistedAt.AddHours(-1),
+			schedules.Single(schedule => string.Equals(schedule.Name, preserve.Name, StringComparison.Ordinal)).NextRunAt,
+			MergeDefinitionsName,
+			"merge must preserve the next run time when cron and tz are the same"
 		);
 	}
 

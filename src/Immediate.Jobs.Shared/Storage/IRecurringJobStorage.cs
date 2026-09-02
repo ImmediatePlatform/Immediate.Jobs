@@ -8,6 +8,27 @@ namespace Immediate.Jobs.Shared.Storage;
 public interface IRecurringJobStorage : IJobStorage
 {
 	/// <summary>
+	///     Resets the list of code-defined recurring job schedules to the provided list.
+	/// </summary>
+	/// <param name="schedules">
+	///     The complete list of code-defined recurring job schedules.
+	/// </param>
+	/// <param name="cancellationToken">
+	///     A token that can cancel the storage operation.
+	/// </param>
+	/// <returns>
+	///     A value task that represents the asynchronous merge.
+	/// </returns>
+	/// <remarks>
+	///	    This method should be called exactly once per app start, after <see
+	///	    cref="IJobStorage.InitializeAsync(CancellationToken)"/> to reset the list of code-defined cron jobs to the
+	///	    currently compiled list.
+	/// </remarks>
+	ValueTask MergeRecurringSchedulesListAsync(
+		IReadOnlyList<RecurringJobSchedule> schedules,
+		CancellationToken cancellationToken = default
+	);
+	/// <summary>
 	/// 	Creates or updates a recurring schedule.
 	/// </summary>
 	/// <param name="schedule">
@@ -20,23 +41,6 @@ public interface IRecurringJobStorage : IJobStorage
 	/// 	A value task that represents the asynchronous upsert.
 	/// </returns>
 	ValueTask UpsertRecurringAsync(RecurringJobSchedule schedule, CancellationToken cancellationToken = default);
-
-	/// <summary>
-	/// 	Removes code-defined schedules that are not in the supplied active schedule names.
-	/// </summary>
-	/// <param name="activeScheduleNames">
-	/// 	The names of code-defined schedules that remain active.
-	/// </param>
-	/// <param name="cancellationToken">
-	/// 	A token that can cancel the storage operation.
-	/// </param>
-	/// <returns>
-	/// 	A value task that represents the asynchronous removal.
-	/// </returns>
-	ValueTask RemoveObsoleteCodeDefinedRecurringAsync(
-		IReadOnlyCollection<string> activeScheduleNames,
-		CancellationToken cancellationToken = default
-	);
 
 	/// <summary>
 	/// 	Removes a dynamic recurring schedule.

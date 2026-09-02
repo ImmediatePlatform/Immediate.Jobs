@@ -97,6 +97,9 @@ public sealed class CapturingJobStorage(TimeProvider timeProvider) :
 	/// <param name="edges">
 	///	    The continuation edges that should be loaded in the database.
 	/// </param>
+	/// <param name="recurringSchedules">
+	///	    The recurring schedules that should be loaded in the database.
+	/// </param>
 	/// <remarks>
 	///	    This method should run before any other methods run to initialize test state. Use in regular app code is not
 	///	    supported.
@@ -104,8 +107,9 @@ public sealed class CapturingJobStorage(TimeProvider timeProvider) :
 	public void LoadPersistedJobState(
 		IReadOnlyList<JobRecord> jobs,
 		IReadOnlyList<BatchRecord> batches,
-		IReadOnlyList<JobContinuationEdge> edges
-	) => _inner.LoadPersistedJobState(jobs, batches, edges);
+		IReadOnlyList<JobContinuationEdge> edges,
+		IReadOnlyList<RecurringJobSchedule> recurringSchedules
+	) => _inner.LoadPersistedJobState(jobs, batches, edges, recurringSchedules);
 
 	/// <inheritdoc />
 	public ValueTask EnqueueAsync(JobRecord job, CancellationToken cancellationToken = default)
@@ -167,6 +171,15 @@ public sealed class CapturingJobStorage(TimeProvider timeProvider) :
 	}
 
 	/// <inheritdoc />
+	public async ValueTask MergeRecurringSchedulesListAsync(
+		IReadOnlyList<RecurringJobSchedule> schedules,
+		CancellationToken cancellationToken = default
+	)
+	{
+		await _inner.MergeRecurringSchedulesListAsync(schedules, cancellationToken);
+	}
+
+	/// <inheritdoc />
 	public ValueTask UpsertRecurringAsync(RecurringJobSchedule schedule, CancellationToken cancellationToken = default)
 	{
 		ArgumentNullException.ThrowIfNull(schedule);
@@ -201,8 +214,6 @@ public sealed class CapturingJobStorage(TimeProvider timeProvider) :
 	public ValueTask CompleteAsync(JobHandle jobHandle, int executionNumber, string workerId, CancellationToken cancellationToken = default) => _inner.CompleteAsync(jobHandle, executionNumber, workerId, cancellationToken);
 	/// <inheritdoc />
 	public ValueTask FailAsync(JobHandle jobHandle, int executionNumber, string workerId, string error, DateTimeOffset? nextRetryAt, CancellationToken cancellationToken = default) => _inner.FailAsync(jobHandle, executionNumber, workerId, error, nextRetryAt, cancellationToken);
-	/// <inheritdoc />
-	public ValueTask RemoveObsoleteCodeDefinedRecurringAsync(IReadOnlyCollection<string> activeScheduleNames, CancellationToken cancellationToken = default) => _inner.RemoveObsoleteCodeDefinedRecurringAsync(activeScheduleNames, cancellationToken);
 	/// <inheritdoc />
 	public ValueTask RemoveRecurringAsync(string name, CancellationToken cancellationToken = default)
 	{

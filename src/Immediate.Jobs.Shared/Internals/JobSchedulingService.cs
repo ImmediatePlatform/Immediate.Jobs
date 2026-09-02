@@ -622,43 +622,21 @@ public sealed partial class JobSchedulingService : BackgroundService
 			return;
 
 		var now = _timeProvider.GetUtcNow();
-		var codeDefinitions = _definitions.Values.Where(static definition => definition.Cron is not null).ToList();
-		var persisted = codeDefinitions.Count == 0
-			? [with(StringComparer.Ordinal)]
-			: (await _storage.GetMonitoringSnapshotAsync(cancellationToken))
-				.Recurring
-				.ToDictionary(static schedule => schedule.Name, StringComparer.Ordinal);
-
-		foreach (var definition in codeDefinitions)
-		{
-			var zone = JobCron.GetTimeZone(definition.TimeZone);
-			// An unchanged schedule keeps the occurrence it is already waiting for, even when that
-			// occurrence is already due: recomputing from now would silently drop an occurrence that
-			// fell between shutdown and restart. Only a changed cron or time zone recomputes.
-			var next = persisted.GetValueOrDefault(definition.Name) is { } current
-				&& string.Equals(current.Cron, definition.Cron, StringComparison.Ordinal)
-				&& string.Equals(current.TimeZone, definition.TimeZone, StringComparison.Ordinal)
-					? current.NextRunAt
-					: JobCron.Parse(definition.Cron!).GetNextOccurrence(now, zone)
-						?? throw new ImmediateJobException($"Cron for '{definition.Name}' has no future occurrence.");
-			await recurringStorage.UpsertRecurringAsync(
-				new()
+		await recurringStorage.MergeRecurringSchedulesListAsync(
+			_definitions.Values
+				.Where(d => d.Cron is not null)
+				.Select(d => new RecurringJobSchedule
 				{
-					Name = definition.Name,
-					JobName = definition.Name,
-					QueueName = definition.Queue.Name,
-					Cron = definition.Cron!,
-					TimeZone = definition.TimeZone,
+					Name = d.Name,
+					JobName = d.Name,
+					QueueName = d.Queue.Name,
+					Cron = d.Cron!,
+					TimeZone = d.TimeZone,
 					IsCodeDefined = true,
-					NextRunAt = next,
-				},
-				cancellationToken
-			);
-		}
-
-		var activeScheduleNames = codeDefinitions.Select(static definition => definition.Name).ToList();
-		await recurringStorage.RemoveObsoleteCodeDefinedRecurringAsync(
-			activeScheduleNames,
+					NextRunAt = JobCron.Parse(d.Cron!).GetNextOccurrence(now, JobCron.GetTimeZone(d.TimeZone))
+						?? throw new ImmediateJobException($"Cron for '{d.Name}' has no future occurrence."),
+				})
+				.ToList(),
 			cancellationToken
 		);
 	}

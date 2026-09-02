@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
+using System.Runtime.InteropServices;
 using Immediate.Jobs.Shared.Apis;
 
 namespace Immediate.Jobs.Shared.Storage;
@@ -55,6 +56,9 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 	/// <param name="edges">
 	///	    The continuation edges that should be loaded in the database.
 	/// </param>
+	/// <param name="recurringSchedules">
+	///	    The recurring schedules that should be loaded in the database.
+	/// </param>
 	/// <remarks>
 	///	    This method should run before any other methods run to initialize test state. Use in regular app code is not
 	///	    supported.
@@ -62,7 +66,8 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 	public void LoadPersistedJobState(
 		IReadOnlyList<JobRecord> jobs,
 		IReadOnlyList<BatchRecord> batches,
-		IReadOnlyList<JobContinuationEdge> edges
+		IReadOnlyList<JobContinuationEdge> edges,
+		IReadOnlyList<RecurringJobSchedule> recurringSchedules
 	)
 	{
 		lock (_gate)
@@ -74,6 +79,9 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 				_jobs[j.JobHandle] = j;
 
 			_edges.AddRange(edges);
+
+			foreach (var schedule in recurringSchedules)
+				_recurring[schedule.Name] = schedule;
 		}
 	}
 
@@ -635,6 +643,46 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 	}
 
 	/// <inheritdoc />
+	public async ValueTask MergeRecurringSchedulesListAsync(
+		IReadOnlyList<RecurringJobSchedule> schedules,
+		CancellationToken cancellationToken = default
+	)
+	{
+		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
+
+		lock (_gate)
+		{
+			var existingStaticDefinitions = _recurring
+				.Where(kvp => kvp.Value.IsCodeDefined)
+				.ToDictionary(StringComparer.Ordinal);
+
+			foreach (var schedule in schedules)
+			{
+				ref var current = ref CollectionsMarshal.GetValueRefOrAddDefault(_recurring, schedule.Name, out _);
+
+				current = current switch
+				{
+					{ } existing when
+						string.Equals(existing.Cron, schedule.Cron, StringComparison.Ordinal)
+						&& string.Equals(existing.TimeZone, schedule.TimeZone, StringComparison.Ordinal) =>
+						existing with { JobName = schedule.JobName, QueueName = schedule.QueueName, IsCodeDefined = true },
+
+					{ } existing =>
+						schedule with { IsPaused = existing.IsPaused, LastRunAt = existing.LastRunAt },
+
+					_ => schedule,
+				};
+
+				existingStaticDefinitions.Remove(schedule.Name);
+			}
+
+			foreach (var s in existingStaticDefinitions)
+				_recurring.Remove(s.Key);
+		}
+	}
+
+	/// <inheritdoc />
 	public async ValueTask UpsertRecurringAsync(RecurringJobSchedule schedule, CancellationToken cancellationToken = default)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
@@ -642,37 +690,18 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 
 		lock (_gate)
 		{
-			if (_recurring.TryGetValue(schedule.Name, out var current))
+			ref var current = ref CollectionsMarshal.GetValueRefOrAddDefault(_recurring, schedule.Name, out _);
+
+			current = current switch
 			{
-				if (current.IsCodeDefined && !schedule.IsCodeDefined)
-					throw new ImmediateJobException("Code-defined recurring schedules cannot be replaced by dynamic schedules.");
+				{ IsCodeDefined: true } when !schedule.IsCodeDefined =>
+					throw new ImmediateJobException("Code-defined recurring schedules cannot be replaced by dynamic schedules."),
 
-				schedule = schedule with { IsPaused = current.IsPaused, LastRunAt = current.LastRunAt };
-			}
+				{ } =>
+					schedule with { IsPaused = current.IsPaused, LastRunAt = current.LastRunAt },
 
-			_recurring[schedule.Name] = schedule;
-		}
-	}
-
-	/// <inheritdoc />
-	public async ValueTask RemoveObsoleteCodeDefinedRecurringAsync(
-		IReadOnlyCollection<string> activeScheduleNames,
-		CancellationToken cancellationToken = default
-	)
-	{
-		cancellationToken.ThrowIfCancellationRequested();
-		await TaskScheduler.Yield();
-
-		var activeNames = activeScheduleNames.ToHashSet(StringComparer.Ordinal);
-		lock (_gate)
-		{
-			var obsoleteNames = _recurring
-				.Where(schedule => schedule.Value.IsCodeDefined && !activeNames.Contains(schedule.Key))
-				.Select(static schedule => schedule.Key)
-				.ToList();
-
-			foreach (var name in obsoleteNames)
-				_ = _recurring.Remove(name);
+				_ => schedule,
+			};
 		}
 	}
 
