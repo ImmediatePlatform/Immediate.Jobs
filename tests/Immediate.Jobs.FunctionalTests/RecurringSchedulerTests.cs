@@ -2,8 +2,8 @@ using Immediate.Jobs.Shared.Apis;
 using Immediate.Jobs.Shared.Interfaces;
 using Immediate.Jobs.Shared.Internals;
 using Immediate.Jobs.Shared.Storage;
+using Immediate.Jobs.Testing;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Time.Testing;
 
 namespace Immediate.Jobs.FunctionalTests;
 
@@ -28,20 +28,17 @@ public sealed class RecurringSchedulerTests
 	public async Task OverlapSkipDetectsAnActiveRunHiddenBehindALongerJobName()
 	{
 		var cancellationToken = TestContext.Current.CancellationToken;
-		var clock = new FakeTimeProvider(Start);
-		await using var storage = new InMemoryJobStorage(clock);
-		await storage.InitializeAsync(cancellationToken);
+		await using var harness = CreateHarness("cleanup", "0 * * * *");
+		var storage = harness.Storage;
 
 		// "cleanup-archive" is a substring match for "cleanup" and is newer, so it sorts first in the
 		// dashboard query. A single-row substring search would return only this record and conclude that
 		// "cleanup" is idle.
-		await AddActiveJob(storage, "cleanup", Start, clock, cancellationToken);
-		await AddActiveJob(storage, "cleanup-archive", Start.AddMinutes(1), clock, cancellationToken);
+		await AddActiveJob(storage, "cleanup", Start, harness.TimeProvider, cancellationToken);
+		await AddActiveJob(storage, "cleanup-archive", Start.AddMinutes(1), harness.TimeProvider, cancellationToken);
 
-		var scheduler = BuildScheduler(storage, clock, "cleanup", "0 * * * *");
-		await scheduler.DrainAsync(cancellationToken);
-		clock.SetUtcNow(Start.AddHours(1));
-		await scheduler.DrainAsync(cancellationToken);
+		await harness.DrainAsync(cancellationToken);
+		await harness.AdvanceTimeAndDrainAsync(TimeSpan.FromHours(1), cancellationToken);
 
 		var materialized = await storage.QueryJobsAsync(
 			new() { JobName = "cleanup", Take = 100 },
@@ -55,14 +52,13 @@ public sealed class RecurringSchedulerTests
 	public async Task OverlapSkipDetectsAPendingOccurrence()
 	{
 		var cancellationToken = TestContext.Current.CancellationToken;
-		var clock = new FakeTimeProvider(Start);
-		await using var storage = new InMemoryJobStorage(clock);
-		await storage.InitializeAsync(cancellationToken);
+		await using var harness = new JobTestHarness(Start);
+		var storage = harness.Storage;
 		await AddPendingRecurringJob(storage, "cleanup", "cleanup:future", Start.AddHours(2), cancellationToken);
 
-		var scheduler = BuildScheduler(storage, clock, "cleanup", "0 * * * *");
+		var scheduler = BuildScheduler(storage, harness.TimeProvider, "cleanup", "0 * * * *");
 		await scheduler.DrainAsync(cancellationToken);
-		clock.SetUtcNow(Start.AddHours(1));
+		harness.TimeProvider.SetUtcNow(Start.AddHours(1));
 		await scheduler.DrainAsync(cancellationToken);
 
 		var jobs = await storage.QueryJobsAsync(
@@ -77,15 +73,14 @@ public sealed class RecurringSchedulerTests
 	public async Task OverlapQueueAcquiresOneInvocationAtATime()
 	{
 		var cancellationToken = TestContext.Current.CancellationToken;
-		var clock = new FakeTimeProvider(Start);
-		await using var storage = new InMemoryJobStorage(clock);
-		await storage.InitializeAsync(cancellationToken);
+		await using var harness = new JobTestHarness(Start);
+		var storage = harness.Storage;
 		await AddPendingRecurringJob(storage, "queued", "queue:1", Start, cancellationToken);
 		await AddPendingRecurringJob(storage, "queued", "queue:2", Start, cancellationToken);
 		var invoker = new AssertNoOverlapInvoker(storage);
 		var scheduler = BuildScheduler(
 			storage,
-			clock,
+			harness.TimeProvider,
 			"queued",
 			cron: null,
 			invoker,
@@ -103,19 +98,18 @@ public sealed class RecurringSchedulerTests
 	public async Task RestartKeepsAnOccurrenceThatFellDuringDowntime()
 	{
 		var cancellationToken = TestContext.Current.CancellationToken;
-		var clock = new FakeTimeProvider(Start);
-		await using var storage = new InMemoryJobStorage(clock);
-		await storage.InitializeAsync(cancellationToken);
+		await using var harness = new JobTestHarness(Start);
+		var storage = harness.Storage;
 
-		var first = BuildScheduler(storage, clock, "hourly", "0 * * * *");
+		var first = BuildScheduler(storage, harness.TimeProvider, "hourly", "0 * * * *");
 		await first.DrainAsync(cancellationToken);
 		var scheduled = await GetSchedule(storage, "hourly", cancellationToken);
 		Assert.Equal(Start.AddHours(1), scheduled.NextRunAt);
 
 		// The process is down across the 11:00 occurrence and restarts at 11:05 with fresh scheduler
 		// state. Recomputing from "now" here would advance the schedule to 12:00 and lose 11:00.
-		clock.SetUtcNow(Start.AddHours(1).AddMinutes(5));
-		var restarted = BuildScheduler(storage, clock, "hourly", "0 * * * *");
+		harness.TimeProvider.SetUtcNow(Start.AddHours(1).AddMinutes(5));
+		var restarted = BuildScheduler(storage, harness.TimeProvider, "hourly", "0 * * * *");
 		await restarted.DrainAsync(cancellationToken);
 
 		var materialized = await storage.QueryJobsAsync(new() { JobName = "hourly", Take = 100 }, cancellationToken);
@@ -127,15 +121,14 @@ public sealed class RecurringSchedulerTests
 	public async Task ChangedCronRecomputesTheNextOccurrence()
 	{
 		var cancellationToken = TestContext.Current.CancellationToken;
-		var clock = new FakeTimeProvider(Start);
-		await using var storage = new InMemoryJobStorage(clock);
-		await storage.InitializeAsync(cancellationToken);
+		await using var harness = new JobTestHarness(Start);
+		var storage = harness.Storage;
 
-		var hourly = BuildScheduler(storage, clock, "shifting", "0 * * * *");
+		var hourly = BuildScheduler(storage, harness.TimeProvider, "shifting", "0 * * * *");
 		await hourly.DrainAsync(cancellationToken);
 		Assert.Equal(Start.AddHours(1), (await GetSchedule(storage, "shifting", cancellationToken)).NextRunAt);
 
-		var daily = BuildScheduler(storage, clock, "shifting", "0 0 * * *");
+		var daily = BuildScheduler(storage, harness.TimeProvider, "shifting", "0 0 * * *");
 		await daily.DrainAsync(cancellationToken);
 		Assert.Equal(
 			new DateTimeOffset(2026, 1, 2, 0, 0, 0, TimeSpan.Zero),
@@ -148,10 +141,9 @@ public sealed class RecurringSchedulerTests
 	public async Task RuntimeAcceptsAnalyzerCronForms(string cron, DateTimeOffset expectedNextRunAt)
 	{
 		var cancellationToken = TestContext.Current.CancellationToken;
-		var clock = new FakeTimeProvider(Start);
-		await using var storage = new InMemoryJobStorage(clock);
-		await storage.InitializeAsync(cancellationToken);
-		var scheduler = BuildScheduler(storage, clock, "analyzer-compatible", cron);
+		await using var harness = new JobTestHarness(Start);
+		var storage = harness.Storage;
+		var scheduler = BuildScheduler(storage, harness.TimeProvider, "analyzer-compatible", cron);
 
 		await scheduler.DrainAsync(cancellationToken);
 
@@ -167,9 +159,8 @@ public sealed class RecurringSchedulerTests
 	public async Task BadRecurringScheduleDoesNotBlockOrdinaryJobs(string cron, string timeZone)
 	{
 		var cancellationToken = TestContext.Current.CancellationToken;
-		var clock = new FakeTimeProvider(Start);
-		await using var storage = new InMemoryJobStorage(clock);
-		await storage.InitializeAsync(cancellationToken);
+		await using var harness = new JobTestHarness(Start);
+		var storage = harness.Storage;
 		await storage.UpsertRecurringAsync(new()
 		{
 			Name = "bad-schedule",
@@ -190,7 +181,7 @@ public sealed class RecurringSchedulerTests
 			DueAt = Start,
 			CreatedAt = Start,
 		}, cancellationToken);
-		var scheduler = BuildScheduler(storage, clock, "ordinary", cron: null);
+		var scheduler = BuildScheduler(storage, harness.TimeProvider, "ordinary", cron: null);
 
 		await scheduler.DrainAsync(cancellationToken);
 
@@ -202,7 +193,7 @@ public sealed class RecurringSchedulerTests
 	}
 
 	private static async ValueTask<RecurringJobSchedule> GetSchedule(
-		InMemoryJobStorage storage,
+		CapturingJobStorage storage,
 		string name,
 		CancellationToken cancellationToken
 	)
@@ -212,7 +203,7 @@ public sealed class RecurringSchedulerTests
 	}
 
 	private static ValueTask AddActiveJob(
-		InMemoryJobStorage storage,
+		CapturingJobStorage storage,
 		string jobName,
 		DateTimeOffset createdAt,
 		TimeProvider clock,
@@ -231,7 +222,7 @@ public sealed class RecurringSchedulerTests
 	}, cancellationToken);
 
 	private static ValueTask AddPendingRecurringJob(
-		InMemoryJobStorage storage,
+		CapturingJobStorage storage,
 		string jobName,
 		string recurringKey,
 		DateTimeOffset dueAt,
@@ -249,7 +240,7 @@ public sealed class RecurringSchedulerTests
 	}, cancellationToken);
 
 	private static JobSchedulingService BuildScheduler(
-		InMemoryJobStorage storage,
+		IJobStorage storage,
 		TimeProvider clock,
 		string jobName,
 		string? cron,
@@ -289,7 +280,22 @@ public sealed class RecurringSchedulerTests
 			ValueTask.CompletedTask;
 	}
 
-	private sealed class AssertNoOverlapInvoker(InMemoryJobStorage storage) : IJobInvoker
+	private static JobTestHarness CreateHarness(string jobName, string? cron) =>
+		new(
+			Start,
+			services => services.AddSingleton(
+				new JobDefinition
+				{
+					Name = jobName,
+					Cron = cron,
+					Invoker = NoOpInvoker.Instance,
+					JobType = typeof(NoOpInvoker),
+					OverlapPolicy = OverlapPolicy.Skip,
+				}
+			)
+		);
+
+	private sealed class AssertNoOverlapInvoker(IJobStorage storage) : IJobInvoker
 	{
 		public int Executions { get; private set; }
 

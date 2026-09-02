@@ -2,7 +2,6 @@ using System.Globalization;
 using Immediate.Jobs.Shared.Apis;
 using Immediate.Jobs.Shared.Interfaces;
 using Immediate.Jobs.Shared.Internals;
-using Immediate.Jobs.Shared.Storage;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -16,7 +15,6 @@ namespace Immediate.Jobs.Testing;
 public sealed class JobTestHarness : IAsyncDisposable, IDisposable
 {
 	private readonly ServiceProvider _serviceProvider;
-	private readonly IJobGraphStorage _graphStorage;
 	private bool _disposed;
 
 	/// <summary>Creates a harness at the Unix epoch.</summary>
@@ -29,15 +27,27 @@ public sealed class JobTestHarness : IAsyncDisposable, IDisposable
 	{
 	}
 
+	/// <summary>Creates a harness at the Unix epoch with customized worker options.</summary>
+	/// <param name="configureServices">Registers job definitions and handler services.</param>
+	/// <param name="configureWorkers">Customizes the production scheduler's worker options.</param>
+	public JobTestHarness(
+		Action<IServiceCollection>? configureServices,
+		Action<ImmediateJobsOptions>? configureWorkers
+	) : this(DateTimeOffset.UnixEpoch, configureServices, configureWorkers)
+	{
+	}
+
 	/// <summary>Creates a harness at a specified UTC instant.</summary>
 	/// <param name="start">The initial UTC time exposed by the controllable clock.</param>
 	/// <param name="configureServices">
 	/// Registers generated job definitions and the services used by their handlers. Calling the generated
 	/// <c>AddImmediateJobs</c> method here is supported; the harness clock and in-memory provider remain authoritative.
 	/// </param>
+	/// <param name="configureWorkers">Optionally customizes the production scheduler's worker options.</param>
 	public JobTestHarness(
 		DateTimeOffset start,
-		Action<IServiceCollection>? configureServices = null
+		Action<IServiceCollection>? configureServices = null,
+		Action<ImmediateJobsOptions>? configureWorkers = null
 	)
 	{
 		TimeProvider = new(start);
@@ -50,7 +60,11 @@ public sealed class JobTestHarness : IAsyncDisposable, IDisposable
 		_ = services.AddSingleton<CapturingJobStorage>();
 
 		_ = services.AddImmediateJobsCore()
-			.ConfigureWorkers(o => o.MaxParallelJobs = 1)
+			.ConfigureWorkers(o =>
+			{
+				o.MaxParallelJobs = 1;
+				configureWorkers?.Invoke(o);
+			})
 			.ConfigureStorage(o => o
 				.UseStorage(static provider => provider.GetRequiredService<CapturingJobStorage>())
 				.UseDistributed());
@@ -62,13 +76,7 @@ public sealed class JobTestHarness : IAsyncDisposable, IDisposable
 		});
 
 		Services = _serviceProvider;
-		Storage = _serviceProvider.GetRequiredService<IJobStorage>();
-		Captures = _serviceProvider.GetRequiredService<CapturingJobStorage>();
-		_graphStorage = Storage as IJobGraphStorage
-			?? throw new NotSupportedException(
-				"Batches & continuations require a graph-capable storage provider (a SQL database). " +
-				"The configured provider implements the queue capability only."
-			);
+		Storage = _serviceProvider.GetRequiredService<CapturingJobStorage>();
 		Batches = new BatchScheduler(
 			Storage,
 			TimeProvider,
@@ -85,13 +93,9 @@ public sealed class JobTestHarness : IAsyncDisposable, IDisposable
 	/// <value>The service provider created for the harness.</value>
 	public IServiceProvider Services { get; }
 
-	/// <summary>The in-memory durable-state abstraction.</summary>
-	/// <value>The storage provider used by the harness.</value>
-	public IJobStorage Storage { get; }
-
 	/// <summary>The storage capture log used by the harness.</summary>
 	/// <value>The capturing storage instance, also available from <see cref="Services"/>.</value>
-	public CapturingJobStorage Captures { get; }
+	public CapturingJobStorage Storage { get; }
 
 	/// <summary>Builds atomic batches against the harness storage and fake clock.</summary>
 	/// <value>The batch scheduler configured for the harness.</value>
@@ -231,9 +235,9 @@ public sealed class JobTestHarness : IAsyncDisposable, IDisposable
 	)
 	{
 		ArgumentNullException.ThrowIfNull(batch);
-		var status = await _graphStorage.GetBatchStatusAsync(batch, cancellationToken)
+		var status = await Storage.GetBatchStatusAsync(batch, cancellationToken)
 			?? throw new JobTestAssertionException($"Expected batch '{batch}' to be committed, but it was not found.");
-		var members = await _graphStorage.QueryBatchMembersAsync(
+		var members = await Storage.QueryBatchMembersAsync(
 			batch,
 			new() { Take = Math.Max(1, expectedMembers + 1) },
 			cancellationToken

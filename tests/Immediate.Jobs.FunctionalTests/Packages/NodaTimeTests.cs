@@ -37,10 +37,10 @@ public sealed class NodaTimeTests
 			cancellationToken: cancellationToken
 		);
 
-		Assert.Equal(start + Duration.FromMinutes(5), Instant.FromDateTimeOffset(harness.Captures.Jobs[0].DueAt));
-		Assert.Equal(start + Duration.FromHours(2), Instant.FromDateTimeOffset(harness.Captures.Jobs[1].DueAt));
-		Assert.Equal("tenant-a", harness.Captures.Jobs[0].GroupId);
-		Assert.Equal("tenant-b", harness.Captures.Jobs[1].GroupId);
+		Assert.Equal(start + Duration.FromMinutes(5), Instant.FromDateTimeOffset(harness.Storage.Jobs[0].DueAt));
+		Assert.Equal(start + Duration.FromHours(2), Instant.FromDateTimeOffset(harness.Storage.Jobs[1].DueAt));
+		Assert.Equal("tenant-a", harness.Storage.Jobs[0].GroupId);
+		Assert.Equal("tenant-b", harness.Storage.Jobs[1].GroupId);
 	}
 
 	[Fact]
@@ -115,7 +115,7 @@ public sealed class NodaTimeTests
 			TestContext.Current.CancellationToken
 		);
 
-		var capture = Assert.Single(harness.Captures.RecurringSchedules);
+		var capture = Assert.Single(harness.Storage.RecurringSchedules);
 		Assert.Equal("daily-report", capture.Name);
 		Assert.Equal(zone.Id, capture.TimeZone);
 	}

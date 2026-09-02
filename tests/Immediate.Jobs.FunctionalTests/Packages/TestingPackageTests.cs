@@ -15,7 +15,7 @@ public sealed class TestingPackageTests
 	public async Task CapturingStorageRecordsTypedCallsWithoutInterruptingStorage()
 	{
 		await using var harness = new JobTestHarness();
-		Assert.Same(harness.Captures, harness.Services.GetRequiredService<CapturingJobStorage>());
+		Assert.Same(harness.Storage, harness.Services.GetRequiredService<CapturingJobStorage>());
 		var scheduler = new TestScheduler(
 			harness.Storage,
 			harness.Services.GetRequiredService<IJobSerializer>(),
@@ -30,10 +30,10 @@ public sealed class TestingPackageTests
 			cancellationToken: TestContext.Current.CancellationToken
 		);
 
-		var capture = Assert.Single(harness.Captures.Jobs);
+		var capture = Assert.Single(harness.Storage.Jobs);
 		Assert.Equal(id, capture.JobHandle);
 		Assert.Equal("tenant-a", capture.GroupId);
-		Assert.Equal(capture, harness.Captures.FindJob(id));
+		Assert.Equal(capture, harness.Storage.FindJob(id));
 		Assert.Equal(capture, await harness.GetJobAsync(id, TestContext.Current.CancellationToken));
 
 		await scheduler.CancelAsync(id, TestContext.Current.CancellationToken);
