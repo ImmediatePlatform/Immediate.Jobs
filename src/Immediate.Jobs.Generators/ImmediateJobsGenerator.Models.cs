@@ -42,11 +42,4 @@ public sealed partial class ImmediateJobsGenerator
 		public required string JsonPropertyName { get; init; }
 		public required int Index { get; init; }
 	}
-
-	private sealed record QueueModel
-	{
-		public required string Name { get; init; }
-		public required int Priority { get; init; }
-		public required int Concurrency { get; init; }
-	}
 }

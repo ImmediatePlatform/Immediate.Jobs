@@ -63,7 +63,7 @@ public sealed class QueueSchedulerTests
 			},
 			workers =>
 			{
-				workers.MaxParallelJobs = 3;
+				workers.WorkerCount = 3;
 				workers.PollingInterval = TimeSpan.FromMilliseconds(10);
 			}
 		);

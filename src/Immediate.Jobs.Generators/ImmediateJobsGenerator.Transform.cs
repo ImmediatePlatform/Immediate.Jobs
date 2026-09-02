@@ -152,33 +152,6 @@ public sealed partial class ImmediateJobsGenerator
 			Json = jsonMetadataEmitter,
 		};
 	}
-
-	private static QueueModel? TransformQueue(
-		GeneratorAttributeSyntaxContext context,
-		CancellationToken cancellationToken
-	)
-	{
-		cancellationToken.ThrowIfCancellationRequested();
-
-		var queueType = (INamedTypeSymbol)context.TargetSymbol;
-		var attribute = context.Attributes[0];
-
-		if (attribute.GetQueueName(queueType.Name).NullIf("default").NullIfWhitespace() is not { } name)
-			return null;
-
-		var concurrency = attribute.NamedArguments.GetIntValue("Concurrency", 0);
-		if (concurrency < 0)
-			return null;
-
-		var priority = attribute.NamedArguments.GetIntValue("Priority", 0);
-
-		return new()
-		{
-			Name = name,
-			Priority = priority,
-			Concurrency = concurrency,
-		};
-	}
 }
 
 file static class Extensions

@@ -79,7 +79,7 @@ public sealed class StorageCapabilityTests
 		_ = services.AddLogging();
 		_ = services.AddSingleton<TimeProvider>(timeProvider);
 		_ = services.AddImmediateJobsCore()
-			.ConfigureWorkers(o => o.MaxParallelJobs = 1)
+			.ConfigureWorkers(o => o.WorkerCount = 1)
 			.ConfigureStorage(o => o.UseStorage(_ => storage).UseDistributed());
 
 		_ = services.AddSingleton(new JobDefinition

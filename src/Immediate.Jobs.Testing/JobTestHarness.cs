@@ -62,7 +62,7 @@ public sealed class JobTestHarness : IAsyncDisposable, IDisposable
 		_ = services.AddImmediateJobsCore()
 			.ConfigureWorkers(o =>
 			{
-				o.MaxParallelJobs = 1;
+				o.WorkerCount = 1;
 				configureWorkers?.Invoke(o);
 			})
 			.ConfigureStorage(o => o
