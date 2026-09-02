@@ -125,7 +125,7 @@ public sealed partial class JobSchedulingService : BackgroundService
 		});
 
 		if (_graphStorage is null)
-			GraphFeaturesDisabled(_logger, storage.GetType().Name);
+			GraphFeaturesDisabled(storage.GetType().Name);
 	}
 
 	/// <inheritdoc />
@@ -160,7 +160,7 @@ public sealed partial class JobSchedulingService : BackgroundService
 				catch (Exception exception)
 #pragma warning restore CA1031
 				{
-					SchedulerIterationFailed(_logger, exception);
+					SchedulerIterationFailed(exception);
 				}
 
 				await Task.Delay(_options.PollingInterval, _timeProvider, stoppingToken);
@@ -177,7 +177,7 @@ public sealed partial class JobSchedulingService : BackgroundService
 			}
 			catch (TimeoutException)
 			{
-				ShutdownDrainExceeded(_logger, _options.ShutdownTimeout);
+				ShutdownDrainExceeded(_options.ShutdownTimeout);
 			}
 			finally
 			{
@@ -311,7 +311,7 @@ public sealed partial class JobSchedulingService : BackgroundService
 				catch (Exception exception)
 #pragma warning restore CA1031
 				{
-					UnhandledWorkerError(_logger, exception, record.JobHandle);
+					UnhandledWorkerError(exception, record.JobHandle);
 				}
 			}
 		}
@@ -412,7 +412,7 @@ public sealed partial class JobSchedulingService : BackgroundService
 			catch (Exception exception)
 #pragma warning restore CA1031
 			{
-				ExecutionTelemetryPersistenceFailed(_logger, exception);
+				ExecutionTelemetryPersistenceFailed(exception);
 			}
 
 			await using var scope = _scopeFactory.CreateAsyncScope();
@@ -440,7 +440,7 @@ public sealed partial class JobSchedulingService : BackgroundService
 			var duration = _timeProvider.GetElapsedTime(started);
 			JobTelemetry.Succeeded(record.JobName, record.QueueName, duration);
 			_ = activity?.SetStatus(ActivityStatusCode.Ok);
-			JobCompleted(_logger, duration.TotalMilliseconds);
+			JobCompleted(duration.TotalMilliseconds);
 		}
 		catch (Exception exception) when (exception is not OperationCanceledException || !stoppingToken.IsCancellationRequested)
 		{
@@ -461,11 +461,11 @@ public sealed partial class JobSchedulingService : BackgroundService
 			if (retry)
 			{
 				JobTelemetry.Retried(record.JobName, record.QueueName);
-				JobWillRetry(_logger, exception, nextRetryAt);
+				JobWillRetry(exception, nextRetryAt);
 			}
 			else
 			{
-				JobExhaustedAttempts(_logger, exception, definition.MaxAttempts);
+				JobExhaustedAttempts(exception, definition.MaxAttempts);
 			}
 		}
 		finally
@@ -564,7 +564,7 @@ public sealed partial class JobSchedulingService : BackgroundService
 			return;
 		}
 
-		GroupedJobsAcquiredWithoutFairQueues(_logger);
+		GroupedJobsAcquiredWithoutFairQueues();
 	}
 
 	private void Reserve(JobRecord record)
@@ -605,7 +605,7 @@ public sealed partial class JobSchedulingService : BackgroundService
 			catch (Exception exception)
 #pragma warning restore CA1031
 			{
-				LeaseRenewalFailed(_logger, exception, jobHandle, executionNumber);
+				LeaseRenewalFailed(exception, jobHandle, executionNumber);
 			}
 		}
 	}
@@ -691,7 +691,7 @@ public sealed partial class JobSchedulingService : BackgroundService
 			catch (Exception exception)
 #pragma warning restore CA1031
 			{
-				RecurringMaterializationFailed(_logger, exception, schedule.Name);
+				RecurringMaterializationFailed(exception, schedule.Name);
 			}
 		}
 	}
@@ -768,64 +768,63 @@ public sealed partial class JobSchedulingService : BackgroundService
 		base.Dispose();
 	}
 
-	[LoggerMessage(EventId = 1, Level = LogLevel.Error, Message = "Immediate.Jobs scheduler iteration failed; polling will continue")]
-	private static partial void SchedulerIterationFailed(ILogger logger, Exception exception);
+	[LoggerMessage(Level = LogLevel.Error, Message = "Immediate.Jobs scheduler iteration failed; polling will continue")]
+	private partial void SchedulerIterationFailed(Exception exception);
 
-	[LoggerMessage(EventId = 2, Level = LogLevel.Warning, Message = "Immediate.Jobs shutdown drain exceeded {shutdownTimeout}")]
-	private static partial void ShutdownDrainExceeded(ILogger logger, TimeSpan shutdownTimeout);
+	[LoggerMessage(Level = LogLevel.Warning, Message = "Immediate.Jobs shutdown drain exceeded {shutdownTimeout}")]
+	private partial void ShutdownDrainExceeded(TimeSpan shutdownTimeout);
 
-	[LoggerMessage(EventId = 3, Level = LogLevel.Error, Message = "Unhandled worker error for job {jobHandle}; its lease will expire")]
-	private static partial void UnhandledWorkerError(ILogger logger, Exception exception, JobHandle jobHandle);
+	[LoggerMessage(Level = LogLevel.Error, Message = "Unhandled worker error for job {jobHandle}; its lease will expire")]
+	private partial void UnhandledWorkerError(Exception exception, JobHandle jobHandle);
 
-	[LoggerMessage(EventId = 4, Level = LogLevel.Information, Message = "Job completed in {durationMs} ms")]
-	private static partial void JobCompleted(ILogger logger, double durationMs);
+	[LoggerMessage(Level = LogLevel.Information, Message = "Job completed in {durationMs} ms")]
+	private partial void JobCompleted(double durationMs);
 
-	[LoggerMessage(EventId = 5, Level = LogLevel.Warning, Message = "Job failed and will retry at {nextRetryAt}")]
-	private static partial void JobWillRetry(ILogger logger, Exception exception, DateTimeOffset? nextRetryAt);
+	[LoggerMessage(Level = LogLevel.Warning, Message = "Job failed and will retry at {nextRetryAt}")]
+	private partial void JobWillRetry(Exception exception, DateTimeOffset? nextRetryAt);
 
-	[LoggerMessage(EventId = 6, Level = LogLevel.Error, Message = "Job exhausted all {maxAttempts} attempts")]
-	private static partial void JobExhaustedAttempts(ILogger logger, Exception exception, int maxAttempts);
+	[LoggerMessage(Level = LogLevel.Error, Message = "Job exhausted all {maxAttempts} attempts")]
+	private partial void JobExhaustedAttempts(Exception exception, int maxAttempts);
 
 	[LoggerMessage(
-		EventId = 7,
 		Level = LogLevel.Information,
 		Message = "Batch & continuation features are disabled: the configured storage '{storageType}' implements the queue capability only. Configure a SQL provider to enable them."
 	)]
-	private static partial void GraphFeaturesDisabled(ILogger logger, string storageType);
+	private partial void GraphFeaturesDisabled(string storageType);
 
 	[LoggerMessage(
-		EventId = 8,
+		Level = LogLevel.Information,
+		Message = "Recurring job features are disabled: the configured storage '{storageType}' implements the queue capability only. Configure a SQL provider to enable them."
+	)]
+	private partial void RecurringJobFeaturesDisabled(string storageType);
+
+	[LoggerMessage(
 		Level = LogLevel.Warning,
 		Message = "Grouped jobs were acquired while fair queues are disabled. Their group ids are persisted but do not affect dispatch order; call UseFairQueues() to enable fair acquisition."
 	)]
-	private static partial void GroupedJobsAcquiredWithoutFairQueues(ILogger logger);
+	private partial void GroupedJobsAcquiredWithoutFairQueues();
 
 	[LoggerMessage(
-		EventId = 9,
 		Level = LogLevel.Warning,
 		Message = "Could not persist execution telemetry; job invocation will continue"
 	)]
-	private static partial void ExecutionTelemetryPersistenceFailed(ILogger logger, Exception exception);
+	private partial void ExecutionTelemetryPersistenceFailed(Exception exception);
 
 	[LoggerMessage(
-		EventId = 10,
 		Level = LogLevel.Warning,
 		Message = "Could not renew the lease for job {jobHandle} execution {executionNumber}; renewal will be retried until the attempt finishes"
 	)]
-	private static partial void LeaseRenewalFailed(
-		ILogger logger,
+	private partial void LeaseRenewalFailed(
 		Exception exception,
 		JobHandle jobHandle,
 		int executionNumber
 	);
 
 	[LoggerMessage(
-		EventId = 11,
 		Level = LogLevel.Error,
 		Message = "Could not materialize recurring schedule {scheduleName}; other schedules and job acquisition will continue"
 	)]
-	private static partial void RecurringMaterializationFailed(
-		ILogger logger,
+	private partial void RecurringMaterializationFailed(
 		Exception exception,
 		string scheduleName
 	);
