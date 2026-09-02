@@ -1,4 +1,5 @@
 using Immediate.Jobs.Shared.Apis;
+using Microsoft.Extensions.Logging;
 
 namespace Immediate.Jobs.Shared.Storage;
 
@@ -12,12 +13,16 @@ namespace Immediate.Jobs.Shared.Storage;
 /// <param name="timeProvider">
 /// 	The clock used by the in-process primary store.
 /// </param>
+/// <param name="logger">
+/// 	The logger used to record single-server storage operations.
+/// </param>
 /// <remarks>
 /// 	The wrapper takes ownership of <paramref name="durableStorage"/> and disposes it with the primary store.
 /// </remarks>
-internal sealed class SingleServerJobStorage(
+internal sealed partial class SingleServerJobStorage(
 	IJobStorage durableStorage,
-	TimeProvider timeProvider
+	TimeProvider timeProvider,
+	ILogger<SingleServerJobStorage> logger
 ) :
 	IRecurringJobStorage,
 	IJobGraphStorage,
@@ -25,6 +30,8 @@ internal sealed class SingleServerJobStorage(
 	IAsyncDisposable
 {
 	private const int RecoveryBatchSize = 1000;
+
+	private readonly ILogger _logger = logger;
 
 	private readonly TaskCompletionSource _initializationTask = new();
 	private bool _initialized;
@@ -67,6 +74,7 @@ internal sealed class SingleServerJobStorage(
 	/// <inheritdoc />
 	public async ValueTask InitializeAsync(CancellationToken cancellationToken = default)
 	{
+		SingleServerInitializeAsyncCalled();
 		await TaskScheduler.Yield();
 		await InitializeCoreAsync(cancellationToken);
 	}
@@ -74,6 +82,7 @@ internal sealed class SingleServerJobStorage(
 	/// <inheritdoc />
 	public async ValueTask EnqueueAsync(JobRecord job, CancellationToken cancellationToken = default)
 	{
+		SingleServerEnqueueAsyncCalled(job.JobHandle);
 		await TaskScheduler.Yield();
 		await EnsureInitializedAsync(cancellationToken);
 		await DurableStorage.EnqueueAsync(job, cancellationToken);
@@ -87,6 +96,7 @@ internal sealed class SingleServerJobStorage(
 		CancellationToken cancellationToken = default
 	)
 	{
+		SingleServerEnqueueContinuationAsyncCalled(job.JobHandle, edges.Count);
 		await TaskScheduler.Yield();
 		await EnsureInitializedAsync(cancellationToken);
 		await JobGraphStorage.EnqueueContinuationAsync(job, edges, cancellationToken);
@@ -101,6 +111,7 @@ internal sealed class SingleServerJobStorage(
 		CancellationToken cancellationToken = default
 	)
 	{
+		SingleServerEnqueueBatchAsyncCalled(batch.BatchHandle, jobs.Count, edges.Count);
 		await TaskScheduler.Yield();
 		await EnsureInitializedAsync(cancellationToken);
 		await JobGraphStorage.EnqueueBatchAsync(batch, jobs, edges, cancellationToken);
@@ -113,6 +124,7 @@ internal sealed class SingleServerJobStorage(
 		CancellationToken cancellationToken = default
 	)
 	{
+		SingleServerAcquireDueJobsAsyncCalled(request.WorkerId, request.BatchSize, request.Queues.Count);
 		await TaskScheduler.Yield();
 		await EnsureInitializedAsync(cancellationToken);
 
@@ -155,6 +167,7 @@ internal sealed class SingleServerJobStorage(
 		CancellationToken cancellationToken = default
 	)
 	{
+		SingleServerSetExecutionTelemetryAsyncCalled(jobHandle, executionNumber, workerId, traceId, spanId, startedAt);
 		await TaskScheduler.Yield();
 		await EnsureInitializedAsync(cancellationToken);
 
@@ -190,6 +203,7 @@ internal sealed class SingleServerJobStorage(
 		CancellationToken cancellationToken = default
 	)
 	{
+		SingleServerRenewLeaseAsyncCalled(jobHandle, executionNumber, workerId, lease);
 		await TaskScheduler.Yield();
 		await EnsureInitializedAsync(cancellationToken);
 
@@ -205,6 +219,7 @@ internal sealed class SingleServerJobStorage(
 		CancellationToken cancellationToken = default
 	)
 	{
+		SingleServerCompleteAsyncCalled(jobHandle, executionNumber, workerId);
 		await TaskScheduler.Yield();
 		await EnsureInitializedAsync(cancellationToken);
 
@@ -221,6 +236,7 @@ internal sealed class SingleServerJobStorage(
 		CancellationToken cancellationToken = default
 	)
 	{
+		SingleServerCompleteWithContinuationsAsyncCalled(jobHandle, executionNumber, workerId, additions.Count);
 		await TaskScheduler.Yield();
 		await EnsureInitializedAsync(cancellationToken);
 
@@ -240,6 +256,7 @@ internal sealed class SingleServerJobStorage(
 		CancellationToken cancellationToken = default
 	)
 	{
+		SingleServerAddBatchJobAsyncCalled(currentJobHandle, executionNumber, job.JobHandle);
 		await TaskScheduler.Yield();
 		await EnsureInitializedAsync(cancellationToken);
 		await JobGraphStorage.AddBatchJobAsync(currentJobHandle, executionNumber, job, options, cancellationToken);
@@ -256,6 +273,7 @@ internal sealed class SingleServerJobStorage(
 		CancellationToken cancellationToken = default
 	)
 	{
+		SingleServerFailAsyncCalled(jobHandle, executionNumber, workerId, nextRetryAt);
 		await TaskScheduler.Yield();
 		await EnsureInitializedAsync(cancellationToken);
 		await DurableStorage.FailAsync(jobHandle, executionNumber, workerId, error, nextRetryAt, cancellationToken);
@@ -268,6 +286,7 @@ internal sealed class SingleServerJobStorage(
 		CancellationToken cancellationToken = default
 	)
 	{
+		SingleServerMergeRecurringSchedulesListAsyncCalled(schedules.Count);
 		await TaskScheduler.Yield();
 		await EnsureInitializedAsync(cancellationToken);
 		await RecurringJobStorage.MergeRecurringSchedulesListAsync(schedules, cancellationToken);
@@ -277,6 +296,7 @@ internal sealed class SingleServerJobStorage(
 	/// <inheritdoc />
 	public async ValueTask UpsertRecurringAsync(RecurringJobSchedule schedule, CancellationToken cancellationToken = default)
 	{
+		SingleServerUpsertRecurringAsyncCalled(schedule.Name);
 		await TaskScheduler.Yield();
 		await EnsureInitializedAsync(cancellationToken);
 		await RecurringJobStorage.UpsertRecurringAsync(schedule, cancellationToken);
@@ -286,6 +306,7 @@ internal sealed class SingleServerJobStorage(
 	/// <inheritdoc />
 	public async ValueTask RemoveRecurringAsync(string name, CancellationToken cancellationToken = default)
 	{
+		SingleServerRemoveRecurringAsyncCalled(name);
 		await TaskScheduler.Yield();
 		await EnsureInitializedAsync(cancellationToken);
 		await RecurringJobStorage.RemoveRecurringAsync(name, cancellationToken);
@@ -295,6 +316,7 @@ internal sealed class SingleServerJobStorage(
 	/// <inheritdoc />
 	public async ValueTask PauseRecurringAsync(string name, CancellationToken cancellationToken = default)
 	{
+		SingleServerPauseRecurringAsyncCalled(name);
 		await TaskScheduler.Yield();
 		await EnsureInitializedAsync(cancellationToken);
 		await RecurringJobStorage.PauseRecurringAsync(name, cancellationToken);
@@ -304,6 +326,7 @@ internal sealed class SingleServerJobStorage(
 	/// <inheritdoc />
 	public async ValueTask ResumeRecurringAsync(string name, CancellationToken cancellationToken = default)
 	{
+		SingleServerResumeRecurringAsyncCalled(name);
 		await TaskScheduler.Yield();
 		await EnsureInitializedAsync(cancellationToken);
 		await RecurringJobStorage.ResumeRecurringAsync(name, cancellationToken);
@@ -317,6 +340,7 @@ internal sealed class SingleServerJobStorage(
 		CancellationToken cancellationToken = default
 	)
 	{
+		SingleServerGetDueRecurringAsyncCalled(now, batchSize);
 		await TaskScheduler.Yield();
 		await EnsureInitializedAsync(cancellationToken);
 		return await PrimaryStorage.GetDueRecurringAsync(now, batchSize, cancellationToken);
@@ -330,6 +354,7 @@ internal sealed class SingleServerJobStorage(
 		CancellationToken cancellationToken = default
 	)
 	{
+		SingleServerMaterializeRecurringAsyncCalled(schedule.Name, job.JobHandle, nextRunAt);
 		await TaskScheduler.Yield();
 		await EnsureInitializedAsync(cancellationToken);
 
@@ -361,6 +386,7 @@ internal sealed class SingleServerJobStorage(
 	/// <inheritdoc />
 	public async ValueTask<JobMonitoringSnapshot> GetMonitoringSnapshotAsync(CancellationToken cancellationToken = default)
 	{
+		SingleServerGetMonitoringSnapshotAsyncCalled();
 		await TaskScheduler.Yield();
 		await EnsureInitializedAsync(cancellationToken);
 		return await PrimaryStorage.GetMonitoringSnapshotAsync(cancellationToken);
@@ -372,6 +398,7 @@ internal sealed class SingleServerJobStorage(
 		CancellationToken cancellationToken = default
 	)
 	{
+		SingleServerQueryJobsAsyncCalled(query);
 		await TaskScheduler.Yield();
 		await EnsureInitializedAsync(cancellationToken);
 		return await PrimaryStorage.QueryJobsAsync(query, cancellationToken);
@@ -384,6 +411,7 @@ internal sealed class SingleServerJobStorage(
 		CancellationToken cancellationToken = default
 	)
 	{
+		SingleServerQueryJobExecutionsAsyncCalled(jobHandle, query);
 		await TaskScheduler.Yield();
 		await EnsureInitializedAsync(cancellationToken);
 
@@ -397,6 +425,7 @@ internal sealed class SingleServerJobStorage(
 		CancellationToken cancellationToken = default
 	)
 	{
+		SingleServerGetBatchStatusAsyncCalled(batchHandle);
 		await TaskScheduler.Yield();
 		await EnsureInitializedAsync(cancellationToken);
 		return await PrimaryStorage.GetBatchStatusAsync(batchHandle, cancellationToken);
@@ -408,6 +437,7 @@ internal sealed class SingleServerJobStorage(
 		CancellationToken cancellationToken = default
 	)
 	{
+		SingleServerQueryBatchesAsyncCalled(query);
 		await TaskScheduler.Yield();
 		await EnsureInitializedAsync(cancellationToken);
 		return await PrimaryStorage.QueryBatchesAsync(query, cancellationToken);
@@ -420,6 +450,7 @@ internal sealed class SingleServerJobStorage(
 		CancellationToken cancellationToken = default
 	)
 	{
+		SingleServerQueryBatchMembersAsyncCalled(batchHandle, query);
 		await TaskScheduler.Yield();
 		await EnsureInitializedAsync(cancellationToken);
 		return await PrimaryStorage.QueryBatchMembersAsync(batchHandle, query, cancellationToken);
@@ -431,6 +462,7 @@ internal sealed class SingleServerJobStorage(
 		CancellationToken cancellationToken = default
 	)
 	{
+		SingleServerGetBatchGraphAsyncCalled(batchHandle);
 		await TaskScheduler.Yield();
 		await EnsureInitializedAsync(cancellationToken);
 		return await PrimaryStorage.GetBatchGraphAsync(batchHandle, cancellationToken);
@@ -442,6 +474,7 @@ internal sealed class SingleServerJobStorage(
 		CancellationToken cancellationToken = default
 	)
 	{
+		SingleServerGetJobStatusAsyncCalled(jobHandle);
 		await TaskScheduler.Yield();
 		await EnsureInitializedAsync(cancellationToken);
 		return await PrimaryStorage.GetJobStatusAsync(jobHandle, cancellationToken);
@@ -450,6 +483,7 @@ internal sealed class SingleServerJobStorage(
 	/// <inheritdoc />
 	public async ValueTask CancelBatchAsync(BatchHandle batchHandle, CancellationToken cancellationToken = default)
 	{
+		SingleServerCancelBatchAsyncCalled(batchHandle);
 		await TaskScheduler.Yield();
 		await EnsureInitializedAsync(cancellationToken);
 		await JobGraphStorage.CancelBatchAsync(batchHandle, cancellationToken);
@@ -459,6 +493,7 @@ internal sealed class SingleServerJobStorage(
 	/// <inheritdoc />
 	public async ValueTask DeleteBatchAsync(BatchHandle batchHandle, CancellationToken cancellationToken = default)
 	{
+		SingleServerDeleteBatchAsyncCalled(batchHandle);
 		await TaskScheduler.Yield();
 		await EnsureInitializedAsync(cancellationToken);
 		await JobGraphStorage.DeleteBatchAsync(batchHandle, cancellationToken);
@@ -468,6 +503,7 @@ internal sealed class SingleServerJobStorage(
 	/// <inheritdoc />
 	public async ValueTask CancelAsync(JobHandle jobHandle, CancellationToken cancellationToken = default)
 	{
+		SingleServerCancelAsyncCalled(jobHandle);
 		await TaskScheduler.Yield();
 		await EnsureInitializedAsync(cancellationToken);
 		await DurableStorage.CancelAsync(jobHandle, cancellationToken);
@@ -477,6 +513,7 @@ internal sealed class SingleServerJobStorage(
 	/// <inheritdoc />
 	public async ValueTask RetryAsync(JobHandle jobHandle, CancellationToken cancellationToken = default)
 	{
+		SingleServerRetryAsyncCalled(jobHandle);
 		await TaskScheduler.Yield();
 		await EnsureInitializedAsync(cancellationToken);
 		await DurableStorage.RetryAsync(jobHandle, cancellationToken);
@@ -486,6 +523,7 @@ internal sealed class SingleServerJobStorage(
 	/// <inheritdoc />
 	public async ValueTask DeleteAsync(JobHandle jobHandle, CancellationToken cancellationToken = default)
 	{
+		SingleServerDeleteAsyncCalled(jobHandle);
 		await TaskScheduler.Yield();
 		await EnsureInitializedAsync(cancellationToken);
 		await DurableStorage.DeleteAsync(jobHandle, cancellationToken);
@@ -499,6 +537,7 @@ internal sealed class SingleServerJobStorage(
 		CancellationToken cancellationToken = default
 	)
 	{
+		SingleServerPurgeJobsAsyncCalled(succeededRetention, failedRetention);
 		await TaskScheduler.Yield();
 		await EnsureInitializedAsync(cancellationToken);
 
@@ -524,6 +563,7 @@ internal sealed class SingleServerJobStorage(
 		CancellationToken cancellationToken = default
 	)
 	{
+		SingleServerPurgeBatchesAsyncCalled(batchSucceededRetention, batchFailedRetention);
 		await TaskScheduler.Yield();
 		await EnsureInitializedAsync(cancellationToken);
 
@@ -545,6 +585,7 @@ internal sealed class SingleServerJobStorage(
 	/// <inheritdoc />
 	public async ValueTask HeartbeatAsync(JobServerSnapshot server, CancellationToken cancellationToken = default)
 	{
+		SingleServerHeartbeatAsyncCalled(server.WorkerId, server.ActiveWorkers, server.MaxWorkers);
 		await TaskScheduler.Yield();
 		await EnsureInitializedAsync(cancellationToken);
 		await PrimaryStorage.HeartbeatAsync(server, cancellationToken);
@@ -553,6 +594,7 @@ internal sealed class SingleServerJobStorage(
 	/// <inheritdoc />
 	public async ValueTask<bool> IsHealthyAsync(CancellationToken cancellationToken = default)
 	{
+		SingleServerIsHealthyAsyncCalled();
 		await TaskScheduler.Yield();
 		await EnsureInitializedAsync(cancellationToken);
 		return await DurableStorage.IsHealthyAsync(cancellationToken);
@@ -561,6 +603,7 @@ internal sealed class SingleServerJobStorage(
 	/// <inheritdoc />
 	public async ValueTask DisposeAsync()
 	{
+		SingleServerDisposeAsyncCalled();
 		await TaskScheduler.Yield();
 		if (_disposed)
 			return;
@@ -830,4 +873,292 @@ internal sealed class SingleServerJobStorage(
 		public required IReadOnlyList<JobRecord> Jobs { get; init; }
 		public required IReadOnlyList<JobContinuationEdge> Edges { get; init; }
 	}
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.SingleServerInitializeAsyncCalled,
+		EventName = "Immediate.Jobs.Shared.SingleServerInitializeAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "Single-server storage InitializeAsync called"
+	)]
+	private partial void SingleServerInitializeAsyncCalled();
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.SingleServerEnqueueAsyncCalled,
+		EventName = "Immediate.Jobs.Shared.SingleServerEnqueueAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "Single-server storage EnqueueAsync called (JobHandle={JobHandle})"
+	)]
+	private partial void SingleServerEnqueueAsyncCalled(JobHandle jobHandle);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.SingleServerEnqueueContinuationAsyncCalled,
+		EventName = "Immediate.Jobs.Shared.SingleServerEnqueueContinuationAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "Single-server storage EnqueueContinuationAsync called (JobHandle={JobHandle}, Edges={Edges})"
+	)]
+	private partial void SingleServerEnqueueContinuationAsyncCalled(JobHandle jobHandle, int edges);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.SingleServerEnqueueBatchAsyncCalled,
+		EventName = "Immediate.Jobs.Shared.SingleServerEnqueueBatchAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "Single-server storage EnqueueBatchAsync called (BatchHandle={BatchHandle}, Jobs={Jobs}, Edges={Edges})"
+	)]
+	private partial void SingleServerEnqueueBatchAsyncCalled(BatchHandle batchHandle, int jobs, int edges);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.SingleServerAcquireDueJobsAsyncCalled,
+		EventName = "Immediate.Jobs.Shared.SingleServerAcquireDueJobsAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "Single-server storage AcquireDueJobsAsync called (WorkerId={WorkerId}, BatchSize={BatchSize}, Queues={Queues})"
+	)]
+	private partial void SingleServerAcquireDueJobsAsyncCalled(string workerId, int batchSize, int queues);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.SingleServerSetExecutionTelemetryAsyncCalled,
+		EventName = "Immediate.Jobs.Shared.SingleServerSetExecutionTelemetryAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "Single-server storage SetExecutionTelemetryAsync called (JobHandle={JobHandle}, ExecutionNumber={ExecutionNumber}, WorkerId={WorkerId}, TraceId={TraceId}, SpanId={SpanId}, StartedAt={StartedAt})"
+	)]
+	private partial void SingleServerSetExecutionTelemetryAsyncCalled(JobHandle jobHandle, int executionNumber, string workerId, string? traceId, string? spanId, DateTimeOffset startedAt);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.SingleServerRenewLeaseAsyncCalled,
+		EventName = "Immediate.Jobs.Shared.SingleServerRenewLeaseAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "Single-server storage RenewLeaseAsync called (JobHandle={JobHandle}, ExecutionNumber={ExecutionNumber}, WorkerId={WorkerId}, Lease={Lease})"
+	)]
+	private partial void SingleServerRenewLeaseAsyncCalled(JobHandle jobHandle, int executionNumber, string workerId, TimeSpan lease);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.SingleServerCompleteAsyncCalled,
+		EventName = "Immediate.Jobs.Shared.SingleServerCompleteAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "Single-server storage CompleteAsync called (JobHandle={JobHandle}, ExecutionNumber={ExecutionNumber}, WorkerId={WorkerId})"
+	)]
+	private partial void SingleServerCompleteAsyncCalled(JobHandle jobHandle, int executionNumber, string workerId);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.SingleServerCompleteWithContinuationsAsyncCalled,
+		EventName = "Immediate.Jobs.Shared.SingleServerCompleteWithContinuationsAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "Single-server storage CompleteWithContinuationsAsync called (JobHandle={JobHandle}, ExecutionNumber={ExecutionNumber}, WorkerId={WorkerId}, Additions={Additions})"
+	)]
+	private partial void SingleServerCompleteWithContinuationsAsyncCalled(JobHandle jobHandle, int executionNumber, string workerId, int additions);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.SingleServerAddBatchJobAsyncCalled,
+		EventName = "Immediate.Jobs.Shared.SingleServerAddBatchJobAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "Single-server storage AddBatchJobAsync called (CurrentJobHandle={CurrentJobHandle}, ExecutionNumber={ExecutionNumber}, JobHandle={JobHandle})"
+	)]
+	private partial void SingleServerAddBatchJobAsyncCalled(JobHandle currentJobHandle, int executionNumber, JobHandle jobHandle);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.SingleServerFailAsyncCalled,
+		EventName = "Immediate.Jobs.Shared.SingleServerFailAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "Single-server storage FailAsync called (JobHandle={JobHandle}, ExecutionNumber={ExecutionNumber}, WorkerId={WorkerId}, NextRetryAt={NextRetryAt})"
+	)]
+	private partial void SingleServerFailAsyncCalled(JobHandle jobHandle, int executionNumber, string workerId, DateTimeOffset? nextRetryAt);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.SingleServerMergeRecurringSchedulesListAsyncCalled,
+		EventName = "Immediate.Jobs.Shared.SingleServerMergeRecurringSchedulesListAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "Single-server storage MergeRecurringSchedulesListAsync called (Schedules={Schedules})"
+	)]
+	private partial void SingleServerMergeRecurringSchedulesListAsyncCalled(int schedules);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.SingleServerUpsertRecurringAsyncCalled,
+		EventName = "Immediate.Jobs.Shared.SingleServerUpsertRecurringAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "Single-server storage UpsertRecurringAsync called (ScheduleName={ScheduleName})"
+	)]
+	private partial void SingleServerUpsertRecurringAsyncCalled(string scheduleName);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.SingleServerRemoveRecurringAsyncCalled,
+		EventName = "Immediate.Jobs.Shared.SingleServerRemoveRecurringAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "Single-server storage RemoveRecurringAsync called (ScheduleName={ScheduleName})"
+	)]
+	private partial void SingleServerRemoveRecurringAsyncCalled(string scheduleName);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.SingleServerPauseRecurringAsyncCalled,
+		EventName = "Immediate.Jobs.Shared.SingleServerPauseRecurringAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "Single-server storage PauseRecurringAsync called (ScheduleName={ScheduleName})"
+	)]
+	private partial void SingleServerPauseRecurringAsyncCalled(string scheduleName);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.SingleServerResumeRecurringAsyncCalled,
+		EventName = "Immediate.Jobs.Shared.SingleServerResumeRecurringAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "Single-server storage ResumeRecurringAsync called (ScheduleName={ScheduleName})"
+	)]
+	private partial void SingleServerResumeRecurringAsyncCalled(string scheduleName);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.SingleServerGetDueRecurringAsyncCalled,
+		EventName = "Immediate.Jobs.Shared.SingleServerGetDueRecurringAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "Single-server storage GetDueRecurringAsync called (Now={Now}, BatchSize={BatchSize})"
+	)]
+	private partial void SingleServerGetDueRecurringAsyncCalled(DateTimeOffset now, int batchSize);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.SingleServerMaterializeRecurringAsyncCalled,
+		EventName = "Immediate.Jobs.Shared.SingleServerMaterializeRecurringAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "Single-server storage MaterializeRecurringAsync called (ScheduleName={ScheduleName}, JobHandle={JobHandle}, NextRunAt={NextRunAt})"
+	)]
+	private partial void SingleServerMaterializeRecurringAsyncCalled(string scheduleName, JobHandle jobHandle, DateTimeOffset nextRunAt);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.SingleServerGetMonitoringSnapshotAsyncCalled,
+		EventName = "Immediate.Jobs.Shared.SingleServerGetMonitoringSnapshotAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "Single-server storage GetMonitoringSnapshotAsync called"
+	)]
+	private partial void SingleServerGetMonitoringSnapshotAsyncCalled();
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.SingleServerQueryJobsAsyncCalled,
+		EventName = "Immediate.Jobs.Shared.SingleServerQueryJobsAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "Single-server storage QueryJobsAsync called (Query={Query})"
+	)]
+	private partial void SingleServerQueryJobsAsyncCalled(JobQuery query);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.SingleServerQueryJobExecutionsAsyncCalled,
+		EventName = "Immediate.Jobs.Shared.SingleServerQueryJobExecutionsAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "Single-server storage QueryJobExecutionsAsync called (JobHandle={JobHandle}, Query={Query})"
+	)]
+	private partial void SingleServerQueryJobExecutionsAsyncCalled(JobHandle jobHandle, JobExecutionQuery query);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.SingleServerGetBatchStatusAsyncCalled,
+		EventName = "Immediate.Jobs.Shared.SingleServerGetBatchStatusAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "Single-server storage GetBatchStatusAsync called (BatchHandle={BatchHandle})"
+	)]
+	private partial void SingleServerGetBatchStatusAsyncCalled(BatchHandle batchHandle);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.SingleServerQueryBatchesAsyncCalled,
+		EventName = "Immediate.Jobs.Shared.SingleServerQueryBatchesAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "Single-server storage QueryBatchesAsync called (Query={Query})"
+	)]
+	private partial void SingleServerQueryBatchesAsyncCalled(BatchQuery query);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.SingleServerQueryBatchMembersAsyncCalled,
+		EventName = "Immediate.Jobs.Shared.SingleServerQueryBatchMembersAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "Single-server storage QueryBatchMembersAsync called (BatchHandle={BatchHandle}, Query={Query})"
+	)]
+	private partial void SingleServerQueryBatchMembersAsyncCalled(BatchHandle batchHandle, BatchMemberQuery query);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.SingleServerGetBatchGraphAsyncCalled,
+		EventName = "Immediate.Jobs.Shared.SingleServerGetBatchGraphAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "Single-server storage GetBatchGraphAsync called (BatchHandle={BatchHandle})"
+	)]
+	private partial void SingleServerGetBatchGraphAsyncCalled(BatchHandle batchHandle);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.SingleServerGetJobStatusAsyncCalled,
+		EventName = "Immediate.Jobs.Shared.SingleServerGetJobStatusAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "Single-server storage GetJobStatusAsync called (JobHandle={JobHandle})"
+	)]
+	private partial void SingleServerGetJobStatusAsyncCalled(JobHandle jobHandle);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.SingleServerCancelBatchAsyncCalled,
+		EventName = "Immediate.Jobs.Shared.SingleServerCancelBatchAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "Single-server storage CancelBatchAsync called (BatchHandle={BatchHandle})"
+	)]
+	private partial void SingleServerCancelBatchAsyncCalled(BatchHandle batchHandle);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.SingleServerDeleteBatchAsyncCalled,
+		EventName = "Immediate.Jobs.Shared.SingleServerDeleteBatchAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "Single-server storage DeleteBatchAsync called (BatchHandle={BatchHandle})"
+	)]
+	private partial void SingleServerDeleteBatchAsyncCalled(BatchHandle batchHandle);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.SingleServerCancelAsyncCalled,
+		EventName = "Immediate.Jobs.Shared.SingleServerCancelAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "Single-server storage CancelAsync called (JobHandle={JobHandle})"
+	)]
+	private partial void SingleServerCancelAsyncCalled(JobHandle jobHandle);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.SingleServerRetryAsyncCalled,
+		EventName = "Immediate.Jobs.Shared.SingleServerRetryAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "Single-server storage RetryAsync called (JobHandle={JobHandle})"
+	)]
+	private partial void SingleServerRetryAsyncCalled(JobHandle jobHandle);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.SingleServerDeleteAsyncCalled,
+		EventName = "Immediate.Jobs.Shared.SingleServerDeleteAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "Single-server storage DeleteAsync called (JobHandle={JobHandle})"
+	)]
+	private partial void SingleServerDeleteAsyncCalled(JobHandle jobHandle);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.SingleServerPurgeJobsAsyncCalled,
+		EventName = "Immediate.Jobs.Shared.SingleServerPurgeJobsAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "Single-server storage PurgeJobsAsync called (SucceededRetention={SucceededRetention}, FailedRetention={FailedRetention})"
+	)]
+	private partial void SingleServerPurgeJobsAsyncCalled(TimeSpan succeededRetention, TimeSpan failedRetention);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.SingleServerPurgeBatchesAsyncCalled,
+		EventName = "Immediate.Jobs.Shared.SingleServerPurgeBatchesAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "Single-server storage PurgeBatchesAsync called (SucceededRetention={SucceededRetention}, FailedRetention={FailedRetention})"
+	)]
+	private partial void SingleServerPurgeBatchesAsyncCalled(TimeSpan succeededRetention, TimeSpan failedRetention);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.SingleServerHeartbeatAsyncCalled,
+		EventName = "Immediate.Jobs.Shared.SingleServerHeartbeatAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "Single-server storage HeartbeatAsync called (WorkerId={WorkerId}, ActiveWorkers={ActiveWorkers}, MaxWorkers={MaxWorkers})"
+	)]
+	private partial void SingleServerHeartbeatAsyncCalled(string workerId, int activeWorkers, int maxWorkers);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.SingleServerIsHealthyAsyncCalled,
+		EventName = "Immediate.Jobs.Shared.SingleServerIsHealthyAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "Single-server storage IsHealthyAsync called"
+	)]
+	private partial void SingleServerIsHealthyAsyncCalled();
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.SingleServerDisposeAsyncCalled,
+		EventName = "Immediate.Jobs.Shared.SingleServerDisposeAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "Single-server storage DisposeAsync called"
+	)]
+	private partial void SingleServerDisposeAsyncCalled();
 }

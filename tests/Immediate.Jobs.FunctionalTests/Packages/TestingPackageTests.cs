@@ -113,8 +113,7 @@ public sealed class TestingPackageTests
 		await harness.DrainAsync(cancellationToken);
 
 		Assert.Equal(2, counter.Count);
-		// TODO: Fix logging testing; and event ids.
-		// Assert.Equal(1, logger.EventIds.Count(static eventId => eventId == 8));
+		Assert.Equal(1, logger.EventIds.Count(static eventId => eventId == 11008));
 	}
 
 	[Fact]

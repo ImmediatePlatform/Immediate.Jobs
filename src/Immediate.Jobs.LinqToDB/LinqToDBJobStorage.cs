@@ -4,18 +4,22 @@ using Immediate.Jobs.Shared.Storage;
 using LinqToDB;
 using LinqToDB.Async;
 using LinqToDB.Data;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 
 namespace Immediate.Jobs.LinqToDB;
 
 /// <summary>An optimistic-concurrency LinqToDB implementation of <see cref="IJobStorage"/>.</summary>
-internal sealed class LinqToDBJobStorage<T>(
+internal sealed partial class LinqToDBJobStorage<T>(
 	Owned<T> contextScope,
 	IOptions<LinqToDBJobStorageOptions> options,
-	TimeProvider timeProvider
+	TimeProvider timeProvider,
+	ILogger<LinqToDBJobStorage<T>>? logger = null
 ) : IRecurringJobStorage, IJobGraphStorage, IFairQueueStorage, IJobStorageReplica, IJobGraphStorageReplica
 	where T : DataConnection
 {
+	private readonly ILogger _logger = logger ?? NullLogger<LinqToDBJobStorage<T>>.Instance;
 	private const int MaxContendedCompletionAttempts = 50;
 	private const int MaxConcurrencyAttempts = 5;
 	private const int MaxConsecutiveFailedFairClaims = 5;
@@ -25,6 +29,7 @@ internal sealed class LinqToDBJobStorage<T>(
 	/// <inheritdoc />
 	public async ValueTask DisposeAsync()
 	{
+		DisposeAsyncCalled();
 		await TaskScheduler.Yield();
 		await ValueTask.CompletedTask;
 	}
@@ -32,6 +37,7 @@ internal sealed class LinqToDBJobStorage<T>(
 	/// <inheritdoc />
 	public async ValueTask InitializeAsync(CancellationToken cancellationToken = default)
 	{
+		InitializeAsyncCalled();
 		await TaskScheduler.Yield();
 		await ValueTask.CompletedTask;
 	}
@@ -62,6 +68,7 @@ internal sealed class LinqToDBJobStorage<T>(
 		IReadOnlyList<RecurringJobSchedule> recurringSchedules
 	)
 	{
+		LoadPersistedJobStateCalled(jobs.Count, edges.Count);
 		await using var scope = contextScope.GetScope(out var connection);
 
 		await connection.BulkCopyAsync(
@@ -102,6 +109,7 @@ internal sealed class LinqToDBJobStorage<T>(
 	/// <inheritdoc />
 	public async ValueTask EnqueueAsync(JobRecord job, CancellationToken cancellationToken = default)
 	{
+		EnqueueAsyncCalled(job.JobHandle);
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 
@@ -127,6 +135,7 @@ internal sealed class LinqToDBJobStorage<T>(
 		CancellationToken cancellationToken = default
 	)
 	{
+		GetIncomingEdgesAsyncCalled(childJobHandles.Count);
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 
@@ -150,6 +159,7 @@ internal sealed class LinqToDBJobStorage<T>(
 		CancellationToken cancellationToken = default
 	)
 	{
+		EnqueueContinuationAsyncCalled(job.JobHandle, edges.Count);
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 
@@ -164,6 +174,7 @@ internal sealed class LinqToDBJobStorage<T>(
 		CancellationToken cancellationToken = default
 	)
 	{
+		EnqueueBatchAsyncCalled(batch.BatchHandle, jobs.Count, edges.Count);
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 
@@ -247,6 +258,7 @@ internal sealed class LinqToDBJobStorage<T>(
 		CancellationToken cancellationToken = default
 	)
 	{
+		AcquireDueJobsAsyncCalled(request.WorkerId, request.BatchSize, request.Queues.Count);
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 
@@ -752,6 +764,7 @@ internal sealed class LinqToDBJobStorage<T>(
 		CancellationToken cancellationToken = default
 	)
 	{
+		AcquireJobsAsyncCalled(workerId, jobHandles.Count, lease);
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 
@@ -850,6 +863,7 @@ internal sealed class LinqToDBJobStorage<T>(
 		CancellationToken cancellationToken = default
 	)
 	{
+		SetExecutionTelemetryAsyncCalled(jobHandle, executionNumber);
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 
@@ -888,6 +902,7 @@ internal sealed class LinqToDBJobStorage<T>(
 		CancellationToken cancellationToken = default
 	)
 	{
+		RenewLeaseAsyncCalled(jobHandle, executionNumber);
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 
@@ -910,6 +925,7 @@ internal sealed class LinqToDBJobStorage<T>(
 		CancellationToken cancellationToken = default
 	)
 	{
+		CompleteAsyncCalled(jobHandle, executionNumber);
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 
@@ -925,6 +941,7 @@ internal sealed class LinqToDBJobStorage<T>(
 		CancellationToken cancellationToken = default
 	)
 	{
+		CompleteWithContinuationsAsyncCalled(jobHandle, executionNumber);
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 
@@ -949,6 +966,7 @@ internal sealed class LinqToDBJobStorage<T>(
 		CancellationToken cancellationToken = default
 	)
 	{
+		AddBatchJobAsyncCalled(job.JobHandle, executionNumber);
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 
@@ -968,6 +986,7 @@ internal sealed class LinqToDBJobStorage<T>(
 		CancellationToken cancellationToken = default
 	)
 	{
+		FailAsyncCalled(jobHandle, executionNumber);
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 
@@ -989,6 +1008,7 @@ internal sealed class LinqToDBJobStorage<T>(
 		CancellationToken cancellationToken = default
 	)
 	{
+		MergeRecurringSchedulesListAsyncCalled();
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 
@@ -1050,6 +1070,7 @@ internal sealed class LinqToDBJobStorage<T>(
 		CancellationToken cancellationToken = default
 	)
 	{
+		UpsertRecurringAsyncCalled(schedule.Name);
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 
@@ -1096,6 +1117,7 @@ internal sealed class LinqToDBJobStorage<T>(
 	/// <inheritdoc />
 	public async ValueTask RemoveRecurringAsync(string name, CancellationToken cancellationToken = default)
 	{
+		RemoveRecurringAsyncCalled(name);
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 
@@ -1114,6 +1136,7 @@ internal sealed class LinqToDBJobStorage<T>(
 	/// <inheritdoc />
 	public async ValueTask PauseRecurringAsync(string name, CancellationToken cancellationToken = default)
 	{
+		PauseRecurringAsyncCalled(name);
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 
@@ -1123,6 +1146,7 @@ internal sealed class LinqToDBJobStorage<T>(
 	/// <inheritdoc />
 	public async ValueTask ResumeRecurringAsync(string name, CancellationToken cancellationToken = default)
 	{
+		ResumeRecurringAsyncCalled(name);
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 
@@ -1151,6 +1175,7 @@ internal sealed class LinqToDBJobStorage<T>(
 		CancellationToken cancellationToken = default
 	)
 	{
+		GetDueRecurringAsyncCalled(batchSize);
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 
@@ -1172,6 +1197,7 @@ internal sealed class LinqToDBJobStorage<T>(
 		CancellationToken cancellationToken = default
 	)
 	{
+		MaterializeRecurringAsyncCalled(job.JobHandle, schedule.Name);
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 
@@ -1245,6 +1271,7 @@ internal sealed class LinqToDBJobStorage<T>(
 		CancellationToken cancellationToken = default
 	)
 	{
+		GetMonitoringSnapshotAsyncCalled();
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 
@@ -1288,6 +1315,7 @@ internal sealed class LinqToDBJobStorage<T>(
 		CancellationToken cancellationToken = default
 	)
 	{
+		QueryJobsAsyncCalled(query);
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 
@@ -1325,6 +1353,7 @@ internal sealed class LinqToDBJobStorage<T>(
 		CancellationToken cancellationToken = default
 	)
 	{
+		QueryJobExecutionsAsyncCalled(jobHandle);
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 
@@ -1381,6 +1410,7 @@ internal sealed class LinqToDBJobStorage<T>(
 		CancellationToken cancellationToken = default
 	)
 	{
+		GetBatchStatusAsyncCalled(batchHandle);
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 
@@ -1396,6 +1426,7 @@ internal sealed class LinqToDBJobStorage<T>(
 		CancellationToken cancellationToken = default
 	)
 	{
+		QueryBatchesAsyncCalled(query);
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 
@@ -1419,6 +1450,7 @@ internal sealed class LinqToDBJobStorage<T>(
 		CancellationToken cancellationToken = default
 	)
 	{
+		QueryBatchMembersAsyncCalled(batchHandle);
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 
@@ -1455,6 +1487,7 @@ internal sealed class LinqToDBJobStorage<T>(
 		CancellationToken cancellationToken = default
 	)
 	{
+		GetBatchGraphAsyncCalled(batchHandle);
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 
@@ -1485,6 +1518,7 @@ internal sealed class LinqToDBJobStorage<T>(
 		CancellationToken cancellationToken = default
 	)
 	{
+		GetJobStatusAsyncCalled(jobHandle);
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 
@@ -1518,6 +1552,7 @@ internal sealed class LinqToDBJobStorage<T>(
 	/// <inheritdoc />
 	public async ValueTask CancelBatchAsync(BatchHandle batchHandle, CancellationToken cancellationToken = default)
 	{
+		CancelBatchAsyncCalled(batchHandle);
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 
@@ -1592,6 +1627,7 @@ internal sealed class LinqToDBJobStorage<T>(
 	/// <inheritdoc />
 	public async ValueTask DeleteBatchAsync(BatchHandle batchHandle, CancellationToken cancellationToken = default)
 	{
+		DeleteBatchAsyncCalled(batchHandle);
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 
@@ -1629,6 +1665,7 @@ internal sealed class LinqToDBJobStorage<T>(
 	/// <inheritdoc />
 	public async ValueTask CancelAsync(JobHandle jobHandle, CancellationToken cancellationToken = default)
 	{
+		CancelAsyncCalled(jobHandle);
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 
@@ -1679,6 +1716,7 @@ internal sealed class LinqToDBJobStorage<T>(
 	/// <inheritdoc />
 	public async ValueTask RetryAsync(JobHandle jobHandle, CancellationToken cancellationToken = default)
 	{
+		RetryAsyncCalled(jobHandle);
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 
@@ -1736,6 +1774,7 @@ internal sealed class LinqToDBJobStorage<T>(
 	/// <inheritdoc />
 	public async ValueTask DeleteAsync(JobHandle jobHandle, CancellationToken cancellationToken = default)
 	{
+		DeleteAsyncCalled(jobHandle);
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 
@@ -1788,6 +1827,7 @@ internal sealed class LinqToDBJobStorage<T>(
 		CancellationToken cancellationToken = default
 	)
 	{
+		PurgeJobsAsyncCalled(succeededRetention, failedRetention);
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 
@@ -1842,6 +1882,7 @@ internal sealed class LinqToDBJobStorage<T>(
 		CancellationToken cancellationToken = default
 	)
 	{
+		PurgeBatchesAsyncCalled(batchSucceededRetention, batchFailedRetention);
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 
@@ -1910,6 +1951,7 @@ internal sealed class LinqToDBJobStorage<T>(
 	/// <inheritdoc />
 	public async ValueTask HeartbeatAsync(JobServerSnapshot server, CancellationToken cancellationToken = default)
 	{
+		HeartbeatAsyncCalled(server.WorkerId);
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 
@@ -1951,6 +1993,7 @@ internal sealed class LinqToDBJobStorage<T>(
 	/// <inheritdoc />
 	public async ValueTask<bool> IsHealthyAsync(CancellationToken cancellationToken = default)
 	{
+		IsHealthyAsyncCalled();
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 
@@ -3094,4 +3137,316 @@ internal sealed class LinqToDBJobStorage<T>(
 		public DbException DatabaseException { get; } = databaseException;
 	}
 #pragma warning restore CA1032, CA1064
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.DisposeAsyncCalled,
+		EventName = "Immediate.Jobs.LinqToDB.DisposeAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "DisposeAsync called"
+	)]
+	private partial void DisposeAsyncCalled();
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.InitializeAsyncCalled,
+		EventName = "Immediate.Jobs.LinqToDB.InitializeAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "InitializeAsync called"
+	)]
+	private partial void InitializeAsyncCalled();
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.LoadPersistedJobStateCalled,
+		EventName = "Immediate.Jobs.LinqToDB.LoadPersistedJobStateCalled",
+		Level = LogLevel.Debug,
+		Message = "LoadPersistedJobState called (Jobs={Jobs}, Edges={Edges})"
+	)]
+	private partial void LoadPersistedJobStateCalled(int jobs, int edges);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.EnqueueAsyncCalled,
+		EventName = "Immediate.Jobs.LinqToDB.EnqueueAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "EnqueueAsync called (JobHandle={JobHandle})"
+	)]
+	private partial void EnqueueAsyncCalled(JobHandle jobHandle);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.GetIncomingEdgesAsyncCalled,
+		EventName = "Immediate.Jobs.LinqToDB.GetIncomingEdgesAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "GetIncomingEdgesAsync called (Jobs={Jobs})"
+	)]
+	private partial void GetIncomingEdgesAsyncCalled(int jobs);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.EnqueueContinuationAsyncCalled,
+		EventName = "Immediate.Jobs.LinqToDB.EnqueueContinuationAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "EnqueueContinuationAsync called (JobHandle={JobHandle}, Edges={Edges})"
+	)]
+	private partial void EnqueueContinuationAsyncCalled(JobHandle jobHandle, int edges);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.EnqueueBatchAsyncCalled,
+		EventName = "Immediate.Jobs.LinqToDB.EnqueueBatchAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "EnqueueBatchAsync called (BatchHandle={BatchHandle}, Jobs={Jobs}, Edges={Edges})"
+	)]
+	private partial void EnqueueBatchAsyncCalled(BatchHandle batchHandle, int jobs, int edges);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.AcquireDueJobsAsyncCalled,
+		EventName = "Immediate.Jobs.LinqToDB.AcquireDueJobsAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "AcquireDueJobsAsync called (Worker={Worker}, BatchSize={BatchSize}, Queues={Queues})"
+	)]
+	private partial void AcquireDueJobsAsyncCalled(string worker, int batchSize, int queues);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.AcquireJobsAsyncCalled,
+		EventName = "Immediate.Jobs.LinqToDB.AcquireJobsAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "AcquireJobsAsync called (Worker={Worker}, Jobs={Jobs}, Lease={Lease})"
+	)]
+	private partial void AcquireJobsAsyncCalled(string worker, int jobs, TimeSpan lease);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.SetExecutionTelemetryAsyncCalled,
+		EventName = "Immediate.Jobs.LinqToDB.SetExecutionTelemetryAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "SetExecutionTelemetryAsync called (JobHandle={JobHandle}, Execution={Execution})"
+	)]
+	private partial void SetExecutionTelemetryAsyncCalled(JobHandle jobHandle, int execution);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.RenewLeaseAsyncCalled,
+		EventName = "Immediate.Jobs.LinqToDB.RenewLeaseAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "RenewLeaseAsync called (JobHandle={JobHandle}, Execution={Execution})"
+	)]
+	private partial void RenewLeaseAsyncCalled(JobHandle jobHandle, int execution);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.CompleteAsyncCalled,
+		EventName = "Immediate.Jobs.LinqToDB.CompleteAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "CompleteAsync called (JobHandle={JobHandle}, Execution={Execution})"
+	)]
+	private partial void CompleteAsyncCalled(JobHandle jobHandle, int execution);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.CompleteWithContinuationsAsyncCalled,
+		EventName = "Immediate.Jobs.LinqToDB.CompleteWithContinuationsAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "CompleteWithContinuationsAsync called (JobHandle={JobHandle}, Execution={Execution})"
+	)]
+	private partial void CompleteWithContinuationsAsyncCalled(JobHandle jobHandle, int execution);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.AddBatchJobAsyncCalled,
+		EventName = "Immediate.Jobs.LinqToDB.AddBatchJobAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "AddBatchJobAsync called (JobHandle={JobHandle}, Execution={Execution})"
+	)]
+	private partial void AddBatchJobAsyncCalled(JobHandle jobHandle, int execution);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.FailAsyncCalled,
+		EventName = "Immediate.Jobs.LinqToDB.FailAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "FailAsync called (JobHandle={JobHandle}, Execution={Execution})"
+	)]
+	private partial void FailAsyncCalled(JobHandle jobHandle, int execution);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.MergeRecurringSchedulesListAsyncCalled,
+		EventName = "Immediate.Jobs.LinqToDB.MergeRecurringSchedulesListAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "MergeRecurringSchedulesListAsync called"
+	)]
+	private partial void MergeRecurringSchedulesListAsyncCalled();
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.UpsertRecurringAsyncCalled,
+		EventName = "Immediate.Jobs.LinqToDB.UpsertRecurringAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "UpsertRecurringAsync called (Schedule={Schedule})"
+	)]
+	private partial void UpsertRecurringAsyncCalled(string schedule);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.RemoveRecurringAsyncCalled,
+		EventName = "Immediate.Jobs.LinqToDB.RemoveRecurringAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "RemoveRecurringAsync called (Name={Name})"
+	)]
+	private partial void RemoveRecurringAsyncCalled(string name);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.PauseRecurringAsyncCalled,
+		EventName = "Immediate.Jobs.LinqToDB.PauseRecurringAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "PauseRecurringAsync called (Name={Name})"
+	)]
+	private partial void PauseRecurringAsyncCalled(string name);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.ResumeRecurringAsyncCalled,
+		EventName = "Immediate.Jobs.LinqToDB.ResumeRecurringAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "ResumeRecurringAsync called (Name={Name})"
+	)]
+	private partial void ResumeRecurringAsyncCalled(string name);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.GetDueRecurringAsyncCalled,
+		EventName = "Immediate.Jobs.LinqToDB.GetDueRecurringAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "GetDueRecurringAsync called (BatchSize={BatchSize})"
+	)]
+	private partial void GetDueRecurringAsyncCalled(int batchSize);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.MaterializeRecurringAsyncCalled,
+		EventName = "Immediate.Jobs.LinqToDB.MaterializeRecurringAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "MaterializeRecurringAsync called (JobHandle={JobHandle}, Schedule={Schedule})"
+	)]
+	private partial void MaterializeRecurringAsyncCalled(JobHandle jobHandle, string schedule);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.GetMonitoringSnapshotAsyncCalled,
+		EventName = "Immediate.Jobs.LinqToDB.GetMonitoringSnapshotAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "GetMonitoringSnapshotAsync called"
+	)]
+	private partial void GetMonitoringSnapshotAsyncCalled();
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.QueryJobsAsyncCalled,
+		EventName = "Immediate.Jobs.LinqToDB.QueryJobsAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "QueryJobsAsync called (Query={Query})"
+	)]
+	private partial void QueryJobsAsyncCalled(JobQuery query);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.QueryJobExecutionsAsyncCalled,
+		EventName = "Immediate.Jobs.LinqToDB.QueryJobExecutionsAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "QueryJobExecutionsAsync called (JobHandle={JobHandle})"
+	)]
+	private partial void QueryJobExecutionsAsyncCalled(JobHandle jobHandle);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.GetBatchStatusAsyncCalled,
+		EventName = "Immediate.Jobs.LinqToDB.GetBatchStatusAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "GetBatchStatusAsync called (BatchHandle={BatchHandle})"
+	)]
+	private partial void GetBatchStatusAsyncCalled(BatchHandle batchHandle);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.QueryBatchesAsyncCalled,
+		EventName = "Immediate.Jobs.LinqToDB.QueryBatchesAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "QueryBatchesAsync called (Query={Query})"
+	)]
+	private partial void QueryBatchesAsyncCalled(BatchQuery query);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.QueryBatchMembersAsyncCalled,
+		EventName = "Immediate.Jobs.LinqToDB.QueryBatchMembersAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "QueryBatchMembersAsync called (BatchHandle={BatchHandle})"
+	)]
+	private partial void QueryBatchMembersAsyncCalled(BatchHandle batchHandle);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.GetBatchGraphAsyncCalled,
+		EventName = "Immediate.Jobs.LinqToDB.GetBatchGraphAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "GetBatchGraphAsync called (BatchHandle={BatchHandle})"
+	)]
+	private partial void GetBatchGraphAsyncCalled(BatchHandle batchHandle);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.GetJobStatusAsyncCalled,
+		EventName = "Immediate.Jobs.LinqToDB.GetJobStatusAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "GetJobStatusAsync called (JobHandle={JobHandle})"
+	)]
+	private partial void GetJobStatusAsyncCalled(JobHandle jobHandle);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.CancelBatchAsyncCalled,
+		EventName = "Immediate.Jobs.LinqToDB.CancelBatchAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "CancelBatchAsync called (BatchHandle={BatchHandle})"
+	)]
+	private partial void CancelBatchAsyncCalled(BatchHandle batchHandle);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.DeleteBatchAsyncCalled,
+		EventName = "Immediate.Jobs.LinqToDB.DeleteBatchAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "DeleteBatchAsync called (BatchHandle={BatchHandle})"
+	)]
+	private partial void DeleteBatchAsyncCalled(BatchHandle batchHandle);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.CancelAsyncCalled,
+		EventName = "Immediate.Jobs.LinqToDB.CancelAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "CancelAsync called (JobHandle={JobHandle})"
+	)]
+	private partial void CancelAsyncCalled(JobHandle jobHandle);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.RetryAsyncCalled,
+		EventName = "Immediate.Jobs.LinqToDB.RetryAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "RetryAsync called (JobHandle={JobHandle})"
+	)]
+	private partial void RetryAsyncCalled(JobHandle jobHandle);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.DeleteAsyncCalled,
+		EventName = "Immediate.Jobs.LinqToDB.DeleteAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "DeleteAsync called (JobHandle={JobHandle})"
+	)]
+	private partial void DeleteAsyncCalled(JobHandle jobHandle);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.PurgeJobsAsyncCalled,
+		EventName = "Immediate.Jobs.LinqToDB.PurgeJobsAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "PurgeJobsAsync called (SucceededRetention={SucceededRetention}, FailedRetention={FailedRetention})"
+	)]
+	private partial void PurgeJobsAsyncCalled(TimeSpan succeededRetention, TimeSpan failedRetention);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.PurgeBatchesAsyncCalled,
+		EventName = "Immediate.Jobs.LinqToDB.PurgeBatchesAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "PurgeBatchesAsync called (SucceededRetention={SucceededRetention}, FailedRetention={FailedRetention})"
+	)]
+	private partial void PurgeBatchesAsyncCalled(TimeSpan succeededRetention, TimeSpan failedRetention);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.HeartbeatAsyncCalled,
+		EventName = "Immediate.Jobs.LinqToDB.HeartbeatAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "HeartbeatAsync called (Server={Server})"
+	)]
+	private partial void HeartbeatAsyncCalled(string server);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.IsHealthyAsyncCalled,
+		EventName = "Immediate.Jobs.LinqToDB.IsHealthyAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "IsHealthyAsync called"
+	)]
+	private partial void IsHealthyAsyncCalled();
 }

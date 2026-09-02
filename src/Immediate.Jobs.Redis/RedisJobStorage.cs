@@ -3,6 +3,8 @@ using System.Globalization;
 using System.Text.Json;
 using Immediate.Jobs.Shared.Apis;
 using Immediate.Jobs.Shared.Storage;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using StackExchange.Redis;
 
@@ -12,12 +14,14 @@ namespace Immediate.Jobs.Redis;
 /// Distributed Redis storage for ordinary queue jobs and recurring schedules.
 /// Batches and continuations require a graph-capable SQL provider.
 /// </summary>
-internal sealed class RedisJobStorage(
+internal sealed partial class RedisJobStorage(
 	IConnectionMultiplexer connection,
 	IOptions<RedisJobStorageOptions> options,
-	TimeProvider timeProvider
+	TimeProvider timeProvider,
+	ILogger<RedisJobStorage>? logger = null
 ) : IRecurringJobStorage
 {
+	private readonly ILogger _logger = logger ?? NullLogger<RedisJobStorage>.Instance;
 	private const int QueryWindowSize = 256;
 	private const int MaximumQueryTake = 1000;
 
@@ -62,6 +66,7 @@ internal sealed class RedisJobStorage(
 	/// <inheritdoc />
 	public async ValueTask InitializeAsync(CancellationToken cancellationToken = default)
 	{
+		InitializeAsyncCalled();
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 		await Database.PingAsync().WaitAsync(cancellationToken);
@@ -70,6 +75,7 @@ internal sealed class RedisJobStorage(
 	/// <inheritdoc />
 	public async ValueTask EnqueueAsync(JobRecord job, CancellationToken cancellationToken = default)
 	{
+		EnqueueAsyncCalled(job.JobHandle);
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 
@@ -90,6 +96,7 @@ internal sealed class RedisJobStorage(
 		CancellationToken cancellationToken = default
 	)
 	{
+		AcquireDueJobsAsyncCalled(request.WorkerId, request.BatchSize, request.Queues.Count);
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 
@@ -155,6 +162,7 @@ internal sealed class RedisJobStorage(
 		CancellationToken cancellationToken = default
 	)
 	{
+		SetExecutionTelemetryAsyncCalled(jobHandle, executionNumber);
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 
@@ -176,6 +184,7 @@ internal sealed class RedisJobStorage(
 		CancellationToken cancellationToken = default
 	)
 	{
+		RenewLeaseAsyncCalled(jobHandle, executionNumber);
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 
@@ -197,6 +206,7 @@ internal sealed class RedisJobStorage(
 		CancellationToken cancellationToken = default
 	)
 	{
+		CompleteAsyncCalled(jobHandle, executionNumber);
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 
@@ -228,6 +238,7 @@ internal sealed class RedisJobStorage(
 		CancellationToken cancellationToken = default
 	)
 	{
+		FailAsyncCalled(jobHandle, executionNumber);
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 
@@ -269,6 +280,7 @@ internal sealed class RedisJobStorage(
 		CancellationToken cancellationToken = default
 	)
 	{
+		GetMonitoringSnapshotAsyncCalled();
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 
@@ -300,6 +312,7 @@ internal sealed class RedisJobStorage(
 		CancellationToken cancellationToken = default
 	)
 	{
+		QueryJobsAsyncCalled(query);
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 
@@ -351,6 +364,7 @@ internal sealed class RedisJobStorage(
 		CancellationToken cancellationToken = default
 	)
 	{
+		QueryJobExecutionsAsyncCalled(jobHandle);
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 
@@ -410,6 +424,7 @@ internal sealed class RedisJobStorage(
 		CancellationToken cancellationToken = default
 	)
 	{
+		GetJobStatusAsyncCalled(jobHandle);
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 
@@ -436,6 +451,7 @@ internal sealed class RedisJobStorage(
 	/// <inheritdoc />
 	public async ValueTask CancelAsync(JobHandle jobHandle, CancellationToken cancellationToken = default)
 	{
+		CancelAsyncCalled(jobHandle);
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 
@@ -455,6 +471,7 @@ internal sealed class RedisJobStorage(
 	/// <inheritdoc />
 	public async ValueTask RetryAsync(JobHandle jobHandle, CancellationToken cancellationToken = default)
 	{
+		RetryAsyncCalled(jobHandle);
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 
@@ -482,6 +499,7 @@ internal sealed class RedisJobStorage(
 	/// <inheritdoc />
 	public async ValueTask DeleteAsync(JobHandle jobHandle, CancellationToken cancellationToken = default)
 	{
+		DeleteAsyncCalled(jobHandle);
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 
@@ -504,6 +522,7 @@ internal sealed class RedisJobStorage(
 		CancellationToken cancellationToken = default
 	)
 	{
+		PurgeJobsAsyncCalled(succeededRetention, failedRetention);
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 
@@ -520,6 +539,7 @@ internal sealed class RedisJobStorage(
 		CancellationToken cancellationToken = default
 	)
 	{
+		HeartbeatAsyncCalled(server.WorkerId);
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 
@@ -541,6 +561,7 @@ internal sealed class RedisJobStorage(
 	/// <inheritdoc />
 	public async ValueTask<bool> IsHealthyAsync(CancellationToken cancellationToken = default)
 	{
+		IsHealthyAsyncCalled();
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 
@@ -565,6 +586,7 @@ internal sealed class RedisJobStorage(
 		CancellationToken cancellationToken = default
 	)
 	{
+		MergeRecurringSchedulesListAsyncCalled();
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 
@@ -583,6 +605,7 @@ internal sealed class RedisJobStorage(
 		CancellationToken cancellationToken = default
 	)
 	{
+		UpsertRecurringAsyncCalled(schedule.Name);
 		await UpsertRecurringAsync(schedule, preserveUnchangedNextRun: false, cancellationToken);
 	}
 
@@ -640,6 +663,7 @@ internal sealed class RedisJobStorage(
 	/// <inheritdoc />
 	public async ValueTask RemoveRecurringAsync(string name, CancellationToken cancellationToken = default)
 	{
+		RemoveRecurringAsyncCalled(name);
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 
@@ -658,6 +682,7 @@ internal sealed class RedisJobStorage(
 	/// <inheritdoc />
 	public async ValueTask PauseRecurringAsync(string name, CancellationToken cancellationToken = default)
 	{
+		PauseRecurringAsyncCalled(name);
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 
@@ -667,6 +692,7 @@ internal sealed class RedisJobStorage(
 	/// <inheritdoc />
 	public async ValueTask ResumeRecurringAsync(string name, CancellationToken cancellationToken = default)
 	{
+		ResumeRecurringAsyncCalled(name);
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 
@@ -680,6 +706,7 @@ internal sealed class RedisJobStorage(
 		CancellationToken cancellationToken = default
 	)
 	{
+		GetDueRecurringAsyncCalled(batchSize);
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 
@@ -729,6 +756,7 @@ internal sealed class RedisJobStorage(
 		CancellationToken cancellationToken = default
 	)
 	{
+		MaterializeRecurringAsyncCalled(job.JobHandle, schedule.Name);
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 
@@ -755,7 +783,11 @@ internal sealed class RedisJobStorage(
 	}
 
 	/// <inheritdoc />
-	public async ValueTask DisposeAsync() { await TaskScheduler.Yield(); }
+	public async ValueTask DisposeAsync()
+	{
+		DisposeAsyncCalled();
+		await TaskScheduler.Yield();
+	}
 
 	private async ValueTask SetRecurringPausedAsync(
 		string name,
@@ -1127,4 +1159,204 @@ internal sealed class RedisJobStorage(
 	private static int ParseInt32(RedisValue value) =>
 		int.Parse((string)value!, NumberStyles.Integer, CultureInfo.InvariantCulture);
 	private static string? NullIfEmpty(RedisValue value) => value.IsNullOrEmpty ? null : (string)value!;
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.InitializeAsyncCalled,
+		EventName = "Immediate.Jobs.Redis.InitializeAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "InitializeAsync called"
+	)]
+	private partial void InitializeAsyncCalled();
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.EnqueueAsyncCalled,
+		EventName = "Immediate.Jobs.Redis.EnqueueAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "EnqueueAsync called (JobHandle={JobHandle})"
+	)]
+	private partial void EnqueueAsyncCalled(JobHandle jobHandle);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.AcquireDueJobsAsyncCalled,
+		EventName = "Immediate.Jobs.Redis.AcquireDueJobsAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "AcquireDueJobsAsync called (Worker={Worker}, BatchSize={BatchSize}, Queues={Queues})"
+	)]
+	private partial void AcquireDueJobsAsyncCalled(string worker, int batchSize, int queues);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.SetExecutionTelemetryAsyncCalled,
+		EventName = "Immediate.Jobs.Redis.SetExecutionTelemetryAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "SetExecutionTelemetryAsync called (JobHandle={JobHandle}, Execution={Execution})"
+	)]
+	private partial void SetExecutionTelemetryAsyncCalled(JobHandle jobHandle, int execution);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.RenewLeaseAsyncCalled,
+		EventName = "Immediate.Jobs.Redis.RenewLeaseAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "RenewLeaseAsync called (JobHandle={JobHandle}, Execution={Execution})"
+	)]
+	private partial void RenewLeaseAsyncCalled(JobHandle jobHandle, int execution);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.CompleteAsyncCalled,
+		EventName = "Immediate.Jobs.Redis.CompleteAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "CompleteAsync called (JobHandle={JobHandle}, Execution={Execution})"
+	)]
+	private partial void CompleteAsyncCalled(JobHandle jobHandle, int execution);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.FailAsyncCalled,
+		EventName = "Immediate.Jobs.Redis.FailAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "FailAsync called (JobHandle={JobHandle}, Execution={Execution})"
+	)]
+	private partial void FailAsyncCalled(JobHandle jobHandle, int execution);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.GetMonitoringSnapshotAsyncCalled,
+		EventName = "Immediate.Jobs.Redis.GetMonitoringSnapshotAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "GetMonitoringSnapshotAsync called"
+	)]
+	private partial void GetMonitoringSnapshotAsyncCalled();
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.QueryJobsAsyncCalled,
+		EventName = "Immediate.Jobs.Redis.QueryJobsAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "QueryJobsAsync called (Query={Query})"
+	)]
+	private partial void QueryJobsAsyncCalled(JobQuery query);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.QueryJobExecutionsAsyncCalled,
+		EventName = "Immediate.Jobs.Redis.QueryJobExecutionsAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "QueryJobExecutionsAsync called (JobHandle={JobHandle})"
+	)]
+	private partial void QueryJobExecutionsAsyncCalled(JobHandle jobHandle);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.GetJobStatusAsyncCalled,
+		EventName = "Immediate.Jobs.Redis.GetJobStatusAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "GetJobStatusAsync called (JobHandle={JobHandle})"
+	)]
+	private partial void GetJobStatusAsyncCalled(JobHandle jobHandle);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.CancelAsyncCalled,
+		EventName = "Immediate.Jobs.Redis.CancelAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "CancelAsync called (JobHandle={JobHandle})"
+	)]
+	private partial void CancelAsyncCalled(JobHandle jobHandle);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.RetryAsyncCalled,
+		EventName = "Immediate.Jobs.Redis.RetryAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "RetryAsync called (JobHandle={JobHandle})"
+	)]
+	private partial void RetryAsyncCalled(JobHandle jobHandle);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.DeleteAsyncCalled,
+		EventName = "Immediate.Jobs.Redis.DeleteAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "DeleteAsync called (JobHandle={JobHandle})"
+	)]
+	private partial void DeleteAsyncCalled(JobHandle jobHandle);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.PurgeJobsAsyncCalled,
+		EventName = "Immediate.Jobs.Redis.PurgeJobsAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "PurgeJobsAsync called (SucceededRetention={SucceededRetention}, FailedRetention={FailedRetention})"
+	)]
+	private partial void PurgeJobsAsyncCalled(TimeSpan succeededRetention, TimeSpan failedRetention);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.HeartbeatAsyncCalled,
+		EventName = "Immediate.Jobs.Redis.HeartbeatAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "HeartbeatAsync called (Server={Server})"
+	)]
+	private partial void HeartbeatAsyncCalled(string server);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.IsHealthyAsyncCalled,
+		EventName = "Immediate.Jobs.Redis.IsHealthyAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "IsHealthyAsync called"
+	)]
+	private partial void IsHealthyAsyncCalled();
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.MergeRecurringSchedulesListAsyncCalled,
+		EventName = "Immediate.Jobs.Redis.MergeRecurringSchedulesListAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "MergeRecurringSchedulesListAsync called"
+	)]
+	private partial void MergeRecurringSchedulesListAsyncCalled();
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.UpsertRecurringAsyncCalled,
+		EventName = "Immediate.Jobs.Redis.UpsertRecurringAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "UpsertRecurringAsync called (Schedule={Schedule})"
+	)]
+	private partial void UpsertRecurringAsyncCalled(string schedule);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.RemoveRecurringAsyncCalled,
+		EventName = "Immediate.Jobs.Redis.RemoveRecurringAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "RemoveRecurringAsync called (Name={Name})"
+	)]
+	private partial void RemoveRecurringAsyncCalled(string name);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.PauseRecurringAsyncCalled,
+		EventName = "Immediate.Jobs.Redis.PauseRecurringAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "PauseRecurringAsync called (Name={Name})"
+	)]
+	private partial void PauseRecurringAsyncCalled(string name);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.ResumeRecurringAsyncCalled,
+		EventName = "Immediate.Jobs.Redis.ResumeRecurringAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "ResumeRecurringAsync called (Name={Name})"
+	)]
+	private partial void ResumeRecurringAsyncCalled(string name);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.GetDueRecurringAsyncCalled,
+		EventName = "Immediate.Jobs.Redis.GetDueRecurringAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "GetDueRecurringAsync called (BatchSize={BatchSize})"
+	)]
+	private partial void GetDueRecurringAsyncCalled(int batchSize);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.MaterializeRecurringAsyncCalled,
+		EventName = "Immediate.Jobs.Redis.MaterializeRecurringAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "MaterializeRecurringAsync called (JobHandle={JobHandle}, Schedule={Schedule})"
+	)]
+	private partial void MaterializeRecurringAsyncCalled(JobHandle jobHandle, string schedule);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.DisposeAsyncCalled,
+		EventName = "Immediate.Jobs.Redis.DisposeAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "DisposeAsync called"
+	)]
+	private partial void DisposeAsyncCalled();
 }

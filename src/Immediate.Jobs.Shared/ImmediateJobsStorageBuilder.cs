@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using System.Diagnostics.CodeAnalysis;
 using Immediate.Jobs.Shared.Storage;
 using Microsoft.Extensions.DependencyInjection;
@@ -202,7 +203,8 @@ internal sealed class ImmediateJobsStorageBuilder : IImmediateJobsStorageBuilder
 					ServiceDescriptor.Singleton<IJobStorage, SingleServerJobStorage>(
 						sp => new SingleServerJobStorage(
 							_factory(sp),
-							sp.GetRequiredService<TimeProvider>()
+							sp.GetRequiredService<TimeProvider>(),
+							sp.GetRequiredService<ILogger<SingleServerJobStorage>>()
 						)
 					)
 				);
