@@ -19,8 +19,6 @@ public sealed partial class JobSchedulingService : BackgroundService
 {
 	private readonly IServiceScopeFactory _scopeFactory;
 	private readonly IJobStorage _storage;
-	private readonly IRecurringJobStorage? _recurringStorage;
-	private readonly IJobGraphStorage? _graphStorage;
 	private readonly ImmediateJobsOptions _options;
 	private readonly FairQueueOptions _fairQueueOptions;
 	private readonly TimeProvider _timeProvider;
@@ -94,9 +92,6 @@ public sealed partial class JobSchedulingService : BackgroundService
 
 		_scopeFactory = scopeFactory;
 		_storage = storage;
-		_recurringStorage = storage as IRecurringJobStorage;
-		_graphStorage = storage as IJobGraphStorage;
-
 		_options = options.Value;
 		_fairQueueOptions = fairQueueOptions.Value;
 		_timeProvider = timeProvider;
@@ -124,8 +119,10 @@ public sealed partial class JobSchedulingService : BackgroundService
 			SingleReader = _options.MaxParallelJobs == 1,
 		});
 
-		if (_graphStorage is null)
+		if (storage is not IJobGraphStorage)
 			GraphFeaturesDisabled(storage.GetType().Name);
+		if (storage is not IRecurringJobStorage)
+			RecurringJobFeaturesDisabled(storage.GetType().Name);
 	}
 
 	/// <inheritdoc />
@@ -280,9 +277,10 @@ public sealed partial class JobSchedulingService : BackgroundService
 				_options.FailedRetention,
 				cancellationToken
 			);
-			if (_graphStorage is not null)
+
+			if (_storage is IJobGraphStorage graphStorage)
 			{
-				await _graphStorage.PurgeBatchesAsync(
+				await graphStorage.PurgeBatchesAsync(
 					_options.BatchSucceededRetention,
 					_options.BatchFailedRetention,
 					cancellationToken
@@ -422,9 +420,10 @@ public sealed partial class JobSchedulingService : BackgroundService
 				scope.ServiceProvider,
 				new JobExecution { Record = record, Definition = definition, CancellationToken = timeout.Token, Buffer = executionBuffer }
 			);
-			if (_graphStorage is not null)
+
+			if (_storage is IJobGraphStorage graphStorage)
 			{
-				await _graphStorage.CompleteWithContinuationsAsync(
+				await graphStorage.CompleteWithContinuationsAsync(
 					record.JobHandle,
 					record.Attempt,
 					_workerId,
@@ -612,8 +611,7 @@ public sealed partial class JobSchedulingService : BackgroundService
 
 	private async Task AssertCodeSchedulesAsync(CancellationToken cancellationToken)
 	{
-		var recurringStorage = _recurringStorage;
-		if (recurringStorage is null)
+		if (_storage is not IRecurringJobStorage recurringStorage)
 			return;
 
 		var now = _timeProvider.GetUtcNow();
@@ -640,7 +638,7 @@ public sealed partial class JobSchedulingService : BackgroundService
 	{
 		if (_state.CodeSchedulesAsserted)
 			return;
-		if (_recurringStorage is null)
+		if (_storage is not IRecurringJobStorage)
 		{
 			_state.MarkCodeSchedulesAsserted();
 			return;
@@ -662,12 +660,12 @@ public sealed partial class JobSchedulingService : BackgroundService
 
 	private async Task MaterializeRecurringAsync(CancellationToken cancellationToken)
 	{
-		var recurringStorage = _recurringStorage;
-		if (recurringStorage is null)
+		if (_storage is not IRecurringJobStorage recurringStorage)
 			return;
 
 		var now = _timeProvider.GetUtcNow();
 		var schedules = await recurringStorage.GetDueRecurringAsync(now, _options.AcquisitionBatchSize, cancellationToken);
+
 		foreach (var schedule in schedules)
 		{
 			if (!_definitions.TryGetValue(schedule.JobName, out var definition))
