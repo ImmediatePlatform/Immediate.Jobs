@@ -569,7 +569,7 @@ internal sealed class RedisJobStorage(
 		await TaskScheduler.Yield();
 
 		foreach (var schedule in schedules)
-			await UpsertRecurringAsync(schedule, cancellationToken);
+			await UpsertRecurringAsync(schedule, preserveUnchangedNextRun: true, cancellationToken);
 
 		await RemoveObsoleteCodeDefinedRecurringAsync(
 			schedules.Select(static schedule => schedule.Name).ToList(),
@@ -581,6 +581,15 @@ internal sealed class RedisJobStorage(
 	public async ValueTask UpsertRecurringAsync(
 		RecurringJobSchedule schedule,
 		CancellationToken cancellationToken = default
+	)
+	{
+		await UpsertRecurringAsync(schedule, preserveUnchangedNextRun: false, cancellationToken);
+	}
+
+	private async ValueTask UpsertRecurringAsync(
+		RecurringJobSchedule schedule,
+		bool preserveUnchangedNextRun,
+		CancellationToken cancellationToken
 	)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
@@ -598,6 +607,9 @@ internal sealed class RedisJobStorage(
 				schedule.Name,
 				Score(schedule.NextRunAt),
 				RecurringDueMember(schedule.NextRunAt, schedule.Name),
+				schedule.Cron,
+				schedule.TimeZone,
+				preserveUnchangedNextRun ? 1 : 0,
 			],
 			cancellationToken
 		);
