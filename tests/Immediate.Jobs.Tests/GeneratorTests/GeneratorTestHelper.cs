@@ -147,7 +147,6 @@ internal static class GeneratorTestHelper
 			"RootNamespace",
 			"Jobs",
 			"JobsCollected",
-			"QueuesCollected",
 		};
 
 	private static void AssertSteps(

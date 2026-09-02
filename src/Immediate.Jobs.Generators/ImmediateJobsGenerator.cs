@@ -45,23 +45,12 @@ public sealed partial class ImmediateJobsGenerator : IIncrementalGenerator
 
 		var collectedJobs = jobs.Collect().WithTrackingName("JobsCollected");
 
-		var queues = context.SyntaxProvider
-			.ForAttributeWithMetadataName(
-				"Immediate.Jobs.Shared.QueueDefinitionAttribute",
-				predicate: static (node, _) => node is ClassDeclarationSyntax,
-				transform: TransformQueue
-			)
-			.WhereNotNull()
-			.Collect()
-			.WithTrackingName("QueuesCollected");
-
 		var registrationsTemplate = GetTemplate("ServiceCollectionExtensions");
 		context.RegisterSourceOutput(
-			collectedJobs.Combine(queues).Combine(assemblyDefaults.Combine(@namespace)),
+			collectedJobs.Combine(assemblyDefaults.Combine(@namespace)),
 			(productionContext, input) => RenderRegistrations(
 				productionContext,
-				input.Left.Left,
-				input.Left.Right,
+				input.Left,
 				input.Right.Left,
 				input.Right.Right,
 				registrationsTemplate
