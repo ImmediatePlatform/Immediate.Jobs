@@ -1011,12 +1011,18 @@ internal sealed class LinqToDBJobStorage<T>(
 			existing.Remove(schedule.Name);
 
 			var oldStamp = current.ConcurrencyStamp;
+
+			current.NextRunAt =
+				string.Equals(current.Cron, schedule.Cron, StringComparison.Ordinal)
+				&& string.Equals(current.TimeZone, schedule.TimeZone, StringComparison.Ordinal)
+				? current.NextRunAt
+				: schedule.NextRunAt;
+
 			current.JobName = schedule.JobName;
 			current.QueueName = schedule.QueueName;
 			current.Cron = schedule.Cron;
 			current.TimeZone = schedule.TimeZone;
 			current.IsCodeDefined = true;
-			current.NextRunAt = schedule.NextRunAt;
 			current.ConcurrencyStamp = Guid.NewGuid();
 
 			if (!await UpdateRecurringAsync(connection, current, oldStamp, cancellationToken))
@@ -1083,7 +1089,7 @@ internal sealed class LinqToDBJobStorage<T>(
 			existing.ConcurrencyStamp = Guid.NewGuid();
 
 			if (!await UpdateRecurringAsync(connection, existing, oldStamp, cancellationToken))
-				throw new ImmediateJobException("Failure saving updated schedule.");
+				throw new LostRaceException();
 		}
 	}
 

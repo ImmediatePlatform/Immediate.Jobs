@@ -661,9 +661,18 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 			{
 				ref var current = ref CollectionsMarshal.GetValueRefOrAddDefault(_recurring, schedule.Name, out _);
 
-				current = current is { } existing
-					? schedule with { IsPaused = existing.IsPaused, LastRunAt = existing.LastRunAt }
-					: schedule;
+				current = current switch
+				{
+					{ } existing when
+						string.Equals(existing.Cron, schedule.Cron, StringComparison.Ordinal)
+						&& string.Equals(existing.TimeZone, schedule.TimeZone, StringComparison.Ordinal) =>
+						existing with { JobName = schedule.JobName, QueueName = schedule.QueueName, IsCodeDefined = true },
+
+					{ } existing =>
+						schedule with { IsPaused = existing.IsPaused, LastRunAt = existing.LastRunAt },
+
+					_ => schedule,
+				};
 
 				existingStaticDefinitions.Remove(schedule.Name);
 			}

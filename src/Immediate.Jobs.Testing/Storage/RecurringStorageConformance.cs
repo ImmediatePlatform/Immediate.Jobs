@@ -108,6 +108,7 @@ internal static class RecurringStorageConformance
 					IsPaused = true,
 					LastRunAt = now.AddHours(-1),
 				},
+				Schedule("preserve-next-run", now.AddHours(-1), isCodeDefined: true),
 				Schedule("merge-remove", now.AddHours(2), isCodeDefined: true),
 				Schedule("merge-dynamic-to-static", now.AddHours(3), isCodeDefined: false),
 				Schedule("merge-dynamic", now.AddHours(3), isCodeDefined: false),
@@ -133,8 +134,9 @@ internal static class RecurringStorageConformance
 		};
 		var insertedDefinition = Schedule("merge-insert", now.AddHours(5), isCodeDefined: true);
 		var upgradeToStatic = Schedule("merge-dynamic-to-static", now.AddHours(3), isCodeDefined: true);
+		var preserve = Schedule("preserve-next-run", persistedAt.AddHours(12), isCodeDefined: true);
 
-		await recurring.MergeRecurringSchedulesListAsync([updatedDefinition, insertedDefinition, upgradeToStatic], cancellationToken);
+		await recurring.MergeRecurringSchedulesListAsync([updatedDefinition, insertedDefinition, upgradeToStatic, preserve], cancellationToken);
 
 		var schedules = (await storage.GetMonitoringSnapshotAsync(cancellationToken)).Recurring;
 		var updated = schedules.Single(schedule => string.Equals(schedule.Name, "merge-update", StringComparison.Ordinal));
@@ -154,7 +156,7 @@ internal static class RecurringStorageConformance
 			.Select(static schedule => schedule.Name)
 			.Order(StringComparer.Ordinal);
 		ConformanceAssert.SequenceEqual(
-			new[] { updatedDefinition.Name, insertedDefinition.Name, "merge-dynamic", upgradeToStatic.Name }.Order(StringComparer.Ordinal),
+			new[] { updatedDefinition.Name, insertedDefinition.Name, "merge-dynamic", upgradeToStatic.Name, preserve.Name }.Order(StringComparer.Ordinal),
 			names,
 			MergeDefinitionsName,
 			"merge must insert new definitions, remove obsolete definitions, and preserve dynamic schedules"
@@ -168,10 +170,17 @@ internal static class RecurringStorageConformance
 		);
 
 		AssertSchedule(
-			upgradeToStatic,
+			upgradeToStatic with { NextRunAt = persistedAt.AddHours(3) },
 			schedules.Single(schedule => string.Equals(schedule.Name, "merge-dynamic-to-static", StringComparison.Ordinal)),
 			MergeDefinitionsName,
 			"merge must upgrade to static safely"
+		);
+
+		ConformanceAssert.Equal(
+			persistedAt.AddHours(-1),
+			schedules.Single(schedule => string.Equals(schedule.Name, preserve.Name, StringComparison.Ordinal)).NextRunAt,
+			MergeDefinitionsName,
+			"merge must preserve the next run time when cron and tz are the same"
 		);
 	}
 

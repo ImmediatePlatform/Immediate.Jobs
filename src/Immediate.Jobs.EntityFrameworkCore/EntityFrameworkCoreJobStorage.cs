@@ -929,12 +929,17 @@ internal sealed class EntityFrameworkCoreJobStorage<TContext>(
 					continue;
 				}
 
+				entity.NextRunAt =
+					string.Equals(entity.Cron, schedule.Cron, StringComparison.Ordinal)
+					&& string.Equals(entity.TimeZone, schedule.TimeZone, StringComparison.Ordinal)
+					? entity.NextRunAt
+					: schedule.NextRunAt;
+
 				entity.JobName = schedule.JobName;
 				entity.QueueName = schedule.QueueName;
 				entity.Cron = schedule.Cron;
 				entity.TimeZone = schedule.TimeZone;
 				entity.IsCodeDefined = true;
-				entity.NextRunAt = schedule.NextRunAt;
 				entity.ConcurrencyStamp = Guid.NewGuid();
 			}
 
