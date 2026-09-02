@@ -52,9 +52,6 @@ public sealed partial class JobSchedulingService : BackgroundService
 	/// <param name="definitions">
 	/// 	The generated job definitions available to the scheduler.
 	/// </param>
-	/// <param name="queueDefinitions">
-	/// 	The configured queue definitions.
-	/// </param>
 	/// <param name="options">
 	/// 	The scheduler runtime options.
 	/// </param>
@@ -77,7 +74,6 @@ public sealed partial class JobSchedulingService : BackgroundService
 		IServiceScopeFactory scopeFactory,
 		IJobStorage storage,
 		IEnumerable<JobDefinition> definitions,
-		IEnumerable<JobQueueDefinition> queueDefinitions,
 		IOptions<ImmediateJobsOptions> options,
 		IOptions<FairQueueOptions> fairQueueOptions,
 		TimeProvider timeProvider,
@@ -89,7 +85,6 @@ public sealed partial class JobSchedulingService : BackgroundService
 		ArgumentNullException.ThrowIfNull(scopeFactory);
 		ArgumentNullException.ThrowIfNull(storage);
 		ArgumentNullException.ThrowIfNull(definitions);
-		ArgumentNullException.ThrowIfNull(queueDefinitions);
 		ArgumentNullException.ThrowIfNull(options);
 		ArgumentNullException.ThrowIfNull(fairQueueOptions);
 		ArgumentNullException.ThrowIfNull(timeProvider);
@@ -101,17 +96,6 @@ public sealed partial class JobSchedulingService : BackgroundService
 		_storage = storage;
 		_recurringStorage = storage as IRecurringJobStorage;
 		_graphStorage = storage as IJobGraphStorage;
-		_definitions = definitions.ToDictionary(x => x.Name, StringComparer.Ordinal);
-
-		_queues = queueDefinitions
-			.Concat(_definitions.Values.Select(static definition => definition.Queue))
-			.Append(JobQueueDefinition.Default)
-			.GroupBy(static queue => queue.Name, StringComparer.Ordinal)
-			.ToDictionary(
-				static group => group.Key,
-				static group => group.Distinct().Single(),
-				StringComparer.Ordinal
-			);
 
 		_options = options.Value;
 		_fairQueueOptions = fairQueueOptions.Value;
@@ -119,6 +103,17 @@ public sealed partial class JobSchedulingService : BackgroundService
 		_idGenerator = idGenerator;
 		_logger = logger;
 		_state = state;
+
+		_definitions = definitions
+			.ToDictionary(x => x.Name, StringComparer.Ordinal);
+
+		_queues = _definitions
+			.Select(d => d.Value.Queue)
+			.Distinct()
+			.ToDictionary(
+				static group => group.Name,
+				StringComparer.Ordinal
+			);
 
 		// Reservation accounting in BuildAcquisitionRequest is the admission control, so the channel is
 		// only a handoff buffer. A bounded channel would add a second, redundant limit whose sole effect

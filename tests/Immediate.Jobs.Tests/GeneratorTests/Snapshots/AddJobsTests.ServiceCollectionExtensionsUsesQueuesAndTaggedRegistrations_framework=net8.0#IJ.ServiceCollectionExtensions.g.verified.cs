@@ -15,16 +15,6 @@ public static class ImmediateJobsGeneratedServiceCollectionExtensions
 	{
 		var builder = global::Immediate.Jobs.Shared.ImmediateJobsRuntimeServiceCollectionExtensions.AddImmediateJobsCore(services);
 		
-		global::Microsoft.Extensions.DependencyInjection.ServiceCollectionServiceExtensions.AddSingleton(
-			services,
-			new global::Immediate.Jobs.Shared.Internals.JobQueueDefinition
-			{
-				Name = "critical-queue",
-				Priority = 10,
-				Concurrency = 1,
-			}
-		);
-
 		if (tags is [] || Intersects(tags, ["critical"]))
 		{
 			global::WorkJob.AddJob(services);

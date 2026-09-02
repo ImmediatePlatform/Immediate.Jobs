@@ -17,18 +17,6 @@ public static class ImmediateJobsGeneratedServiceCollectionExtensions
 	{
 		var builder = global::Immediate.Jobs.Shared.ImmediateJobsRuntimeServiceCollectionExtensions.AddImmediateJobsCore(services);
 		
-		{{~ for queue in queues ~}}
-		global::Microsoft.Extensions.DependencyInjection.ServiceCollectionServiceExtensions.AddSingleton(
-			services,
-			new global::Immediate.Jobs.Shared.Internals.JobQueueDefinition
-			{
-				Name = {{ queue.name_literal }},
-				Priority = {{ queue.priority }},
-				Concurrency = {{ queue.concurrency }},
-			}
-		);
-
-		{{~ end ~}}
 		{{~ for group in jobs_by_tag ~}}
 		{{~ if group.key != null ~}}
 		if (tags is [] || Intersects(tags, [{{ group.key }}]))
