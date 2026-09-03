@@ -1918,7 +1918,7 @@ public sealed partial class InMemoryJobStorage(
 	}
 
 	[LoggerMessage(
-		EventId = LibraryEventIds.DisposeAsyncCalled,
+		EventId = LibraryEventIds.InMemoryDisposeAsyncCalled,
 		EventName = "Immediate.Jobs.Shared.DisposeAsyncCalled",
 		Level = LogLevel.Debug,
 		Message = "DisposeAsync called"
@@ -1926,7 +1926,7 @@ public sealed partial class InMemoryJobStorage(
 	private partial void DisposeAsyncCalled();
 
 	[LoggerMessage(
-		EventId = LibraryEventIds.InitializeAsyncCalled,
+		EventId = LibraryEventIds.InMemoryInitializeAsyncCalled,
 		EventName = "Immediate.Jobs.Shared.InitializeAsyncCalled",
 		Level = LogLevel.Debug,
 		Message = "InitializeAsync called"
@@ -1934,7 +1934,7 @@ public sealed partial class InMemoryJobStorage(
 	private partial void InitializeAsyncCalled();
 
 	[LoggerMessage(
-		EventId = LibraryEventIds.EnqueueAsyncCalled,
+		EventId = LibraryEventIds.InMemoryEnqueueAsyncCalled,
 		EventName = "Immediate.Jobs.Shared.EnqueueAsyncCalled",
 		Level = LogLevel.Debug,
 		Message = "EnqueueAsync called (JobHandle={JobHandle})"
@@ -1942,7 +1942,7 @@ public sealed partial class InMemoryJobStorage(
 	private partial void EnqueueAsyncCalled(JobHandle jobHandle);
 
 	[LoggerMessage(
-		EventId = LibraryEventIds.EnqueueContinuationAsyncCalled,
+		EventId = LibraryEventIds.InMemoryEnqueueContinuationAsyncCalled,
 		EventName = "Immediate.Jobs.Shared.EnqueueContinuationAsyncCalled",
 		Level = LogLevel.Debug,
 		Message = "EnqueueContinuationAsync called (JobHandle={JobHandle}, Edges={Edges})"
@@ -1950,7 +1950,7 @@ public sealed partial class InMemoryJobStorage(
 	private partial void EnqueueContinuationAsyncCalled(JobHandle jobHandle, int edges);
 
 	[LoggerMessage(
-		EventId = LibraryEventIds.EnqueueBatchAsyncCalled,
+		EventId = LibraryEventIds.InMemoryEnqueueBatchAsyncCalled,
 		EventName = "Immediate.Jobs.Shared.EnqueueBatchAsyncCalled",
 		Level = LogLevel.Debug,
 		Message = "EnqueueBatchAsync called (BatchHandle={BatchHandle}, Jobs={Jobs}, Edges={Edges})"
@@ -1958,7 +1958,7 @@ public sealed partial class InMemoryJobStorage(
 	private partial void EnqueueBatchAsyncCalled(BatchHandle batchHandle, int jobs, int edges);
 
 	[LoggerMessage(
-		EventId = LibraryEventIds.AcquireDueJobsAsyncCalled,
+		EventId = LibraryEventIds.InMemoryAcquireDueJobsAsyncCalled,
 		EventName = "Immediate.Jobs.Shared.AcquireDueJobsAsyncCalled",
 		Level = LogLevel.Debug,
 		Message = "AcquireDueJobsAsync called (Worker={Worker}, BatchSize={BatchSize}, Queues={Queues})"
@@ -1966,7 +1966,7 @@ public sealed partial class InMemoryJobStorage(
 	private partial void AcquireDueJobsAsyncCalled(string worker, int batchSize, int queues);
 
 	[LoggerMessage(
-		EventId = LibraryEventIds.SetExecutionTelemetryAsyncCalled,
+		EventId = LibraryEventIds.InMemorySetExecutionTelemetryAsyncCalled,
 		EventName = "Immediate.Jobs.Shared.SetExecutionTelemetryAsyncCalled",
 		Level = LogLevel.Debug,
 		Message = "SetExecutionTelemetryAsync called (JobHandle={JobHandle}, Execution={Execution})"
@@ -1974,7 +1974,7 @@ public sealed partial class InMemoryJobStorage(
 	private partial void SetExecutionTelemetryAsyncCalled(JobHandle jobHandle, int execution);
 
 	[LoggerMessage(
-		EventId = LibraryEventIds.RenewLeaseAsyncCalled,
+		EventId = LibraryEventIds.InMemoryRenewLeaseAsyncCalled,
 		EventName = "Immediate.Jobs.Shared.RenewLeaseAsyncCalled",
 		Level = LogLevel.Debug,
 		Message = "RenewLeaseAsync called (JobHandle={JobHandle}, Execution={Execution})"
@@ -1982,7 +1982,7 @@ public sealed partial class InMemoryJobStorage(
 	private partial void RenewLeaseAsyncCalled(JobHandle jobHandle, int execution);
 
 	[LoggerMessage(
-		EventId = LibraryEventIds.CompleteAsyncCalled,
+		EventId = LibraryEventIds.InMemoryCompleteAsyncCalled,
 		EventName = "Immediate.Jobs.Shared.CompleteAsyncCalled",
 		Level = LogLevel.Debug,
 		Message = "CompleteAsync called (JobHandle={JobHandle}, Execution={Execution})"
@@ -1990,7 +1990,7 @@ public sealed partial class InMemoryJobStorage(
 	private partial void CompleteAsyncCalled(JobHandle jobHandle, int execution);
 
 	[LoggerMessage(
-		EventId = LibraryEventIds.CompleteWithContinuationsAsyncCalled,
+		EventId = LibraryEventIds.InMemoryCompleteWithContinuationsAsyncCalled,
 		EventName = "Immediate.Jobs.Shared.CompleteWithContinuationsAsyncCalled",
 		Level = LogLevel.Debug,
 		Message = "CompleteWithContinuationsAsync called (JobHandle={JobHandle}, Execution={Execution})"
@@ -1998,7 +1998,7 @@ public sealed partial class InMemoryJobStorage(
 	private partial void CompleteWithContinuationsAsyncCalled(JobHandle jobHandle, int execution);
 
 	[LoggerMessage(
-		EventId = LibraryEventIds.AddBatchJobAsyncCalled,
+		EventId = LibraryEventIds.InMemoryAddBatchJobAsyncCalled,
 		EventName = "Immediate.Jobs.Shared.AddBatchJobAsyncCalled",
 		Level = LogLevel.Debug,
 		Message = "AddBatchJobAsync called (JobHandle={JobHandle}, Execution={Execution})"
@@ -2006,7 +2006,7 @@ public sealed partial class InMemoryJobStorage(
 	private partial void AddBatchJobAsyncCalled(JobHandle jobHandle, int execution);
 
 	[LoggerMessage(
-		EventId = LibraryEventIds.FailAsyncCalled,
+		EventId = LibraryEventIds.InMemoryFailAsyncCalled,
 		EventName = "Immediate.Jobs.Shared.FailAsyncCalled",
 		Level = LogLevel.Debug,
 		Message = "FailAsync called (JobHandle={JobHandle}, Execution={Execution})"
@@ -2014,7 +2014,7 @@ public sealed partial class InMemoryJobStorage(
 	private partial void FailAsyncCalled(JobHandle jobHandle, int execution);
 
 	[LoggerMessage(
-		EventId = LibraryEventIds.MergeRecurringSchedulesListAsyncCalled,
+		EventId = LibraryEventIds.InMemoryMergeRecurringSchedulesListAsyncCalled,
 		EventName = "Immediate.Jobs.Shared.MergeRecurringSchedulesListAsyncCalled",
 		Level = LogLevel.Debug,
 		Message = "MergeRecurringSchedulesListAsync called"
@@ -2022,7 +2022,7 @@ public sealed partial class InMemoryJobStorage(
 	private partial void MergeRecurringSchedulesListAsyncCalled();
 
 	[LoggerMessage(
-		EventId = LibraryEventIds.UpsertRecurringAsyncCalled,
+		EventId = LibraryEventIds.InMemoryUpsertRecurringAsyncCalled,
 		EventName = "Immediate.Jobs.Shared.UpsertRecurringAsyncCalled",
 		Level = LogLevel.Debug,
 		Message = "UpsertRecurringAsync called (Schedule={Schedule})"
@@ -2030,7 +2030,7 @@ public sealed partial class InMemoryJobStorage(
 	private partial void UpsertRecurringAsyncCalled(string schedule);
 
 	[LoggerMessage(
-		EventId = LibraryEventIds.RemoveRecurringAsyncCalled,
+		EventId = LibraryEventIds.InMemoryRemoveRecurringAsyncCalled,
 		EventName = "Immediate.Jobs.Shared.RemoveRecurringAsyncCalled",
 		Level = LogLevel.Debug,
 		Message = "RemoveRecurringAsync called (Name={Name})"
@@ -2038,7 +2038,7 @@ public sealed partial class InMemoryJobStorage(
 	private partial void RemoveRecurringAsyncCalled(string name);
 
 	[LoggerMessage(
-		EventId = LibraryEventIds.PauseRecurringAsyncCalled,
+		EventId = LibraryEventIds.InMemoryPauseRecurringAsyncCalled,
 		EventName = "Immediate.Jobs.Shared.PauseRecurringAsyncCalled",
 		Level = LogLevel.Debug,
 		Message = "PauseRecurringAsync called (Name={Name})"
@@ -2046,7 +2046,7 @@ public sealed partial class InMemoryJobStorage(
 	private partial void PauseRecurringAsyncCalled(string name);
 
 	[LoggerMessage(
-		EventId = LibraryEventIds.ResumeRecurringAsyncCalled,
+		EventId = LibraryEventIds.InMemoryResumeRecurringAsyncCalled,
 		EventName = "Immediate.Jobs.Shared.ResumeRecurringAsyncCalled",
 		Level = LogLevel.Debug,
 		Message = "ResumeRecurringAsync called (Name={Name})"
@@ -2054,7 +2054,7 @@ public sealed partial class InMemoryJobStorage(
 	private partial void ResumeRecurringAsyncCalled(string name);
 
 	[LoggerMessage(
-		EventId = LibraryEventIds.GetDueRecurringAsyncCalled,
+		EventId = LibraryEventIds.InMemoryGetDueRecurringAsyncCalled,
 		EventName = "Immediate.Jobs.Shared.GetDueRecurringAsyncCalled",
 		Level = LogLevel.Debug,
 		Message = "GetDueRecurringAsync called (BatchSize={BatchSize})"
@@ -2062,7 +2062,7 @@ public sealed partial class InMemoryJobStorage(
 	private partial void GetDueRecurringAsyncCalled(int batchSize);
 
 	[LoggerMessage(
-		EventId = LibraryEventIds.MaterializeRecurringAsyncCalled,
+		EventId = LibraryEventIds.InMemoryMaterializeRecurringAsyncCalled,
 		EventName = "Immediate.Jobs.Shared.MaterializeRecurringAsyncCalled",
 		Level = LogLevel.Debug,
 		Message = "MaterializeRecurringAsync called (JobHandle={JobHandle}, Schedule={Schedule})"
@@ -2070,7 +2070,7 @@ public sealed partial class InMemoryJobStorage(
 	private partial void MaterializeRecurringAsyncCalled(JobHandle jobHandle, string schedule);
 
 	[LoggerMessage(
-		EventId = LibraryEventIds.GetMonitoringSnapshotAsyncCalled,
+		EventId = LibraryEventIds.InMemoryGetMonitoringSnapshotAsyncCalled,
 		EventName = "Immediate.Jobs.Shared.GetMonitoringSnapshotAsyncCalled",
 		Level = LogLevel.Debug,
 		Message = "GetMonitoringSnapshotAsync called"
@@ -2078,7 +2078,7 @@ public sealed partial class InMemoryJobStorage(
 	private partial void GetMonitoringSnapshotAsyncCalled();
 
 	[LoggerMessage(
-		EventId = LibraryEventIds.QueryJobsAsyncCalled,
+		EventId = LibraryEventIds.InMemoryQueryJobsAsyncCalled,
 		EventName = "Immediate.Jobs.Shared.QueryJobsAsyncCalled",
 		Level = LogLevel.Debug,
 		Message = "QueryJobsAsync called (Query={Query})"
@@ -2086,7 +2086,7 @@ public sealed partial class InMemoryJobStorage(
 	private partial void QueryJobsAsyncCalled(JobQuery query);
 
 	[LoggerMessage(
-		EventId = LibraryEventIds.QueryJobExecutionsAsyncCalled,
+		EventId = LibraryEventIds.InMemoryQueryJobExecutionsAsyncCalled,
 		EventName = "Immediate.Jobs.Shared.QueryJobExecutionsAsyncCalled",
 		Level = LogLevel.Debug,
 		Message = "QueryJobExecutionsAsync called (JobHandle={JobHandle})"
@@ -2094,7 +2094,7 @@ public sealed partial class InMemoryJobStorage(
 	private partial void QueryJobExecutionsAsyncCalled(JobHandle jobHandle);
 
 	[LoggerMessage(
-		EventId = LibraryEventIds.GetBatchStatusAsyncCalled,
+		EventId = LibraryEventIds.InMemoryGetBatchStatusAsyncCalled,
 		EventName = "Immediate.Jobs.Shared.GetBatchStatusAsyncCalled",
 		Level = LogLevel.Debug,
 		Message = "GetBatchStatusAsync called (BatchHandle={BatchHandle})"
@@ -2102,7 +2102,7 @@ public sealed partial class InMemoryJobStorage(
 	private partial void GetBatchStatusAsyncCalled(BatchHandle batchHandle);
 
 	[LoggerMessage(
-		EventId = LibraryEventIds.QueryBatchesAsyncCalled,
+		EventId = LibraryEventIds.InMemoryQueryBatchesAsyncCalled,
 		EventName = "Immediate.Jobs.Shared.QueryBatchesAsyncCalled",
 		Level = LogLevel.Debug,
 		Message = "QueryBatchesAsync called (Query={Query})"
@@ -2110,7 +2110,7 @@ public sealed partial class InMemoryJobStorage(
 	private partial void QueryBatchesAsyncCalled(BatchQuery query);
 
 	[LoggerMessage(
-		EventId = LibraryEventIds.QueryBatchMembersAsyncCalled,
+		EventId = LibraryEventIds.InMemoryQueryBatchMembersAsyncCalled,
 		EventName = "Immediate.Jobs.Shared.QueryBatchMembersAsyncCalled",
 		Level = LogLevel.Debug,
 		Message = "QueryBatchMembersAsync called (BatchHandle={BatchHandle})"
@@ -2118,7 +2118,7 @@ public sealed partial class InMemoryJobStorage(
 	private partial void QueryBatchMembersAsyncCalled(BatchHandle batchHandle);
 
 	[LoggerMessage(
-		EventId = LibraryEventIds.GetBatchGraphAsyncCalled,
+		EventId = LibraryEventIds.InMemoryGetBatchGraphAsyncCalled,
 		EventName = "Immediate.Jobs.Shared.GetBatchGraphAsyncCalled",
 		Level = LogLevel.Debug,
 		Message = "GetBatchGraphAsync called (BatchHandle={BatchHandle})"
@@ -2126,7 +2126,7 @@ public sealed partial class InMemoryJobStorage(
 	private partial void GetBatchGraphAsyncCalled(BatchHandle batchHandle);
 
 	[LoggerMessage(
-		EventId = LibraryEventIds.GetJobStatusAsyncCalled,
+		EventId = LibraryEventIds.InMemoryGetJobStatusAsyncCalled,
 		EventName = "Immediate.Jobs.Shared.GetJobStatusAsyncCalled",
 		Level = LogLevel.Debug,
 		Message = "GetJobStatusAsync called (JobHandle={JobHandle})"
@@ -2134,7 +2134,7 @@ public sealed partial class InMemoryJobStorage(
 	private partial void GetJobStatusAsyncCalled(JobHandle jobHandle);
 
 	[LoggerMessage(
-		EventId = LibraryEventIds.CancelBatchAsyncCalled,
+		EventId = LibraryEventIds.InMemoryCancelBatchAsyncCalled,
 		EventName = "Immediate.Jobs.Shared.CancelBatchAsyncCalled",
 		Level = LogLevel.Debug,
 		Message = "CancelBatchAsync called (BatchHandle={BatchHandle})"
@@ -2142,7 +2142,7 @@ public sealed partial class InMemoryJobStorage(
 	private partial void CancelBatchAsyncCalled(BatchHandle batchHandle);
 
 	[LoggerMessage(
-		EventId = LibraryEventIds.DeleteBatchAsyncCalled,
+		EventId = LibraryEventIds.InMemoryDeleteBatchAsyncCalled,
 		EventName = "Immediate.Jobs.Shared.DeleteBatchAsyncCalled",
 		Level = LogLevel.Debug,
 		Message = "DeleteBatchAsync called (BatchHandle={BatchHandle})"
@@ -2150,7 +2150,7 @@ public sealed partial class InMemoryJobStorage(
 	private partial void DeleteBatchAsyncCalled(BatchHandle batchHandle);
 
 	[LoggerMessage(
-		EventId = LibraryEventIds.CancelAsyncCalled,
+		EventId = LibraryEventIds.InMemoryCancelAsyncCalled,
 		EventName = "Immediate.Jobs.Shared.CancelAsyncCalled",
 		Level = LogLevel.Debug,
 		Message = "CancelAsync called (JobHandle={JobHandle})"
@@ -2158,7 +2158,7 @@ public sealed partial class InMemoryJobStorage(
 	private partial void CancelAsyncCalled(JobHandle jobHandle);
 
 	[LoggerMessage(
-		EventId = LibraryEventIds.RetryAsyncCalled,
+		EventId = LibraryEventIds.InMemoryRetryAsyncCalled,
 		EventName = "Immediate.Jobs.Shared.RetryAsyncCalled",
 		Level = LogLevel.Debug,
 		Message = "RetryAsync called (JobHandle={JobHandle})"
@@ -2166,7 +2166,7 @@ public sealed partial class InMemoryJobStorage(
 	private partial void RetryAsyncCalled(JobHandle jobHandle);
 
 	[LoggerMessage(
-		EventId = LibraryEventIds.DeleteAsyncCalled,
+		EventId = LibraryEventIds.InMemoryDeleteAsyncCalled,
 		EventName = "Immediate.Jobs.Shared.DeleteAsyncCalled",
 		Level = LogLevel.Debug,
 		Message = "DeleteAsync called (JobHandle={JobHandle})"
@@ -2174,7 +2174,7 @@ public sealed partial class InMemoryJobStorage(
 	private partial void DeleteAsyncCalled(JobHandle jobHandle);
 
 	[LoggerMessage(
-		EventId = LibraryEventIds.PurgeJobsAsyncCalled,
+		EventId = LibraryEventIds.InMemoryPurgeJobsAsyncCalled,
 		EventName = "Immediate.Jobs.Shared.PurgeJobsAsyncCalled",
 		Level = LogLevel.Debug,
 		Message = "PurgeJobsAsync called (SucceededRetention={SucceededRetention}, FailedRetention={FailedRetention})"
@@ -2182,7 +2182,7 @@ public sealed partial class InMemoryJobStorage(
 	private partial void PurgeJobsAsyncCalled(TimeSpan succeededRetention, TimeSpan failedRetention);
 
 	[LoggerMessage(
-		EventId = LibraryEventIds.PurgeBatchesAsyncCalled,
+		EventId = LibraryEventIds.InMemoryPurgeBatchesAsyncCalled,
 		EventName = "Immediate.Jobs.Shared.PurgeBatchesAsyncCalled",
 		Level = LogLevel.Debug,
 		Message = "PurgeBatchesAsync called (SucceededRetention={SucceededRetention}, FailedRetention={FailedRetention})"
@@ -2190,7 +2190,7 @@ public sealed partial class InMemoryJobStorage(
 	private partial void PurgeBatchesAsyncCalled(TimeSpan succeededRetention, TimeSpan failedRetention);
 
 	[LoggerMessage(
-		EventId = LibraryEventIds.HeartbeatAsyncCalled,
+		EventId = LibraryEventIds.InMemoryHeartbeatAsyncCalled,
 		EventName = "Immediate.Jobs.Shared.HeartbeatAsyncCalled",
 		Level = LogLevel.Debug,
 		Message = "HeartbeatAsync called (Server={Server})"
@@ -2198,7 +2198,7 @@ public sealed partial class InMemoryJobStorage(
 	private partial void HeartbeatAsyncCalled(string server);
 
 	[LoggerMessage(
-		EventId = LibraryEventIds.IsHealthyAsyncCalled,
+		EventId = LibraryEventIds.InMemoryIsHealthyAsyncCalled,
 		EventName = "Immediate.Jobs.Shared.IsHealthyAsyncCalled",
 		Level = LogLevel.Debug,
 		Message = "IsHealthyAsync called"
