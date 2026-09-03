@@ -201,7 +201,7 @@ public class CapturingJobStorage(TimeProvider timeProvider) :
 		lock (_gate)
 		{
 			_jobs.Add(job);
-			_recurringMaterializations.Add(new(schedule, job, nextRunAt));
+			_recurringMaterializations.Add(new(schedule, job, dependencies, nextRunAt));
 		}
 
 		return await _inner.MaterializeRecurringAsync(schedule, job, nextRunAt, dependencies, cancellationToken);
@@ -307,4 +307,9 @@ public enum RecurringOperation
 public sealed record RecurringOperationCapture(RecurringOperation Operation, string Name);
 
 /// <summary>A captured recurring occurrence materialization attempt.</summary>
-public sealed record RecurringMaterializationCapture(RecurringJobSchedule Schedule, JobRecord Job, DateTimeOffset NextRunAt);
+public sealed record RecurringMaterializationCapture(
+	RecurringJobSchedule Schedule,
+	JobRecord Job,
+	IReadOnlyList<JobContinuationEdge>? Dependencies,
+	DateTimeOffset NextRunAt
+);

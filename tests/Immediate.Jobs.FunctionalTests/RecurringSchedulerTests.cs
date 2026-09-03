@@ -4,6 +4,7 @@ using Immediate.Jobs.Shared.Internals;
 using Immediate.Jobs.Shared.Storage;
 using Immediate.Jobs.Testing;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Time.Testing;
 
 namespace Immediate.Jobs.FunctionalTests;
 
@@ -63,6 +64,51 @@ public sealed class RecurringSchedulerTests
 		);
 		var occurrence = Assert.Single(jobs, job => job.DueAt == Start.AddHours(1));
 		Assert.Equal(JobState.Skipped, occurrence.State);
+	}
+
+	[Theory]
+	[InlineData(JobState.Pending)]
+	[InlineData(JobState.Active)]
+	public async Task OverlapQueueCreatesAContinuationFromAnExistingRun(JobState existingState)
+	{
+		var cancellationToken = TestContext.Current.CancellationToken;
+		await using var storage = new CapturingJobStorage(new FakeTimeProvider(Start));
+		var clock = new FakeTimeProvider(Start);
+		var existingHandle = JobHandle.FromString("existing-run");
+		await storage.EnqueueAsync(new()
+		{
+			JobHandle = existingHandle,
+			JobName = "cleanup",
+			QueueName = "default",
+			Payload = "{}",
+			State = existingState,
+			DueAt = Start.AddHours(2),
+			CreatedAt = Start,
+			WorkerId = existingState == JobState.Active ? "worker" : null,
+			LeaseExpiresAt = existingState == JobState.Active ? Start.AddHours(2) : null,
+		}, cancellationToken);
+
+		var scheduler = BuildScheduler(
+			storage,
+			clock,
+			"cleanup",
+			"0 * * * *",
+			overlapPolicy: OverlapPolicy.Queue
+		);
+		await scheduler.DrainAsync(cancellationToken);
+		clock.SetUtcNow(Start.AddHours(1));
+		await scheduler.DrainAsync(cancellationToken);
+
+		var occurrence = Assert.Single(
+			await storage.QueryJobsAsync(new() { JobName = "cleanup", Take = 100 }, cancellationToken),
+			job => job.RecurringKey is not null
+		);
+		Assert.Equal(JobState.AwaitingContinuation, occurrence.State);
+		Assert.Equal(1, occurrence.RemainingDependencies);
+		var edge = Assert.Single(storage.RecurringMaterializations[^1].Dependencies ?? []);
+		Assert.Equal(existingHandle, edge.ParentJobHandle);
+		Assert.Equal(occurrence.JobHandle, edge.ChildJobHandle);
+		Assert.Equal(TimeSpan.Zero, edge.Delay);
 	}
 
 	[Fact]
