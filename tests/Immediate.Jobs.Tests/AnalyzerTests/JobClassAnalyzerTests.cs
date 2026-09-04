@@ -21,6 +21,7 @@ public sealed class JobClassAnalyzerTests
 				Backoff = BackoffStrategy.Fixed,
 				BackoffBase = "00:00:05",
 				OverlapPolicy = OverlapPolicy.Skip,
+				MisfireHandlingMode = MisfireHandlingMode.EnqueueAll,
 				Timeout = "00:01:00"
 
 			)]
@@ -44,14 +45,15 @@ public sealed class JobClassAnalyzerTests
 			
 			namespace Dummy;
 
-			[Handler, {|IJOB0005:{|IJOB0005:{|IJOB0005:{|IJOB0005:{|IJOB0005:{|IJOB0005:Job(
+			[Handler, {|IJOB0005:{|IJOB0005:{|IJOB0005:{|IJOB0005:{|IJOB0005:{|IJOB0005:{|IJOB0005:Job(
 				MaxAttempts = -1,
 				MaxConcurrency = -1,
 				Backoff = (BackoffStrategy)5,
 				BackoffBase = "-00:00:05",
 				OverlapPolicy = (OverlapPolicy)5,
+				MisfireHandlingMode = (MisfireHandlingMode)5,
 				Timeout = "-00:01:00"
-			)|}|}|}|}|}|}]
+			)|}|}|}|}|}|}|}]
 			public sealed partial class GetUsersQuery
 			{
 				public record Query;

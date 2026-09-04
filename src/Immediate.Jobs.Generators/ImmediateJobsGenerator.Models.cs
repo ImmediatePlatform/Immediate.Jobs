@@ -28,6 +28,7 @@ public sealed partial class ImmediateJobsGenerator
 		public required string? Timeout { get; init; }
 		public required int MaxConcurrency { get; init; }
 		public required string OverlapPolicy { get; init; }
+		public required string MisfireHandlingMode { get; init; }
 		public required string Backoff { get; init; }
 		public required string BackoffBase { get; init; }
 		public required string? Tags { get; init; }

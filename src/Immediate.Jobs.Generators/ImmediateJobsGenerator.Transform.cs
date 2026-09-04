@@ -74,6 +74,14 @@ public sealed partial class ImmediateJobsGenerator
 		if (overlapPolicy is not { })
 			return null;
 
+		var misfireHandlingMode = arguments.GetArgumentValue("MisfireHandlingMode") switch
+		{
+			{ } av => av.GetEnumValue()?.Name,
+			_ => "EnqueueOne",
+		};
+		if (misfireHandlingMode is not { })
+			return null;
+
 		var timeout = arguments.GetStringValue("Timeout");
 		if (timeout is { } && (!TimeSpan.TryParse(timeout, CultureInfo.InvariantCulture, out var timeoutValue) || timeoutValue <= TimeSpan.Zero))
 			return null;
@@ -145,6 +153,7 @@ public sealed partial class ImmediateJobsGenerator
 			Timeout = timeout,
 			MaxConcurrency = maxConcurrency,
 			OverlapPolicy = overlapPolicy,
+			MisfireHandlingMode = misfireHandlingMode,
 			Backoff = backoff,
 			BackoffBase = backoffBase,
 			Tags = tags,

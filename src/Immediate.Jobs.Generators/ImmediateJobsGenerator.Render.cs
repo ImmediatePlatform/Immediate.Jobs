@@ -32,6 +32,7 @@ public sealed partial class ImmediateJobsGenerator
 			TimeoutLiteral = job.Timeout?.AsCSharpLiteral(),
 			MaxConcurrency = job.MaxConcurrency.ToString(CultureInfo.InvariantCulture),
 			job.OverlapPolicy,
+			job.MisfireHandlingMode,
 			job.Backoff,
 			BackoffBaseLiteral = job.BackoffBase.AsCSharpLiteral(),
 			job.Contexts,

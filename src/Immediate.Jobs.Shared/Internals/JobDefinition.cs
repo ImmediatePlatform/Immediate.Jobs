@@ -62,6 +62,11 @@ public record JobDefinition
 	public OverlapPolicy OverlapPolicy { get; init; } = OverlapPolicy.Skip;
 
 	/// <summary>
+	/// 	Recurring misfire behavior.
+	/// </summary>
+	public MisfireHandlingMode MisfireHandlingMode { get; init; } = MisfireHandlingMode.EnqueueOne;
+
+	/// <summary>
 	/// 	Retry-delay algorithm.
 	/// </summary>
 	public BackoffStrategy Backoff { get; init; } = BackoffStrategy.ExponentialJitter;

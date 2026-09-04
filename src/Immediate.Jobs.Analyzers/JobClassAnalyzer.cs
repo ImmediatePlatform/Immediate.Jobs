@@ -200,6 +200,20 @@ public sealed class JobClassAnalyzer : DiagnosticAnalyzer
 			);
 		}
 
+		var misfireHandlingMode = arguments.GetArgumentValue("MisfireHandlingMode") switch
+		{
+			{ } av => av.GetEnumValue()?.Name,
+			_ => "EnqueueOne",
+		};
+		if (misfireHandlingMode is not { })
+		{
+			ReportInvalidConfigurationDiagnostic(
+				context,
+				jobAttribute,
+				"`MisfireHandlingMode` must be a defined enum value"
+			);
+		}
+
 		var timeout = arguments.GetStringValue("Timeout");
 		if (timeout is { })
 		{

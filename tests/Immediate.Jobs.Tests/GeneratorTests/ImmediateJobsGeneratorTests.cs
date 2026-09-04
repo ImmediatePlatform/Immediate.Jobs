@@ -117,7 +117,7 @@ public sealed class ImmediateJobsGeneratorTests
 			using System.Threading;
 			using System.Threading.Tasks;
 
-			[Handler, Job(Cron = "0 */5 * * * *")]
+			[Handler, Job(Cron = "0 */5 * * * *", MisfireHandlingMode = MisfireHandlingMode.EnqueueAll)]
 			public sealed partial class CleanupSessionsJob
 			{
 				private ValueTask HandleAsync(EmptyJobRequest payload, CancellationToken cancellationToken) => ValueTask.CompletedTask;
