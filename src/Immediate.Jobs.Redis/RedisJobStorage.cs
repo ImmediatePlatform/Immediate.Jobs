@@ -19,7 +19,7 @@ internal sealed partial class RedisJobStorage(
 	IOptions<RedisJobStorageOptions> options,
 	TimeProvider timeProvider,
 	ILogger<RedisJobStorage>? logger = null
-) : IRecurringJobStorage
+) : IJobStorage, IRecurringJobStorage
 {
 	[SuppressMessage("Performance", "CA1823:Avoid unused private fields", Justification = "Used by generated logger methods")]
 	[SuppressMessage("Style", "IDE0052:Remove unread private members", Justification = "Used by generated logger methods")]
@@ -319,13 +319,13 @@ internal sealed partial class RedisJobStorage(
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 
-		var take = Math.Min(query.Take, MaximumQueryTake);
 		if (query.JobHandle is { } id)
 		{
 			var job = await ReadJobAsync(id, cancellationToken);
 			return job is not null && query.Skip == 0 && MatchesQuery(job, query) ? [job] : [];
 		}
 
+		var take = Math.Min(query.Take, MaximumQueryTake);
 		if (!HasFilters(query))
 		{
 			var ids = await ReadJobHandlesByRankAsync(query.Skip, take, cancellationToken);
@@ -352,6 +352,52 @@ internal sealed partial class RedisJobStorage(
 					matches.Add(job);
 				if (matched == matchLimit)
 					break;
+			}
+
+			rank += ids.Count;
+		}
+
+		return matches;
+	}
+
+	/// <inheritdoc />
+	public async ValueTask<IReadOnlyList<JobRecord>> QueryNonCompletedJobsAsync(
+		string jobName,
+		CancellationToken cancellationToken = default
+	)
+	{
+		QueryNonCompletedJobsAsyncCalled(jobName);
+		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
+
+		var matches = new List<JobRecord>();
+		var rank = 0L;
+
+		while (true)
+		{
+			cancellationToken.ThrowIfCancellationRequested();
+			var ids = await ReadJobHandlesByRankAsync(rank, QueryWindowSize, cancellationToken);
+			if (ids.Count == 0)
+				break;
+
+			var jobs = await ReadJobsAsync(ids, cancellationToken);
+			foreach (var job in jobs)
+			{
+				if (
+					!string.Equals(job.JobName, jobName, StringComparison.Ordinal)
+					|| job.State is not (
+						JobState.AwaitingContinuation
+						or JobState.AwaitingParameters
+						or JobState.Scheduled
+						or JobState.Pending
+						or JobState.Active
+					)
+				)
+				{
+					continue;
+				}
+
+				matches.Add(job);
 			}
 
 			rank += ids.Count;
@@ -1242,6 +1288,14 @@ internal sealed partial class RedisJobStorage(
 		Message = "QueryJobsAsync called (Query={Query})"
 	)]
 	private partial void QueryJobsAsyncCalled(JobQuery query);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.QueryNonCompletedJobsAsyncCalled,
+		EventName = "Immediate.Jobs.Redis.QueryNonCompletedJobsAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "QueryNonCompletedJobsAsyncCalled called (JobName={JobName})"
+	)]
+	private partial void QueryNonCompletedJobsAsyncCalled(string jobName);
 
 	[LoggerMessage(
 		EventId = LibraryEventIds.QueryJobExecutionsAsyncCalled,

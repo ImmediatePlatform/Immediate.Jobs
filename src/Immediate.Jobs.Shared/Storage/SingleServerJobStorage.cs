@@ -26,6 +26,7 @@ internal sealed partial class SingleServerJobStorage(
 	TimeProvider timeProvider,
 	ILogger<SingleServerJobStorage>? logger
 ) :
+	IJobStorage,
 	IRecurringJobStorage,
 	IJobGraphStorage,
 	IFairQueueStorage,
@@ -407,6 +408,18 @@ internal sealed partial class SingleServerJobStorage(
 		await TaskScheduler.Yield();
 		await EnsureInitializedAsync(cancellationToken);
 		return await PrimaryStorage.QueryJobsAsync(query, cancellationToken);
+	}
+
+	/// <inheritdoc />
+	public async ValueTask<IReadOnlyList<JobRecord>> QueryNonCompletedJobsAsync(
+		string jobName,
+		CancellationToken cancellationToken = default
+	)
+	{
+		SingleServerQueryNonCompletedJobsAsyncCalled(jobName);
+		await TaskScheduler.Yield();
+		await EnsureInitializedAsync(cancellationToken);
+		return await PrimaryStorage.QueryNonCompletedJobsAsync(jobName, cancellationToken);
 	}
 
 	/// <inheritdoc />
@@ -1038,6 +1051,14 @@ internal sealed partial class SingleServerJobStorage(
 		Message = "Single-server storage QueryJobsAsync called (Query={Query})"
 	)]
 	private partial void SingleServerQueryJobsAsyncCalled(JobQuery query);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.SingleServerQueryNonCompletedJobsAsyncCalled,
+		EventName = "Immediate.Jobs.Shared.SingleServerQueryNonCompletedJobsAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "Single-server storage QueryNonCompletedJobsAsync called (JobName={JobName})"
+	)]
+	private partial void SingleServerQueryNonCompletedJobsAsyncCalled(string jobName);
 
 	[LoggerMessage(
 		EventId = LibraryEventIds.SingleServerQueryJobExecutionsAsyncCalled,

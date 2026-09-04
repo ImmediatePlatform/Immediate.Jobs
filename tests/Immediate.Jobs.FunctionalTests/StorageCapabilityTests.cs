@@ -232,6 +232,11 @@ public sealed class StorageCapabilityTests
 			CancellationToken cancellationToken = default
 		) => _inner.QueryJobsAsync(query, cancellationToken);
 
+		public ValueTask<IReadOnlyList<JobRecord>> QueryNonCompletedJobsAsync(
+			string jobName,
+			CancellationToken cancellationToken = default
+		) => _inner.QueryNonCompletedJobsAsync(jobName, cancellationToken);
+
 		public ValueTask<IReadOnlyList<JobExecutionRecord>> QueryJobExecutionsAsync(
 			JobHandle jobHandle,
 			JobExecutionQuery query,

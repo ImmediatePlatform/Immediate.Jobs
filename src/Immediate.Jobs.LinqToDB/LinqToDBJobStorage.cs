@@ -1360,6 +1360,32 @@ internal sealed partial class LinqToDBJobStorage<T>(
 	}
 
 	/// <inheritdoc />
+	public async ValueTask<IReadOnlyList<JobRecord>> QueryNonCompletedJobsAsync(
+		string jobName,
+		CancellationToken cancellationToken = default
+	)
+	{
+		QueryNonCompletedJobsAsyncCalled(jobName);
+		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
+
+		await using var scope = contextScope.GetScope(out var connection);
+
+		var entities = await Jobs(connection)
+			.Where(job => job.JobName == jobName)
+			.Where(job => job.State.In(
+				JobState.AwaitingContinuation,
+				JobState.AwaitingParameters,
+				JobState.Scheduled,
+				JobState.Pending,
+				JobState.Active
+			))
+			.ToListAsync(cancellationToken);
+
+		return [.. entities.Select(ToRecord)];
+	}
+
+	/// <inheritdoc />
 	public async ValueTask<IReadOnlyList<JobExecutionRecord>> QueryJobExecutionsAsync(
 		JobHandle jobHandle,
 		JobExecutionQuery query,
@@ -3342,6 +3368,14 @@ internal sealed partial class LinqToDBJobStorage<T>(
 		Message = "QueryJobsAsync called (Query={Query})"
 	)]
 	private partial void QueryJobsAsyncCalled(JobQuery query);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.QueryNonCompletedJobsAsyncCalled,
+		EventName = "Immediate.Jobs.LinqToDB.QueryNonCompletedJobsAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "QueryNonCompletedJobsAsyncCalled called (JobName={JobName})"
+	)]
+	private partial void QueryNonCompletedJobsAsyncCalled(string jobName);
 
 	[LoggerMessage(
 		EventId = LibraryEventIds.QueryJobExecutionsAsyncCalled,

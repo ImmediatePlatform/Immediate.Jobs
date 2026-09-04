@@ -116,8 +116,8 @@ public sealed class NodaTimeTests
 		);
 
 		var capture = Assert.Single(harness.Storage.RecurringSchedules);
-		Assert.Equal("daily-report", capture.Name);
-		Assert.Equal(zone.Id, capture.TimeZone);
+		Assert.Equal("daily-report", capture.Value.Name);
+		Assert.Equal(zone.Id, capture.Value.TimeZone);
 	}
 
 	[Fact]

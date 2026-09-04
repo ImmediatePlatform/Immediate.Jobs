@@ -23,7 +23,7 @@ public class CapturingJobStorage(TimeProvider timeProvider) :
 	private readonly List<BatchCapture> _batches = [];
 	private readonly List<BatchJobCapture> _batchJobs = [];
 	private readonly List<DynamicContinuationCapture> _dynamicContinuations = [];
-	private readonly List<RecurringJobSchedule> _recurringSchedules = [];
+	private readonly Dictionary<string, RecurringJobSchedule> _recurringSchedules = [with(StringComparer.Ordinal)];
 	private readonly List<RecurringOperationCapture> _recurringOperations = [];
 	private readonly List<RecurringMaterializationCapture> _recurringMaterializations = [];
 
@@ -43,7 +43,7 @@ public class CapturingJobStorage(TimeProvider timeProvider) :
 	public IReadOnlyList<DynamicContinuationCapture> DynamicContinuations { get { lock (_gate) return [.. _dynamicContinuations]; } }
 
 	/// <summary>Gets recurring schedules submitted for creation or update.</summary>
-	public IReadOnlyList<RecurringJobSchedule> RecurringSchedules { get { lock (_gate) return [.. _recurringSchedules]; } }
+	public IReadOnlyDictionary<string, RecurringJobSchedule> RecurringSchedules { get { lock (_gate) return _recurringSchedules.ToDictionary(StringComparer.Ordinal); } }
 
 	/// <summary>Gets recurring schedule mutation calls in call order.</summary>
 	public IReadOnlyList<RecurringOperationCapture> RecurringOperations { get { lock (_gate) return [.. _recurringOperations]; } }
@@ -179,16 +179,25 @@ public class CapturingJobStorage(TimeProvider timeProvider) :
 		CancellationToken cancellationToken = default
 	)
 	{
+		ArgumentNullException.ThrowIfNull(schedules);
+
 		await _inner.MergeRecurringSchedulesListAsync(schedules, cancellationToken);
+
+		lock (_gate)
+		{
+			foreach (var rs in schedules)
+				_recurringSchedules[rs.Name] = rs;
+		}
 	}
 
 	/// <inheritdoc />
 	public virtual async ValueTask UpsertRecurringAsync(RecurringJobSchedule schedule, CancellationToken cancellationToken = default)
 	{
 		ArgumentNullException.ThrowIfNull(schedule);
+
 		lock (_gate)
 		{
-			_recurringSchedules.Add(schedule);
+			_recurringSchedules[schedule.Name] = schedule;
 			_recurringOperations.Add(new(RecurringOperation.Upsert, schedule.Name));
 		}
 
@@ -198,13 +207,22 @@ public class CapturingJobStorage(TimeProvider timeProvider) :
 	/// <inheritdoc />
 	public virtual async ValueTask<bool> MaterializeRecurringAsync(RecurringJobSchedule schedule, JobRecord job, DateTimeOffset nextRunAt, IReadOnlyList<JobContinuationEdge>? dependencies = null, CancellationToken cancellationToken = default)
 	{
-		lock (_gate)
+		ArgumentNullException.ThrowIfNull(schedule);
+		ArgumentNullException.ThrowIfNull(job);
+
+		if (await _inner.MaterializeRecurringAsync(schedule, job, nextRunAt, dependencies, cancellationToken))
 		{
-			_jobs.Add(job);
-			_recurringMaterializations.Add(new(schedule, job, dependencies, nextRunAt));
+			lock (_gate)
+			{
+				_jobs.Add(job);
+				_recurringMaterializations.Add(new(schedule, job, dependencies, nextRunAt));
+				_recurringSchedules[schedule.Name] = schedule with { LastRunAt = schedule.NextRunAt, NextRunAt = nextRunAt };
+			}
+
+			return true;
 		}
 
-		return await _inner.MaterializeRecurringAsync(schedule, job, nextRunAt, dependencies, cancellationToken);
+		return false;
 	}
 
 	/// <inheritdoc />
@@ -241,6 +259,8 @@ public class CapturingJobStorage(TimeProvider timeProvider) :
 	public virtual async ValueTask<JobMonitoringSnapshot> GetMonitoringSnapshotAsync(CancellationToken cancellationToken = default) => await _inner.GetMonitoringSnapshotAsync(cancellationToken);
 	/// <inheritdoc />
 	public virtual async ValueTask<IReadOnlyList<JobRecord>> QueryJobsAsync(JobQuery query, CancellationToken cancellationToken = default) => await _inner.QueryJobsAsync(query, cancellationToken);
+	/// <inheritdoc />
+	public virtual async ValueTask<IReadOnlyList<JobRecord>> QueryNonCompletedJobsAsync(string jobName, CancellationToken cancellationToken = default) => await _inner.QueryNonCompletedJobsAsync(jobName, cancellationToken);
 	/// <inheritdoc />
 	public virtual async ValueTask<IReadOnlyList<JobExecutionRecord>> QueryJobExecutionsAsync(JobHandle jobHandle, JobExecutionQuery query, CancellationToken cancellationToken = default) => await _inner.QueryJobExecutionsAsync(jobHandle, query, cancellationToken);
 	/// <inheritdoc />

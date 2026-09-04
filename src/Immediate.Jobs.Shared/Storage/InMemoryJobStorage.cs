@@ -24,6 +24,7 @@ public sealed partial class InMemoryJobStorage(
 	TimeProvider timeProvider,
 	ILogger<InMemoryJobStorage>? logger = null
 ) :
+	IJobStorage,
 	IRecurringJobStorage,
 	IJobGraphStorage,
 	IFairQueueStorage
@@ -871,6 +872,29 @@ public sealed partial class InMemoryJobStorage(
 					.Skip(Math.Max(0, query.Skip))
 					.Take(Math.Clamp(query.Take, 1, 1000)),
 			];
+		}
+	}
+
+	/// <inheritdoc />
+	public async ValueTask<IReadOnlyList<JobRecord>> QueryNonCompletedJobsAsync(string jobName, CancellationToken cancellationToken = default)
+	{
+		QueryNonCompletedJobsAsyncCalled(jobName);
+		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
+
+		lock (_gate)
+		{
+			return _jobs.Values
+				.Where(j => string.Equals(j.JobName, jobName, StringComparison.Ordinal))
+				.Where(
+					j => j.State is
+						JobState.AwaitingContinuation
+						or JobState.AwaitingParameters
+						or JobState.Scheduled
+						or JobState.Pending
+						or JobState.Active
+				)
+				.ToList();
 		}
 	}
 
@@ -2084,6 +2108,14 @@ public sealed partial class InMemoryJobStorage(
 		Message = "QueryJobsAsync called (Query={Query})"
 	)]
 	private partial void QueryJobsAsyncCalled(JobQuery query);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.InMemoryQueryNonCompletedJobsAsyncCalled,
+		EventName = "Immediate.Jobs.Shared.QueryNonCompletedJobsAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "QueryNonCompletedJobsAsyncAsync called (JobName={JobName})"
+	)]
+	private partial void QueryNonCompletedJobsAsyncCalled(string jobName);
 
 	[LoggerMessage(
 		EventId = LibraryEventIds.InMemoryQueryJobExecutionsAsyncCalled,

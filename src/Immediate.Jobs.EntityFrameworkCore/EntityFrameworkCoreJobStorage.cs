@@ -17,7 +17,7 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>(
 	IDbContextFactory<TContext> contextFactory,
 	TimeProvider? timeProvider = null,
 	ILogger<EntityFrameworkCoreJobStorage<TContext>>? logger = null
-) : IRecurringJobStorage, IJobGraphStorage, IFairQueueStorage, IJobStorageReplica, IJobGraphStorageReplica
+) : IJobStorage, IRecurringJobStorage, IJobGraphStorage, IFairQueueStorage, IJobStorageReplica, IJobGraphStorageReplica
 	where TContext : DbContext
 {
 	[SuppressMessage("Performance", "CA1823:Avoid unused private fields", Justification = "Used by generated logger methods")]
@@ -1267,6 +1267,34 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>(
 			.Skip(query.Skip)
 			.Take(query.Take)
 			.ToListAsync(cancellationToken);
+		return [.. entities.Select(ToRecord)];
+	}
+
+	/// <inheritdoc />
+	public async ValueTask<IReadOnlyList<JobRecord>> QueryNonCompletedJobsAsync(
+		string jobName,
+		CancellationToken cancellationToken = default
+	)
+	{
+		QueryNonCompletedJobsAsyncCalled(jobName);
+		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
+
+		await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+		var jobs = context.Set<ImmediateJobEntity>().AsNoTracking();
+
+		var entities = await jobs
+			.Where(job => job.JobName == jobName)
+			.Where(
+				job =>
+					job.State == JobState.AwaitingContinuation
+					|| job.State == JobState.AwaitingParameters
+					|| job.State == JobState.Scheduled
+					|| job.State == JobState.Pending
+					|| job.State == JobState.Active
+			)
+			.ToListAsync(cancellationToken);
+
 		return [.. entities.Select(ToRecord)];
 	}
 
@@ -3156,6 +3184,14 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>(
 		Message = "QueryJobsAsync called (Query={Query})"
 	)]
 	private partial void QueryJobsAsyncCalled(JobQuery query);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.QueryNonCompletedJobsAsyncCalled,
+		EventName = "Immediate.Jobs.EntityFrameworkCore.QueryNonCompletedJobsAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "QueryNonCompletedJobsAsyncCalled called (JobName={JobName})"
+	)]
+	private partial void QueryNonCompletedJobsAsyncCalled(string jobName);
 
 	[LoggerMessage(
 		EventId = LibraryEventIds.QueryJobExecutionsAsyncCalled,
