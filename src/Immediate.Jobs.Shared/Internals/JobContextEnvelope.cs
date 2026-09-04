@@ -15,7 +15,7 @@ namespace Immediate.Jobs.Shared.Internals;
 public static partial class JobContextEnvelope
 {
 	[LoggerMessage(
-		EventId = LibraryEventIds.OrphanedContextSliceSkipped,
+		EventId = LibraryEventIds.JobContextEnvelopeOrphanedContextSliceSkipped,
 		EventName = "Immediate.Jobs.Shared.OrphanedContextSliceSkipped",
 		Level = LogLevel.Warning,
 		Message = "Skipping orphaned context slice {ContextKey} for job {JobHandle}"

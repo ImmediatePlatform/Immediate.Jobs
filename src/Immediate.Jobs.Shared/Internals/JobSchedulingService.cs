@@ -885,43 +885,43 @@ public sealed partial class JobSchedulingService : BackgroundService
 	}
 
 	[LoggerMessage(
-		EventId = LibraryEventIds.SchedulerIterationFailed,
+		EventId = LibraryEventIds.JobSchedulingSchedulerIterationFailed,
 		EventName = "Immediate.Jobs.Shared.SchedulerIterationFailed",
 		Level = LogLevel.Error, Message = "Immediate.Jobs scheduler iteration failed; polling will continue")]
 	private partial void SchedulerIterationFailed(Exception exception);
 
 	[LoggerMessage(
-		EventId = LibraryEventIds.ShutdownDrainExceeded,
+		EventId = LibraryEventIds.JobSchedulingShutdownDrainExceeded,
 		EventName = "Immediate.Jobs.Shared.ShutdownDrainExceeded",
 		Level = LogLevel.Warning, Message = "Immediate.Jobs shutdown drain exceeded {shutdownTimeout}")]
 	private partial void ShutdownDrainExceeded(TimeSpan shutdownTimeout);
 
 	[LoggerMessage(
-		EventId = LibraryEventIds.UnhandledWorkerError,
+		EventId = LibraryEventIds.JobSchedulingUnhandledWorkerError,
 		EventName = "Immediate.Jobs.Shared.UnhandledWorkerError",
 		Level = LogLevel.Error, Message = "Unhandled worker error for job {jobHandle}; its lease will expire")]
 	private partial void UnhandledWorkerError(Exception exception, JobHandle jobHandle);
 
 	[LoggerMessage(
-		EventId = LibraryEventIds.JobCompleted,
+		EventId = LibraryEventIds.JobSchedulingJobCompleted,
 		EventName = "Immediate.Jobs.Shared.JobCompleted",
 		Level = LogLevel.Information, Message = "Job completed in {durationMs} ms")]
 	private partial void JobCompleted(double durationMs);
 
 	[LoggerMessage(
-		EventId = LibraryEventIds.JobWillRetry,
+		EventId = LibraryEventIds.JobSchedulingJobWillRetry,
 		EventName = "Immediate.Jobs.Shared.JobWillRetry",
 		Level = LogLevel.Warning, Message = "Job failed and will retry at {nextRetryAt}")]
 	private partial void JobWillRetry(Exception exception, DateTimeOffset? nextRetryAt);
 
 	[LoggerMessage(
-		EventId = LibraryEventIds.JobExhaustedAttempts,
+		EventId = LibraryEventIds.JobSchedulingJobExhaustedAttempts,
 		EventName = "Immediate.Jobs.Shared.JobExhaustedAttempts",
 		Level = LogLevel.Error, Message = "Job exhausted all {maxAttempts} attempts")]
 	private partial void JobExhaustedAttempts(Exception exception, int maxAttempts);
 
 	[LoggerMessage(
-		EventId = LibraryEventIds.GraphFeaturesDisabled,
+		EventId = LibraryEventIds.JobSchedulingGraphFeaturesDisabled,
 		EventName = "Immediate.Jobs.Shared.GraphFeaturesDisabled",
 		Level = LogLevel.Information,
 		Message = "Batch & continuation features are disabled: the configured storage '{storageType}' implements the queue capability only. Configure a SQL provider to enable them."
@@ -929,7 +929,7 @@ public sealed partial class JobSchedulingService : BackgroundService
 	private partial void GraphFeaturesDisabled(string storageType);
 
 	[LoggerMessage(
-		EventId = LibraryEventIds.RecurringJobFeaturesDisabled,
+		EventId = LibraryEventIds.JobSchedulingRecurringJobFeaturesDisabled,
 		EventName = "Immediate.Jobs.Shared.RecurringJobFeaturesDisabled",
 		Level = LogLevel.Information,
 		Message = "Recurring job features are disabled: the configured storage '{storageType}' implements the queue capability only. Configure a SQL provider to enable them."
@@ -937,7 +937,7 @@ public sealed partial class JobSchedulingService : BackgroundService
 	private partial void RecurringJobFeaturesDisabled(string storageType);
 
 	[LoggerMessage(
-		EventId = LibraryEventIds.GroupedJobsAcquiredWithoutFairQueues,
+		EventId = LibraryEventIds.JobSchedulingGroupedJobsAcquiredWithoutFairQueues,
 		EventName = "Immediate.Jobs.Shared.GroupedJobsAcquiredWithoutFairQueues",
 		Level = LogLevel.Warning,
 		Message = "Grouped jobs were acquired while fair queues are disabled. Their group ids are persisted but do not affect dispatch order; call UseFairQueues() to enable fair acquisition."
@@ -945,7 +945,7 @@ public sealed partial class JobSchedulingService : BackgroundService
 	private partial void GroupedJobsAcquiredWithoutFairQueues();
 
 	[LoggerMessage(
-		EventId = LibraryEventIds.ExecutionTelemetryPersistenceFailed,
+		EventId = LibraryEventIds.JobSchedulingExecutionTelemetryPersistenceFailed,
 		EventName = "Immediate.Jobs.Shared.ExecutionTelemetryPersistenceFailed",
 		Level = LogLevel.Warning,
 		Message = "Could not persist execution telemetry; job invocation will continue"
@@ -953,7 +953,7 @@ public sealed partial class JobSchedulingService : BackgroundService
 	private partial void ExecutionTelemetryPersistenceFailed(Exception exception);
 
 	[LoggerMessage(
-		EventId = LibraryEventIds.LeaseRenewalFailed,
+		EventId = LibraryEventIds.JobSchedulingLeaseRenewalFailed,
 		EventName = "Immediate.Jobs.Shared.LeaseRenewalFailed",
 		Level = LogLevel.Warning,
 		Message = "Could not renew the lease for job {jobHandle} execution {executionNumber}; renewal will be retried until the attempt finishes"
@@ -965,7 +965,7 @@ public sealed partial class JobSchedulingService : BackgroundService
 	);
 
 	[LoggerMessage(
-		EventId = LibraryEventIds.RecurringMaterializationFailed,
+		EventId = LibraryEventIds.JobSchedulingRecurringMaterializationFailed,
 		EventName = "Immediate.Jobs.Shared.RecurringMaterializationFailed",
 		Level = LogLevel.Error,
 		Message = "Could not materialize recurring schedule {scheduleName}; other schedules and job acquisition will continue"
@@ -973,5 +973,19 @@ public sealed partial class JobSchedulingService : BackgroundService
 	private partial void RecurringMaterializationFailed(
 		Exception exception,
 		string scheduleName
+	);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.JobSchedulingRecurringOccurrencesMissed,
+		EventName = "Immediate.Jobs.Shared.RecurringOccurrencesMissed",
+		Level = LogLevel.Information,
+		Message = "Recurring schedule {scheduleName} missed {missedCount} occurrences from {firstMissedAt} through {lastMissedAt}; applying {misfireHandlingMode}"
+	)]
+	private partial void RecurringOccurrencesMissed(
+		string scheduleName,
+		int missedCount,
+		DateTimeOffset firstMissedAt,
+		DateTimeOffset lastMissedAt,
+		MisfireHandlingMode misfireHandlingMode
 	);
 }
