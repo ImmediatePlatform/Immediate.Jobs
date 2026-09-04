@@ -676,7 +676,7 @@ public sealed partial class JobSchedulingService : BackgroundService
 						Cron = d.Cron!,
 						TimeZone = d.TimeZone,
 						IsCodeDefined = true,
-						NextRunAt = GetNextOccurence(
+						NextRunAt = GetNextOccurrence(
 							now,
 							d.Cron!,
 							d.TimeZone,
@@ -731,7 +731,7 @@ public sealed partial class JobSchedulingService : BackgroundService
 		}
 	}
 
-	private static DateTimeOffset GetNextOccurence(DateTimeOffset from, string cron, string timeZone, string jobName)
+	private static DateTimeOffset GetNextOccurrence(DateTimeOffset from, string cron, string timeZone, string jobName)
 	{
 		var expression = JobCron.Parse(cron);
 		var tzi = JobCron.GetTimeZone(timeZone);
@@ -750,14 +750,74 @@ public sealed partial class JobSchedulingService : BackgroundService
 		CancellationToken cancellationToken
 	)
 	{
-		// TODO: Add `MisfireHandlingMode` for specifying behavior during missed runs
+		var recurrenceTimes = new List<DateTimeOffset> { schedule.NextRunAt };
 
-		var next = GetNextOccurence(
-			schedule.NextRunAt,
-			schedule.Cron,
-			schedule.TimeZone,
-			schedule.Name
-		);
+		while (recurrenceTimes[^1] <= now)
+		{
+			recurrenceTimes.Add(
+				GetNextOccurrence(
+					recurrenceTimes[^1],
+					schedule.Cron,
+					schedule.TimeZone,
+					schedule.Name
+				)
+			);
+		}
+
+		var nextIndex = 1;
+		var next = recurrenceTimes[nextIndex];
+		var dueAt = schedule.NextRunAt;
+
+		if (schedule.NextRunAt < now)
+		{
+			var missedCount = recurrenceTimes[^2] == now ? :  recurrenceTimes.Count - 1;
+			var lastMissedAt = recurrenceTimes[missedCount - 1];
+			var nextAfterMisfires = recurrenceTimes[missedCount];
+
+			RecurringOccurrencesMissed(
+				schedule.Name,
+				missedCount,
+				schedule.NextRunAt,
+				lastMissedAt,
+				definition.MisfireHandlingMode
+			);
+
+			switch (definition.MisfireHandlingMode)
+			{
+				case MisfireHandlingMode.EnqueueOne:
+				{
+					dueAt = now;
+					nextIndex = missedCount;
+					next = nextAfterMisfires;
+					break;
+				}
+
+				case MisfireHandlingMode.EnqueueNone:
+				{
+					schedule = schedule with
+					{
+						LastRunAt = lastMissedAt,
+						NextRunAt = nextAfterMisfires,
+					};
+
+					await recurringStorage.UpsertRecurringAsync(schedule, cancellationToken);
+
+					if (nextAfterMisfires == now)
+					{
+						dueAt = nextAfterMisfires;
+						nextIndex = missedCount + 1;
+						next = recurrenceTimes[nextIndex];
+						break;
+					}
+
+					break;
+				}
+
+				case MisfireHandlingMode.EnqueueAll:
+				default:
+					break;
+			}
+		}
 
 		while (true)
 		{
@@ -769,7 +829,7 @@ public sealed partial class JobSchedulingService : BackgroundService
 				QueueName = definition.Queue.Name,
 				Payload = "{}",
 				State = JobState.Pending,
-				DueAt = schedule.NextRunAt,
+				DueAt = dueAt,
 				CreatedAt = now,
 				RecurringKey = string.Create(CultureInfo.InvariantCulture, $"{schedule.Name}:{schedule.NextRunAt.UtcTicks}"),
 				TraceParent = traceParent,
@@ -852,12 +912,8 @@ public sealed partial class JobSchedulingService : BackgroundService
 				break;
 
 			schedule = schedule with { NextRunAt = next };
-			next = GetNextOccurence(
-				schedule.NextRunAt,
-				schedule.Cron,
-				schedule.TimeZone,
-				schedule.Name
-			);
+			dueAt = schedule.NextRunAt;
+			next = recurrenceTimes[++nextIndex];
 		}
 	}
 

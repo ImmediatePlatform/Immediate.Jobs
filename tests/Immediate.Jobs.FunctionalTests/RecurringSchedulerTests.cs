@@ -4,6 +4,7 @@ using Immediate.Jobs.Shared.Internals;
 using Immediate.Jobs.Shared.Storage;
 using Immediate.Jobs.Testing;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Time.Testing;
 
 namespace Immediate.Jobs.FunctionalTests;
@@ -83,7 +84,8 @@ public sealed class RecurringSchedulerTests
 			clock,
 			"cleanup",
 			"0 * * * *",
-			overlapPolicy: OverlapPolicy.Skip
+			overlapPolicy: OverlapPolicy.Skip,
+			misfireHandlingMode: MisfireHandlingMode.EnqueueAll
 		);
 
 		await scheduler.DrainAsync(cancellationToken);
@@ -147,7 +149,8 @@ public sealed class RecurringSchedulerTests
 			clock,
 			"cleanup",
 			"0 * * * *",
-			overlapPolicy: OverlapPolicy.Queue
+			overlapPolicy: OverlapPolicy.Queue,
+			misfireHandlingMode: MisfireHandlingMode.EnqueueAll
 		);
 		await scheduler.DrainAsync(cancellationToken);
 		clock.Advance(TimeSpan.FromHours(1));
@@ -190,7 +193,8 @@ public sealed class RecurringSchedulerTests
 			clock,
 			"cleanup",
 			"0 * * * *",
-			overlapPolicy: OverlapPolicy.Queue
+			overlapPolicy: OverlapPolicy.Queue,
+			misfireHandlingMode: MisfireHandlingMode.EnqueueAll
 		);
 
 		await scheduler.DrainAsync(cancellationToken);
@@ -229,7 +233,7 @@ public sealed class RecurringSchedulerTests
 	}
 
 	[Fact]
-	public async Task RestartKeepsAnOccurrenceThatFellDuringDowntime()
+	public async Task RestartImmediatelyEnqueuesOneOccurrenceThatFellDuringDowntime()
 	{
 		var cancellationToken = TestContext.Current.CancellationToken;
 		await using var harness = new JobTestHarness(Start);
@@ -241,14 +245,91 @@ public sealed class RecurringSchedulerTests
 		Assert.Equal(Start.AddHours(1), scheduled.NextRunAt);
 
 		// The process is down across the 11:00 occurrence and restarts at 11:05 with fresh scheduler
-		// state. Recomputing from "now" here would advance the schedule to 12:00 and lose 11:00.
+		// state. The default mode coalesces the missed 11:00 occurrence into one invocation due immediately.
 		harness.TimeProvider.SetUtcNow(Start.AddHours(1).AddMinutes(5));
 		var restarted = BuildScheduler(storage, harness.TimeProvider, "hourly", "0 * * * *");
 		await restarted.DrainAsync(cancellationToken);
 
 		var materialized = await storage.QueryJobsAsync(new() { JobName = "hourly", Take = 100 }, cancellationToken);
 		var occurrence = Assert.Single(materialized);
-		Assert.Equal(Start.AddHours(1), occurrence.DueAt);
+		Assert.Equal(Start.AddHours(1).AddMinutes(5), occurrence.DueAt);
+	}
+
+	[Theory]
+	[InlineData(MisfireHandlingMode.EnqueueAll, 3)]
+	[InlineData(MisfireHandlingMode.EnqueueOne, 1)]
+	[InlineData(MisfireHandlingMode.EnqueueNone, 0)]
+	public async Task MisfireHandlingControlsMissedOccurrences(
+		MisfireHandlingMode mode,
+		int expectedMaterializations
+	)
+	{
+		var cancellationToken = TestContext.Current.CancellationToken;
+		await using var storage = new CapturingJobStorage(new FakeTimeProvider(Start));
+		var clock = new FakeTimeProvider(Start);
+		var logger = new CapturingSchedulerLogger();
+		var scheduler = BuildScheduler(
+			storage,
+			clock,
+			"cleanup",
+			"0 * * * *",
+			misfireHandlingMode: mode,
+			logger: logger
+		);
+
+		await scheduler.DrainAsync(cancellationToken);
+		clock.Advance(TimeSpan.FromHours(3).Add(TimeSpan.FromMinutes(5)));
+		await scheduler.DrainAsync(cancellationToken);
+
+		Assert.Equal(expectedMaterializations, storage.RecurringMaterializations.Count);
+		Assert.Equal(Start.AddHours(4), storage.RecurringSchedules["cleanup"].NextRunAt);
+		Assert.Contains(
+			logger.Entries,
+			entry => entry.Level == LogLevel.Information
+				&& entry.Message.Contains("missed 3 occurrences", StringComparison.Ordinal)
+				&& entry.Message.Contains(mode.ToString(), StringComparison.Ordinal)
+		);
+
+		if (mode == MisfireHandlingMode.EnqueueAll)
+		{
+			Assert.Equal(
+				[Start.AddHours(1), Start.AddHours(2), Start.AddHours(3)],
+				storage.RecurringMaterializations.Select(x => x.Job.DueAt)
+			);
+		}
+		else if (mode == MisfireHandlingMode.EnqueueOne)
+		{
+			Assert.Equal(clock.GetUtcNow(), Assert.Single(storage.RecurringMaterializations).Job.DueAt);
+		}
+	}
+
+	[Theory]
+	[InlineData(MisfireHandlingMode.EnqueueOne)]
+	[InlineData(MisfireHandlingMode.EnqueueNone)]
+	public async Task OccurrenceExactlyAtNowIsNotAMisfire(MisfireHandlingMode mode)
+	{
+		var cancellationToken = TestContext.Current.CancellationToken;
+		await using var storage = new CapturingJobStorage(new FakeTimeProvider(Start));
+		var clock = new FakeTimeProvider(Start);
+		var logger = new CapturingSchedulerLogger();
+		var scheduler = BuildScheduler(
+			storage,
+			clock,
+			"cleanup",
+			"0 * * * *",
+			misfireHandlingMode: mode,
+			logger: logger
+		);
+
+		await scheduler.DrainAsync(cancellationToken);
+		clock.Advance(TimeSpan.FromHours(1));
+		await scheduler.DrainAsync(cancellationToken);
+
+		Assert.Equal(Start.AddHours(1), Assert.Single(storage.RecurringMaterializations).Job.DueAt);
+		Assert.DoesNotContain(
+			logger.Entries,
+			entry => entry.Message.Contains("missed", StringComparison.OrdinalIgnoreCase)
+		);
 	}
 
 	[Fact]
@@ -381,12 +462,16 @@ public sealed class RecurringSchedulerTests
 		IJobInvoker? invoker = null,
 		OverlapPolicy overlapPolicy = OverlapPolicy.Skip,
 		int maxParallelJobs = 1,
-		int maxAttempts = 3
+		int maxAttempts = 3,
+		MisfireHandlingMode misfireHandlingMode = MisfireHandlingMode.EnqueueOne,
+		ILogger<JobSchedulingService>? logger = null
 	)
 	{
 		invoker ??= NoOpInvoker.Instance;
 		var services = new ServiceCollection();
 		_ = services.AddLogging();
+		if (logger is not null)
+			_ = services.AddSingleton(logger);
 		_ = services.AddSingleton(clock);
 		_ = services.AddImmediateJobsCore()
 			.ConfigureWorkers(o => o.WorkerCount = maxParallelJobs)
@@ -399,6 +484,7 @@ public sealed class RecurringSchedulerTests
 			Invoker = invoker,
 			JobType = invoker.GetType(),
 			OverlapPolicy = overlapPolicy,
+			MisfireHandlingMode = misfireHandlingMode,
 			MaxAttempts = maxAttempts,
 		});
 
@@ -442,5 +528,22 @@ public sealed class RecurringSchedulerTests
 			_ = Assert.Single(active);
 			Executions++;
 		}
+	}
+
+	private sealed class CapturingSchedulerLogger : ILogger<JobSchedulingService>
+	{
+		public List<(LogLevel Level, string Message)> Entries { get; } = [];
+
+		public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+		public bool IsEnabled(LogLevel logLevel) => true;
+
+		public void Log<TState>(
+			LogLevel logLevel,
+			EventId eventId,
+			TState state,
+			Exception? exception,
+			Func<TState, Exception?, string> formatter
+		) => Entries.Add((logLevel, formatter(state, exception)));
 	}
 }
