@@ -1225,12 +1225,21 @@ internal sealed partial class LinqToDBJobStorage<T>(
 			if (!await UpdateRecurringAsync(connection, entity, oldStamp, cancellationToken))
 				throw new LostRaceException();
 
-			await InsertAsync(connection, ToEntity(job), cancellationToken);
+			var jobEntities = new[] { ToEntity(job) }.ToDictionary(static item => item.Id, StringComparer.Ordinal);
+			var edgeEntities = dependencies?.Select(ToEntity).ToList() ?? [];
+			await EvaluateInitialDependenciesAsync(
+				connection,
+				jobEntities,
+				edgeEntities,
+				timeProvider.GetUtcNow(),
+				cancellationToken
+			);
+			await InsertAsync(connection, jobEntities.Values.Single(), cancellationToken);
 
-			if (dependencies is { })
+			if (edgeEntities.Count != 0)
 			{
-				foreach (var d in dependencies)
-					await InsertAsync(connection, ToEntity(d), cancellationToken);
+				foreach (var edge in edgeEntities)
+					await InsertAsync(connection, edge, cancellationToken);
 			}
 
 			await connection.CommitTransactionAsync(cancellationToken);

@@ -12,6 +12,7 @@ internal static class RecurringStorageConformance
 	private const string MergeDefinitionsName = "Recurring.Definitions.MergesCodeDefinedSchedulesAndPreservesDynamicSchedules";
 	private const string DueScanName = "Recurring.DueScanning.FiltersOrdersAndBatchesSchedules";
 	private const string MaterializeName = "Recurring.Materialization.CreatesOccurrenceAndAdvancesScheduleAtomically";
+	private const string TerminalParentName = "Recurring.Materialization.EvaluatesTerminalParentsAtomically";
 	private const string ConcurrentName = "Recurring.Materialization.DeduplicatesConcurrentOccurrence";
 	private const string DedupeAdvanceName = "Recurring.Materialization.DedupeHitStillAdvancesSchedule";
 	private const string StaleName = "Recurring.Materialization.RejectsStaleDueEntry";
@@ -28,6 +29,7 @@ internal static class RecurringStorageConformance
 		new(MergeDefinitionsName, StorageCapabilities.Recurring, MergesDefinitionsAsync, ExistingRecurringSchedules()),
 		new(DueScanName, StorageCapabilities.Recurring, FiltersDueSchedulesAsync),
 		new(MaterializeName, StorageCapabilities.Recurring, MaterializesAtomicallyAsync),
+		new(TerminalParentName, StorageCapabilities.Recurring | StorageCapabilities.Graph, EvaluatesTerminalParentAsync),
 		new(ConcurrentName, StorageCapabilities.Recurring, DeduplicatesConcurrentOccurrenceAsync),
 		new(DedupeAdvanceName, StorageCapabilities.Recurring, AdvancesAfterDedupeHitAsync),
 		new(StaleName, StorageCapabilities.Recurring, RejectsStaleDueEntryAsync),
@@ -240,6 +242,52 @@ internal static class RecurringStorageConformance
 		var persistedSchedule = await GetScheduleAsync(storage, schedule.Name, MaterializeName, cancellationToken);
 		ConformanceAssert.Equal(now, persistedSchedule.LastRunAt, MaterializeName, "materialization must record the occurrence time");
 		ConformanceAssert.Equal(nextRunAt, persistedSchedule.NextRunAt, MaterializeName, "materialization must advance the schedule");
+	}
+
+	private static async ValueTask EvaluatesTerminalParentAsync(
+		IJobStorage storage,
+		FakeTimeProvider timeProvider,
+		CancellationToken cancellationToken
+	)
+	{
+		var recurring = Recurring(storage, TerminalParentName);
+		var now = timeProvider.GetUtcNow();
+		var parent = Occurrence("materialize-terminal-parent", Schedule("unused-parent", now, isCodeDefined: true), JobState.Succeeded, now) with
+		{
+			RecurringKey = null,
+			CompletedAt = now,
+		};
+		await storage.EnqueueAsync(parent, cancellationToken);
+
+		var schedule = Schedule("materialize-terminal-child", now, isCodeDefined: true);
+		var child = Occurrence("materialize-terminal-child", schedule, JobState.AwaitingContinuation, now) with
+		{
+			RemainingDependencies = 1,
+		};
+		var dependencies = new[]
+		{
+			new JobContinuationEdge
+			{
+				ParentJobHandle = parent.JobHandle,
+				ChildJobHandle = child.JobHandle,
+				Delay = TimeSpan.Zero,
+			},
+		};
+		await recurring.UpsertRecurringAsync(schedule, cancellationToken);
+
+		ConformanceAssert.True(
+			await recurring.MaterializeRecurringAsync(schedule, child, now.AddHours(1), dependencies, cancellationToken),
+			TerminalParentName,
+			"the queued occurrence must be materialized"
+		);
+		var persisted = await GetJobAsync(storage, child.JobHandle, TerminalParentName, cancellationToken);
+		ConformanceAssert.Equal(
+			JobState.Pending,
+			persisted.State,
+			TerminalParentName,
+			"materialization must settle a dependency whose parent is already terminal"
+		);
+		ConformanceAssert.Equal(0, persisted.RemainingDependencies, TerminalParentName, "the terminal dependency must be consumed");
 	}
 
 	// TODO: Use storage to force failing order of events

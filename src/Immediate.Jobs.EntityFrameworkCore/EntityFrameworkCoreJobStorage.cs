@@ -1129,11 +1129,20 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>(
 		entity.LastRunAt = schedule.NextRunAt;
 		entity.NextRunAt = nextRunAt;
 		entity.ConcurrencyStamp = Guid.NewGuid();
-		context.Add(ToEntity(job));
+		var jobEntities = new[] { ToEntity(job) }.ToDictionary(static item => item.Id, StringComparer.Ordinal);
+		var edgeEntities = dependencies?.Select(ToEntity).ToList() ?? [];
+		await EvaluateInitialDependenciesAsync(
+			context,
+			jobEntities,
+			edgeEntities,
+			_timeProvider.GetUtcNow(),
+			cancellationToken
+		);
+		context.AddRange(jobEntities.Values);
 
-		if (dependencies is { })
+		if (edgeEntities.Count != 0)
 		{
-			context.AddRange(dependencies.Select(ToEntity));
+			context.AddRange(edgeEntities);
 		}
 
 		try

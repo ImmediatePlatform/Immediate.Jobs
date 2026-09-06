@@ -812,7 +812,10 @@ public sealed partial class InMemoryJobStorage(
 				_jobs[job.JobHandle] = job;
 
 				if (dependencies is { })
+				{
 					_edges.AddRange(dependencies);
+					EvaluateAlreadyTerminalParents(dependencies);
+				}
 			}
 
 			_recurring[schedule.Name] = current with { LastRunAt = schedule.NextRunAt, NextRunAt = nextRunAt };
