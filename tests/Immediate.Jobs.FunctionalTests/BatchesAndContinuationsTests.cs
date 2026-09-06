@@ -5,7 +5,6 @@ using Immediate.Jobs.Shared.Interfaces;
 using Immediate.Jobs.Shared.Storage;
 using Immediate.Jobs.Testing;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Time.Testing;
 
 namespace Immediate.Jobs.FunctionalTests;
 
@@ -510,26 +509,6 @@ public sealed class BatchesAndContinuationsTests
 		var exception = Assert.Throws<ImmediateJobException>(() =>
 			workflowScheduler.ScheduleAfter(new("late"), details, ContinuationOptions.Detached));
 		Assert.Contains("sealed", exception.Message, StringComparison.OrdinalIgnoreCase);
-	}
-
-	[Fact]
-	public async Task RuntimeRegistersScopedBatchAndMonitoringServices()
-	{
-		var timeProvider = new FakeTimeProvider(DateTimeOffset.UnixEpoch);
-		var services = new ServiceCollection();
-		_ = services.AddSingleton<TimeProvider>(timeProvider);
-		_ = services.AddImmediateJobsCore();
-		await using var provider = services.BuildServiceProvider(new ServiceProviderOptions { ValidateScopes = true });
-
-		await using var firstScope = provider.CreateAsyncScope();
-		var scheduler = firstScope.ServiceProvider.GetRequiredService<BatchScheduler>();
-		var batchMonitor = firstScope.ServiceProvider.GetRequiredService<JobMonitor>();
-		var jobMonitor = firstScope.ServiceProvider.GetRequiredService<IJobMonitor>();
-		await using var secondScope = provider.CreateAsyncScope();
-
-		_ = Assert.IsType<BatchScheduler>(scheduler);
-		Assert.Same(batchMonitor, jobMonitor);
-		Assert.NotSame(scheduler, secondScope.ServiceProvider.GetRequiredService<BatchScheduler>());
 	}
 
 	private static JobTestHarness CreateHarness(

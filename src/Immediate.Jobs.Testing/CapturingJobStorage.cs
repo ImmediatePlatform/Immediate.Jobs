@@ -11,10 +11,13 @@ namespace Immediate.Jobs.Testing;
 ///	    Capturing does not alter storage behavior: every operation is forwarded to an <see cref="InMemoryJobStorage"/>
 ///     after its input has been recorded.
 /// </remarks>
+[SuppressMessage("Usage", "CA1816:Dispose methods should call SuppressFinalize", Justification = "Class is only used for testing; shouldn't need to worry about this.")]
+[SuppressMessage("Design", "CA1063:Implement IDisposable Correctly", Justification = "Class is only used for testing; shouldn't need to worry about this.")]
 public class CapturingJobStorage(TimeProvider timeProvider) :
 	IRecurringJobStorage,
 	IJobGraphStorage,
-	IFairQueueStorage
+	IFairQueueStorage,
+	IDisposable
 {
 	private readonly Lock _gate = new();
 	private readonly InMemoryJobStorage _inner = new(timeProvider);
@@ -82,8 +85,10 @@ public class CapturingJobStorage(TimeProvider timeProvider) :
 	}
 
 	/// <inheritdoc />
-	[SuppressMessage("Usage", "CA1816:Dispose methods should call SuppressFinalize", Justification = "Class is only used for testing; shouldn't need to worry about this.")]
-	public virtual async ValueTask DisposeAsync() => await _inner.DisposeAsync();
+	public async ValueTask DisposeAsync() => await _inner.DisposeAsync();
+
+	/// <inheritdoc />
+	public void Dispose() { }
 
 	/// <summary>
 	///	    Used for testing to pre-load various values to the storage before the test starts.
