@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using Immediate.Jobs.Shared.Apis;
 using Immediate.Jobs.Shared.Interfaces;
@@ -14,22 +15,34 @@ namespace Immediate.Jobs.Testing;
 /// </summary>
 public sealed class JobTestHarness : IAsyncDisposable, IDisposable
 {
-	private readonly ServiceProvider _serviceProvider;
+	private readonly Action<IServiceCollection>? _configureServices;
+	private readonly Action<ImmediateJobsOptions>? _configureWorkers;
+
+	private ServiceProvider _serviceProvider;
 	private bool _disposed;
 
-	/// <summary>Creates a harness at the Unix epoch.</summary>
+	/// <summary>
+	///		Creates a harness at the Unix epoch.
+	/// </summary>
 	/// <param name="configureServices">
-	/// Registers generated job definitions and the services used by their handlers. Calling the generated
-	/// <c>AddImmediateJobs</c> method here is supported; the harness clock and in-memory provider remain authoritative.
+	///		Registers generated job definitions and the services used by their handlers. Calling the generated
+	///		<c>AddImmediateJobs</c> method here is supported; the harness clock and in-memory provider remain
+	///		authoritative.
 	/// </param>
 	public JobTestHarness(Action<IServiceCollection>? configureServices = null)
 		: this(DateTimeOffset.UnixEpoch, configureServices)
 	{
 	}
 
-	/// <summary>Creates a harness at the Unix epoch with customized worker options.</summary>
-	/// <param name="configureServices">Registers job definitions and handler services.</param>
-	/// <param name="configureWorkers">Customizes the production scheduler's worker options.</param>
+	/// <summary>
+	///		Creates a harness at the Unix epoch with customized worker options.
+	/// </summary>
+	/// <param name="configureServices">
+	///		Registers job definitions and handler services.
+	/// </param>
+	/// <param name="configureWorkers">
+	///		Customizes the production scheduler's worker options.
+	/// </param>
 	public JobTestHarness(
 		Action<IServiceCollection>? configureServices,
 		Action<ImmediateJobsOptions>? configureWorkers
@@ -37,84 +50,139 @@ public sealed class JobTestHarness : IAsyncDisposable, IDisposable
 	{
 	}
 
-	/// <summary>Creates a harness at a specified UTC instant.</summary>
-	/// <param name="start">The initial UTC time exposed by the controllable clock.</param>
-	/// <param name="configureServices">
-	/// Registers generated job definitions and the services used by their handlers. Calling the generated
-	/// <c>AddImmediateJobs</c> method here is supported; the harness clock and in-memory provider remain authoritative.
+	/// <summary>
+	///		Creates a harness at a specified UTC instant.
+	/// </summary>
+	/// <param name="start">
+	///		The initial UTC time exposed by the controllable clock.
 	/// </param>
-	/// <param name="configureWorkers">Optionally customizes the production scheduler's worker options.</param>
+	/// <param name="configureServices">
+	///		Registers generated job definitions and the services used by their handlers. Calling the generated
+	///		<c>AddImmediateJobs</c> method here is supported; the harness clock and in-memory provider remain
+	///		authoritative.
+	/// </param>
+	/// <param name="configureWorkers">
+	///		Optionally customizes the production scheduler's worker options.
+	/// </param>
 	public JobTestHarness(
 		DateTimeOffset start,
 		Action<IServiceCollection>? configureServices = null,
 		Action<ImmediateJobsOptions>? configureWorkers = null
 	)
 	{
-		TimeProvider = new(start);
+		_configureServices = configureServices;
+		_configureWorkers = configureWorkers;
+		TimeProvider = new FakeTimeProvider(start);
+		Storage = new CapturingJobStorage(TimeProvider);
+
+		ResetScheduler();
+	}
+
+	/// <summary>
+	///		Resets the <see cref="Services"/>, <see cref="Batches"/>, and <see cref="Scheduler"/>
+	///		to a new suite, simulating a restart of the application. The <see cref="TimeProvider"/>
+	///		and <see cref="Storage"/> are retained to simulate wall-clock time advancing and durable
+	///		data storage across restarts.
+	/// </summary>
+	[MemberNotNull(nameof(_serviceProvider))]
+	[MemberNotNull(nameof(Batches))]
+	[MemberNotNull(nameof(Scheduler))]
+	public void ResetScheduler()
+	{
 		var services = new ServiceCollection();
-		configureServices?.Invoke(services);
+		_configureServices?.Invoke(services);
 
-		_ = services.AddSingleton<TimeProvider>(TimeProvider);
-		_ = services.AddSingleton(TimeProvider);
-		_ = services.AddSingleton(typeof(ILogger<>), typeof(NullLogger<>));
-		_ = services.AddSingleton<CapturingJobStorage>();
+		services.AddSingleton<TimeProvider>(TimeProvider);
+		services.AddSingleton(TimeProvider);
+		services.AddSingleton(typeof(ILogger<>), typeof(NullLogger<>));
 
-		_ = services.AddImmediateJobsCore()
+		services.AddImmediateJobsCore()
 			.ConfigureWorkers(o =>
 			{
 				o.WorkerCount = 1;
-				configureWorkers?.Invoke(o);
+				_configureWorkers?.Invoke(o);
 			})
 			.ConfigureStorage(o => o
-				.UseStorage(static provider => provider.GetRequiredService<CapturingJobStorage>())
-				.UseDistributed());
+				.UseStorage(_ => Storage)
+				.UseDistributed()
+			);
 
-		_serviceProvider = services.BuildServiceProvider(new ServiceProviderOptions
-		{
-			ValidateScopes = true,
-			ValidateOnBuild = true,
-		});
-
-		Services = _serviceProvider;
-		Storage = _serviceProvider.GetRequiredService<CapturingJobStorage>();
-		Batches = new BatchScheduler(
-			Storage,
-			TimeProvider,
-			_serviceProvider.GetRequiredService<IIdGenerator>()
+		_serviceProvider = services.BuildServiceProvider(
+			new ServiceProviderOptions
+			{
+				ValidateScopes = true,
+				ValidateOnBuild = true,
+			}
 		);
-		Scheduler = _serviceProvider.GetRequiredService<JobSchedulingService>();
+
+		Batches = Services.GetRequiredService<BatchScheduler>();
+		Scheduler = Services.GetRequiredService<JobSchedulingService>();
 	}
 
-	/// <summary>The controllable clock used by schedulers, storage, retries, and cron materialization.</summary>
-	/// <value>The harness clock.</value>
+	/// <summary>
+	/// The controllable clock used by schedulers, storage, retries, and cron materialization.
+	/// </summary>
+	/// <value>
+	/// The harness clock.
+	/// </value>
 	public FakeTimeProvider TimeProvider { get; }
 
-	/// <summary>The harness service provider.</summary>
-	/// <value>The service provider created for the harness.</value>
-	public IServiceProvider Services { get; }
+	/// <summary>
+	/// The harness service provider.
+	/// </summary>
+	/// <value>
+	/// The service provider created for the harness.
+	/// </value>
+	public IServiceProvider Services => _serviceProvider;
 
-	/// <summary>The storage capture log used by the harness.</summary>
-	/// <value>The capturing storage instance, also available from <see cref="Services"/>.</value>
-	public CapturingJobStorage Storage { get; }
+	/// <summary>
+	/// The storage capture log used by the harness.
+	/// </summary>
+	/// <value>
+	/// The capturing storage instance, also available from <see cref="Services"/>.
+	/// </value>
+	public CapturingJobStorage Storage { get; private set; }
 
-	/// <summary>Builds atomic batches against the harness storage and fake clock.</summary>
-	/// <value>The batch scheduler configured for the harness.</value>
-	public IBatchScheduler Batches { get; }
+	/// <summary>
+	/// Builds atomic batches against the harness storage and fake clock.
+	/// </summary>
+	/// <value>
+	/// The batch scheduler configured for the harness.
+	/// </value>
+	public IBatchScheduler Batches { get; private set; }
 
-	/// <summary>The production scheduler runner hosted by the harness.</summary>
-	/// <value>The scheduler service configured for the harness.</value>
-	public JobSchedulingService Scheduler { get; }
+	/// <summary>
+	/// The production scheduler runner hosted by the harness.
+	/// </summary>
+	/// <value>
+	/// The scheduler service configured for the harness.
+	/// </value>
+	public JobSchedulingService Scheduler { get; private set; }
 
-	/// <summary>Runs every invocation currently due and returns when the due queue is empty.</summary>
-	/// <param name="cancellationToken">A token that can cancel draining.</param>
-	/// <returns>A task that completes when no currently due work remains.</returns>
+	/// <summary>
+	/// Runs every invocation currently due and returns when the due queue is empty.
+	/// </summary>
+	/// <param name="cancellationToken">
+	/// A token that can cancel draining.
+	/// </param>
+	/// <returns>
+	/// A task that completes when no currently due work remains.
+	/// </returns>
 	public ValueTask DrainAsync(CancellationToken cancellationToken = default) =>
 		Scheduler.DrainAsync(cancellationToken);
 
-	/// <summary>Advances fake time and then runs every invocation that became due.</summary>
-	/// <param name="amount">The amount by which to advance the clock.</param>
-	/// <param name="cancellationToken">A token that can cancel draining.</param>
-	/// <returns>A task that completes when no newly due work remains.</returns>
+	/// <summary>
+	/// Advances fake time and then runs every invocation that became due.
+	/// </summary>
+	/// <param name="amount">
+	/// The amount by which to advance the clock.
+	/// </param>
+	/// <param name="cancellationToken">
+	/// A token that can cancel draining.
+	/// </param>
+	/// <returns>
+	/// A task that completes when no newly due work remains.
+	/// </returns>
 	public async ValueTask AdvanceTimeAndDrainAsync(
 		TimeSpan amount,
 		CancellationToken cancellationToken = default
@@ -127,10 +195,18 @@ public sealed class JobTestHarness : IAsyncDisposable, IDisposable
 		await DrainAsync(cancellationToken);
 	}
 
-	/// <summary>Advances fake time to an absolute instant and drains newly due work.</summary>
-	/// <param name="instant">The absolute time to which the clock is advanced.</param>
-	/// <param name="cancellationToken">A token that can cancel draining.</param>
-	/// <returns>A task that completes when no newly due work remains.</returns>
+	/// <summary>
+	/// Advances fake time to an absolute instant and drains newly due work.
+	/// </summary>
+	/// <param name="instant">
+	/// The absolute time to which the clock is advanced.
+	/// </param>
+	/// <param name="cancellationToken">
+	/// A token that can cancel draining.
+	/// </param>
+	/// <returns>
+	/// A task that completes when no newly due work remains.
+	/// </returns>
 	public ValueTask AdvanceTimeAndDrainAsync(
 		DateTimeOffset instant,
 		CancellationToken cancellationToken = default
@@ -142,19 +218,35 @@ public sealed class JobTestHarness : IAsyncDisposable, IDisposable
 		return AdvanceTimeAndDrainAsync(amount, cancellationToken);
 	}
 
-	/// <summary>Returns persisted jobs matching a monitoring query.</summary>
-	/// <param name="query">The optional monitoring query. When omitted, up to 1,000 jobs are returned.</param>
-	/// <param name="cancellationToken">A token that can cancel the query.</param>
-	/// <returns>The persisted jobs that match the query.</returns>
+	/// <summary>
+	/// Returns persisted jobs matching a monitoring query.
+	/// </summary>
+	/// <param name="query">
+	/// The optional monitoring query. When omitted, up to 1,000 jobs are returned.
+	/// </param>
+	/// <param name="cancellationToken">
+	/// A token that can cancel the query.
+	/// </param>
+	/// <returns>
+	/// The persisted jobs that match the query.
+	/// </returns>
 	public ValueTask<IReadOnlyList<JobRecord>> QueryJobsAsync(
 		JobQuery? query = null,
 		CancellationToken cancellationToken = default
 	) => Storage.QueryJobsAsync(query ?? new() { Take = 1000 }, cancellationToken);
 
-	/// <summary>Finds an invocation by identifier, or throws a test assertion exception.</summary>
-	/// <param name="jobHandle">The invocation identifier.</param>
-	/// <param name="cancellationToken">A token that can cancel the query.</param>
-	/// <returns>The persisted job record.</returns>
+	/// <summary>
+	/// Finds an invocation by identifier, or throws a test assertion exception.
+	/// </summary>
+	/// <param name="jobHandle">
+	/// The invocation identifier.
+	/// </param>
+	/// <param name="cancellationToken">
+	/// A token that can cancel the query.
+	/// </param>
+	/// <returns>
+	/// The persisted job record.
+	/// </returns>
 	public async ValueTask<JobRecord> GetJobAsync(string jobHandle, CancellationToken cancellationToken = default)
 	{
 		var jobs = await Storage.QueryJobsAsync(new() { Take = 1000 }, cancellationToken);
@@ -162,22 +254,42 @@ public sealed class JobTestHarness : IAsyncDisposable, IDisposable
 			?? throw new JobTestAssertionException($"Expected job '{jobHandle}' to have been enqueued, but it was not found.");
 	}
 
-	/// <summary>Finds an invocation returned by a typed scheduler call.</summary>
-	/// <param name="job">The handle returned by the scheduler.</param>
-	/// <param name="cancellationToken">A token that can cancel the query.</param>
-	/// <returns>The persisted job record.</returns>
+	/// <summary>
+	/// Finds an invocation returned by a typed scheduler call.
+	/// </summary>
+	/// <param name="job">
+	/// The handle returned by the scheduler.
+	/// </param>
+	/// <param name="cancellationToken">
+	/// A token that can cancel the query.
+	/// </param>
+	/// <returns>
+	/// The persisted job record.
+	/// </returns>
 	public ValueTask<JobRecord> GetJobAsync(JobHandle job, CancellationToken cancellationToken = default)
 	{
 		ArgumentNullException.ThrowIfNull(job);
 		return GetJobAsync(job.Value, cancellationToken);
 	}
 
-	/// <summary>Asserts and deserializes the invocation returned by a typed scheduler call.</summary>
-	/// <typeparam name="TPayload">The expected payload type.</typeparam>
-	/// <param name="jobHandle">The invocation identifier.</param>
-	/// <param name="expectedState">The expected durable state, or <see langword="null"/> to accept any state.</param>
-	/// <param name="cancellationToken">A token that can cancel the query.</param>
-	/// <returns>The durable record paired with its deserialized payload.</returns>
+	/// <summary>
+	/// Asserts and deserializes the invocation returned by a typed scheduler call.
+	/// </summary>
+	/// <typeparam name="TPayload">
+	/// The expected payload type.
+	/// </typeparam>
+	/// <param name="jobHandle">
+	/// The invocation identifier.
+	/// </param>
+	/// <param name="expectedState">
+	/// The expected durable state, or <see langword="null"/> to accept any state.
+	/// </param>
+	/// <param name="cancellationToken">
+	/// A token that can cancel the query.
+	/// </param>
+	/// <returns>
+	/// The durable record paired with its deserialized payload.
+	/// </returns>
 	public async ValueTask<EnqueuedJob<TPayload>> AssertEnqueuedAsync<TPayload>(
 		string jobHandle,
 		JobState? expectedState = null,
@@ -195,7 +307,7 @@ public sealed class JobTestHarness : IAsyncDisposable, IDisposable
 		TPayload payload;
 		try
 		{
-			payload = _serviceProvider.GetRequiredService<IJobSerializer>().Deserialize<TPayload>(job.Payload);
+			payload = Services.GetRequiredService<IJobSerializer>().Deserialize<TPayload>(job.Payload);
 		}
 		catch (Exception exception)
 		{
@@ -207,12 +319,24 @@ public sealed class JobTestHarness : IAsyncDisposable, IDisposable
 		return new(job, payload);
 	}
 
-	/// <summary>Asserts and deserializes the invocation returned by a typed scheduler call.</summary>
-	/// <typeparam name="TPayload">The expected payload type.</typeparam>
-	/// <param name="job">The handle returned by the scheduler.</param>
-	/// <param name="expectedState">The expected durable state, or <see langword="null"/> to accept any state.</param>
-	/// <param name="cancellationToken">A token that can cancel the query.</param>
-	/// <returns>The durable record paired with its deserialized payload.</returns>
+	/// <summary>
+	/// Asserts and deserializes the invocation returned by a typed scheduler call.
+	/// </summary>
+	/// <typeparam name="TPayload">
+	/// The expected payload type.
+	/// </typeparam>
+	/// <param name="job">
+	/// The handle returned by the scheduler.
+	/// </param>
+	/// <param name="expectedState">
+	/// The expected durable state, or <see langword="null"/> to accept any state.
+	/// </param>
+	/// <param name="cancellationToken">
+	/// A token that can cancel the query.
+	/// </param>
+	/// <returns>
+	/// The durable record paired with its deserialized payload.
+	/// </returns>
 	public ValueTask<EnqueuedJob<TPayload>> AssertEnqueuedAsync<TPayload>(
 		JobHandle job,
 		JobState? expectedState = null,
@@ -223,11 +347,21 @@ public sealed class JobTestHarness : IAsyncDisposable, IDisposable
 		return AssertEnqueuedAsync<TPayload>(job.Value, expectedState, cancellationToken);
 	}
 
-	/// <summary>Asserts that a committed batch and exactly the expected number of members are visible together.</summary>
-	/// <param name="batch">The committed batch handle.</param>
-	/// <param name="expectedMembers">The expected number of committed batch members.</param>
-	/// <param name="cancellationToken">A token that can cancel the assertion query.</param>
-	/// <returns>A task that completes when the assertion succeeds.</returns>
+	/// <summary>
+	/// Asserts that a committed batch and exactly the expected number of members are visible together.
+	/// </summary>
+	/// <param name="batch">
+	/// The committed batch handle.
+	/// </param>
+	/// <param name="expectedMembers">
+	/// The expected number of committed batch members.
+	/// </param>
+	/// <param name="cancellationToken">
+	/// A token that can cancel the assertion query.
+	/// </param>
+	/// <returns>
+	/// A task that completes when the assertion succeeds.
+	/// </returns>
 	public async ValueTask AssertBatchCommittedAtomicallyAsync(
 		BatchHandle batch,
 		int expectedMembers,
@@ -250,11 +384,21 @@ public sealed class JobTestHarness : IAsyncDisposable, IDisposable
 		}
 	}
 
-	/// <summary>Asserts that the child has a persisted dependency on the supplied parent.</summary>
-	/// <param name="parent">The expected parent invocation.</param>
-	/// <param name="child">The expected child invocation.</param>
-	/// <param name="cancellationToken">A token that can cancel the assertion query.</param>
-	/// <returns>A task that completes when the assertion succeeds.</returns>
+	/// <summary>
+	/// Asserts that the child has a persisted dependency on the supplied parent.
+	/// </summary>
+	/// <param name="parent">
+	/// The expected parent invocation.
+	/// </param>
+	/// <param name="child">
+	/// The expected child invocation.
+	/// </param>
+	/// <param name="cancellationToken">
+	/// A token that can cancel the assertion query.
+	/// </param>
+	/// <returns>
+	/// A task that completes when the assertion succeeds.
+	/// </returns>
 	public async ValueTask AssertContinuationReleasedAfterAsync(
 		JobHandle parent,
 		JobHandle child,
@@ -276,10 +420,18 @@ public sealed class JobTestHarness : IAsyncDisposable, IDisposable
 			throw new JobTestAssertionException($"Expected continuation '{child}' to be released, but it is still waiting.");
 	}
 
-	/// <summary>Asserts that every supplied invocation was skipped by a dependency cascade.</summary>
-	/// <param name="subtree">The invocations expected to be cascade-skipped.</param>
-	/// <param name="cancellationToken">A token that can cancel the assertion query.</param>
-	/// <returns>A task that completes when the assertion succeeds.</returns>
+	/// <summary>
+	/// Asserts that every supplied invocation was skipped by a dependency cascade.
+	/// </summary>
+	/// <param name="subtree">
+	/// The invocations expected to be cascade-skipped.
+	/// </param>
+	/// <param name="cancellationToken">
+	/// A token that can cancel the assertion query.
+	/// </param>
+	/// <returns>
+	/// A task that completes when the assertion succeeds.
+	/// </returns>
 	public async ValueTask AssertCascadeSkippedAsync(
 		IReadOnlyCollection<JobHandle> subtree,
 		CancellationToken cancellationToken = default
@@ -294,21 +446,41 @@ public sealed class JobTestHarness : IAsyncDisposable, IDisposable
 		}
 	}
 
-	/// <summary>Compatibility alias for <see cref="AssertCascadeSkippedAsync"/>.</summary>
-	/// <param name="subtree">The invocations expected to be cascade-skipped.</param>
-	/// <param name="cancellationToken">A token that can cancel the assertion query.</param>
-	/// <returns>A task that completes when the assertion succeeds.</returns>
+	/// <summary>
+	/// Compatibility alias for <see cref="AssertCascadeSkippedAsync"/>.
+	/// </summary>
+	/// <param name="subtree">
+	/// The invocations expected to be cascade-skipped.
+	/// </param>
+	/// <param name="cancellationToken">
+	/// A token that can cancel the assertion query.
+	/// </param>
+	/// <returns>
+	/// A task that completes when the assertion succeeds.
+	/// </returns>
 	public ValueTask AssertCascadeCancelledAsync(
 		IReadOnlyCollection<JobHandle> subtree,
 		CancellationToken cancellationToken = default
 	) => AssertCascadeSkippedAsync(subtree, cancellationToken);
 
-	/// <summary>Runs one generated invoker, including its compile-time behavior pipeline, outside durable state.</summary>
-	/// <typeparam name="TPayload">The payload type accepted by the generated invoker.</typeparam>
-	/// <param name="definition">The generated job definition to invoke.</param>
-	/// <param name="payload">The payload supplied to the invoker.</param>
-	/// <param name="cancellationToken">A token that can cancel invocation.</param>
-	/// <returns>A task that completes when the behavior pipeline finishes.</returns>
+	/// <summary>
+	/// Runs one generated invoker, including its compile-time behavior pipeline, outside durable state.
+	/// </summary>
+	/// <typeparam name="TPayload">
+	/// The payload type accepted by the generated invoker.
+	/// </typeparam>
+	/// <param name="definition">
+	/// The generated job definition to invoke.
+	/// </param>
+	/// <param name="payload">
+	/// The payload supplied to the invoker.
+	/// </param>
+	/// <param name="cancellationToken">
+	/// A token that can cancel invocation.
+	/// </param>
+	/// <returns>
+	/// A task that completes when the behavior pipeline finishes.
+	/// </returns>
 	public async ValueTask RunThroughPipelineAsync<TPayload>(
 		JobDefinition definition,
 		TPayload payload,
@@ -317,18 +489,21 @@ public sealed class JobTestHarness : IAsyncDisposable, IDisposable
 	{
 		ArgumentNullException.ThrowIfNull(definition);
 		var now = TimeProvider.GetUtcNow();
+
 		var record = new JobRecord
 		{
-			JobHandle = JobHandle.FromString(_serviceProvider.GetRequiredService<IIdGenerator>().CreateId(IdKind.Job)),
+			JobHandle = JobHandle.FromString(Services.GetRequiredService<IIdGenerator>().CreateId(IdKind.Job)),
 			JobName = definition.Name,
 			QueueName = definition.Queue.Name,
-			Payload = _serviceProvider.GetRequiredService<IJobSerializer>().Serialize(payload),
+			Payload = Services.GetRequiredService<IJobSerializer>().Serialize(payload),
 			State = JobState.Active,
 			DueAt = now,
 			CreatedAt = now,
 			Attempt = 1,
 		};
-		await using var scope = _serviceProvider.CreateAsyncScope();
+
+		await using var scope = Services.CreateAsyncScope();
+
 		await definition.Invoker.InvokeAsync(
 			scope.ServiceProvider,
 			new JobExecution { Record = record, Definition = definition, CancellationToken = cancellationToken }
@@ -340,6 +515,7 @@ public sealed class JobTestHarness : IAsyncDisposable, IDisposable
 	{
 		if (_disposed)
 			return;
+
 		_disposed = true;
 		_serviceProvider.Dispose();
 	}
@@ -348,14 +524,23 @@ public sealed class JobTestHarness : IAsyncDisposable, IDisposable
 	public async ValueTask DisposeAsync()
 	{
 		if (_disposed)
+
 			return;
 		_disposed = true;
 		await _serviceProvider.DisposeAsync();
 	}
 }
 
-/// <summary>A durable invocation paired with its strongly typed deserialized payload.</summary>
-/// <typeparam name="TPayload">The deserialized payload type.</typeparam>
-/// <param name="Record">The persisted job record.</param>
-/// <param name="Payload">The deserialized payload.</param>
+/// <summary>
+///		A durable invocation paired with its strongly typed deserialized payload.
+/// </summary>
+/// <typeparam name="TPayload">
+///		The deserialized payload type.
+/// </typeparam>
+/// <param name="Record">
+///		The persisted job record.
+/// </param>
+/// <param name="Payload">
+///		The deserialized payload.
+/// </param>
 public sealed record EnqueuedJob<TPayload>(JobRecord Record, TPayload Payload);
