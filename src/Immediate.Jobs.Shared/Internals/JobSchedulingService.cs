@@ -864,7 +864,7 @@ public sealed partial class JobSchedulingService : BackgroundService
 						record = record with
 						{
 							State = JobState.AwaitingContinuation,
-							CompletedAt = now,
+							CompletedAt = null,
 							RemainingDependencies = 1,
 						};
 					}
