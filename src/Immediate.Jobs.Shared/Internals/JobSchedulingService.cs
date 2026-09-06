@@ -742,6 +742,60 @@ public sealed partial class JobSchedulingService : BackgroundService
 		};
 	}
 
+	private static List<DateTimeOffset> GetNextOccurrences(
+		RecurringJobSchedule schedule,
+		MisfireHandlingMode misfireHandlingMode,
+		DateTimeOffset now
+	)
+	{
+		var recurrenceTimes = new List<DateTimeOffset> { schedule.NextRunAt };
+
+		if (misfireHandlingMode == MisfireHandlingMode.EnqueueAll)
+		{
+			while (recurrenceTimes[^1] <= now)
+			{
+				recurrenceTimes.Add(
+					GetNextOccurrence(
+						recurrenceTimes[^1],
+						schedule.Cron,
+						schedule.TimeZone,
+						schedule.Name
+					)
+				);
+			}
+		}
+		else
+		{
+			var next = schedule.NextRunAt;
+
+			while (next < now)
+			{
+				next = GetNextOccurrence(
+					next,
+					schedule.Cron,
+					schedule.TimeZone,
+					schedule.Name
+				);
+			}
+
+			recurrenceTimes.Add(next);
+
+			if (next == now)
+			{
+				recurrenceTimes.Add(
+					GetNextOccurrence(
+						next,
+						schedule.Cron,
+						schedule.TimeZone,
+						schedule.Name
+					)
+				);
+			}
+		}
+
+		return recurrenceTimes;
+	}
+
 	private async Task MaterializeRecurringScheduleAsync(
 		IRecurringJobStorage recurringStorage,
 		RecurringJobSchedule schedule,
@@ -750,19 +804,7 @@ public sealed partial class JobSchedulingService : BackgroundService
 		CancellationToken cancellationToken
 	)
 	{
-		var recurrenceTimes = new List<DateTimeOffset> { schedule.NextRunAt };
-
-		while (recurrenceTimes[^1] <= now)
-		{
-			recurrenceTimes.Add(
-				GetNextOccurrence(
-					recurrenceTimes[^1],
-					schedule.Cron,
-					schedule.TimeZone,
-					schedule.Name
-				)
-			);
-		}
+		var recurrenceTimes = GetNextOccurrences(schedule, definition.MisfireHandlingMode, now);
 
 		var nextIndex = 1;
 		var next = recurrenceTimes[nextIndex];
@@ -794,7 +836,6 @@ public sealed partial class JobSchedulingService : BackgroundService
 
 					schedule = schedule with
 					{
-						LastRunAt = lastMissedAt,
 						NextRunAt = nextAfterMisfires,
 					};
 
