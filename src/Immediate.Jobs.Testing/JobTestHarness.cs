@@ -89,11 +89,16 @@ public sealed class JobTestHarness : IAsyncDisposable, IDisposable
 	[MemberNotNull(nameof(Scheduler))]
 	public void ResetScheduler()
 	{
+		ObjectDisposedException.ThrowIf(_disposed, this);
+
+		_serviceProvider?.Dispose();
+
 		var services = new ServiceCollection();
 		_configureServices?.Invoke(services);
 
 		services.AddSingleton<TimeProvider>(TimeProvider);
 		services.AddSingleton(TimeProvider);
+		services.AddSingleton(Storage);
 		services.AddSingleton(typeof(ILogger<>), typeof(NullLogger<>));
 
 		services.AddImmediateJobsCore()
@@ -518,6 +523,7 @@ public sealed class JobTestHarness : IAsyncDisposable, IDisposable
 
 		_disposed = true;
 		_serviceProvider.Dispose();
+		Storage.DisposeAsync().AsTask().GetAwaiter().GetResult();
 	}
 
 	/// <inheritdoc />
@@ -528,6 +534,7 @@ public sealed class JobTestHarness : IAsyncDisposable, IDisposable
 			return;
 		_disposed = true;
 		await _serviceProvider.DisposeAsync();
+		await Storage.DisposeAsync();
 	}
 }
 
