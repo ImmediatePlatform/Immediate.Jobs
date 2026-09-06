@@ -215,7 +215,7 @@ public class CapturingJobStorage(TimeProvider timeProvider) :
 			lock (_gate)
 			{
 				_jobs.Add(job);
-				_recurringMaterializations.Add(new(schedule, job, dependencies, nextRunAt));
+				_recurringMaterializations.Add(new(schedule, job, dependencies?.ToList(), nextRunAt));
 				_recurringSchedules[schedule.Name] = schedule with { LastRunAt = schedule.NextRunAt, NextRunAt = nextRunAt };
 			}
 
