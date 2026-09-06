@@ -3,6 +3,8 @@ using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Runtime.InteropServices;
 using Immediate.Jobs.Shared.Apis;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Immediate.Jobs.Shared.Storage;
 
@@ -12,16 +14,25 @@ namespace Immediate.Jobs.Shared.Storage;
 /// <param name="timeProvider">
 /// 	The clock used for scheduling, leases, and timestamps.
 /// </param>
+/// <param name="logger">The logger used to record storage operations.</param>
 /// <remarks>
 ///		Public use should only be done via <see cref="IImmediateJobsStorageBuilder.UseInMemory"/>.
 /// </remarks>
 [SuppressMessage("Design", "CA1062:Validate arguments of public methods", Justification = "Not publicly usable; arguments are validated by internal consumers.")]
 [EditorBrowsable(EditorBrowsableState.Never)]
-public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
+public sealed partial class InMemoryJobStorage(
+	TimeProvider timeProvider,
+	ILogger<InMemoryJobStorage>? logger = null
+) :
+	IJobStorage,
 	IRecurringJobStorage,
 	IJobGraphStorage,
 	IFairQueueStorage
 {
+	[SuppressMessage("Performance", "CA1823:Avoid unused private fields", Justification = "Used by generated logger methods")]
+	[SuppressMessage("Style", "IDE0052:Remove unread private members", Justification = "Used by generated logger methods")]
+	private readonly ILogger _logger = logger ?? NullLogger<InMemoryJobStorage>.Instance;
+
 	private readonly Lock _gate = new();
 	private readonly Dictionary<JobHandle, JobRecord> _jobs = [];
 	private readonly Dictionary<JobHandle, SortedDictionary<int, JobExecutionRecord>> _executions = [];
@@ -36,11 +47,13 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 	/// <inheritdoc />
 	public async ValueTask DisposeAsync()
 	{
+		DisposeAsyncCalled();
 	}
 
 	/// <inheritdoc />
 	public async ValueTask InitializeAsync(CancellationToken cancellationToken = default)
 	{
+		InitializeAsyncCalled();
 		cancellationToken.ThrowIfCancellationRequested();
 	}
 
@@ -88,6 +101,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 	/// <inheritdoc />
 	public async ValueTask EnqueueAsync(JobRecord job, CancellationToken cancellationToken = default)
 	{
+		EnqueueAsyncCalled(job.JobHandle);
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 
@@ -105,6 +119,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 		CancellationToken cancellationToken = default
 	)
 	{
+		EnqueueContinuationAsyncCalled(job.JobHandle, edges.Count);
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 
@@ -132,6 +147,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 		CancellationToken cancellationToken = default
 	)
 	{
+		EnqueueBatchAsyncCalled(batch.BatchHandle, jobs.Count, edges.Count);
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 
@@ -172,6 +188,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 		CancellationToken cancellationToken = default
 	)
 	{
+		AcquireDueJobsAsyncCalled(request.WorkerId, request.BatchSize, request.Queues.Count);
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 
@@ -427,6 +444,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 		CancellationToken cancellationToken = default
 	)
 	{
+		SetExecutionTelemetryAsyncCalled(jobHandle, executionNumber);
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 
@@ -458,6 +476,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 		CancellationToken cancellationToken = default
 	)
 	{
+		RenewLeaseAsyncCalled(jobHandle, executionNumber);
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 
@@ -476,6 +495,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 		CancellationToken cancellationToken = default
 	)
 	{
+		CompleteAsyncCalled(jobHandle, executionNumber);
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 
@@ -491,6 +511,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 		CancellationToken cancellationToken = default
 	)
 	{
+		CompleteWithContinuationsAsyncCalled(jobHandle, executionNumber);
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 
@@ -566,6 +587,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 		CancellationToken cancellationToken = default
 	)
 	{
+		AddBatchJobAsyncCalled(job.JobHandle, executionNumber);
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 
@@ -614,6 +636,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 		CancellationToken cancellationToken = default
 	)
 	{
+		FailAsyncCalled(jobHandle, executionNumber);
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 
@@ -648,6 +671,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 		CancellationToken cancellationToken = default
 	)
 	{
+		MergeRecurringSchedulesListAsyncCalled();
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 
@@ -685,6 +709,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 	/// <inheritdoc />
 	public async ValueTask UpsertRecurringAsync(RecurringJobSchedule schedule, CancellationToken cancellationToken = default)
 	{
+		UpsertRecurringAsyncCalled(schedule.Name);
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 
@@ -708,6 +733,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 	/// <inheritdoc />
 	public async ValueTask RemoveRecurringAsync(string name, CancellationToken cancellationToken = default)
 	{
+		RemoveRecurringAsyncCalled(name);
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 
@@ -725,6 +751,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 	/// <inheritdoc />
 	public async ValueTask PauseRecurringAsync(string name, CancellationToken cancellationToken = default)
 	{
+		PauseRecurringAsyncCalled(name);
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 
@@ -734,6 +761,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 	/// <inheritdoc />
 	public async ValueTask ResumeRecurringAsync(string name, CancellationToken cancellationToken = default)
 	{
+		ResumeRecurringAsyncCalled(name);
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 
@@ -747,6 +775,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 		CancellationToken cancellationToken = default
 	)
 	{
+		GetDueRecurringAsyncCalled(batchSize);
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 
@@ -764,9 +793,11 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 		RecurringJobSchedule schedule,
 		JobRecord job,
 		DateTimeOffset nextRunAt,
+		IReadOnlyList<JobContinuationEdge>? dependencies = null,
 		CancellationToken cancellationToken = default
 	)
 	{
+		MaterializeRecurringAsyncCalled(job.JobHandle, schedule.Name);
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 
@@ -777,7 +808,16 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 
 			var inserted = job.RecurringKey is null || _recurringKeys.Add(job.RecurringKey);
 			if (inserted)
+			{
 				_jobs[job.JobHandle] = job;
+
+				if (dependencies is { })
+				{
+					_edges.AddRange(dependencies);
+					EvaluateAlreadyTerminalParents(dependencies);
+				}
+			}
+
 			_recurring[schedule.Name] = current with { LastRunAt = schedule.NextRunAt, NextRunAt = nextRunAt };
 			return inserted;
 		}
@@ -786,6 +826,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 	/// <inheritdoc />
 	public async ValueTask<JobMonitoringSnapshot> GetMonitoringSnapshotAsync(CancellationToken cancellationToken = default)
 	{
+		GetMonitoringSnapshotAsyncCalled();
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 
@@ -808,6 +849,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 	/// <inheritdoc />
 	public async ValueTask<IReadOnlyList<JobRecord>> QueryJobsAsync(JobQuery query, CancellationToken cancellationToken = default)
 	{
+		QueryJobsAsyncCalled(query);
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 
@@ -837,12 +879,36 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 	}
 
 	/// <inheritdoc />
+	public async ValueTask<IReadOnlyList<JobRecord>> QueryNonCompletedJobsAsync(string jobName, CancellationToken cancellationToken = default)
+	{
+		QueryNonCompletedJobsAsyncCalled(jobName);
+		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
+
+		lock (_gate)
+		{
+			return _jobs.Values
+				.Where(j => string.Equals(j.JobName, jobName, StringComparison.Ordinal))
+				.Where(
+					j => j.State is
+						JobState.AwaitingContinuation
+						or JobState.AwaitingParameters
+						or JobState.Scheduled
+						or JobState.Pending
+						or JobState.Active
+				)
+				.ToList();
+		}
+	}
+
+	/// <inheritdoc />
 	public async ValueTask<IReadOnlyList<JobExecutionRecord>> QueryJobExecutionsAsync(
 		JobHandle jobHandle,
 		JobExecutionQuery query,
 		CancellationToken cancellationToken = default
 	)
 	{
+		QueryJobExecutionsAsyncCalled(jobHandle);
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 
@@ -873,6 +939,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 		CancellationToken cancellationToken = default
 	)
 	{
+		GetBatchStatusAsyncCalled(batchHandle);
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 
@@ -891,6 +958,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 		CancellationToken cancellationToken = default
 	)
 	{
+		QueryBatchesAsyncCalled(query);
 		await TaskScheduler.Yield();
 		cancellationToken.ThrowIfCancellationRequested();
 
@@ -917,6 +985,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 		CancellationToken cancellationToken = default
 	)
 	{
+		QueryBatchMembersAsyncCalled(batchHandle);
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 
@@ -957,6 +1026,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 		CancellationToken cancellationToken = default
 	)
 	{
+		GetBatchGraphAsyncCalled(batchHandle);
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 
@@ -988,6 +1058,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 		CancellationToken cancellationToken = default
 	)
 	{
+		GetJobStatusAsyncCalled(jobHandle);
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 
@@ -1017,6 +1088,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 	/// <inheritdoc />
 	public async ValueTask CancelBatchAsync(BatchHandle batchHandle, CancellationToken cancellationToken = default)
 	{
+		CancelBatchAsyncCalled(batchHandle);
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 
@@ -1047,6 +1119,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 	/// <inheritdoc />
 	public async ValueTask DeleteBatchAsync(BatchHandle batchHandle, CancellationToken cancellationToken = default)
 	{
+		DeleteBatchAsyncCalled(batchHandle);
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 
@@ -1076,6 +1149,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 	/// <inheritdoc />
 	public async ValueTask CancelAsync(JobHandle jobHandle, CancellationToken cancellationToken = default)
 	{
+		CancelAsyncCalled(jobHandle);
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 
@@ -1096,6 +1170,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 	/// <inheritdoc />
 	public async ValueTask RetryAsync(JobHandle jobHandle, CancellationToken cancellationToken = default)
 	{
+		RetryAsyncCalled(jobHandle);
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 
@@ -1131,6 +1206,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 	/// <inheritdoc />
 	public async ValueTask DeleteAsync(JobHandle jobHandle, CancellationToken cancellationToken = default)
 	{
+		DeleteAsyncCalled(jobHandle);
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 
@@ -1158,6 +1234,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 		CancellationToken cancellationToken = default
 	)
 	{
+		PurgeJobsAsyncCalled(succeededRetention, failedRetention);
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 
@@ -1196,6 +1273,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 		CancellationToken cancellationToken = default
 	)
 	{
+		PurgeBatchesAsyncCalled(batchSucceededRetention, batchFailedRetention);
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 
@@ -1234,6 +1312,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 	/// <inheritdoc />
 	public async ValueTask HeartbeatAsync(JobServerSnapshot server, CancellationToken cancellationToken = default)
 	{
+		HeartbeatAsyncCalled(server.WorkerId);
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 
@@ -1244,6 +1323,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 	/// <inheritdoc />
 	public async ValueTask<bool> IsHealthyAsync(CancellationToken cancellationToken = default)
 	{
+		IsHealthyAsyncCalled();
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 
@@ -1289,7 +1369,7 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 			batch.CancelledCount != cancelled ||
 			batch.SkippedCount != skipped ||
 			batch.State != expectedState ||
-			((pending == 0) != (batch.CompletedAt is not null))
+			(pending == 0 != (batch.CompletedAt is not null))
 		)
 		{
 			throw new ImmediateJobException("A batch header does not match its members or aggregate state.");
@@ -1863,4 +1943,300 @@ public sealed class InMemoryJobStorage(TimeProvider timeProvider) :
 
 		return ValueTask.CompletedTask;
 	}
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.InMemoryDisposeAsyncCalled,
+		EventName = "Immediate.Jobs.Shared.DisposeAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "DisposeAsync called"
+	)]
+	private partial void DisposeAsyncCalled();
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.InMemoryInitializeAsyncCalled,
+		EventName = "Immediate.Jobs.Shared.InitializeAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "InitializeAsync called"
+	)]
+	private partial void InitializeAsyncCalled();
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.InMemoryEnqueueAsyncCalled,
+		EventName = "Immediate.Jobs.Shared.EnqueueAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "EnqueueAsync called (JobHandle={JobHandle})"
+	)]
+	private partial void EnqueueAsyncCalled(JobHandle jobHandle);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.InMemoryEnqueueContinuationAsyncCalled,
+		EventName = "Immediate.Jobs.Shared.EnqueueContinuationAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "EnqueueContinuationAsync called (JobHandle={JobHandle}, Edges={Edges})"
+	)]
+	private partial void EnqueueContinuationAsyncCalled(JobHandle jobHandle, int edges);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.InMemoryEnqueueBatchAsyncCalled,
+		EventName = "Immediate.Jobs.Shared.EnqueueBatchAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "EnqueueBatchAsync called (BatchHandle={BatchHandle}, Jobs={Jobs}, Edges={Edges})"
+	)]
+	private partial void EnqueueBatchAsyncCalled(BatchHandle batchHandle, int jobs, int edges);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.InMemoryAcquireDueJobsAsyncCalled,
+		EventName = "Immediate.Jobs.Shared.AcquireDueJobsAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "AcquireDueJobsAsync called (Worker={Worker}, BatchSize={BatchSize}, Queues={Queues})"
+	)]
+	private partial void AcquireDueJobsAsyncCalled(string worker, int batchSize, int queues);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.InMemorySetExecutionTelemetryAsyncCalled,
+		EventName = "Immediate.Jobs.Shared.SetExecutionTelemetryAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "SetExecutionTelemetryAsync called (JobHandle={JobHandle}, Execution={Execution})"
+	)]
+	private partial void SetExecutionTelemetryAsyncCalled(JobHandle jobHandle, int execution);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.InMemoryRenewLeaseAsyncCalled,
+		EventName = "Immediate.Jobs.Shared.RenewLeaseAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "RenewLeaseAsync called (JobHandle={JobHandle}, Execution={Execution})"
+	)]
+	private partial void RenewLeaseAsyncCalled(JobHandle jobHandle, int execution);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.InMemoryCompleteAsyncCalled,
+		EventName = "Immediate.Jobs.Shared.CompleteAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "CompleteAsync called (JobHandle={JobHandle}, Execution={Execution})"
+	)]
+	private partial void CompleteAsyncCalled(JobHandle jobHandle, int execution);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.InMemoryCompleteWithContinuationsAsyncCalled,
+		EventName = "Immediate.Jobs.Shared.CompleteWithContinuationsAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "CompleteWithContinuationsAsync called (JobHandle={JobHandle}, Execution={Execution})"
+	)]
+	private partial void CompleteWithContinuationsAsyncCalled(JobHandle jobHandle, int execution);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.InMemoryAddBatchJobAsyncCalled,
+		EventName = "Immediate.Jobs.Shared.AddBatchJobAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "AddBatchJobAsync called (JobHandle={JobHandle}, Execution={Execution})"
+	)]
+	private partial void AddBatchJobAsyncCalled(JobHandle jobHandle, int execution);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.InMemoryFailAsyncCalled,
+		EventName = "Immediate.Jobs.Shared.FailAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "FailAsync called (JobHandle={JobHandle}, Execution={Execution})"
+	)]
+	private partial void FailAsyncCalled(JobHandle jobHandle, int execution);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.InMemoryMergeRecurringSchedulesListAsyncCalled,
+		EventName = "Immediate.Jobs.Shared.MergeRecurringSchedulesListAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "MergeRecurringSchedulesListAsync called"
+	)]
+	private partial void MergeRecurringSchedulesListAsyncCalled();
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.InMemoryUpsertRecurringAsyncCalled,
+		EventName = "Immediate.Jobs.Shared.UpsertRecurringAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "UpsertRecurringAsync called (Schedule={Schedule})"
+	)]
+	private partial void UpsertRecurringAsyncCalled(string schedule);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.InMemoryRemoveRecurringAsyncCalled,
+		EventName = "Immediate.Jobs.Shared.RemoveRecurringAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "RemoveRecurringAsync called (Name={Name})"
+	)]
+	private partial void RemoveRecurringAsyncCalled(string name);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.InMemoryPauseRecurringAsyncCalled,
+		EventName = "Immediate.Jobs.Shared.PauseRecurringAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "PauseRecurringAsync called (Name={Name})"
+	)]
+	private partial void PauseRecurringAsyncCalled(string name);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.InMemoryResumeRecurringAsyncCalled,
+		EventName = "Immediate.Jobs.Shared.ResumeRecurringAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "ResumeRecurringAsync called (Name={Name})"
+	)]
+	private partial void ResumeRecurringAsyncCalled(string name);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.InMemoryGetDueRecurringAsyncCalled,
+		EventName = "Immediate.Jobs.Shared.GetDueRecurringAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "GetDueRecurringAsync called (BatchSize={BatchSize})"
+	)]
+	private partial void GetDueRecurringAsyncCalled(int batchSize);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.InMemoryMaterializeRecurringAsyncCalled,
+		EventName = "Immediate.Jobs.Shared.MaterializeRecurringAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "MaterializeRecurringAsync called (JobHandle={JobHandle}, Schedule={Schedule})"
+	)]
+	private partial void MaterializeRecurringAsyncCalled(JobHandle jobHandle, string schedule);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.InMemoryGetMonitoringSnapshotAsyncCalled,
+		EventName = "Immediate.Jobs.Shared.GetMonitoringSnapshotAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "GetMonitoringSnapshotAsync called"
+	)]
+	private partial void GetMonitoringSnapshotAsyncCalled();
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.InMemoryQueryJobsAsyncCalled,
+		EventName = "Immediate.Jobs.Shared.QueryJobsAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "QueryJobsAsync called (Query={Query})"
+	)]
+	private partial void QueryJobsAsyncCalled(JobQuery query);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.InMemoryQueryNonCompletedJobsAsyncCalled,
+		EventName = "Immediate.Jobs.Shared.QueryNonCompletedJobsAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "QueryNonCompletedJobsAsyncAsync called (JobName={JobName})"
+	)]
+	private partial void QueryNonCompletedJobsAsyncCalled(string jobName);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.InMemoryQueryJobExecutionsAsyncCalled,
+		EventName = "Immediate.Jobs.Shared.QueryJobExecutionsAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "QueryJobExecutionsAsync called (JobHandle={JobHandle})"
+	)]
+	private partial void QueryJobExecutionsAsyncCalled(JobHandle jobHandle);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.InMemoryGetBatchStatusAsyncCalled,
+		EventName = "Immediate.Jobs.Shared.GetBatchStatusAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "GetBatchStatusAsync called (BatchHandle={BatchHandle})"
+	)]
+	private partial void GetBatchStatusAsyncCalled(BatchHandle batchHandle);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.InMemoryQueryBatchesAsyncCalled,
+		EventName = "Immediate.Jobs.Shared.QueryBatchesAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "QueryBatchesAsync called (Query={Query})"
+	)]
+	private partial void QueryBatchesAsyncCalled(BatchQuery query);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.InMemoryQueryBatchMembersAsyncCalled,
+		EventName = "Immediate.Jobs.Shared.QueryBatchMembersAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "QueryBatchMembersAsync called (BatchHandle={BatchHandle})"
+	)]
+	private partial void QueryBatchMembersAsyncCalled(BatchHandle batchHandle);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.InMemoryGetBatchGraphAsyncCalled,
+		EventName = "Immediate.Jobs.Shared.GetBatchGraphAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "GetBatchGraphAsync called (BatchHandle={BatchHandle})"
+	)]
+	private partial void GetBatchGraphAsyncCalled(BatchHandle batchHandle);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.InMemoryGetJobStatusAsyncCalled,
+		EventName = "Immediate.Jobs.Shared.GetJobStatusAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "GetJobStatusAsync called (JobHandle={JobHandle})"
+	)]
+	private partial void GetJobStatusAsyncCalled(JobHandle jobHandle);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.InMemoryCancelBatchAsyncCalled,
+		EventName = "Immediate.Jobs.Shared.CancelBatchAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "CancelBatchAsync called (BatchHandle={BatchHandle})"
+	)]
+	private partial void CancelBatchAsyncCalled(BatchHandle batchHandle);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.InMemoryDeleteBatchAsyncCalled,
+		EventName = "Immediate.Jobs.Shared.DeleteBatchAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "DeleteBatchAsync called (BatchHandle={BatchHandle})"
+	)]
+	private partial void DeleteBatchAsyncCalled(BatchHandle batchHandle);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.InMemoryCancelAsyncCalled,
+		EventName = "Immediate.Jobs.Shared.CancelAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "CancelAsync called (JobHandle={JobHandle})"
+	)]
+	private partial void CancelAsyncCalled(JobHandle jobHandle);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.InMemoryRetryAsyncCalled,
+		EventName = "Immediate.Jobs.Shared.RetryAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "RetryAsync called (JobHandle={JobHandle})"
+	)]
+	private partial void RetryAsyncCalled(JobHandle jobHandle);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.InMemoryDeleteAsyncCalled,
+		EventName = "Immediate.Jobs.Shared.DeleteAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "DeleteAsync called (JobHandle={JobHandle})"
+	)]
+	private partial void DeleteAsyncCalled(JobHandle jobHandle);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.InMemoryPurgeJobsAsyncCalled,
+		EventName = "Immediate.Jobs.Shared.PurgeJobsAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "PurgeJobsAsync called (SucceededRetention={SucceededRetention}, FailedRetention={FailedRetention})"
+	)]
+	private partial void PurgeJobsAsyncCalled(TimeSpan succeededRetention, TimeSpan failedRetention);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.InMemoryPurgeBatchesAsyncCalled,
+		EventName = "Immediate.Jobs.Shared.PurgeBatchesAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "PurgeBatchesAsync called (SucceededRetention={SucceededRetention}, FailedRetention={FailedRetention})"
+	)]
+	private partial void PurgeBatchesAsyncCalled(TimeSpan succeededRetention, TimeSpan failedRetention);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.InMemoryHeartbeatAsyncCalled,
+		EventName = "Immediate.Jobs.Shared.HeartbeatAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "HeartbeatAsync called (Server={Server})"
+	)]
+	private partial void HeartbeatAsyncCalled(string server);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.InMemoryIsHealthyAsyncCalled,
+		EventName = "Immediate.Jobs.Shared.IsHealthyAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "IsHealthyAsync called"
+	)]
+	private partial void IsHealthyAsyncCalled();
 }

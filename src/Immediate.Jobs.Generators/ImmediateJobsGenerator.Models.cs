@@ -28,6 +28,7 @@ public sealed partial class ImmediateJobsGenerator
 		public required string? Timeout { get; init; }
 		public required int MaxConcurrency { get; init; }
 		public required string OverlapPolicy { get; init; }
+		public required string MisfireHandlingMode { get; init; }
 		public required string Backoff { get; init; }
 		public required string BackoffBase { get; init; }
 		public required string? Tags { get; init; }
@@ -41,12 +42,5 @@ public sealed partial class ImmediateJobsGenerator
 		public required string ContextTypeName { get; init; }
 		public required string JsonPropertyName { get; init; }
 		public required int Index { get; init; }
-	}
-
-	private sealed record QueueModel
-	{
-		public required string Name { get; init; }
-		public required int Priority { get; init; }
-		public required int Concurrency { get; init; }
 	}
 }

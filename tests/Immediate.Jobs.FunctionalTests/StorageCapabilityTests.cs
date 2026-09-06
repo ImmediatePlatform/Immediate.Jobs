@@ -79,7 +79,7 @@ public sealed class StorageCapabilityTests
 		_ = services.AddLogging();
 		_ = services.AddSingleton<TimeProvider>(timeProvider);
 		_ = services.AddImmediateJobsCore()
-			.ConfigureWorkers(o => o.MaxParallelJobs = 1)
+			.ConfigureWorkers(o => o.WorkerCount = 1)
 			.ConfigureStorage(o => o.UseStorage(_ => storage).UseDistributed());
 
 		_ = services.AddSingleton(new JobDefinition
@@ -231,6 +231,11 @@ public sealed class StorageCapabilityTests
 			JobQuery query,
 			CancellationToken cancellationToken = default
 		) => _inner.QueryJobsAsync(query, cancellationToken);
+
+		public ValueTask<IReadOnlyList<JobRecord>> QueryNonCompletedJobsAsync(
+			string jobName,
+			CancellationToken cancellationToken = default
+		) => _inner.QueryNonCompletedJobsAsync(jobName, cancellationToken);
 
 		public ValueTask<IReadOnlyList<JobExecutionRecord>> QueryJobExecutionsAsync(
 			JobHandle jobHandle,

@@ -51,7 +51,7 @@ public static class JobStorageConformanceSuite
 	)
 	{
 		return advertisedCapabilities.HasFlag(suiteCapability)
-			? cases
+			? cases.Where(c => advertisedCapabilities.HasFlag(c.RequiredCapabilities))
 			: [];
 	}
 }

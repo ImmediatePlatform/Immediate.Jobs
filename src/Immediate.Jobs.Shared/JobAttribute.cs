@@ -1,3 +1,5 @@
+using Immediate.Jobs.Shared.Storage;
+
 namespace Immediate.Jobs.Shared;
 
 /// <summary>
@@ -63,6 +65,14 @@ public sealed class JobAttribute : Attribute
 	public OverlapPolicy OverlapPolicy { get; init; } = OverlapPolicy.Skip;
 
 	/// <summary>
+	/// 	Controls how recurring occurrences missed while the scheduler was unavailable are handled.
+	/// </summary>
+	/// <value>
+	/// 	The recurring-misfire policy.
+	/// </value>
+	public MisfireHandlingMode MisfireHandlingMode { get; init; } = MisfireHandlingMode.EnqueueOne;
+
+	/// <summary>
 	/// 	The retry-delay algorithm.
 	/// </summary>
 	/// <value>
@@ -80,6 +90,27 @@ public sealed class JobAttribute : Attribute
 }
 
 /// <summary>
+/// 	Controls how missed recurring occurrences are handled.
+/// </summary>
+public enum MisfireHandlingMode
+{
+	/// <summary>
+	/// 	Create an invocation for every missed occurrence.
+	/// </summary>
+	EnqueueAll,
+
+	/// <summary>
+	/// 	Create one immediately due invocation for all missed occurrences.
+	/// </summary>
+	EnqueueOne,
+
+	/// <summary>
+	/// 	Advance the schedule without creating invocations for missed occurrences.
+	/// </summary>
+	EnqueueNone,
+}
+
+/// <summary>
 /// 	Controls overlapping recurring executions.
 /// </summary>
 public enum OverlapPolicy
@@ -88,10 +119,15 @@ public enum OverlapPolicy
 	/// 	Do not create a recurring job invocation while an earlier invocation of the same schedule is being processed.
 	/// </summary>
 	Skip,
+
 	/// <summary>
 	/// 	Create the scheduled occurrence and run it after the earlier invocation.
 	/// </summary>
+	/// <remarks>
+	///		Requires that the underlying storage is both <see cref="IRecurringJobStorage"/> and <see cref="IJobGraphStorage"/>.
+	/// </remarks>
 	Queue,
+
 	/// <summary>
 	/// 	Allow overlapping invocations.
 	/// </summary>

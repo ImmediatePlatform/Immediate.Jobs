@@ -15,10 +15,6 @@ public static class ImmediateJobsGeneratedServiceCollectionExtensions
 	{
 		var builder = global::Immediate.Jobs.Shared.ImmediateJobsRuntimeServiceCollectionExtensions.AddImmediateJobsCore(services);
 		
-		global::Microsoft.Extensions.DependencyInjection.Extensions.ServiceCollectionDescriptorExtensions.TryAddSingleton<
-			global::Immediate.Jobs.Testing.RecurringJobs
-		>(services);
-
 		return builder;
 	}
 
@@ -38,44 +34,5 @@ public static class ImmediateJobsGeneratedServiceCollectionExtensions
 		}
 
 		return false;
-	}
-}
-
-public sealed class RecurringJobs
-{
-	public RecurringJobs(global::System.IServiceProvider serviceProvider)
-	{
-		_serviceProvider = serviceProvider;
-		_jobsByName = 
-			new(global::System.StringComparer.Ordinal)
-			{
-			};
-	}
-
-	private readonly global::System.IServiceProvider _serviceProvider;
-	private readonly global::System.Collections.Generic.Dictionary<
-		string,
-		global::System.Func<global::System.Threading.CancellationToken, global::System.Threading.Tasks.ValueTask>
-	> _jobsByName;
-
-	private async global::System.Threading.Tasks.ValueTask TriggerCore<T>(global::System.Threading.CancellationToken token)
-		where T : global::Immediate.Jobs.Shared.Interfaces.IRecurringJobTrigger
-	{
-		await using var scope = global::Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.CreateAsyncScope(_serviceProvider);
-
-		var scheduler = global::Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetService<T>(scope.ServiceProvider);
-
-		if (scheduler is null)
-			throw new global::Immediate.Jobs.Shared.ImmediateJobException($"Recurring job '{typeof(T).Name}' was not registered.");
-
-		await scheduler.TriggerNowAsync(token).ConfigureAwait(false);
-	}
-
-	public async global::System.Threading.Tasks.ValueTask TriggerNowAsync(string name, global::System.Threading.CancellationToken cancellationToken = default)
-	{
-		if (!_jobsByName.TryGetValue(name, out var job))
-			throw new global::Immediate.Jobs.Shared.ImmediateJobException($"Recurring job '{name}' was not found.");
-
-		await job(cancellationToken).ConfigureAwait(false);
 	}
 }

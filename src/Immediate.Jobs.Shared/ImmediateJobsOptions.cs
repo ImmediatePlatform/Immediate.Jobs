@@ -14,7 +14,8 @@ public sealed partial class ImmediateJobsOptions : IValidationTarget<ImmediateJo
 	public bool IsJobSchedulingServiceEnabled { get; set; } = true;
 
 	/// <summary>
-	///     Maximum concurrently executing jobs on this node.
+	///     The number of workers created on this node to handle jobs concurrently. This becomes the maximum number of
+	///     concurrently executing jobs on this node.
 	/// </summary>
 	/// <remarks>
 	///	    The default exceeds the core count because jobs are typically IO-bound. The practical ceiling is usually the
@@ -22,13 +23,32 @@ public sealed partial class ImmediateJobsOptions : IValidationTarget<ImmediateJo
 	///     for their duration.
 	/// </remarks>
 	[GreaterThan(0)]
-	public int MaxParallelJobs { get; set; } = Math.Clamp(Environment.ProcessorCount * 4, 8, 32);
+	public int WorkerCount { get; set; } = Math.Clamp(Environment.ProcessorCount * 4, 8, 32);
 
 	/// <summary>
 	/// 	Maximum number claimed in one storage round-trip.
 	/// </summary>
 	[GreaterThan(0)]
 	public int AcquisitionBatchSize { get; set; } = 32;
+
+	/// <summary>
+	///     Maximum number of jobs acquired by the scheduling service at any point in time.
+	/// </summary>
+	/// <remarks>
+	/// <para>
+	///	    The queue length includes total jobs currently processing plus the number of jobs acquired and waiting to be
+	///     processed. This property exists separately to <see cref="WorkerCount"/> to allow jobs to be waiting in
+	///     the queue in-between polling intervals. For distributed systems where the consumer may want to increase the
+	///     <see cref="PollingInterval"/> to reduce database overhead, this allows involved systems to pre-fill the
+	///     queue of waiting jobs to remain busy.
+	/// </para>
+	/// <para>
+	///	    NB: If this value is less than <see cref="WorkerCount"/>, then the effective max parallel jobs is <see
+	///     cref="MaxQueueLength"/>.
+	/// </para>
+	/// </remarks>
+	[GreaterThan(0)]
+	public int MaxQueueLength { get; set; } = Math.Clamp(Environment.ProcessorCount * 4, 8, 32);
 
 	/// <summary>
 	/// 	Fallback interval between storage polls.

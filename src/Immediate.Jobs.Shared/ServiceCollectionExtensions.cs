@@ -61,11 +61,11 @@ public static class ImmediateJobsRuntimeServiceCollectionExtensions
 		services.TryAddSingleton<IJobSerializer, SystemTextJsonJobSerializer>();
 		services.TryAddSingleton<IJobStorage, InMemoryJobStorage>();
 
-		services.TryAddScoped<BatchScheduler>();
-		services.TryAddScoped<IBatchScheduler>(sp => sp.GetRequiredService<BatchScheduler>());
+		services.TryAddSingleton<BatchScheduler>();
+		services.TryAddSingleton<IBatchScheduler>(sp => sp.GetRequiredService<BatchScheduler>());
 
-		services.TryAddScoped<JobMonitor>();
-		services.TryAddScoped<IJobMonitor>(static sp => sp.GetRequiredService<JobMonitor>());
+		services.TryAddSingleton<JobMonitor>();
+		services.TryAddSingleton<IJobMonitor>(static sp => sp.GetRequiredService<JobMonitor>());
 
 		services.AddSingleton(JobQueueDefinition.Default);
 		services.TryAddSingleton<JobSchedulerState>();

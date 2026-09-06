@@ -1,4 +1,3 @@
-using System.Diagnostics.CodeAnalysis;
 using System.Text.RegularExpressions;
 using DotNet.Testcontainers.Containers;
 using Immediate.Jobs.EntityFrameworkCore;
@@ -273,7 +272,6 @@ file sealed class ConformanceDbContext(
 		_ = modelBuilder.AddImmediateJobs(Schema);
 }
 
-[SuppressMessage("Performance", "CA1812", Justification = "Used via attribute")]
 file sealed class ConformanceSchemaModelCacheKeyFactory : IModelCacheKeyFactory
 {
 	public object Create(DbContext context, bool designTime) =>

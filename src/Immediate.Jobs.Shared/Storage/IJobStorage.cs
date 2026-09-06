@@ -198,7 +198,31 @@ public interface IJobStorage : IAsyncDisposable
 	/// <returns>
 	/// 	The jobs matching the query.
 	/// </returns>
-	ValueTask<IReadOnlyList<JobRecord>> QueryJobsAsync(JobQuery query, CancellationToken cancellationToken = default);
+	ValueTask<IReadOnlyList<JobRecord>> QueryJobsAsync(
+		JobQuery query,
+		CancellationToken cancellationToken = default
+	);
+
+	/// <summary>
+	/// 	Returns a sequence of non-completed jobs for a particular name.
+	/// </summary>
+	/// <param name="jobName">
+	/// 	The name of the job for which to get open jobs.
+	/// </param>
+	/// <param name="cancellationToken">
+	/// 	A token that can cancel the storage operation.
+	/// </param>
+	/// <returns>
+	/// 	The jobs matching the query.
+	/// </returns>
+	/// <remarks>
+	///		Used primarily by the scheduling service to materialize recurring jobs,
+	///		but offered publicly for general use.
+	/// </remarks>
+	ValueTask<IReadOnlyList<JobRecord>> QueryNonCompletedJobsAsync(
+		string jobName,
+		CancellationToken cancellationToken = default
+	);
 
 	/// <summary>
 	/// 	Returns retained executions for one job, newest first unless an exact ordinal is requested.

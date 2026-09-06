@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Globalization;
 using System.Threading.Channels;
@@ -15,30 +16,45 @@ namespace Immediate.Jobs.Shared.Internals;
 /// <summary>
 /// 	Coordinates recurring schedules, durable leases, and the bounded worker pool.
 /// </summary>
+[EditorBrowsable(EditorBrowsableState.Never)]
 public sealed partial class JobSchedulingService : BackgroundService
 {
 	private readonly IServiceScopeFactory _scopeFactory;
 	private readonly IJobStorage _storage;
-	private readonly IRecurringJobStorage? _recurringStorage;
-	private readonly IJobGraphStorage? _graphStorage;
 	private readonly ImmediateJobsOptions _options;
 	private readonly FairQueueOptions _fairQueueOptions;
 	private readonly TimeProvider _timeProvider;
 	private readonly IIdGenerator _idGenerator;
 	private readonly ILogger<JobSchedulingService> _logger;
 	private readonly JobSchedulerState _state;
-	private readonly IReadOnlyDictionary<string, JobDefinition> _definitions;
-	private readonly IReadOnlyDictionary<string, JobQueueDefinition> _queues;
+
+	private readonly Dictionary<string, JobDefinition> _definitions;
+
+	/// <summary>
+	///		Complex structure used to simplify repeated access in <see cref="BuildAcquisitionRequest"/>.
+	/// </summary>
+	private readonly List<
+		KeyValuePair<
+			int,
+			Queue<
+				KeyValuePair<
+					JobQueueDefinition,
+					List<JobDefinition>
+				>
+			>
+		>
+	> _queuesByPriority;
+
 	private readonly ConcurrentDictionary<string, int> _queueReservations = new(StringComparer.Ordinal);
 	private readonly ConcurrentDictionary<string, int> _jobReservations = new(StringComparer.Ordinal);
-	private readonly Dictionary<int, int> _priorityOffsets = [];
 	private readonly SemaphoreSlim _scheduleInitialization = new(1, 1);
 	private readonly CancellationTokenSource _workerCancellation = new();
-	private readonly string _workerId = string.Create(CultureInfo.InvariantCulture, $"{Environment.MachineName}:{Environment.ProcessId}:{Guid.NewGuid():N}");
+	private readonly string _workerId = string.Create(CultureInfo.InvariantCulture, $"{Environment.MachineName}:{Environment.ProcessId}:{DateTimeOffset.UtcNow.Ticks}");
 	private readonly Channel<JobRecord> _channel;
 	private int _reservations;
 	private int _fairQueuesDisabledWarningLogged;
 	private long _nextPurgeTimestamp;
+	private bool _initialized;
 
 	/// <summary>
 	/// 	Creates the hosted scheduler from generated definitions.
@@ -51,9 +67,6 @@ public sealed partial class JobSchedulingService : BackgroundService
 	/// </param>
 	/// <param name="definitions">
 	/// 	The generated job definitions available to the scheduler.
-	/// </param>
-	/// <param name="queueDefinitions">
-	/// 	The configured queue definitions.
 	/// </param>
 	/// <param name="options">
 	/// 	The scheduler runtime options.
@@ -77,7 +90,6 @@ public sealed partial class JobSchedulingService : BackgroundService
 		IServiceScopeFactory scopeFactory,
 		IJobStorage storage,
 		IEnumerable<JobDefinition> definitions,
-		IEnumerable<JobQueueDefinition> queueDefinitions,
 		IOptions<ImmediateJobsOptions> options,
 		IOptions<FairQueueOptions> fairQueueOptions,
 		TimeProvider timeProvider,
@@ -89,7 +101,6 @@ public sealed partial class JobSchedulingService : BackgroundService
 		ArgumentNullException.ThrowIfNull(scopeFactory);
 		ArgumentNullException.ThrowIfNull(storage);
 		ArgumentNullException.ThrowIfNull(definitions);
-		ArgumentNullException.ThrowIfNull(queueDefinitions);
 		ArgumentNullException.ThrowIfNull(options);
 		ArgumentNullException.ThrowIfNull(fairQueueOptions);
 		ArgumentNullException.ThrowIfNull(timeProvider);
@@ -99,20 +110,6 @@ public sealed partial class JobSchedulingService : BackgroundService
 
 		_scopeFactory = scopeFactory;
 		_storage = storage;
-		_recurringStorage = storage as IRecurringJobStorage;
-		_graphStorage = storage as IJobGraphStorage;
-		_definitions = definitions.ToDictionary(x => x.Name, StringComparer.Ordinal);
-
-		_queues = queueDefinitions
-			.Concat(_definitions.Values.Select(static definition => definition.Queue))
-			.Append(JobQueueDefinition.Default)
-			.GroupBy(static queue => queue.Name, StringComparer.Ordinal)
-			.ToDictionary(
-				static group => group.Key,
-				static group => group.Distinct().Single(),
-				StringComparer.Ordinal
-			);
-
 		_options = options.Value;
 		_fairQueueOptions = fairQueueOptions.Value;
 		_timeProvider = timeProvider;
@@ -120,17 +117,43 @@ public sealed partial class JobSchedulingService : BackgroundService
 		_logger = logger;
 		_state = state;
 
+#pragma warning disable CA1851 // `definitions` is backed by a list
+		_definitions = definitions
+			.ToDictionary(x => x.Name, StringComparer.Ordinal);
+
+		_queuesByPriority = definitions
+			.GroupBy(d => d.Queue)
+			.GroupBy(
+				g => g.Key.Priority,
+				(priority, g) => KeyValuePair.Create(
+					priority,
+					new Queue<KeyValuePair<JobQueueDefinition, List<JobDefinition>>>(
+						g
+							.OrderBy(d => d.Key.Name, StringComparer.Ordinal)
+							.Select(d => KeyValuePair.Create(
+								d.Key,
+								d.ToList()
+							))
+					)
+				)
+			)
+			.OrderByDescending(d => d.Key)
+			.ToList();
+#pragma warning restore CA1851
+
 		// Reservation accounting in BuildAcquisitionRequest is the admission control, so the channel is
 		// only a handoff buffer. A bounded channel would add a second, redundant limit whose sole effect
 		// is to block the scheduler loop -- and with it the heartbeat -- if the two ever disagree.
 		_channel = Channel.CreateUnbounded<JobRecord>(new UnboundedChannelOptions
 		{
 			SingleWriter = true,
-			SingleReader = _options.MaxParallelJobs == 1,
+			SingleReader = _options.WorkerCount == 1,
 		});
 
-		if (_graphStorage is null)
-			GraphFeaturesDisabled(_logger, storage.GetType().Name);
+		if (storage is not IJobGraphStorage)
+			GraphFeaturesDisabled(storage.GetType().Name);
+		if (storage is not IRecurringJobStorage)
+			RecurringJobFeaturesDisabled(storage.GetType().Name);
 	}
 
 	/// <inheritdoc />
@@ -140,12 +163,12 @@ public sealed partial class JobSchedulingService : BackgroundService
 			return;
 
 		await _storage.InitializeAsync(stoppingToken);
-		await EnsureCodeSchedulesAsync(stoppingToken);
+		await InitializeAsync(stoppingToken);
 		_state.MarkStarted(_timeProvider.GetUtcNow());
 
 		// Workers observe _workerCancellation rather than stoppingToken: shutdown completes the channel so
 		// buffered records still drain, and only an exceeded drain deadline cancels a running job.
-		var workers = Enumerable.Range(0, _options.MaxParallelJobs)
+		var workers = Enumerable.Range(0, _options.WorkerCount)
 			.Select(_ => RunWorkerAsync(_workerCancellation.Token))
 			.ToList();
 
@@ -165,7 +188,7 @@ public sealed partial class JobSchedulingService : BackgroundService
 				catch (Exception exception)
 #pragma warning restore CA1031
 				{
-					SchedulerIterationFailed(_logger, exception);
+					SchedulerIterationFailed(exception);
 				}
 
 				await Task.Delay(_options.PollingInterval, _timeProvider, stoppingToken);
@@ -173,7 +196,8 @@ public sealed partial class JobSchedulingService : BackgroundService
 		}
 		finally
 		{
-			_ = _channel.Writer.TryComplete();
+			_channel.Writer.TryComplete();
+
 			try
 			{
 				// stoppingToken is already cancelled here; forwarding it would abort the drain immediately.
@@ -182,7 +206,7 @@ public sealed partial class JobSchedulingService : BackgroundService
 			}
 			catch (TimeoutException)
 			{
-				ShutdownDrainExceeded(_logger, _options.ShutdownTimeout);
+				ShutdownDrainExceeded(_options.ShutdownTimeout);
 			}
 			finally
 			{
@@ -192,55 +216,39 @@ public sealed partial class JobSchedulingService : BackgroundService
 	}
 
 	/// <summary>
-	/// 	Executes one already-acquired record. Intended for deterministic test harnesses.
-	/// </summary>
-	/// <param name="record">
-	/// 	The acquired job record to execute.
-	/// </param>
-	/// <param name="cancellationToken">
-	/// 	A token that can cancel execution.
-	/// </param>
-	/// <returns>
-	/// 	A task that completes when the job attempt finishes.
-	/// </returns>
-	public async ValueTask ExecuteSingleAsync(JobRecord record, CancellationToken cancellationToken = default)
-	{
-		await TaskScheduler.Yield();
-		ArgumentNullException.ThrowIfNull(record);
-		await ExecuteJobAsync(record, cancellationToken);
-	}
-
-	/// <summary>
-	/// Materializes and executes all work currently due, returning when the due queue is empty.
-	/// Delayed work is left in storage. This method is intended for deterministic test harnesses.
-	/// 
+	///	    Materializes and executes all work currently due, returning when the due queue is empty. Delayed work is
+	///     left in storage. This method is intended for deterministic test harnesses.
 	/// </summary>
 	/// <param name="cancellationToken">
-	/// 	A token that can cancel draining.
+	///     A token that can cancel draining.
 	/// </param>
 	/// <returns>
-	/// 	A task that completes when no currently due work remains.
+	///     A task that completes when no currently due work remains.
 	/// </returns>
 	public async ValueTask DrainAsync(CancellationToken cancellationToken = default)
 	{
 		await TaskScheduler.Yield();
 		await _storage.InitializeAsync(cancellationToken);
-		await EnsureCodeSchedulesAsync(cancellationToken);
+		await InitializeAsync(cancellationToken);
+
 		while (true)
 		{
 			await MaterializeRecurringAsync(cancellationToken);
+
 			var request = BuildAcquisitionRequest();
 			if (request is null)
 				return;
+
 			var jobs = await _storage.AcquireDueJobsAsync(request, cancellationToken);
 			if (jobs.Count == 0)
 				return;
+
 			WarnIfGroupedJobsAreInert(jobs);
 
 			foreach (var job in jobs)
 			{
 				Reserve(job);
-				await ExecuteJobAsync(job, cancellationToken, releaseReservation: true);
+				await ExecuteJobAsync(job, cancellationToken);
 			}
 		}
 	}
@@ -250,17 +258,23 @@ public sealed partial class JobSchedulingService : BackgroundService
 		// The heartbeat runs first so that a failure in any later stage cannot make a polling scheduler
 		// look dead to ImmediateJobsHealthCheck.
 		var now = _timeProvider.GetUtcNow();
-		await _storage.HeartbeatAsync(
-			new JobServerSnapshot { WorkerId = _workerId, LastHeartbeat = now, ActiveWorkers = _state.ActiveWorkers, MaxWorkers = _options.MaxParallelJobs },
-			cancellationToken
-		);
+
+		await _storage
+			.HeartbeatAsync(
+				new JobServerSnapshot { WorkerId = _workerId, LastHeartbeat = now, ActiveWorkers = _state.ActiveWorkers, MaxWorkers = _options.WorkerCount },
+				cancellationToken
+			);
+
 		_state.MarkHeartbeat(now);
 
 		await MaterializeRecurringAsync(cancellationToken);
-		var request = BuildAcquisitionRequest();
-		var acquired = request is null
-			? []
-			: await _storage.AcquireDueJobsAsync(request, cancellationToken);
+
+		var acquired = BuildAcquisitionRequest() switch
+		{
+			{ } request => await _storage.AcquireDueJobsAsync(request, cancellationToken),
+			_ => [],
+		};
+
 		WarnIfGroupedJobsAreInert(acquired);
 
 		foreach (var job in acquired)
@@ -278,23 +292,24 @@ public sealed partial class JobSchedulingService : BackgroundService
 			}
 		}
 
-		if (_timeProvider.GetTimestamp() >= Interlocked.Read(ref _nextPurgeTimestamp))
+		if (_timeProvider.GetUtcNow().Ticks >= _nextPurgeTimestamp)
 		{
 			await _storage.PurgeJobsAsync(
 				_options.SucceededRetention,
 				_options.FailedRetention,
 				cancellationToken
 			);
-			if (_graphStorage is not null)
+
+			if (_storage is IJobGraphStorage graphStorage)
 			{
-				await _graphStorage.PurgeBatchesAsync(
+				await graphStorage.PurgeBatchesAsync(
 					_options.BatchSucceededRetention,
 					_options.BatchFailedRetention,
 					cancellationToken
 				);
 			}
 
-			_ = Interlocked.Exchange(ref _nextPurgeTimestamp, _timeProvider.GetTimestamp() + ToTimestampTicks(_options.PurgeInterval));
+			_nextPurgeTimestamp = _timeProvider.GetUtcNow().Ticks + _options.PurgeInterval.Ticks;
 		}
 	}
 
@@ -306,7 +321,7 @@ public sealed partial class JobSchedulingService : BackgroundService
 			{
 				try
 				{
-					await ExecuteJobAsync(record, cancellationToken, releaseReservation: true);
+					await ExecuteJobAsync(record, cancellationToken);
 				}
 				catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
 				{
@@ -316,7 +331,7 @@ public sealed partial class JobSchedulingService : BackgroundService
 				catch (Exception exception)
 #pragma warning restore CA1031
 				{
-					UnhandledWorkerError(_logger, exception, record.JobHandle);
+					UnhandledWorkerError(exception, record.JobHandle);
 				}
 			}
 		}
@@ -329,8 +344,7 @@ public sealed partial class JobSchedulingService : BackgroundService
 
 	private async ValueTask ExecuteJobAsync(
 		JobRecord record,
-		CancellationToken stoppingToken,
-		bool releaseReservation = false
+		CancellationToken stoppingToken
 	)
 	{
 		if (!_definitions.TryGetValue(record.JobName, out var definition))
@@ -349,8 +363,7 @@ public sealed partial class JobSchedulingService : BackgroundService
 			}
 			finally
 			{
-				if (releaseReservation)
-					Release(record);
+				Release(record);
 			}
 
 			return;
@@ -358,17 +371,24 @@ public sealed partial class JobSchedulingService : BackgroundService
 
 		var started = _timeProvider.GetTimestamp();
 		var startedAt = _timeProvider.GetUtcNow();
-		using var timeout = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
-		var timeoutTimer = definition.Timeout is { } timeoutValue
-			? _timeProvider.CreateTimer(static state => ((CancellationTokenSource)state!).Cancel(), timeout, timeoutValue, Timeout.InfiniteTimeSpan)
-			: null;
-		using var leaseCancellation = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
-		var leaseTask = RenewLeaseLoopAsync(record.JobHandle, record.Attempt, leaseCancellation.Token);
 
-		var parent = default(ActivityContext);
-		if (record.TraceParent is not null)
-			_ = ActivityContext.TryParse(record.TraceParent, record.TraceState, isRemote: true, out parent);
-		IEnumerable<ActivityLink>? links = parent != default ? [new(parent)] : null;
+		using var timeout = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
+
+		using var timeoutTimer = _timeProvider.CreateTimer(
+			static state => ((CancellationTokenSource)state!).Cancel(),
+			timeout,
+			definition.Timeout is { } timeoutValue ? timeoutValue : Timeout.InfiniteTimeSpan,
+			Timeout.InfiniteTimeSpan
+		);
+
+		using var leaseTimer = _timeProvider.CreateTimer(
+			// intentionally not waiting on the returned Task; will report it's own exceptions
+			state => _ = RenewLeaseAsync((JobRecord)state!),
+			record,
+			TimeSpan.FromTicks(Math.Max(100_000, _options.LeaseDuration.Ticks / 3)),
+			TimeSpan.FromTicks(Math.Max(100_000, _options.LeaseDuration.Ticks / 3))
+		);
+
 		using var activity = JobTelemetry.ActivitySource.StartActivity(
 			$"job {record.JobName}",
 			ActivityKind.Consumer,
@@ -380,8 +400,15 @@ public sealed partial class JobSchedulingService : BackgroundService
 				new("job.id", record.JobHandle),
 				new("job.attempt", record.Attempt),
 			],
-			links: links
+			links: record.TraceParent switch
+			{
+				{ } when ActivityContext.TryParse(record.TraceParent, record.TraceState, isRemote: true, out var parent) =>
+					[new(parent)],
+
+				_ => null,
+			}
 		);
+
 		using var logScope = _logger.BeginScope(new Dictionary<string, object>(StringComparer.Ordinal)
 		{
 			["JobName"] = record.JobName,
@@ -417,19 +444,21 @@ public sealed partial class JobSchedulingService : BackgroundService
 			catch (Exception exception)
 #pragma warning restore CA1031
 			{
-				ExecutionTelemetryPersistenceFailed(_logger, exception);
+				ExecutionTelemetryPersistenceFailed(exception);
 			}
 
 			await using var scope = _scopeFactory.CreateAsyncScope();
 
 			var executionBuffer = new JobExecutionBuffer();
+
 			await definition.Invoker.InvokeAsync(
 				scope.ServiceProvider,
 				new JobExecution { Record = record, Definition = definition, CancellationToken = timeout.Token, Buffer = executionBuffer }
 			);
-			if (_graphStorage is not null)
+
+			if (_storage is IJobGraphStorage graphStorage)
 			{
-				await _graphStorage.CompleteWithContinuationsAsync(
+				await graphStorage.CompleteWithContinuationsAsync(
 					record.JobHandle,
 					record.Attempt,
 					_workerId,
@@ -444,13 +473,17 @@ public sealed partial class JobSchedulingService : BackgroundService
 
 			var duration = _timeProvider.GetElapsedTime(started);
 			JobTelemetry.Succeeded(record.JobName, record.QueueName, duration);
-			_ = activity?.SetStatus(ActivityStatusCode.Ok);
-			JobCompleted(_logger, duration.TotalMilliseconds);
+			activity?.SetStatus(ActivityStatusCode.Ok);
+			JobCompleted(duration.TotalMilliseconds);
 		}
 		catch (Exception exception) when (exception is not OperationCanceledException || !stoppingToken.IsCancellationRequested)
 		{
 			var retry = record.Attempt < definition.MaxAttempts;
-			DateTimeOffset? nextRetryAt = retry ? _timeProvider.GetUtcNow() + GetRetryDelay(definition, record.Attempt) : null;
+
+			var nextRetryAt = retry
+				? _timeProvider.GetUtcNow() + GetRetryDelay(definition, record.Attempt)
+				: default(DateTimeOffset?);
+
 			await _storage.FailAsync(
 				record.JobHandle,
 				record.Attempt,
@@ -459,72 +492,68 @@ public sealed partial class JobSchedulingService : BackgroundService
 				nextRetryAt,
 				stoppingToken
 			);
+
 			var duration = _timeProvider.GetElapsedTime(started);
 			JobTelemetry.Failed(record.JobName, record.QueueName, duration);
-			_ = activity?.SetStatus(ActivityStatusCode.Error, exception.Message);
+			activity?.SetStatus(ActivityStatusCode.Error, exception.Message);
 
 			if (retry)
 			{
 				JobTelemetry.Retried(record.JobName, record.QueueName);
-				JobWillRetry(_logger, exception, nextRetryAt);
+				JobWillRetry(exception, nextRetryAt);
 			}
 			else
 			{
-				JobExhaustedAttempts(_logger, exception, definition.MaxAttempts);
+				JobExhaustedAttempts(exception, definition.MaxAttempts);
 			}
 		}
 		finally
 		{
-			timeoutTimer?.Dispose();
-			await leaseCancellation.CancelAsync();
-			try
-			{
-				await leaseTask;
-			}
-			catch (OperationCanceledException)
-			{
-			}
-
 			_state.DecrementActive();
 			JobTelemetry.ExecutionFinished();
-			if (releaseReservation)
-				Release(record);
+			Release(record);
 		}
 	}
 
+	/// <remarks>
+	///	    NB: If higher-priority jobs complete while this method is running, lower priority jobs may get requested
+	///	    before the higher-priority ones; this is a known race-condition, and effect should be rare enough to be
+	///	    acceptable. This is a future research point if effect is more pronounced than currently envisioned.
+	/// </remarks>
 	private JobAcquisitionRequest? BuildAcquisitionRequest()
 	{
 		var capacity = Math.Min(
 			_options.AcquisitionBatchSize,
-			_options.MaxParallelJobs - Volatile.Read(ref _reservations)
+			_options.MaxQueueLength - Volatile.Read(ref _reservations)
 		);
+
 		if (capacity <= 0)
 			return null;
 
 		var queues = new List<JobQueueAcquisition>();
-		foreach (var priorityGroup in _queues.Values
-			.GroupBy(static queue => queue.Priority)
-			.OrderByDescending(static group => group.Key))
+
+		foreach (var (priority, priorityQueues) in _queuesByPriority)
 		{
-			var priorityQueues = priorityGroup.OrderBy(static queue => queue.Name, StringComparer.Ordinal).ToList();
-			var offset = _priorityOffsets.GetValueOrDefault(priorityGroup.Key) % priorityQueues.Count;
-			for (var index = 0; index < priorityQueues.Count; index++)
+			foreach (var (queue, definitions) in priorityQueues)
 			{
-				var queue = priorityQueues[(index + offset) % priorityQueues.Count];
-				var queueCapacity = queue.Concurrency == 0
-					? capacity
-					: queue.Concurrency - _queueReservations.GetValueOrDefault(queue.Name);
+				var queueCapacity = queue.Concurrency switch
+				{
+					0 => capacity,
+					_ => queue.Concurrency - _queueReservations.GetValueOrDefault(queue.Name),
+				};
+
 				if (queueCapacity <= 0)
 					continue;
 
-				var jobCapacities = _definitions.Values
+				var jobCapacities = definitions
 					.Select(definition => new
 					{
 						definition.Name,
 						Capacity = GetJobAcquisitionCapacity(definition, capacity),
 					})
-					.Where(static item => item.Capacity > 0)
-					.ToDictionary(static item => item.Name, static item => item.Capacity, StringComparer.Ordinal);
+					.Where(item => item.Capacity > 0)
+					.ToDictionary(item => item.Name, item => item.Capacity, StringComparer.Ordinal);
+
 				if (jobCapacities.Count == 0)
 					continue;
 
@@ -536,27 +565,34 @@ public sealed partial class JobSchedulingService : BackgroundService
 				});
 			}
 
-			_priorityOffsets[priorityGroup.Key] = offset + 1;
+			// rotate to ensure fairness across queues at same priority
+			priorityQueues.Enqueue(priorityQueues.Dequeue());
 		}
 
-		return queues.Count == 0
-			? null
-			: new JobAcquisitionRequest()
-			{
-				WorkerId = _workerId,
-				Lease = _options.LeaseDuration,
-				BatchSize = capacity,
-				Queues = queues,
-				FairQueues = _fairQueueOptions.ToPolicy(),
-			};
+		if (queues.Count == 0)
+			return null;
+
+		return new JobAcquisitionRequest()
+		{
+			WorkerId = _workerId,
+			Lease = _options.LeaseDuration,
+			BatchSize = capacity,
+			Queues = queues,
+			FairQueues = _fairQueueOptions.ToPolicy(),
+		};
 	}
 
 	private int GetJobAcquisitionCapacity(JobDefinition definition, int availableCapacity)
 	{
-		var limit = definition.OverlapPolicy == OverlapPolicy.Queue ? 1 : definition.MaxConcurrency;
-		return limit == 0
-			? availableCapacity
-			: limit - _jobReservations.GetValueOrDefault(definition.Name);
+		// we trust MaterializeRecurringAsync to ensure queue and skip to have only one outstanding
+		return Math.Max(
+			definition.MaxConcurrency switch
+			{
+				0 => availableCapacity,
+				_ => Math.Min(definition.MaxConcurrency - _jobReservations.GetValueOrDefault(definition.Name), availableCapacity),
+			},
+			0
+		);
 	}
 
 	private void WarnIfGroupedJobsAreInert(IReadOnlyList<JobRecord> acquired)
@@ -569,110 +605,104 @@ public sealed partial class JobSchedulingService : BackgroundService
 			return;
 		}
 
-		GroupedJobsAcquiredWithoutFairQueues(_logger);
+		GroupedJobsAcquiredWithoutFairQueues();
 	}
 
 	private void Reserve(JobRecord record)
 	{
-		_ = Interlocked.Increment(ref _reservations);
-		_ = _queueReservations.AddOrUpdate(record.QueueName, 1, static (_, count) => count + 1);
-		_ = _jobReservations.AddOrUpdate(record.JobName, 1, static (_, count) => count + 1);
+		Interlocked.Increment(ref _reservations);
+		_queueReservations.AddOrUpdate(record.QueueName, 1, static (_, count) => count + 1);
+		_jobReservations.AddOrUpdate(record.JobName, 1, static (_, count) => count + 1);
 	}
 
 	private void Release(JobRecord record)
 	{
-		_ = Interlocked.Decrement(ref _reservations);
-		_ = _queueReservations.AddOrUpdate(record.QueueName, 0, static (_, count) => Math.Max(0, count - 1));
-		_ = _jobReservations.AddOrUpdate(record.JobName, 0, static (_, count) => Math.Max(0, count - 1));
+		Interlocked.Decrement(ref _reservations);
+		_queueReservations.AddOrUpdate(record.QueueName, 0, static (_, count) => Math.Max(0, count - 1));
+		_jobReservations.AddOrUpdate(record.JobName, 0, static (_, count) => Math.Max(0, count - 1));
 	}
 
-	private async Task RenewLeaseLoopAsync(JobHandle jobHandle, int executionNumber, CancellationToken cancellationToken)
+	private async Task RenewLeaseAsync(JobRecord record)
 	{
-		var interval = TimeSpan.FromTicks(Math.Max(1, _options.LeaseDuration.Ticks / 3));
-		while (true)
+		// force our way off the timer thread
+		await Task.Yield();
+
+		try
 		{
-			await Task.Delay(interval, _timeProvider, cancellationToken);
-			try
-			{
-				await _storage.RenewLeaseAsync(
-					jobHandle,
-					executionNumber,
-					_workerId,
-					_options.LeaseDuration,
-					cancellationToken
-				);
-			}
-			catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-			{
-				throw;
-			}
-#pragma warning disable CA1031 // A transient renewal failure must not stop later renewals or the job outcome.
-			catch (Exception exception)
+			await _storage.RenewLeaseAsync(
+				record.JobHandle,
+				record.Attempt,
+				_workerId,
+				_options.LeaseDuration,
+				// explicitly non-cancellable
+				cancellationToken: default
+			);
+		}
+#pragma warning disable CA1031 // There is no catcher above us to safely report exceptions
+		catch (Exception exception)
 #pragma warning restore CA1031
-			{
-				LeaseRenewalFailed(_logger, exception, jobHandle, executionNumber);
-			}
+		{
+			LeaseRenewalFailed(exception, record.JobHandle, record.Attempt);
 		}
 	}
 
-	private async Task AssertCodeSchedulesAsync(CancellationToken cancellationToken)
+	private async Task InitializeAsync(CancellationToken cancellationToken)
 	{
-		var recurringStorage = _recurringStorage;
-		if (recurringStorage is null)
+		if (_initialized)
 			return;
 
-		var now = _timeProvider.GetUtcNow();
-		await recurringStorage.MergeRecurringSchedulesListAsync(
-			_definitions.Values
-				.Where(d => d.Cron is not null)
-				.Select(d => new RecurringJobSchedule
-				{
-					Name = d.Name,
-					JobName = d.Name,
-					QueueName = d.Queue.Name,
-					Cron = d.Cron!,
-					TimeZone = d.TimeZone,
-					IsCodeDefined = true,
-					NextRunAt = JobCron.Parse(d.Cron!).GetNextOccurrence(now, JobCron.GetTimeZone(d.TimeZone))
-						?? throw new ImmediateJobException($"Cron for '{d.Name}' has no future occurrence."),
-				})
-				.ToList(),
-			cancellationToken
-		);
-	}
-
-	private async Task EnsureCodeSchedulesAsync(CancellationToken cancellationToken)
-	{
-		if (_state.CodeSchedulesAsserted)
-			return;
-		if (_recurringStorage is null)
+		if (_storage is not IRecurringJobStorage recurringStorage)
 		{
-			_state.MarkCodeSchedulesAsserted();
+			_initialized = true;
 			return;
 		}
 
 		await _scheduleInitialization.WaitAsync(cancellationToken);
 		try
 		{
-			if (_state.CodeSchedulesAsserted)
+			if (_initialized)
 				return;
-			await AssertCodeSchedulesAsync(cancellationToken);
-			_state.MarkCodeSchedulesAsserted();
+
+			var now = _timeProvider.GetUtcNow();
+
+			await recurringStorage.MergeRecurringSchedulesListAsync(
+				_definitions.Values
+					.Where(d => d.Cron is not null)
+					.Select(d => new RecurringJobSchedule
+					{
+						Name = d.Name,
+						JobName = d.Name,
+						QueueName = d.Queue.Name,
+						Cron = d.Cron!,
+						TimeZone = d.TimeZone,
+						IsCodeDefined = true,
+						NextRunAt = GetNextOccurrence(
+							now,
+							d.Cron!,
+							d.TimeZone,
+							d.Name
+						),
+					})
+					.ToList(),
+				cancellationToken
+			);
+
+			_initialized = true;
 		}
 		finally
 		{
-			_ = _scheduleInitialization.Release();
+			_scheduleInitialization.Release();
 		}
 	}
 
 	private async Task MaterializeRecurringAsync(CancellationToken cancellationToken)
 	{
-		var recurringStorage = _recurringStorage;
-		if (recurringStorage is null)
+		if (_storage is not IRecurringJobStorage recurringStorage)
 			return;
 
 		var now = _timeProvider.GetUtcNow();
 		var schedules = await recurringStorage.GetDueRecurringAsync(now, _options.AcquisitionBatchSize, cancellationToken);
+
 		foreach (var schedule in schedules)
 		{
 			if (!_definitions.TryGetValue(schedule.JobName, out var definition))
@@ -696,9 +726,74 @@ public sealed partial class JobSchedulingService : BackgroundService
 			catch (Exception exception)
 #pragma warning restore CA1031
 			{
-				RecurringMaterializationFailed(_logger, exception, schedule.Name);
+				RecurringMaterializationFailed(exception, schedule.Name);
 			}
 		}
+	}
+
+	private static DateTimeOffset GetNextOccurrence(DateTimeOffset from, string cron, string timeZone, string jobName)
+	{
+		var expression = JobCron.Parse(cron);
+		var tzi = JobCron.GetTimeZone(timeZone);
+		return expression.GetNextOccurrence(from, tzi, inclusive: false) switch
+		{
+			{ } next => next,
+			_ => throw new ImmediateJobException($"Recurring schedule '{jobName}' has no future occurrence."),
+		};
+	}
+
+	private static List<DateTimeOffset> GetNextOccurrences(
+		RecurringJobSchedule schedule,
+		MisfireHandlingMode misfireHandlingMode,
+		DateTimeOffset now
+	)
+	{
+		var recurrenceTimes = new List<DateTimeOffset> { schedule.NextRunAt };
+
+		if (misfireHandlingMode == MisfireHandlingMode.EnqueueAll)
+		{
+			while (recurrenceTimes[^1] <= now)
+			{
+				recurrenceTimes.Add(
+					GetNextOccurrence(
+						recurrenceTimes[^1],
+						schedule.Cron,
+						schedule.TimeZone,
+						schedule.Name
+					)
+				);
+			}
+		}
+		else
+		{
+			var next = schedule.NextRunAt;
+
+			while (next < now)
+			{
+				next = GetNextOccurrence(
+					next,
+					schedule.Cron,
+					schedule.TimeZone,
+					schedule.Name
+				);
+			}
+
+			recurrenceTimes.Add(next);
+
+			if (next == now)
+			{
+				recurrenceTimes.Add(
+					GetNextOccurrence(
+						next,
+						schedule.Cron,
+						schedule.TimeZone,
+						schedule.Name
+					)
+				);
+			}
+		}
+
+		return recurrenceTimes;
 	}
 
 	private async Task MaterializeRecurringScheduleAsync(
@@ -709,42 +804,155 @@ public sealed partial class JobSchedulingService : BackgroundService
 		CancellationToken cancellationToken
 	)
 	{
-		var expression = JobCron.Parse(schedule.Cron);
-		var next = expression.GetNextOccurrence(schedule.NextRunAt, JobCron.GetTimeZone(schedule.TimeZone))
-			?? throw new ImmediateJobException($"Recurring schedule '{schedule.Name}' has no future occurrence.");
-		var (traceParent, traceState) = Activity.Current;
-		var record = new JobRecord
-		{
-			JobHandle = JobHandle.FromString(_idGenerator.CreateId(IdKind.Job)),
-			JobName = schedule.JobName,
-			QueueName = definition.Queue.Name,
-			Payload = "{}",
-			State = JobState.Pending,
-			DueAt = schedule.NextRunAt,
-			CreatedAt = now,
-			RecurringKey = string.Create(CultureInfo.InvariantCulture, $"{schedule.Name}:{schedule.NextRunAt.UtcTicks}"),
-			TraceParent = traceParent,
-			TraceState = traceState,
-		};
+		var recurrenceTimes = GetNextOccurrences(schedule, definition.MisfireHandlingMode, now);
 
-		if (definition.OverlapPolicy == OverlapPolicy.Skip)
+		var nextIndex = 1;
+		var next = recurrenceTimes[nextIndex];
+		var dueAt = schedule.NextRunAt;
+
+		if (schedule.NextRunAt < now)
 		{
-			var active = await _storage.QueryJobsAsync(
-				new() { State = JobState.Active, JobName = definition.Name, Take = 1 },
-				cancellationToken
+			var missedCount = recurrenceTimes[^2] == now
+				? recurrenceTimes.Count - 2
+				: recurrenceTimes.Count - 1;
+
+			var lastMissedAt = recurrenceTimes[missedCount - 1];
+			var nextAfterMisfires = recurrenceTimes[^1];
+
+			RecurringOccurrencesMissed(
+				schedule.Name,
+				missedCount,
+				schedule.NextRunAt,
+				lastMissedAt,
+				definition.MisfireHandlingMode
 			);
-			var pending = await _storage.QueryJobsAsync(
-				new() { State = JobState.Pending, JobName = definition.Name, Take = 1 },
-				cancellationToken
-			);
-			if (active.Count != 0 || pending.Count != 0)
-				record = record with { State = JobState.Skipped, CompletedAt = now };
+
+			switch (definition.MisfireHandlingMode)
+			{
+				case MisfireHandlingMode.EnqueueNone:
+				{
+					if (recurrenceTimes[^2] == now)
+						goto case MisfireHandlingMode.EnqueueOne;
+
+					schedule = schedule with
+					{
+						NextRunAt = nextAfterMisfires,
+					};
+
+					await recurringStorage.UpsertRecurringAsync(schedule, cancellationToken);
+
+					return;
+				}
+
+				case MisfireHandlingMode.EnqueueOne:
+				{
+					dueAt = now;
+					nextIndex = recurrenceTimes.Count - 1;
+					next = nextAfterMisfires;
+					break;
+				}
+
+				case MisfireHandlingMode.EnqueueAll:
+				default:
+					break;
+			}
 		}
 
-		if (await recurringStorage.MaterializeRecurringAsync(schedule, record, next, cancellationToken)
-			&& record.State == JobState.Pending)
+		while (true)
 		{
-			JobTelemetry.Enqueued(record.JobName, record.QueueName);
+			var (traceParent, traceState) = Activity.Current;
+			var record = new JobRecord
+			{
+				JobHandle = JobHandle.FromString(_idGenerator.CreateId(IdKind.Job)),
+				JobName = schedule.JobName,
+				QueueName = definition.Queue.Name,
+				Payload = "{}",
+				State = JobState.Pending,
+				DueAt = dueAt,
+				CreatedAt = now,
+				RecurringKey = string.Create(CultureInfo.InvariantCulture, $"{schedule.Name}:{schedule.NextRunAt.UtcTicks}"),
+				TraceParent = traceParent,
+				TraceState = traceState,
+			};
+
+			switch (definition.OverlapPolicy)
+			{
+				case OverlapPolicy.Skip:
+				{
+					var jobs = await _storage.QueryNonCompletedJobsAsync(definition.Name, cancellationToken);
+
+					if (jobs.Count != 0)
+						record = record with { State = JobState.Skipped, CompletedAt = now };
+
+					if (await recurringStorage.MaterializeRecurringAsync(schedule, record, next, dependencies: null, cancellationToken)
+						&& record.State == JobState.Pending)
+					{
+						JobTelemetry.Enqueued(record.JobName, record.QueueName);
+					}
+
+					break;
+				}
+
+				case OverlapPolicy.Queue:
+				{
+					if (recurringStorage is not IJobGraphStorage)
+						throw new ImmediateJobException("Unable to queue recurring job without graph support.");
+
+					var jobs = await _storage.QueryNonCompletedJobsAsync(definition.Name, cancellationToken);
+
+					if (jobs.Count != 0)
+					{
+						record = record with
+						{
+							State = JobState.AwaitingContinuation,
+							CompletedAt = null,
+							RemainingDependencies = 1,
+						};
+					}
+
+					var dependency = jobs
+						.OrderByDescending(j => j.DueAt)
+						.Take(1)
+						.Select(d => new JobContinuationEdge
+						{
+							ChildJobHandle = record.JobHandle,
+							ParentJobHandle = d.JobHandle,
+							Delay = TimeSpan.Zero,
+						})
+						.ToList();
+
+					if (await recurringStorage.MaterializeRecurringAsync(
+							schedule,
+							record,
+							next,
+							dependency,
+							cancellationToken
+						)
+						&& record.State == JobState.Pending)
+					{
+						JobTelemetry.Enqueued(record.JobName, record.QueueName);
+					}
+
+					break;
+				}
+
+				case OverlapPolicy.Concurrent:
+				default:
+				{
+
+					if (await recurringStorage.MaterializeRecurringAsync(schedule, record, next, dependencies: null, cancellationToken))
+						JobTelemetry.Enqueued(record.JobName, record.QueueName);
+
+					break;
+				}
+			}
+
+			if (next > now)
+				break;
+
+			schedule = schedule with { NextRunAt = next };
+			dueAt = schedule.NextRunAt;
+			next = recurrenceTimes[++nextIndex];
 		}
 	}
 
@@ -763,8 +971,6 @@ public sealed partial class JobSchedulingService : BackgroundService
 		return ticks >= long.MaxValue ? TimeSpan.MaxValue : TimeSpan.FromTicks((long)ticks);
 	}
 
-	private long ToTimestampTicks(TimeSpan duration) => (long)(duration.TotalSeconds * _timeProvider.TimestampFrequency);
-
 	/// <inheritdoc />
 	public override void Dispose()
 	{
@@ -773,65 +979,108 @@ public sealed partial class JobSchedulingService : BackgroundService
 		base.Dispose();
 	}
 
-	[LoggerMessage(EventId = 1, Level = LogLevel.Error, Message = "Immediate.Jobs scheduler iteration failed; polling will continue")]
-	private static partial void SchedulerIterationFailed(ILogger logger, Exception exception);
-
-	[LoggerMessage(EventId = 2, Level = LogLevel.Warning, Message = "Immediate.Jobs shutdown drain exceeded {shutdownTimeout}")]
-	private static partial void ShutdownDrainExceeded(ILogger logger, TimeSpan shutdownTimeout);
-
-	[LoggerMessage(EventId = 3, Level = LogLevel.Error, Message = "Unhandled worker error for job {jobHandle}; its lease will expire")]
-	private static partial void UnhandledWorkerError(ILogger logger, Exception exception, JobHandle jobHandle);
-
-	[LoggerMessage(EventId = 4, Level = LogLevel.Information, Message = "Job completed in {durationMs} ms")]
-	private static partial void JobCompleted(ILogger logger, double durationMs);
-
-	[LoggerMessage(EventId = 5, Level = LogLevel.Warning, Message = "Job failed and will retry at {nextRetryAt}")]
-	private static partial void JobWillRetry(ILogger logger, Exception exception, DateTimeOffset? nextRetryAt);
-
-	[LoggerMessage(EventId = 6, Level = LogLevel.Error, Message = "Job exhausted all {maxAttempts} attempts")]
-	private static partial void JobExhaustedAttempts(ILogger logger, Exception exception, int maxAttempts);
+	[LoggerMessage(
+		EventId = LibraryEventIds.JobSchedulingSchedulerIterationFailed,
+		EventName = "Immediate.Jobs.Shared.SchedulerIterationFailed",
+		Level = LogLevel.Error, Message = "Immediate.Jobs scheduler iteration failed; polling will continue")]
+	private partial void SchedulerIterationFailed(Exception exception);
 
 	[LoggerMessage(
-		EventId = 7,
+		EventId = LibraryEventIds.JobSchedulingShutdownDrainExceeded,
+		EventName = "Immediate.Jobs.Shared.ShutdownDrainExceeded",
+		Level = LogLevel.Warning, Message = "Immediate.Jobs shutdown drain exceeded {shutdownTimeout}")]
+	private partial void ShutdownDrainExceeded(TimeSpan shutdownTimeout);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.JobSchedulingUnhandledWorkerError,
+		EventName = "Immediate.Jobs.Shared.UnhandledWorkerError",
+		Level = LogLevel.Error, Message = "Unhandled worker error for job {jobHandle}; its lease will expire")]
+	private partial void UnhandledWorkerError(Exception exception, JobHandle jobHandle);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.JobSchedulingJobCompleted,
+		EventName = "Immediate.Jobs.Shared.JobCompleted",
+		Level = LogLevel.Information, Message = "Job completed in {durationMs} ms")]
+	private partial void JobCompleted(double durationMs);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.JobSchedulingJobWillRetry,
+		EventName = "Immediate.Jobs.Shared.JobWillRetry",
+		Level = LogLevel.Warning, Message = "Job failed and will retry at {nextRetryAt}")]
+	private partial void JobWillRetry(Exception exception, DateTimeOffset? nextRetryAt);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.JobSchedulingJobExhaustedAttempts,
+		EventName = "Immediate.Jobs.Shared.JobExhaustedAttempts",
+		Level = LogLevel.Error, Message = "Job exhausted all {maxAttempts} attempts")]
+	private partial void JobExhaustedAttempts(Exception exception, int maxAttempts);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.JobSchedulingGraphFeaturesDisabled,
+		EventName = "Immediate.Jobs.Shared.GraphFeaturesDisabled",
 		Level = LogLevel.Information,
 		Message = "Batch & continuation features are disabled: the configured storage '{storageType}' implements the queue capability only. Configure a SQL provider to enable them."
 	)]
-	private static partial void GraphFeaturesDisabled(ILogger logger, string storageType);
+	private partial void GraphFeaturesDisabled(string storageType);
 
 	[LoggerMessage(
-		EventId = 8,
+		EventId = LibraryEventIds.JobSchedulingRecurringJobFeaturesDisabled,
+		EventName = "Immediate.Jobs.Shared.RecurringJobFeaturesDisabled",
+		Level = LogLevel.Information,
+		Message = "Recurring job features are disabled: the configured storage '{storageType}' implements the queue capability only. Configure a SQL provider to enable them."
+	)]
+	private partial void RecurringJobFeaturesDisabled(string storageType);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.JobSchedulingGroupedJobsAcquiredWithoutFairQueues,
+		EventName = "Immediate.Jobs.Shared.GroupedJobsAcquiredWithoutFairQueues",
 		Level = LogLevel.Warning,
 		Message = "Grouped jobs were acquired while fair queues are disabled. Their group ids are persisted but do not affect dispatch order; call UseFairQueues() to enable fair acquisition."
 	)]
-	private static partial void GroupedJobsAcquiredWithoutFairQueues(ILogger logger);
+	private partial void GroupedJobsAcquiredWithoutFairQueues();
 
 	[LoggerMessage(
-		EventId = 9,
+		EventId = LibraryEventIds.JobSchedulingExecutionTelemetryPersistenceFailed,
+		EventName = "Immediate.Jobs.Shared.ExecutionTelemetryPersistenceFailed",
 		Level = LogLevel.Warning,
 		Message = "Could not persist execution telemetry; job invocation will continue"
 	)]
-	private static partial void ExecutionTelemetryPersistenceFailed(ILogger logger, Exception exception);
+	private partial void ExecutionTelemetryPersistenceFailed(Exception exception);
 
 	[LoggerMessage(
-		EventId = 10,
+		EventId = LibraryEventIds.JobSchedulingLeaseRenewalFailed,
+		EventName = "Immediate.Jobs.Shared.LeaseRenewalFailed",
 		Level = LogLevel.Warning,
 		Message = "Could not renew the lease for job {jobHandle} execution {executionNumber}; renewal will be retried until the attempt finishes"
 	)]
-	private static partial void LeaseRenewalFailed(
-		ILogger logger,
+	private partial void LeaseRenewalFailed(
 		Exception exception,
 		JobHandle jobHandle,
 		int executionNumber
 	);
 
 	[LoggerMessage(
-		EventId = 11,
+		EventId = LibraryEventIds.JobSchedulingRecurringMaterializationFailed,
+		EventName = "Immediate.Jobs.Shared.RecurringMaterializationFailed",
 		Level = LogLevel.Error,
 		Message = "Could not materialize recurring schedule {scheduleName}; other schedules and job acquisition will continue"
 	)]
-	private static partial void RecurringMaterializationFailed(
-		ILogger logger,
+	private partial void RecurringMaterializationFailed(
 		Exception exception,
 		string scheduleName
+	);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.JobSchedulingRecurringOccurrencesMissed,
+		EventName = "Immediate.Jobs.Shared.RecurringOccurrencesMissed",
+		Level = LogLevel.Information,
+		Message = "Recurring schedule {scheduleName} missed {missedCount} occurrences from {firstMissedAt} through {lastMissedAt}; applying {misfireHandlingMode}"
+	)]
+	private partial void RecurringOccurrencesMissed(
+		string scheduleName,
+		int missedCount,
+		DateTimeOffset firstMissedAt,
+		DateTimeOffset lastMissedAt,
+		MisfireHandlingMode misfireHandlingMode
 	);
 }

@@ -74,6 +74,14 @@ public sealed partial class ImmediateJobsGenerator
 		if (overlapPolicy is not { })
 			return null;
 
+		var misfireHandlingMode = arguments.GetArgumentValue("MisfireHandlingMode") switch
+		{
+			{ } av => av.GetEnumValue()?.Name,
+			_ => "EnqueueOne",
+		};
+		if (misfireHandlingMode is not { })
+			return null;
+
 		var timeout = arguments.GetStringValue("Timeout");
 		if (timeout is { } && (!TimeSpan.TryParse(timeout, CultureInfo.InvariantCulture, out var timeoutValue) || timeoutValue <= TimeSpan.Zero))
 			return null;
@@ -145,38 +153,12 @@ public sealed partial class ImmediateJobsGenerator
 			Timeout = timeout,
 			MaxConcurrency = maxConcurrency,
 			OverlapPolicy = overlapPolicy,
+			MisfireHandlingMode = misfireHandlingMode,
 			Backoff = backoff,
 			BackoffBase = backoffBase,
 			Tags = tags,
 			Contexts = contexts,
 			Json = jsonMetadataEmitter,
-		};
-	}
-
-	private static QueueModel? TransformQueue(
-		GeneratorAttributeSyntaxContext context,
-		CancellationToken cancellationToken
-	)
-	{
-		cancellationToken.ThrowIfCancellationRequested();
-
-		var queueType = (INamedTypeSymbol)context.TargetSymbol;
-		var attribute = context.Attributes[0];
-
-		if (attribute.GetQueueName(queueType.Name).NullIf("default").NullIfWhitespace() is not { } name)
-			return null;
-
-		var concurrency = attribute.NamedArguments.GetIntValue("Concurrency", 0);
-		if (concurrency < 0)
-			return null;
-
-		var priority = attribute.NamedArguments.GetIntValue("Priority", 0);
-
-		return new()
-		{
-			Name = name,
-			Priority = priority,
-			Concurrency = concurrency,
 		};
 	}
 }

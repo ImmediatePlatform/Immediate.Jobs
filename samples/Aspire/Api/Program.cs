@@ -43,7 +43,7 @@ builder.Services.AddAspireApiJobs()
 	)
 	.ConfigureWorkers(o =>
 	{
-		o.MaxParallelJobs = 4;
+		o.WorkerCount = 4;
 		o.PollingInterval = TimeSpan.FromSeconds(5);
 	})
 	.AddHealthCheck()

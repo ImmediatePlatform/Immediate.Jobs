@@ -32,6 +32,7 @@ public sealed partial class ImmediateJobsGenerator
 			TimeoutLiteral = job.Timeout?.AsCSharpLiteral(),
 			MaxConcurrency = job.MaxConcurrency.ToString(CultureInfo.InvariantCulture),
 			job.OverlapPolicy,
+			job.MisfireHandlingMode,
 			job.Backoff,
 			BackoffBaseLiteral = job.BackoffBase.AsCSharpLiteral(),
 			job.Contexts,
@@ -48,7 +49,6 @@ public sealed partial class ImmediateJobsGenerator
 	private static void RenderRegistrations(
 		SourceProductionContext context,
 		ImmutableArray<JobModel> jobs,
-		ImmutableArray<QueueModel> queues,
 		AssemblyDefaults assemblyDefaults,
 		string @namespace,
 		Template template
@@ -62,17 +62,6 @@ public sealed partial class ImmediateJobsGenerator
 			assemblyDefaults.AssemblyName,
 			assemblyDefaults.LanguageVersion,
 			Namespace = @namespace,
-
-			Queues = queues
-				.Where(static queue => !string.Equals(queue.Name, "default", StringComparison.Ordinal))
-				.OrderBy(static queue => queue.Name, StringComparer.Ordinal)
-				.Select(queue => new
-				{
-					NameLiteral = queue.Name.AsCSharpLiteral(),
-					Priority = queue.Priority.ToString(CultureInfo.InvariantCulture),
-					Concurrency = queue.Concurrency.ToString(CultureInfo.InvariantCulture),
-				})
-				.ToList(),
 
 			Jobs = jobs
 				.Where(job => !job.HasPayload)

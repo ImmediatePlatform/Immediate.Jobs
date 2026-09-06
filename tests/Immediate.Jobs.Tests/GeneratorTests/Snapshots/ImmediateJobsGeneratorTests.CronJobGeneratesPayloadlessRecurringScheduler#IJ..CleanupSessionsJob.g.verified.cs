@@ -78,6 +78,7 @@ partial class CleanupSessionsJob
 			MaxAttempts = 3,
 			MaxConcurrency = 0,
 			OverlapPolicy = global::Immediate.Jobs.Shared.OverlapPolicy.Skip,
+			MisfireHandlingMode = global::Immediate.Jobs.Shared.MisfireHandlingMode.EnqueueAll,
 			Backoff = global::Immediate.Jobs.Shared.BackoffStrategy.ExponentialJitter,
 			BackoffBase = global::System.TimeSpan.Parse("00:00:05", global::System.Globalization.CultureInfo.InvariantCulture),
 		};
