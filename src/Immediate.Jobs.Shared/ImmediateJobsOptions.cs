@@ -36,7 +36,7 @@ public sealed partial class ImmediateJobsOptions : IValidationTarget<ImmediateJo
 	/// </summary>
 	/// <remarks>
 	/// <para>
-	///	    The queue length includes total jobs currently processing plus the number of jobs acquired and waiting to be
+	///	    The acquisition count includes total jobs currently processing plus the number of jobs acquired and waiting to be
 	///     processed. This property exists separately to <see cref="WorkerCount"/> to allow jobs to be waiting in
 	///     the queue in-between polling intervals. For distributed systems where the consumer may want to increase the
 	///     <see cref="PollingInterval"/> to reduce database overhead, this allows involved systems to pre-fill the
@@ -44,17 +44,23 @@ public sealed partial class ImmediateJobsOptions : IValidationTarget<ImmediateJo
 	/// </para>
 	/// <para>
 	///	    NB: If this value is less than <see cref="WorkerCount"/>, then the effective max parallel jobs is <see
-	///     cref="MaxQueueLength"/>.
+	///     cref="MaxAcquisitionCount"/>.
 	/// </para>
 	/// </remarks>
 	[GreaterThan(0)]
-	public int MaxQueueLength { get; set; } = Math.Clamp(Environment.ProcessorCount * 4, 8, 32);
+	public int MaxAcquisitionCount { get; set; } = Math.Clamp(Environment.ProcessorCount * 4, 8, 32);
 
 	/// <summary>
 	/// 	Fallback interval between storage polls.
 	/// </summary>
 	[GreaterThan(nameof(TimeSpan.Zero))]
 	public TimeSpan PollingInterval { get; set; } = TimeSpan.FromSeconds(1);
+
+	/// <summary>
+	/// 	How long a scheduler node may go without a heartbeat before it is considered dead.
+	/// </summary>
+	[GreaterThan(nameof(TimeSpan.Zero))]
+	public TimeSpan ServerTimeout { get; set; } = TimeSpan.FromMinutes(2);
 
 	/// <summary>
 	/// 	Duration of an acquired job lease.

@@ -1,4 +1,6 @@
 using System.ComponentModel;
+using Immediate.Jobs.Shared.Apis;
+using Microsoft.Extensions.Options;
 
 namespace Immediate.Jobs.Shared.Internals;
 
@@ -8,9 +10,18 @@ namespace Immediate.Jobs.Shared.Internals;
 [EditorBrowsable(EditorBrowsableState.Never)]
 public sealed class JobSchedulerState
 {
+	private readonly JobWorkerSnapshot?[] _workers;
 	private long _activeWorkers;
 	private long _startedAtTicks = -1;
 	private long _lastHeartbeatTicks = -1;
+
+	/// <summary>Creates state for the configured scheduler worker pool.</summary>
+	/// <param name="options">The scheduler options.</param>
+	public JobSchedulerState(IOptions<ImmediateJobsOptions> options)
+	{
+		ArgumentNullException.ThrowIfNull(options);
+		_workers = new JobWorkerSnapshot?[options.Value.WorkerCount];
+	}
 
 	/// <summary>
 	/// 	Timestamp at which the scheduler initialized.
@@ -42,6 +53,10 @@ public sealed class JobSchedulerState
 	/// </value>
 	public int ActiveWorkers => checked((int)Interlocked.Read(ref _activeWorkers));
 
+	/// <summary>The current state of every worker in the scheduler.</summary>
+	public IReadOnlyList<JobWorkerSnapshot> Workers =>
+		[.. _workers.Select((worker, workerId) => Volatile.Read(ref _workers[workerId]) ?? new JobWorkerSnapshot { WorkerId = workerId })];
+
 	internal void MarkStarted(DateTimeOffset timestamp) =>
 		Interlocked.Exchange(ref _startedAtTicks, timestamp.UtcTicks);
 
@@ -50,4 +65,22 @@ public sealed class JobSchedulerState
 
 	internal void IncrementActive() => Interlocked.Increment(ref _activeWorkers);
 	internal void DecrementActive() => Interlocked.Decrement(ref _activeWorkers);
+
+	internal void StartExecution(int workerId, JobRecord record, DateTimeOffset startedAt)
+	{
+		Volatile.Write(ref _workers[workerId], new JobWorkerSnapshot
+		{
+			WorkerId = workerId,
+			JobHandle = record.JobHandle,
+			Attempt = record.Attempt,
+			StartedAt = startedAt,
+		});
+		IncrementActive();
+	}
+
+	internal void FinishExecution(int workerId)
+	{
+		Volatile.Write(ref _workers[workerId], null);
+		DecrementActive();
+	}
 }

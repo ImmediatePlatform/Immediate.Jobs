@@ -481,7 +481,7 @@ internal static class RedisScripts
 	internal const string Heartbeat =
 		"""
 		redis.call('HSET', KEYS[1],
-			'last', ARGV[1], 'active', ARGV[2], 'max', ARGV[3])
+			'last', ARGV[1], 'active', ARGV[2], 'max', ARGV[3], 'expires', ARGV[7])
 		redis.call('PEXPIRE', KEYS[1], ARGV[6])
 		redis.call('ZADD', KEYS[2], ARGV[4], ARGV[5])
 		return 1

@@ -551,13 +551,13 @@ internal static class QueueStorageConformance
 
 		await storage.CancelAsync(JobHandle.FromString("monitor-cancelled"), cancellationToken);
 
-		await storage.HeartbeatAsync(new() { WorkerId = "old-server", LastHeartbeat = now, ActiveWorkers = 1, MaxWorkers = 4 }, cancellationToken);
+		await storage.HeartbeatAsync(new() { WorkerId = "old-server", LastHeartbeat = now, ActiveWorkers = 1, MaxWorkers = 4, ServerTimeout = TimeSpan.FromMinutes(1) }, cancellationToken);
 
-		timeProvider.Advance(TimeSpan.FromMinutes(3));
+		timeProvider.Advance(TimeSpan.FromSeconds(90));
 
 		var liveAt = timeProvider.GetUtcNow();
 
-		await storage.HeartbeatAsync(new() { WorkerId = "live-server", LastHeartbeat = liveAt, ActiveWorkers = 2, MaxWorkers = 8 }, cancellationToken);
+		await storage.HeartbeatAsync(new() { WorkerId = "live-server", LastHeartbeat = liveAt, ActiveWorkers = 2, MaxWorkers = 8, ServerTimeout = TimeSpan.FromMinutes(5) }, cancellationToken);
 
 		var snapshot = await storage.GetMonitoringSnapshotAsync(cancellationToken);
 
@@ -570,8 +570,9 @@ internal static class QueueStorageConformance
 			["live-server"],
 			snapshot.Servers.Select(static server => server.WorkerId),
 			MonitoringName,
-			"heartbeats must appear while live and disappear after the two-minute liveness window"
+			"heartbeats must appear while live and disappear after their configured liveness window"
 		);
+		ConformanceAssert.Equal(TimeSpan.FromMinutes(5), snapshot.Servers[0].ServerTimeout, MonitoringName, "monitoring must preserve each server's configured liveness window");
 
 		ConformanceAssert.Equal(storage.GetCapabilities(), snapshot.Capabilities, MonitoringName, "monitoring must report the resolved storage capabilities");
 	}

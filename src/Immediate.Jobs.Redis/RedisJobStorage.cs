@@ -599,9 +599,10 @@ internal sealed partial class RedisJobStorage(
 				Ticks(server.LastHeartbeat),
 				server.ActiveWorkers,
 				server.MaxWorkers,
-				Score(server.LastHeartbeat),
+				Score(server.LastHeartbeat + server.ServerTimeout),
 				server.WorkerId,
-				(long)TimeSpan.FromMinutes(2).TotalMilliseconds,
+				(long)server.ServerTimeout.TotalMilliseconds,
+				Ticks(server.LastHeartbeat + server.ServerTimeout),
 			],
 			cancellationToken
 		);
@@ -903,20 +904,20 @@ internal sealed partial class RedisJobStorage(
 
 	private async Task<IReadOnlyList<JobServerSnapshot>> ReadLiveServersAsync(CancellationToken cancellationToken)
 	{
-		var cutoff = _timeProvider.GetUtcNow() - TimeSpan.FromMinutes(2);
+		var now = _timeProvider.GetUtcNow();
 		var stale = await Database.SortedSetRangeByScoreAsync(
 			ServersKey,
-			stop: Score(cutoff),
+			stop: Score(now),
 			exclude: Exclude.Stop
 		).WaitAsync(cancellationToken);
 		if (stale.Length != 0)
 			_ = await Database.SortedSetRemoveAsync(ServersKey, stale).WaitAsync(cancellationToken);
 		var ids = await Database.SortedSetRangeByScoreAsync(
 			ServersKey,
-			start: Score(cutoff)
+			start: Score(now)
 		).WaitAsync(cancellationToken);
 		var tasks = ids
-			.Select(id => Database.HashGetAsync(ServerKey((string)id!), ["last", "active", "max"]))
+			.Select(id => Database.HashGetAsync(ServerKey((string)id!), ["last", "active", "max", "expires"]))
 			.ToList();
 		_ = await Task.WhenAll(tasks).WaitAsync(cancellationToken);
 		return
@@ -930,6 +931,7 @@ internal sealed partial class RedisJobStorage(
 					LastHeartbeat = FromTicks(server.Values[0]),
 					ActiveWorkers = ParseInt32(server.Values[1]),
 					MaxWorkers = ParseInt32(server.Values[2]),
+					ServerTimeout = FromTicks(server.Values[3]) - FromTicks(server.Values[0]),
 				}),
 		];
 	}

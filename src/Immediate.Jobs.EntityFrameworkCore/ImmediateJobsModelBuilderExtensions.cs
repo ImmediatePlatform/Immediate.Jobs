@@ -187,7 +187,11 @@ public static class ImmediateJobsModelBuilderExtensions
 			value => value.UtcTicks,
 			value => new DateTimeOffset(value, TimeSpan.Zero)
 		);
-		_ = entity.HasIndex(server => server.LastHeartbeat);
+		_ = entity.Property(server => server.ExpiresAt).HasConversion(
+			value => value.UtcTicks,
+			value => new DateTimeOffset(value, TimeSpan.Zero)
+		);
+		_ = entity.HasIndex(server => server.ExpiresAt);
 	}
 }
 
@@ -300,6 +304,7 @@ internal sealed class ImmediateJobServerEntity
 {
 	public string WorkerId { get; set; } = null!;
 	public DateTimeOffset LastHeartbeat { get; set; }
+	public DateTimeOffset ExpiresAt { get; set; }
 	public int ActiveWorkers { get; set; }
 	public int MaxWorkers { get; set; }
 }

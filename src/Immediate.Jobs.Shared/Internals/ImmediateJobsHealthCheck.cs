@@ -52,7 +52,7 @@ public sealed class ImmediateJobsHealthCheck(
 		if (state.StartedAt is null)
 			return HealthCheckResult.Degraded("The Immediate.Jobs scheduler has not started.", data: data);
 
-		var allowedSilence = TimeSpan.FromTicks(options.Value.PollingInterval.Ticks * 3);
+		var allowedSilence = options.Value.ServerTimeout;
 		if (state.LastHeartbeat is not { } heartbeat || timeProvider.GetUtcNow() - heartbeat > allowedSilence)
 		{
 			return new(

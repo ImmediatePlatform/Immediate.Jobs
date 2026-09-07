@@ -47,11 +47,15 @@ public sealed partial class JobSchedulingService : BackgroundService
 
 	private readonly ConcurrentDictionary<string, int> _queueReservations = new(StringComparer.Ordinal);
 	private readonly ConcurrentDictionary<string, int> _jobReservations = new(StringComparer.Ordinal);
+	private readonly ConcurrentDictionary<(JobHandle Handle, int Attempt), OpenLease> _openLeases = [];
 	private readonly SemaphoreSlim _scheduleInitialization = new(1, 1);
 	private readonly CancellationTokenSource _workerCancellation = new();
 	private readonly string _workerId = string.Create(CultureInfo.InvariantCulture, $"{Environment.MachineName}:{Environment.ProcessId}:{DateTimeOffset.UtcNow.Ticks}");
 	private readonly Channel<JobRecord> _channel;
 	private int _reservations;
+	private int _pollingIterationActive;
+	private int _leaseRenewalIterationActive;
+	private int _heartbeatIterationActive;
 	private int _fairQueuesDisabledWarningLogged;
 	private long _nextPurgeTimestamp;
 	private bool _initialized;
@@ -169,33 +173,37 @@ public sealed partial class JobSchedulingService : BackgroundService
 		// Workers observe _workerCancellation rather than stoppingToken: shutdown completes the channel so
 		// buffered records still drain, and only an exceeded drain deadline cancels a running job.
 		var workers = Enumerable.Range(0, _options.WorkerCount)
-			.Select(_ => RunWorkerAsync(_workerCancellation.Token))
+			.Select(workerId => RunWorkerAsync(workerId, _workerCancellation.Token))
 			.ToList();
+		using var pollingTimer = _timeProvider.CreateTimer(
+			callback: _ => _ = RunPollingIterationSafelyAsync(stoppingToken),
+			state: null,
+			dueTime: TimeSpan.Zero,
+			period: _options.PollingInterval
+		);
+		using var heartbeatTimer = _timeProvider.CreateTimer(
+			callback: _ => _ = RunHeartbeatIterationSafelyAsync(stoppingToken),
+			state: null,
+			dueTime: TimeSpan.Zero,
+			period: HeartbeatInterval
+		);
+		using var leaseRenewalTimer = _timeProvider.CreateTimer(
+			callback: _ => _ = RunLeaseRenewalIterationSafelyAsync(_workerCancellation.Token),
+			state: null,
+			dueTime: LeaseRenewalInterval,
+			period: LeaseRenewalInterval
+		);
+		var stopped = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+		using var stoppingRegistration = stoppingToken.Register(static state => ((TaskCompletionSource)state!).TrySetResult(), stopped);
 
 		try
 		{
-			while (!stoppingToken.IsCancellationRequested)
-			{
-				try
-				{
-					await RunSchedulerIterationAsync(stoppingToken);
-				}
-				catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
-				{
-					break;
-				}
-#pragma warning disable CA1031 // A scheduler iteration failure must not terminate the hosted service.
-				catch (Exception exception)
-#pragma warning restore CA1031
-				{
-					SchedulerIterationFailed(exception);
-				}
-
-				await Task.Delay(_options.PollingInterval, _timeProvider, stoppingToken);
-			}
+			await stopped.Task;
 		}
 		finally
 		{
+			_ = pollingTimer.Change(Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
+			_ = heartbeatTimer.Change(Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
 			_channel.Writer.TryComplete();
 
 			try
@@ -211,6 +219,7 @@ public sealed partial class JobSchedulingService : BackgroundService
 			finally
 			{
 				await _workerCancellation.CancelAsync();
+				_ = leaseRenewalTimer.Change(Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
 			}
 		}
 	}
@@ -248,25 +257,13 @@ public sealed partial class JobSchedulingService : BackgroundService
 			foreach (var job in jobs)
 			{
 				Reserve(job);
-				await ExecuteJobAsync(job, cancellationToken);
+				await ExecuteJobAsync(0, job, cancellationToken);
 			}
 		}
 	}
 
-	private async Task RunSchedulerIterationAsync(CancellationToken cancellationToken)
+	private async Task RunPollingIterationAsync(CancellationToken cancellationToken)
 	{
-		// The heartbeat runs first so that a failure in any later stage cannot make a polling scheduler
-		// look dead to ImmediateJobsHealthCheck.
-		var now = _timeProvider.GetUtcNow();
-
-		await _storage
-			.HeartbeatAsync(
-				new JobServerSnapshot { WorkerId = _workerId, LastHeartbeat = now, ActiveWorkers = _state.ActiveWorkers, MaxWorkers = _options.WorkerCount },
-				cancellationToken
-			);
-
-		_state.MarkHeartbeat(now);
-
 		await MaterializeRecurringAsync(cancellationToken);
 
 		var acquired = BuildAcquisitionRequest() switch
@@ -313,7 +310,98 @@ public sealed partial class JobSchedulingService : BackgroundService
 		}
 	}
 
-	private async Task RunWorkerAsync(CancellationToken cancellationToken)
+	private async Task RunHeartbeatIterationAsync(CancellationToken cancellationToken)
+	{
+		var now = _timeProvider.GetUtcNow();
+		await _storage.HeartbeatAsync(new JobServerSnapshot
+		{
+			WorkerId = _workerId,
+			LastHeartbeat = now,
+			ActiveWorkers = _state.ActiveWorkers,
+			MaxWorkers = _options.WorkerCount,
+			ServerTimeout = _options.ServerTimeout,
+			Workers = _state.Workers,
+		}, cancellationToken);
+		_state.MarkHeartbeat(now);
+	}
+
+	private async Task RunLeaseRenewalIterationAsync(CancellationToken cancellationToken)
+	{
+		var now = _timeProvider.GetUtcNow();
+		foreach (var lease in _openLeases.Values.Where(lease => lease.NextRenewal <= now))
+		{
+			lease.NextRenewal = now + LeaseRenewalInterval;
+			await RenewLeaseAsync(lease.Record, cancellationToken);
+		}
+	}
+
+	private async Task RunPollingIterationSafelyAsync(CancellationToken cancellationToken)
+	{
+		if (Interlocked.Exchange(ref _pollingIterationActive, 1) != 0)
+			return;
+		try
+		{
+			await RunPollingIterationAsync(cancellationToken);
+		}
+		catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { }
+#pragma warning disable CA1031 // An iteration failure must not terminate its independent scheduler loop.
+		catch (Exception exception)
+#pragma warning restore CA1031
+		{
+			SchedulerIterationFailed(exception, "Polling");
+		}
+		finally
+		{
+			Volatile.Write(ref _pollingIterationActive, 0);
+		}
+	}
+
+	private async Task RunHeartbeatIterationSafelyAsync(CancellationToken cancellationToken) =>
+		await RunIterationSafelyAsync(
+			RunHeartbeatIterationAsync,
+			"Heartbeat",
+			() => Interlocked.Exchange(ref _heartbeatIterationActive, 1),
+			() => Volatile.Write(ref _heartbeatIterationActive, 0),
+			cancellationToken
+		);
+
+	private async Task RunLeaseRenewalIterationSafelyAsync(CancellationToken cancellationToken) =>
+		await RunIterationSafelyAsync(
+			RunLeaseRenewalIterationAsync,
+			"Lease renewal",
+			() => Interlocked.Exchange(ref _leaseRenewalIterationActive, 1),
+			() => Volatile.Write(ref _leaseRenewalIterationActive, 0),
+			cancellationToken
+		);
+
+	private async Task RunIterationSafelyAsync(
+		Func<CancellationToken, Task> iteration,
+		string loopName,
+		Func<int> tryStart,
+		Action finish,
+		CancellationToken cancellationToken
+	)
+	{
+		if (tryStart() != 0)
+			return;
+		try
+		{
+			await iteration(cancellationToken);
+		}
+		catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { }
+#pragma warning disable CA1031 // An iteration failure must not terminate its independent scheduler loop.
+		catch (Exception exception)
+#pragma warning restore CA1031
+		{
+			SchedulerIterationFailed(exception, loopName);
+		}
+		finally
+		{
+			finish();
+		}
+	}
+
+	private async Task RunWorkerAsync(int workerId, CancellationToken cancellationToken)
 	{
 		try
 		{
@@ -321,7 +409,7 @@ public sealed partial class JobSchedulingService : BackgroundService
 			{
 				try
 				{
-					await ExecuteJobAsync(record, cancellationToken);
+					await ExecuteJobAsync(workerId, record, cancellationToken);
 				}
 				catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
 				{
@@ -343,6 +431,7 @@ public sealed partial class JobSchedulingService : BackgroundService
 	}
 
 	private async ValueTask ExecuteJobAsync(
+		int workerId,
 		JobRecord record,
 		CancellationToken stoppingToken
 	)
@@ -381,14 +470,6 @@ public sealed partial class JobSchedulingService : BackgroundService
 			Timeout.InfiniteTimeSpan
 		);
 
-		using var leaseTimer = _timeProvider.CreateTimer(
-			// intentionally not waiting on the returned Task; will report it's own exceptions
-			state => _ = RenewLeaseAsync((JobRecord)state!),
-			record,
-			TimeSpan.FromTicks(Math.Max(100_000, _options.LeaseDuration.Ticks / 3)),
-			TimeSpan.FromTicks(Math.Max(100_000, _options.LeaseDuration.Ticks / 3))
-		);
-
 		using var activity = JobTelemetry.ActivitySource.StartActivity(
 			$"job {record.JobName}",
 			ActivityKind.Consumer,
@@ -417,9 +498,9 @@ public sealed partial class JobSchedulingService : BackgroundService
 			["Attempt"] = record.Attempt,
 		});
 
-		// Paired with DecrementActive/ExecutionFinished in the finally below, so nothing that can throw
+		// Paired with FinishExecution/ExecutionFinished in the finally below, so nothing that can throw
 		// may sit between this and the try.
-		_state.IncrementActive();
+		_state.StartExecution(workerId, record, startedAt);
 		JobTelemetry.ExecutionStarted();
 
 		try
@@ -509,7 +590,7 @@ public sealed partial class JobSchedulingService : BackgroundService
 		}
 		finally
 		{
-			_state.DecrementActive();
+			_state.FinishExecution(workerId);
 			JobTelemetry.ExecutionFinished();
 			Release(record);
 		}
@@ -524,7 +605,7 @@ public sealed partial class JobSchedulingService : BackgroundService
 	{
 		var capacity = Math.Min(
 			_options.AcquisitionBatchSize,
-			_options.MaxQueueLength - Volatile.Read(ref _reservations)
+			_options.MaxAcquisitionCount - Volatile.Read(ref _reservations)
 		);
 
 		if (capacity <= 0)
@@ -611,6 +692,7 @@ public sealed partial class JobSchedulingService : BackgroundService
 	private void Reserve(JobRecord record)
 	{
 		Interlocked.Increment(ref _reservations);
+		_openLeases[(record.JobHandle, record.Attempt)] = new(record, _timeProvider.GetUtcNow() + LeaseRenewalInterval);
 		_queueReservations.AddOrUpdate(record.QueueName, 1, static (_, count) => count + 1);
 		_jobReservations.AddOrUpdate(record.JobName, 1, static (_, count) => count + 1);
 	}
@@ -618,15 +700,13 @@ public sealed partial class JobSchedulingService : BackgroundService
 	private void Release(JobRecord record)
 	{
 		Interlocked.Decrement(ref _reservations);
+		_ = _openLeases.TryRemove((record.JobHandle, record.Attempt), out _);
 		_queueReservations.AddOrUpdate(record.QueueName, 0, static (_, count) => Math.Max(0, count - 1));
 		_jobReservations.AddOrUpdate(record.JobName, 0, static (_, count) => Math.Max(0, count - 1));
 	}
 
-	private async Task RenewLeaseAsync(JobRecord record)
+	private async Task RenewLeaseAsync(JobRecord record, CancellationToken cancellationToken)
 	{
-		// force our way off the timer thread
-		await Task.Yield();
-
 		try
 		{
 			await _storage.RenewLeaseAsync(
@@ -634,8 +714,7 @@ public sealed partial class JobSchedulingService : BackgroundService
 				record.Attempt,
 				_workerId,
 				_options.LeaseDuration,
-				// explicitly non-cancellable
-				cancellationToken: default
+				cancellationToken
 			);
 		}
 #pragma warning disable CA1031 // There is no catcher above us to safely report exceptions
@@ -644,6 +723,17 @@ public sealed partial class JobSchedulingService : BackgroundService
 		{
 			LeaseRenewalFailed(exception, record.JobHandle, record.Attempt);
 		}
+	}
+
+	private TimeSpan LeaseRenewalInterval =>
+		TimeSpan.FromTicks(Math.Max(TimeSpan.TicksPerMillisecond, _options.LeaseDuration.Ticks / 3));
+
+	private TimeSpan HeartbeatInterval =>
+		TimeSpan.FromTicks(Math.Max(TimeSpan.TicksPerMillisecond, _options.ServerTimeout.Ticks / 3));
+
+	private sealed record OpenLease(JobRecord Record, DateTimeOffset InitialRenewal)
+	{
+		public DateTimeOffset NextRenewal { get; set; } = InitialRenewal;
 	}
 
 	private async Task InitializeAsync(CancellationToken cancellationToken)
@@ -982,8 +1072,8 @@ public sealed partial class JobSchedulingService : BackgroundService
 	[LoggerMessage(
 		EventId = LibraryEventIds.JobSchedulingSchedulerIterationFailed,
 		EventName = "Immediate.Jobs.Shared.SchedulerIterationFailed",
-		Level = LogLevel.Error, Message = "Immediate.Jobs scheduler iteration failed; polling will continue")]
-	private partial void SchedulerIterationFailed(Exception exception);
+		Level = LogLevel.Error, Message = "Immediate.Jobs {loopName} loop iteration failed; the loop will continue")]
+	private partial void SchedulerIterationFailed(Exception exception, string loopName);
 
 	[LoggerMessage(
 		EventId = LibraryEventIds.JobSchedulingShutdownDrainExceeded,

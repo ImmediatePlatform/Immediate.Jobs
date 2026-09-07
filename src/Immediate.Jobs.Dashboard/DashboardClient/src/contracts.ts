@@ -71,6 +71,15 @@ export interface JobServerSnapshot {
 	lastHeartbeat: IsoDateTime;
 	activeWorkers: number;
 	maxWorkers: number;
+	serverTimeout: string;
+	workers: JobWorkerSnapshot[];
+}
+
+export interface JobWorkerSnapshot {
+	workerId: number;
+	jobHandle: string | null;
+	attempt: number | null;
+	startedAt: IsoDateTime | null;
 }
 
 export interface JobMonitoringSnapshot {
