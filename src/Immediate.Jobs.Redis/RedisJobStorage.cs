@@ -603,6 +603,7 @@ internal sealed partial class RedisJobStorage(
 				server.WorkerId,
 				(long)server.ServerTimeout.TotalMilliseconds,
 				Ticks(server.LastHeartbeat + server.ServerTimeout),
+				JsonSerializer.Serialize(server, RedisJsonSerializerContext.Default.JobServerSnapshot),
 			],
 			cancellationToken
 		);
@@ -917,7 +918,7 @@ internal sealed partial class RedisJobStorage(
 			start: Score(now)
 		).WaitAsync(cancellationToken);
 		var tasks = ids
-			.Select(id => Database.HashGetAsync(ServerKey((string)id!), ["last", "active", "max", "expires"]))
+			.Select(id => Database.HashGetAsync(ServerKey((string)id!), ["last", "active", "max", "expires", "details"]))
 			.ToList();
 		_ = await Task.WhenAll(tasks).WaitAsync(cancellationToken);
 		return
@@ -925,7 +926,9 @@ internal sealed partial class RedisJobStorage(
 			.. tasks
 				.Select((task, index) => (Id: (string)ids[index]!, Values: task.Result))
 				.Where(static server => !server.Values[0].IsNullOrEmpty)
-				.Select(static server => new JobServerSnapshot
+				.Select(static server => server.Values[4] is { IsNullOrEmpty: false }
+					? JsonSerializer.Deserialize((string)server.Values[4]!, RedisJsonSerializerContext.Default.JobServerSnapshot)!
+					: new JobServerSnapshot
 				{
 					WorkerId = server.Id,
 					LastHeartbeat = FromTicks(server.Values[0]),

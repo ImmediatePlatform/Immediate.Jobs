@@ -196,4 +196,6 @@ internal sealed class ImmediateJobServerEntity
 	public int ActiveWorkers { get; set; }
 	[Column]
 	public int MaxWorkers { get; set; }
+	[Column(DataType = DataType.Text)]
+	public string Details { get; set; } = null!;
 }

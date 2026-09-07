@@ -11,6 +11,9 @@ namespace Immediate.Jobs.Shared.Internals;
 public sealed class JobSchedulerState
 {
 	private readonly JobWorkerSnapshot?[] _workers;
+	private readonly Lock _loopGate = new();
+	private JobLoopSnapshot _acquisition = new();
+	private JobLoopSnapshot _leaseRenewal = new();
 	private long _activeWorkers;
 	private long _startedAtTicks = -1;
 	private long _lastHeartbeatTicks = -1;
@@ -57,6 +60,12 @@ public sealed class JobSchedulerState
 	public IReadOnlyList<JobWorkerSnapshot> Workers =>
 		[.. _workers.Select((worker, workerId) => Volatile.Read(ref _workers[workerId]) ?? new JobWorkerSnapshot { WorkerId = workerId })];
 
+	/// <summary>The current acquisition-loop state.</summary>
+	public JobLoopSnapshot Acquisition { get { lock (_loopGate) return _acquisition; } }
+
+	/// <summary>The current lease-renewal-loop state.</summary>
+	public JobLoopSnapshot LeaseRenewal { get { lock (_loopGate) return _leaseRenewal; } }
+
 	internal void MarkStarted(DateTimeOffset timestamp) =>
 		Interlocked.Exchange(ref _startedAtTicks, timestamp.UtcTicks);
 
@@ -82,5 +91,39 @@ public sealed class JobSchedulerState
 	{
 		Volatile.Write(ref _workers[workerId], null);
 		DecrementActive();
+	}
+
+	internal void StartAcquisition(DateTimeOffset timestamp)
+	{
+		lock (_loopGate) _acquisition = _acquisition with { IsRunning = true, LastAttemptedAt = timestamp };
+	}
+
+	internal void FinishAcquisition(DateTimeOffset timestamp, bool succeeded)
+	{
+		lock (_loopGate) _acquisition = succeeded
+			? _acquisition with { IsRunning = false, LastSucceededAt = timestamp, ConsecutiveFailures = 0 }
+			: _acquisition with { IsRunning = false, LastFailedAt = timestamp, ConsecutiveFailures = _acquisition.ConsecutiveFailures + 1 };
+	}
+
+	internal void StopAcquisition()
+	{
+		lock (_loopGate) _acquisition = _acquisition with { IsRunning = false };
+	}
+
+	internal void StartLeaseRenewal(DateTimeOffset timestamp, int examined)
+	{
+		lock (_loopGate) _leaseRenewal = _leaseRenewal with { IsRunning = true, LastAttemptedAt = timestamp, ItemsExamined = examined, ItemsSucceeded = 0, ItemsFailed = 0 };
+	}
+
+	internal void FinishLeaseRenewal(DateTimeOffset timestamp, int succeeded, int failed)
+	{
+		lock (_loopGate) _leaseRenewal = failed == 0
+			? _leaseRenewal with { IsRunning = false, LastSucceededAt = timestamp, ConsecutiveFailures = 0, ItemsSucceeded = succeeded, ItemsFailed = 0 }
+			: _leaseRenewal with { IsRunning = false, LastFailedAt = timestamp, ConsecutiveFailures = _leaseRenewal.ConsecutiveFailures + 1, ItemsSucceeded = succeeded, ItemsFailed = failed };
+	}
+
+	internal void StopLeaseRenewal()
+	{
+		lock (_loopGate) _leaseRenewal = _leaseRenewal with { IsRunning = false };
 	}
 }

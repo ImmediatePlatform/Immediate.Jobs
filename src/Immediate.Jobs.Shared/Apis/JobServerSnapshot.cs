@@ -34,4 +34,10 @@ public sealed record JobServerSnapshot
 	/// 	The current state of each worker in this scheduler node.
 	/// </summary>
 	public IReadOnlyList<JobWorkerSnapshot> Workers { get; init; } = [];
+
+	/// <summary>The current state of the job-acquisition loop.</summary>
+	public JobLoopSnapshot Acquisition { get; init; } = new();
+
+	/// <summary>The current state of the lease-renewal loop.</summary>
+	public JobLoopSnapshot LeaseRenewal { get; init; } = new();
 }

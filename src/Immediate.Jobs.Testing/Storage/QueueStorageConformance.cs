@@ -557,7 +557,22 @@ internal static class QueueStorageConformance
 
 		var liveAt = timeProvider.GetUtcNow();
 
-		await storage.HeartbeatAsync(new() { WorkerId = "live-server", LastHeartbeat = liveAt, ActiveWorkers = 2, MaxWorkers = 8, ServerTimeout = TimeSpan.FromMinutes(5) }, cancellationToken);
+		var startedAt = liveAt - TimeSpan.FromSeconds(10);
+		await storage.HeartbeatAsync(new()
+		{
+			WorkerId = "live-server",
+			LastHeartbeat = liveAt,
+			ActiveWorkers = 1,
+			MaxWorkers = 2,
+			ServerTimeout = TimeSpan.FromMinutes(5),
+			Workers =
+			[
+				new() { WorkerId = 0, JobHandle = JobHandle.FromString("monitor-running"), Attempt = 2, StartedAt = startedAt },
+				new() { WorkerId = 1 },
+			],
+			Acquisition = new() { LastAttemptedAt = liveAt, LastSucceededAt = liveAt, ItemsExamined = 3, ItemsSucceeded = 3 },
+			LeaseRenewal = new() { LastAttemptedAt = liveAt, LastFailedAt = liveAt, ConsecutiveFailures = 1, ItemsExamined = 2, ItemsSucceeded = 1, ItemsFailed = 1 },
+		}, cancellationToken);
 
 		var snapshot = await storage.GetMonitoringSnapshotAsync(cancellationToken);
 
@@ -573,6 +588,11 @@ internal static class QueueStorageConformance
 			"heartbeats must appear while live and disappear after their configured liveness window"
 		);
 		ConformanceAssert.Equal(TimeSpan.FromMinutes(5), snapshot.Servers[0].ServerTimeout, MonitoringName, "monitoring must preserve each server's configured liveness window");
+		ConformanceAssert.Equal(2, snapshot.Servers[0].Workers.Count, MonitoringName, "monitoring must preserve worker snapshots");
+		ConformanceAssert.Equal(JobHandle.FromString("monitor-running"), snapshot.Servers[0].Workers[0].JobHandle, MonitoringName, "monitoring must preserve active worker handles");
+		ConformanceAssert.Equal(startedAt, snapshot.Servers[0].Workers[0].StartedAt, MonitoringName, "monitoring must preserve worker start times");
+		ConformanceAssert.Equal(3, snapshot.Servers[0].Acquisition.ItemsSucceeded, MonitoringName, "monitoring must preserve acquisition state");
+		ConformanceAssert.Equal(1, snapshot.Servers[0].LeaseRenewal.ItemsFailed, MonitoringName, "monitoring must preserve lease-renewal state");
 
 		ConformanceAssert.Equal(storage.GetCapabilities(), snapshot.Capabilities, MonitoringName, "monitoring must report the resolved storage capabilities");
 	}

@@ -1,5 +1,6 @@
 using System.Data.Common;
 using System.Diagnostics.CodeAnalysis;
+using System.Text.Json;
 using Immediate.Jobs.Shared.Apis;
 using Immediate.Jobs.Shared.Storage;
 using Microsoft.EntityFrameworkCore;
@@ -1234,14 +1235,11 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>(
 			.Where(server => server.ExpiresAt >= now)
 			.OrderBy(server => server.WorkerId)
 			.ToListAsync(cancellationToken);
-		IReadOnlyList<JobServerSnapshot> servers = [.. serverEntities.Select(server => new JobServerSnapshot
-		{
-			WorkerId = server.WorkerId,
-			LastHeartbeat = server.LastHeartbeat,
-			ActiveWorkers = server.ActiveWorkers,
-			MaxWorkers = server.MaxWorkers,
-			ServerTimeout = server.ExpiresAt - server.LastHeartbeat,
-		})];
+		IReadOnlyList<JobServerSnapshot> servers =
+		[
+			.. serverEntities.Select(server =>
+				JsonSerializer.Deserialize(server.Details, EntityFrameworkCoreJsonSerializerContext.Default.JobServerSnapshot)!),
+		];
 		return new JobMonitoringSnapshot
 		{
 			CapturedAt = _timeProvider.GetUtcNow(),
@@ -1955,6 +1953,7 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>(
 				ExpiresAt = server.LastHeartbeat + server.ServerTimeout,
 				ActiveWorkers = server.ActiveWorkers,
 				MaxWorkers = server.MaxWorkers,
+				Details = JsonSerializer.Serialize(server, EntityFrameworkCoreJsonSerializerContext.Default.JobServerSnapshot),
 			});
 		}
 		else
@@ -1963,6 +1962,7 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>(
 			entity.ExpiresAt = server.LastHeartbeat + server.ServerTimeout;
 			entity.ActiveWorkers = server.ActiveWorkers;
 			entity.MaxWorkers = server.MaxWorkers;
+			entity.Details = JsonSerializer.Serialize(server, EntityFrameworkCoreJsonSerializerContext.Default.JobServerSnapshot);
 		}
 
 		_ = await context.SaveChangesAsync(cancellationToken);

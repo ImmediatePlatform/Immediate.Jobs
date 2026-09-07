@@ -53,9 +53,6 @@ public sealed partial class JobSchedulingService : BackgroundService
 	private readonly string _workerId = string.Create(CultureInfo.InvariantCulture, $"{Environment.MachineName}:{Environment.ProcessId}:{DateTimeOffset.UtcNow.Ticks}");
 	private readonly Channel<JobRecord> _channel;
 	private int _reservations;
-	private int _pollingIterationActive;
-	private int _leaseRenewalIterationActive;
-	private int _heartbeatIterationActive;
 	private int _fairQueuesDisabledWarningLogged;
 	private long _nextPurgeTimestamp;
 	private bool _initialized;
@@ -175,35 +172,16 @@ public sealed partial class JobSchedulingService : BackgroundService
 		var workers = Enumerable.Range(0, _options.WorkerCount)
 			.Select(workerId => RunWorkerAsync(workerId, _workerCancellation.Token))
 			.ToList();
-		using var pollingTimer = _timeProvider.CreateTimer(
-			callback: _ => _ = RunPollingIterationSafelyAsync(stoppingToken),
-			state: null,
-			dueTime: TimeSpan.Zero,
-			period: _options.PollingInterval
-		);
-		using var heartbeatTimer = _timeProvider.CreateTimer(
-			callback: _ => _ = RunHeartbeatIterationSafelyAsync(stoppingToken),
-			state: null,
-			dueTime: TimeSpan.Zero,
-			period: HeartbeatInterval
-		);
-		using var leaseRenewalTimer = _timeProvider.CreateTimer(
-			callback: _ => _ = RunLeaseRenewalIterationSafelyAsync(_workerCancellation.Token),
-			state: null,
-			dueTime: LeaseRenewalInterval,
-			period: LeaseRenewalInterval
-		);
-		var stopped = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-		using var stoppingRegistration = stoppingToken.Register(static state => ((TaskCompletionSource)state!).TrySetResult(), stopped);
+		var pollingLoop = RunPollingLoopAsync(stoppingToken);
+		var heartbeatLoop = RunHeartbeatLoopAsync(stoppingToken);
+		var leaseRenewalLoop = RunLeaseRenewalLoopAsync(_workerCancellation.Token);
 
 		try
 		{
-			await stopped.Task;
+			await Task.WhenAll(pollingLoop, heartbeatLoop);
 		}
 		finally
 		{
-			_ = pollingTimer.Change(Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
-			_ = heartbeatTimer.Change(Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
 			_channel.Writer.TryComplete();
 
 			try
@@ -219,7 +197,7 @@ public sealed partial class JobSchedulingService : BackgroundService
 			finally
 			{
 				await _workerCancellation.CancelAsync();
-				_ = leaseRenewalTimer.Change(Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
+				await leaseRenewalLoop;
 			}
 		}
 	}
@@ -321,83 +299,112 @@ public sealed partial class JobSchedulingService : BackgroundService
 			MaxWorkers = _options.WorkerCount,
 			ServerTimeout = _options.ServerTimeout,
 			Workers = _state.Workers,
+			Acquisition = _state.Acquisition,
+			LeaseRenewal = _state.LeaseRenewal,
 		}, cancellationToken);
 		_state.MarkHeartbeat(now);
 	}
 
-	private async Task RunLeaseRenewalIterationAsync(CancellationToken cancellationToken)
+	private async Task<(int Succeeded, int Failed)> RunLeaseRenewalIterationAsync(CancellationToken cancellationToken)
 	{
 		var now = _timeProvider.GetUtcNow();
-		foreach (var lease in _openLeases.Values.Where(lease => lease.NextRenewal <= now))
+		var succeeded = 0;
+		var failed = 0;
+		foreach (var lease in _openLeases.Values.Where(lease => lease.NextRenewal <= now).OrderBy(lease => lease.NextRenewal))
 		{
-			lease.NextRenewal = now + LeaseRenewalInterval;
-			await RenewLeaseAsync(lease.Record, cancellationToken);
+			if (await RenewLeaseAsync(lease.Record, cancellationToken))
+			{
+				lease.NextRenewal = _timeProvider.GetUtcNow() + LeaseRenewalInterval;
+				succeeded++;
+			}
+			else
+			{
+				lease.NextRenewal = _timeProvider.GetUtcNow() + TimeSpan.FromTicks(Math.Max(TimeSpan.TicksPerMillisecond, LeaseRenewalInterval.Ticks / 4));
+				failed++;
+			}
+		}
+
+		return (succeeded, failed);
+	}
+
+	private async Task RunPollingLoopAsync(CancellationToken cancellationToken)
+	{
+		while (!cancellationToken.IsCancellationRequested)
+		{
+			_state.StartAcquisition(_timeProvider.GetUtcNow());
+			try
+			{
+				await RunPollingIterationAsync(cancellationToken);
+				_state.FinishAcquisition(_timeProvider.GetUtcNow(), succeeded: true);
+			}
+			catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+			{
+				_state.StopAcquisition();
+				break;
+			}
+
+#pragma warning disable CA1031 // An iteration failure must not terminate its independent scheduler loop.
+			catch (Exception exception)
+#pragma warning restore CA1031
+			{
+				_state.FinishAcquisition(_timeProvider.GetUtcNow(), succeeded: false);
+				SchedulerIterationFailed(exception, "Acquisition");
+			}
+
+			try { await Task.Delay(_options.PollingInterval, _timeProvider, cancellationToken); }
+			catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { break; }
 		}
 	}
 
-	private async Task RunPollingIterationSafelyAsync(CancellationToken cancellationToken)
+	private async Task RunHeartbeatLoopAsync(CancellationToken cancellationToken)
 	{
-		if (Interlocked.Exchange(ref _pollingIterationActive, 1) != 0)
-			return;
-		try
+		var nextDue = _timeProvider.GetUtcNow();
+		while (!cancellationToken.IsCancellationRequested)
 		{
-			await RunPollingIterationAsync(cancellationToken);
-		}
-		catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { }
+			var delay = nextDue - _timeProvider.GetUtcNow();
+			if (delay > TimeSpan.Zero)
+			{
+				try { await Task.Delay(delay, _timeProvider, cancellationToken); }
+				catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { break; }
+			}
+
+			try { await RunHeartbeatIterationAsync(cancellationToken); }
+			catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { break; }
+
 #pragma warning disable CA1031 // An iteration failure must not terminate its independent scheduler loop.
-		catch (Exception exception)
+			catch (Exception exception) { SchedulerIterationFailed(exception, "Heartbeat"); }
 #pragma warning restore CA1031
-		{
-			SchedulerIterationFailed(exception, "Polling");
-		}
-		finally
-		{
-			Volatile.Write(ref _pollingIterationActive, 0);
+			nextDue += HeartbeatInterval;
+			if (nextDue < _timeProvider.GetUtcNow())
+				nextDue = _timeProvider.GetUtcNow() + HeartbeatInterval;
 		}
 	}
 
-	private async Task RunHeartbeatIterationSafelyAsync(CancellationToken cancellationToken) =>
-		await RunIterationSafelyAsync(
-			RunHeartbeatIterationAsync,
-			"Heartbeat",
-			() => Interlocked.Exchange(ref _heartbeatIterationActive, 1),
-			() => Volatile.Write(ref _heartbeatIterationActive, 0),
-			cancellationToken
-		);
-
-	private async Task RunLeaseRenewalIterationSafelyAsync(CancellationToken cancellationToken) =>
-		await RunIterationSafelyAsync(
-			RunLeaseRenewalIterationAsync,
-			"Lease renewal",
-			() => Interlocked.Exchange(ref _leaseRenewalIterationActive, 1),
-			() => Volatile.Write(ref _leaseRenewalIterationActive, 0),
-			cancellationToken
-		);
-
-	private async Task RunIterationSafelyAsync(
-		Func<CancellationToken, Task> iteration,
-		string loopName,
-		Func<int> tryStart,
-		Action finish,
-		CancellationToken cancellationToken
-	)
+	private async Task RunLeaseRenewalLoopAsync(CancellationToken cancellationToken)
 	{
-		if (tryStart() != 0)
-			return;
-		try
+		while (!cancellationToken.IsCancellationRequested)
 		{
-			await iteration(cancellationToken);
-		}
-		catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { }
-#pragma warning disable CA1031 // An iteration failure must not terminate its independent scheduler loop.
-		catch (Exception exception)
-#pragma warning restore CA1031
-		{
-			SchedulerIterationFailed(exception, loopName);
-		}
-		finally
-		{
-			finish();
+			var now = _timeProvider.GetUtcNow();
+			var nextDue = _openLeases.Values.Min(lease => (DateTimeOffset?)lease.NextRenewal) ?? now + LeaseRenewalInterval;
+			var delay = nextDue - now;
+			if (delay > TimeSpan.Zero)
+			{
+				try { await Task.Delay(delay, _timeProvider, cancellationToken); }
+				catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { break; }
+			}
+
+			var examined = _openLeases.Values.Count(lease => lease.NextRenewal <= _timeProvider.GetUtcNow());
+			_state.StartLeaseRenewal(_timeProvider.GetUtcNow(), examined);
+			try
+			{
+				var (succeeded, failed) = await RunLeaseRenewalIterationAsync(cancellationToken);
+				_state.FinishLeaseRenewal(_timeProvider.GetUtcNow(), succeeded, failed);
+			}
+			catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+			{
+				_state.StopLeaseRenewal();
+				break;
+			}
 		}
 	}
 
@@ -705,7 +712,7 @@ public sealed partial class JobSchedulingService : BackgroundService
 		_jobReservations.AddOrUpdate(record.JobName, 0, static (_, count) => Math.Max(0, count - 1));
 	}
 
-	private async Task RenewLeaseAsync(JobRecord record, CancellationToken cancellationToken)
+	private async Task<bool> RenewLeaseAsync(JobRecord record, CancellationToken cancellationToken)
 	{
 		try
 		{
@@ -716,12 +723,14 @@ public sealed partial class JobSchedulingService : BackgroundService
 				_options.LeaseDuration,
 				cancellationToken
 			);
+			return true;
 		}
 #pragma warning disable CA1031 // There is no catcher above us to safely report exceptions
 		catch (Exception exception)
 #pragma warning restore CA1031
 		{
 			LeaseRenewalFailed(exception, record.JobHandle, record.Attempt);
+			return false;
 		}
 	}
 
