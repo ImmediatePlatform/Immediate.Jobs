@@ -7,6 +7,13 @@ internal static class TaskSchedulerExtensions
 {
 	extension(TaskScheduler)
 	{
+		/// <summary>
+		///	    A method to ensure that the remainder of the calling <see langword="async"/> method is run on the <see
+		///	    cref="TaskScheduler.Default"/> threadpool, rather than whichever sync context is calling it.
+		/// </summary>
+		/// <remarks>
+		///		Stolen liberally from <see href="https://github.com/dotnet/runtime/issues/130434"/>.
+		/// </remarks>
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
 		public static TaskSchedulerYieldAwaitable Yield()
 		{
@@ -28,24 +35,15 @@ internal static class TaskSchedulerExtensions
 		{
 			private static readonly WaitCallback OnCompletedCallback = static state => Unsafe.As<Action>(state!)();
 
-			public bool IsCompleted
-			{
-				[MethodImpl(MethodImplOptions.AggressiveInlining)]
-				get => TaskScheduler.Current == TaskScheduler.Default;
-			}
+			public bool IsCompleted => TaskScheduler.Current == TaskScheduler.Default;
 
-			[MethodImpl(MethodImplOptions.AggressiveInlining)]
-			public void GetResult()
-			{
-			}
+			public void GetResult() { }
 
-			[MethodImpl(MethodImplOptions.AggressiveInlining)]
 			public void OnCompleted(Action continuation)
 			{
 				ThreadPool.QueueUserWorkItem(OnCompletedCallback, continuation);
 			}
 
-			[MethodImpl(MethodImplOptions.AggressiveInlining)]
 			public void UnsafeOnCompleted(Action continuation)
 			{
 				ThreadPool.UnsafeQueueUserWorkItem(OnCompletedCallback, continuation);

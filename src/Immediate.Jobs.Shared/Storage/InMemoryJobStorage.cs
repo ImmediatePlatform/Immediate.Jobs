@@ -833,8 +833,8 @@ public sealed partial class InMemoryJobStorage(
 		lock (_gate)
 		{
 			var counts = Enum.GetValues<JobState>().ToDictionary(state => state, state => _jobs.Values.LongCount(x => x.State == state));
-			var cutoff = timeProvider.GetUtcNow() - TimeSpan.FromMinutes(2);
-			IReadOnlyList<JobServerSnapshot> servers = [.. _servers.Values.Where(x => x.LastHeartbeat >= cutoff)];
+			var now = timeProvider.GetUtcNow();
+			IReadOnlyList<JobServerSnapshot> servers = [.. _servers.Values.Where(x => x.LastHeartbeat + x.ServerTimeout >= now)];
 			return new JobMonitoringSnapshot
 			{
 				CapturedAt = timeProvider.GetUtcNow(),
@@ -1317,7 +1317,17 @@ public sealed partial class InMemoryJobStorage(
 		await TaskScheduler.Yield();
 
 		lock (_gate)
+		{
+			foreach (var workerId in _servers
+				.Where(item => item.Value.LastHeartbeat + item.Value.ServerTimeout < server.LastHeartbeat)
+				.Select(static item => item.Key)
+				.ToList())
+			{
+				_ = _servers.Remove(workerId);
+			}
+
 			_servers[server.WorkerId] = server;
+		}
 	}
 
 	/// <inheritdoc />

@@ -183,11 +183,16 @@ public static class ImmediateJobsModelBuilderExtensions
 		_ = entity.ToTable("immediate_job_servers", schema);
 		_ = entity.HasKey(server => server.WorkerId);
 		_ = entity.Property(server => server.WorkerId).HasMaxLength(256);
+		_ = entity.Property(server => server.Details).IsRequired();
 		_ = entity.Property(server => server.LastHeartbeat).HasConversion(
 			value => value.UtcTicks,
 			value => new DateTimeOffset(value, TimeSpan.Zero)
 		);
-		_ = entity.HasIndex(server => server.LastHeartbeat);
+		_ = entity.Property(server => server.ExpiresAt).HasConversion(
+			value => value.UtcTicks,
+			value => new DateTimeOffset(value, TimeSpan.Zero)
+		);
+		_ = entity.HasIndex(server => server.ExpiresAt);
 	}
 }
 
@@ -300,6 +305,8 @@ internal sealed class ImmediateJobServerEntity
 {
 	public string WorkerId { get; set; } = null!;
 	public DateTimeOffset LastHeartbeat { get; set; }
+	public DateTimeOffset ExpiresAt { get; set; }
 	public int ActiveWorkers { get; set; }
 	public int MaxWorkers { get; set; }
+	public string Details { get; set; } = null!;
 }

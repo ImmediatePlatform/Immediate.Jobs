@@ -23,13 +23,13 @@ public static class JobTelemetry
 	private static readonly Counter<long> FailedCounter = Meter.CreateCounter<long>("jobs.failed");
 	private static readonly Counter<long> RetriedCounter = Meter.CreateCounter<long>("jobs.retried");
 	private static readonly Histogram<double> DurationHistogram = Meter.CreateHistogram<double>("job.duration", "s");
-	private static long QueueDepth;
+	private static long AcquisitionCount;
 	private static long ActiveWorkers;
 
 	static JobTelemetry()
 	{
-		_ = Meter.CreateObservableGauge("queue.depth", () => Interlocked.Read(ref QueueDepth));
-		_ = Meter.CreateObservableGauge("workers.active", () => Interlocked.Read(ref ActiveWorkers));
+		Meter.CreateObservableGauge("acquisition.count", () => Interlocked.Read(ref AcquisitionCount));
+		Meter.CreateObservableGauge("workers.active", () => Interlocked.Read(ref ActiveWorkers));
 	}
 
 	internal static void Enqueued(string jobName, string queueName)
@@ -38,12 +38,17 @@ public static class JobTelemetry
 		tags.Add("job.name", jobName);
 		tags.Add("job.queue", queueName);
 		EnqueuedCounter.Add(1, tags);
-		_ = Interlocked.Increment(ref QueueDepth);
 	}
 
-	internal static void Acquired() => _ = Interlocked.Decrement(ref QueueDepth);
-	internal static void ExecutionStarted() => _ = Interlocked.Increment(ref ActiveWorkers);
-	internal static void ExecutionFinished() => _ = Interlocked.Decrement(ref ActiveWorkers);
+	internal static void Acquired() => Interlocked.Increment(ref AcquisitionCount);
+	internal static void ExecutionStarted() => Interlocked.Increment(ref ActiveWorkers);
+
+	internal static void ExecutionFinished()
+	{
+		Interlocked.Decrement(ref AcquisitionCount);
+		Interlocked.Decrement(ref ActiveWorkers);
+	}
+
 	internal static void Succeeded(string jobName, string queueName, TimeSpan duration)
 	{
 		TagList tags = default;
@@ -70,6 +75,5 @@ public static class JobTelemetry
 		tags.Add("job.name", jobName);
 		tags.Add("job.queue", queueName);
 		RetriedCounter.Add(1, tags);
-		_ = Interlocked.Increment(ref QueueDepth);
 	}
 }
