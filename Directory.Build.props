@@ -44,6 +44,12 @@
 	<MeziantouPolyfill_IncludedPolyfills>$(Polyfill)</MeziantouPolyfill_IncludedPolyfills>
   </PropertyGroup>
 
+  <PropertyGroup Label="Message Suppression">
+	<!-- I refuse to play these games, even I am already supporting the library -->
+	<Verify_SponsorshipLicenseIgnored>true</Verify_SponsorshipLicenseIgnored>
+	<NoWarn>$(NoWarn);SC023</NoWarn>
+  </PropertyGroup>
+
   <ItemGroup>
 	<AdditionalFiles Include="$(MSBuildThisFileDirectory)/BannedSymbols.txt" Visible="false" />
   </ItemGroup>
