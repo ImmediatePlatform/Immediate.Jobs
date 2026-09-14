@@ -1,9 +1,9 @@
 name: Build
 
-on:
+on: 
   workflow_dispatch:
   push:
-    branches:
+    branches: 
       - 'main'
     paths-ignore:
       - '**/readme.md'
@@ -12,10 +12,13 @@ on:
 
 jobs:
   build:
+
     runs-on: ubuntu-latest
 
     steps:
     - uses: actions/checkout@v7
+      with:
+        fetch-depth: '0'
 
     - name: Setup .NET
       uses: actions/setup-dotnet@v6
@@ -25,48 +28,27 @@ jobs:
           9.0.x
           10.0.x
 
-    - name: Setup preview .NET
+    - name: Setup .NET
       uses: actions/setup-dotnet@v6
       with:
         dotnet-quality: 'preview'
-        dotnet-version: 11.0.x
-
-    - name: Setup Node.js
-      uses: actions/setup-node@v7
-      with:
-        node-version: 26
-        cache: npm
-        cache-dependency-path: src/Immediate.Jobs.Dashboard/DashboardClient/package-lock.json
-
-    - name: Restore dashboard dependencies
-      run: npm ci
-      working-directory: src/Immediate.Jobs.Dashboard/DashboardClient
-
-    - name: Test dashboard
-      run: npm run check
-      working-directory: src/Immediate.Jobs.Dashboard/DashboardClient
+        dotnet-version: |
+          11.0.x
 
     - name: Restore tools
       run: dotnet tool restore
 
     - name: Restore dependencies
       run: dotnet restore
-
     - name: Build
       run: dotnet build -c Release --no-restore
-
     - name: Test
       run: dotnet test -c Release --no-build -- --coverage --coverage-output-format cobertura --coverage-settings ./coverage-settings.xml
 
-    - name: Publish NativeAOT sample
-      run: dotnet publish samples/NativeAot/NativeAot.csproj -c Release -r linux-x64 -f net8.0 --self-contained --no-restore
-
-    - name: Package
-      run: dotnet pack -c Release --no-build --property:PackageOutputPath=${{ github.workspace }}/nupkgs
-
-    # disabled until v0.1.0
-    # - name: Validate packages
-    #   run: dotnet tool run dotnet-validate -- package local ./nupkgs/*.nupkg
+    - name: Package 
+      run: dotnet pack -c Release --no-build --property:PackageOutputPath=../../nupkgs
+    - name: Validate Package 
+      run: dotnet tool run dotnet-validate -- package local ./nupkgs/*.nupkg
 
     - name: Coveralls
       uses: coverallsapp/github-action@v2
