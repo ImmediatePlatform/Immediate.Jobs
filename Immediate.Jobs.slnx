@@ -35,9 +35,6 @@
     <Project Path="tests/Immediate.Jobs.StorageTests/Immediate.Jobs.StorageTests.csproj" />
     <Project Path="tests/Immediate.Jobs.Tests/Immediate.Jobs.Tests.csproj" />
   </Folder>
-  <Folder Name="/Benchmarks/">
-    <Project Path="benchmarks/Immediate.Jobs.Benchmarks/Immediate.Jobs.Benchmarks.csproj" />
-  </Folder>
   <Folder Name="/Samples/">
     <Project Path="samples/Aspire/Api/Immediate.Jobs.Aspire.Api.csproj" />
     <Project Path="samples/Aspire/AppHost/Immediate.Jobs.Aspire.AppHost.csproj" />
