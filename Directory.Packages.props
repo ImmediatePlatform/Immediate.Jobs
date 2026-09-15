@@ -9,7 +9,7 @@
 	<PackageVersion Include="Cronos" Version="0.13.0" />
 	<PackageVersion Include="Immediate.Apis" Version="6.3.0" />
 	<PackageVersion Include="Immediate.Handlers" Version="4.1.0" />
-	<PackageVersion Include="Immediate.Validations" Version="3.6.0" />
+	<PackageVersion Include="Immediate.Validations" Version="3.7.0" />
 	<PackageVersion Include="linq2db" Version="6.5.0" />
 	<PackageVersion Include="linq2db.Extensions" Version="6.5.0" />
 	<PackageVersion Include="Microsoft.CodeAnalysis.Analyzers" Version="5.9.0" />
