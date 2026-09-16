@@ -6,7 +6,7 @@
   <ItemGroup>
 	<PackageVersion Include="Aspire.Hosting.PostgreSQL" Version="13.5.3" />
 	<PackageVersion Include="AssemblyMetadata.Generators" Version="2.2.0" />
-	<PackageVersion Include="Immediate.Apis" Version="6.3.0" />
+	<PackageVersion Include="Immediate.Apis" Version="6.4.0" />
 	<PackageVersion Include="Immediate.Handlers" Version="4.1.0" />
 	<PackageVersion Include="Immediate.Validations" Version="3.6.0" />
 	<PackageVersion Include="linq2db" Version="6.5.0" />
