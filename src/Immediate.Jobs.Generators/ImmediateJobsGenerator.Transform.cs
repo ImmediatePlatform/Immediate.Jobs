@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Globalization;
+using Meziantou.Framework.Scheduling;
 using Microsoft.CodeAnalysis;
 
 namespace Immediate.Jobs.Generators;
@@ -43,8 +44,15 @@ public sealed partial class ImmediateJobsGenerator
 			if (hasPayload)
 				return null;
 
-			if (!CronValidator.TryValidate(cron, out _))
+			if (RecurrenceRule.TryParse(cron, out var recurrenceRule))
+			{
+				if (!recurrenceRule.IsForever)
+					return null;
+			}
+			else if (!CronExpression.TryParse(cron, out var cronExpression))
+			{
 				return null;
+			}
 
 			if (timeZone.IsWhiteSpace())
 				return null;

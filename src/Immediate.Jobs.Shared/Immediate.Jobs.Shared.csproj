@@ -10,7 +10,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-	<PackageReference Include="Cronos" />
+	<PackageReference Include="Meziantou.Framework.Scheduling" />
 	<PackageReference Include="Immediate.Handlers" />
 	<PackageReference Include="Immediate.Validations" />
 	<PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />

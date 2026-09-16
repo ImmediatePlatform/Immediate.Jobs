@@ -1,3 +1,4 @@
+using Immediate.Jobs.Shared.Apis;
 using Immediate.Jobs.Shared.Interfaces;
 using Immediate.Jobs.Shared.Internals;
 using Immediate.Jobs.Shared.Storage;
@@ -15,11 +16,13 @@ public sealed class RecurringSchedulerTests
 		{ "@annually", new(2027, 1, 1, 0, 0, 0, TimeSpan.Zero) },
 		{ "@monthly", new(2026, 2, 1, 0, 0, 0, TimeSpan.Zero) },
 		{ "@weekly", new(2026, 1, 4, 0, 0, 0, TimeSpan.Zero) },
+		{ "FREQ=WEEKLY;BYDAY=SU;BYHOUR=0;BYMINUTE=0", new(2026, 1, 4, 0, 0, 0, TimeSpan.Zero) },
 		{ "@DAILY", new(2026, 1, 2, 0, 0, 0, TimeSpan.Zero) },
+		{ "FREQ=DAILY;BYHOUR=0;BYMINUTE=0", new(2026, 1, 2, 0, 0, 0, TimeSpan.Zero) },
 		{ "@midnight", new(2026, 1, 2, 0, 0, 0, TimeSpan.Zero) },
 		{ "@hourly", new(2026, 1, 1, 11, 0, 0, TimeSpan.Zero) },
-		{ "@every_minute", new(2026, 1, 1, 10, 1, 0, TimeSpan.Zero) },
-		{ "@every_second", new(2026, 1, 1, 10, 0, 1, TimeSpan.Zero) },
+		{ "* * * * *", new(2026, 1, 1, 10, 1, 0, TimeSpan.Zero) },
+		{ "* * * * * *", new(2026, 1, 1, 10, 0, 1, TimeSpan.Zero) },
 		{ "0\t*\t*\t*\t*", new(2026, 1, 1, 11, 0, 0, TimeSpan.Zero) },
 	};
 
@@ -228,6 +231,52 @@ public sealed class RecurringSchedulerTests
 			Start.AddHours(4),
 			storage.RecurringSchedules["cleanup"].NextRunAt
 		);
+	}
+
+	public static TheoryData<bool, MisfireHandlingMode, IReadOnlyList<DateTimeOffset>> GetNextOccurrencesCases()
+	{
+		return
+		[
+			(false, MisfireHandlingMode.EnqueueAll, [Start, Start.AddHours(1), Start.AddHours(2), Start.AddHours(3), Start.AddHours(4)]),
+			(true, MisfireHandlingMode.EnqueueAll, [Start, Start.AddHours(1), Start.AddHours(2), Start.AddHours(3), Start.AddHours(4)]),
+
+			(false, MisfireHandlingMode.EnqueueOne, [Start, Start.AddHours(3), Start.AddHours(4)]),
+			(true, MisfireHandlingMode.EnqueueOne, [Start, Start.AddHours(4)]),
+
+			(false, MisfireHandlingMode.EnqueueNone, [Start, Start.AddHours(3), Start.AddHours(4)]),
+			(true, MisfireHandlingMode.EnqueueNone, [Start, Start.AddHours(4)]),
+		];
+	}
+
+	[Theory]
+	[MemberData(nameof(GetNextOccurrencesCases))]
+	public void GetNextOccurrenceTests(
+		bool delayAfterRestart,
+		MisfireHandlingMode misfireHandlingMode,
+		IReadOnlyList<DateTimeOffset> expected
+	)
+	{
+		var schedule = new RecurringJobSchedule
+		{
+			Name = "cleanup",
+			JobName = "cleanup",
+			QueueName = "",
+			Cron = "0 * * * *",
+			NextRunAt = Start,
+			TimeZone = "UTC",
+			IsCodeDefined = true,
+		};
+
+		var occurrences = schedule.GetNextOccurrencesUntil(
+			delayAfterRestart switch
+			{
+				true => Start.AddHours(3).AddMinutes(1),
+				false => Start.AddHours(3),
+			},
+			misfireHandlingMode
+		);
+
+		Assert.Equal(expected, occurrences);
 	}
 
 	public static TheoryData<bool, bool, MisfireHandlingMode, int> MisfireHandlingCases()

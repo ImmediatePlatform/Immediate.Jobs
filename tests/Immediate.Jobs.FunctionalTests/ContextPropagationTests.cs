@@ -189,8 +189,9 @@ public sealed class ContextPropagationTests
 
 		var job = Assert.Single(
 			await harness.QueryJobsAsync(cancellationToken: cancellationToken),
-			candidate => string.Equals(candidate.JobName, "context-cron"
-, StringComparison.Ordinal));
+			candidate => string.Equals(candidate.JobName, "context-cron", StringComparison.Ordinal)
+		);
+
 		Assert.Null(job.Context);
 		Assert.Equal(JobState.Succeeded, job.State);
 		Assert.Contains("cron:no-context", probe.Events);

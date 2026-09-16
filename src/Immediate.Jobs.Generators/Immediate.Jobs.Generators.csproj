@@ -17,11 +17,12 @@
 
   <ItemGroup>
 	<PackageReference Include="AssemblyMetadata.Generators" PrivateAssets="all" />
+	<PackageReference Include="Meziantou.Framework.Scheduling" GeneratePathProperty="true" PrivateAssets="all" />
 	<PackageReference Include="Microsoft.CodeAnalysis.Analyzers" PrivateAssets="all" />
 	<PackageReference Include="Microsoft.CodeAnalysis.CSharp" PrivateAssets="all" />
   </ItemGroup>
 
-  <!-- Scriban (code in netstandard2.0; lib in net10+) -->
+  <!-- compile source for scriban in net8 -->
   <ItemGroup Condition="!$([MSBuild]::IsTargetFrameworkCompatible('$(TargetFramework)', 'net10.0'))">
 	<PackageReference Include="Scriban" PrivateAssets="all" IncludeAssets="Build" />
   </ItemGroup>
@@ -31,17 +32,20 @@
 	<DefineConstants>$(DefineConstants);SCRIBAN_NO_ASYNC</DefineConstants>
   </PropertyGroup>
 
+  <!-- reference scriban directly in net10+ -->
   <ItemGroup Condition="$([MSBuild]::IsTargetFrameworkCompatible('$(TargetFramework)', 'net10.0'))">
 	<PackageReference Include="Scriban" PrivateAssets="all" GeneratePathProperty="true" />
   </ItemGroup>
 
-  <PropertyGroup Condition="$([MSBuild]::IsTargetFrameworkCompatible('$(TargetFramework)', 'net10.0'))">
+  <!-- for internal building, pull relevant dependencies into roslyn build-scope -->
+  <PropertyGroup>
 	<GetTargetPathDependsOn>$(GetTargetPathDependsOn);GetDependencyTargetPaths</GetTargetPathDependsOn>
   </PropertyGroup>
 
-  <Target Name="GetDependencyTargetPaths" Condition="$([MSBuild]::IsTargetFrameworkCompatible('$(TargetFramework)', 'net10.0'))">
+  <Target Name="GetDependencyTargetPaths">
 	<ItemGroup>
-	  <TargetPathWithTargetPlatformMoniker Include="$(PkgScriban)/lib/netstandard2.0/Scriban.dll" IncludeRuntimeDependency="false" />
+	  <TargetPathWithTargetPlatformMoniker Condition="$([MSBuild]::IsTargetFrameworkCompatible('$(TargetFramework)', 'net10.0'))" Include="$(PkgScriban)/lib/net8.0/Scriban.dll" IncludeRuntimeDependency="false" />
+	  <TargetPathWithTargetPlatformMoniker Include="$(PkgMeziantou_Framework_Scheduling)/lib/net10.0/Meziantou.Framework.Scheduling.dll" IncludeRuntimeDependency="false" />
 	</ItemGroup>
   </Target>
 

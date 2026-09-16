@@ -824,11 +824,8 @@ public abstract class JobScheduler<TPayload>(
 	{
 		ArgumentException.ThrowIfNullOrWhiteSpace(name);
 
-		var zone = JobCron.GetTimeZone(timeZone);
-		var expression = JobCron.Parse(cron);
-
-		var next = expression.GetNextOccurrence(TimeProvider.GetUtcNow(), zone)
-			?? throw new ArgumentException("The cron expression has no future occurrence.", nameof(cron));
+		var next = TimeProvider.GetUtcNow()
+			.GetNextOccurrence(cron, timeZone, name);
 
 		await JobStorageCapabilityGuards.RequireRecurring(Storage)
 			.UpsertRecurringAsync(

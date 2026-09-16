@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Globalization;
+using Meziantou.Framework.Scheduling;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.Diagnostics;
 
@@ -299,14 +300,28 @@ public sealed class JobClassAnalyzer : DiagnosticAnalyzer
 				);
 			}
 
-			if (!CronValidator.TryValidate(cron, out var cronError))
+			if (RecurrenceRule.TryParse(cron, out var recurrenceRule, out _))
+			{
+				if (!recurrenceRule.IsForever)
+				{
+					context.ReportDiagnostic(
+						Diagnostic.Create(
+							CronJobConfigurationInvalid,
+							jobAttribute.Location,
+							context.Symbol.Name,
+							"Cron expression is invalid: a recurrence rule with a fixed end date cannot be used"
+						)
+					);
+				}
+			}
+			else if (!CronExpression.TryParse(cron, out _))
 			{
 				context.ReportDiagnostic(
 					Diagnostic.Create(
 						CronJobConfigurationInvalid,
 						jobAttribute.Location,
 						context.Symbol.Name,
-						$"Cron expression is invalid: {cronError}"
+						"Cron expression is cannot be parsed as a CronExpression or RecurrenceRule"
 					)
 				);
 			}

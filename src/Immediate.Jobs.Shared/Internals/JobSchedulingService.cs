@@ -262,8 +262,8 @@ public sealed partial class JobSchedulingService : BackgroundService
 		await _storage
 			.HeartbeatAsync(
 				new JobServerSnapshot { WorkerId = _workerId, LastHeartbeat = now, ActiveWorkers = _state.ActiveWorkers, MaxWorkers = _options.WorkerCount },
-				cancellationToken
-			);
+			cancellationToken
+		);
 
 		_state.MarkHeartbeat(now);
 
@@ -630,12 +630,12 @@ public sealed partial class JobSchedulingService : BackgroundService
 		try
 		{
 			await _storage.RenewLeaseAsync(
-				record.JobHandle,
-				record.Attempt,
+			record.JobHandle,
+			record.Attempt,
 				_workerId,
 				_options.LeaseDuration,
-				// explicitly non-cancellable
-				cancellationToken: default
+			// explicitly non-cancellable
+			cancellationToken: default
 			);
 		}
 #pragma warning disable CA1031 // There is no catcher above us to safely report exceptions
@@ -676,8 +676,7 @@ public sealed partial class JobSchedulingService : BackgroundService
 						Cron = d.Cron!,
 						TimeZone = d.TimeZone,
 						IsCodeDefined = true,
-						NextRunAt = GetNextOccurrence(
-							now,
+						NextRunAt = now.GetNextOccurrence(
 							d.Cron!,
 							d.TimeZone,
 							d.Name
@@ -731,71 +730,6 @@ public sealed partial class JobSchedulingService : BackgroundService
 		}
 	}
 
-	private static DateTimeOffset GetNextOccurrence(DateTimeOffset from, string cron, string timeZone, string jobName)
-	{
-		var expression = JobCron.Parse(cron);
-		var tzi = JobCron.GetTimeZone(timeZone);
-		return expression.GetNextOccurrence(from, tzi, inclusive: false) switch
-		{
-			{ } next => next,
-			_ => throw new ImmediateJobException($"Recurring schedule '{jobName}' has no future occurrence."),
-		};
-	}
-
-	private static List<DateTimeOffset> GetNextOccurrences(
-		RecurringJobSchedule schedule,
-		MisfireHandlingMode misfireHandlingMode,
-		DateTimeOffset now
-	)
-	{
-		var recurrenceTimes = new List<DateTimeOffset> { schedule.NextRunAt };
-
-		if (misfireHandlingMode == MisfireHandlingMode.EnqueueAll)
-		{
-			while (recurrenceTimes[^1] <= now)
-			{
-				recurrenceTimes.Add(
-					GetNextOccurrence(
-						recurrenceTimes[^1],
-						schedule.Cron,
-						schedule.TimeZone,
-						schedule.Name
-					)
-				);
-			}
-		}
-		else
-		{
-			var next = schedule.NextRunAt;
-
-			while (next < now)
-			{
-				next = GetNextOccurrence(
-					next,
-					schedule.Cron,
-					schedule.TimeZone,
-					schedule.Name
-				);
-			}
-
-			recurrenceTimes.Add(next);
-
-			if (next == now)
-			{
-				recurrenceTimes.Add(
-					GetNextOccurrence(
-						next,
-						schedule.Cron,
-						schedule.TimeZone,
-						schedule.Name
-					)
-				);
-			}
-		}
-
-		return recurrenceTimes;
-	}
-
 	private async Task MaterializeRecurringScheduleAsync(
 		IRecurringJobStorage recurringStorage,
 		RecurringJobSchedule schedule,
@@ -804,7 +738,7 @@ public sealed partial class JobSchedulingService : BackgroundService
 		CancellationToken cancellationToken
 	)
 	{
-		var recurrenceTimes = GetNextOccurrences(schedule, definition.MisfireHandlingMode, now);
+		var recurrenceTimes = schedule.GetNextOccurrencesUntil(now, definition.MisfireHandlingMode);
 
 		var nextIndex = 1;
 		var next = recurrenceTimes[nextIndex];
@@ -928,7 +862,7 @@ public sealed partial class JobSchedulingService : BackgroundService
 							dependency,
 							cancellationToken
 						)
-						&& record.State == JobState.Pending)
+			&& record.State == JobState.Pending)
 					{
 						JobTelemetry.Enqueued(record.JobName, record.QueueName);
 					}
