@@ -38,6 +38,11 @@
 	  Include="../Immediate.Jobs.Generators/bin/$(Configuration)/netstandard2.0/Immediate.Jobs.Generators.dll"
 	  Pack="true"
 	  PackagePath="analyzers/dotnet/roslyn4.8/cs" />
+
+	<TfmSpecificPackageFile
+	  Include="$(PkgMeziantou_Framework_Scheduling)/lib/netstandard2.0/Meziantou.Framework.Scheduling.dll"
+	  Pack="true"
+	  PackagePath="analyzers/dotnet/roslyn4.8/cs" />
   </ItemGroup>
 
   <!-- roslyn 5.0 for net10/net11 -->
@@ -56,10 +61,15 @@
 	  Include="$(PkgScriban)/lib/net8.0/Scriban.dll"
 	  Pack="true"
 	  PackagePath="analyzers/dotnet/roslyn5.0/cs" />
+
+	<TfmSpecificPackageFile
+	  Include="$(PkgMeziantou_Framework_Scheduling)/lib/net10.0/Meziantou.Framework.Scheduling.dll"
+	  Pack="true"
+	  PackagePath="analyzers/dotnet/roslyn5.0/cs" />
   </ItemGroup>
 
   <ItemGroup>
-	<PackageReference Include="Cronos" />
+	<PackageReference Include="Meziantou.Framework.Scheduling" GeneratePathProperty="true" />
 	<PackageReference Include="Immediate.Handlers" />
 	<PackageReference Include="Immediate.Validations" />
 	<PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" NoWarn="NU5104" />

@@ -16,11 +16,13 @@ public sealed class RecurringSchedulerTests
 		{ "@annually", new(2027, 1, 1, 0, 0, 0, TimeSpan.Zero) },
 		{ "@monthly", new(2026, 2, 1, 0, 0, 0, TimeSpan.Zero) },
 		{ "@weekly", new(2026, 1, 4, 0, 0, 0, TimeSpan.Zero) },
+		{ "FREQ=WEEKLY;BYDAY=SU;BYHOUR=0;BYMINUTE=0", new(2026, 1, 4, 0, 0, 0, TimeSpan.Zero) },
 		{ "@DAILY", new(2026, 1, 2, 0, 0, 0, TimeSpan.Zero) },
+		{ "FREQ=DAILY;BYHOUR=0;BYMINUTE=0", new(2026, 1, 2, 0, 0, 0, TimeSpan.Zero) },
 		{ "@midnight", new(2026, 1, 2, 0, 0, 0, TimeSpan.Zero) },
 		{ "@hourly", new(2026, 1, 1, 11, 0, 0, TimeSpan.Zero) },
-		{ "@every_minute", new(2026, 1, 1, 10, 1, 0, TimeSpan.Zero) },
-		{ "@every_second", new(2026, 1, 1, 10, 0, 1, TimeSpan.Zero) },
+		{ "* * * * *", new(2026, 1, 1, 10, 1, 0, TimeSpan.Zero) },
+		{ "* * * * * *", new(2026, 1, 1, 10, 0, 1, TimeSpan.Zero) },
 		{ "0\t*\t*\t*\t*", new(2026, 1, 1, 11, 0, 0, TimeSpan.Zero) },
 	};
 

@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
 using Immediate.Jobs.Shared.Apis;
+using Meziantou.Framework.Scheduling;
 
 namespace Immediate.Jobs.Shared.Internals;
 
@@ -68,13 +69,24 @@ public static class DateTimeOffsetExtensions
 		/// </exception>
 		public DateTimeOffset GetNextOccurrence(string cron, string timeZone, string jobName)
 		{
-			var expression = JobCron.Parse(cron);
-			var tzi = JobCron.GetTimeZone(timeZone);
-			return expression.GetNextOccurrence(from, tzi, inclusive: false) switch
+			var tzi = TimeZoneInfo.FindSystemTimeZoneById(timeZone);
+
+			IRecurrenceRule rule = true switch
 			{
-				{ } next => next,
-				_ => throw new ImmediateJobException($"Recurring schedule '{jobName}' has no future occurrence."),
+				_ when CronExpression.TryParse(cron, out var cronExpression) => cronExpression,
+				_ when RecurrenceRule.TryParse(cron, out var recurrenceRule) => recurrenceRule,
+				_ => throw new ImmediateJobException($"Recurring schedule '{jobName}' has a cron expression that cannot be parsed. ('{cron}')"),
 			};
+
+			foreach (var next in rule.GetNextOccurrences(from, tzi))
+			{
+				if (next == from)
+					continue;
+
+				return next;
+			}
+
+			throw new ImmediateJobException($"Recurring schedule '{jobName}' has no future occurrence. ('{cron}')");
 		}
 	}
 }
@@ -109,47 +121,36 @@ public static class RecurringJobScheduleExtensions
 			MisfireHandlingMode misfireHandlingMode
 		)
 		{
+			var tzi = TimeZoneInfo.FindSystemTimeZoneById(schedule.TimeZone);
+
+			IRecurrenceRule rule = true switch
+			{
+				_ when CronExpression.TryParse(schedule.Cron, out var cronExpression) => cronExpression,
+				_ when RecurrenceRule.TryParse(schedule.Cron, out var recurrenceRule) => recurrenceRule,
+				_ => throw new ImmediateJobException($"Recurring schedule '{schedule.Name}' has a cron expression that cannot be parsed. ('{schedule.Cron}')"),
+			};
+
 			var recurrenceTimes = new List<DateTimeOffset> { schedule.NextRunAt };
 
-			if (misfireHandlingMode == MisfireHandlingMode.EnqueueAll)
-			{
-				while (recurrenceTimes[^1] <= now)
-				{
-					recurrenceTimes.Add(
-						recurrenceTimes[^1].GetNextOccurrence(
-							schedule.Cron,
-							schedule.TimeZone,
-							schedule.Name
-						)
-					);
-				}
-			}
-			else
-			{
-				var next = schedule.NextRunAt;
+			// add one tick to skip past current run
+			var occurrences = rule.GetNextOccurrences(schedule.NextRunAt, tzi);
 
-				while (next < now)
-				{
-					next = next.GetNextOccurrence(
-						schedule.Cron,
-						schedule.TimeZone,
-						schedule.Name
-					);
-				}
+			foreach (var next in occurrences)
+			{
+				if (next == schedule.NextRunAt)
+					continue;
+
+				if (misfireHandlingMode != MisfireHandlingMode.EnqueueAll && next < now)
+					continue;
 
 				recurrenceTimes.Add(next);
 
-				if (next == now)
-				{
-					recurrenceTimes.Add(
-						next.GetNextOccurrence(
-							schedule.Cron,
-							schedule.TimeZone,
-							schedule.Name
-						)
-					);
-				}
+				if (next > now)
+					break;
 			}
+
+			if (recurrenceTimes[^1] <= now)
+				throw new ImmediateJobException($"Recurring schedule '{schedule.Name}' has no future occurrence. ('{schedule.Cron}')");
 
 			return recurrenceTimes;
 		}
