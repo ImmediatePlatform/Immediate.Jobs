@@ -19,7 +19,6 @@
 	<PackageReference Include="Microsoft.CodeAnalysis.CSharp" />
 	<PackageReference Include="Microsoft.CodeAnalysis.CSharp.Analyzer.Testing" />
 	<PackageReference Include="Microsoft.CodeAnalysis.CSharp.Workspaces" />
-	<PackageReference Include="Microsoft.CodeAnalysis.NetAnalyzers" GeneratePathProperty="true" PrivateAssets="all" />
 	<PackageReference Include="Microsoft.Testing.Extensions.CodeCoverage" />
 	<PackageReference Include="NodaTime" />
 	<PackageReference Include="Scriban" />
@@ -45,20 +44,33 @@
   </ItemGroup>
 
   <ItemGroup>
-	<Reference Condition="!$([MSBuild]::IsTargetFrameworkCompatible('$(TargetFramework)', 'net10.0'))"
-	           Include="Immediate.Handlers.Generators"
-	           HintPath="$(PkgImmediate_Handlers)/analyzers/dotnet/roslyn4.8/cs/Immediate.Handlers.Generators.dll" />
-	<Reference Condition="$([MSBuild]::IsTargetFrameworkCompatible('$(TargetFramework)', 'net10.0'))"
-	           Include="Immediate.Handlers.Generators"
-	           HintPath="$(PkgImmediate_Handlers)/analyzers/dotnet/roslyn5.0/cs/Immediate.Handlers.Generators.dll" />
+	<ProjectReference Include="../../src/Immediate.Jobs.Shared/Immediate.Jobs.Shared.csproj" />
+	<ProjectReference Include="../../src/Immediate.Jobs.NodaTime/Immediate.Jobs.NodaTime.csproj" />
+  </ItemGroup>
 
-	<Reference Include="$(PkgMicrosoft_CodeAnalysis_NetAnalyzers)/analyzers/dotnet/cs/Microsoft.CodeAnalysis.NetAnalyzers.dll" />
+  <PropertyGroup>
+	<RoslynVersion Condition=" '$(TargetFramework)' == 'net8.0' ">roslyn4.8</RoslynVersion>
+	<RoslynVersion Condition=" '$(TargetFramework)' == 'net10.0' ">roslyn5.0</RoslynVersion>
+	<RoslynVersion Condition=" '$(TargetFramework)' == 'net11.0' ">roslyn5.9</RoslynVersion>
+  </PropertyGroup>
+
+  <ItemGroup>
+	<ProjectReference Include="../../src/Immediate.Jobs.Analyzers/Immediate.Jobs.Analyzers.csproj" ReferenceOutputAssembly="false">
+	  <SetTargetFramework>TargetFramework=$(RoslynVersion)</SetTargetFramework>
+	</ProjectReference>
+	<Reference Include="../../src/Immediate.Jobs.Analyzers/bin/$(Configuration)/$(RoslynVersion)/Immediate.Jobs.Analyzers.dll" />
+
+	<ProjectReference Include="../../src/Immediate.Jobs.Generators/Immediate.Jobs.Generators.csproj" ReferenceOutputAssembly="false">
+	  <SetTargetFramework>TargetFramework=$(RoslynVersion)</SetTargetFramework>
+	</ProjectReference>
+	<Reference Include="../../src/Immediate.Jobs.Generators/bin/$(Configuration)/$(RoslynVersion)/Immediate.Jobs.Generators.dll" />
+
+	<Reference Include="$(PkgImmediate_Handlers)/analyzers/dotnet/$(RoslynVersion)/cs/Immediate.Handlers.Generators.dll" />
   </ItemGroup>
 
   <ItemGroup>
-	<ProjectReference Include="../../src/Immediate.Jobs.Shared/Immediate.Jobs.Shared.csproj" />
-	<ProjectReference Include="../../src/Immediate.Jobs.Analyzers/Immediate.Jobs.Analyzers.csproj" />
-    <ProjectReference Include="../../src/Immediate.Jobs.Generators/Immediate.Jobs.Generators.csproj" />
-	<ProjectReference Include="../../src/Immediate.Jobs.NodaTime/Immediate.Jobs.NodaTime.csproj" />
+	<PackageReference Include="Microsoft.CodeAnalysis.NetAnalyzers" GeneratePathProperty="true" PrivateAssets="all" />
+	<Reference Include="$(PkgMicrosoft_CodeAnalysis_NetAnalyzers)/analyzers/dotnet/cs/Microsoft.CodeAnalysis.NetAnalyzers.dll" />
   </ItemGroup>
+
 </Project>
