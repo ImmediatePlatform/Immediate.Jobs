@@ -1,3 +1,4 @@
+using Immediate.Jobs.Shared.Apis;
 using Immediate.Jobs.Shared.Interfaces;
 using Immediate.Jobs.Shared.Internals;
 using Immediate.Jobs.Shared.Storage;
@@ -228,6 +229,52 @@ public sealed class RecurringSchedulerTests
 			Start.AddHours(4),
 			storage.RecurringSchedules["cleanup"].NextRunAt
 		);
+	}
+
+	public static TheoryData<bool, MisfireHandlingMode, IReadOnlyList<DateTimeOffset>> GetNextOccurrencesCases()
+	{
+		return
+		[
+			(false, MisfireHandlingMode.EnqueueAll, [Start, Start.AddHours(1), Start.AddHours(2), Start.AddHours(3), Start.AddHours(4)]),
+			(true, MisfireHandlingMode.EnqueueAll, [Start, Start.AddHours(1), Start.AddHours(2), Start.AddHours(3), Start.AddHours(4)]),
+
+			(false, MisfireHandlingMode.EnqueueOne, [Start, Start.AddHours(3), Start.AddHours(4)]),
+			(true, MisfireHandlingMode.EnqueueOne, [Start, Start.AddHours(4)]),
+
+			(false, MisfireHandlingMode.EnqueueNone, [Start, Start.AddHours(3), Start.AddHours(4)]),
+			(true, MisfireHandlingMode.EnqueueNone, [Start, Start.AddHours(4)]),
+		];
+	}
+
+	[Theory]
+	[MemberData(nameof(GetNextOccurrencesCases))]
+	public void GetNextOccurrenceTests(
+		bool delayAfterRestart,
+		MisfireHandlingMode misfireHandlingMode,
+		IReadOnlyList<DateTimeOffset> expected
+	)
+	{
+		var schedule = new RecurringJobSchedule
+		{
+			Name = "cleanup",
+			JobName = "cleanup",
+			QueueName = "",
+			Cron = "0 * * * *",
+			NextRunAt = Start,
+			TimeZone = "UTC",
+			IsCodeDefined = true,
+		};
+
+		var occurrences = schedule.GetNextOccurrencesUntil(
+			delayAfterRestart switch
+			{
+				true => Start.AddHours(3).AddMinutes(1),
+				false => Start.AddHours(3),
+			},
+			misfireHandlingMode
+		);
+
+		Assert.Equal(expected, occurrences);
 	}
 
 	public static TheoryData<bool, bool, MisfireHandlingMode, int> MisfireHandlingCases()
