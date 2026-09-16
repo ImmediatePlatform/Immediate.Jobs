@@ -21,6 +21,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="Immediate.Validations" />
 	<PackageReference Include="Microsoft.EntityFrameworkCore" NoWarn="NU5104" />
 	<PackageReference Include="Microsoft.EntityFrameworkCore.Relational" NoWarn="NU5104" />
   </ItemGroup>
