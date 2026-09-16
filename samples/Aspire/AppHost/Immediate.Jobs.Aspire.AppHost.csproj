@@ -1,6 +1,11 @@
 <Project Sdk="Aspire.AppHost.Sdk/13.4.6">
 
   <PropertyGroup>
+	<!-- Override until npgsql gets their shit together -->
+	<TargetFrameworks>net8.0;net10.0</TargetFrameworks>
+  </PropertyGroup>
+
+  <PropertyGroup>
     <OutputType>Exe</OutputType>
     <UserSecretsId>e7fd0b27-61fa-4dfd-9787-1e260c52b7bd</UserSecretsId>
 	<_AspireUseSdkPickBestRid>false</_AspireUseSdkPickBestRid>
