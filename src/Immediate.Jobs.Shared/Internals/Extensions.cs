@@ -70,13 +70,7 @@ public static class DateTimeOffsetExtensions
 		public DateTimeOffset GetNextOccurrence(string cron, string timeZone, string jobName)
 		{
 			var tzi = TimeZoneInfo.FindSystemTimeZoneById(timeZone);
-
-			IRecurrenceRule rule = true switch
-			{
-				_ when CronExpression.TryParse(cron, out var cronExpression) => cronExpression,
-				_ when RecurrenceRule.TryParse(cron, out var recurrenceRule) => recurrenceRule,
-				_ => throw new ImmediateJobException($"Recurring schedule '{jobName}' has a cron expression that cannot be parsed. ('{cron}')"),
-			};
+			var rule = RecurringJobScheduleExtensions.ParseCronExpression(cron, jobName);
 
 			foreach (var next in rule.GetNextOccurrences(from, tzi))
 			{
@@ -100,6 +94,22 @@ public static class DateTimeOffsetExtensions
 [EditorBrowsable(EditorBrowsableState.Never)]
 public static class RecurringJobScheduleExtensions
 {
+	internal static IRecurrenceRule ParseCronExpression(string cron, string jobName)
+	{
+		return true switch
+		{
+			_ when CronExpression.TryParse(cron, out var cronExpression) => cronExpression,
+
+			_ when RecurrenceRule.TryParse(cron, out var recurrenceRule) => recurrenceRule switch
+			{
+				{ IsForever: false } => throw new ImmediateJobException($"Recurring schedule '{jobName}' has a cron expression that has an expiration date. ('{cron}')"),
+				_ => recurrenceRule,
+			},
+
+			_ => throw new ImmediateJobException($"Recurring schedule '{jobName}' has a cron expression that cannot be parsed. ('{cron}')"),
+		};
+	}
+
 	extension(RecurringJobSchedule schedule)
 	{
 		/// <summary>
@@ -122,13 +132,7 @@ public static class RecurringJobScheduleExtensions
 		)
 		{
 			var tzi = TimeZoneInfo.FindSystemTimeZoneById(schedule.TimeZone);
-
-			IRecurrenceRule rule = true switch
-			{
-				_ when CronExpression.TryParse(schedule.Cron, out var cronExpression) => cronExpression,
-				_ when RecurrenceRule.TryParse(schedule.Cron, out var recurrenceRule) => recurrenceRule,
-				_ => throw new ImmediateJobException($"Recurring schedule '{schedule.Name}' has a cron expression that cannot be parsed. ('{schedule.Cron}')"),
-			};
+			var rule = ParseCronExpression(schedule.Cron, schedule.Name);
 
 			var recurrenceTimes = new List<DateTimeOffset> { schedule.NextRunAt };
 
