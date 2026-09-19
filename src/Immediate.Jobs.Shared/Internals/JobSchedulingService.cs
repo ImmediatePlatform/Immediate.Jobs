@@ -174,7 +174,8 @@ public sealed partial class JobSchedulingService : BackgroundService
 		var pollingLoop = RunPollingLoopAsync(stoppingToken)
 			.SuppressCancellation(stoppingToken);
 
-		var leaseRenewalLoop = RunLeaseRenewalLoopAsync(_workerCancellation.Token);
+		var leaseRenewalLoop = RunLeaseRenewalLoopAsync(_workerCancellation.Token)
+			.SuppressCancellation(_workerCancellation.Token);
 
 		try
 		{
