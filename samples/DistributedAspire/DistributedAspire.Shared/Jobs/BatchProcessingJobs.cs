@@ -47,7 +47,7 @@ public sealed partial class PrepareBatchesJob(
 				.Range(0, payload.TotalAmount)
 				.Select(i => new BatchEntity()
 				{
-					Guid = Guid.NewGuid(),
+					Data = Guid.NewGuid(),
 					CreatedOn = now,
 					ModifiedOn = null,
 				})
@@ -194,8 +194,6 @@ public sealed partial class ProcessBatchJob(
 			timeProvider.GetUtcNow()
 		);
 
-		var now = PostgresDateTimeOffset.New(timeProvider.GetUtcNow());
-
 		await using var transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken: cancellationToken);
 
 		var batchableRows = await dbContext.BatchableRows
@@ -207,7 +205,7 @@ public sealed partial class ProcessBatchJob(
 
 		foreach (var row in batchableRows)
 		{
-			row.ModifiedOn = now;
+			row.Data = Guid.NewGuid();
 		}
 
 		await transaction.CommitAsync(cancellationToken);

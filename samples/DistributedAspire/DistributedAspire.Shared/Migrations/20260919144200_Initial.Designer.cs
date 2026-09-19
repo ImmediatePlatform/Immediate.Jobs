@@ -12,7 +12,7 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Immediate.Jobs.DistributedAspire.Shared.Migrations
 {
     [DbContext(typeof(JobsDbContext))]
-    [Migration("20260919133433_Initial")]
+    [Migration("20260919144200_Initial")]
     partial class Initial
     {
         /// <inheritdoc />
@@ -38,15 +38,12 @@ namespace Immediate.Jobs.DistributedAspire.Shared.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("CreatedOn");
 
-                    b.Property<Guid>("Guid")
+                    b.Property<Guid>("Data")
                         .HasColumnType("uuid")
-                        .HasColumnName("Guid");
+                        .HasColumnName("Data");
 
-                    b.Property<byte[]>("Hash")
-                        .IsRequired()
-                        .HasMaxLength(128)
-                        .HasColumnType("bytea")
-                        .HasColumnName("HashCode");
+                    b.Property<DateTimeOffset?>("ModifiedOn")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<long>("Version")
                         .IsConcurrencyToken()
@@ -54,9 +51,6 @@ namespace Immediate.Jobs.DistributedAspire.Shared.Migrations
                         .HasColumnName("Version");
 
                     b.HasKey("Id");
-
-                    b.HasIndex("Hash")
-                        .IsUnique();
 
                     b.HasIndex("Id")
                         .IsUnique();
@@ -393,41 +387,6 @@ namespace Immediate.Jobs.DistributedAspire.Shared.Migrations
                     b.HasIndex("IsPaused", "NextRunAt");
 
                     b.ToTable("immediate_recurring_jobs", (string)null);
-                });
-
-            modelBuilder.Entity("Immediate.Jobs.DistributedAspire.Shared.Data.BatchEntity", b =>
-                {
-                    b.OwnsOne("Immediate.Jobs.DistributedAspire.Shared.Data.PostgresDateTimeOffset", "ModifiedOn", b1 =>
-                        {
-                            b1.Property<int>("BatchEntityId")
-                                .HasColumnType("integer");
-
-                            b1.Property<DateTime>("LocalDateTime")
-                                .HasColumnType("timestamp with time zone")
-                                .HasColumnName("LocalDateTime");
-
-                            b1.Property<string>("TimeZoneName")
-                                .IsRequired()
-                                .HasColumnType("text")
-                                .HasColumnName("TimeZoneName");
-
-                            b1.Property<TimeSpan>("TimeZoneOffset")
-                                .HasColumnType("interval")
-                                .HasColumnName("TimeZoneOffset");
-
-                            b1.Property<DateTimeOffset>("UtcDateTime")
-                                .HasColumnType("timestamp with time zone")
-                                .HasColumnName("UtcDateTime");
-
-                            b1.HasKey("BatchEntityId");
-
-                            b1.ToTable("BatchableRows");
-
-                            b1.WithOwner()
-                                .HasForeignKey("BatchEntityId");
-                        });
-
-                    b.Navigation("ModifiedOn");
                 });
 
             modelBuilder.Entity("Immediate.Jobs.EntityFrameworkCore.ImmediateJobContinuationEntity", b =>

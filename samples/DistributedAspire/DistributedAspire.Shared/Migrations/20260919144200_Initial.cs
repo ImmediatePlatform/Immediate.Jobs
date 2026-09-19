@@ -19,13 +19,9 @@ namespace Immediate.Jobs.DistributedAspire.Shared.Migrations
                     Id = table.Column<int>(type: "integer", nullable: false)
                         .Annotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.IdentityByDefaultColumn),
                     CreatedOn = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
-                    UtcDateTime = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: true),
-                    LocalDateTime = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
-                    TimeZoneOffset = table.Column<TimeSpan>(type: "interval", nullable: true),
-                    TimeZoneName = table.Column<string>(type: "text", nullable: true),
+                    ModifiedOn = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: true),
                     Version = table.Column<long>(type: "bigint", nullable: false),
-                    Guid = table.Column<Guid>(type: "uuid", nullable: false),
-                    HashCode = table.Column<byte[]>(type: "bytea", maxLength: 128, nullable: false)
+                    Data = table.Column<Guid>(type: "uuid", nullable: false)
                 },
                 constraints: table =>
                 {
@@ -192,12 +188,6 @@ namespace Immediate.Jobs.DistributedAspire.Shared.Migrations
                         principalColumn: "Id",
                         onDelete: ReferentialAction.Cascade);
                 });
-
-            migrationBuilder.CreateIndex(
-                name: "IX_BatchableRows_HashCode",
-                table: "BatchableRows",
-                column: "HashCode",
-                unique: true);
 
             migrationBuilder.CreateIndex(
                 name: "IX_BatchableRows_Id",

@@ -49,30 +49,4 @@ public static class EntityConfigurationExtensions
 
 		return builder;
 	}
-
-	internal static EntityTypeBuilder<T> HasHash<T>(this EntityTypeBuilder<T> builder)
-		where T : class, IHash
-	{
-		_ = builder.Property(static x => x.Hash)
-			.IsRequired()
-			.HasColumnName("HashCode")
-			.HasMaxLength(128);
-
-		_ = builder.HasIndex(static x => x.Hash)
-			.IsUnique()
-			.IsUnique(true);
-
-		return builder;
-	}
-
-	internal static OwnedNavigationBuilder<T, PostgresDateTimeOffset> HasPostgresDateTimeoffset<T>(this OwnedNavigationBuilder<T, PostgresDateTimeOffset> builder)
-		where T : class, IHash
-	{
-		_ = builder.Property(static a => a.UtcDateTime).HasColumnName("UtcDateTime");
-		_ = builder.Property(static a => a.LocalDateTime).HasColumnName("LocalDateTime");
-		_ = builder.Property(static a => a.TimeZoneOffset).HasColumnName("TimeZoneOffset");
-		_ = builder.Property(static a => a.TimeZoneName).HasColumnName("TimeZoneName");
-
-		return builder;
-	}
 }

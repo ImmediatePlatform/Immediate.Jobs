@@ -30,11 +30,13 @@ public sealed class JobsDbContext(DbContextOptions<JobsDbContext> options) : DbC
 			return base.SaveChangesAsync(cancellationToken);
 		}
 
+		var now = DateTimeOffset.UtcNow;
+
 		foreach (var entry in entries)
 		{
-			if (entry.Entity is IHash hashCode)
+			if (entry.Entity is IModified changed)
 			{
-				hashCode.Hash = hashCode.CalculateHash();
+				changed.ModifiedOn = now;
 			}
 
 			if (entry.Entity is IRowVersion rowVersion)
