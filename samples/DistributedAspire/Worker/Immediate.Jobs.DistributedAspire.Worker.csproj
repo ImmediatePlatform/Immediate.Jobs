@@ -9,7 +9,6 @@
   </PropertyGroup>
 
   <ItemGroup>
-	<PackageReference Include="Immediate.Handlers" />
 	<PackageReference Include="Microsoft.Extensions.Hosting" />
 	<PackageReference Include="Microsoft.Extensions.DependencyInjection" />
 	<PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" />
@@ -19,4 +18,21 @@
     <ProjectReference Include="..\DistributedAspire.Shared\Immediate.Jobs.DistributedAspire.Shared.csproj" />
     <ProjectReference Include="..\ServiceDefaults\Immediate.Jobs.DistributedAspire.ServiceDefaults.csproj" />
   </ItemGroup>
+
+  <PropertyGroup>
+	<RoslynVersion Condition=" '$(TargetFramework)' == 'net8.0' ">roslyn4.8</RoslynVersion>
+	<RoslynVersion Condition=" '$(TargetFramework)' == 'net10.0' ">roslyn5.0</RoslynVersion>
+	<RoslynVersion Condition=" '$(TargetFramework)' == 'net11.0' ">roslyn5.9</RoslynVersion>
+  </PropertyGroup>
+
+  <ItemGroup>
+	<ProjectReference Include="../../../src/Immediate.Jobs.Analyzers/Immediate.Jobs.Analyzers.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false">
+	  <SetTargetFramework>TargetFramework=$(RoslynVersion)</SetTargetFramework>
+	</ProjectReference>
+
+	<ProjectReference Include="../../../src/Immediate.Jobs.Generators/Immediate.Jobs.Generators.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false">
+	  <SetTargetFramework>TargetFramework=$(RoslynVersion)</SetTargetFramework>
+	</ProjectReference>
+  </ItemGroup>
+
 </Project>
