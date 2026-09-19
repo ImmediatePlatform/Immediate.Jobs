@@ -1,7 +1,6 @@
 using Immediate.Jobs.Shared.Storage;
 
-#pragma warning disable IDE0130
-namespace Immediate.Jobs.Testing;
+namespace Immediate.Jobs.Testing.Storage;
 
 /// <summary>
 /// 	Provides the framework-neutral executable contract for job storage providers.
@@ -26,32 +25,33 @@ public static class JobStorageConformanceSuite
 	{
 		if ((capabilities & ~KnownCapabilities) != StorageCapabilities.None)
 			throw new ArgumentOutOfRangeException(nameof(capabilities), capabilities, "The capability set contains unknown flags.");
-		if ((capabilities & StorageCapabilities.Queue) == StorageCapabilities.None)
+
+		if (!capabilities.HasFlag(StorageCapabilities.Queue))
 			throw new ArgumentException("Every IJobStorage provider must advertise the Queue capability.", nameof(capabilities));
 
-		var definitions = new List<JobStorageConformanceCaseDefinition>(QueueStorageConformance.Cases.Count + 4);
-		definitions.AddRange(QueueStorageConformance.Cases);
-
-		AddOptionalCases(definitions, capabilities, StorageCapabilities.Recurring, RecurringStorageConformance.Cases);
-		AddOptionalCases(definitions, capabilities, StorageCapabilities.Graph, GraphStorageConformance.Cases);
-		AddOptionalCases(definitions, capabilities, StorageCapabilities.FairQueues, FairQueueStorageConformance.Cases);
-		AddOptionalCases(definitions, capabilities, StorageCapabilities.Replica, ReplicaStorageConformance.Cases);
-
-		return Array.AsReadOnly(
-			definitions
-				.Select(definition => new JobStorageConformanceTestCase(definition, capabilities))
-				.ToArray()
-		);
+		return QueueStorageConformance.Cases
+			.Concat(AddOptionalCases(capabilities, StorageCapabilities.Recurring, RecurringStorageConformance.Cases))
+			.Concat(AddOptionalCases(capabilities, StorageCapabilities.Graph, GraphStorageConformance.Cases))
+			.Concat(AddOptionalCases(capabilities, StorageCapabilities.FairQueues, FairQueueStorageConformance.Cases))
+			.Concat(AddOptionalCases(capabilities, StorageCapabilities.Replica, ReplicaStorageConformance.Cases))
+			.ToList();
 	}
 
-	private static void AddOptionalCases(
-		List<JobStorageConformanceCaseDefinition> destination,
+	/// <summary>
+	///		A map of all known cases by their case name.
+	/// </summary>
+	public static IReadOnlyDictionary<string, JobStorageConformanceTestCase> AllCasesByName { get; } =
+		GetCases(KnownCapabilities)
+			.ToDictionary(x => x.Name, StringComparer.OrdinalIgnoreCase);
+
+	private static IEnumerable<JobStorageConformanceTestCase> AddOptionalCases(
 		StorageCapabilities advertisedCapabilities,
 		StorageCapabilities suiteCapability,
-		IReadOnlyCollection<JobStorageConformanceCaseDefinition> cases
+		IReadOnlyCollection<JobStorageConformanceTestCase> cases
 	)
 	{
-		if ((advertisedCapabilities & suiteCapability) == suiteCapability)
-			destination.AddRange(cases);
+		return advertisedCapabilities.HasFlag(suiteCapability)
+			? cases.Where(c => advertisedCapabilities.HasFlag(c.RequiredCapabilities))
+			: [];
 	}
 }

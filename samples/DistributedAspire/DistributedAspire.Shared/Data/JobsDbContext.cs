@@ -23,9 +23,9 @@ public sealed class JobsDbContext(DbContextOptions<JobsDbContext> options) : DbC
 		var entries = ChangeTracker
 			.Entries()
 			.Where(e => e.State is EntityState.Modified or EntityState.Added)
-			.ToArray();
+			.ToList();
 
-		if (entries.Length == 0)
+		if (entries.Count == 0)
 		{
 			return base.SaveChangesAsync(cancellationToken);
 		}

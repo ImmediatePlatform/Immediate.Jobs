@@ -600,23 +600,19 @@ The JSON + SSE surface gains, alongside the existing job resources:
 ## 8. Programmatic read API
 
 For code that needs to observe batches in-process — a custom endpoint reporting progress, a worker
-deciding what to do next — two injectable, read-only services return plain records. They carry **no
+deciding what to do next — the injectable, read-only `JobMonitor` returns plain records. It carries **no
 serialization opinion**: no shipped `JsonSerializerContext`, no wire contract. Map or serialize the
 results however the consumer likes. (The dashboard's own JSON+SSE surface in §7.4 is separate and
 keeps its own wire DTOs; it may read through these services internally.)
 
 ```csharp
-public interface IJobBatchMonitor           // batch reads
+public sealed class JobMonitor : IJobMonitor
 {
-    ValueTask<BatchStatus?> GetStatusAsync(string batchId, CancellationToken ct = default);
-    ValueTask<IReadOnlyList<BatchMemberStatus>> QueryMembersAsync(
-        string batchId, BatchMemberQuery query, CancellationToken ct = default);
-    ValueTask<BatchGraph?> GetGraphAsync(string batchId, CancellationToken ct = default);
-}
-
-public interface IJobMonitor                // single-job reads (not batch-specific)
-{
-    ValueTask<JobStatus?> GetJobAsync(string jobId, CancellationToken ct = default);
+    ValueTask<JobStatus?> GetJobAsync(JobHandle job, CancellationToken ct = default);
+    ValueTask<BatchStatus?> GetBatchAsync(BatchHandle batch, CancellationToken ct = default);
+    ValueTask<IReadOnlyList<BatchMemberStatus>> QueryBatchMembersAsync(
+        BatchHandle batch, BatchMemberQuery query, CancellationToken ct = default);
+    ValueTask<BatchGraph?> GetBatchGraphAsync(BatchHandle batch, CancellationToken ct = default);
 }
 ```
 
@@ -654,7 +650,7 @@ public enum BatchState { Executing, Succeeded, Failed, Cancelled }
 
 - **`GetStatusAsync`** is a single-row read backed by the batch-row counters (§4.2), so it is cheap
   enough to poll at a per-second cadence for a live progress bar. `Remaining` collapses running and
-  waiting; the exact split is a `QueryMembersAsync(new { State = ... })` call when a caller needs it.
+  waiting; the exact split is a `QueryBatchMembersAsync(new { State = ... })` call when a caller needs it.
 - **`QueryMembersAsync`** pages the batch's members, optionally filtered by state — e.g. list only the
   `Failed` members to surface errors.
 - **`GetGraphAsync`** returns nodes + edges for a caller building its own DAG rendering; it is the same
@@ -770,7 +766,7 @@ public enum ContinuationOptions
 | **B2**      | `ScheduleAfterAsync` continuations (chains + fan-out), `AwaitingContinuation`, transactional release   |
 | **B3**      | Fan-in joins (`ScheduleAfterAsync([...])`), cascade-skipping, cycle detection, batch continuations (`Begin(after:)`) |
 | **B4**      | Mid-job scheduling (§3.6) — `ScheduleAfter`/`AddToBatchAsync(JobDetails, …)`, `ContinuationOptions`, execution buffer + flush, `IJOB0015` |
-| **B5**      | Read API (§8) — `IJobBatchMonitor` + `IJobMonitor`, batch-row counters, backing storage reads    |
+| **B5**      | Unified read API (§8) — `JobMonitor`, batch-row counters, backing storage reads    |
 | **B6**      | Batch-atom retention (§4.7), dashboard batches list + workflow viewer + retry/cancel/delete, testing helpers, docs |
 | **B7** *(v1.x)* | **Retry from here** subtree re-materialization (§7.3) and its `job/{id}/retry-subtree` endpoint |
 
@@ -795,8 +791,8 @@ public enum ContinuationOptions
   *(Rejected: `batch.Add(scheduler, payload)` / `parent.ContinueWith(childScheduler, payload)`, which
   made the batch/handle the subject and buried the scheduled job as an argument.)*
 
-- **Programmatic read API (§8):** `IJobBatchMonitor` (status, members, graph) and `IJobMonitor`
-  (single job) return plain records for in-process consumers to serialize as they wish; `GetStatusAsync`
+- **Programmatic read API (§8):** `JobMonitor` returns job and batch records for in-process consumers
+  to serialize as they wish; `GetBatchAsync`
   is O(1) via per-state batch-row counters. *(Rejected: a batch-listing/query method — deemed
   unnecessary; and shipping a `JsonSerializerContext`/wire contract — serialization is the consumer's
   choice, kept separate from the dashboard's own JSON API.)*

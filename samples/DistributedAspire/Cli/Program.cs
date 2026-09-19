@@ -22,7 +22,7 @@ var builder = Host.CreateDefaultBuilder(args)
 			.ConfigureStorage(o => o.UseEntityFrameworkCore<JobsDbContext>().UseDistributed())
 			.Configure(o => o.PollingInterval = TimeSpan.FromSeconds(5));
 
-		foreach (var descriptor in services.Where(p => p.ServiceType == typeof(IHostedService)).ToArray())
+		foreach (var descriptor in services.Where(p => p.ServiceType == typeof(IHostedService)).ToList())
 		{
 			_ = services.Remove(descriptor);
 		}

@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.Diagnostics.CodeAnalysis;
 using Immediate.Jobs.Shared.Interfaces;
 
@@ -7,6 +8,7 @@ namespace Immediate.Jobs.Shared.Internals;
 /// 	Immutable generated execution settings.
 /// </summary>
 [SuppressMessage("Design", "MA0053", Justification = "Inherited by each job to ensure idempotency in registrations")]
+[EditorBrowsable(EditorBrowsableState.Never)]
 public record JobDefinition
 {
 	/// <summary>
@@ -58,6 +60,11 @@ public record JobDefinition
 	/// 	Recurring overlap behavior.
 	/// </summary>
 	public OverlapPolicy OverlapPolicy { get; init; } = OverlapPolicy.Skip;
+
+	/// <summary>
+	/// 	Recurring misfire behavior.
+	/// </summary>
+	public MisfireHandlingMode MisfireHandlingMode { get; init; } = MisfireHandlingMode.EnqueueOne;
 
 	/// <summary>
 	/// 	Retry-delay algorithm.

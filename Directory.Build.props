@@ -1,7 +1,7 @@
 <Project>
   <PropertyGroup>
-	<TargetFrameworks>net8.0;net9.0;net10.0;net11.0</TargetFrameworks>
-	<LangVersion>latest</LangVersion>
+	<TargetFrameworks>net8.0;net10.0;net11.0</TargetFrameworks>
+	<LangVersion>preview</LangVersion>
 
 	<Nullable>enable</Nullable>
 	<WarningsAsErrors>$(WarningsAsErrors);nullable;</WarningsAsErrors>
@@ -30,6 +30,7 @@
 	<Polyfill>$(Polyfill)|T:System.Runtime.CompilerServices.DefaultInterpolatedStringHandler</Polyfill>
 	<Polyfill>$(Polyfill)|T:System.Runtime.CompilerServices.InterpolatedStringHandlerArgumentAttribute</Polyfill>
 	<Polyfill>$(Polyfill)|T:System.Runtime.CompilerServices.InterpolatedStringHandlerAttribute</Polyfill>
+	<Polyfill>$(Polyfill)|T:System.Runtime.CompilerServices.IsClosedTypeAttribute</Polyfill>
 	<Polyfill>$(Polyfill)|T:System.Runtime.CompilerServices.IsExternalInit</Polyfill>
 	<Polyfill>$(Polyfill)|T:System.Runtime.CompilerServices.RequiredMemberAttribute</Polyfill>
 	<Polyfill>$(Polyfill)|T:System.Runtime.CompilerServices.SkipLocalsInitAttribute</Polyfill>
@@ -42,6 +43,16 @@
 	<Polyfill>$(Polyfill)|M:System.String.TryCopyTo(System.Span{System.Char})</Polyfill>
 	<MeziantouPolyfill_IncludedPolyfills>$(Polyfill)</MeziantouPolyfill_IncludedPolyfills>
   </PropertyGroup>
+
+  <PropertyGroup Label="Message Suppression">
+	<!-- I refuse to play these games, even I am already supporting the library -->
+	<Verify_SponsorshipLicenseIgnored>true</Verify_SponsorshipLicenseIgnored>
+	<NoWarn>$(NoWarn);SC023</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+	<AdditionalFiles Include="$(MSBuildThisFileDirectory)/BannedSymbols.txt" Visible="false" />
+  </ItemGroup>
 
   <PropertyGroup Label="Nuget">
 	<Authors>Immediate.Jobs Developers</Authors>

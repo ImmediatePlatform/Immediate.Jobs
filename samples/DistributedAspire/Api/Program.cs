@@ -37,7 +37,7 @@ builder.Services.AddDistributedAspireJobs()
 	.Configure(o => o.PollingInterval = TimeSpan.FromSeconds(5))
 	.AddHealthCheck();
 
-foreach (var descriptor in builder.Services.Where(p => p.ServiceType == typeof(IHostedService)).ToArray())
+foreach (var descriptor in builder.Services.Where(p => p.ServiceType == typeof(IHostedService)).ToList())
 {
 	_ = builder.Services.Remove(descriptor);
 }

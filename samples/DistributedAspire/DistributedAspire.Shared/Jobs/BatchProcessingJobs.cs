@@ -34,7 +34,7 @@ public sealed partial class PrepareBatchesJob(
 		cancellationToken.ThrowIfCancellationRequested();
 		logger.LogInformation(
 			"PrepareBatchesJob {JobId} fired at {FiredAt}",
-			payload.JobDetails?.JobId,
+			payload.JobDetails?.JobHandle.Value,
 			timeProvider.GetUtcNow()
 		);
 
@@ -95,7 +95,7 @@ public sealed partial class EnqueueBatchesJob(
 		cancellationToken.ThrowIfCancellationRequested();
 		logger.LogInformation(
 			"EnqueueBatchesJob {JobId} fired at {FiredAt}",
-			payload.JobDetails?.JobId,
+			payload.JobDetails?.JobHandle.Value,
 			timeProvider.GetUtcNow()
 		);
 
@@ -190,7 +190,7 @@ public sealed partial class ProcessBatchJob(
 		cancellationToken.ThrowIfCancellationRequested();
 		logger.LogInformation(
 			"ProcessBatchJob {JobId} fired at {FiredAt}",
-			payload.JobDetails?.JobId,
+			payload.JobDetails?.JobHandle.Value,
 			timeProvider.GetUtcNow()
 		);
 
@@ -228,7 +228,7 @@ public sealed partial class CleanupBatchesJob(
 		cancellationToken.ThrowIfCancellationRequested();
 		logger.LogInformation(
 			"CleanupBatchesJob {JobId} fired at {FiredAt}",
-			payload.JobDetails?.JobId,
+			payload.JobDetails?.JobHandle.Value,
 			timeProvider.GetUtcNow()
 		);
 

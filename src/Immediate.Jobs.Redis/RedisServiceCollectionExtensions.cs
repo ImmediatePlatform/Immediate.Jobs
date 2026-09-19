@@ -1,5 +1,5 @@
+using Immediate.Validations.Shared;
 using Microsoft.Extensions.DependencyInjection;
-using StackExchange.Redis;
 
 namespace Immediate.Jobs.Redis;
 
@@ -17,72 +17,29 @@ public static class RedisServiceCollectionExtensions
 	/// <param name="builder">
 	///		The Immediate.Jobs storage options builder to configure.
 	/// </param>
-	/// <param name="configuration">
-	///		The Redis configuration string.
-	/// </param>
-	/// <param name="configure">
-	///		An optional callback that configures Redis key placement.
-	/// </param>
 	/// <returns>
 	///		The configured Immediate.Jobs options.
 	/// </returns>
-	public static ImmediateJobsStorageBuilder UseRedis(
-		this ImmediateJobsStorageBuilder builder,
-		string configuration,
-		Action<RedisJobStorageOptions>? configure = null
+	public static IImmediateJobsRedisBuilder UseRedis(
+		this IImmediateJobsStorageBuilder builder
 	)
 	{
 		ArgumentNullException.ThrowIfNull(builder);
-		ArgumentException.ThrowIfNullOrWhiteSpace(configuration);
-		var options = CreateOptions(configure);
-		return builder
-			.UseStorage(services => new RedisJobStorage(
-				ConnectionMultiplexer.Connect(configuration),
-				options,
-				services.GetService<TimeProvider>(),
-				ownsConnection: true
-			))
-			.UseDistributed();
-	}
 
-	/// <summary>Selects an application-owned Redis connection as the distributed job provider.</summary>
-	/// <remarks>
-	/// Redis does not implement graph storage, so batches and continuations require a SQL provider.
-	/// The supplied connection is not disposed by the job provider.
-	/// </remarks>
-	/// <param name="jobs">The Immediate.Jobs options to configure.</param>
-	/// <param name="connection">The application-owned Redis connection.</param>
-	/// <param name="configure">An optional callback that configures Redis key placement.</param>
-	/// <returns>The configured Immediate.Jobs options.</returns>
-	public static ImmediateJobsStorageBuilder UseRedis(
-		this ImmediateJobsStorageBuilder jobs,
-		IConnectionMultiplexer connection,
-		Action<RedisJobStorageOptions>? configure = null
-	)
-	{
-		ArgumentNullException.ThrowIfNull(jobs);
-		ArgumentNullException.ThrowIfNull(connection);
-		var options = CreateOptions(configure);
-		return jobs
-			.UseStorage(services => new RedisJobStorage(
-				connection,
-				options,
-				services.GetService<TimeProvider>(),
-				ownsConnection: false
-			))
+		builder
+			.UseStorage<RedisJobStorage>()
 			.UseDistributed();
-	}
 
-	private static RedisJobStorageOptions CreateOptions(Action<RedisJobStorageOptions>? configure)
-	{
-		var options = new RedisJobStorageOptions();
-		configure?.Invoke(options);
-		// TODO: Fix this shit?
-#pragma warning disable MA0015 // Specify the parameter name in ArgumentException
-		ArgumentException.ThrowIfNullOrWhiteSpace(options.KeyPrefix);
-#pragma warning restore MA0015 // Specify the parameter name in ArgumentException
-		if (options.KeyPrefix.IndexOfAny(['{', '}']) >= 0)
-			throw new ArgumentException("The Redis key prefix cannot contain '{' or '}'.", nameof(configure));
-		return options;
+		var optionsBuilder = builder.Services
+			.AddOptionsWithValidateOnStart<RedisJobStorageOptions>()
+			.Validate(
+				o =>
+				{
+					ValidationException.ThrowIfInvalid(o, $@"Validation error for ""{nameof(RedisJobStorageOptions)}""");
+					return true;
+				}
+			);
+
+		return new ImmediateJobsRedisBuilder(builder, optionsBuilder);
 	}
 }

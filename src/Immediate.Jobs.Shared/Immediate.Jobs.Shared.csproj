@@ -10,20 +10,14 @@
   </PropertyGroup>
 
   <ItemGroup>
-	<PackageReference Include="Cronos" />
+	<PackageReference Include="Meziantou.Framework.Scheduling" />
 	<PackageReference Include="Immediate.Handlers" />
 	<PackageReference Include="Immediate.Validations" />
 	<PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
 	<PackageReference Include="Microsoft.Extensions.Diagnostics.HealthChecks" />
 	<PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" />
 	<PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
-	<PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" />
-  </ItemGroup>
-
-  <ItemGroup>
-	<InternalsVisibleTo Include="Immediate.Jobs.Benchmarks" />
-	<InternalsVisibleTo Include="Immediate.Jobs.FunctionalTests" />
-	<InternalsVisibleTo Include="Immediate.Jobs.StorageTests" />
+	<PackageReference Include="Microsoft.Extensions.Options" />
   </ItemGroup>
 
 </Project>

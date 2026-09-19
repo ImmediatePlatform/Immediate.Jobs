@@ -8,7 +8,7 @@ public interface IBatchScheduler
 	/// <summary>
 	/// 	Cancels every non-terminal member of a committed batch.
 	/// </summary>
-	/// <param name="handle">
+	/// <param name="batchHandle">
 	/// 	The committed batch to cancel.
 	/// </param>
 	/// <param name="cancellationToken">
@@ -17,7 +17,7 @@ public interface IBatchScheduler
 	/// <returns>
 	/// 	A value task that represents the asynchronous cancellation.
 	/// </returns>
-	ValueTask CancelAsync(BatchHandle handle, CancellationToken cancellationToken = default) =>
+	ValueTask CancelAsync(BatchHandle batchHandle, CancellationToken cancellationToken = default) =>
 		throw new NotSupportedException("This scheduler does not support cancelling batches.");
 
 	/// <summary>
@@ -31,7 +31,7 @@ public interface IBatchScheduler
 	/// <summary>
 	/// 	Begins a follow-up batch whose root members wait for a prior batch.
 	/// </summary>
-	/// <param name="after">
+	/// <param name="batchHandle">
 	/// 	The batch that must reach a terminal state before the follow-up roots are released.
 	/// </param>
 	/// <param name="on">
@@ -40,7 +40,21 @@ public interface IBatchScheduler
 	/// <returns>
 	/// 	The new follow-up batch buffer.
 	/// </returns>
-	Batch Begin(BatchHandle after, ContinuationTrigger on = ContinuationTrigger.Success);
+	Batch Begin(BatchHandle batchHandle, ContinuationTrigger on = ContinuationTrigger.Success);
+
+	/// <summary>
+	/// 	Begins a follow-up batch whose root members wait for a prior batch.
+	/// </summary>
+	/// <param name="batchHandles">
+	/// 	The batches that must reach a terminal state before the follow-up roots are released.
+	/// </param>
+	/// <param name="on">
+	/// 	The parent-batch outcome that releases the follow-up roots.
+	/// </param>
+	/// <returns>
+	/// 	The new follow-up batch buffer.
+	/// </returns>
+	Batch Begin(IReadOnlyList<BatchHandle> batchHandles, ContinuationTrigger on = ContinuationTrigger.Success);
 
 	/// <summary>
 	/// 	Runs a batch body and commits it when the body succeeds.

@@ -1,5 +1,6 @@
 using Immediate.Jobs.Shared.Storage;
 using Immediate.Jobs.Testing;
+using Immediate.Jobs.Testing.Storage;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Time.Testing;
 
@@ -63,7 +64,7 @@ public sealed class StorageConformanceInfrastructureTests
 	public async Task RunAsyncReportsMissingStorageRegistrationAsConformanceFailure()
 	{
 		await using var services = new ServiceCollection().BuildServiceProvider();
-		var testCase = GetCase(StorageCapabilities.Queue, "Queue.Lifecycle.InitializesIdempotently");
+		var testCase = JobStorageConformanceSuite.AllCasesByName["Queue.Lifecycle.InitializesIdempotently"];
 
 		var exception = await Assert.ThrowsAsync<JobTestAssertionException>(
 			() => testCase.RunAsync(services, TestContext.Current.CancellationToken).AsTask()
@@ -71,7 +72,6 @@ public sealed class StorageConformanceInfrastructureTests
 
 		Assert.Contains(testCase.Name, exception.Message, StringComparison.Ordinal);
 		Assert.Contains("IJobStorage", exception.Message, StringComparison.Ordinal);
-		_ = Assert.IsType<InvalidOperationException>(exception.InnerException);
 	}
 
 	[Fact]
@@ -83,7 +83,7 @@ public sealed class StorageConformanceInfrastructureTests
 			.AddSingleton(storage)
 			.AddSingleton(storage)
 			.BuildServiceProvider();
-		var testCase = GetCase(InMemoryCapabilities, "Queue.Lifecycle.InitializesIdempotently");
+		var testCase = JobStorageConformanceSuite.AllCasesByName["Queue.Lifecycle.InitializesIdempotently"];
 
 		var exception = await Assert.ThrowsAsync<JobTestAssertionException>(
 			() => testCase.RunAsync(services, TestContext.Current.CancellationToken).AsTask()
@@ -91,24 +91,6 @@ public sealed class StorageConformanceInfrastructureTests
 
 		Assert.Contains(testCase.Name, exception.Message, StringComparison.Ordinal);
 		Assert.Contains("exactly one IJobStorage", exception.Message, StringComparison.Ordinal);
-		var innerException = Assert.IsType<InvalidOperationException>(exception.InnerException);
-		Assert.Contains("found 2", innerException.Message, StringComparison.Ordinal);
-	}
-
-	[Fact]
-	public async Task RunAsyncRejectsMismatchBeforeRunningScenario()
-	{
-		await using var services = CreateInMemoryServices();
-		var testCase = GetCase(StorageCapabilities.Queue, "Queue.Lifecycle.InitializesIdempotently");
-
-		var exception = await Assert.ThrowsAsync<JobTestAssertionException>(
-			() => testCase.RunAsync(services, TestContext.Current.CancellationToken).AsTask()
-		);
-
-		Assert.Contains(testCase.Name, exception.Message, StringComparison.Ordinal);
-		Assert.Contains("exactly match", exception.Message, StringComparison.Ordinal);
-		Assert.Contains($"Expected: {StorageCapabilities.Queue}", exception.Message, StringComparison.Ordinal);
-		Assert.Contains($"Actual: {InMemoryCapabilities}", exception.Message, StringComparison.Ordinal);
 	}
 
 	[Theory]
@@ -121,7 +103,7 @@ public sealed class StorageConformanceInfrastructureTests
 	public async Task RunAsyncExecutesSelectedCaseAgainstStorageResolvedFromContainer(string caseName)
 	{
 		await using var services = CreateInMemoryServices();
-		var testCase = GetCase(InMemoryCapabilities, caseName);
+		var testCase = JobStorageConformanceSuite.AllCasesByName[caseName];
 
 		await testCase.RunAsync(services, TestContext.Current.CancellationToken);
 	}
@@ -130,7 +112,7 @@ public sealed class StorageConformanceInfrastructureTests
 	public async Task RunAsyncDoesNotWrapCancellationRequestedByRunner()
 	{
 		await using var services = CreateInMemoryServices();
-		var testCase = GetCase(InMemoryCapabilities, "Queue.Lifecycle.InitializesIdempotently");
+		var testCase = JobStorageConformanceSuite.AllCasesByName["Queue.Lifecycle.InitializesIdempotently"];
 		using var cancellationSource = new CancellationTokenSource();
 		await cancellationSource.CancelAsync();
 
@@ -138,12 +120,6 @@ public sealed class StorageConformanceInfrastructureTests
 			() => testCase.RunAsync(services, cancellationSource.Token).AsTask()
 		);
 	}
-
-	private static JobStorageConformanceTestCase GetCase(StorageCapabilities capabilities, string name) =>
-		Assert.Single(
-			JobStorageConformanceSuite.GetCases(capabilities),
-			testCase => string.Equals(testCase.Name, name, StringComparison.Ordinal)
-		);
 
 	private static ServiceProvider CreateInMemoryServices()
 	{

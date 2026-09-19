@@ -9,7 +9,7 @@
   </PropertyGroup>
 
   <ItemGroup Label="Nuget">
-	<None Include="../../readme.md" Pack="true" PackagePath="/" />
+	<None Include="readme.md" Pack="true" PackagePath="/" />
   </ItemGroup>
 
   <PropertyGroup Condition="'$(TargetFramework)' == 'net11.0'">
@@ -22,12 +22,12 @@
 
   <ItemGroup>
 	<PackageReference Include="linq2db" />
-    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" NoWarn="NU5104" />
+	<PackageReference Include="linq2db.Extensions" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="../Immediate.Jobs.Shared/Immediate.Jobs.Shared.csproj" PrivateAssets="all" />
-    <ProjectReference Include="../Immediate.Jobs/Immediate.Jobs.csproj" ReferenceOutputAssembly="false" />
+	<ProjectReference Include="../Immediate.Jobs/Immediate.Jobs.csproj" />
   </ItemGroup>
 
   <ItemGroup>

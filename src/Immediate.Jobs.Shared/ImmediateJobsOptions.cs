@@ -3,13 +3,19 @@ using Immediate.Validations.Shared;
 namespace Immediate.Jobs.Shared;
 
 /// <summary>
-/// 	Global scheduler and worker options.
+/// 	Process-wide scheduler and worker options.
 /// </summary>
 [Validate]
 public sealed partial class ImmediateJobsOptions : IValidationTarget<ImmediateJobsOptions>
 {
 	/// <summary>
-	///     Maximum concurrently executing jobs on this node.
+	///		Controls whether the scheduling service and it's attendant workers are enabled.
+	/// </summary>
+	public bool IsJobSchedulingServiceEnabled { get; set; } = true;
+
+	/// <summary>
+	///     The number of workers created on this node to handle jobs concurrently. This becomes the maximum number of
+	///     concurrently executing jobs on this node.
 	/// </summary>
 	/// <remarks>
 	///	    The default exceeds the core count because jobs are typically IO-bound. The practical ceiling is usually the
@@ -17,7 +23,7 @@ public sealed partial class ImmediateJobsOptions : IValidationTarget<ImmediateJo
 	///     for their duration.
 	/// </remarks>
 	[GreaterThan(0)]
-	public int MaxParallelJobs { get; set; } = Math.Clamp(Environment.ProcessorCount * 4, 8, 32);
+	public int WorkerCount { get; set; } = Math.Clamp(Environment.ProcessorCount * 4, 8, 32);
 
 	/// <summary>
 	/// 	Maximum number claimed in one storage round-trip.
@@ -26,16 +32,41 @@ public sealed partial class ImmediateJobsOptions : IValidationTarget<ImmediateJo
 	public int AcquisitionBatchSize { get; set; } = 32;
 
 	/// <summary>
+	///     Maximum number of jobs acquired by the scheduling service at any point in time.
+	/// </summary>
+	/// <remarks>
+	/// <para>
+	///	    The acquisition count includes total jobs currently processing plus the number of jobs acquired and waiting to be
+	///     processed. This property exists separately to <see cref="WorkerCount"/> to allow jobs to be waiting in
+	///     the queue in-between polling intervals. For distributed systems where the consumer may want to increase the
+	///     <see cref="PollingInterval"/> to reduce database overhead, this allows involved systems to pre-fill the
+	///     queue of waiting jobs to remain busy.
+	/// </para>
+	/// <para>
+	///	    NB: If this value is less than <see cref="WorkerCount"/>, then the effective max parallel jobs is <see
+	///     cref="MaxAcquisitionCount"/>.
+	/// </para>
+	/// </remarks>
+	[GreaterThan(0)]
+	public int MaxAcquisitionCount { get; set; } = Math.Clamp(Environment.ProcessorCount * 4, 8, 32);
+
+	/// <summary>
 	/// 	Fallback interval between storage polls.
 	/// </summary>
 	[GreaterThan(nameof(TimeSpan.Zero))]
 	public TimeSpan PollingInterval { get; set; } = TimeSpan.FromSeconds(1);
 
 	/// <summary>
+	/// 	How long a scheduler node may go without a heartbeat before it is considered dead.
+	/// </summary>
+	[GreaterThan(nameof(TimeSpan.Zero))]
+	public TimeSpan ServerTimeout { get; set; } = TimeSpan.FromSeconds(10);
+
+	/// <summary>
 	/// 	Duration of an acquired job lease.
 	/// </summary>
 	[GreaterThan(nameof(TimeSpan.Zero))]
-	public TimeSpan LeaseDuration { get; set; } = TimeSpan.FromSeconds(30);
+	public TimeSpan LeaseDuration { get; set; } = TimeSpan.FromMinutes(1);
 
 	/// <summary>
 	/// 	Maximum time allowed for workers to drain during shutdown.

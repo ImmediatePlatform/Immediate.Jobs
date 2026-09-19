@@ -11,7 +11,8 @@ public sealed record BatchRecord
 	/// <value>
 	/// 	The opaque batch identifier.
 	/// </value>
-	public required string Id { get; init; }
+	public required BatchHandle BatchHandle { get; init; }
+
 	/// <summary>
 	/// 	UTC time at which the batch was created.
 	/// </summary>
@@ -19,6 +20,7 @@ public sealed record BatchRecord
 	/// 	The UTC batch-creation time.
 	/// </value>
 	public required DateTimeOffset CreatedAt { get; init; }
+
 	/// <summary>
 	/// 	Total members added to the batch.
 	/// </summary>
@@ -26,6 +28,7 @@ public sealed record BatchRecord
 	/// 	The total number of members added to the batch.
 	/// </value>
 	public required int TotalJobs { get; init; }
+
 	/// <summary>
 	/// 	Members that have not reached a terminal state.
 	/// </summary>
@@ -33,6 +36,7 @@ public sealed record BatchRecord
 	/// 	The number of non-terminal members.
 	/// </value>
 	public required int PendingCount { get; init; }
+
 	/// <summary>
 	/// 	Members that completed successfully.
 	/// </summary>
@@ -40,6 +44,7 @@ public sealed record BatchRecord
 	/// 	The number of successful members.
 	/// </value>
 	public int SucceededCount { get; init; }
+
 	/// <summary>
 	/// 	Members that exhausted their attempts.
 	/// </summary>
@@ -47,6 +52,7 @@ public sealed record BatchRecord
 	/// 	The number of failed members.
 	/// </value>
 	public int FailedCount { get; init; }
+
 	/// <summary>
 	/// 	Members cancelled by an explicit action.
 	/// </summary>
@@ -54,6 +60,7 @@ public sealed record BatchRecord
 	/// 	The number of cancelled members.
 	/// </value>
 	public int CancelledCount { get; init; }
+
 	/// <summary>
 	/// 	Members skipped because their continuation conditions were not met.
 	/// </summary>
@@ -61,6 +68,7 @@ public sealed record BatchRecord
 	/// 	The number of skipped members.
 	/// </value>
 	public int SkippedCount { get; init; }
+
 	/// <summary>
 	/// 	UTC time at which the first member was acquired.
 	/// </summary>
@@ -68,6 +76,7 @@ public sealed record BatchRecord
 	/// 	The UTC batch-start time, if any member has been acquired.
 	/// </value>
 	public DateTimeOffset? StartedAt { get; init; }
+
 	/// <summary>
 	/// 	UTC terminal completion time.
 	/// </summary>
@@ -75,6 +84,7 @@ public sealed record BatchRecord
 	/// 	The UTC terminal completion time, if the batch is terminal.
 	/// </value>
 	public DateTimeOffset? CompletedAt { get; init; }
+
 	/// <summary>
 	/// 	The aggregate lifecycle state.
 	/// </summary>

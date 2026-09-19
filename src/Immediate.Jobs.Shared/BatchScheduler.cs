@@ -1,4 +1,5 @@
 using Immediate.Jobs.Shared.Interfaces;
+using Immediate.Jobs.Shared.Internals;
 using Immediate.Jobs.Shared.Storage;
 
 namespace Immediate.Jobs.Shared;
@@ -22,31 +23,51 @@ public sealed class BatchScheduler(
 ) : IBatchScheduler
 {
 	/// <inheritdoc />
-	public ValueTask CancelAsync(BatchHandle handle, CancellationToken cancellationToken = default)
+	public async ValueTask CancelAsync(BatchHandle batchHandle, CancellationToken cancellationToken = default)
 	{
-		ArgumentNullException.ThrowIfNull(handle);
-		return JobStorageCapabilityGuards.RequireGraph(storage).CancelBatchAsync(handle.Id, cancellationToken);
+		await TaskScheduler.Yield();
+		ArgumentNullException.ThrowIfNull(batchHandle);
+
+		await JobStorageCapabilityGuards.RequireGraph(storage).CancelBatchAsync(batchHandle, cancellationToken);
 	}
 
 	/// <inheritdoc />
-	public Batch Begin() =>
-		new(
+	public Batch Begin()
+	{
+		return new Batch(
 			JobStorageCapabilityGuards.RequireGraph(storage),
 			timeProvider,
 			idGenerator,
-			after: null,
+			parents: null,
 			ContinuationTrigger.Success
 		);
+	}
 
 	/// <inheritdoc />
-	public Batch Begin(BatchHandle after, ContinuationTrigger on = ContinuationTrigger.Success)
+	public Batch Begin(BatchHandle batchHandle, ContinuationTrigger on = ContinuationTrigger.Success)
 	{
-		ArgumentNullException.ThrowIfNull(after);
-		return new(
+		ArgumentNullException.ThrowIfNull(batchHandle);
+		return new Batch(
 			JobStorageCapabilityGuards.RequireGraph(storage),
 			timeProvider,
 			idGenerator,
-			after,
+			[batchHandle],
+			on
+		);
+	}
+
+	/// <inheritdoc />
+	public Batch Begin(IReadOnlyList<BatchHandle> batchHandle, ContinuationTrigger on = ContinuationTrigger.Success)
+	{
+		ArgumentNullException.ThrowIfNull(batchHandle);
+		if (batchHandle is [])
+			ArgumentException.Throw(nameof(batchHandle), "No parent batches were provided");
+
+		return new Batch(
+			JobStorageCapabilityGuards.RequireGraph(storage),
+			timeProvider,
+			idGenerator,
+			batchHandle,
 			on
 		);
 	}
@@ -57,9 +78,10 @@ public sealed class BatchScheduler(
 		CancellationToken cancellationToken = default
 	)
 	{
+		await TaskScheduler.Yield();
 		ArgumentNullException.ThrowIfNull(body);
 		await using var batch = Begin();
-		await body(batch).ConfigureAwait(false);
-		return await batch.CommitAsync(cancellationToken).ConfigureAwait(false);
+		await body(batch);
+		return await batch.CommitAsync(cancellationToken);
 	}
 }

@@ -1,11 +1,12 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Text.Json;
 using Immediate.Jobs.Shared.Apis;
 using Immediate.Jobs.Shared.Storage;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using StackExchange.Redis;
-
-// TODO: remove and fix diagnostics
-#pragma warning disable MA0015 // Specify the parameter name in ArgumentException
 
 namespace Immediate.Jobs.Redis;
 
@@ -13,8 +14,17 @@ namespace Immediate.Jobs.Redis;
 /// Distributed Redis storage for ordinary queue jobs and recurring schedules.
 /// Batches and continuations require a graph-capable SQL provider.
 /// </summary>
-internal sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
+internal sealed partial class RedisJobStorage(
+	IConnectionMultiplexer connection,
+	IOptions<RedisJobStorageOptions> options,
+	TimeProvider timeProvider,
+	ILogger<RedisJobStorage>? logger = null
+) : IJobStorage, IRecurringJobStorage
 {
+	[SuppressMessage("Performance", "CA1823:Avoid unused private fields", Justification = "Used by generated logger methods")]
+	[SuppressMessage("Style", "IDE0052:Remove unread private members", Justification = "Used by generated logger methods")]
+	private readonly ILogger _logger = logger ?? NullLogger<RedisJobStorage>.Instance;
+
 	private const int QueryWindowSize = 256;
 	private const int MaximumQueryTake = 1000;
 
@@ -47,64 +57,40 @@ internal sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 		"synthetic",
 	];
 
-	private readonly IConnectionMultiplexer _connection;
-	private readonly IDatabase _database;
-	private readonly TimeProvider _timeProvider;
-	private readonly string _root;
-	private readonly bool _ownsConnection;
-	private readonly Lock _disposeGate = new();
-	private Task? _disposeTask;
+	[SuppressMessage("Usage", "CA2213:Disposable fields should be disposed", Justification = "Owned by DI")]
+	private readonly IConnectionMultiplexer _connection = connection;
 
-	/// <summary>Creates storage over an existing Redis connection.</summary>
-	/// <param name="connection">The application-owned Redis connection.</param>
-	/// <param name="options">The Redis storage options, or <see langword="null"/> to use defaults.</param>
-	/// <param name="timeProvider">The clock used for storage timestamps, or <see langword="null"/> to use the system clock.</param>
-	public RedisJobStorage(
-		IConnectionMultiplexer connection,
-		RedisJobStorageOptions? options = null,
-		TimeProvider? timeProvider = null
-	) : this(connection, options ?? new(), timeProvider, ownsConnection: false)
-	{
-	}
+	private readonly RedisJobStorageOptions _storageOptions = options.Value;
+	private readonly TimeProvider _timeProvider = timeProvider;
+	private readonly string _root = $"{{{options.Value.KeyPrefix}}}:";
 
-	internal RedisJobStorage(
-		IConnectionMultiplexer connection,
-		RedisJobStorageOptions options,
-		TimeProvider? timeProvider,
-		bool ownsConnection
-	)
-	{
-		ArgumentNullException.ThrowIfNull(connection);
-		ArgumentNullException.ThrowIfNull(options);
-		ArgumentException.ThrowIfNullOrWhiteSpace(options.KeyPrefix);
-		if (options.KeyPrefix.IndexOfAny(['{', '}']) >= 0)
-			throw new ArgumentException("The Redis key prefix cannot contain '{' or '}'.", nameof(options));
-
-		_connection = connection;
-		_database = connection.GetDatabase(options.Database);
-		_timeProvider = timeProvider ?? TimeProvider.System;
-		_root = $"{{{options.KeyPrefix}}}:";
-		_ownsConnection = ownsConnection;
-	}
+	private IDatabase Database => _connection.GetDatabase(_storageOptions.Database);
 
 	/// <inheritdoc />
 	public async ValueTask InitializeAsync(CancellationToken cancellationToken = default)
 	{
-		_ = await _database.PingAsync().WaitAsync(cancellationToken).ConfigureAwait(false);
+		InitializeAsyncCalled();
+		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
+		await Database.PingAsync().WaitAsync(cancellationToken);
 	}
 
 	/// <inheritdoc />
 	public async ValueTask EnqueueAsync(JobRecord job, CancellationToken cancellationToken = default)
 	{
+		EnqueueAsyncCalled(job.JobHandle);
+		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
+
 		ValidateQueueJob(job);
 		var result = await EvaluateInt64Async(
 			RedisScripts.Enqueue,
-			[JobKey(job.Id), AllJobsKey, StateKey(job.State), DueKey(job.QueueName)],
+			[JobKey(job.JobHandle), AllJobsKey, StateKey(job.State), DueKey(job.QueueName)],
 			CreateEnqueueArguments(job),
 			cancellationToken
-		).ConfigureAwait(false);
+		);
 		if (result == 0)
-			throw new ImmediateJobException($"Job '{job.Id}' already exists.");
+			throw new ImmediateJobException($"Job '{job.JobHandle}' already exists.");
 	}
 
 	/// <inheritdoc />
@@ -113,11 +99,10 @@ internal sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 		CancellationToken cancellationToken = default
 	)
 	{
-		ArgumentNullException.ThrowIfNull(request);
-		ArgumentException.ThrowIfNullOrWhiteSpace(request.WorkerId);
-		ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(request.Lease, TimeSpan.Zero);
-		ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(request.BatchSize, 0);
-		ArgumentNullException.ThrowIfNull(request.Queues);
+		AcquireDueJobsAsyncCalled(request.WorkerId, request.BatchSize, request.Queues.Count);
+		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
+
 		if (request.FairQueues is not null)
 		{
 			throw new NotSupportedException(
@@ -147,8 +132,6 @@ internal sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 		};
 		foreach (var queue in request.Queues)
 		{
-			ArgumentNullException.ThrowIfNull(queue);
-			ArgumentException.ThrowIfNullOrWhiteSpace(queue.QueueName);
 			keys.Add(DueKey(queue.QueueName));
 			values.Add(queue.QueueName);
 			values.Add(Math.Max(0, queue.Capacity));
@@ -160,20 +143,20 @@ internal sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 			}
 		}
 
-		var result = await _database.ScriptEvaluateAsync(
+		var result = await Database.ScriptEvaluateAsync(
 			RedisScripts.Acquire,
 			[.. keys],
 			[.. values]
-		).WaitAsync(cancellationToken).ConfigureAwait(false);
+		).WaitAsync(cancellationToken);
 		var ids = ((RedisResult[])result!)
 			.Select(static value => (string)value!)
-			.ToArray();
-		return await ReadJobsAsync(ids, cancellationToken).ConfigureAwait(false);
+			.ToList();
+		return await ReadJobsAsync(ids, cancellationToken);
 	}
 
 	/// <inheritdoc />
 	public async ValueTask SetExecutionTelemetryAsync(
-		string jobId,
+		JobHandle jobHandle,
 		int executionNumber,
 		string workerId,
 		string? traceId,
@@ -182,70 +165,75 @@ internal sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 		CancellationToken cancellationToken = default
 	)
 	{
-		ArgumentException.ThrowIfNullOrWhiteSpace(jobId);
-		ArgumentException.ThrowIfNullOrWhiteSpace(workerId);
+		SetExecutionTelemetryAsyncCalled(jobHandle, executionNumber);
+		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
+
 		var result = await EvaluateInt64Async(
 			RedisScripts.SetTelemetry,
-			[JobKey(jobId), ExecutionIndexKey(jobId), ExecutionDataKey(jobId)],
+			[JobKey(jobHandle), ExecutionIndexKey(jobHandle), ExecutionDataKey(jobHandle)],
 			[workerId, executionNumber, traceId ?? "", spanId ?? "", Ticks(startedAt)],
 			cancellationToken
-		).ConfigureAwait(false);
-		ThrowIfNotOwned(result, jobId, workerId);
+		);
+		ThrowIfNotOwned(result, jobHandle, workerId);
 	}
 
 	/// <inheritdoc />
 	public async ValueTask RenewLeaseAsync(
-		string jobId,
+		JobHandle jobHandle,
 		int executionNumber,
 		string workerId,
 		TimeSpan lease,
 		CancellationToken cancellationToken = default
 	)
 	{
-		ArgumentException.ThrowIfNullOrWhiteSpace(jobId);
-		ArgumentException.ThrowIfNullOrWhiteSpace(workerId);
-		ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(lease, TimeSpan.Zero);
+		RenewLeaseAsyncCalled(jobHandle, executionNumber);
+		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
+
 		var expiresAt = _timeProvider.GetUtcNow() + lease;
 		var result = await EvaluateInt64Async(
 			RedisScripts.RenewLease,
-			[JobKey(jobId), LeasesKey],
-			[workerId, executionNumber, Ticks(expiresAt), Score(expiresAt), jobId],
+			[JobKey(jobHandle), LeasesKey],
+			[workerId, executionNumber, Ticks(expiresAt), Score(expiresAt), jobHandle.Value],
 			cancellationToken
-		).ConfigureAwait(false);
-		ThrowIfNotOwned(result, jobId, workerId);
+		);
+		ThrowIfNotOwned(result, jobHandle, workerId);
 	}
 
 	/// <inheritdoc />
 	public async ValueTask CompleteAsync(
-		string jobId,
+		JobHandle jobHandle,
 		int executionNumber,
 		string workerId,
 		CancellationToken cancellationToken = default
 	)
 	{
-		ArgumentException.ThrowIfNullOrWhiteSpace(jobId);
-		ArgumentException.ThrowIfNullOrWhiteSpace(workerId);
+		CompleteAsyncCalled(jobHandle, executionNumber);
+		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
+
 		var now = _timeProvider.GetUtcNow();
 		var result = await EvaluateInt64Async(
 			RedisScripts.Complete,
 			[
-				JobKey(jobId),
+				JobKey(jobHandle),
 				LeasesKey,
 				StateKey(JobState.Active),
 				StateKey(JobState.Succeeded),
 				CompletedKey(JobState.Succeeded),
-				ExecutionIndexKey(jobId),
-				ExecutionDataKey(jobId),
+				ExecutionIndexKey(jobHandle),
+				ExecutionDataKey(jobHandle),
 			],
-			[workerId, executionNumber, Ticks(now), jobId, Score(now)],
+			[workerId, executionNumber, Ticks(now), jobHandle.Value, Score(now)],
 			cancellationToken
-		).ConfigureAwait(false);
-		ThrowIfNotOwned(result, jobId, workerId);
+		);
+		ThrowIfNotOwned(result, jobHandle, workerId);
 	}
 
 	/// <inheritdoc />
 	public async ValueTask FailAsync(
-		string jobId,
+		JobHandle jobHandle,
 		int executionNumber,
 		string workerId,
 		string error,
@@ -253,29 +241,30 @@ internal sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 		CancellationToken cancellationToken = default
 	)
 	{
-		ArgumentException.ThrowIfNullOrWhiteSpace(jobId);
-		ArgumentException.ThrowIfNullOrWhiteSpace(workerId);
-		ArgumentNullException.ThrowIfNull(error);
+		FailAsyncCalled(jobHandle, executionNumber);
+		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
+
 		var now = _timeProvider.GetUtcNow();
 		var nextTicks = nextRetryAt is { } retryAt ? Ticks(retryAt) : "";
 		var nextScore = nextRetryAt is { } retryScore ? Score(retryScore) : 0;
 		var result = await EvaluateInt64Async(
 			RedisScripts.Fail,
 			[
-				JobKey(jobId),
+				JobKey(jobHandle),
 				LeasesKey,
 				StateKey(JobState.Active),
 				StateKey(JobState.Failed),
 				CompletedKey(JobState.Failed),
 				StateKey(JobState.Scheduled),
 				StateKey(JobState.Pending),
-				ExecutionIndexKey(jobId),
-				ExecutionDataKey(jobId),
+				ExecutionIndexKey(jobHandle),
+				ExecutionDataKey(jobHandle),
 			],
 			[
 				workerId,
 				executionNumber,
-				jobId,
+				jobHandle.Value,
 				nextTicks,
 				error,
 				Ticks(now),
@@ -285,8 +274,8 @@ internal sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 				_root,
 			],
 			cancellationToken
-		).ConfigureAwait(false);
-		ThrowIfNotOwned(result, jobId, workerId);
+		);
+		ThrowIfNotOwned(result, jobHandle, workerId);
 	}
 
 	/// <inheritdoc />
@@ -294,15 +283,19 @@ internal sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 		CancellationToken cancellationToken = default
 	)
 	{
+		GetMonitoringSnapshotAsyncCalled();
+		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
+
 		var states = Enum.GetValues<JobState>();
 		var countTasks = states
-			.Select(state => _database.SetLengthAsync(StateKey(state)))
-			.ToArray();
+			.Select(state => Database.SetLengthAsync(StateKey(state)))
+			.ToList();
 		var recurringTask = ReadAllRecurringAsync(cancellationToken);
 		var serversTask = ReadLiveServersAsync(cancellationToken);
-		_ = await Task.WhenAll(countTasks).WaitAsync(cancellationToken).ConfigureAwait(false);
-		var recurring = await recurringTask.ConfigureAwait(false);
-		var servers = await serversTask.ConfigureAwait(false);
+		_ = await Task.WhenAll(countTasks).WaitAsync(cancellationToken);
+		var recurring = await recurringTask;
+		var servers = await serversTask;
 		var counts = states
 			.Select((state, index) => KeyValuePair.Create(state, countTasks[index].Result))
 			.ToDictionary();
@@ -322,20 +315,21 @@ internal sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 		CancellationToken cancellationToken = default
 	)
 	{
-		ArgumentNullException.ThrowIfNull(query);
-		ArgumentOutOfRangeException.ThrowIfNegative(query.Skip);
-		ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(query.Take, 0);
-		var take = Math.Min(query.Take, MaximumQueryTake);
-		if (query.Id is { } id)
+		QueryJobsAsyncCalled(query);
+		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
+
+		if (query.JobHandle is { } id)
 		{
-			var job = await ReadJobAsync(id, cancellationToken).ConfigureAwait(false);
+			var job = await ReadJobAsync(id, cancellationToken);
 			return job is not null && query.Skip == 0 && MatchesQuery(job, query) ? [job] : [];
 		}
 
+		var take = Math.Min(query.Take, MaximumQueryTake);
 		if (!HasFilters(query))
 		{
-			var ids = await ReadJobIdsByRankAsync(query.Skip, take, cancellationToken).ConfigureAwait(false);
-			return await ReadJobsAsync(ids, cancellationToken).ConfigureAwait(false);
+			var ids = await ReadJobHandlesByRankAsync(query.Skip, take, cancellationToken);
+			return await ReadJobsAsync(ids, cancellationToken);
 		}
 
 		var matchLimit = (long)query.Skip + take;
@@ -345,11 +339,11 @@ internal sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 		while (matched < matchLimit)
 		{
 			cancellationToken.ThrowIfCancellationRequested();
-			var ids = await ReadJobIdsByRankAsync(rank, QueryWindowSize, cancellationToken).ConfigureAwait(false);
+			var ids = await ReadJobHandlesByRankAsync(rank, QueryWindowSize, cancellationToken);
 			if (ids.Count == 0)
 				break;
 
-			var jobs = await ReadJobsAsync(ids, cancellationToken).ConfigureAwait(false);
+			var jobs = await ReadJobsAsync(ids, cancellationToken);
 			foreach (var job in jobs)
 			{
 				if (!MatchesQuery(job, query))
@@ -367,24 +361,73 @@ internal sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 	}
 
 	/// <inheritdoc />
+	public async ValueTask<IReadOnlyList<JobRecord>> QueryNonCompletedJobsAsync(
+		string jobName,
+		CancellationToken cancellationToken = default
+	)
+	{
+		QueryNonCompletedJobsAsyncCalled(jobName);
+		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
+
+		var matches = new List<JobRecord>();
+		var rank = 0L;
+
+		while (true)
+		{
+			cancellationToken.ThrowIfCancellationRequested();
+			var ids = await ReadJobHandlesByRankAsync(rank, QueryWindowSize, cancellationToken);
+			if (ids.Count == 0)
+				break;
+
+			var jobs = await ReadJobsAsync(ids, cancellationToken);
+			foreach (var job in jobs)
+			{
+				if (
+					!string.Equals(job.JobName, jobName, StringComparison.Ordinal)
+					|| job.State is not (
+						JobState.AwaitingContinuation
+						or JobState.AwaitingParameters
+						or JobState.Scheduled
+						or JobState.Pending
+						or JobState.Active
+					)
+				)
+				{
+					continue;
+				}
+
+				matches.Add(job);
+			}
+
+			rank += ids.Count;
+		}
+
+		return matches;
+	}
+
+	/// <inheritdoc />
 	public async ValueTask<IReadOnlyList<JobExecutionRecord>> QueryJobExecutionsAsync(
+		JobHandle jobHandle,
 		JobExecutionQuery query,
 		CancellationToken cancellationToken = default
 	)
 	{
-		ArgumentNullException.ThrowIfNull(query);
-		query.Validate();
-		var job = await ReadJobAsync(query.JobId, cancellationToken).ConfigureAwait(false);
+		QueryJobExecutionsAsyncCalled(jobHandle);
+		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
+
+		var job = await ReadJobAsync(jobHandle, cancellationToken);
 		if (job is null)
 			return [];
 
 		var synthetic = JobExecutionRecord.CreateSynthetic(job);
 		var syntheticMissing = synthetic is not null
 			&& (query.Attempt is null || query.Attempt == synthetic.Attempt)
-			&& !await _database.HashExistsAsync(
-				ExecutionDataKey(query.JobId),
+			&& !await Database.HashExistsAsync(
+				ExecutionDataKey(jobHandle),
 				ExecutionField(synthetic.Attempt, "state")
-			).WaitAsync(cancellationToken).ConfigureAwait(false);
+			).WaitAsync(cancellationToken);
 		var skip = query.Skip;
 		var take = Math.Min(query.Take, MaximumQueryTake);
 		var result = new List<JobExecutionRecord>(take);
@@ -404,107 +447,119 @@ internal sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 		RedisValue[] attempts;
 		if (query.Attempt is { } attempt)
 		{
-			var exists = await _database.HashExistsAsync(
-				ExecutionDataKey(query.JobId),
+			var exists = await Database.HashExistsAsync(
+				ExecutionDataKey(jobHandle),
 				ExecutionField(attempt, "state")
-			).WaitAsync(cancellationToken).ConfigureAwait(false);
+			).WaitAsync(cancellationToken);
 			attempts = exists && skip == 0 ? [attempt] : [];
 		}
 		else
 		{
-			attempts = await _database.SortedSetRangeByRankAsync(
-				ExecutionIndexKey(query.JobId),
+			attempts = await Database.SortedSetRangeByRankAsync(
+				ExecutionIndexKey(jobHandle),
 				skip,
 				skip + take - 1,
 				Order.Descending
-			).WaitAsync(cancellationToken).ConfigureAwait(false);
+			).WaitAsync(cancellationToken);
 		}
 
-		result.AddRange(await ReadExecutionsAsync(query.JobId, attempts, cancellationToken).ConfigureAwait(false));
+		result.AddRange(await ReadExecutionsAsync(jobHandle, attempts, cancellationToken));
 		return result;
 	}
 
 	/// <inheritdoc />
 	public async ValueTask<JobStatus?> GetJobStatusAsync(
-		string jobId,
+		JobHandle jobHandle,
 		CancellationToken cancellationToken = default
 	)
 	{
-		ArgumentException.ThrowIfNullOrWhiteSpace(jobId);
-		var job = await ReadJobAsync(jobId, cancellationToken).ConfigureAwait(false);
+		GetJobStatusAsyncCalled(jobHandle);
+		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
+
+		var job = await ReadJobAsync(jobHandle, cancellationToken);
 		return job is null
 			? null
 			: new JobStatus
 			{
-				JobId = job.Id,
+				JobHandle = job.JobHandle,
 				JobName = job.JobName,
 				QueueName = job.QueueName,
 				State = job.State,
 				Attempt = job.Attempt,
-				MaxAttempts = null,
+				MaxAttempts = 0,
 				CreatedAt = job.CreatedAt,
 				DueAt = job.DueAt,
 				CompletedAt = job.CompletedAt,
 				LastError = job.LastError,
-				BatchId = null,
+				BatchHandle = null,
 				DependsOn = [],
 			};
 	}
 
 	/// <inheritdoc />
-	public async ValueTask CancelAsync(string jobId, CancellationToken cancellationToken = default)
+	public async ValueTask CancelAsync(JobHandle jobHandle, CancellationToken cancellationToken = default)
 	{
-		ArgumentException.ThrowIfNullOrWhiteSpace(jobId);
+		CancelAsyncCalled(jobHandle);
+		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
+
 		var now = _timeProvider.GetUtcNow();
 		var result = await EvaluateInt64Async(
 			RedisScripts.Cancel,
-			[JobKey(jobId), LeasesKey, ExecutionIndexKey(jobId), ExecutionDataKey(jobId)],
-			[jobId, Ticks(now), Score(now), _root],
+			[JobKey(jobHandle), LeasesKey, ExecutionIndexKey(jobHandle), ExecutionDataKey(jobHandle)],
+			[jobHandle.Value, Ticks(now), Score(now), _root],
 			cancellationToken
-		).ConfigureAwait(false);
+		);
 		if (result == 0)
-			throw new KeyNotFoundException($"Job '{jobId}' was not found.");
+			throw new KeyNotFoundException($"Job '{jobHandle}' was not found.");
 		if (result < 0)
 			throw new ImmediateJobException("Only a non-terminal job can be cancelled.");
 	}
 
 	/// <inheritdoc />
-	public async ValueTask RetryAsync(string jobId, CancellationToken cancellationToken = default)
+	public async ValueTask RetryAsync(JobHandle jobHandle, CancellationToken cancellationToken = default)
 	{
-		ArgumentException.ThrowIfNullOrWhiteSpace(jobId);
+		RetryAsyncCalled(jobHandle);
+		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
+
 		var now = _timeProvider.GetUtcNow();
 		var result = await EvaluateInt64Async(
 			RedisScripts.Retry,
 			[
-				JobKey(jobId),
+				JobKey(jobHandle),
 				StateKey(JobState.Failed),
 				StateKey(JobState.Scheduled),
 				StateKey(JobState.Pending),
 				CompletedKey(JobState.Failed),
-				ExecutionIndexKey(jobId),
-				ExecutionDataKey(jobId),
+				ExecutionIndexKey(jobHandle),
+				ExecutionDataKey(jobHandle),
 			],
-			[Ticks(now), Score(now), jobId, _root],
+			[Ticks(now), Score(now), jobHandle.Value, _root],
 			cancellationToken
-		).ConfigureAwait(false);
+		);
 		if (result == 0)
-			throw new KeyNotFoundException($"Job '{jobId}' was not found.");
+			throw new KeyNotFoundException($"Job '{jobHandle}' was not found.");
 		if (result < 0)
 			throw new ImmediateJobException("Only failed or scheduled jobs can be retried.");
 	}
 
 	/// <inheritdoc />
-	public async ValueTask DeleteAsync(string jobId, CancellationToken cancellationToken = default)
+	public async ValueTask DeleteAsync(JobHandle jobHandle, CancellationToken cancellationToken = default)
 	{
-		ArgumentException.ThrowIfNullOrWhiteSpace(jobId);
+		DeleteAsyncCalled(jobHandle);
+		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
+
 		var result = await EvaluateInt64Async(
 			RedisScripts.Delete,
-			[JobKey(jobId), AllJobsKey, RecurringDedupeKey, ExecutionIndexKey(jobId), ExecutionDataKey(jobId)],
-			[jobId, _root],
+			[JobKey(jobHandle), AllJobsKey, RecurringDedupeKey, ExecutionIndexKey(jobHandle), ExecutionDataKey(jobHandle)],
+			[jobHandle.Value, _root],
 			cancellationToken
-		).ConfigureAwait(false);
+		);
 		if (result == 0)
-			throw new KeyNotFoundException($"Job '{jobId}' was not found.");
+			throw new KeyNotFoundException($"Job '{jobHandle}' was not found.");
 		if (result < 0)
 			throw new ImmediateJobException("Only terminal jobs can be deleted.");
 	}
@@ -516,13 +571,15 @@ internal sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 		CancellationToken cancellationToken = default
 	)
 	{
-		ArgumentOutOfRangeException.ThrowIfLessThan(succeededRetention, TimeSpan.Zero);
-		ArgumentOutOfRangeException.ThrowIfLessThan(failedRetention, TimeSpan.Zero);
+		PurgeJobsAsyncCalled(succeededRetention, failedRetention);
+		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
+
 		var now = _timeProvider.GetUtcNow();
-		await PurgeStateAsync(JobState.Succeeded, now - succeededRetention, cancellationToken).ConfigureAwait(false);
-		await PurgeStateAsync(JobState.Failed, now - failedRetention, cancellationToken).ConfigureAwait(false);
-		await PurgeStateAsync(JobState.Cancelled, now - failedRetention, cancellationToken).ConfigureAwait(false);
-		await PurgeStateAsync(JobState.Skipped, now - failedRetention, cancellationToken).ConfigureAwait(false);
+		await PurgeStateAsync(JobState.Succeeded, now - succeededRetention, cancellationToken);
+		await PurgeStateAsync(JobState.Failed, now - failedRetention, cancellationToken);
+		await PurgeStateAsync(JobState.Cancelled, now - failedRetention, cancellationToken);
+		await PurgeStateAsync(JobState.Skipped, now - failedRetention, cancellationToken);
 	}
 
 	/// <inheritdoc />
@@ -531,8 +588,10 @@ internal sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 		CancellationToken cancellationToken = default
 	)
 	{
-		ArgumentNullException.ThrowIfNull(server);
-		ArgumentException.ThrowIfNullOrWhiteSpace(server.WorkerId);
+		HeartbeatAsyncCalled(server.WorkerId);
+		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
+
 		_ = await EvaluateInt64Async(
 			RedisScripts.Heartbeat,
 			[ServerKey(server.WorkerId), ServersKey],
@@ -540,20 +599,26 @@ internal sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 				Ticks(server.LastHeartbeat),
 				server.ActiveWorkers,
 				server.MaxWorkers,
-				Score(server.LastHeartbeat),
+				Score(server.LastHeartbeat + server.ServerTimeout),
 				server.WorkerId,
-				(long)TimeSpan.FromMinutes(2).TotalMilliseconds,
+				(long)server.ServerTimeout.TotalMilliseconds,
+				Ticks(server.LastHeartbeat + server.ServerTimeout),
+				JsonSerializer.Serialize(server, RedisJsonSerializerContext.Default.JobServerSnapshot),
 			],
 			cancellationToken
-		).ConfigureAwait(false);
+		);
 	}
 
 	/// <inheritdoc />
 	public async ValueTask<bool> IsHealthyAsync(CancellationToken cancellationToken = default)
 	{
+		IsHealthyAsyncCalled();
+		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
+
 		try
 		{
-			_ = await _database.PingAsync().WaitAsync(cancellationToken).ConfigureAwait(false);
+			await Database.PingAsync().WaitAsync(cancellationToken);
 			return true;
 		}
 		catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -567,12 +632,43 @@ internal sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 	}
 
 	/// <inheritdoc />
+	public async ValueTask MergeRecurringSchedulesListAsync(
+		IReadOnlyList<RecurringJobSchedule> schedules,
+		CancellationToken cancellationToken = default
+	)
+	{
+		MergeRecurringSchedulesListAsyncCalled();
+		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
+
+		foreach (var schedule in schedules)
+			await UpsertRecurringAsync(schedule, preserveUnchangedNextRun: true, cancellationToken);
+
+		await RemoveObsoleteCodeDefinedRecurringAsync(
+			schedules.Select(static schedule => schedule.Name).ToList(),
+			cancellationToken
+		);
+	}
+
+	/// <inheritdoc />
 	public async ValueTask UpsertRecurringAsync(
 		RecurringJobSchedule schedule,
 		CancellationToken cancellationToken = default
 	)
 	{
-		ValidateRecurring(schedule);
+		UpsertRecurringAsyncCalled(schedule.Name);
+		await UpsertRecurringAsync(schedule, preserveUnchangedNextRun: false, cancellationToken);
+	}
+
+	private async ValueTask UpsertRecurringAsync(
+		RecurringJobSchedule schedule,
+		bool preserveUnchangedNextRun,
+		CancellationToken cancellationToken
+	)
+	{
+		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
+
 		var result = await EvaluateInt64Async(
 			RedisScripts.UpsertRecurring,
 			[RecurringKey(schedule.Name), RecurringNamesKey, RecurringDueKey],
@@ -585,43 +681,49 @@ internal sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 				schedule.Name,
 				Score(schedule.NextRunAt),
 				RecurringDueMember(schedule.NextRunAt, schedule.Name),
+				schedule.Cron,
+				schedule.TimeZone,
+				preserveUnchangedNextRun ? 1 : 0,
 			],
 			cancellationToken
-		).ConfigureAwait(false);
+		);
 		if (result < 0)
 			throw new ImmediateJobException("Code-defined recurring schedules cannot be replaced by dynamic schedules.");
 	}
 
-	/// <inheritdoc />
-	public async ValueTask RemoveObsoleteCodeDefinedRecurringAsync(
-		IReadOnlyCollection<string> activeScheduleNames,
+	private async ValueTask RemoveObsoleteCodeDefinedRecurringAsync(
+		List<string> activeScheduleNames,
 		CancellationToken cancellationToken = default
 	)
 	{
-		ArgumentNullException.ThrowIfNull(activeScheduleNames);
 		var values = new RedisValue[activeScheduleNames.Count + 1];
 		values[0] = _root;
+
 		var index = 1;
 		foreach (var name in activeScheduleNames)
 			values[index++] = name;
+
 		_ = await EvaluateInt64Async(
 			RedisScripts.RemoveObsoleteRecurring,
 			[RecurringNamesKey, RecurringDueKey],
 			values,
 			cancellationToken
-		).ConfigureAwait(false);
+		);
 	}
 
 	/// <inheritdoc />
 	public async ValueTask RemoveRecurringAsync(string name, CancellationToken cancellationToken = default)
 	{
-		ArgumentException.ThrowIfNullOrWhiteSpace(name);
+		RemoveRecurringAsyncCalled(name);
+		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
+
 		var result = await EvaluateInt64Async(
 			RedisScripts.RemoveRecurring,
 			[RecurringKey(name), RecurringNamesKey, RecurringDueKey],
 			[name],
 			cancellationToken
-		).ConfigureAwait(false);
+		);
 		if (result == 0)
 			throw new KeyNotFoundException($"Recurring schedule '{name}' was not found.");
 		if (result < 0)
@@ -629,12 +731,24 @@ internal sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 	}
 
 	/// <inheritdoc />
-	public ValueTask PauseRecurringAsync(string name, CancellationToken cancellationToken = default) =>
-		SetRecurringPausedAsync(name, isPaused: true, cancellationToken);
+	public async ValueTask PauseRecurringAsync(string name, CancellationToken cancellationToken = default)
+	{
+		PauseRecurringAsyncCalled(name);
+		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
+
+		await SetRecurringPausedAsync(name, isPaused: true, cancellationToken);
+	}
 
 	/// <inheritdoc />
-	public ValueTask ResumeRecurringAsync(string name, CancellationToken cancellationToken = default) =>
-		SetRecurringPausedAsync(name, isPaused: false, cancellationToken);
+	public async ValueTask ResumeRecurringAsync(string name, CancellationToken cancellationToken = default)
+	{
+		ResumeRecurringAsyncCalled(name);
+		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
+
+		await SetRecurringPausedAsync(name, isPaused: false, cancellationToken);
+	}
 
 	/// <inheritdoc />
 	public async ValueTask<IReadOnlyList<RecurringJobSchedule>> GetDueRecurringAsync(
@@ -643,18 +757,21 @@ internal sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 		CancellationToken cancellationToken = default
 	)
 	{
-		ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(batchSize, 0);
-		var values = await _database.SortedSetRangeByScoreAsync(
+		GetDueRecurringAsyncCalled(batchSize);
+		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
+
+		var values = await Database.SortedSetRangeByScoreAsync(
 			RecurringDueKey,
 			stop: Score(now),
 			take: batchSize
-		).WaitAsync(cancellationToken).ConfigureAwait(false);
-		var members = values.Select(static value => (string)value!).ToArray();
-		var names = members.Select(static member => member[20..]).Distinct(StringComparer.Ordinal).ToArray();
+		).WaitAsync(cancellationToken);
+		var members = values.Select(static value => (string)value!).ToList();
+		var names = members.Select(static member => member[20..]).Distinct(StringComparer.Ordinal).ToList();
 		var schedules = await ReadRecurringAsync(
 			names,
 			cancellationToken
-		).ConfigureAwait(false);
+		);
 		var schedulesByName = schedules.ToDictionary(static schedule => schedule.Name, StringComparer.Ordinal);
 		var due = new List<RecurringJobSchedule>(schedules.Count);
 		var added = new HashSet<string>(StringComparer.Ordinal);
@@ -675,8 +792,8 @@ internal sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 
 		if (stale.Count != 0)
 		{
-			_ = await _database.SortedSetRemoveAsync(RecurringDueKey, [.. stale])
-				.WaitAsync(cancellationToken).ConfigureAwait(false);
+			_ = await Database.SortedSetRemoveAsync(RecurringDueKey, [.. stale])
+				.WaitAsync(cancellationToken);
 		}
 
 		return due;
@@ -687,10 +804,21 @@ internal sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 		RecurringJobSchedule schedule,
 		JobRecord job,
 		DateTimeOffset nextRunAt,
+		IReadOnlyList<JobContinuationEdge>? dependencies = null,
 		CancellationToken cancellationToken = default
 	)
 	{
-		ValidateRecurring(schedule);
+		MaterializeRecurringAsyncCalled(job.JobHandle, schedule.Name);
+
+		if (dependencies != null)
+		{
+			MaterializeRecurringAsyncCalledWithDependencies(job.JobHandle, schedule.Name);
+			throw new ImmediateJobException("Unable to process recurring jobs with dependencies.");
+		}
+
+		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
+
 		ValidateMaterializedJob(job);
 		var jobArguments = CreateMaterializeArguments(schedule, job, nextRunAt, _timeProvider.GetUtcNow());
 		var result = await EvaluateInt64Async(
@@ -698,7 +826,7 @@ internal sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 			[
 				RecurringKey(schedule.Name),
 				RecurringDedupeKey,
-				JobKey(job.Id),
+				JobKey(job.JobHandle),
 				AllJobsKey,
 				StateKey(job.State),
 				DueKey(job.QueueName),
@@ -707,35 +835,17 @@ internal sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 			],
 			jobArguments,
 			cancellationToken
-		).ConfigureAwait(false);
+		);
 		if (result < 0)
-			throw new ImmediateJobException($"Job '{job.Id}' already exists.");
+			throw new ImmediateJobException($"Job '{job.JobHandle}' already exists.");
 		return result == 1;
 	}
 
 	/// <inheritdoc />
-	public void Dispose() => DisposeAsync().AsTask().GetAwaiter().GetResult();
-
-	/// <inheritdoc />
-	public ValueTask DisposeAsync()
+	public async ValueTask DisposeAsync()
 	{
-		lock (_disposeGate)
-			return new(_disposeTask ??= DisposeCoreAsync());
-	}
-
-	private async Task DisposeCoreAsync()
-	{
-		if (_ownsConnection)
-		{
-			try
-			{
-				await _connection.CloseAsync().ConfigureAwait(false);
-			}
-			finally
-			{
-				_connection.Dispose();
-			}
-		}
+		DisposeAsyncCalled();
+		await TaskScheduler.Yield();
 	}
 
 	private async ValueTask SetRecurringPausedAsync(
@@ -750,7 +860,7 @@ internal sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 			[RecurringKey(name), RecurringDueKey],
 			[isPaused ? 1 : 0],
 			cancellationToken
-		).ConfigureAwait(false);
+		);
 		if (result == 0)
 			throw new KeyNotFoundException($"Recurring schedule '{name}' was not found.");
 	}
@@ -763,17 +873,18 @@ internal sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 	{
 		while (true)
 		{
-			var ids = await _database.SortedSetRangeByScoreAsync(
+			var ids = await Database.SortedSetRangeByScoreAsync(
 				CompletedKey(state),
 				stop: Score(cutoff),
 				exclude: Exclude.Stop,
 				take: 256
-			).WaitAsync(cancellationToken).ConfigureAwait(false);
+			).WaitAsync(cancellationToken);
 			if (ids.Length == 0)
 				return;
 			foreach (var value in ids)
 			{
-				var id = (string)value!;
+				var id = JobHandle.FromString((string)value!);
+
 				_ = await EvaluateInt64Async(
 					RedisScripts.Purge,
 					[
@@ -785,55 +896,57 @@ internal sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 						ExecutionIndexKey(id),
 						ExecutionDataKey(id),
 					],
-					[id, (int)state],
+					[value, (int)state],
 					cancellationToken
-				).ConfigureAwait(false);
+				);
 			}
 		}
 	}
 
 	private async Task<IReadOnlyList<JobServerSnapshot>> ReadLiveServersAsync(CancellationToken cancellationToken)
 	{
-		var cutoff = _timeProvider.GetUtcNow() - TimeSpan.FromMinutes(2);
-		var stale = await _database.SortedSetRangeByScoreAsync(
+		var now = _timeProvider.GetUtcNow();
+		var stale = await Database.SortedSetRangeByScoreAsync(
 			ServersKey,
-			stop: Score(cutoff),
+			stop: Score(now),
 			exclude: Exclude.Stop
-		).WaitAsync(cancellationToken).ConfigureAwait(false);
+		).WaitAsync(cancellationToken);
 		if (stale.Length != 0)
-			_ = await _database.SortedSetRemoveAsync(ServersKey, stale).WaitAsync(cancellationToken).ConfigureAwait(false);
-		var ids = await _database.SortedSetRangeByScoreAsync(
+			_ = await Database.SortedSetRemoveAsync(ServersKey, stale).WaitAsync(cancellationToken);
+		var ids = await Database.SortedSetRangeByScoreAsync(
 			ServersKey,
-			start: Score(cutoff)
-		).WaitAsync(cancellationToken).ConfigureAwait(false);
+			start: Score(now)
+		).WaitAsync(cancellationToken);
 		var tasks = ids
-			.Select(id => _database.HashGetAsync(ServerKey((string)id!), ["last", "active", "max"]))
-			.ToArray();
-		_ = await Task.WhenAll(tasks).WaitAsync(cancellationToken).ConfigureAwait(false);
+			.Select(id => Database.HashGetAsync(ServerKey((string)id!), ["last", "active", "max", "expires", "details"]))
+			.ToList();
+		_ = await Task.WhenAll(tasks).WaitAsync(cancellationToken);
 		return
 		[
 			.. tasks
 				.Select((task, index) => (Id: (string)ids[index]!, Values: task.Result))
 				.Where(static server => !server.Values[0].IsNullOrEmpty)
-				.Select(static server => new JobServerSnapshot
+				.Select(static server => server.Values[4] is { IsNullOrEmpty: false }
+					? JsonSerializer.Deserialize((string)server.Values[4]!, RedisJsonSerializerContext.Default.JobServerSnapshot)!
+					: new JobServerSnapshot
 				{
 					WorkerId = server.Id,
 					LastHeartbeat = FromTicks(server.Values[0]),
 					ActiveWorkers = ParseInt32(server.Values[1]),
 					MaxWorkers = ParseInt32(server.Values[2]),
+					ServerTimeout = FromTicks(server.Values[3]) - FromTicks(server.Values[0]),
 				}),
 		];
 	}
 
 	private async Task<IReadOnlyList<RecurringJobSchedule>> ReadAllRecurringAsync(CancellationToken cancellationToken)
 	{
-		var names = await _database.SetMembersAsync(RecurringNamesKey)
-			.WaitAsync(cancellationToken)
-			.ConfigureAwait(false);
+		var names = await Database.SetMembersAsync(RecurringNamesKey)
+			.WaitAsync(cancellationToken);
 		return await ReadRecurringAsync(
 			[.. names.Select(static value => (string)value!)],
 			cancellationToken
-		).ConfigureAwait(false);
+		);
 	}
 
 	private async Task<IReadOnlyList<RecurringJobSchedule>> ReadRecurringAsync(
@@ -841,8 +954,8 @@ internal sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 		CancellationToken cancellationToken
 	)
 	{
-		var tasks = names.Select(name => ReadRecurringAsync(name, cancellationToken).AsTask()).ToArray();
-		var schedules = await Task.WhenAll(tasks).WaitAsync(cancellationToken).ConfigureAwait(false);
+		var tasks = names.Select(name => ReadRecurringAsync(name, cancellationToken).AsTask()).ToList();
+		var schedules = await Task.WhenAll(tasks).WaitAsync(cancellationToken);
 		return [.. schedules.OfType<RecurringJobSchedule>().OrderBy(schedule => schedule.NextRunAt).ThenBy(schedule => schedule.Name, StringComparer.Ordinal)];
 	}
 
@@ -851,9 +964,8 @@ internal sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 		CancellationToken cancellationToken
 	)
 	{
-		var values = await _database.HashGetAsync(RecurringKey(name), RecurringMutableFields)
-			.WaitAsync(cancellationToken)
-			.ConfigureAwait(false);
+		var values = await Database.HashGetAsync(RecurringKey(name), RecurringMutableFields)
+			.WaitAsync(cancellationToken);
 		if (values[0].IsNull)
 			return null;
 		var schedule = JsonSerializer.Deserialize(
@@ -873,13 +985,13 @@ internal sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 		CancellationToken cancellationToken
 	)
 	{
-		var tasks = ids.Select(id => ReadJobAsync(id, cancellationToken).AsTask()).ToArray();
-		var jobs = await Task.WhenAll(tasks).WaitAsync(cancellationToken).ConfigureAwait(false);
+		var tasks = ids.Select(id => ReadJobAsync(new() { Value = id }, cancellationToken).AsTask()).ToList();
+		var jobs = await Task.WhenAll(tasks).WaitAsync(cancellationToken);
 		return [.. jobs.OfType<JobRecord>()];
 	}
 
 	private async Task<IReadOnlyList<JobExecutionRecord>> ReadExecutionsAsync(
-		string jobId,
+		JobHandle jobHandle,
 		RedisValue[] attempts,
 		CancellationToken cancellationToken
 	)
@@ -898,9 +1010,8 @@ internal sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 			}
 		}
 
-		var allValues = await _database.HashGetAsync(ExecutionDataKey(jobId), fields)
-			.WaitAsync(cancellationToken)
-			.ConfigureAwait(false);
+		var allValues = await Database.HashGetAsync(ExecutionDataKey(jobHandle), fields)
+			.WaitAsync(cancellationToken);
 
 		var executions = new List<JobExecutionRecord>(attempts.Length);
 		for (var index = 0; index < attempts.Length; index++)
@@ -910,7 +1021,7 @@ internal sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 				continue;
 			executions.Add(new()
 			{
-				JobId = jobId,
+				JobHandle = jobHandle,
 				Attempt = ParseInt32(attempts[index]),
 				State = (JobExecutionState)ParseInt32(values[0]),
 				WorkerId = NullIfEmpty(values[1]),
@@ -927,18 +1038,18 @@ internal sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 		return executions;
 	}
 
-	private async Task<IReadOnlyList<string>> ReadJobIdsByRankAsync(
+	private async Task<IReadOnlyList<string>> ReadJobHandlesByRankAsync(
 		long start,
 		int count,
 		CancellationToken cancellationToken
 	)
 	{
-		var values = await _database.SortedSetRangeByRankAsync(
+		var values = await Database.SortedSetRangeByRankAsync(
 			AllJobsKey,
 			start,
 			start + count - 1,
 			Order.Descending
-		).WaitAsync(cancellationToken).ConfigureAwait(false);
+		).WaitAsync(cancellationToken);
 		return [.. values.Select(static value => (string)value!)];
 	}
 
@@ -955,11 +1066,10 @@ internal sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 		(string.IsNullOrWhiteSpace(query.Search) ||
 			job.JobName.Contains(query.Search, StringComparison.OrdinalIgnoreCase));
 
-	private async ValueTask<JobRecord?> ReadJobAsync(string id, CancellationToken cancellationToken)
+	private async ValueTask<JobRecord?> ReadJobAsync(JobHandle id, CancellationToken cancellationToken)
 	{
-		var values = await _database.HashGetAsync(JobKey(id), JobMutableFields)
-			.WaitAsync(cancellationToken)
-			.ConfigureAwait(false);
+		var values = await Database.HashGetAsync(JobKey(id), JobMutableFields)
+			.WaitAsync(cancellationToken);
 		if (values[0].IsNull)
 			return null;
 		var job = JsonSerializer.Deserialize(
@@ -988,9 +1098,8 @@ internal sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 		CancellationToken cancellationToken
 	)
 	{
-		var result = await _database.ScriptEvaluateAsync(script, keys, values)
-			.WaitAsync(cancellationToken)
-			.ConfigureAwait(false);
+		var result = await Database.ScriptEvaluateAsync(script, keys, values)
+			.WaitAsync(cancellationToken);
 		return (long)result;
 	}
 
@@ -1010,7 +1119,7 @@ internal sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 		job.QueueName,
 		job.JobName,
 		Score(job.CreatedAt),
-		job.Id,
+		job.JobHandle.Value,
 		Score(job.DueAt),
 		Ticks(job.CreatedAt),
 		DueMember(job),
@@ -1025,7 +1134,7 @@ internal sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 	[
 		Ticks(schedule.NextRunAt),
 		job.RecurringKey ?? "",
-		job.Id,
+		job.JobHandle.Value,
 		JsonSerializer.Serialize(job, RedisJsonSerializerContext.Default.JobRecord),
 		(int)job.State,
 		Ticks(job.DueAt),
@@ -1051,11 +1160,7 @@ internal sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 
 	private static void ValidateQueueJob(JobRecord job)
 	{
-		ArgumentNullException.ThrowIfNull(job);
-		ArgumentException.ThrowIfNullOrWhiteSpace(job.Id);
-		ArgumentException.ThrowIfNullOrWhiteSpace(job.JobName);
-		ArgumentException.ThrowIfNullOrWhiteSpace(job.QueueName);
-		if (job.BatchId is not null || job.RemainingDependencies != 0 || job.FailedDependencies != 0)
+		if (job.BatchHandle is not null || job.RemainingDependencies != 0 || job.FailedDependencies != 0)
 		{
 			throw new NotSupportedException(
 				"Batches & continuations require a graph-capable storage provider (a SQL database)."
@@ -1063,16 +1168,12 @@ internal sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 		}
 
 		if (job.State is not (JobState.Pending or JobState.Scheduled))
-			throw new ImmediateJobException($"Queue job '{job.Id}' has invalid state '{job.State}'.");
+			throw new ImmediateJobException($"Queue job '{job.JobHandle}' has invalid state '{job.State}'.");
 	}
 
 	private static void ValidateMaterializedJob(JobRecord job)
 	{
-		ArgumentNullException.ThrowIfNull(job);
-		ArgumentException.ThrowIfNullOrWhiteSpace(job.Id);
-		ArgumentException.ThrowIfNullOrWhiteSpace(job.JobName);
-		ArgumentException.ThrowIfNullOrWhiteSpace(job.QueueName);
-		if (job.BatchId is not null || job.RemainingDependencies != 0 || job.FailedDependencies != 0)
+		if (job.BatchHandle is not null || job.RemainingDependencies != 0 || job.FailedDependencies != 0)
 		{
 			throw new NotSupportedException(
 				"Batches & continuations require a graph-capable storage provider (a SQL database)."
@@ -1080,29 +1181,20 @@ internal sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 		}
 
 		if (job.State is not (JobState.Pending or JobState.Scheduled or JobState.Cancelled or JobState.Skipped))
-			throw new ImmediateJobException($"Recurring job '{job.Id}' has invalid state '{job.State}'.");
+			throw new ImmediateJobException($"Recurring job '{job.JobHandle}' has invalid state '{job.State}'.");
 		if (job.CompletedAt is null && (job.State == JobState.Cancelled || job.State == JobState.Skipped))
-			throw new ImmediateJobException($"Terminal recurring job '{job.Id}' must have a completion time.");
+			throw new ImmediateJobException($"Terminal recurring job '{job.JobHandle}' must have a completion time.");
 	}
 
-	private static void ValidateRecurring(RecurringJobSchedule schedule)
-	{
-		ArgumentNullException.ThrowIfNull(schedule);
-		ArgumentException.ThrowIfNullOrWhiteSpace(schedule.Name);
-		ArgumentException.ThrowIfNullOrWhiteSpace(schedule.JobName);
-		ArgumentException.ThrowIfNullOrWhiteSpace(schedule.Cron);
-		ArgumentException.ThrowIfNullOrWhiteSpace(schedule.TimeZone);
-	}
-
-	private static void ThrowIfNotOwned(long result, string jobId, string workerId)
+	private static void ThrowIfNotOwned(long result, JobHandle jobHandle, string workerId)
 	{
 		if (result <= 0)
-			throw new ImmediateJobException($"Worker '{workerId}' does not own active job '{jobId}'.");
+			throw new ImmediateJobException($"Worker '{workerId}' does not own active job '{jobHandle}'.");
 	}
 
-	private RedisKey JobKey(string id) => _root + "job:" + id;
-	private RedisKey ExecutionIndexKey(string id) => _root + "executions:index:" + id;
-	private RedisKey ExecutionDataKey(string id) => _root + "executions:data:" + id;
+	private RedisKey JobKey(JobHandle id) => _root + "job:" + id.Value;
+	private RedisKey ExecutionIndexKey(JobHandle id) => _root + "executions:index:" + id.Value;
+	private RedisKey ExecutionDataKey(JobHandle id) => _root + "executions:data:" + id.Value;
 	private RedisKey DueKey(string queue) => _root + "due:" + queue;
 	private RedisKey StateKey(JobState state) => string.Create(CultureInfo.InvariantCulture, $"{_root}state:{(int)state}");
 	private RedisKey CompletedKey(JobState state) => string.Create(CultureInfo.InvariantCulture, $"{_root}completed:{(int)state}");
@@ -1117,7 +1209,7 @@ internal sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 
 	private static long Score(DateTimeOffset value) => value.ToUnixTimeMilliseconds();
 	private static string Ticks(DateTimeOffset value) => value.UtcTicks.ToString("D19", CultureInfo.InvariantCulture);
-	private static string DueMember(JobRecord job) => $"{Ticks(job.DueAt)}|{Ticks(job.CreatedAt)}|{job.Id}";
+	private static string DueMember(JobRecord job) => $"{Ticks(job.DueAt)}|{Ticks(job.CreatedAt)}|{job.JobHandle.Value}";
 	private static string RecurringDueMember(DateTimeOffset nextRunAt, string name) => $"{Ticks(nextRunAt)}|{name}";
 	private static string NullableTicks(DateTimeOffset? value) => value is { } actual ? Ticks(actual) : "";
 	private static RedisValue ExecutionField(int executionNumber, string name) =>
@@ -1129,4 +1221,220 @@ internal sealed class RedisJobStorage : IRecurringJobStorage, IDisposable
 	private static int ParseInt32(RedisValue value) =>
 		int.Parse((string)value!, NumberStyles.Integer, CultureInfo.InvariantCulture);
 	private static string? NullIfEmpty(RedisValue value) => value.IsNullOrEmpty ? null : (string)value!;
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.InitializeAsyncCalled,
+		EventName = "Immediate.Jobs.Redis.InitializeAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "InitializeAsync called"
+	)]
+	private partial void InitializeAsyncCalled();
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.EnqueueAsyncCalled,
+		EventName = "Immediate.Jobs.Redis.EnqueueAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "EnqueueAsync called (JobHandle={JobHandle})"
+	)]
+	private partial void EnqueueAsyncCalled(JobHandle jobHandle);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.AcquireDueJobsAsyncCalled,
+		EventName = "Immediate.Jobs.Redis.AcquireDueJobsAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "AcquireDueJobsAsync called (Worker={Worker}, BatchSize={BatchSize}, Queues={Queues})"
+	)]
+	private partial void AcquireDueJobsAsyncCalled(string worker, int batchSize, int queues);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.SetExecutionTelemetryAsyncCalled,
+		EventName = "Immediate.Jobs.Redis.SetExecutionTelemetryAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "SetExecutionTelemetryAsync called (JobHandle={JobHandle}, Execution={Execution})"
+	)]
+	private partial void SetExecutionTelemetryAsyncCalled(JobHandle jobHandle, int execution);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.RenewLeaseAsyncCalled,
+		EventName = "Immediate.Jobs.Redis.RenewLeaseAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "RenewLeaseAsync called (JobHandle={JobHandle}, Execution={Execution})"
+	)]
+	private partial void RenewLeaseAsyncCalled(JobHandle jobHandle, int execution);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.CompleteAsyncCalled,
+		EventName = "Immediate.Jobs.Redis.CompleteAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "CompleteAsync called (JobHandle={JobHandle}, Execution={Execution})"
+	)]
+	private partial void CompleteAsyncCalled(JobHandle jobHandle, int execution);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.FailAsyncCalled,
+		EventName = "Immediate.Jobs.Redis.FailAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "FailAsync called (JobHandle={JobHandle}, Execution={Execution})"
+	)]
+	private partial void FailAsyncCalled(JobHandle jobHandle, int execution);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.GetMonitoringSnapshotAsyncCalled,
+		EventName = "Immediate.Jobs.Redis.GetMonitoringSnapshotAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "GetMonitoringSnapshotAsync called"
+	)]
+	private partial void GetMonitoringSnapshotAsyncCalled();
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.QueryJobsAsyncCalled,
+		EventName = "Immediate.Jobs.Redis.QueryJobsAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "QueryJobsAsync called (Query={Query})"
+	)]
+	private partial void QueryJobsAsyncCalled(JobQuery query);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.QueryNonCompletedJobsAsyncCalled,
+		EventName = "Immediate.Jobs.Redis.QueryNonCompletedJobsAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "QueryNonCompletedJobsAsyncCalled called (JobName={JobName})"
+	)]
+	private partial void QueryNonCompletedJobsAsyncCalled(string jobName);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.QueryJobExecutionsAsyncCalled,
+		EventName = "Immediate.Jobs.Redis.QueryJobExecutionsAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "QueryJobExecutionsAsync called (JobHandle={JobHandle})"
+	)]
+	private partial void QueryJobExecutionsAsyncCalled(JobHandle jobHandle);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.GetJobStatusAsyncCalled,
+		EventName = "Immediate.Jobs.Redis.GetJobStatusAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "GetJobStatusAsync called (JobHandle={JobHandle})"
+	)]
+	private partial void GetJobStatusAsyncCalled(JobHandle jobHandle);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.CancelAsyncCalled,
+		EventName = "Immediate.Jobs.Redis.CancelAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "CancelAsync called (JobHandle={JobHandle})"
+	)]
+	private partial void CancelAsyncCalled(JobHandle jobHandle);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.RetryAsyncCalled,
+		EventName = "Immediate.Jobs.Redis.RetryAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "RetryAsync called (JobHandle={JobHandle})"
+	)]
+	private partial void RetryAsyncCalled(JobHandle jobHandle);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.DeleteAsyncCalled,
+		EventName = "Immediate.Jobs.Redis.DeleteAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "DeleteAsync called (JobHandle={JobHandle})"
+	)]
+	private partial void DeleteAsyncCalled(JobHandle jobHandle);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.PurgeJobsAsyncCalled,
+		EventName = "Immediate.Jobs.Redis.PurgeJobsAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "PurgeJobsAsync called (SucceededRetention={SucceededRetention}, FailedRetention={FailedRetention})"
+	)]
+	private partial void PurgeJobsAsyncCalled(TimeSpan succeededRetention, TimeSpan failedRetention);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.HeartbeatAsyncCalled,
+		EventName = "Immediate.Jobs.Redis.HeartbeatAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "HeartbeatAsync called (Server={Server})"
+	)]
+	private partial void HeartbeatAsyncCalled(string server);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.IsHealthyAsyncCalled,
+		EventName = "Immediate.Jobs.Redis.IsHealthyAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "IsHealthyAsync called"
+	)]
+	private partial void IsHealthyAsyncCalled();
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.MergeRecurringSchedulesListAsyncCalled,
+		EventName = "Immediate.Jobs.Redis.MergeRecurringSchedulesListAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "MergeRecurringSchedulesListAsync called"
+	)]
+	private partial void MergeRecurringSchedulesListAsyncCalled();
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.UpsertRecurringAsyncCalled,
+		EventName = "Immediate.Jobs.Redis.UpsertRecurringAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "UpsertRecurringAsync called (Schedule={Schedule})"
+	)]
+	private partial void UpsertRecurringAsyncCalled(string schedule);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.RemoveRecurringAsyncCalled,
+		EventName = "Immediate.Jobs.Redis.RemoveRecurringAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "RemoveRecurringAsync called (Name={Name})"
+	)]
+	private partial void RemoveRecurringAsyncCalled(string name);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.PauseRecurringAsyncCalled,
+		EventName = "Immediate.Jobs.Redis.PauseRecurringAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "PauseRecurringAsync called (Name={Name})"
+	)]
+	private partial void PauseRecurringAsyncCalled(string name);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.ResumeRecurringAsyncCalled,
+		EventName = "Immediate.Jobs.Redis.ResumeRecurringAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "ResumeRecurringAsync called (Name={Name})"
+	)]
+	private partial void ResumeRecurringAsyncCalled(string name);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.GetDueRecurringAsyncCalled,
+		EventName = "Immediate.Jobs.Redis.GetDueRecurringAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "GetDueRecurringAsync called (BatchSize={BatchSize})"
+	)]
+	private partial void GetDueRecurringAsyncCalled(int batchSize);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.MaterializeRecurringAsyncCalled,
+		EventName = "Immediate.Jobs.Redis.MaterializeRecurringAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "MaterializeRecurringAsync called (JobHandle={JobHandle}, Schedule={Schedule})"
+	)]
+	private partial void MaterializeRecurringAsyncCalled(JobHandle jobHandle, string schedule);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.MaterializeRecurringAsyncCalledWithDependencies,
+		EventName = "Immediate.Jobs.Redis.MaterializeRecurringAsyncCalledWithDependencies",
+		Level = LogLevel.Warning,
+		Message = "MaterializeRecurringAsync invalidly called with dependencies (JobHandle={JobHandle}, Schedule={Schedule})"
+	)]
+	private partial void MaterializeRecurringAsyncCalledWithDependencies(JobHandle jobHandle, string schedule);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.DisposeAsyncCalled,
+		EventName = "Immediate.Jobs.Redis.DisposeAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "DisposeAsync called"
+	)]
+	private partial void DisposeAsyncCalled();
 }

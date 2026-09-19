@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using Immediate.Jobs.Shared.Apis;
 using Immediate.Jobs.Shared.Internals;
 
@@ -6,6 +7,7 @@ namespace Immediate.Jobs.Shared;
 /// <summary>
 /// 	Untyped execution metadata passed into a generated invoker.
 /// </summary>
+[EditorBrowsable(EditorBrowsableState.Never)]
 public sealed record JobExecution
 {
 	/// <summary>

@@ -3,6 +3,7 @@
     <File Path=".editorconfig" />
     <File Path=".github/dependabot.yml" />
     <File Path=".gitignore" />
+    <File Path="BannedSymbols.txt" />
     <File Path="coderabbit.yml" />
     <File Path="coverage-settings.xml" />
     <File Path="Directory.Build.props" />
@@ -29,7 +30,7 @@
     <Project Path="src/Immediate.Jobs.Shared/Immediate.Jobs.Shared.csproj" />
     <Project Path="src/Immediate.Jobs/Immediate.Jobs.csproj" />
   </Folder>
-  <Folder Name="/Source.Support/">
+  <Folder Name="/Source.Extensions/">
     <Project Path="src/Immediate.Jobs.Dashboard/Immediate.Jobs.Dashboard.csproj" />
     <Project Path="src/Immediate.Jobs.EntityFrameworkCore/Immediate.Jobs.EntityFrameworkCore.csproj" />
     <Project Path="src/Immediate.Jobs.LinqToDB/Immediate.Jobs.LinqToDB.csproj" />
@@ -41,9 +42,6 @@
     <Project Path="tests/Immediate.Jobs.FunctionalTests/Immediate.Jobs.FunctionalTests.csproj" />
     <Project Path="tests/Immediate.Jobs.StorageTests/Immediate.Jobs.StorageTests.csproj" />
     <Project Path="tests/Immediate.Jobs.Tests/Immediate.Jobs.Tests.csproj" />
-  </Folder>
-  <Folder Name="/Benchmarks/">
-    <Project Path="benchmarks/Immediate.Jobs.Benchmarks/Immediate.Jobs.Benchmarks.csproj" />
   </Folder>
   <Folder Name="/Samples/">
     <Project Path="samples/Aspire/Api/Immediate.Jobs.Aspire.Api.csproj" />

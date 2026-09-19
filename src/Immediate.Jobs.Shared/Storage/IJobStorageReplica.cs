@@ -11,7 +11,7 @@ public interface IJobStorageReplica
 	/// <summary>
 	/// 	Acquires the specified due invocations for the supplied worker.
 	/// </summary>
-	/// <param name="jobIds">
+	/// <param name="jobs">
 	/// 	The due invocation identifiers to acquire.
 	/// </param>
 	/// <param name="workerId">
@@ -27,7 +27,7 @@ public interface IJobStorageReplica
 	/// 	The invocations acquired for the worker.
 	/// </returns>
 	ValueTask<IReadOnlyList<JobRecord>> AcquireJobsAsync(
-		IReadOnlyCollection<string> jobIds,
+		IReadOnlyCollection<JobHandle> jobs,
 		string workerId,
 		TimeSpan lease,
 		CancellationToken cancellationToken = default

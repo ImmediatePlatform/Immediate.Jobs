@@ -1,28 +1,41 @@
+using Immediate.Validations.Shared;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Immediate.Jobs.Dashboard;
 
-/// <summary>Registers the Immediate.Jobs dashboard API handlers and validation pipeline.</summary>
+/// <summary>
+///		Registers the Immediate.Jobs dashboard API handlers and validation pipeline.
+/// </summary>
 public static class ImmediateJobsDashboardServiceCollectionExtensions
 {
-	/// <summary>Adds the services required by <c>MapImmediateJobsDashboard</c>.</summary>
-	/// <param name="services">The service collection to add dashboard services to.</param>
-	/// <param name="configure">An optional callback that configures the dashboard.</param>
-	/// <returns>The service collection for further configuration.</returns>
-	public static IServiceCollection AddImmediateJobsDashboard(
-		this IServiceCollection services,
-		Action<ImmediateJobsDashboardOptions>? configure = null
+	/// <summary>
+	///		Adds the services required by <c>MapImmediateJobsDashboard</c>.
+	/// </summary>
+	/// <param name="builder">
+	///		The builder used to configure <c>Immediate.Jobs</c>
+	/// </param>
+	/// <returns>
+	///		The service collection for further configuration.
+	/// </returns>
+	public static IImmediateJobsDashboardBuilder AddImmediateJobsDashboard(
+		this IImmediateJobsBuilder builder
 	)
 	{
-		ArgumentNullException.ThrowIfNull(services);
+		ArgumentNullException.ThrowIfNull(builder);
 
-		var options = new ImmediateJobsDashboardOptions();
-		configure?.Invoke(options);
-		options.Validate();
+		var optionsBuilder = builder.Services
+			.AddOptionsWithValidateOnStart<ImmediateJobsDashboardOptions>()
+			.Validate(
+				o =>
+				{
+					ValidationException.ThrowIfInvalid(o, $@"Validation error for ""{nameof(ImmediateJobsDashboardOptions)}""");
+					return true;
+				}
+			);
 
-		_ = services.AddSingleton(options);
-		_ = services.AddHttpContextAccessor();
-		_ = services.AddImmediateJobsDashboardHandlers();
-		return services;
+		_ = builder.Services.AddHttpContextAccessor();
+		_ = builder.Services.AddImmediateJobsDashboardHandlers();
+
+		return new ImmediateJobsDashboardBuilder(builder, optionsBuilder);
 	}
 }

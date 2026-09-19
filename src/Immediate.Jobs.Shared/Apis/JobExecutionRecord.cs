@@ -50,7 +50,7 @@ public sealed record JobExecutionRecord
 	/// <summary>
 	/// 	The owning job identifier.
 	/// </summary>
-	public required string JobId { get; init; }
+	public required JobHandle JobHandle { get; init; }
 
 	/// <summary>
 	/// 	The 1-based execution ordinal and ownership-fencing value.
@@ -105,16 +105,6 @@ public sealed record JobExecutionRecord
 
 internal static class JobExecutionRecords
 {
-	internal static void ValidateQuery(JobExecutionQuery query)
-	{
-		ArgumentNullException.ThrowIfNull(query);
-		ArgumentException.ThrowIfNullOrWhiteSpace(query.JobId, nameof(query));
-		if (query.Attempt is { } attempt)
-			ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(attempt, 0, nameof(query));
-		ArgumentOutOfRangeException.ThrowIfNegative(query.Skip, nameof(query));
-		ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(query.Take, 0, nameof(query));
-	}
-
 	internal static JobExecutionRecord? CreateSynthetic(JobRecord job)
 	{
 		if (job.Attempt <= 0)
@@ -135,9 +125,9 @@ internal static class JobExecutionRecords
 			_ => throw new ArgumentOutOfRangeException(nameof(job), job.State, "Unknown job state."),
 		};
 
-		return new()
+		return new JobExecutionRecord()
 		{
-			JobId = job.Id,
+			JobHandle = job.JobHandle,
 			Attempt = job.Attempt,
 			State = state,
 			WorkerId = job.State == JobState.Active ? job.WorkerId : null,

@@ -1,5 +1,5 @@
 using Immediate.Jobs.Shared.Storage;
-using Immediate.Jobs.Testing;
+using Immediate.Jobs.Testing.Storage;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Time.Testing;
 
@@ -20,13 +20,30 @@ public sealed class InMemoryStorageConformanceTests
 	[MemberData(nameof(Cases))]
 	public async Task InMemoryStorageConforms(JobStorageConformanceTestCase testCase)
 	{
-		ArgumentNullException.ThrowIfNull(testCase);
 		var clock = new FakeTimeProvider(DateTimeOffset.UnixEpoch);
+
 		var services = new ServiceCollection();
-		_ = services.AddSingleton<TimeProvider>(clock);
-		_ = services.AddSingleton(clock);
-		_ = services.AddImmediateJobsCore().ConfigureStorage(options => _ = options.UseInMemory());
-		await using var provider = services.BuildServiceProvider(validateScopes: true);
+		services.AddLogging();
+		services.AddSingleton<TimeProvider>(clock);
+		services.AddSingleton(clock);
+		services.AddImmediateJobsCore().ConfigureStorage(options => _ = options.UseInMemory());
+
+		await using var provider = services.BuildServiceProvider(
+			new ServiceProviderOptions
+			{
+				ValidateOnBuild = true,
+				ValidateScopes = true,
+			}
+		);
+
+		var storage = (InMemoryJobStorage)provider.GetRequiredService<IJobStorage>();
+
+		storage.LoadPersistedJobState(
+			testCase.PersistedJobState.Jobs,
+			testCase.PersistedJobState.Batches,
+			testCase.PersistedJobState.Edges,
+			testCase.PersistedJobState.RecurringSchedules
+		);
 
 		await testCase.RunAsync(provider, TestContext.Current.CancellationToken);
 	}

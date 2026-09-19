@@ -1,29 +1,28 @@
+using Immediate.Validations.Shared;
+
 namespace Immediate.Jobs.Shared.Apis;
 
 /// <summary>
 /// 	Filters members returned from a batch.
 /// </summary>
-public sealed record BatchMemberQuery
+[Validate]
+public sealed partial record BatchMemberQuery : IValidationTarget<BatchMemberQuery>
 {
 	/// <summary>
-	/// 	Optional lifecycle-state filter.
-	/// </summary>
-	/// <value>
 	/// 	The lifecycle state to match, or <see langword="null"/> to match every state.
-	/// </value>
+	/// </summary>
 	public JobState? State { get; init; }
+
 	/// <summary>
 	/// 	Number of members to skip.
 	/// </summary>
-	/// <value>
-	/// 	The number of members to skip.
-	/// </value>
+	[GreaterThanOrEqual(0)]
 	public int Skip { get; init; }
+
 	/// <summary>
 	/// 	Maximum members to return.
 	/// </summary>
-	/// <value>
-	/// 	The maximum number of members to return.
-	/// </value>
+	[GreaterThan(0)]
+	[LessThanOrEqual(nameof(Constants.MaximumTake))]
 	public int Take { get; init; } = 100;
 }

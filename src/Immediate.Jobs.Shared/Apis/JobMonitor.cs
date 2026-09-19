@@ -1,11 +1,12 @@
 using Immediate.Jobs.Shared.Interfaces;
 using Immediate.Jobs.Shared.Internals;
 using Immediate.Jobs.Shared.Storage;
+using Immediate.Validations.Shared;
 
 namespace Immediate.Jobs.Shared.Apis;
 
 /// <summary>
-/// 	Storage-backed implementation of the public monitoring services.
+/// 	Storage-backed implementation of the public job monitoring and management services.
 /// </summary>
 /// <param name="storage">
 /// 	The storage provider queried for job and batch status.
@@ -13,31 +14,238 @@ namespace Immediate.Jobs.Shared.Apis;
 /// <param name="definitions">
 /// 	The generated job definitions used to enrich monitoring results.
 /// </param>
-public sealed class JobMonitor(IJobStorage storage, IEnumerable<JobDefinition> definitions) : IBatchMonitor, IJobMonitor
+/// <param name="timeProvider">
+/// 	The clock used when triggering recurring jobs.
+/// </param>
+/// <param name="idGenerator">
+/// 	The identifier generator used when triggering recurring jobs.
+/// </param>
+public sealed class JobMonitor(
+	IJobStorage storage,
+	IEnumerable<JobDefinition> definitions,
+	TimeProvider timeProvider,
+	IIdGenerator idGenerator
+) : IJobMonitor
 {
-	/// <inheritdoc />
-	public ValueTask<BatchStatus?> GetStatusAsync(string batchId, CancellationToken cancellationToken = default) =>
-		JobStorageCapabilityGuards.RequireGraph(storage).GetBatchStatusAsync(batchId, cancellationToken);
+	private readonly Dictionary<string, JobDefinition> _definitionsByName = definitions.ToDictionary(x => x.Name, StringComparer.Ordinal);
 
 	/// <inheritdoc />
-	public ValueTask<IReadOnlyList<BatchMemberStatus>> QueryMembersAsync(
-		string batchId,
+	public async ValueTask<JobMonitoringSnapshot> GetSnapshotAsync(CancellationToken cancellationToken = default)
+	{
+		await TaskScheduler.Yield();
+		return await storage.GetMonitoringSnapshotAsync(cancellationToken);
+	}
+
+	/// <summary>Cancels a non-terminal job.</summary>
+	/// <param name="jobHandle">The invocation identifier.</param>
+	/// <param name="cancellationToken">A token that can cancel the operation.</param>
+	public async ValueTask CancelJobAsync(JobHandle jobHandle, CancellationToken cancellationToken = default)
+	{
+		await TaskScheduler.Yield();
+		ArgumentNullException.ThrowIfNull(jobHandle);
+
+		await storage.CancelAsync(jobHandle, cancellationToken);
+	}
+
+	/// <summary>Moves a terminal job back to pending.</summary>
+	/// <param name="jobHandle">The invocation identifier.</param>
+	/// <param name="cancellationToken">A token that can cancel the operation.</param>
+	public async ValueTask RetryJobAsync(JobHandle jobHandle, CancellationToken cancellationToken = default)
+	{
+		await TaskScheduler.Yield();
+		ArgumentNullException.ThrowIfNull(jobHandle);
+
+		await storage.RetryAsync(jobHandle, cancellationToken);
+	}
+
+	/// <summary>Cancels a batch and its non-terminal members.</summary>
+	/// <param name="batchHandle">The batch identifier.</param>
+	/// <param name="cancellationToken">A token that can cancel the operation.</param>
+	public async ValueTask CancelBatchAsync(BatchHandle batchHandle, CancellationToken cancellationToken = default)
+	{
+		await TaskScheduler.Yield();
+		ArgumentNullException.ThrowIfNull(batchHandle);
+
+		if (storage is not IJobGraphStorage graphStorage)
+			throw new KeyNotFoundException($"Batch '{batchHandle}' is not available.");
+
+		await graphStorage.CancelBatchAsync(batchHandle, cancellationToken);
+	}
+
+	/// <summary>Deletes a terminal batch and its retained graph.</summary>
+	/// <param name="batchHandle">The batch identifier.</param>
+	/// <param name="cancellationToken">A token that can cancel the operation.</param>
+	public async ValueTask DeleteBatchAsync(BatchHandle batchHandle, CancellationToken cancellationToken = default)
+	{
+		await TaskScheduler.Yield();
+		ArgumentNullException.ThrowIfNull(batchHandle);
+
+		if (storage is not IJobGraphStorage graphStorage)
+			throw new KeyNotFoundException($"Batch '{batchHandle}' is not available.");
+
+		await graphStorage.DeleteBatchAsync(batchHandle, cancellationToken);
+	}
+
+	/// <summary>Pauses a recurring schedule.</summary>
+	/// <param name="name">The recurring schedule name.</param>
+	/// <param name="cancellationToken">A token that can cancel the operation.</param>
+	public async ValueTask PauseRecurringAsync(string name, CancellationToken cancellationToken = default)
+	{
+		await TaskScheduler.Yield();
+		ArgumentException.ThrowIfNullOrWhiteSpace(name);
+
+		if (storage is not IRecurringJobStorage recurringStorage)
+			throw new KeyNotFoundException($"Recurring schedule '{name}' is not available.");
+
+		await recurringStorage.PauseRecurringAsync(name, cancellationToken);
+	}
+
+	/// <summary>Resumes a recurring schedule.</summary>
+	/// <param name="name">The recurring schedule name.</param>
+	/// <param name="cancellationToken">A token that can cancel the operation.</param>
+	public async ValueTask ResumeRecurringAsync(string name, CancellationToken cancellationToken = default)
+	{
+		await TaskScheduler.Yield();
+		ArgumentException.ThrowIfNullOrWhiteSpace(name);
+
+		if (storage is not IRecurringJobStorage recurringStorage)
+			throw new KeyNotFoundException($"Recurring schedule '{name}' is not available.");
+
+		await recurringStorage.ResumeRecurringAsync(name, cancellationToken);
+	}
+
+	/// <summary>Creates an immediate invocation from a recurring schedule.</summary>
+	/// <param name="name">The recurring schedule name.</param>
+	/// <param name="cancellationToken">A token that can cancel the operation.</param>
+	public async ValueTask TriggerRecurringAsync(string name, CancellationToken cancellationToken = default)
+	{
+		await TaskScheduler.Yield();
+		ArgumentException.ThrowIfNullOrWhiteSpace(name);
+
+		var snapshot = await GetSnapshotAsync(cancellationToken);
+
+		var schedule = snapshot.Recurring
+			.FirstOrDefault(candidate => string.Equals(candidate.Name, name, StringComparison.Ordinal))
+			?? throw new KeyNotFoundException($"Recurring schedule '{name}' is not available.");
+
+		if (!_definitionsByName.ContainsKey(schedule.JobName))
+			throw new ImmediateJobException($"No generated job definition exists for '{schedule.JobName}' (recurring job '{name}').");
+
+		var now = timeProvider.GetUtcNow();
+		await storage.EnqueueAsync(
+			new()
+			{
+				JobHandle = JobHandle.FromString(idGenerator.CreateId(IdKind.Job)),
+				JobName = schedule.JobName,
+				QueueName = schedule.QueueName,
+				Payload = "{}",
+				State = JobState.Pending,
+				DueAt = now,
+				CreatedAt = now,
+			},
+			cancellationToken
+		);
+	}
+
+	/// <inheritdoc />
+	public async ValueTask<IReadOnlyList<JobRecord>> QueryJobsAsync(
+		JobQuery query,
+		CancellationToken cancellationToken = default
+	)
+	{
+		await TaskScheduler.Yield();
+		ValidationException.ThrowIfInvalid(query, $"Invalid argument \"{nameof(query)}\"");
+
+		return await storage.QueryJobsAsync(query, cancellationToken);
+	}
+
+	/// <inheritdoc />
+	public async ValueTask<IReadOnlyList<JobExecutionRecord>> QueryExecutionsAsync(
+		JobHandle jobHandle,
+		JobExecutionQuery query,
+		CancellationToken cancellationToken = default
+	)
+	{
+		await TaskScheduler.Yield();
+		ArgumentNullException.ThrowIfNull(jobHandle);
+		ValidationException.ThrowIfInvalid(query, $"Invalid argument \"{nameof(query)}\"");
+
+		return await storage.QueryJobExecutionsAsync(jobHandle, query, cancellationToken);
+	}
+
+	/// <inheritdoc />
+	public async ValueTask<IReadOnlyList<BatchStatus>?> QueryBatchesAsync(
+		BatchQuery query,
+		CancellationToken cancellationToken = default
+	)
+	{
+		await TaskScheduler.Yield();
+		ValidationException.ThrowIfInvalid(query, $"Invalid argument \"{nameof(query)}\"");
+
+		return storage switch
+		{
+			IJobGraphStorage graphStorage => await graphStorage.QueryBatchesAsync(query, cancellationToken),
+			_ => null,
+		};
+	}
+
+	/// <inheritdoc />
+	public async ValueTask<BatchStatus?> GetBatchAsync(BatchHandle batchHandle, CancellationToken cancellationToken = default)
+	{
+		await TaskScheduler.Yield();
+		ArgumentNullException.ThrowIfNull(batchHandle);
+
+		return storage switch
+		{
+			IJobGraphStorage graphStorage => await graphStorage.GetBatchStatusAsync(batchHandle, cancellationToken),
+			_ => null,
+		};
+	}
+
+	/// <inheritdoc />
+	public async ValueTask<IReadOnlyList<BatchMemberStatus>?> QueryBatchMembersAsync(
+		BatchHandle batchHandle,
 		BatchMemberQuery query,
 		CancellationToken cancellationToken = default
-	) => JobStorageCapabilityGuards.RequireGraph(storage).QueryBatchMembersAsync(batchId, query, cancellationToken);
-
-	/// <inheritdoc />
-	public ValueTask<BatchGraph?> GetGraphAsync(string batchId, CancellationToken cancellationToken = default) =>
-		JobStorageCapabilityGuards.RequireGraph(storage).GetBatchGraphAsync(batchId, cancellationToken);
-
-	/// <inheritdoc />
-	public async ValueTask<JobStatus?> GetJobAsync(string jobId, CancellationToken cancellationToken = default)
+	)
 	{
-		var status = await storage.GetJobStatusAsync(jobId, cancellationToken).ConfigureAwait(false);
+		await TaskScheduler.Yield();
+		ArgumentNullException.ThrowIfNull(batchHandle);
+		ValidationException.ThrowIfInvalid(query, $"Invalid argument \"{nameof(query)}\"");
+
+		return storage switch
+		{
+			IJobGraphStorage graphStorage => await graphStorage.QueryBatchMembersAsync(batchHandle, query, cancellationToken),
+			_ => null,
+		};
+	}
+
+	/// <inheritdoc />
+	public async ValueTask<BatchGraph?> GetBatchGraphAsync(BatchHandle batchHandle, CancellationToken cancellationToken = default)
+	{
+		await TaskScheduler.Yield();
+		ArgumentNullException.ThrowIfNull(batchHandle);
+
+		return storage switch
+		{
+			IJobGraphStorage graphStorage => await graphStorage.GetBatchGraphAsync(batchHandle, cancellationToken),
+			_ => null,
+		};
+	}
+
+	/// <inheritdoc />
+	public async ValueTask<JobStatus?> GetJobAsync(JobHandle jobHandle, CancellationToken cancellationToken = default)
+	{
+		await TaskScheduler.Yield();
+		ArgumentNullException.ThrowIfNull(jobHandle);
+
+		var status = await storage.GetJobStatusAsync(jobHandle, cancellationToken);
 		if (status is null)
 			return null;
-		var definition = definitions.FirstOrDefault(candidate =>
-			string.Equals(candidate.Name, status.JobName, StringComparison.Ordinal));
-		return definition is null ? status : status with { MaxAttempts = definition.MaxAttempts };
+
+		if (!_definitionsByName.TryGetValue(status.JobName, out var definition))
+			return status;
+
+		return status with { MaxAttempts = definition.MaxAttempts };
 	}
 }

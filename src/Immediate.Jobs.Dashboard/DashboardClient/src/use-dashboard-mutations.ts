@@ -16,9 +16,9 @@ export function useJobMutations() {
 	const queryClient = useQueryClient();
 	const cancelMutation = useMutation({
 		mutationFn: cancelJob,
-		onSuccess: async (_, jobId) => {
+		onSuccess: async (_, jobHandle) => {
 			notify('Job cancelled.');
-			await queryClient.invalidateQueries({ queryKey: queryKeys.job(jobId) });
+			await queryClient.invalidateQueries({ queryKey: queryKeys.job(jobHandle) });
 			await queryClient.invalidateQueries({ queryKey: queryKeys.batchRoot });
 			await refreshDashboardQueries(queryClient);
 		},
@@ -26,9 +26,9 @@ export function useJobMutations() {
 	});
 	const retryMutation = useMutation({
 		mutationFn: retryJob,
-		onSuccess: async (_, jobId) => {
+		onSuccess: async (_, jobHandle) => {
 			notify('Job queued for retry.');
-			await queryClient.invalidateQueries({ queryKey: queryKeys.job(jobId) });
+			await queryClient.invalidateQueries({ queryKey: queryKeys.job(jobHandle) });
 			await refreshDashboardQueries(queryClient);
 		},
 		onError: (reason) => notify(errorText(reason), 'error'),
@@ -36,7 +36,7 @@ export function useJobMutations() {
 	return {
 		cancelJob: cancelMutation.mutateAsync,
 		retryJob: retryMutation.mutate,
-		busyJobId: computed(() => {
+		busyJobHandle: computed(() => {
 			if (cancelMutation.isPending.value) {
 				return cancelMutation.variables.value;
 			}
@@ -53,19 +53,19 @@ export function useBatchMutations() {
 	const queryClient = useQueryClient();
 	const cancelMutation = useMutation({
 		mutationFn: cancelBatch,
-		onSuccess: async (_, batchId) => {
+		onSuccess: async (_, batchHandle) => {
 			notify('Batch cancellation requested.');
-			await queryClient.invalidateQueries({ queryKey: queryKeys.batch(batchId) });
+			await queryClient.invalidateQueries({ queryKey: queryKeys.batch(batchHandle) });
 			await refreshDashboardQueries(queryClient);
 		},
 		onError: (reason) => notify(errorText(reason), 'error'),
 	});
 	const deleteMutation = useMutation({
 		mutationFn: deleteBatch,
-		onSuccess: async (_, batchId) => {
+		onSuccess: async (_, batchHandle) => {
 			notify('Batch deleted.');
-			queryClient.removeQueries({ queryKey: queryKeys.batch(batchId) });
-			queryClient.removeQueries({ queryKey: queryKeys.batchGraph(batchId) });
+			queryClient.removeQueries({ queryKey: queryKeys.batch(batchHandle) });
+			queryClient.removeQueries({ queryKey: queryKeys.batchGraph(batchHandle) });
 			await refreshDashboardQueries(queryClient);
 		},
 		onError: (reason) => notify(errorText(reason), 'error'),
@@ -74,7 +74,7 @@ export function useBatchMutations() {
 	return {
 		cancelBatch: cancelMutation.mutateAsync,
 		deleteBatch: deleteMutation.mutateAsync,
-		busyBatchId: computed(() => {
+		busyBatchHandle: computed(() => {
 			if (cancelMutation.isPending.value) {
 				return cancelMutation.variables.value;
 			}

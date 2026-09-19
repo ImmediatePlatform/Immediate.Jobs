@@ -148,6 +148,7 @@ partial class {{ class_name }}
 			{{~ end ~}}
 			MaxConcurrency = {{ max_concurrency }},
 			OverlapPolicy = global::Immediate.Jobs.Shared.OverlapPolicy.{{ overlap_policy }},
+			MisfireHandlingMode = global::Immediate.Jobs.Shared.MisfireHandlingMode.{{ misfire_handling_mode }},
 			Backoff = global::Immediate.Jobs.Shared.BackoffStrategy.{{ backoff }},
 			BackoffBase = global::System.TimeSpan.Parse({{ backoff_base_literal }}, global::System.Globalization.CultureInfo.InvariantCulture),
 		};

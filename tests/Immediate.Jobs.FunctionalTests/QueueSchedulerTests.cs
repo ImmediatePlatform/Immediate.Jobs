@@ -1,7 +1,7 @@
 using System.Collections.Concurrent;
 using Immediate.Jobs.Shared.Interfaces;
 using Immediate.Jobs.Shared.Internals;
-using Immediate.Jobs.Shared.Storage;
+using Immediate.Jobs.Testing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 
@@ -12,17 +12,17 @@ public sealed class QueueSchedulerTests
 	[Fact]
 	public async Task RepeatedRuntimeRegistrationPreservesOtherHostedServicesAndAddsOneScheduler()
 	{
-		var services = new ServiceCollection();
-		_ = services.AddLogging();
-		_ = services.AddHostedService<OtherHostedService>();
-		_ = services.AddImmediateJobsCore();
-		_ = services.AddImmediateJobsCore();
-
-		await using var provider = services.BuildServiceProvider();
-		var hostedServices = provider.GetServices<IHostedService>().ToArray();
+		await using var harness = new JobTestHarness(
+			services =>
+			{
+				services.AddHostedService<OtherHostedService>();
+				services.AddImmediateJobsCore();
+				services.AddImmediateJobsCore();
+			}
+		);
 
 		Assert.Collection(
-			hostedServices,
+			harness.Services.GetServices<IHostedService>(),
 			sd => Assert.IsType<OtherHostedService>(sd),
 			sd => Assert.IsType<JobSchedulingService>(sd)
 		);
@@ -35,68 +35,69 @@ public sealed class QueueSchedulerTests
 		var execution = new BlockingExecution();
 		var highQueue = new JobQueueDefinition { Name = "high", Priority = 10, Concurrency = 2 };
 		var lowQueue = new JobQueueDefinition { Name = "low", Priority = 0 };
-		var services = new ServiceCollection();
-		_ = services.AddLogging();
-		_ = services.AddImmediateJobsCore()
-			.Configure(o =>
+		await using var harness = new JobTestHarness(
+			services =>
 			{
-				o.MaxParallelJobs = 3;
-				o.PollingInterval = TimeSpan.FromMilliseconds(10);
-			})
-			.ConfigureStorage(o => o.UseInMemory());
+				services.AddSingleton(new JobDefinition
+				{
+					Name = "high-a",
+					Queue = highQueue,
+					MaxConcurrency = 1,
+					Invoker = execution,
+					JobType = typeof(BlockingExecution),
+				});
+				services.AddSingleton(new JobDefinition
+				{
+					Name = "high-b",
+					Queue = highQueue,
+					Invoker = execution,
+					JobType = typeof(BlockingExecution),
+				});
+				services.AddSingleton(new JobDefinition
+				{
+					Name = "low-a",
+					Queue = lowQueue,
+					Invoker = execution,
+					JobType = typeof(BlockingExecution),
+				});
+			},
+			workers =>
+			{
+				workers.WorkerCount = 3;
+				workers.PollingInterval = TimeSpan.FromMilliseconds(10);
+			}
+		);
 
-		_ = services.AddSingleton(new JobDefinition
-		{
-			Name = "high-a",
-			Queue = highQueue,
-			MaxConcurrency = 1,
-			Invoker = execution,
-			JobType = typeof(BlockingExecution),
-		});
-		_ = services.AddSingleton(new JobDefinition
-		{
-			Name = "high-b",
-			Queue = highQueue,
-			Invoker = execution,
-			JobType = typeof(BlockingExecution),
-		});
-		_ = services.AddSingleton(new JobDefinition
-		{
-			Name = "low-a",
-			Queue = lowQueue,
-			Invoker = execution,
-			JobType = typeof(BlockingExecution),
-		});
-
-		await using var provider = services.BuildServiceProvider();
-		var storage = provider.GetRequiredService<IJobStorage>();
-		await storage.InitializeAsync(cancellationToken);
+		var storage = harness.Storage;
 		await Enqueue("high", "high-a", 0);
 		await Enqueue("high", "high-a", 1);
 		await Enqueue("high", "high-b", 2);
 		await Enqueue("low", "low-a", 3);
 		await Enqueue("low", "low-a", 4);
 
-		var hostedService = provider.GetServices<IHostedService>().Single();
-		await hostedService.StartAsync(cancellationToken);
+		await harness.Scheduler.StartAsync(cancellationToken);
 		await execution.ThreeStarted.Task.WaitAsync(TimeSpan.FromSeconds(5), cancellationToken);
 
 		Assert.Equal(2, execution.MaximumByQueue["high"]);
 		Assert.Equal(1, execution.MaximumByJob["high-a"]);
 
 		_ = execution.Release.TrySetResult();
-		await hostedService.StopAsync(cancellationToken);
+		await harness.Scheduler.StopAsync(cancellationToken);
 
-		ValueTask Enqueue(string queueName, string jobName, int order) => storage.EnqueueAsync(new()
-		{
-			Id = Guid.NewGuid().ToString("N"),
-			QueueName = queueName,
-			JobName = jobName,
-			Payload = "{}",
-			State = JobState.Pending,
-			DueAt = DateTimeOffset.UnixEpoch,
-			CreatedAt = DateTimeOffset.UnixEpoch.AddTicks(order),
-		}, cancellationToken);
+		ValueTask Enqueue(string queueName, string jobName, int order) =>
+			storage.EnqueueAsync(
+				new()
+				{
+					JobHandle = JobHandle.FromString(Guid.NewGuid().ToString("N")),
+					QueueName = queueName,
+					JobName = jobName,
+					Payload = "{}",
+					State = JobState.Pending,
+					DueAt = DateTimeOffset.UnixEpoch,
+					CreatedAt = DateTimeOffset.UnixEpoch.AddTicks(order),
+				},
+				cancellationToken
+			);
 	}
 
 	private sealed class BlockingExecution : IJobInvoker
@@ -132,10 +133,9 @@ public sealed class QueueSchedulerTests
 		}
 	}
 
-	private sealed class OtherHostedService : IHostedService
+	public sealed class OtherHostedService : IHostedService
 	{
 		public Task StartAsync(CancellationToken cancellationToken) => Task.CompletedTask;
-
 		public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 	}
 }

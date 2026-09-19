@@ -1,8 +1,11 @@
+using System.ComponentModel;
+
 namespace Immediate.Jobs.Shared.Internals;
 
 /// <summary>
 /// 	Immutable compile-time queue settings.
 /// </summary>
+[EditorBrowsable(EditorBrowsableState.Never)]
 public sealed record JobQueueDefinition
 {
 	/// <summary>

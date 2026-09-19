@@ -1,8 +1,8 @@
 import type { BatchGraph, BatchStatus, JobRecord } from '@/contracts';
 
 export const completedJob: JobRecord = {
-	id: '86bf8c31-d8e6-415b-8e92-45587a09fc52',
-	batchId: 'batch-42',
+	jobHandle: '86bf8c31-d8e6-415b-8e92-45587a09fc52',
+	batchHandle: 'batch-42',
 	jobName: 'SendGreeting',
 	queueName: 'default',
 	groupId: 'tenant-a',
@@ -27,7 +27,7 @@ export const completedJob: JobRecord = {
 };
 
 export const executingBatch: BatchStatus = {
-	id: 'campaign-batch',
+	batchHandle: 'campaign-batch',
 	state: 'Executing',
 	total: 10,
 	succeeded: 6,
@@ -42,17 +42,17 @@ export const executingBatch: BatchStatus = {
 };
 
 export const workflowGraph: BatchGraph = {
-	batchId: 'deploy',
+	batchHandle: 'deploy',
 	nodes: [
-		{ jobId: 'build', jobName: 'Build', state: 'Succeeded' },
-		{ jobId: 'region-a', jobName: 'Deploy A', state: 'Active' },
-		{ jobId: 'region-b', jobName: 'Deploy B', state: 'Pending' },
-		{ jobId: 'smoke', jobName: 'order-record-fraud-assessment', state: 'AwaitingContinuation' },
+		{ jobHandle: 'build', jobName: 'Build', state: 'Succeeded' },
+		{ jobHandle: 'region-a', jobName: 'Deploy A', state: 'Active' },
+		{ jobHandle: 'region-b', jobName: 'Deploy B', state: 'Pending' },
+		{ jobHandle: 'smoke', jobName: 'order-record-fraud-assessment', state: 'AwaitingContinuation' },
 	],
 	edges: [
-		{ childJobId: 'region-a', parentJobId: 'build', parentBatchId: null, trigger: 'Success' },
-		{ childJobId: 'region-b', parentJobId: 'build', parentBatchId: null, trigger: 'Success' },
-		{ childJobId: 'smoke', parentJobId: 'region-a', parentBatchId: null, trigger: 'Complete' },
-		{ childJobId: 'smoke', parentJobId: 'region-b', parentBatchId: null, trigger: 'Complete' },
+		{ childJobHandle: 'region-a', parentJobHandle: 'build', parentBatchHandle: null, trigger: 'Success' },
+		{ childJobHandle: 'region-b', parentJobHandle: 'build', parentBatchHandle: null, trigger: 'Success' },
+		{ childJobHandle: 'smoke', parentJobHandle: 'region-a', parentBatchHandle: null, trigger: 'Complete' },
+		{ childJobHandle: 'smoke', parentJobHandle: 'region-b', parentBatchHandle: null, trigger: 'Complete' },
 	],
 };

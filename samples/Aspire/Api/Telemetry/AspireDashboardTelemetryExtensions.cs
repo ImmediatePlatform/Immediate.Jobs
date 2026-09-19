@@ -5,13 +5,16 @@ namespace Immediate.Jobs.Aspire.Api.Telemetry;
 
 internal static class AspireDashboardTelemetryExtensions
 {
-	public static ImmediateJobsDashboardOptions AddAspireTelemetryLinks(
-		this ImmediateJobsDashboardOptions options,
-		Uri dashboardUrl
+	public static IImmediateJobsDashboardBuilder AddAspireTelemetryLinks(
+		this IImmediateJobsDashboardBuilder builder,
+		Uri? dashboardUrl
 	)
 	{
-		ArgumentNullException.ThrowIfNull(options);
-		ArgumentNullException.ThrowIfNull(dashboardUrl);
+		ArgumentNullException.ThrowIfNull(builder);
+
+		if (dashboardUrl is null)
+			return builder;
+
 		if (!dashboardUrl.IsAbsoluteUri ||
 			(!string.Equals(dashboardUrl.Scheme, Uri.UriSchemeHttp, StringComparison.Ordinal) && !string.Equals(dashboardUrl.Scheme, Uri.UriSchemeHttps, StringComparison.Ordinal)))
 		{
@@ -19,7 +22,7 @@ internal static class AspireDashboardTelemetryExtensions
 		}
 
 		var baseUrl = new Uri(dashboardUrl.AbsoluteUri.TrimEnd('/') + '/', UriKind.Absolute);
-		return options
+		builder
 			.AddTelemetryLink(
 				"Aspire trace",
 				JobTelemetryLinkKind.Trace,
@@ -30,6 +33,8 @@ internal static class AspireDashboardTelemetryExtensions
 				JobTelemetryLinkKind.Logs,
 				context => CreateLogsUrl(baseUrl, context.Job)
 			);
+
+		return builder;
 	}
 
 	private static Uri? CreateTraceUrl(Uri baseUrl, JobRecord job)

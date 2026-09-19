@@ -1,5 +1,4 @@
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.DependencyInjection;
 
 namespace Immediate.Jobs.EntityFrameworkCore;
 
@@ -21,17 +20,11 @@ public static class EntityFrameworkCoreServiceCollectionExtensions
 	/// <returns>
 	///		The configured Immediate.Jobs options.
 	/// </returns>
-	public static ImmediateJobsStorageBuilder UseEntityFrameworkCore<TContext>(this ImmediateJobsStorageBuilder builder)
+	public static IImmediateJobsStorageBuilder UseEntityFrameworkCore<TContext>(this IImmediateJobsStorageBuilder builder)
 		where TContext : DbContext
 	{
 		ArgumentNullException.ThrowIfNull(builder);
 
-		return builder.UseStorage(
-			services =>
-				new EntityFrameworkCoreJobStorage<TContext>(
-					services.GetRequiredService<IDbContextFactory<TContext>>(),
-					services.GetService<TimeProvider>()
-				)
-		);
+		return builder.UseStorage<EntityFrameworkCoreJobStorage<TContext>>();
 	}
 }

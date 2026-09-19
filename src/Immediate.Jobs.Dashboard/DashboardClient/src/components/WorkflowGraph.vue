@@ -24,14 +24,14 @@ interface PositionedEdge extends BatchGraphEdge {
 }
 
 interface PositionedFork {
-	parentJobId: string;
+	parentJobHandle: string;
 	x: number;
 	y: number;
 	path: string;
 }
 
 interface PositionedJoin {
-	childJobId: string;
+	childJobHandle: string;
 	x: number;
 	y: number;
 	path: string;
@@ -56,7 +56,7 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits<{
-	select: [jobId: string];
+	select: [jobHandle: string];
 }>();
 
 const minimumNodeWidth = 170;
@@ -72,7 +72,7 @@ const junctionOffset = 24;
 
 const viewport = ref<HTMLElement>();
 const showAllConstraints = ref(false);
-let followedActiveJobId: string | undefined;
+let followedActiveJobHandle: string | undefined;
 let textMeasurementContext: CanvasRenderingContext2D | null | undefined;
 
 function measureNodeWidth(jobName: string): number {
@@ -122,39 +122,39 @@ function pipelineEdgePath(startX: number, startY: number, endX: number, endY: nu
 function groupEdgesByParent(edges: BatchGraphEdge[]): Map<string, IndexedEdge[]> {
 	const grouped = new Map<string, IndexedEdge[]>();
 	for (const [index, edge] of edges.entries()) {
-		if (!edge.parentJobId) {
+		if (!edge.parentJobHandle) {
 			continue;
 		}
-		const outgoing = grouped.get(edge.parentJobId) ?? [];
+		const outgoing = grouped.get(edge.parentJobHandle) ?? [];
 		outgoing.push({ edge, index });
-		grouped.set(edge.parentJobId, outgoing);
+		grouped.set(edge.parentJobHandle, outgoing);
 	}
 	return grouped;
 }
 
 function hasAlternatePath(excluded: BatchGraphEdge, excludedIndex: number, edgesByParent: Map<string, IndexedEdge[]>): boolean {
-	if (!excluded.parentJobId) {
+	if (!excluded.parentJobHandle) {
 		return false;
 	}
 
 	const requiredTrigger = excluded.trigger;
-	const visited = new Set<string>([excluded.parentJobId]);
-	const pending = [{ jobId: excluded.parentJobId, depth: 0 }];
+	const visited = new Set<string>([excluded.parentJobHandle]);
+	const pending = [{ jobHandle: excluded.parentJobHandle, depth: 0 }];
 	while (pending.length > 0) {
 		const current = pending.pop();
 		if (!current) {
 			continue;
 		}
-		for (const { edge, index } of edgesByParent.get(current.jobId) ?? []) {
+		for (const { edge, index } of edgesByParent.get(current.jobHandle) ?? []) {
 			if (index === excludedIndex || edge.trigger !== requiredTrigger) {
 				continue;
 			}
-			if (edge.childJobId === excluded.childJobId && current.depth > 0) {
+			if (edge.childJobHandle === excluded.childJobHandle && current.depth > 0) {
 				return true;
 			}
-			if (!visited.has(edge.childJobId)) {
-				visited.add(edge.childJobId);
-				pending.push({ jobId: edge.childJobId, depth: current.depth + 1 });
+			if (!visited.has(edge.childJobHandle)) {
+				visited.add(edge.childJobHandle);
+				pending.push({ jobHandle: edge.childJobHandle, depth: current.depth + 1 });
 			}
 		}
 	}
@@ -172,17 +172,17 @@ function groupConnectedJobs(
 	const parentsByJob = new Map<string, string[]>();
 	const childrenByJob = new Map<string, string[]>();
 	for (const edge of edges) {
-		if (!edge.parentJobId) {
+		if (!edge.parentJobHandle) {
 			continue;
 		}
 
-		const parents = parentsByJob.get(edge.childJobId) ?? [];
-		parents.push(edge.parentJobId);
-		parentsByJob.set(edge.childJobId, parents);
+		const parents = parentsByJob.get(edge.childJobHandle) ?? [];
+		parents.push(edge.parentJobHandle);
+		parentsByJob.set(edge.childJobHandle, parents);
 
-		const children = childrenByJob.get(edge.parentJobId) ?? [];
-		children.push(edge.childJobId);
-		childrenByJob.set(edge.parentJobId, children);
+		const children = childrenByJob.get(edge.parentJobHandle) ?? [];
+		children.push(edge.childJobHandle);
+		childrenByJob.set(edge.parentJobHandle, children);
 	}
 	return { parentsByJob, childrenByJob };
 }
@@ -192,7 +192,7 @@ function normalizedNodePositions(layers: PositionedNode[][]): Map<string, number
 	for (const layer of layers) {
 		const denominator = Math.max(1, layer.length - 1);
 		layer.forEach((node, index) => {
-			positions.set(node.jobId, layer.length === 1 ? 0.5 : index / denominator);
+			positions.set(node.jobHandle, layer.length === 1 ? 0.5 : index / denominator);
 		});
 	}
 	return positions;
@@ -203,23 +203,23 @@ function orderLayerByNeighbors(
 	neighborsByJob: Map<string, string[]>,
 	positions: Map<string, number>,
 ): void {
-	const previousOrder = new Map(layer.map((node, index) => [node.jobId, index]));
+	const previousOrder = new Map(layer.map((node, index) => [node.jobHandle, index]));
 	const scores = new Map<string, number>();
 	for (const node of layer) {
-		const neighborPositions = (neighborsByJob.get(node.jobId) ?? [])
-			.flatMap((jobId) => {
-				const position = positions.get(jobId);
+		const neighborPositions = (neighborsByJob.get(node.jobHandle) ?? [])
+			.flatMap((jobHandle) => {
+				const position = positions.get(jobHandle);
 				return position === undefined ? [] : [position];
 			});
 		if (neighborPositions.length > 0) {
 			const total = neighborPositions.reduce((sum, position) => sum + position, 0);
-			scores.set(node.jobId, total / neighborPositions.length);
+			scores.set(node.jobHandle, total / neighborPositions.length);
 		}
 	}
 
 	layer.sort((left, right) => {
-		const leftScore = scores.get(left.jobId);
-		const rightScore = scores.get(right.jobId);
+		const leftScore = scores.get(left.jobHandle);
+		const rightScore = scores.get(right.jobHandle);
 		if (leftScore !== undefined && rightScore !== undefined && leftScore !== rightScore) {
 			return leftScore - rightScore;
 		}
@@ -229,7 +229,7 @@ function orderLayerByNeighbors(
 		if (leftScore === undefined && rightScore !== undefined) {
 			return 1;
 		}
-		return (previousOrder.get(left.jobId) ?? 0) - (previousOrder.get(right.jobId) ?? 0);
+		return (previousOrder.get(left.jobHandle) ?? 0) - (previousOrder.get(right.jobHandle) ?? 0);
 	});
 }
 
@@ -255,11 +255,11 @@ function createEdges(edgesToDraw: BatchGraphEdge[], positions: Map<string, Posit
 	joins: PositionedJoin[];
 } {
 	const edges = edgesToDraw.flatMap((edge, index) => {
-		const to = positions.get(edge.childJobId);
+		const to = positions.get(edge.childJobHandle);
 		if (!to) {
 			return [];
 		}
-		const from = edge.parentJobId ? positions.get(edge.parentJobId) : undefined;
+		const from = edge.parentJobHandle ? positions.get(edge.parentJobHandle) : undefined;
 		const endY = to.y + nodeHeight / 2;
 		return [{
 			...edge,
@@ -276,18 +276,18 @@ function createEdges(edgesToDraw: BatchGraphEdge[], positions: Map<string, Posit
 	const outgoingByJob = new Map<string, typeof edges>();
 
 	for (const edge of edges) {
-		const incoming = incomingByJob.get(edge.childJobId) ?? [];
+		const incoming = incomingByJob.get(edge.childJobHandle) ?? [];
 		incoming.push(edge);
-		incomingByJob.set(edge.childJobId, incoming);
-		if (edge.parentJobId) {
-			const outgoing = outgoingByJob.get(edge.parentJobId) ?? [];
+		incomingByJob.set(edge.childJobHandle, incoming);
+		if (edge.parentJobHandle) {
+			const outgoing = outgoingByJob.get(edge.parentJobHandle) ?? [];
 			outgoing.push(edge);
-			outgoingByJob.set(edge.parentJobId, outgoing);
+			outgoingByJob.set(edge.parentJobHandle, outgoing);
 		}
 	}
 
 	const joins: PositionedJoin[] = [];
-	for (const [childJobId, incoming] of incomingByJob) {
+	for (const [childJobHandle, incoming] of incomingByJob) {
 		if (incoming.length === 1) {
 			continue;
 		}
@@ -305,7 +305,7 @@ function createEdges(edgesToDraw: BatchGraphEdge[], positions: Map<string, Posit
 			edge.endY = joinY;
 		}
 		joins.push({
-			childJobId,
+			childJobHandle,
 			x: joinX,
 			y: joinY,
 			path: `M ${joinX} ${joinY} L ${to.x} ${joinY}`,
@@ -313,7 +313,7 @@ function createEdges(edgesToDraw: BatchGraphEdge[], positions: Map<string, Posit
 	}
 
 	const forks: PositionedFork[] = [];
-	for (const [parentJobId, outgoing] of outgoingByJob) {
+	for (const [parentJobHandle, outgoing] of outgoingByJob) {
 		const from = outgoing[0]?.from;
 		if (outgoing.length < 2 || !from) {
 			continue;
@@ -327,7 +327,7 @@ function createEdges(edgesToDraw: BatchGraphEdge[], positions: Map<string, Posit
 			edge.startY = forkY;
 		}
 		forks.push({
-			parentJobId,
+			parentJobHandle,
 			x: forkX,
 			y: forkY,
 			path: `M ${sourceX} ${forkY} L ${forkX} ${forkY}`,
@@ -350,17 +350,17 @@ function layout(graph: BatchGraph | undefined, edgesToDraw: BatchGraphEdge[]): D
 	}
 
 	const nodesById = new Map(graph.nodes.map((node) => [
-		node.jobId,
+		node.jobHandle,
 		{ ...node, rank: 0, width: measureNodeWidth(node.jobName), x: 0, y: 0 },
 	]));
 	for (let pass = 0; pass < graph.nodes.length; pass++) {
 		let changed = false;
 		for (const edge of edgesToDraw) {
-			if (!edge.parentJobId) {
+			if (!edge.parentJobHandle) {
 				continue;
 			}
-			const parent = nodesById.get(edge.parentJobId);
-			const child = nodesById.get(edge.childJobId);
+			const parent = nodesById.get(edge.parentJobHandle);
+			const child = nodesById.get(edge.childJobHandle);
 			if (!parent || !child) {
 				continue;
 			}
@@ -401,7 +401,7 @@ function layout(graph: BatchGraph | undefined, edgesToDraw: BatchGraphEdge[]): D
 		nextLayerX = contentRight + columnGap;
 	}
 
-	const positions = new Map(nodes.map((node) => [node.jobId, node]));
+	const positions = new Map(nodes.map((node) => [node.jobHandle, node]));
 	const { edges, forks, joins } = createEdges(edgesToDraw, positions);
 	return {
 		nodes,
@@ -426,7 +426,7 @@ const toolbarDescription = computed(() => {
 });
 const toggleLabel = computed(() => showAllConstraints.value ? 'Simplify workflow' : 'Show all constraints');
 
-watch(() => props.graph?.batchId, () => {
+watch(() => props.graph?.batchHandle, () => {
 	showAllConstraints.value = false;
 });
 
@@ -449,14 +449,14 @@ function centerNode(element: HTMLElement, node: PositionedNode): void {
 watch([drawing, viewport], async ([nextDrawing, viewportElement]) => {
 	const activeNodes = nextDrawing.nodes.filter((node) => node.state === 'Active');
 	if (!viewportElement || activeNodes.length === 0) {
-		followedActiveJobId = undefined;
+		followedActiveJobHandle = undefined;
 		return;
 	}
-	const target = activeNodes.find((node) => node.jobId === followedActiveJobId) ?? activeNodes[0];
+	const target = activeNodes.find((node) => node.jobHandle === followedActiveJobHandle) ?? activeNodes[0];
 	if (!target) {
 		return;
 	}
-	followedActiveJobId = target.jobId;
+	followedActiveJobHandle = target.jobHandle;
 	await nextTick();
 	if (!nodeIsVisible(viewportElement, target)) {
 		viewportElement.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
@@ -464,10 +464,10 @@ watch([drawing, viewport], async ([nextDrawing, viewportElement]) => {
 	}
 }, { immediate: true });
 
-function handleNodeKeydown(event: KeyboardEvent, jobId: string): void {
+function handleNodeKeydown(event: KeyboardEvent, jobHandle: string): void {
 	if (event.key === 'Enter' || event.key === ' ') {
 		event.preventDefault();
-		emit('select', jobId);
+		emit('select', jobHandle);
 	}
 }
 </script>
@@ -495,44 +495,44 @@ function handleNodeKeydown(event: KeyboardEvent, jobId: string): void {
 				</defs>
 				<path
 					v-for="edge in drawing.edges"
-					:key="`${edge.childJobId}-${edge.parentJobId}-${edge.index}`"
+					:key="`${edge.childJobHandle}-${edge.parentJobHandle}-${edge.index}`"
 					class="workflow-edge"
 					:class="{ dashed: edge.trigger === 'Complete', failure: edge.trigger === 'Failure' }"
-					:data-parent-job-id="edge.parentJobId"
-					:data-child-job-id="edge.childJobId"
+					:data-parent-job-id="edge.parentJobHandle"
+					:data-child-job-id="edge.childJobHandle"
 					:data-trigger="edge.trigger"
 					:d="edge.path"
 					:marker-end="edge.joinsFanIn ? undefined : 'url(#workflow-arrow)'"
 				/>
 				<g
 					v-for="fork in drawing.forks"
-					:key="`fork-${fork.parentJobId}`"
+					:key="`fork-${fork.parentJobHandle}`"
 					class="workflow-fork"
-					:data-parent-job-id="fork.parentJobId"
+					:data-parent-job-id="fork.parentJobHandle"
 				>
 					<path :d="fork.path" />
 					<circle :cx="fork.x" :cy="fork.y" r="3.5" />
 				</g>
 				<g
 					v-for="join in drawing.joins"
-					:key="`join-${join.childJobId}`"
+					:key="`join-${join.childJobHandle}`"
 					class="workflow-join"
-					:data-child-job-id="join.childJobId"
+					:data-child-job-id="join.childJobHandle"
 				>
 					<path :d="join.path" marker-end="url(#workflow-arrow)" />
 					<circle :cx="join.x" :cy="join.y" r="3.5" />
 				</g>
 				<g
 					v-for="node in drawing.nodes"
-					:key="node.jobId"
+					:key="node.jobHandle"
 					class="workflow-node"
 					:class="node.state.toLowerCase()"
-					:data-job-id="node.jobId"
+					:data-job-id="node.jobHandle"
 					:transform="`translate(${node.x} ${node.y})`"
 					role="button"
 					tabindex="0"
-					@click="emit('select', node.jobId)"
-					@keydown="handleNodeKeydown($event, node.jobId)"
+					@click="emit('select', node.jobHandle)"
+					@keydown="handleNodeKeydown($event, node.jobHandle)"
 				>
 					<rect :width="node.width" :height="nodeHeight" rx="9" />
 					<text x="12" y="24">{{ node.jobName }}</text>
