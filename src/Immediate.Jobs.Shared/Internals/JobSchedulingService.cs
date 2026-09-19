@@ -298,11 +298,10 @@ public sealed partial class JobSchedulingService : BackgroundService
 			while (nextDue < _timeProvider.GetUtcNow())
 				nextDue += HeartbeatInterval;
 
-			await Task.Delay(
-				delay: nextDue - _timeProvider.GetUtcNow(),
-				_timeProvider,
-				cancellationToken
-			);
+			var delay = nextDue - _timeProvider.GetUtcNow();
+
+			if (delay > TimeSpan.Zero)
+				await Task.Delay(delay, _timeProvider, cancellationToken);
 		}
 	}
 
