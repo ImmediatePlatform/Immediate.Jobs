@@ -21,7 +21,6 @@
 
   <ItemGroup>
 	<ProjectReference Include="../../../src/Immediate.Jobs/Immediate.Jobs.csproj" />
-	<ProjectReference Include="../../../src/Immediate.Jobs.NodaTime/Immediate.Jobs.NodaTime.csproj" />
 	<ProjectReference Include="../../../src/Immediate.Jobs.EntityFrameworkCore/Immediate.Jobs.EntityFrameworkCore.csproj" />
 	
 	<ProjectReference Include="../../../src/Immediate.Jobs.Analyzers/Immediate.Jobs.Analyzers.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false">
