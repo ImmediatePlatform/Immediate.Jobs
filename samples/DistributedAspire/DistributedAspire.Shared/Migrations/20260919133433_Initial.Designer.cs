@@ -12,7 +12,7 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Immediate.Jobs.DistributedAspire.Shared.Migrations
 {
     [DbContext(typeof(JobsDbContext))]
-    [Migration("20260807183716_Initial")]
+    [Migration("20260919133433_Initial")]
     partial class Initial
     {
         /// <inheritdoc />
@@ -20,7 +20,7 @@ namespace Immediate.Jobs.DistributedAspire.Shared.Migrations
         {
 #pragma warning disable 612, 618
             modelBuilder
-                .HasAnnotation("ProductVersion", "10.0.10")
+                .HasAnnotation("ProductVersion", "10.0.12")
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
@@ -135,7 +135,7 @@ namespace Immediate.Jobs.DistributedAspire.Shared.Migrations
 
             modelBuilder.Entity("Immediate.Jobs.EntityFrameworkCore.ImmediateJobContinuationEntity", b =>
                 {
-                    b.Property<string>("ChildJobId")
+                    b.Property<string>("ChildJobHandle")
                         .HasMaxLength(256)
                         .HasColumnType("character varying(256)");
 
@@ -146,13 +146,17 @@ namespace Immediate.Jobs.DistributedAspire.Shared.Migrations
                         .HasMaxLength(256)
                         .HasColumnType("character varying(256)");
 
+                    b.Property<long>("Delay")
+                        .HasMaxLength(32)
+                        .HasColumnType("bigint");
+
                     b.Property<short>("ParentOutcome")
                         .HasColumnType("smallint");
 
                     b.Property<short>("Trigger")
                         .HasColumnType("smallint");
 
-                    b.HasKey("ChildJobId", "ParentKind", "ParentId");
+                    b.HasKey("ChildJobHandle", "ParentKind", "ParentId");
 
                     b.HasIndex("ParentKind", "ParentId");
 
@@ -168,7 +172,7 @@ namespace Immediate.Jobs.DistributedAspire.Shared.Migrations
                     b.Property<int>("Attempt")
                         .HasColumnType("integer");
 
-                    b.Property<string>("BatchId")
+                    b.Property<string>("BatchHandle")
                         .HasMaxLength(256)
                         .HasColumnType("character varying(256)");
 
@@ -251,7 +255,7 @@ namespace Immediate.Jobs.DistributedAspire.Shared.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("BatchId");
+                    b.HasIndex("BatchHandle");
 
                     b.HasIndex("RecurringKey")
                         .IsUnique();
@@ -269,7 +273,7 @@ namespace Immediate.Jobs.DistributedAspire.Shared.Migrations
 
             modelBuilder.Entity("Immediate.Jobs.EntityFrameworkCore.ImmediateJobExecutionEntity", b =>
                 {
-                    b.Property<string>("JobId")
+                    b.Property<string>("JobHandle")
                         .HasMaxLength(256)
                         .HasColumnType("character varying(256)");
 
@@ -308,7 +312,7 @@ namespace Immediate.Jobs.DistributedAspire.Shared.Migrations
                         .HasMaxLength(256)
                         .HasColumnType("character varying(256)");
 
-                    b.HasKey("JobId", "Attempt");
+                    b.HasKey("JobHandle", "Attempt");
 
                     b.ToTable("immediate_job_executions", (string)null);
                 });
@@ -322,6 +326,13 @@ namespace Immediate.Jobs.DistributedAspire.Shared.Migrations
                     b.Property<int>("ActiveWorkers")
                         .HasColumnType("integer");
 
+                    b.Property<string>("Details")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<long>("ExpiresAt")
+                        .HasColumnType("bigint");
+
                     b.Property<long>("LastHeartbeat")
                         .HasColumnType("bigint");
 
@@ -330,7 +341,7 @@ namespace Immediate.Jobs.DistributedAspire.Shared.Migrations
 
                     b.HasKey("WorkerId");
 
-                    b.HasIndex("LastHeartbeat");
+                    b.HasIndex("ExpiresAt");
 
                     b.ToTable("immediate_job_servers", (string)null);
                 });
@@ -366,6 +377,11 @@ namespace Immediate.Jobs.DistributedAspire.Shared.Migrations
 
                     b.Property<long>("NextRunAt")
                         .HasColumnType("bigint");
+
+                    b.Property<string>("QueueName")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
 
                     b.Property<string>("TimeZone")
                         .IsRequired()
@@ -418,7 +434,7 @@ namespace Immediate.Jobs.DistributedAspire.Shared.Migrations
                 {
                     b.HasOne("Immediate.Jobs.EntityFrameworkCore.ImmediateJobEntity", null)
                         .WithMany()
-                        .HasForeignKey("ChildJobId")
+                        .HasForeignKey("ChildJobHandle")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });
@@ -427,7 +443,7 @@ namespace Immediate.Jobs.DistributedAspire.Shared.Migrations
                 {
                     b.HasOne("Immediate.Jobs.EntityFrameworkCore.ImmediateJobBatchEntity", null)
                         .WithMany()
-                        .HasForeignKey("BatchId")
+                        .HasForeignKey("BatchHandle")
                         .OnDelete(DeleteBehavior.Cascade);
                 });
 
@@ -435,7 +451,7 @@ namespace Immediate.Jobs.DistributedAspire.Shared.Migrations
                 {
                     b.HasOne("Immediate.Jobs.EntityFrameworkCore.ImmediateJobEntity", null)
                         .WithMany()
-                        .HasForeignKey("JobId")
+                        .HasForeignKey("JobHandle")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });

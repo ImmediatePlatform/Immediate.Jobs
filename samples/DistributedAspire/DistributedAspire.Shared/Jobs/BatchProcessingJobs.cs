@@ -101,7 +101,7 @@ public sealed partial class EnqueueBatchesJob(
 
 		await using var batch = batches.Begin();
 
-		var batchHandles = new List<JobHandle>();
+		var batchHandles = new List<BatchJobHandle>();
 
 		var currentId = 0;
 		var continueSeek = true;
@@ -136,11 +136,11 @@ public sealed partial class EnqueueBatchesJob(
 						nextIdValue
 					);
 
-					batchHandles.Add(processBatch.AddToBatch(batch, new ProcessBatchJob.Payload
+					batchHandles.Add(processBatch.Enqueue(new ProcessBatchJob.Payload
 					{
 						LowerBound = currentId,
 						UpperBound = nextIdValue,
-					}));
+					}, batch));
 
 					currentId = nextIdValue;
 				}
@@ -155,17 +155,17 @@ public sealed partial class EnqueueBatchesJob(
 					nextId.Id
 				);
 
-				batchHandles.Add(processBatch.AddToBatch(batch, new ProcessBatchJob.Payload
+				batchHandles.Add(processBatch.Enqueue(new ProcessBatchJob.Payload
 				{
 					LowerBound = currentId,
 					UpperBound = nextId.Id,
-				}));
+				}, batch));
 
 				currentId = nextId.Id;
 			}
 		}
 
-		_ = await cleanupBatches.ScheduleAfterAsync(batchHandles.ToArray(), new(), cancellationToken: cancellationToken);
+		_ = cleanupBatches.ScheduleAfter(new(), batchHandles);
 
 		_ = await batch.CommitAsync(cancellationToken);
 	}

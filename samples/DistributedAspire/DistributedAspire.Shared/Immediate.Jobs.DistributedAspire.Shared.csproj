@@ -11,18 +11,9 @@
     <PackageReference Include="Microsoft.AspNetCore.Http.Abstractions" />
 	<PackageReference Include="Microsoft.EntityFrameworkCore" />
 	<PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" />
-  </ItemGroup>
-
-  <ItemGroup>
-	<ProjectReference Include="../../../src/Immediate.Jobs.Shared/Immediate.Jobs.Shared.csproj" />
-	<ProjectReference Include="../../../src/Immediate.Jobs.Analyzers/Immediate.Jobs.Analyzers.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false">
-	  <SetTargetFramework>TargetFramework=$(RoslynVersion)</SetTargetFramework>
-	</ProjectReference>
-	<ProjectReference Include="../../../src/Immediate.Jobs.EntityFrameworkCore/Immediate.Jobs.EntityFrameworkCore.csproj" />
-	<ProjectReference Include="../../../src/Immediate.Jobs.Generators/Immediate.Jobs.Generators.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false">
-	  <SetTargetFramework>TargetFramework=$(RoslynVersion)</SetTargetFramework>
-	</ProjectReference>
-	<ProjectReference Include="..\..\..\src\Immediate.Jobs.NodaTime\Immediate.Jobs.NodaTime.csproj" />
+	<PackageReference Include="Immediate.Jobs" />
+	<PackageReference Include="Immediate.Jobs.NodaTime"  />
+	<PackageReference Include="Immediate.Jobs.EntityFrameworkCore"  />
   </ItemGroup>
 
 </Project>

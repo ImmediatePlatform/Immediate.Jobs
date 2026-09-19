@@ -25,22 +25,17 @@ builder.Services.AddDbContextFactory<JobsDbContext>(options =>
 	options.UseNpgsql(connectionString, npgsql => npgsql.EnableRetryOnFailure().MigrationsAssembly("Immediate.Jobs.DistributedAspire.Shared")));
 
 builder.Services.AddDistributedAspireHandlers();
-builder.Services.AddImmediateJobsDashboard(options =>
-{
-	if (aspireDashboardUrl is not null)
-		_ = options.AddAspireTelemetryLinks(aspireDashboardUrl);
-});
+
 builder.Services.AddDistributedAspireJobs()
 	.UseFairQueues()
-	//.ConfigureStorage(o => o.UseEntityFrameworkCore<JobsDbContext>().UseDistributed())
-	.ConfigureStorage(o => o.UseDistributed().UseEntityFrameworkCore<JobsDbContext>())
-	.Configure(o => o.PollingInterval = TimeSpan.FromSeconds(5))
+	.ConfigureStorage(o => o
+		.UseEntityFrameworkCore<JobsDbContext>()
+		.UseDistributed()
+	)
+	.AddImmediateJobsDashboard()
+	.AddAspireTelemetryLinks(aspireDashboardUrl)
+	.DisableWorkers()
 	.AddHealthCheck();
-
-foreach (var descriptor in builder.Services.Where(p => p.ServiceType == typeof(IHostedService)).ToList())
-{
-	_ = builder.Services.Remove(descriptor);
-}
 
 var app = builder.Build();
 

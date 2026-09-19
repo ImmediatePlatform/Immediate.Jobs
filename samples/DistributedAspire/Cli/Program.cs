@@ -1,3 +1,4 @@
+using Immediate.Jobs.DistributedAspire.Cli;
 using Immediate.Jobs.DistributedAspire.Shared;
 using Immediate.Jobs.DistributedAspire.Shared.Data;
 using Immediate.Jobs.DistributedAspire.Shared.Workflows;
@@ -13,19 +14,21 @@ var builder = Host.CreateDefaultBuilder(args)
 	{
 		var connectionString = hostContext.Configuration.GetConnectionString("jobs") ?? throw new InvalidOperationException("The Aspire 'jobs' connection string is required.");
 
-		_ = services
-			.AddScoped<DistributedBatchWorkflow>()
-			.AddDistributedAspireHandlers()
-			.AddDbContextFactory<JobsDbContext>(options => options.UseNpgsql(connectionString, npgsql => npgsql.EnableRetryOnFailure()))
-			.AddDistributedAspireJobs()
-			.UseFairQueues()
-			.ConfigureStorage(o => o.UseEntityFrameworkCore<JobsDbContext>().UseDistributed())
-			.Configure(o => o.PollingInterval = TimeSpan.FromSeconds(5));
+		services.AddScoped<DistributedBatchWorkflow>();
+		services.AddDbContextFactory<JobsDbContext>(options =>
+			options.UseNpgsql(connectionString, npgsql => npgsql.EnableRetryOnFailure().MigrationsAssembly("Immediate.Jobs.DistributedAspire.Shared")));
 
-		foreach (var descriptor in services.Where(p => p.ServiceType == typeof(IHostedService)).ToList())
-		{
-			_ = services.Remove(descriptor);
-		}
+		services.AddDistributedAspireHandlers();
+		services.AddImmediateJobsDistributedAspireCliHandlers();
+
+		services.AddDistributedAspireJobs();
+		services.AddImmediateJobsDistributedAspireCliJobs()
+			.UseFairQueues()
+			.ConfigureStorage(o => o
+				.UseEntityFrameworkCore<JobsDbContext>()
+				.UseDistributed()
+			)
+			.DisableWorkers();
 	});
 
 using var app = builder.Build();

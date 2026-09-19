@@ -74,8 +74,10 @@ namespace Immediate.Jobs.DistributedAspire.Shared.Migrations
                 {
                     WorkerId = table.Column<string>(type: "character varying(256)", maxLength: 256, nullable: false),
                     LastHeartbeat = table.Column<long>(type: "bigint", nullable: false),
+                    ExpiresAt = table.Column<long>(type: "bigint", nullable: false),
                     ActiveWorkers = table.Column<int>(type: "integer", nullable: false),
-                    MaxWorkers = table.Column<int>(type: "integer", nullable: false)
+                    MaxWorkers = table.Column<int>(type: "integer", nullable: false),
+                    Details = table.Column<string>(type: "text", nullable: false)
                 },
                 constraints: table =>
                 {
@@ -88,6 +90,7 @@ namespace Immediate.Jobs.DistributedAspire.Shared.Migrations
                 {
                     Name = table.Column<string>(type: "character varying(256)", maxLength: 256, nullable: false),
                     JobName = table.Column<string>(type: "character varying(256)", maxLength: 256, nullable: false),
+                    QueueName = table.Column<string>(type: "character varying(256)", maxLength: 256, nullable: false),
                     Cron = table.Column<string>(type: "character varying(128)", maxLength: 128, nullable: false),
                     TimeZone = table.Column<string>(type: "character varying(128)", maxLength: 128, nullable: false),
                     IsCodeDefined = table.Column<bool>(type: "boolean", nullable: false),
@@ -125,7 +128,7 @@ namespace Immediate.Jobs.DistributedAspire.Shared.Migrations
                     ExecutionTraceId = table.Column<string>(type: "character varying(32)", maxLength: 32, nullable: true),
                     ExecutionSpanId = table.Column<string>(type: "character varying(16)", maxLength: 16, nullable: true),
                     ExecutionStartedAt = table.Column<long>(type: "bigint", nullable: true),
-                    BatchId = table.Column<string>(type: "character varying(256)", maxLength: 256, nullable: true),
+                    BatchHandle = table.Column<string>(type: "character varying(256)", maxLength: 256, nullable: true),
                     RemainingDependencies = table.Column<int>(type: "integer", nullable: false),
                     FailedDependencies = table.Column<int>(type: "integer", nullable: false),
                     ConcurrencyStamp = table.Column<Guid>(type: "uuid", nullable: false)
@@ -134,8 +137,8 @@ namespace Immediate.Jobs.DistributedAspire.Shared.Migrations
                 {
                     table.PrimaryKey("PK_immediate_jobs", x => x.Id);
                     table.ForeignKey(
-                        name: "FK_immediate_jobs_immediate_job_batches_BatchId",
-                        column: x => x.BatchId,
+                        name: "FK_immediate_jobs_immediate_job_batches_BatchHandle",
+                        column: x => x.BatchHandle,
                         principalTable: "immediate_job_batches",
                         principalColumn: "Id",
                         onDelete: ReferentialAction.Cascade);
@@ -145,18 +148,19 @@ namespace Immediate.Jobs.DistributedAspire.Shared.Migrations
                 name: "immediate_job_continuations",
                 columns: table => new
                 {
-                    ChildJobId = table.Column<string>(type: "character varying(256)", maxLength: 256, nullable: false),
+                    ChildJobHandle = table.Column<string>(type: "character varying(256)", maxLength: 256, nullable: false),
                     ParentKind = table.Column<short>(type: "smallint", nullable: false),
                     ParentId = table.Column<string>(type: "character varying(256)", maxLength: 256, nullable: false),
+                    Delay = table.Column<long>(type: "bigint", maxLength: 32, nullable: false),
                     Trigger = table.Column<short>(type: "smallint", nullable: false),
                     ParentOutcome = table.Column<short>(type: "smallint", nullable: false)
                 },
                 constraints: table =>
                 {
-                    table.PrimaryKey("PK_immediate_job_continuations", x => new { x.ChildJobId, x.ParentKind, x.ParentId });
+                    table.PrimaryKey("PK_immediate_job_continuations", x => new { x.ChildJobHandle, x.ParentKind, x.ParentId });
                     table.ForeignKey(
-                        name: "FK_immediate_job_continuations_immediate_jobs_ChildJobId",
-                        column: x => x.ChildJobId,
+                        name: "FK_immediate_job_continuations_immediate_jobs_ChildJobHandle",
+                        column: x => x.ChildJobHandle,
                         principalTable: "immediate_jobs",
                         principalColumn: "Id",
                         onDelete: ReferentialAction.Cascade);
@@ -166,7 +170,7 @@ namespace Immediate.Jobs.DistributedAspire.Shared.Migrations
                 name: "immediate_job_executions",
                 columns: table => new
                 {
-                    JobId = table.Column<string>(type: "character varying(256)", maxLength: 256, nullable: false),
+                    JobHandle = table.Column<string>(type: "character varying(256)", maxLength: 256, nullable: false),
                     Attempt = table.Column<int>(type: "integer", nullable: false),
                     State = table.Column<short>(type: "smallint", nullable: false),
                     WorkerId = table.Column<string>(type: "character varying(256)", maxLength: 256, nullable: true),
@@ -180,10 +184,10 @@ namespace Immediate.Jobs.DistributedAspire.Shared.Migrations
                 },
                 constraints: table =>
                 {
-                    table.PrimaryKey("PK_immediate_job_executions", x => new { x.JobId, x.Attempt });
+                    table.PrimaryKey("PK_immediate_job_executions", x => new { x.JobHandle, x.Attempt });
                     table.ForeignKey(
-                        name: "FK_immediate_job_executions_immediate_jobs_JobId",
-                        column: x => x.JobId,
+                        name: "FK_immediate_job_executions_immediate_jobs_JobHandle",
+                        column: x => x.JobHandle,
                         principalTable: "immediate_jobs",
                         principalColumn: "Id",
                         onDelete: ReferentialAction.Cascade);
@@ -212,14 +216,14 @@ namespace Immediate.Jobs.DistributedAspire.Shared.Migrations
                 columns: new[] { "ParentKind", "ParentId" });
 
             migrationBuilder.CreateIndex(
-                name: "IX_immediate_job_servers_LastHeartbeat",
+                name: "IX_immediate_job_servers_ExpiresAt",
                 table: "immediate_job_servers",
-                column: "LastHeartbeat");
+                column: "ExpiresAt");
 
             migrationBuilder.CreateIndex(
-                name: "IX_immediate_jobs_BatchId",
+                name: "IX_immediate_jobs_BatchHandle",
                 table: "immediate_jobs",
-                column: "BatchId");
+                column: "BatchHandle");
 
             migrationBuilder.CreateIndex(
                 name: "IX_immediate_jobs_QueueName_State_DueAt_CreatedAt",

@@ -13,17 +13,9 @@
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" />
     <PackageReference Include="Scalar.AspNetCore" />
     <PackageReference Include="Swashbuckle.AspNetCore" />
+	<PackageReference Include="Immediate.Jobs.Dashboard" />
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="../../../src/Immediate.Jobs.Shared/Immediate.Jobs.Shared.csproj" />
-	<ProjectReference Include="../../../src/Immediate.Jobs.Analyzers/Immediate.Jobs.Analyzers.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false">
-	  <SetTargetFramework>TargetFramework=$(RoslynVersion)</SetTargetFramework>
-	</ProjectReference>
-    <ProjectReference Include="../../../src/Immediate.Jobs.Dashboard/Immediate.Jobs.Dashboard.csproj" />
-    <ProjectReference Include="../../../src/Immediate.Jobs.EntityFrameworkCore/Immediate.Jobs.EntityFrameworkCore.csproj" />
-	<ProjectReference Include="../../../src/Immediate.Jobs.Generators/Immediate.Jobs.Generators.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false">
-	  <SetTargetFramework>TargetFramework=$(RoslynVersion)</SetTargetFramework>
-	</ProjectReference>
     <ProjectReference Include="../ServiceDefaults/Immediate.Jobs.DistributedAspire.ServiceDefaults.csproj" />
     <ProjectReference Include="..\DistributedAspire.Shared\Immediate.Jobs.DistributedAspire.Shared.csproj" />
   </ItemGroup>

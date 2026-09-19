@@ -14,8 +14,11 @@ builder.Services
 			.AddDbContextFactory<JobsDbContext>(options => options.UseNpgsql(connectionString))
 			.AddDistributedAspireJobs()
 			.UseFairQueues()
-			.ConfigureStorage(o => o.UseEntityFrameworkCore<JobsDbContext>().UseDistributed())
-			.Configure(o => o.PollingInterval = TimeSpan.FromSeconds(5));
+			.ConfigureStorage(o => o
+				.UseEntityFrameworkCore<JobsDbContext>()
+				.UseDistributed()
+			)
+			.ConfigureWorkers(o => o.PollingInterval = TimeSpan.FromSeconds(5));
 
 builder.AddServiceDefaults();
 
