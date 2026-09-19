@@ -486,10 +486,17 @@ public sealed partial class JobSchedulingService : BackgroundService
 		var started = _timeProvider.GetTimestamp();
 		var startedAt = _timeProvider.GetUtcNow();
 
-		using var timeout = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
+		using var timeoutCts = definition.Timeout switch
+		{
+			{ } timeoutValue => new CancellationTokenSource(
+				 timeoutValue,
+				_timeProvider
+			),
 
-		if (definition.Timeout is { } timeoutValue)
-			timeout.CancelAfter(timeoutValue);
+			_ => null,
+		};
+
+		using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken, timeoutCts?.Token ?? default);
 
 		using var activity = JobTelemetry.ActivitySource.StartActivity(
 			$"job {record.JobName}",
@@ -555,7 +562,7 @@ public sealed partial class JobSchedulingService : BackgroundService
 
 			await definition.Invoker.InvokeAsync(
 				scope.ServiceProvider,
-				new JobExecution { Record = record, Definition = definition, CancellationToken = timeout.Token, Buffer = executionBuffer }
+				new JobExecution { Record = record, Definition = definition, CancellationToken = linkedCts.Token, Buffer = executionBuffer }
 			);
 
 			if (_storage is IJobGraphStorage graphStorage)
