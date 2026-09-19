@@ -136,6 +136,9 @@ public sealed partial class EnqueueBatchesJob(
 						nextIdValue
 					);
 
+					// ensure single rows and the last row are all being processed
+					nextIdValue++;
+
 					batchHandles.Add(processBatch.Enqueue(new ProcessBatchJob.Payload
 					{
 						LowerBound = currentId,
