@@ -1109,19 +1109,15 @@ file static class TaskExtensions
 {
 	extension(Task task)
 	{
-		public Task SuppressCancellation(CancellationToken cancellationToken)
+		public async Task SuppressCancellation(CancellationToken cancellationToken)
 		{
-			return task
-				.ContinueWith(
-					t =>
-					{
-						if (!cancellationToken.IsCancellationRequested)
-							t.GetAwaiter().GetResult();
-					},
-					CancellationToken.None,
-					TaskContinuationOptions.OnlyOnCanceled,
-					TaskScheduler.Default
-				);
+			try
+			{
+				await task.ConfigureAwait(false);
+			}
+			catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+			{
+			}
 		}
 	}
 }
