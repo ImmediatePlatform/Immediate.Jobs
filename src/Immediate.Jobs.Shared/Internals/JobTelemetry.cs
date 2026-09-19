@@ -41,13 +41,10 @@ public static class JobTelemetry
 	}
 
 	internal static void Acquired() => Interlocked.Increment(ref AcquisitionCount);
-	internal static void ExecutionStarted() => Interlocked.Increment(ref ActiveWorkers);
+	internal static void Released() => Interlocked.Decrement(ref AcquisitionCount);
 
-	internal static void ExecutionFinished()
-	{
-		Interlocked.Decrement(ref AcquisitionCount);
-		Interlocked.Decrement(ref ActiveWorkers);
-	}
+	internal static void ExecutionStarted() => Interlocked.Increment(ref ActiveWorkers);
+	internal static void ExecutionFinished() => Interlocked.Decrement(ref ActiveWorkers);
 
 	internal static void Succeeded(string jobName, string queueName, TimeSpan duration)
 	{

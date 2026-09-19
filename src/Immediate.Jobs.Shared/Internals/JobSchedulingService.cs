@@ -357,7 +357,6 @@ public sealed partial class JobSchedulingService : BackgroundService
 
 			try
 			{
-				JobTelemetry.Acquired();
 				await _channel.Writer.WriteAsync(job, cancellationToken);
 			}
 			catch
@@ -726,6 +725,7 @@ public sealed partial class JobSchedulingService : BackgroundService
 
 	private void Reserve(JobRecord record)
 	{
+		JobTelemetry.Acquired();
 		Interlocked.Increment(ref _reservations);
 		_openLeases[record.JobHandle] = new(record, _timeProvider.GetUtcNow() + LeaseRenewalInterval);
 		_queueReservations.AddOrUpdate(record.QueueName, 1, static (_, count) => count + 1);
@@ -734,8 +734,9 @@ public sealed partial class JobSchedulingService : BackgroundService
 
 	private void Release(JobRecord record)
 	{
+		JobTelemetry.Released();
 		Interlocked.Decrement(ref _reservations);
-		_ = _openLeases.TryRemove(record.JobHandle, out _);
+		_openLeases.TryRemove(record.JobHandle, out _);
 		_queueReservations.AddOrUpdate(record.QueueName, 0, static (_, count) => Math.Max(0, count - 1));
 		_jobReservations.AddOrUpdate(record.JobName, 0, static (_, count) => Math.Max(0, count - 1));
 	}
