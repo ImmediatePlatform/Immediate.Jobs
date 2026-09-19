@@ -1,5 +1,6 @@
 using System.Data.Common;
 using System.Diagnostics.CodeAnalysis;
+using System.Text.Json;
 using Immediate.Jobs.Shared.Apis;
 using Immediate.Jobs.Shared.Storage;
 using LinqToDB;
@@ -1310,9 +1311,9 @@ internal sealed partial class LinqToDBJobStorage<T>(
 		var recurringEntities = await Recurring(connection)
 			.OrderBy(schedule => schedule.Name)
 			.ToListAsync(cancellationToken);
-		var cutoff = timeProvider.GetUtcNow() - TimeSpan.FromMinutes(2);
+		var now = timeProvider.GetUtcNow();
 		var serverEntities = await Servers(connection)
-			.Where(server => server.LastHeartbeat >= cutoff)
+			.Where(server => server.ExpiresAt >= now)
 			.OrderBy(server => server.WorkerId)
 			.ToListAsync(cancellationToken);
 		return new JobMonitoringSnapshot
@@ -1320,13 +1321,11 @@ internal sealed partial class LinqToDBJobStorage<T>(
 			CapturedAt = timeProvider.GetUtcNow(),
 			Counts = counts,
 			Recurring = [.. recurringEntities.Select(ToRecord)],
-			Servers = [.. serverEntities.Select(server => new JobServerSnapshot
-			{
-				WorkerId = server.WorkerId,
-				LastHeartbeat = server.LastHeartbeat,
-				ActiveWorkers = server.ActiveWorkers,
-				MaxWorkers = server.MaxWorkers,
-			})],
+			Servers =
+			[
+				.. serverEntities.Select(server =>
+					JsonSerializer.Deserialize(server.Details, LinqToDBJsonSerializerContext.Default.JobServerSnapshot)!),
+			],
 			Capabilities = this.GetCapabilities(),
 		};
 	}
@@ -2005,15 +2004,16 @@ internal sealed partial class LinqToDBJobStorage<T>(
 
 		await using var scope = contextScope.GetScope(out var connection);
 
-		var cutoff = timeProvider.GetUtcNow() - TimeSpan.FromMinutes(2);
 		_ = await Servers(connection)
-			.Where(entity => entity.LastHeartbeat < cutoff)
+			.Where(entity => entity.ExpiresAt < server.LastHeartbeat)
 			.DeleteAsync(cancellationToken);
 		var updated = await Servers(connection)
 			.Where(entity => entity.WorkerId == server.WorkerId)
 			.Set(entity => entity.LastHeartbeat, server.LastHeartbeat)
+			.Set(entity => entity.ExpiresAt, server.LastHeartbeat + server.ServerTimeout)
 			.Set(entity => entity.ActiveWorkers, server.ActiveWorkers)
 			.Set(entity => entity.MaxWorkers, server.MaxWorkers)
+			.Set(entity => entity.Details, JsonSerializer.Serialize(server, LinqToDBJsonSerializerContext.Default.JobServerSnapshot))
 			.UpdateAsync(cancellationToken);
 		if (updated != 0)
 			return;
@@ -2023,8 +2023,10 @@ internal sealed partial class LinqToDBJobStorage<T>(
 			{
 				WorkerId = server.WorkerId,
 				LastHeartbeat = server.LastHeartbeat,
+				ExpiresAt = server.LastHeartbeat + server.ServerTimeout,
 				ActiveWorkers = server.ActiveWorkers,
 				MaxWorkers = server.MaxWorkers,
+				Details = JsonSerializer.Serialize(server, LinqToDBJsonSerializerContext.Default.JobServerSnapshot),
 			}, cancellationToken);
 		}
 		catch (DbException)
@@ -2032,8 +2034,10 @@ internal sealed partial class LinqToDBJobStorage<T>(
 			_ = await Servers(connection)
 				.Where(entity => entity.WorkerId == server.WorkerId)
 				.Set(entity => entity.LastHeartbeat, server.LastHeartbeat)
+				.Set(entity => entity.ExpiresAt, server.LastHeartbeat + server.ServerTimeout)
 				.Set(entity => entity.ActiveWorkers, server.ActiveWorkers)
 				.Set(entity => entity.MaxWorkers, server.MaxWorkers)
+				.Set(entity => entity.Details, JsonSerializer.Serialize(server, LinqToDBJsonSerializerContext.Default.JobServerSnapshot))
 				.UpdateAsync(cancellationToken);
 		}
 	}

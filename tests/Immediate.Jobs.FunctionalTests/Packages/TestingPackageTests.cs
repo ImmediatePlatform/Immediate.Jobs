@@ -99,17 +99,20 @@ public sealed class TestingPackageTests
 			harness.Services.GetRequiredService<IIdGenerator>()
 		);
 
-		_ = await scheduler.EnqueueAsync(
+		await scheduler.EnqueueAsync(
 			new("first"),
 			groupId: "tenant-a",
 			cancellationToken: cancellationToken
 		);
+
 		await harness.DrainAsync(cancellationToken);
-		_ = await scheduler.EnqueueAsync(
+
+		await scheduler.EnqueueAsync(
 			new("second"),
 			groupId: "tenant-b",
 			cancellationToken: cancellationToken
 		);
+
 		await harness.DrainAsync(cancellationToken);
 
 		Assert.Equal(2, counter.Count);

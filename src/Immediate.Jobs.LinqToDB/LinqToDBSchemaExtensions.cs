@@ -206,7 +206,7 @@ public static class LinqToDBSchemaExtensions
 			("IX_immediate_jobs_QueueName_State_GroupId", "immediate_jobs", "QueueName, State, GroupId", false),
 			("IX_immediate_job_continuations_ParentKind_ParentId", "immediate_job_continuations", "ParentKind, ParentId", false),
 			("IX_immediate_recurring_jobs_IsPaused_NextRunAt", "immediate_recurring_jobs", "IsPaused, NextRunAt", false),
-			("IX_immediate_job_servers_LastHeartbeat", "immediate_job_servers", "LastHeartbeat", false),
+			("IX_immediate_job_servers_ExpiresAt", "immediate_job_servers", "ExpiresAt", false),
 		};
 
 		foreach (var (name, table, columns, unique) in definitions)

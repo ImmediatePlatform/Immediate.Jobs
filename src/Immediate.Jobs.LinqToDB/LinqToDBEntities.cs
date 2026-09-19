@@ -190,8 +190,12 @@ internal sealed class ImmediateJobServerEntity
 	public string WorkerId { get; set; } = null!;
 	[Column(DataType = DataType.DateTimeOffset)]
 	public DateTimeOffset LastHeartbeat { get; set; }
+	[Column(DataType = DataType.DateTimeOffset)]
+	public DateTimeOffset ExpiresAt { get; set; }
 	[Column]
 	public int ActiveWorkers { get; set; }
 	[Column]
 	public int MaxWorkers { get; set; }
+	[Column(DataType = DataType.Text)]
+	public string Details { get; set; } = null!;
 }

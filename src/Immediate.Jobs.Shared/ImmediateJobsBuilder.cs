@@ -22,7 +22,8 @@ public interface IImmediateJobsBuilder
 	/// 	Adds scheduler liveness and storage connectivity to the health-check system.
 	/// </summary>
 	/// <param name="name">
-	/// 	The registered health-check name.
+	/// 	The base health-check name. The storage and scheduling-service checks append
+	/// 	<c>-storage</c> and <c>-service</c>, respectively.
 	/// </param>
 	/// <param name="failureStatus">
 	/// 	The status reported when the check fails.
@@ -144,7 +145,17 @@ internal sealed class ImmediateJobsBuilder : IImmediateJobsBuilder
 		IEnumerable<string>? tags = null
 	)
 	{
-		Services.AddHealthChecks().AddCheck<ImmediateJobsHealthCheck>(name, failureStatus, tags ?? []);
+		var healthCheckTags = tags switch
+		{
+			IReadOnlyList<string> list => list,
+			{ } sequence => sequence.ToList(),
+			null => [],
+		};
+
+		Services.AddHealthChecks()
+			.AddCheck<StorageHealthCheck>($"{name}-storage", failureStatus, healthCheckTags)
+			.AddCheck<ServiceHealthCheck>($"{name}-service", failureStatus, healthCheckTags);
+
 		return this;
 	}
 

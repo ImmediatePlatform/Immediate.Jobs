@@ -68,7 +68,6 @@ public static class ImmediateJobsRuntimeServiceCollectionExtensions
 		services.TryAddSingleton<IJobMonitor>(static sp => sp.GetRequiredService<JobMonitor>());
 
 		services.AddSingleton(JobQueueDefinition.Default);
-		services.TryAddSingleton<JobSchedulerState>();
 		services.TryAddSingleton<JobSchedulingService>();
 
 		services.TryAddEnumerable(

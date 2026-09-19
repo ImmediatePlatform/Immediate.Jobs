@@ -1,5 +1,6 @@
 using System.Data.Common;
 using System.Diagnostics.CodeAnalysis;
+using System.Text.Json;
 using Immediate.Jobs.Shared.Apis;
 using Immediate.Jobs.Shared.Storage;
 using Microsoft.EntityFrameworkCore;
@@ -1228,13 +1229,17 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>(
 				LastRunAt = schedule.LastRunAt,
 			})
 			.ToListAsync(cancellationToken);
-		var cutoff = _timeProvider.GetUtcNow() - TimeSpan.FromMinutes(2);
-		var servers = await context.Set<ImmediateJobServerEntity>()
+		var now = _timeProvider.GetUtcNow();
+		var serverEntities = await context.Set<ImmediateJobServerEntity>()
 			.AsNoTracking()
-			.Where(server => server.LastHeartbeat >= cutoff)
+			.Where(server => server.ExpiresAt >= now)
 			.OrderBy(server => server.WorkerId)
-			.Select(server => new JobServerSnapshot { WorkerId = server.WorkerId, LastHeartbeat = server.LastHeartbeat, ActiveWorkers = server.ActiveWorkers, MaxWorkers = server.MaxWorkers })
 			.ToListAsync(cancellationToken);
+		IReadOnlyList<JobServerSnapshot> servers =
+		[
+			.. serverEntities.Select(server =>
+				JsonSerializer.Deserialize(server.Details, EntityFrameworkCoreJsonSerializerContext.Default.JobServerSnapshot)!),
+		];
 		return new JobMonitoringSnapshot
 		{
 			CapturedAt = _timeProvider.GetUtcNow(),
@@ -1935,9 +1940,8 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>(
 		await TaskScheduler.Yield();
 
 		await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
-		var cutoff = _timeProvider.GetUtcNow() - TimeSpan.FromMinutes(2);
 		_ = await context.Set<ImmediateJobServerEntity>()
-			.Where(item => item.LastHeartbeat < cutoff)
+			.Where(item => item.ExpiresAt < server.LastHeartbeat)
 			.ExecuteDeleteAsync(cancellationToken);
 		var entity = await context.Set<ImmediateJobServerEntity>().FindAsync([server.WorkerId], cancellationToken);
 		if (entity is null)
@@ -1946,15 +1950,19 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>(
 			{
 				WorkerId = server.WorkerId,
 				LastHeartbeat = server.LastHeartbeat,
+				ExpiresAt = server.LastHeartbeat + server.ServerTimeout,
 				ActiveWorkers = server.ActiveWorkers,
 				MaxWorkers = server.MaxWorkers,
+				Details = JsonSerializer.Serialize(server, EntityFrameworkCoreJsonSerializerContext.Default.JobServerSnapshot),
 			});
 		}
 		else
 		{
 			entity.LastHeartbeat = server.LastHeartbeat;
+			entity.ExpiresAt = server.LastHeartbeat + server.ServerTimeout;
 			entity.ActiveWorkers = server.ActiveWorkers;
 			entity.MaxWorkers = server.MaxWorkers;
+			entity.Details = JsonSerializer.Serialize(server, EntityFrameworkCoreJsonSerializerContext.Default.JobServerSnapshot);
 		}
 
 		_ = await context.SaveChangesAsync(cancellationToken);

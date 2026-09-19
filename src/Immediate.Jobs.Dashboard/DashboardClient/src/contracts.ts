@@ -71,6 +71,28 @@ export interface JobServerSnapshot {
 	lastHeartbeat: IsoDateTime;
 	activeWorkers: number;
 	maxWorkers: number;
+	serverTimeout: string;
+	workers: JobWorkerSnapshot[];
+	acquisition: JobLoopSnapshot;
+	leaseRenewal: JobLoopSnapshot;
+}
+
+export interface JobLoopSnapshot {
+	isRunning: boolean;
+	lastAttemptedAt: IsoDateTime | null;
+	lastSucceededAt: IsoDateTime | null;
+	lastFailedAt: IsoDateTime | null;
+	consecutiveFailures: number;
+	itemsExamined: number;
+	itemsSucceeded: number;
+	itemsFailed: number;
+}
+
+export interface JobWorkerSnapshot {
+	workerId: number;
+	jobHandle: string | null;
+	attempt: number | null;
+	startedAt: IsoDateTime | null;
 }
 
 export interface JobMonitoringSnapshot {
