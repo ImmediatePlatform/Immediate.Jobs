@@ -208,6 +208,8 @@ public sealed partial class ProcessBatchJob(
 			row.Data = Guid.NewGuid();
 		}
 
+		await dbContext.SaveChangesAsync(cancellationToken);
+
 		await transaction.CommitAsync(cancellationToken);
 
 		logger.LogInformation("Processed: from: {LowerBound} - to: {UpperBound} (Total: {Total})", batchableRows[0].Id, batchableRows[^1].Id, batchableRows.Count);
