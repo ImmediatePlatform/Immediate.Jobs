@@ -7,8 +7,8 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Immediate.Jobs.DistributedAspire.Shared.Migrations;
 
 /// <inheritdoc />
-[SuppressMessage("Design", "CA1062:Argumente von öffentlichen Methoden validieren")]
-public partial class Initial : Migration
+[SuppressMessage("Design", "CA1062:Validate arguments of public methods")]
+public sealed partial class Initial : Migration
 {
 	/// <inheritdoc />
 	protected override void Up(MigrationBuilder migrationBuilder)
