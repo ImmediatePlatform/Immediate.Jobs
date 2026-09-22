@@ -1,0 +1,17 @@
+<Project Sdk="Aspire.AppHost.Sdk/13.4.6">
+  <PropertyGroup>
+	<OutputType>Exe</OutputType>
+	<TargetFrameworks>net10.0</TargetFrameworks>
+	<NoWarn>$(NoWarn);CS1591</NoWarn>
+	<_AspireUseSdkPickBestRid>false</_AspireUseSdkPickBestRid>
+	<UserSecretsId>06bbda6d-5589-495c-8cba-6c16a15ec213</UserSecretsId>
+  </PropertyGroup>
+  <ItemGroup>
+	<PackageReference Include="Aspire.Hosting.PostgreSQL" />
+  </ItemGroup>
+  <ItemGroup>
+	<ProjectReference Include="../Api/Immediate.Jobs.DistributedAspire.Api.csproj" />
+	<ProjectReference Include="../Cli/Immediate.Jobs.DistributedAspire.Cli.csproj" />
+	<ProjectReference Include="..\Worker\Immediate.Jobs.DistributedAspire.Worker.csproj" />
+  </ItemGroup>
+</Project>
