@@ -4,35 +4,35 @@
   </PropertyGroup>
   
   <ItemGroup>
-	<PackageVersion Include="Aspire.Hosting.PostgreSQL" Version="13.5.3" />
+	<PackageVersion Include="Aspire.Hosting.PostgreSQL" Version="13.5.4" />
 	<PackageVersion Include="AssemblyMetadata.Generators" Version="2.2.0" />
 	<PackageVersion Include="Immediate.Apis" Version="6.4.0" />
 	<PackageVersion Include="Immediate.Handlers" Version="4.2.0" />
 	<PackageVersion Include="Immediate.Validations" Version="3.7.0" />
 	<PackageVersion Include="linq2db" Version="6.5.0" />
 	<PackageVersion Include="linq2db.Extensions" Version="6.5.0" />
-	<PackageVersion Include="Meziantou.Framework.Scheduling" Version="4.1.2" />
+	<PackageVersion Include="Meziantou.Framework.Scheduling" Version="4.1.3" />
 	<PackageVersion Include="Microsoft.AspNetCore.Http.Abstractions" Version="2.3.13" />
 	<PackageVersion Include="Microsoft.CodeAnalysis.Analyzers" Version="5.9.0" />
 	<PackageVersion Include="Microsoft.CodeAnalysis.CSharp.Analyzer.Testing" Version="1.1.4" />
 	<PackageVersion Include="Microsoft.Testing.Extensions.CodeCoverage" Version="18.11.2" />
 	<PackageVersion Include="NodaTime" Version="3.3.4" />
 	<PackageVersion Include="NodaTime.Serialization.SystemTextJson" Version="1.4.0" />
-	<PackageVersion Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" Version="1.18.0" />
-	<PackageVersion Include="OpenTelemetry.Extensions.Hosting" Version="1.18.0" />
-	<PackageVersion Include="OpenTelemetry.Instrumentation.AspNetCore" Version="1.18.0" />
-	<PackageVersion Include="OpenTelemetry.Instrumentation.Http" Version="1.18.0" />
-	<PackageVersion Include="OpenTelemetry.Instrumentation.Runtime" Version="1.18.0" />
-	<PackageVersion Include="Scalar.AspNetCore" Version="2.17.3" />
-	<PackageVersion Include="Scriban" Version="7.4.0" />
+	<PackageVersion Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" Version="1.19.1" />
+	<PackageVersion Include="OpenTelemetry.Extensions.Hosting" Version="1.19.1" />
+	<PackageVersion Include="OpenTelemetry.Instrumentation.AspNetCore" Version="1.19.0" />
+	<PackageVersion Include="OpenTelemetry.Instrumentation.Http" Version="1.19.0" />
+	<PackageVersion Include="OpenTelemetry.Instrumentation.Runtime" Version="1.19.0" />
+	<PackageVersion Include="Scalar.AspNetCore" Version="2.17.9" />
+	<PackageVersion Include="Scriban" Version="7.5.0" />
 	<PackageVersion Include="SQLitePCLRaw.lib.e_sqlite3" Version="3.53.3" />
-	<PackageVersion Include="StackExchange.Redis" Version="3.2.1" />
+	<PackageVersion Include="StackExchange.Redis" Version="3.3.1" />
 	<PackageVersion Include="Swashbuckle.AspNetCore" Version="10.2.3" />
 	<PackageVersion Include="Testcontainers.MsSql" Version="4.15.0" />
 	<PackageVersion Include="Testcontainers.PostgreSql" Version="4.15.0" />
 	<PackageVersion Include="Testcontainers.Redis" Version="4.15.0" />
 	<PackageVersion Include="Verify.SourceGenerators" Version="2.5.0" />
-	<PackageVersion Include="Verify.XunitV3" Version="33.0.2" />
+	<PackageVersion Include="Verify.XunitV3" Version="33.1.4" />
 	<PackageVersion Include="xunit.v3.mtp-v2" Version="4.0.1" />
   </ItemGroup>
   
@@ -43,7 +43,7 @@
   </PropertyGroup>
 
   <ItemGroup Condition="'$(TargetFramework)' == 'net11.0'">
-	<PackageVersion Include="Basic.Reference.Assemblies.Net110" Version="1.8.11" />
+	<PackageVersion Include="Basic.Reference.Assemblies.Net110" Version="1.8.12" />
 	<PackageVersion Include="Microsoft.AspNetCore.TestHost" Version="$(Net11PackageVersion)" />
 	<PackageVersion Include="Microsoft.CodeAnalysis.NetAnalyzers" Version="11.0.100-rc.1.26425.128" />
 	<PackageVersion Include="Microsoft.EntityFrameworkCore" Version="$(Net11PackageVersion)" />
@@ -58,12 +58,12 @@
 	<PackageVersion Include="Microsoft.Extensions.Hosting.Abstractions" Version="$(Net11PackageVersion)" />
 	<PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="$(Net11PackageVersion)" />
 	<PackageVersion Include="Microsoft.Extensions.Options" Version="$(Net11PackageVersion)" />
-	<PackageVersion Include="Microsoft.Extensions.TimeProvider.Testing" Version="10.9.0" />
-	<PackageVersion Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="11.0.0-rc.1" />
+	<PackageVersion Include="Microsoft.Extensions.TimeProvider.Testing" Version="10.10.0" />
+	<PackageVersion Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="11.0.0-rc.1.1" />
   </ItemGroup>
   
   <ItemGroup Condition="'$(TargetFramework)' == 'net10.0'">
-	<PackageVersion Include="Basic.Reference.Assemblies.Net100" Version="1.8.11" />
+	<PackageVersion Include="Basic.Reference.Assemblies.Net100" Version="1.8.12" />
 	<PackageVersion Include="Microsoft.AspNetCore.TestHost" Version="$(Net10PackageVersion)" />
 	<PackageVersion Include="Microsoft.CodeAnalysis.NetAnalyzers" Version="10.0.400" />
 	<PackageVersion Include="Microsoft.EntityFrameworkCore" Version="$(Net10PackageVersion)" />
@@ -78,12 +78,12 @@
 	<PackageVersion Include="Microsoft.Extensions.Hosting.Abstractions" Version="$(Net10PackageVersion)" />
 	<PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="$(Net10PackageVersion)" />
 	<PackageVersion Include="Microsoft.Extensions.Options" Version="$(Net10PackageVersion)" />
-	<PackageVersion Include="Microsoft.Extensions.TimeProvider.Testing" Version="10.9.0" />
+	<PackageVersion Include="Microsoft.Extensions.TimeProvider.Testing" Version="10.10.0" />
 	<PackageVersion Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.3" />
   </ItemGroup>
   
   <ItemGroup Condition="'$(TargetFramework)' == 'net8.0'">
-	<PackageVersion Include="Basic.Reference.Assemblies.Net80" Version="1.8.11" />
+	<PackageVersion Include="Basic.Reference.Assemblies.Net80" Version="1.8.12" />
 	<PackageVersion Include="Microsoft.AspNetCore.TestHost" Version="8.0.30" />
 	<PackageVersion Include="Microsoft.CodeAnalysis.NetAnalyzers" Version="8.0.0" />
 	<PackageVersion Include="Microsoft.EntityFrameworkCore" Version="8.0.30" />
@@ -129,7 +129,7 @@
   
   <ItemGroup>
 	<GlobalPackageReference Include="DotNet.ReproducibleBuilds" Version="2.0.5" PrivateAssets="All" />
-	<GlobalPackageReference Include="Meziantou.Analyzer" Version="3.0.257" PrivateAssets="All" />
+	<GlobalPackageReference Include="Meziantou.Analyzer" Version="3.0.290" PrivateAssets="All" />
 	<GlobalPackageReference Include="Meziantou.Polyfill" Version="1.0.165" PrivateAssets="All" />
 	<GlobalPackageReference Include="Microsoft.CodeAnalysis.BannedApiAnalyzers" Version="5.6.0" PrivateAssets="All" />
 	<GlobalPackageReference Include="MinVer" Version="8.0.0" PrivateAssets="All" />
