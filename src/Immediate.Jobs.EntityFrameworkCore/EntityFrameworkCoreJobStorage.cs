@@ -1751,16 +1751,16 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>(
 		{
 			_ = await context.SaveChangesAsync(cancellationToken);
 		}
-		catch (DbUpdateConcurrencyException)
+		catch (DbUpdateConcurrencyException ex)
 		{
 			if (!await context.Set<ImmediateJobEntity>()
 				.AsNoTracking()
 				.AnyAsync(item => item.Id == jobHandle.Value, cancellationToken))
 			{
-				throw new KeyNotFoundException($"Job '{jobHandle}' was not found.");
+				throw new KeyNotFoundException($"Job '{jobHandle}' was not found.", ex);
 			}
 
-			throw new ImmediateJobException("Only failed or scheduled jobs can be retried.");
+			throw new ImmediateJobException("Only failed or scheduled jobs can be retried.", ex);
 		}
 
 		await transaction.CommitAsync(cancellationToken);
