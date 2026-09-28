@@ -152,10 +152,12 @@ public sealed partial class JobSchedulingService : BackgroundService
 	/// <inheritdoc />
 	protected override async Task ExecuteAsync(CancellationToken stoppingToken)
 	{
+		// initialization needs to be done no matter what, so that storage is initialized
+		await InitializeAsync(stoppingToken);
+
 		if (!_options.IsJobSchedulingServiceEnabled)
 			return;
 
-		await InitializeAsync(stoppingToken);
 		MarkStarted(_timeProvider.GetUtcNow());
 
 		// Workers observe _workerCancellation rather than stoppingToken: shutdown completes the channel so
