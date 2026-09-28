@@ -55,7 +55,7 @@
   </Target>
 
   <Target Name="BuildDashboardClient"
-	BeforeTargets="DispatchToInnerBuilds"
+	BeforeTargets="DispatchToInnerBuilds;PrepareForBuild"
 	DependsOnTargets="RestoreDashboardClient"
 	Inputs="@(DashboardClientSource)"
 	Outputs="$(DashboardBuildStamp);$(DashboardAssetsDirectory)/app.js;$(DashboardAssetsDirectory)/app.css;$(DashboardAssetsDirectory)/index.html"
