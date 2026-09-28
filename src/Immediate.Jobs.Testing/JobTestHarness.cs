@@ -317,7 +317,8 @@ public sealed class JobTestHarness : IAsyncDisposable, IDisposable
 		catch (Exception exception)
 		{
 			throw new JobTestAssertionException(
-				$"Job '{jobHandle}' did not contain a valid {typeof(TPayload).FullName} payload: {exception.Message}"
+				$"Job '{jobHandle}' did not contain a valid {typeof(TPayload).FullName} payload: {exception.Message}",
+				exception
 			);
 		}
 
