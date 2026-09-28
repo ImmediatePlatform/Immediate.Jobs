@@ -49,16 +49,17 @@
 
   <Target Name="RestoreDashboardClient"
 	Inputs="$(DashboardClientDirectory)/package.json;$(DashboardClientDirectory)/package-lock.json"
-	Outputs="$(DashboardClientDirectory)/node_modules/.package-lock.json">
+	Outputs="$(DashboardClientDirectory)/node_modules/.package-lock.json"
+	Condition="'$(DesignTimeBuild)' != 'true' and '$(IsCrossTargetingBuild)' == 'true'">
 	<Exec Command="npm ci" WorkingDirectory="$(DashboardClientDirectory)" />
   </Target>
 
   <Target Name="BuildDashboardClient"
-	BeforeTargets="DispatchToInnerBuilds;PrepareForBuild"
+	BeforeTargets="DispatchToInnerBuilds"
 	DependsOnTargets="RestoreDashboardClient"
 	Inputs="@(DashboardClientSource)"
 	Outputs="$(DashboardBuildStamp);$(DashboardAssetsDirectory)/app.js;$(DashboardAssetsDirectory)/app.css;$(DashboardAssetsDirectory)/index.html"
-	Condition="'$(DesignTimeBuild)' != 'true'">
+	Condition="'$(DesignTimeBuild)' != 'true' and '$(IsCrossTargetingBuild)' == 'true'">
 	<Exec Command="npm run build" WorkingDirectory="$(DashboardClientDirectory)" />
 	<Exec Command="npm run size" WorkingDirectory="$(DashboardClientDirectory)" />
 	<MakeDir Directories="$(BaseIntermediateOutputPath)" />
