@@ -66,9 +66,17 @@
 	<Touch Files="$(DashboardBuildStamp)" AlwaysCreate="true" />
   </Target>
 
+  <Target Name="EnsureDashboardClientBuild"
+	Condition="'$(DesignTimeBuild)' != 'true' and '$(IsCrossTargetingBuild)' != 'true'">
+	<MSBuild Projects="$(MSBuildProjectFullPath)"
+		Targets="BuildDashboardClient"
+		BuildInParallel="false"
+		RemoveProperties="TargetFramework" />
+  </Target>
+
   <Target Name="IncludeDashboardAssets"
 	BeforeTargets="AssignTargetPaths"
-	DependsOnTargets="BuildDashboardClient"
+	DependsOnTargets="EnsureDashboardClientBuild"
 	Condition="'$(IsCrossTargetingBuild)' != 'true'">
 	<ItemGroup>
 	  <EmbeddedResource Include="$(DashboardAssetsDirectory)/app.js"
