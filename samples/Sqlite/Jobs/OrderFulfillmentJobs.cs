@@ -1,0 +1,143 @@
+using Immediate.Handlers.Shared;
+using Immediate.Jobs.Shared;
+
+namespace SqliteSample.Jobs;
+
+[Handler, Job(Name = "order-received")]
+public sealed partial class ReceiveOrderJob(ILogger<ReceiveOrderJob> logger)
+{
+	public sealed record Payload(Guid OrderId);
+
+	private ValueTask HandleAsync(Payload payload, CancellationToken cancellationToken) =>
+		OrderWorkflowStep.RunAsync(logger, payload.OrderId, "received", cancellationToken);
+}
+
+[Handler, Job(Name = "order-reserve-inventory")]
+public sealed partial class ReserveInventoryJob(ILogger<ReserveInventoryJob> logger)
+{
+	public sealed record Payload(Guid OrderId);
+
+	private ValueTask HandleAsync(Payload payload, CancellationToken cancellationToken) =>
+		OrderWorkflowStep.RunAsync(logger, payload.OrderId, "inventory reserved", cancellationToken);
+}
+
+[Handler, Job(Name = "order-fraud-check")]
+public sealed partial class FraudCheckJob(
+	ILogger<FraudCheckJob> logger,
+	RecordFraudAssessmentJob.Scheduler recordFraudAssessment
+)
+{
+	public sealed record Payload(Guid OrderId) : IJobRequest
+	{
+		public JobDetails? JobDetails { get; set; }
+	}
+
+	private async ValueTask HandleAsync(Payload payload, CancellationToken cancellationToken)
+	{
+		await OrderWorkflowStep.RunAsync(
+			logger,
+			payload.OrderId,
+			"fraud check passed",
+			cancellationToken
+		);
+
+		var currentJob = payload.JobDetails
+			?? throw new InvalidOperationException("Job details were not populated.");
+		_ = recordFraudAssessment.ScheduleAfter(
+			new(payload.OrderId),
+			currentJob,
+			ContinuationOptions.BeforeContinuations
+		);
+	}
+}
+
+[Handler, Job(Name = "order-record-fraud-assessment")]
+public sealed partial class RecordFraudAssessmentJob(ILogger<RecordFraudAssessmentJob> logger)
+{
+	public sealed record Payload(Guid OrderId);
+
+	private ValueTask HandleAsync(Payload payload, CancellationToken cancellationToken) =>
+		OrderWorkflowStep.RunAsync(
+			logger,
+			payload.OrderId,
+			"fraud assessment recorded by a dynamic continuation",
+			cancellationToken
+		);
+}
+
+[Handler, Job(Name = "order-capture-payment")]
+public sealed partial class CapturePaymentJob(ILogger<CapturePaymentJob> logger)
+{
+	public sealed record Payload(Guid OrderId);
+
+	private ValueTask HandleAsync(Payload payload, CancellationToken cancellationToken) =>
+		OrderWorkflowStep.RunAsync(logger, payload.OrderId, "payment captured", cancellationToken);
+}
+
+[Handler, Job(Name = "order-prepare-fulfillment")]
+public sealed partial class PrepareFulfillmentJob(ILogger<PrepareFulfillmentJob> logger)
+{
+	public sealed record Payload(Guid OrderId);
+
+	private ValueTask HandleAsync(Payload payload, CancellationToken cancellationToken) =>
+		OrderWorkflowStep.RunAsync(logger, payload.OrderId, "fulfillment prepared", cancellationToken);
+}
+
+[Handler, Job(Name = "order-create-label")]
+public sealed partial class CreateShippingLabelJob(ILogger<CreateShippingLabelJob> logger)
+{
+	public sealed record Payload(Guid OrderId);
+
+	private ValueTask HandleAsync(Payload payload, CancellationToken cancellationToken) =>
+		OrderWorkflowStep.RunAsync(logger, payload.OrderId, "shipping label created", cancellationToken);
+}
+
+[Handler, Job(Name = "order-pack")]
+public sealed partial class PackOrderJob(ILogger<PackOrderJob> logger)
+{
+	public sealed record Payload(Guid OrderId);
+
+	private ValueTask HandleAsync(Payload payload, CancellationToken cancellationToken) =>
+		OrderWorkflowStep.RunAsync(logger, payload.OrderId, "packed", cancellationToken);
+}
+
+[Handler, Job(Name = "order-dispatch")]
+public sealed partial class DispatchOrderJob(ILogger<DispatchOrderJob> logger)
+{
+	public sealed record Payload(Guid OrderId);
+
+	private ValueTask HandleAsync(Payload payload, CancellationToken cancellationToken) =>
+		OrderWorkflowStep.RunAsync(logger, payload.OrderId, "dispatched", cancellationToken);
+}
+
+[Handler, Job(Name = "order-notify-customer")]
+public sealed partial class NotifyCustomerJob(ILogger<NotifyCustomerJob> logger)
+{
+	public sealed record Payload(Guid OrderId);
+
+	private ValueTask HandleAsync(Payload payload, CancellationToken cancellationToken) =>
+		OrderWorkflowStep.RunAsync(logger, payload.OrderId, "customer notified", cancellationToken);
+}
+
+[Handler, Job(Name = "order-write-audit")]
+public sealed partial class WriteOrderAuditJob(ILogger<WriteOrderAuditJob> logger)
+{
+	public sealed record Payload(Guid OrderId);
+
+	private ValueTask HandleAsync(Payload payload, CancellationToken cancellationToken) =>
+		OrderWorkflowStep.RunAsync(logger, payload.OrderId, "audit record written", cancellationToken);
+}
+
+internal static class OrderWorkflowStep
+{
+	public static async ValueTask RunAsync(
+		ILogger logger,
+		Guid orderId,
+		string step,
+		CancellationToken cancellationToken
+	)
+	{
+		logger.LogInformation("Order {OrderId}: {WorkflowStep}", orderId, step);
+		await Task.Delay(TimeSpan.FromMilliseconds(750), cancellationToken);
+	}
+}

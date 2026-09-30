@@ -21,12 +21,27 @@ available in the `Development` environment, which the launch profile sets.
   it again to see the job recovered from SQLite.
 - `POST /retry-demo` enqueues a job that fails its first two attempts, retries ten seconds later each time, and
   succeeds on attempt three.
+- `POST /fair-queue-demo` enqueues 100 slow jobs in one group and one job in a second group that becomes due five
+  seconds later. With fair queues enabled, the quiet job runs as soon as it is due instead of waiting behind the
+  backlog.
+- `POST /continuation-branch-demo/{failRoot}` creates a root job with a success and a failure continuation. Pass
+  `false` to run the success branch or `true` to run the failure branch; the other branch becomes `Skipped`.
+- `POST /order-fulfillment-batches` creates an atomic ten-job order workflow with parallel inventory, fraud, and
+  payment steps, two fan-in joins, and a `Complete` audit continuation. The fraud check adds an eleventh
+  `order-record-fraud-assessment` job while it runs.
+- `POST /game-release-batches/{title}` creates an atomic 19-job release workflow with repeated fan-out and fan-in
+  stages.
 - A recurring `heartbeat` job runs at second zero of every minute.
 - `GET /health` reports the Immediate.Jobs health check.
 
 ```console
 curl -X POST http://localhost:50790/greetings/Ada
+curl -X POST http://localhost:50790/order-fulfillment-batches
+curl -X POST http://localhost:50790/game-release-batches/Starfall
 ```
+
+The workflow endpoints return the batch handle, and the response's `Location` header points at the batch in the
+dashboard, where you can watch the dependency graph progress.
 
 ## Database
 

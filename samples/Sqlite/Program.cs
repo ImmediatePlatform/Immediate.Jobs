@@ -5,6 +5,8 @@ using Immediate.Jobs.EntityFrameworkCore;
 using Immediate.Jobs.Shared;
 using Microsoft.EntityFrameworkCore;
 using SqliteSample;
+using SqliteSample.Jobs;
+using SqliteSample.Workflows;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -12,8 +14,12 @@ var databasePath = Path.Combine(builder.Environment.ContentRootPath, "immediate-
 builder.Services.AddDbContextFactory<JobsDbContext>(options =>
 	options.UseSqlite($"Data Source={databasePath}"));
 
+builder.Services.AddScoped<GameReleaseWorkflow>();
+builder.Services.AddScoped<OrderFulfillmentWorkflow>();
+
 builder.Services.AddSqliteSampleHandlers();
 builder.Services.AddSqliteSampleJobs()
+	.UseFairQueues()
 	.ConfigureStorage(o => o
 		.UseEntityFrameworkCore<JobsDbContext>()
 		.UseSingleServer())
@@ -59,6 +65,76 @@ app.MapPost("/retry-demo", async (
 {
 	var jobHandle = await scheduler.EnqueueAsync(new(Guid.NewGuid()), cancellationToken);
 	return Results.Accepted($"/jobs/invocations/{jobHandle.Value}", new { jobHandle = jobHandle.Value });
+});
+
+app.MapPost("/fair-queue-demo", async (
+	FairQueueDemoJob.Scheduler scheduler,
+	BatchScheduler batches,
+	CancellationToken cancellationToken
+) =>
+{
+	const int BacklogJobs = 100;
+	var runId = Guid.NewGuid();
+	var backlogGroup = $"fair-demo:{runId:N}:backlog";
+	var quietGroup = $"fair-demo:{runId:N}:quiet";
+
+	await using var batch = batches.Begin();
+	for (var sequence = 1; sequence <= BacklogJobs; sequence++)
+		_ = scheduler.Enqueue(new(runId, sequence, "backlog"), batch, groupId: backlogGroup);
+
+	var quietJob = scheduler.Schedule(
+		new(runId, 1, "quiet"),
+		batch,
+		delay: TimeSpan.FromSeconds(5),
+		groupId: quietGroup
+	);
+	_ = await batch.CommitAsync(cancellationToken);
+
+	return Results.Accepted(
+		$"/jobs/invocations/{quietJob.JobHandle.Value}",
+		new { runId, backlogJobs = BacklogJobs, backlogGroup, quietGroup, quietJobHandle = quietJob.JobHandle.Value }
+	);
+});
+
+app.MapPost("/continuation-branch-demo/{failRoot:bool}", async (
+	bool failRoot,
+	BatchScheduler batches,
+	ContinuationBranchRootJob.Scheduler rootScheduler,
+	ContinuationBranchSuccessJob.Scheduler successScheduler,
+	ContinuationBranchFailureJob.Scheduler failureScheduler,
+	CancellationToken cancellationToken
+) =>
+{
+	var runId = Guid.NewGuid();
+	await using var batch = batches.Begin();
+
+	var root = rootScheduler.Enqueue(new(runId, failRoot), batch);
+	_ = successScheduler.ScheduleAfter(new(runId), root, ContinuationTrigger.Success);
+	_ = failureScheduler.ScheduleAfter(new(runId), root, ContinuationTrigger.Failure);
+
+	var batchHandle = await batch.CommitAsync(cancellationToken);
+	return Results.Accepted($"/jobs/batches/{batchHandle.Value}", new { runId, batchHandle = batchHandle.Value });
+});
+
+app.MapPost("/order-fulfillment-batches", async (
+	OrderFulfillmentWorkflow workflow,
+	CancellationToken cancellationToken
+) =>
+{
+	var orderId = Guid.NewGuid();
+	var batchHandle = await workflow.CreateAsync(orderId, cancellationToken);
+	return Results.Accepted($"/jobs/batches/{batchHandle.Value}", new { orderId, batchHandle = batchHandle.Value });
+});
+
+app.MapPost("/game-release-batches/{title}", async (
+	string title,
+	GameReleaseWorkflow workflow,
+	CancellationToken cancellationToken
+) =>
+{
+	var releaseId = Guid.NewGuid();
+	var batchHandle = await workflow.CreateAsync(releaseId, title, cancellationToken);
+	return Results.Accepted($"/jobs/batches/{batchHandle.Value}", new { releaseId, batchHandle = batchHandle.Value });
 });
 
 app.MapHealthChecks("/health");
