@@ -322,7 +322,7 @@ describe('dashboard components', () => {
 		expect(wrapper.emitted('select')?.[0]).toEqual([completedJob]);
 	});
 
-	it('renders each server worker with its current job or idle state', () => {
+	it('renders a slot per worker and lists only busy workers', () => {
 		const idleLoop = {
 			isRunning: false,
 			lastAttemptedAt: null,
@@ -333,31 +333,47 @@ describe('dashboard components', () => {
 			itemsSucceeded: 0,
 			itemsFailed: 0,
 		};
+		const workers = Array.from({ length: 32 }, (_, workerId) => ({ workerId, jobHandle: null, attempt: null, startedAt: null }))
+			.reverse();
 		const server: JobServerSnapshot = {
 			workerId: 'node-1',
 			lastHeartbeat: '2026-07-21T12:00:00Z',
-			activeWorkers: 1,
-			maxWorkers: 2,
+			activeWorkers: 2,
+			maxWorkers: 32,
 			serverTimeout: '00:02:00',
-			workers: [
-				{ workerId: 1, jobHandle: null, attempt: null, startedAt: null },
-				{ workerId: 0, jobHandle: 'redis:jobs:opaque', attempt: 2, startedAt: '2026-07-21T12:00:05Z' },
-			],
+			workers: workers.map(worker => worker.workerId === 3
+				? { ...worker, jobHandle: 'redis:jobs:opaque', attempt: 2, startedAt: '2026-07-21T12:00:05Z' }
+				: worker.workerId === 17
+					? { ...worker, jobHandle: 'job-17', attempt: 1, startedAt: '2026-07-21T12:00:07Z' }
+					: worker),
 			acquisition: idleLoop,
 			leaseRenewal: idleLoop,
 		};
 		const router = createRouter({ history: createMemoryHistory(), routes });
 
 		const wrapper = mount(ServerCard, { props: { server }, global: { plugins: [router] } });
-		const rows = wrapper.findAll('.server-workers li');
+		const slots = wrapper.findAll('.server-slots .server-slot');
+		const busyRows = wrapper.findAll('.server-workers li');
 
-		expect(rows).toHaveLength(2);
-		expect(rows[0].text()).toContain('#0');
-		expect(rows[0].text()).toContain('Attempt 2');
-		expect(rows[0].get('a').attributes('href')).toBe('/invocations/redis:jobs:opaque');
-		expect(rows[1].text()).toContain('#1');
-		expect(rows[1].text()).toContain('Idle');
-		expect(rows[1].find('a').exists()).toBe(false);
+		expect(slots).toHaveLength(32);
+		expect(slots[0].attributes('aria-label')).toBe('Worker #0: idle');
+		expect(slots[3].classes()).toContain('busy');
+		expect(slots[3].attributes('href')).toBe('/invocations/redis:jobs:opaque');
+		expect(wrapper.findAll('.server-slot.busy')).toHaveLength(2);
+
+		expect(busyRows).toHaveLength(2);
+		expect(busyRows[0].text()).toContain('#3');
+		expect(busyRows[0].text()).toContain('Attempt 2');
+		expect(busyRows[0].get('a').attributes('href')).toBe('/invocations/redis:jobs:opaque');
+		expect(busyRows[1].text()).toContain('#17');
+		expect(wrapper.text()).not.toContain('All workers idle');
+
+		const idleWrapper = mount(ServerCard, {
+			props: { server: { ...server, activeWorkers: 0, workers } },
+			global: { plugins: [router] },
+		});
+		expect(idleWrapper.find('.server-workers').exists()).toBe(false);
+		expect(idleWrapper.text()).toContain('All workers idle');
 	});
 
 	it('renders segmented batch progress and lifecycle actions', () => {
