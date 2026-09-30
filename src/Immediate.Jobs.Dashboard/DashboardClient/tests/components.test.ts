@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 import { flushPromises, mount } from '@vue/test-utils';
+import { createMemoryHistory, createRouter } from 'vue-router';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { getJobExecutions, getJobExecutionTelemetryLinks } from '@/api';
@@ -10,8 +11,10 @@ import HistoryChart from '@/components/HistoryChart.vue';
 import JobDetail from '@/components/JobDetail.vue';
 import JobTable from '@/components/JobTable.vue';
 import MetricCard from '@/components/MetricCard.vue';
+import ServerCard from '@/components/ServerCard.vue';
 import WorkflowGraph from '@/components/WorkflowGraph.vue';
-import type { BatchGraph } from '@/contracts';
+import type { BatchGraph, JobServerSnapshot } from '@/contracts';
+import { routes } from '@/router';
 import { completedJob, executingBatch, workflowGraph } from './fixtures';
 
 const dashboardStyles = readFileSync(resolve(process.cwd(), 'src/styles.css'), 'utf8');
@@ -317,6 +320,60 @@ describe('dashboard components', () => {
 		expect(wrapper.findAll('tbody tr')).toHaveLength(1);
 		expect(wrapper.find('.job-detail-row').exists()).toBe(false);
 		expect(wrapper.emitted('select')?.[0]).toEqual([completedJob]);
+	});
+
+	it('renders a slot per worker and lists only busy workers', () => {
+		const idleLoop = {
+			isRunning: false,
+			lastAttemptedAt: null,
+			lastSucceededAt: null,
+			lastFailedAt: null,
+			consecutiveFailures: 0,
+			itemsExamined: 0,
+			itemsSucceeded: 0,
+			itemsFailed: 0,
+		};
+		const workers = Array.from({ length: 32 }, (_, workerId) => ({ workerId, jobHandle: null, attempt: null, startedAt: null }))
+			.reverse();
+		const server: JobServerSnapshot = {
+			workerId: 'node-1',
+			lastHeartbeat: '2026-07-21T12:00:00Z',
+			activeWorkers: 2,
+			maxWorkers: 32,
+			serverTimeout: '00:02:00',
+			workers: workers.map(worker => worker.workerId === 3
+				? { ...worker, jobHandle: 'redis:jobs:opaque', attempt: 2, startedAt: '2026-07-21T12:00:05Z' }
+				: worker.workerId === 17
+					? { ...worker, jobHandle: 'job-17', attempt: 1, startedAt: '2026-07-21T12:00:07Z' }
+					: worker),
+			acquisition: idleLoop,
+			leaseRenewal: idleLoop,
+		};
+		const router = createRouter({ history: createMemoryHistory(), routes });
+
+		const wrapper = mount(ServerCard, { props: { server }, global: { plugins: [router] } });
+		const slots = wrapper.findAll('.server-slots .server-slot');
+		const busyRows = wrapper.findAll('.server-workers li');
+
+		expect(slots).toHaveLength(32);
+		expect(slots[0].attributes('aria-label')).toBe('Worker #0: idle');
+		expect(slots[3].classes()).toContain('busy');
+		expect(slots[3].attributes('href')).toBe('/invocations/redis:jobs:opaque');
+		expect(wrapper.findAll('.server-slot.busy')).toHaveLength(2);
+
+		expect(busyRows).toHaveLength(2);
+		expect(busyRows[0].text()).toContain('#3');
+		expect(busyRows[0].text()).toContain('Attempt 2');
+		expect(busyRows[0].get('a').attributes('href')).toBe('/invocations/redis:jobs:opaque');
+		expect(busyRows[1].text()).toContain('#17');
+		expect(wrapper.text()).not.toContain('All workers idle');
+
+		const idleWrapper = mount(ServerCard, {
+			props: { server: { ...server, activeWorkers: 0, workers } },
+			global: { plugins: [router] },
+		});
+		expect(idleWrapper.find('.server-workers').exists()).toBe(false);
+		expect(idleWrapper.text()).toContain('All workers idle');
 	});
 
 	it('renders segmented batch progress and lifecycle actions', () => {
