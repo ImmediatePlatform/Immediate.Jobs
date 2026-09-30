@@ -4,6 +4,7 @@ using Immediate.Jobs.Dashboard;
 using Immediate.Jobs.EntityFrameworkCore;
 using Immediate.Jobs.Shared;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.OpenApi;
 using Scalar.AspNetCore;
 using SqliteSample;
 using SqliteSample.Jobs;
@@ -16,7 +17,12 @@ builder.Services.AddDbContextFactory<JobsDbContext>(options =>
 	options.UseSqlite($"Data Source={databasePath}"));
 
 builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
+builder.Services.AddSwaggerGen(options => options.SwaggerDoc("v1", new OpenApiInfo
+{
+	Title = "Immediate.Jobs SQLite sample",
+	Version = "v1",
+	Description = "Trigger a demo below, then watch it run in the [Immediate.Jobs dashboard](/jobs).",
+}));
 
 builder.Services.AddScoped<GameReleaseWorkflow>();
 builder.Services.AddScoped<OrderFulfillmentWorkflow>();
