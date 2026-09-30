@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 import { flushPromises, mount } from '@vue/test-utils';
+import { createMemoryHistory, createRouter } from 'vue-router';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { getJobExecutions, getJobExecutionTelemetryLinks } from '@/api';
@@ -10,8 +11,10 @@ import HistoryChart from '@/components/HistoryChart.vue';
 import JobDetail from '@/components/JobDetail.vue';
 import JobTable from '@/components/JobTable.vue';
 import MetricCard from '@/components/MetricCard.vue';
+import ServerCard from '@/components/ServerCard.vue';
 import WorkflowGraph from '@/components/WorkflowGraph.vue';
-import type { BatchGraph } from '@/contracts';
+import type { BatchGraph, JobServerSnapshot } from '@/contracts';
+import { routes } from '@/router';
 import { completedJob, executingBatch, workflowGraph } from './fixtures';
 
 const dashboardStyles = readFileSync(resolve(process.cwd(), 'src/styles.css'), 'utf8');
@@ -317,6 +320,44 @@ describe('dashboard components', () => {
 		expect(wrapper.findAll('tbody tr')).toHaveLength(1);
 		expect(wrapper.find('.job-detail-row').exists()).toBe(false);
 		expect(wrapper.emitted('select')?.[0]).toEqual([completedJob]);
+	});
+
+	it('renders each server worker with its current job or idle state', () => {
+		const idleLoop = {
+			isRunning: false,
+			lastAttemptedAt: null,
+			lastSucceededAt: null,
+			lastFailedAt: null,
+			consecutiveFailures: 0,
+			itemsExamined: 0,
+			itemsSucceeded: 0,
+			itemsFailed: 0,
+		};
+		const server: JobServerSnapshot = {
+			workerId: 'node-1',
+			lastHeartbeat: '2026-07-21T12:00:00Z',
+			activeWorkers: 1,
+			maxWorkers: 2,
+			serverTimeout: '00:02:00',
+			workers: [
+				{ workerId: 1, jobHandle: null, attempt: null, startedAt: null },
+				{ workerId: 0, jobHandle: 'redis:jobs:opaque', attempt: 2, startedAt: '2026-07-21T12:00:05Z' },
+			],
+			acquisition: idleLoop,
+			leaseRenewal: idleLoop,
+		};
+		const router = createRouter({ history: createMemoryHistory(), routes });
+
+		const wrapper = mount(ServerCard, { props: { server }, global: { plugins: [router] } });
+		const rows = wrapper.findAll('.server-workers li');
+
+		expect(rows).toHaveLength(2);
+		expect(rows[0].text()).toContain('#0');
+		expect(rows[0].text()).toContain('Attempt 2');
+		expect(rows[0].get('a').attributes('href')).toBe('/invocations/redis:jobs:opaque');
+		expect(rows[1].text()).toContain('#1');
+		expect(rows[1].text()).toContain('Idle');
+		expect(rows[1].find('a').exists()).toBe(false);
 	});
 
 	it('renders segmented batch progress and lifecycle actions', () => {

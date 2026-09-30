@@ -1452,6 +1452,52 @@ tbody tr:hover {
 	color: var(--text-subtle);
 }
 
+.server-workers {
+	display: grid;
+	gap: 4px;
+	margin: 12px 0 0;
+	padding: 0;
+	list-style: none;
+}
+
+.server-workers li {
+	display: grid;
+	grid-template-columns: auto minmax(0, 1fr) auto;
+	align-items: center;
+	gap: 8px;
+	border-radius: 7px;
+	background: var(--panel-muted);
+	padding: 6px 10px;
+	font-size: 11px;
+	font-variant-numeric: tabular-nums;
+}
+
+.server-workers li:not(.busy) {
+	grid-template-columns: auto minmax(0, 1fr);
+}
+
+.server-worker-id {
+	color: var(--text-subtle);
+	font-weight: 650;
+}
+
+.server-worker-job {
+	min-width: 0;
+	overflow: hidden;
+	color: var(--accent);
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.server-worker-job:hover {
+	text-decoration: underline;
+}
+
+.server-worker-meta {
+	color: var(--text-subtle);
+	white-space: nowrap;
+}
+
 .spin {
 	animation: spin 850ms linear infinite;
 }
