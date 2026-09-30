@@ -3,7 +3,7 @@
     "SqliteSample": {
       "commandName": "Project",
       "launchBrowser": true,
-      "launchUrl": "jobs",
+      "launchUrl": "scalar",
       "environmentVariables": {
         "ASPNETCORE_ENVIRONMENT": "Development"
       },

@@ -3,6 +3,8 @@
   <ItemGroup>
 	<PackageReference Include="Immediate.Handlers" />
 	<PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" />
+	<PackageReference Include="Scalar.AspNetCore" />
+	<PackageReference Include="Swashbuckle.AspNetCore" />
 	<ProjectReference Include="../../src/Immediate.Jobs.Shared/Immediate.Jobs.Shared.csproj" />
 	<ProjectReference Include="../../src/Immediate.Jobs.Dashboard/Immediate.Jobs.Dashboard.csproj" />
 	<ProjectReference Include="../../src/Immediate.Jobs.EntityFrameworkCore/Immediate.Jobs.EntityFrameworkCore.csproj" />

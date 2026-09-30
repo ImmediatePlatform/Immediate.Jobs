@@ -13,7 +13,8 @@ Prerequisites are the .NET 10 SDK.
 dotnet run --project samples/Sqlite/SqliteSample.csproj -f net10.0
 ```
 
-The app listens on `http://localhost:50790` and opens the Immediate.Jobs dashboard at `/jobs`. The dashboard is only
+The app listens on `http://localhost:50790` and opens a [Scalar](https://scalar.com) API reference at `/scalar`, where
+you can trigger every demo below. The Immediate.Jobs dashboard is at `/jobs`. Scalar and the dashboard are only
 available in the `Development` environment, which the launch profile sets.
 
 - `POST /greetings/{name}` enqueues a job that logs a greeting.

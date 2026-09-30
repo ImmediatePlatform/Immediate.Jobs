@@ -4,6 +4,7 @@ using Immediate.Jobs.Dashboard;
 using Immediate.Jobs.EntityFrameworkCore;
 using Immediate.Jobs.Shared;
 using Microsoft.EntityFrameworkCore;
+using Scalar.AspNetCore;
 using SqliteSample;
 using SqliteSample.Jobs;
 using SqliteSample.Workflows;
@@ -13,6 +14,9 @@ var builder = WebApplication.CreateBuilder(args);
 var databasePath = Path.Combine(builder.Environment.ContentRootPath, "immediate-jobs.db");
 builder.Services.AddDbContextFactory<JobsDbContext>(options =>
 	options.UseSqlite($"Data Source={databasePath}"));
+
+builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddSwaggerGen();
 
 builder.Services.AddScoped<GameReleaseWorkflow>();
 builder.Services.AddScoped<OrderFulfillmentWorkflow>();
@@ -36,7 +40,16 @@ await using (var scope = app.Services.CreateAsyncScope())
 	_ = await dbContext.Database.EnsureCreatedAsync();
 }
 
-app.MapGet("/", () => Results.Redirect("/jobs"));
+if (app.Environment.IsDevelopment())
+{
+	_ = app.MapSwagger("/openapi/{documentName}.json");
+	_ = app.MapScalarApiReference(options => options
+		.WithTitle("Immediate.Jobs SQLite sample")
+		.DisableAgent());
+}
+
+app.MapGet("/", () => Results.Redirect("/scalar"))
+	.ExcludeFromDescription();
 
 app.MapPost("/greetings/{name}", async (
 	string name,
@@ -46,7 +59,8 @@ app.MapPost("/greetings/{name}", async (
 {
 	var jobHandle = await scheduler.EnqueueAsync(new(name), cancellationToken);
 	return Results.Accepted($"/jobs/invocations/{jobHandle.Value}", new { jobHandle = jobHandle.Value });
-});
+})
+	.WithSummary("Enqueues a greeting job");
 
 app.MapPost("/greetings/{name}/delayed", async (
 	string name,
@@ -56,7 +70,8 @@ app.MapPost("/greetings/{name}/delayed", async (
 {
 	var jobHandle = await scheduler.ScheduleAsync(new(name), TimeSpan.FromMinutes(1), cancellationToken);
 	return Results.Accepted($"/jobs/invocations/{jobHandle.Value}", new { jobHandle = jobHandle.Value });
-});
+})
+	.WithSummary("Schedules a greeting job to run in one minute");
 
 app.MapPost("/retry-demo", async (
 	FlakyJob.Scheduler scheduler,
@@ -65,7 +80,8 @@ app.MapPost("/retry-demo", async (
 {
 	var jobHandle = await scheduler.EnqueueAsync(new(Guid.NewGuid()), cancellationToken);
 	return Results.Accepted($"/jobs/invocations/{jobHandle.Value}", new { jobHandle = jobHandle.Value });
-});
+})
+	.WithSummary("Enqueues a job that succeeds on its third attempt");
 
 app.MapPost("/fair-queue-demo", async (
 	FairQueueDemoJob.Scheduler scheduler,
@@ -94,7 +110,8 @@ app.MapPost("/fair-queue-demo", async (
 		$"/jobs/invocations/{quietJob.JobHandle.Value}",
 		new { runId, backlogJobs = BacklogJobs, backlogGroup, quietGroup, quietJobHandle = quietJob.JobHandle.Value }
 	);
-});
+})
+	.WithSummary("Creates a noisy backlog followed by a quiet fair-queue group");
 
 app.MapPost("/continuation-branch-demo/{failRoot:bool}", async (
 	bool failRoot,
@@ -114,7 +131,8 @@ app.MapPost("/continuation-branch-demo/{failRoot:bool}", async (
 
 	var batchHandle = await batch.CommitAsync(cancellationToken);
 	return Results.Accepted($"/jobs/batches/{batchHandle.Value}", new { runId, batchHandle = batchHandle.Value });
-});
+})
+	.WithSummary("Creates success and failure continuations for one root job");
 
 app.MapPost("/order-fulfillment-batches", async (
 	OrderFulfillmentWorkflow workflow,
@@ -124,7 +142,8 @@ app.MapPost("/order-fulfillment-batches", async (
 	var orderId = Guid.NewGuid();
 	var batchHandle = await workflow.CreateAsync(orderId, cancellationToken);
 	return Results.Accepted($"/jobs/batches/{batchHandle.Value}", new { orderId, batchHandle = batchHandle.Value });
-});
+})
+	.WithSummary("Creates an eleven-job order-fulfillment batch");
 
 app.MapPost("/game-release-batches/{title}", async (
 	string title,
@@ -135,7 +154,8 @@ app.MapPost("/game-release-batches/{title}", async (
 	var releaseId = Guid.NewGuid();
 	var batchHandle = await workflow.CreateAsync(releaseId, title, cancellationToken);
 	return Results.Accepted($"/jobs/batches/{batchHandle.Value}", new { releaseId, batchHandle = batchHandle.Value });
-});
+})
+	.WithSummary("Creates a 19-job game-release batch");
 
 app.MapHealthChecks("/health");
 app.MapImmediateJobsDashboard("/jobs");
