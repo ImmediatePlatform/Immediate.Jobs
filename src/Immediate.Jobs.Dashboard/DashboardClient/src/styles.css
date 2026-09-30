@@ -22,6 +22,7 @@
 	--warning-soft: #fdf1dc;
 	--info: #3177b8;
 	--info-soft: #e5f1fb;
+	--pause: #7457c2;
 	--shadow: 0 1px 2px rgb(23 32 43 / 5%), 0 10px 28px rgb(23 32 43 / 5%);
 }
 
@@ -44,6 +45,7 @@
 	--warning-soft: #382c18;
 	--info: #75b7ef;
 	--info-soft: #172f45;
+	--pause: #b39cf0;
 	--shadow: 0 1px 2px rgb(0 0 0 / 25%), 0 14px 34px rgb(0 0 0 / 18%);
 }
 
@@ -390,61 +392,132 @@ code {
 	margin-top: 28px;
 }
 
-.metric-card {
-	--metric-color: var(--text);
-
-	min-width: 0;
-	border: 1px solid var(--border);
-	border-radius: 11px;
-	background: var(--panel);
-	padding: 16px 17px;
-	box-shadow: 0 1px 2px rgb(23 32 43 / 3%);
+.state-summary {
+	display: grid;
+	grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
-.metric-label {
+.state-group {
 	display: flex;
-	align-items: center;
-	gap: 7px;
-	color: var(--text-subtle);
-	font-size: 10px;
-	font-weight: 650;
-	letter-spacing: 0.065em;
+	min-width: 0;
+	flex-direction: column;
+	gap: 14px;
+	padding: 18px 20px;
 }
 
-.metric-label > span {
-	width: 6px;
-	height: 6px;
-	border-radius: 999px;
-	background: var(--metric-color);
+.state-group + .state-group {
+	border-left: 1px solid var(--border);
 }
 
-.metric-card strong {
-	display: block;
-	margin-top: 9px;
-	font-size: 27px;
+.state-group header {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+}
+
+.state-group header strong {
+	margin-top: 4px;
+	font-size: 28px;
 	font-variant-numeric: tabular-nums;
 	font-weight: 680;
-	color: var(--metric-color);
 	letter-spacing: -0.035em;
+	line-height: 1.1;
 	animation: metric-in 220ms ease-out;
 }
 
-.metric-card[data-state="succeeded"] {
-	--metric-color: var(--accent);
+.state-group header p {
+	margin: 0;
+	color: var(--text-subtle);
+	font-size: 12px;
 }
 
-.metric-card[data-state="failed"] {
-	--metric-color: var(--danger);
+.state-group-bar {
+	display: flex;
+	height: 6px;
+	overflow: hidden;
+	border-radius: 999px;
+	background: var(--panel-strong);
 }
 
-.metric-card[data-state="pending"],
-.metric-card[data-state="scheduled"] {
-	--metric-color: var(--warning);
+.state-group-bar span {
+	height: 100%;
+	background: var(--state-color);
+	transition: width 200ms ease;
 }
 
-.metric-card[data-state="active"] {
-	--metric-color: var(--info);
+.state-group ul {
+	display: grid;
+	gap: 2px;
+	margin: 0;
+	padding: 0;
+	list-style: none;
 }
+
+.state-row {
+	display: flex;
+	align-items: center;
+	gap: 9px;
+	margin: 0 -8px;
+	border-radius: 7px;
+	padding: 6px 8px;
+	color: var(--text);
+	font-size: 13px;
+	text-decoration: none;
+	transition: background-color 120ms ease;
+}
+
+.state-row:hover,
+.state-row:focus-visible {
+	background: var(--panel-strong);
+}
+
+.state-row:focus-visible {
+	outline: 2px solid var(--accent);
+	outline-offset: 1px;
+}
+
+.state-dot {
+	width: 7px;
+	height: 7px;
+	flex: none;
+	border-radius: 999px;
+	background: var(--state-color);
+}
+
+.state-row-label {
+	min-width: 0;
+	flex: 1;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.state-row-value {
+	font-variant-numeric: tabular-nums;
+	font-weight: 620;
+}
+
+.state-row.empty {
+	color: var(--text-subtle);
+}
+
+.state-row.empty .state-row-value {
+	font-weight: 500;
+}
+
+.state-row.empty .state-dot {
+	opacity: 0.4;
+}
+
+.state-summary [data-state="pending"] { --state-color: var(--warning); }
+.state-summary [data-state="scheduled"] { --state-color: color-mix(in srgb, var(--warning) 55%, var(--panel)); }
+.state-summary [data-state="active"] { --state-color: var(--info); }
+.state-summary [data-state="awaitingcontinuation"] { --state-color: var(--pause); }
+.state-summary [data-state="awaitingparameters"] { --state-color: color-mix(in srgb, var(--pause) 55%, var(--panel)); }
+.state-summary [data-state="succeeded"] { --state-color: var(--accent); }
+.state-summary [data-state="failed"] { --state-color: var(--danger); }
+.state-summary [data-state="cancelled"] { --state-color: var(--text-subtle); }
+.state-summary [data-state="skipped"] { --state-color: color-mix(in srgb, var(--info) 55%, var(--panel)); }
 
 .chart-card {
 	display: grid;
@@ -1611,6 +1684,15 @@ tbody tr:hover {
 
 	.chart-card {
 		grid-template-columns: minmax(0, 1fr);
+	}
+
+	.state-summary {
+		grid-template-columns: minmax(0, 1fr);
+	}
+
+	.state-group + .state-group {
+		border-top: 1px solid var(--border);
+		border-left: 0;
 	}
 
 	.filter-bar {

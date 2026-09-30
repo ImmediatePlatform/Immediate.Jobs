@@ -9,8 +9,8 @@ import { getJobExecutions, getJobExecutionTelemetryLinks } from '@/api';
 import BatchTable from '@/components/BatchTable.vue';
 import HistoryChart from '@/components/HistoryChart.vue';
 import JobDetail from '@/components/JobDetail.vue';
+import JobStateSummary from '@/components/JobStateSummary.vue';
 import JobTable from '@/components/JobTable.vue';
-import MetricCard from '@/components/MetricCard.vue';
 import ServerCard from '@/components/ServerCard.vue';
 import WorkflowGraph from '@/components/WorkflowGraph.vue';
 import type { BatchGraph, JobServerSnapshot } from '@/contracts';
@@ -34,13 +34,24 @@ describe('dashboard components', () => {
 		getJobExecutionTelemetryLinksMock.mockReset().mockResolvedValue([]);
 	});
 
-	it('renders multi-word metric labels as readable text', () => {
-		const wrapper = mount(MetricCard, {
-			props: { label: 'AwaitingContinuation', value: 3 },
+	it('groups job state counts by lifecycle stage and links to filtered jobs', async () => {
+		const router = createRouter({ history: createMemoryHistory(), routes });
+		const wrapper = mount(JobStateSummary, {
+			props: { counts: { Pending: 2, Active: 1, AwaitingContinuation: 3, Succeeded: 5, Failed: 1 } },
+			global: { plugins: [router] },
 		});
+		await router.isReady();
 
-		expect(wrapper.get('.metric-label').text()).toBe('Awaiting continuation');
-		expect(dashboardStyles).not.toMatch(/\.metric-label\s*\{[^}]*text-transform:\s*uppercase/s);
+		const groups = wrapper.findAll('.state-group');
+		expect(groups.map(group => group.get('.eyebrow').text())).toEqual(['Queue', 'Waiting', 'Finished']);
+		expect(groups.map(group => group.get('header strong').text())).toEqual(['3', '3', '6']);
+
+		const awaiting = wrapper.get('.state-row[data-state="awaitingcontinuation"]');
+		expect(awaiting.get('.state-row-label').text()).toBe('Awaiting continuation');
+		expect(awaiting.attributes('href')).toBe('/invocations?state=AwaitingContinuation');
+		expect(awaiting.classes()).not.toContain('empty');
+		expect(wrapper.get('.state-row[data-state="skipped"]').classes()).toContain('empty');
+		expect(dashboardStyles).not.toMatch(/\.state-row-label\s*\{[^}]*text-transform:\s*uppercase/s);
 	});
 
 	it('renders job rows, retained executions, and complete payload/context details', async () => {
