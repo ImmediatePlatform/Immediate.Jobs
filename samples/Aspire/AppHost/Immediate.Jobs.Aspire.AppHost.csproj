@@ -1,8 +1,9 @@
-<Project Sdk="Aspire.AppHost.Sdk/13.4.6">
+<Project Sdk="Aspire.AppHost.Sdk/13.5.4">
 
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <UserSecretsId>e7fd0b27-61fa-4dfd-9787-1e260c52b7bd</UserSecretsId>
+	<NoWarn>$(NoWarn);ASPIRE010</NoWarn>
 	<_AspireUseSdkPickBestRid>false</_AspireUseSdkPickBestRid>
   </PropertyGroup>
   
