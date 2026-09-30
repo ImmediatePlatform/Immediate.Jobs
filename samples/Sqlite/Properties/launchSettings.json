@@ -1,0 +1,13 @@
+{
+  "profiles": {
+    "SqliteSample": {
+      "commandName": "Project",
+      "launchBrowser": true,
+      "launchUrl": "jobs",
+      "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "Development"
+      },
+      "applicationUrl": "http://localhost:50790"
+    }
+  }
+}

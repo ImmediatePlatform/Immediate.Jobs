@@ -1,0 +1,4 @@
+# Local SQLite database created by the sample.
+*.db
+*.db-shm
+*.db-wal
