@@ -518,6 +518,59 @@ describe('dashboard components', () => {
 		expect(wrapper.get('.workflow-toggle').attributes('aria-pressed')).toBe('true');
 	});
 
+	it('stacks interchangeable jobs and expands them in pages', async () => {
+		const items = Array.from({ length: 25 }, (_, index) => ({
+			jobHandle: `item-${index}`,
+			jobName: 'process-item',
+			state: index < 3 ? 'Succeeded' as const : index === 3 ? 'Active' as const : 'Pending' as const,
+		}));
+		const graph: BatchGraph = {
+			batchHandle: 'fan-out',
+			nodes: [
+				{ jobHandle: 'split', jobName: 'split', state: 'Succeeded' },
+				...items,
+				{ jobHandle: 'report', jobName: 'report', state: 'AwaitingContinuation' },
+				{ jobHandle: 'audit-a', jobName: 'audit', state: 'Pending' },
+				{ jobHandle: 'audit-b', jobName: 'audit', state: 'Pending' },
+			],
+			edges: [
+				...items.flatMap(item => [
+					{ childJobHandle: item.jobHandle, parentJobHandle: 'split', parentBatchHandle: null, trigger: 'Success' as const },
+					{ childJobHandle: 'report', parentJobHandle: item.jobHandle, parentBatchHandle: null, trigger: 'Success' as const },
+				]),
+			],
+		};
+		const wrapper = mount(WorkflowGraph, { props: { graph } });
+
+		const stack = wrapper.get('.workflow-node.stack');
+		expect(wrapper.findAll('.workflow-node')).toHaveLength(5);
+		expect(stack.text()).toContain('25 jobs');
+		expect(stack.text()).toContain('1 active · 21 pending · 3 succeeded');
+		expect(stack.classes()).toContain('active');
+		expect(wrapper.findAll('.workflow-edge')).toHaveLength(2);
+		expect(wrapper.findAll('[data-job-id^="audit-"]')).toHaveLength(2);
+
+		await stack.trigger('click');
+		expect(wrapper.find('.workflow-node.stack').exists()).toBe(false);
+		expect(wrapper.findAll('[data-job-id^="item-"]')).toHaveLength(20);
+		expect(wrapper.get('.workflow-node.more').text()).toContain('5 more process-item');
+		expect(wrapper.get('.workflow-group-chip').text()).toContain('process-item · 25 jobs');
+		const nodeY = (selector: string): number =>
+			Number(/translate\([^ ]+ ([^)]+)\)/.exec(wrapper.get(selector).attributes('transform'))?.[1]);
+		expect(nodeY('.workflow-node.more')).toBeGreaterThan(nodeY('[data-job-id="item-19"]'));
+
+		await wrapper.get('.workflow-node.more').trigger('keydown', { key: 'Enter' });
+		expect(wrapper.findAll('[data-job-id^="item-"]')).toHaveLength(25);
+		expect(wrapper.find('.workflow-node.more').exists()).toBe(false);
+
+		await wrapper.get('[data-job-id="item-0"]').trigger('click');
+		expect(wrapper.emitted('select')).toEqual([['item-0']]);
+
+		await wrapper.get('.workflow-group-chip button').trigger('click');
+		expect(wrapper.find('.workflow-node.stack').exists()).toBe(true);
+		expect(wrapper.find('.workflow-toolbar').exists()).toBe(false);
+	});
+
 	it('keeps a success constraint when its alternate path allows failed parents', () => {
 		const graph = {
 			batchHandle: 'mixed-triggers',

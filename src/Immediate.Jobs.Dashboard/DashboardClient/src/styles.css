@@ -1303,11 +1303,18 @@ tbody tr:hover {
 	cursor: pointer;
 }
 
-.workflow-node rect {
+.workflow-node .node-card,
+.workflow-node .stack-layer {
 	fill: var(--panel);
 	stroke: var(--border-strong);
 	stroke-width: 1.4;
 	filter: drop-shadow(0 2px 3px rgb(0 0 0 / 7%));
+}
+
+.workflow-node .stack-layer {
+	fill: var(--panel-strong);
+	stroke: var(--border-strong);
+	filter: none;
 }
 
 .workflow-node text {
@@ -1323,15 +1330,41 @@ tbody tr:hover {
 	font-weight: 480;
 }
 
-.workflow-node.succeeded rect {
+.workflow-node .node-count {
+	fill: var(--text-subtle);
+	font-size: 10px;
+	font-weight: 650;
+	font-variant-numeric: tabular-nums;
+}
+
+.workflow-node.more .node-card {
+	stroke-dasharray: 5 4;
+}
+
+.workflow-node .node-segment {
+	fill: var(--text-subtle);
+	pointer-events: none;
+}
+
+.node-segment[data-state="succeeded"] { fill: var(--accent); }
+.node-segment[data-state="failed"] { fill: var(--danger); }
+.node-segment[data-state="active"] { fill: var(--info); }
+.node-segment[data-state="pending"],
+.node-segment[data-state="scheduled"] { fill: var(--warning); }
+.node-segment[data-state="awaitingcontinuation"],
+.node-segment[data-state="awaitingparameters"] { fill: var(--pause); }
+.node-segment[data-state="cancelled"],
+.node-segment[data-state="skipped"] { fill: var(--border-strong); }
+
+.workflow-node.succeeded .node-card {
 	stroke: var(--accent);
 }
 
-.workflow-node.failed rect {
+.workflow-node.failed .node-card {
 	stroke: var(--danger);
 }
 
-.workflow-node.active rect {
+.workflow-node.active .node-card {
 	stroke: var(--info);
 	animation: workflow-pulse 1.6s infinite;
 }
@@ -1345,9 +1378,36 @@ tbody tr:hover {
 	outline: none;
 }
 
-.workflow-node:hover rect,
-.workflow-node:focus rect {
+.workflow-node:hover .node-card,
+.workflow-node:focus .node-card {
 	stroke-width: 2.6;
+}
+
+.workflow-expanded-groups,
+.workflow-constraints {
+	display: flex;
+	min-width: 0;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 8px 12px;
+}
+
+.workflow-constraints {
+	flex: none;
+	margin-left: auto;
+}
+
+.workflow-group-chip {
+	display: inline-flex;
+	align-items: center;
+	gap: 8px;
+	border: 1px solid var(--border);
+	border-radius: 999px;
+	background: var(--panel);
+	padding: 3px 4px 3px 10px;
+	color: var(--text);
+	font-size: 11px;
+	font-weight: 600;
 }
 
 .feedback-state {
