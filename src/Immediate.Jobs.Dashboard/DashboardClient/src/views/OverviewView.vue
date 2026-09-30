@@ -5,10 +5,10 @@ import { useRouter } from 'vue-router';
 import ConfirmDialog from '@/components/ConfirmDialog.vue';
 import FeedbackState from '@/components/FeedbackState.vue';
 import HistoryChart from '@/components/HistoryChart.vue';
+import JobStateSummary from '@/components/JobStateSummary.vue';
 import JobTable from '@/components/JobTable.vue';
-import MetricCard from '@/components/MetricCard.vue';
 import PageHeader from '@/components/PageHeader.vue';
-import type { JobRecord, JobState } from '@/contracts';
+import type { JobRecord } from '@/contracts';
 import { formatDate } from '@/format';
 import { errorText } from '@/notifications';
 import { useOverviewQuery, useRecentJobsQuery } from '@/query';
@@ -20,18 +20,6 @@ const overviewQuery = useOverviewQuery();
 const recentJobsQuery = useRecentJobsQuery();
 const jobMutations = useJobMutations();
 const cancelCandidate = ref<JobRecord>();
-
-const summaryStates: JobState[] = [
-	'Pending',
-	'Scheduled',
-	'Active',
-	'AwaitingContinuation',
-	'AwaitingParameters',
-	'Succeeded',
-	'Failed',
-	'Cancelled',
-	'Skipped',
-];
 
 const snapshot = computed(() => overviewQuery.data.value);
 const error = computed(() => overviewQuery.error.value ?? recentJobsQuery.error.value);
@@ -49,12 +37,8 @@ watch(snapshot, (value) => {
 	}
 }, { immediate: true });
 
-function count(state: JobState): number {
-	return snapshot.value?.counts[state] ?? 0;
-}
-
 function openJob(job: JobRecord): void {
-	void router.push({ name: 'jobs', params: { jobHandle: job.jobHandle } });
+	void router.push({ name: 'job-detail', params: { jobHandle: job.jobHandle } });
 }
 
 function openBatch(batchHandle: string): void {
@@ -85,9 +69,7 @@ async function confirmCancel(): Promise<void> {
 		<FeedbackState v-if="error" type="error" title="Dashboard data is unavailable" :description="errorText(error)" />
 		<FeedbackState v-else-if="!snapshot" type="loading" title="Loading dashboard" />
 		<template v-else>
-			<div class="grid grid-cols-2 gap-3 lg:grid-cols-4">
-				<MetricCard v-for="state in summaryStates" :key="state" :label="state" :value="count(state)" />
-			</div>
+			<JobStateSummary :counts="snapshot.counts" />
 
 			<div class="mt-4 grid gap-4 xl:grid-cols-2">
 				<article class="panel chart-card">
