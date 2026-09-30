@@ -38,7 +38,7 @@ watch(snapshot, (value) => {
 }, { immediate: true });
 
 function openJob(job: JobRecord): void {
-	void router.push({ name: 'jobs', params: { jobHandle: job.jobHandle } });
+	void router.push({ name: 'job-detail', params: { jobHandle: job.jobHandle } });
 }
 
 function openBatch(batchHandle: string): void {
