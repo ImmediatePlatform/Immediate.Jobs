@@ -28,6 +28,11 @@ vi.mock('@/api', async importOriginal => ({
 const getJobExecutionsMock = vi.mocked(getJobExecutions);
 const getJobExecutionTelemetryLinksMock = vi.mocked(getJobExecutionTelemetryLinks);
 
+function mountJobDetail(props: InstanceType<typeof JobDetail>['$props']) {
+	const router = createRouter({ history: createMemoryHistory(), routes });
+	return mount(JobDetail, { props, global: { plugins: [router] } });
+}
+
 describe('dashboard components', () => {
 	beforeEach(() => {
 		getJobExecutionsMock.mockReset().mockResolvedValue({ items: [], skip: 0, take: 20, hasNext: false });
@@ -52,6 +57,18 @@ describe('dashboard components', () => {
 		expect(awaiting.classes()).not.toContain('empty');
 		expect(wrapper.get('.state-row[data-state="skipped"]').classes()).toContain('empty');
 		expect(dashboardStyles).not.toMatch(/\.state-row-label\s*\{[^}]*text-transform:\s*uppercase/s);
+	});
+
+	it('links a batched job to its batch unless the batch is already shown', async () => {
+		const detail = mountJobDetail({ job: completedJob });
+		await flushPromises();
+		const batchLink = detail.get('a[aria-label="Open batch batch-42"]');
+		expect(batchLink.attributes('href')).toBe('/batches/batch-42');
+
+		const inBatch = mountJobDetail({ job: completedJob, showBatchLink: false });
+		await flushPromises();
+		expect(inBatch.find('a[aria-label="Open batch batch-42"]').exists()).toBe(false);
+		expect(inBatch.text()).toContain('batch-42');
 	});
 
 	it('renders job rows, retained executions, and complete payload/context details', async () => {
@@ -84,14 +101,12 @@ describe('dashboard components', () => {
 		getJobExecutionTelemetryLinksMock.mockResolvedValue([
 			{ label: 'View execution trace', kind: 'Trace', url: `https://telemetry.example/traces/${attemptTraceId}` },
 		]);
-		const detail = mount(JobDetail, {
-			props: {
-				job: completedJob,
-				telemetryLinks: [
-					{ label: 'View trace', kind: 'Trace', url: 'https://telemetry.example/traces/4bf92f' },
-					{ label: 'View all retry logs', kind: 'Logs', url: 'https://telemetry.example/logs?job=86bf8c31' },
-				],
-			},
+		const detail = mountJobDetail({
+			job: completedJob,
+			telemetryLinks: [
+				{ label: 'View trace', kind: 'Trace', url: 'https://telemetry.example/traces/4bf92f' },
+				{ label: 'View all retry logs', kind: 'Logs', url: 'https://telemetry.example/logs?job=86bf8c31' },
+			],
 		});
 		await flushPromises();
 		expect(detail.attributes('aria-label')).toBe('Details for SendGreeting');
@@ -135,7 +150,7 @@ describe('dashboard components', () => {
 			hasNext: false,
 		});
 
-		const detail = mount(JobDetail, { props: { job: completedJob } });
+		const detail = mountJobDetail({ job: completedJob });
 		await flushPromises();
 		vi.stubGlobal('navigator', { clipboard: { writeText } });
 		const copyTrace = detail.get('button[aria-label="Copy trace ID for attempt 3"]');
@@ -171,7 +186,7 @@ describe('dashboard components', () => {
 			hasNext: false,
 		});
 
-		const detail = mount(JobDetail, { props: { job: completedJob } });
+		const detail = mountJobDetail({ job: completedJob });
 		await flushPromises();
 		const cards = detail.findAll('details.execution-card');
 
@@ -216,7 +231,7 @@ describe('dashboard components', () => {
 				hasNext: false,
 			});
 
-		const detail = mount(JobDetail, { props: { job: completedJob } });
+		const detail = mountJobDetail({ job: completedJob });
 		await flushPromises();
 		await detail.get('.execution-history > button').trigger('click');
 		await flushPromises();
@@ -253,7 +268,7 @@ describe('dashboard components', () => {
 		});
 		getJobExecutionTelemetryLinksMock.mockRejectedValue(new Error('telemetry unavailable'));
 
-		const detail = mount(JobDetail, { props: { job: completedJob } });
+		const detail = mountJobDetail({ job: completedJob });
 		await flushPromises();
 
 		expect(detail.text()).toContain(`Attempt ${completedJob.attempt}`);
@@ -280,7 +295,7 @@ describe('dashboard components', () => {
 		await cancel.trigger('click');
 		expect(table.emitted('cancel')?.[0]).toEqual([scheduled]);
 
-		const detail = mount(JobDetail, { props: { job: scheduled } });
+		const detail = mountJobDetail({ job: scheduled });
 		expect(detail.findAll('button.button-secondary').some(button => button.text().includes('Run now'))).toBe(true);
 		const cancelDetail = detail.findAll('button.button-secondary').find(button => button.text().includes('Cancel job'));
 		expect(cancelDetail).toBeDefined();
@@ -299,11 +314,7 @@ describe('dashboard components', () => {
 		{ groupId: null, rendersGroup: false },
 		{ groupId: '', rendersGroup: true },
 	])('renders job group details according to the nullable contract for $groupId', ({ groupId, rendersGroup }) => {
-		const detail = mount(JobDetail, {
-			props: {
-				job: { ...completedJob, groupId },
-			},
-		});
+		const detail = mountJobDetail({ job: { ...completedJob, groupId } });
 
 		expect(detail.findAll('dt').some((term) => term.text() === 'Group')).toBe(rendersGroup);
 	});

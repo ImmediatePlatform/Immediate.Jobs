@@ -196,6 +196,7 @@ async function confirmJobCancel(): Promise<void> {
 						<JobDetail
 							v-else-if="jobQuery.data.value"
 							:job="jobQuery.data.value"
+							:show-batch-link="false"
 							:telemetry-links="telemetryLinksQuery.data.value ?? []"
 							:pending="jobMutations.busyJobHandle.value === selectedJobHandle"
 							@close="closeGraphJob"
