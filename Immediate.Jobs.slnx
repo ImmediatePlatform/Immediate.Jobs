@@ -49,5 +49,6 @@
     <Project Path="samples/Aspire/ServiceDefaults/Immediate.Jobs.Aspire.ServiceDefaults.csproj" />
     <Project Path="samples/Basic/Basic.csproj" />
     <Project Path="samples/NativeAot/NativeAot.csproj" />
+    <Project Path="samples/Sqlite/SqliteSample.csproj" />
   </Folder>
 </Solution>
