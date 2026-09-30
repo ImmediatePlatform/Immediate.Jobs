@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onBeforeUnmount, ref, watch } from 'vue';
-import { Activity, Ban, Check, ChevronDown, Copy, ExternalLink, RotateCcw, ScrollText, X } from '@lucide/vue';
+import { RouterLink } from 'vue-router';
+import { Activity, Ban, Check, ChevronDown, Copy, ExternalLink, Layers3, RotateCcw, ScrollText, X } from '@lucide/vue';
 
 import StateBadge from '@/components/StateBadge.vue';
 import { getJobExecutions, getJobExecutionTelemetryLinks } from '@/api';
@@ -18,10 +19,12 @@ const props = withDefaults(defineProps<{
 	telemetryLinks?: JobTelemetryLink[];
 	pending?: boolean;
 	showClose?: boolean;
+	showBatchLink?: boolean;
 }>(), {
 	telemetryLinks: () => [],
 	pending: false,
 	showClose: true,
+	showBatchLink: true,
 });
 
 const emit = defineEmits<{
@@ -215,7 +218,18 @@ function retryButtonLabel(job: JobRecord, pending: boolean): string {
 				</div>
 				<div v-if="job.batchHandle">
 					<dt>Batch</dt>
-					<dd><code>{{ job.batchHandle }}</code></dd>
+					<dd>
+						<RouterLink
+							v-if="showBatchLink"
+							class="table-link"
+							:to="{ name: 'batch-detail', params: { batchHandle: job.batchHandle } }"
+							:aria-label="`Open batch ${job.batchHandle}`"
+						>
+							<Layers3 :size="13" aria-hidden="true" />
+							{{ job.batchHandle }}
+						</RouterLink>
+						<code v-else>{{ job.batchHandle }}</code>
+					</dd>
 				</div>
 				<div>
 					<dt>Attempt</dt>

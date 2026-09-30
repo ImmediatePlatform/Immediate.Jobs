@@ -770,6 +770,7 @@ tbody tr:hover {
 	color: var(--text);
 	background: transparent;
 	font: 600 12px "SFMono-Regular", Consolas, monospace;
+	text-decoration: none;
 	cursor: pointer;
 }
 
