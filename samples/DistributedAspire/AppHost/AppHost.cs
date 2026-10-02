@@ -49,6 +49,7 @@ _ = builder.AddProject<Projects.Immediate_Jobs_DistributedAspire_Cli>("jobs-cli"
 builder.AddProject<Projects.Immediate_Jobs_DistributedAspire_Worker>("worker")
 	.WithReference(jobsDatabase)
 	.WaitFor(jobsDatabase)
-	.WaitFor(jobsApi);
+	.WaitFor(jobsApi)
+	.WithReplicas(1);
 
 await builder.Build().RunAsync();
