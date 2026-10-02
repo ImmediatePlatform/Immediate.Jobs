@@ -15,12 +15,8 @@ public sealed class RedisConformanceTests(RedisStorageFixture redis)
 	private const StorageCapabilities Capabilities =
 		StorageCapabilities.Queue;
 
-	// Redis does not implement fair-queue acquisition yet.
 	public static TheoryData<JobStorageConformanceTestCase> Cases =>
-		[
-			.. JobStorageConformanceSuite.GetCases(Capabilities)
-				.Where(c => !c.Name.StartsWith("FairQueues.", StringComparison.Ordinal)),
-		];
+		[.. JobStorageConformanceSuite.GetCases(Capabilities)];
 
 	[Theory]
 	[MemberData(nameof(Cases))]

@@ -27,6 +27,7 @@ internal sealed partial class RedisJobStorage(
 
 	private const int QueryWindowSize = 256;
 	private const int MaximumQueryTake = 1000;
+	private const int FairQueueIndexBatchSize = 500;
 
 	private static readonly RedisValue[] JobMutableFields =
 	[
@@ -73,6 +74,7 @@ internal sealed partial class RedisJobStorage(
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 		await Database.PingAsync().WaitAsync(cancellationToken);
+		await IndexFairQueuesAsync(cancellationToken);
 	}
 
 	/// <inheritdoc />
@@ -103,13 +105,6 @@ internal sealed partial class RedisJobStorage(
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 
-		if (request.FairQueues is not null)
-		{
-			throw new NotSupportedException(
-				"Direct distributed fair-queue acquisition is not supported by the Redis provider."
-			);
-		}
-
 		var keys = new List<RedisKey>(4 + request.Queues.Count)
 		{
 			LeasesKey,
@@ -129,6 +124,10 @@ internal sealed partial class RedisJobStorage(
 			request.Queues.Count,
 			_root,
 			Ticks(now),
+			request.FairQueues is null ? 0 : 1,
+			request.FairQueues?.ConcurrencyShareThreshold ?? 0,
+			request.FairQueues?.MinInflightForNoisy ?? 0,
+			request.FairQueues?.GroupRoundRobin == true ? 1 : 0,
 		};
 		foreach (var queue in request.Queues)
 		{
@@ -225,7 +224,7 @@ internal sealed partial class RedisJobStorage(
 				ExecutionIndexKey(jobHandle),
 				ExecutionDataKey(jobHandle),
 			],
-			[workerId, executionNumber, Ticks(now), jobHandle.Value, Score(now)],
+			[workerId, executionNumber, Ticks(now), jobHandle.Value, Score(now), _root],
 			cancellationToken
 		);
 		ThrowIfNotOwned(result, jobHandle, workerId);
@@ -1091,6 +1090,28 @@ internal sealed partial class RedisJobStorage(
 		};
 	}
 
+	private async ValueTask IndexFairQueuesAsync(CancellationToken cancellationToken)
+	{
+		if (await Database.KeyExistsAsync(FairQueueIndexKey).WaitAsync(cancellationToken))
+			return;
+
+		var values = new List<RedisValue>(FairQueueIndexBatchSize + 1) { _root };
+		await foreach (var entry in Database.SortedSetScanAsync(AllJobsKey, pageSize: FairQueueIndexBatchSize).WithCancellation(cancellationToken))
+		{
+			values.Add(entry.Element);
+			if (values.Count <= FairQueueIndexBatchSize)
+				continue;
+
+			_ = await EvaluateInt64Async(RedisScripts.IndexFairQueues, [AllJobsKey], [.. values], cancellationToken);
+			values.RemoveRange(1, values.Count - 1);
+		}
+
+		if (values.Count > 1)
+			_ = await EvaluateInt64Async(RedisScripts.IndexFairQueues, [AllJobsKey], [.. values], cancellationToken);
+
+		_ = await Database.StringSetAsync(FairQueueIndexKey, 1).WaitAsync(cancellationToken);
+	}
+
 	private async ValueTask<long> EvaluateInt64Async(
 		string script,
 		RedisKey[] keys,
@@ -1103,7 +1124,7 @@ internal sealed partial class RedisJobStorage(
 		return (long)result;
 	}
 
-	private static RedisValue[] CreateEnqueueArguments(JobRecord job) =>
+	private RedisValue[] CreateEnqueueArguments(JobRecord job) =>
 	[
 		JsonSerializer.Serialize(job, RedisJsonSerializerContext.Default.JobRecord),
 		(int)job.State,
@@ -1123,9 +1144,11 @@ internal sealed partial class RedisJobStorage(
 		Score(job.DueAt),
 		Ticks(job.CreatedAt),
 		DueMember(job),
+		job.GroupId ?? "",
+		_root,
 	];
 
-	private static RedisValue[] CreateMaterializeArguments(
+	private RedisValue[] CreateMaterializeArguments(
 		RecurringJobSchedule schedule,
 		JobRecord job,
 		DateTimeOffset nextRunAt,
@@ -1156,6 +1179,7 @@ internal sealed partial class RedisJobStorage(
 		Ticks(job.CreatedAt),
 		job.CompletedAt is { } completedAt ? Score(completedAt) : 0,
 		Score(now),
+		_root,
 	];
 
 	private static void ValidateQueueJob(JobRecord job)
@@ -1206,6 +1230,7 @@ internal sealed partial class RedisJobStorage(
 	private RedisKey RecurringDueKey => _root + "recurring:due";
 	private RedisKey RecurringDedupeKey => _root + "recurring:dedupe";
 	private RedisKey ServersKey => _root + "servers";
+	private RedisKey FairQueueIndexKey => _root + "fair:indexed";
 
 	private static long Score(DateTimeOffset value) => value.ToUnixTimeMilliseconds();
 	private static string Ticks(DateTimeOffset value) => value.UtcTicks.ToString("D19", CultureInfo.InvariantCulture);

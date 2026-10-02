@@ -50,10 +50,10 @@ the lease expires.
 
 ## Capabilities and limitations
 
-Redis supports ordinary and recurring jobs, cancellation, retries, execution history, and retention.
+Redis supports ordinary and recurring jobs, fair queues, cancellation, retries, execution history, and retention.
 
-Redis does not support fair queues, batches, or continuations; fair scheduling and dependency graphs require the
-Entity Framework Core or LinqToDB provider.
+Redis does not support batches or continuations; dependency graphs require the Entity Framework Core or LinqToDB
+provider.
 
 ## More information
 
