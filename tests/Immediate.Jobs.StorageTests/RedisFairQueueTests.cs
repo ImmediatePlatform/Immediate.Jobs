@@ -39,65 +39,6 @@ public sealed class RedisFairQueueTests(RedisStorageFixture redis)
 		);
 	}
 
-	[Fact]
-	public async Task RetriedJobsRemainFairlyAcquirable()
-	{
-		var cancellationToken = TestContext.Current.CancellationToken;
-		await using var context = await RedisTestContext.CreateAsync(redis.Container.GetConnectionString());
-		await context.EnqueueAsync("retry-a-1", 0, "group-a", cancellationToken);
-		await context.EnqueueAsync("retry-b-1", 1, "group-b", cancellationToken);
-
-		var first = Assert.Single(await context.Storage.AcquireDueJobsAsync(CreateRequest("retry-worker-a", 1), cancellationToken));
-		await context.Storage.FailAsync(
-			first.JobHandle,
-			first.Attempt,
-			"retry-worker-a",
-			"transient",
-			context.Clock.GetUtcNow(),
-			cancellationToken
-		);
-
-		var second = Assert.Single(await context.Storage.AcquireDueJobsAsync(CreateRequest("retry-worker-b", 1), cancellationToken));
-		await context.Storage.FailAsync(
-			second.JobHandle,
-			second.Attempt,
-			"retry-worker-b",
-			"terminal",
-			nextRetryAt: null,
-			cancellationToken
-		);
-		await context.Storage.RetryAsync(second.JobHandle, cancellationToken);
-
-		var remaining = await context.Storage.AcquireDueJobsAsync(CreateRequest("retry-worker-c", 2), cancellationToken);
-
-		Assert.Equal("retry-a-1", first.JobHandle.Value);
-		Assert.Equal("retry-b-1", second.JobHandle.Value);
-		Assert.Equal(
-			["retry-a-1", "retry-b-1"],
-			remaining.Select(static job => job.JobHandle.Value).Order(StringComparer.Ordinal)
-		);
-	}
-
-	[Fact]
-	public async Task CancelledJobsLeaveTheFairIndexAndClearTheirCursor()
-	{
-		var cancellationToken = TestContext.Current.CancellationToken;
-		await using var context = await RedisTestContext.CreateAsync(redis.Container.GetConnectionString());
-		await context.EnqueueAsync("cancel-a-1", 0, "group-a", cancellationToken);
-		await context.EnqueueAsync("cancel-a-2", 1, "group-a", cancellationToken);
-		await context.EnqueueAsync("cancel-b-1", 2, "group-b", cancellationToken);
-
-		var first = Assert.Single(await context.Storage.AcquireDueJobsAsync(CreateRequest("cancel-worker-a", 1), cancellationToken));
-		Assert.True(await context.HasCursorAsync("group-a"));
-
-		await context.Storage.CancelAsync(first.JobHandle, cancellationToken);
-		await context.Storage.CancelAsync(JobHandle.FromString("cancel-a-2"), cancellationToken);
-
-		Assert.False(await context.HasCursorAsync("group-a"));
-		var remaining = await context.Storage.AcquireDueJobsAsync(CreateRequest("cancel-worker-b", 3), cancellationToken);
-		Assert.Equal("cancel-b-1", Assert.Single(remaining).JobHandle.Value);
-	}
-
 	private static JobAcquisitionRequest CreateRequest(string workerId, int batchSize) => new()
 	{
 		WorkerId = workerId,
@@ -183,9 +124,6 @@ public sealed class RedisFairQueueTests(RedisStorageFixture redis)
 			await foreach (var key in server.KeysAsync(pattern: _root + "fair:*"))
 				_ = await database.KeyDeleteAsync(key);
 		}
-
-		public async ValueTask<bool> HasCursorAsync(string groupId) =>
-			await _connection.GetDatabase().HashExistsAsync(_root + "fair:cursor:" + QueueName, groupId);
 
 		public async ValueTask DisposeAsync()
 		{

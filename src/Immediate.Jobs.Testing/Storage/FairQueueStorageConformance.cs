@@ -15,6 +15,8 @@ internal static class FairQueueStorageConformance
 	private const string ExpiredName = "FairQueues.NoisyNeighbors.IgnoresExpiredLeases";
 	private const string OrdinaryName = "FairQueues.Disabled.PreservesOrdinaryDueOrder";
 	private const string ConcurrencyName = "FairQueues.Concurrency.ClaimsDistinctJobs";
+	private const string RetryName = "FairQueues.Retries.KeepsRetriedJobsEligible";
+	private const string CancellationName = "FairQueues.Cancellation.ClearsCancelledGroups";
 
 	private static readonly FairQueuePolicy DefaultPolicy = new()
 	{
@@ -31,6 +33,8 @@ internal static class FairQueueStorageConformance
 		new(ExpiredName, StorageCapabilities.Queue, IgnoresExpiredLeasesAsync),
 		new(OrdinaryName, StorageCapabilities.Queue, NullPolicyPreservesOrderAsync),
 		new(ConcurrencyName, StorageCapabilities.Queue, ConcurrentClaimsAreDistinctAsync),
+		new(RetryName, StorageCapabilities.Queue, KeepsRetriedJobsEligibleAsync),
+		new(CancellationName, StorageCapabilities.Queue, ClearsCancelledGroupsAsync),
 	];
 
 	private static async ValueTask RotatesAcrossGroupsAsync(
@@ -340,6 +344,78 @@ internal static class FairQueueStorageConformance
 			"every eligible job must remain claimable after concurrent acquisition contention");
 		ConformanceAssert.Equal(12, allIds.Distinct(StringComparer.Ordinal).Count(), ConcurrencyName,
 			"concurrent and follow-up acquisitions must never claim the same job twice");
+	}
+
+	private static async ValueTask KeepsRetriedJobsEligibleAsync(
+		IJobStorage storage,
+		FakeTimeProvider timeProvider,
+		CancellationToken cancellationToken
+	)
+	{
+		var clock = timeProvider;
+		await EnqueueAsync(storage, clock, "retry-transient", 0, "retry-a", cancellationToken);
+		await EnqueueAsync(storage, clock, "retry-terminal", 1, "retry-b", cancellationToken);
+
+		var transient = Single(
+			await storage.AcquireDueJobsAsync(CreateRequest("retry-worker-a", 1, DefaultPolicy), cancellationToken),
+			RetryName,
+			"the first fair acquisition must claim one job"
+		);
+		await storage.FailAsync(transient.JobHandle, transient.Attempt, "retry-worker-a", "transient", clock.GetUtcNow(), cancellationToken);
+
+		var terminal = Single(
+			await storage.AcquireDueJobsAsync(CreateRequest("retry-worker-b", 1, DefaultPolicy), cancellationToken),
+			RetryName,
+			"the second fair acquisition must claim one job"
+		);
+		await storage.FailAsync(terminal.JobHandle, terminal.Attempt, "retry-worker-b", "terminal", nextRetryAt: null, cancellationToken);
+		await storage.RetryAsync(terminal.JobHandle, cancellationToken);
+
+		var retried = await storage.AcquireDueJobsAsync(CreateRequest("retry-worker-c", 2, DefaultPolicy), cancellationToken);
+		ConformanceAssert.SequenceEqual(
+			["retry-terminal", "retry-transient"],
+			retried.Select(static job => job.JobHandle.Value).Order(StringComparer.Ordinal),
+			RetryName,
+			"jobs returned to the queue by a failed attempt or a manual retry must stay eligible for fair acquisition"
+		);
+	}
+
+	private static async ValueTask ClearsCancelledGroupsAsync(
+		IJobStorage storage,
+		FakeTimeProvider timeProvider,
+		CancellationToken cancellationToken
+	)
+	{
+		var clock = timeProvider;
+		await EnqueueAsync(storage, clock, "cancel-b-1", 0, "cancel-b", cancellationToken);
+		await EnqueueAsync(storage, clock, "cancel-a-1", 1, "cancel-a", cancellationToken);
+		await EnqueueAsync(storage, clock, "cancel-a-2", 2, "cancel-a", cancellationToken);
+		await EnqueueAsync(storage, clock, "cancel-b-2", 3, "cancel-b", cancellationToken);
+
+		foreach (var workerId in new[] { "cancel-worker-a", "cancel-worker-b" })
+		{
+			var served = Single(
+				await storage.AcquireDueJobsAsync(CreateRequest(workerId, 1, DefaultPolicy), cancellationToken),
+				CancellationName,
+				"setup acquisitions must each claim one job"
+			);
+			await storage.CompleteAsync(served.JobHandle, served.Attempt, workerId, cancellationToken);
+		}
+
+		await storage.CancelAsync(JobHandle.FromString("cancel-a-2"), cancellationToken);
+		await EnqueueAsync(storage, clock, "cancel-a-3", 4, "cancel-a", cancellationToken);
+
+		var next = Single(
+			await storage.AcquireDueJobsAsync(CreateRequest("cancel-worker-c", 1, DefaultPolicy), cancellationToken),
+			CancellationName,
+			"the acquisition after cancellation must claim one job"
+		);
+		ConformanceAssert.Equal(
+			"cancel-a-3",
+			next.JobHandle.Value,
+			CancellationName,
+			"a group whose remaining jobs were cancelled must return without cursor debt"
+		);
 	}
 
 	private static JobAcquisitionRequest CreateRequest(
