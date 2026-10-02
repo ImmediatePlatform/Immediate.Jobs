@@ -18,7 +18,7 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>(
 	IDbContextFactory<TContext> contextFactory,
 	TimeProvider? timeProvider = null,
 	ILogger<EntityFrameworkCoreJobStorage<TContext>>? logger = null
-) : IJobStorage, IRecurringJobStorage, IJobGraphStorage, IFairQueueStorage, IJobStorageReplica, IJobGraphStorageReplica
+) : IJobStorage, IJobGraphStorage
 	where TContext : DbContext
 {
 	[SuppressMessage("Performance", "CA1823:Avoid unused private fields", Justification = "Used by generated logger methods")]

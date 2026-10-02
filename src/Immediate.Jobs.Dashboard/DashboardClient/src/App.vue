@@ -42,9 +42,6 @@ const navigation = computed(() => allNavigation.filter((item) => {
 	if (item.name === 'batches') {
 		return capabilities?.includes('Graph') ?? true;
 	}
-	if (item.name === 'recurring') {
-		return capabilities?.includes('Recurring') ?? true;
-	}
 	return true;
 }));
 

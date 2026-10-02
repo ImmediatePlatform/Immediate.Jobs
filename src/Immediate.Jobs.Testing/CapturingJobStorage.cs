@@ -14,9 +14,7 @@ namespace Immediate.Jobs.Testing;
 [SuppressMessage("Usage", "CA1816:Dispose methods should call SuppressFinalize", Justification = "Class is only used for testing; shouldn't need to worry about this.")]
 [SuppressMessage("Design", "CA1063:Implement IDisposable Correctly", Justification = "Class is only used for testing; shouldn't need to worry about this.")]
 public class CapturingJobStorage(TimeProvider timeProvider) :
-	IRecurringJobStorage,
 	IJobGraphStorage,
-	IFairQueueStorage,
 	IDisposable
 {
 	private readonly Lock _gate = new();
@@ -292,6 +290,14 @@ public class CapturingJobStorage(TimeProvider timeProvider) :
 	public virtual async ValueTask PurgeJobsAsync(TimeSpan succeededRetention, TimeSpan failedRetention, CancellationToken cancellationToken = default) => await _inner.PurgeJobsAsync(succeededRetention, failedRetention, cancellationToken);
 	/// <inheritdoc />
 	public virtual async ValueTask PurgeBatchesAsync(TimeSpan batchSucceededRetention, TimeSpan batchFailedRetention, CancellationToken cancellationToken = default) => await _inner.PurgeBatchesAsync(batchSucceededRetention, batchFailedRetention, cancellationToken);
+	/// <inheritdoc />
+	/// <remarks>Not supported: capturing storage cannot be used as a single-server durable store.</remarks>
+	/// <exception cref="NotSupportedException">Always thrown.</exception>
+	public virtual async ValueTask<IReadOnlyList<JobRecord>> AcquireJobsAsync(IReadOnlyCollection<JobHandle> jobs, string workerId, TimeSpan lease, CancellationToken cancellationToken = default) => await _inner.AcquireJobsAsync(jobs, workerId, lease, cancellationToken);
+	/// <inheritdoc />
+	/// <remarks>Not supported: capturing storage cannot be used as a single-server durable store.</remarks>
+	/// <exception cref="NotSupportedException">Always thrown.</exception>
+	public virtual async ValueTask<IReadOnlyList<JobContinuationEdge>> GetIncomingEdgesAsync(IReadOnlyCollection<JobHandle> childJobs, CancellationToken cancellationToken = default) => await _inner.GetIncomingEdgesAsync(childJobs, cancellationToken);
 	/// <inheritdoc />
 	public virtual async ValueTask HeartbeatAsync(JobServerSnapshot server, CancellationToken cancellationToken = default) => await _inner.HeartbeatAsync(server, cancellationToken);
 	/// <inheritdoc />

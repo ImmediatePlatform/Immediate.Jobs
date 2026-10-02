@@ -322,7 +322,7 @@ Grouped by concern:
 - **Maintenance & health:** `CancelAsync`, `RetryAsync`, `DeleteAsync`, `PurgeAsync(retention)`, `HeartbeatAsync`,
   `IsHealthyAsync`, `InitializeAsync`.
 
-Single-server mode additionally uses the small `IJobStorageReplica` capability to mirror the exact set
+Single-server mode additionally uses `IJobGraphStorage.AcquireJobsAsync` to mirror the exact set
 of jobs its authoritative in-memory queue selected. Payloads are stored as JSON, serialized via the
 generated `JsonSerializerContext`. A pluggable `IJobSerializer` exists with the generated STJ
 implementation as default.

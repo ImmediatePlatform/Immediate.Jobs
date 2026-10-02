@@ -7,7 +7,6 @@ namespace Immediate.Jobs.Testing.Storage;
 
 internal static class RecurringStorageConformance
 {
-	private const string CapabilityName = "Recurring.Capability.ResolvesAdvertisedStorage";
 	private const string LifecycleName = "Recurring.Lifecycle.UpdatesPausesResumesAndRemovesDynamicSchedule";
 	private const string MergeDefinitionsName = "Recurring.Definitions.MergesCodeDefinedSchedulesAndPreservesDynamicSchedules";
 	private const string DueScanName = "Recurring.DueScanning.FiltersOrdersAndBatchesSchedules";
@@ -24,30 +23,18 @@ internal static class RecurringStorageConformance
 
 	internal static IReadOnlyList<JobStorageConformanceTestCase> Cases { get; } =
 	[
-		new(CapabilityName, StorageCapabilities.Recurring, ResolvesAdvertisedStorage),
-		new(LifecycleName, StorageCapabilities.Recurring, DynamicLifecycleAsync),
-		new(MergeDefinitionsName, StorageCapabilities.Recurring, MergesDefinitionsAsync, ExistingRecurringSchedules()),
-		new(DueScanName, StorageCapabilities.Recurring, FiltersDueSchedulesAsync),
-		new(MaterializeName, StorageCapabilities.Recurring, MaterializesAtomicallyAsync),
-		new(TerminalParentName, StorageCapabilities.Recurring | StorageCapabilities.Graph, EvaluatesTerminalParentAsync),
-		new(ConcurrentName, StorageCapabilities.Recurring, DeduplicatesConcurrentOccurrenceAsync),
-		new(DedupeAdvanceName, StorageCapabilities.Recurring, AdvancesAfterDedupeHitAsync),
-		new(StaleName, StorageCapabilities.Recurring, RejectsStaleDueEntryAsync),
-		new(SkippedName, StorageCapabilities.Recurring, PersistsSkippedOccurrenceAsync),
-		new(PurgeName, StorageCapabilities.Recurring, PurgeRemovesDedupeStateAsync),
-		new(ExceptionsName, StorageCapabilities.Recurring, UsesDashboardExceptionConventionsAsync),
+		new(LifecycleName, StorageCapabilities.Queue, DynamicLifecycleAsync),
+		new(MergeDefinitionsName, StorageCapabilities.Queue, MergesDefinitionsAsync, ExistingRecurringSchedules()),
+		new(DueScanName, StorageCapabilities.Queue, FiltersDueSchedulesAsync),
+		new(MaterializeName, StorageCapabilities.Queue, MaterializesAtomicallyAsync),
+		new(TerminalParentName, StorageCapabilities.Graph, EvaluatesTerminalParentAsync),
+		new(ConcurrentName, StorageCapabilities.Queue, DeduplicatesConcurrentOccurrenceAsync),
+		new(DedupeAdvanceName, StorageCapabilities.Queue, AdvancesAfterDedupeHitAsync),
+		new(StaleName, StorageCapabilities.Queue, RejectsStaleDueEntryAsync),
+		new(SkippedName, StorageCapabilities.Queue, PersistsSkippedOccurrenceAsync),
+		new(PurgeName, StorageCapabilities.Queue, PurgeRemovesDedupeStateAsync),
+		new(ExceptionsName, StorageCapabilities.Queue, UsesDashboardExceptionConventionsAsync),
 	];
-
-	private static ValueTask ResolvesAdvertisedStorage(
-		IJobStorage storage,
-		FakeTimeProvider timeProvider,
-		CancellationToken cancellationToken
-	)
-	{
-		cancellationToken.ThrowIfCancellationRequested();
-		_ = Recurring(storage, CapabilityName);
-		return ValueTask.CompletedTask;
-	}
 
 	private static async ValueTask DynamicLifecycleAsync(
 		IJobStorage storage,
@@ -55,10 +42,9 @@ internal static class RecurringStorageConformance
 		CancellationToken cancellationToken
 	)
 	{
-		var recurring = Recurring(storage, LifecycleName);
 		var now = timeProvider.GetUtcNow();
 		var original = Schedule("dynamic-lifecycle", now, isCodeDefined: false);
-		await recurring.UpsertRecurringAsync(original, cancellationToken);
+		await storage.UpsertRecurringAsync(original, cancellationToken);
 		var updated = original with
 		{
 			JobName = "conformance-recurring-updated",
@@ -66,26 +52,26 @@ internal static class RecurringStorageConformance
 			TimeZone = "Europe/Vienna",
 			NextRunAt = now.AddHours(2),
 		};
-		await recurring.UpsertRecurringAsync(updated, cancellationToken);
+		await storage.UpsertRecurringAsync(updated, cancellationToken);
 
 		var persisted = await GetScheduleAsync(storage, original.Name, LifecycleName, cancellationToken);
 		AssertSchedule(updated, persisted, LifecycleName, "a dynamic upsert must update provider-neutral schedule fields");
 
-		await recurring.PauseRecurringAsync(original.Name, cancellationToken);
+		await storage.PauseRecurringAsync(original.Name, cancellationToken);
 		persisted = await GetScheduleAsync(storage, original.Name, LifecycleName, cancellationToken);
 		ConformanceAssert.True(persisted.IsPaused, LifecycleName, "PauseRecurringAsync must persist the paused state");
 		ConformanceAssert.Equal(
 			0,
-			(await recurring.GetDueRecurringAsync(now.AddDays(1), 10, cancellationToken)).Count,
+			(await storage.GetDueRecurringAsync(now.AddDays(1), 10, cancellationToken)).Count,
 			LifecycleName,
 			"a paused schedule must not be returned by a due scan"
 		);
 
-		await recurring.ResumeRecurringAsync(original.Name, cancellationToken);
+		await storage.ResumeRecurringAsync(original.Name, cancellationToken);
 		persisted = await GetScheduleAsync(storage, original.Name, LifecycleName, cancellationToken);
 		ConformanceAssert.False(persisted.IsPaused, LifecycleName, "ResumeRecurringAsync must clear the paused state");
 
-		await recurring.RemoveRecurringAsync(original.Name, cancellationToken);
+		await storage.RemoveRecurringAsync(original.Name, cancellationToken);
 		ConformanceAssert.False(
 			(await storage.GetMonitoringSnapshotAsync(cancellationToken)).Recurring.Any(
 				schedule => string.Equals(schedule.Name, original.Name, StringComparison.Ordinal)
@@ -124,7 +110,6 @@ internal static class RecurringStorageConformance
 		CancellationToken cancellationToken
 	)
 	{
-		var recurring = Recurring(storage, MergeDefinitionsName);
 		var now = timeProvider.GetUtcNow();
 		var persistedAt = new DateTimeOffset(2026, 8, 8, 10, 0, 0, TimeSpan.Zero);
 		var updatedDefinition = Schedule("merge-update", now.AddHours(4), isCodeDefined: true) with
@@ -138,7 +123,7 @@ internal static class RecurringStorageConformance
 		var upgradeToStatic = Schedule("merge-dynamic-to-static", now.AddHours(3), isCodeDefined: true);
 		var preserve = Schedule("preserve-next-run", persistedAt.AddHours(12), isCodeDefined: true);
 
-		await recurring.MergeRecurringSchedulesListAsync([updatedDefinition, insertedDefinition, upgradeToStatic, preserve], cancellationToken);
+		await storage.MergeRecurringSchedulesListAsync([updatedDefinition, insertedDefinition, upgradeToStatic, preserve], cancellationToken);
 
 		var schedules = (await storage.GetMonitoringSnapshotAsync(cancellationToken)).Recurring;
 		var updated = schedules.Single(schedule => string.Equals(schedule.Name, "merge-update", StringComparison.Ordinal));
@@ -192,23 +177,22 @@ internal static class RecurringStorageConformance
 		CancellationToken cancellationToken
 	)
 	{
-		var recurring = Recurring(storage, DueScanName);
 		var now = timeProvider.GetUtcNow();
 		var first = Schedule("due-first", now.AddMinutes(-2), isCodeDefined: false);
 		var second = Schedule("due-second", now.AddMinutes(-1), isCodeDefined: false);
 		var paused = Schedule("due-paused", now.AddMinutes(-3), isCodeDefined: false) with { IsPaused = true };
 		var future = Schedule("due-future", now.AddMinutes(1), isCodeDefined: false);
 		foreach (var schedule in new[] { future, second, paused, first })
-			await recurring.UpsertRecurringAsync(schedule, cancellationToken);
+			await storage.UpsertRecurringAsync(schedule, cancellationToken);
 
-		var firstPage = await recurring.GetDueRecurringAsync(now, 1, cancellationToken);
+		var firstPage = await storage.GetDueRecurringAsync(now, 1, cancellationToken);
 		ConformanceAssert.SequenceEqual(
 			[first.Name],
 			firstPage.Select(static schedule => schedule.Name),
 			DueScanName,
 			"a due scan must order by next occurrence and honor its batch size"
 		);
-		var allDue = await recurring.GetDueRecurringAsync(now, 10, cancellationToken);
+		var allDue = await storage.GetDueRecurringAsync(now, 10, cancellationToken);
 		ConformanceAssert.SequenceEqual(
 			[first.Name, second.Name],
 			allDue.Select(static schedule => schedule.Name),
@@ -223,14 +207,13 @@ internal static class RecurringStorageConformance
 		CancellationToken cancellationToken
 	)
 	{
-		var recurring = Recurring(storage, MaterializeName);
 		var now = timeProvider.GetUtcNow();
 		var schedule = Schedule("materialize-atomic", now, isCodeDefined: true);
 		var nextRunAt = now.AddHours(1);
 		var occurrence = Occurrence("materialize-atomic-job", schedule, JobState.Pending, now);
-		await recurring.UpsertRecurringAsync(schedule, cancellationToken);
+		await storage.UpsertRecurringAsync(schedule, cancellationToken);
 
-		var inserted = await recurring.MaterializeRecurringAsync(schedule, occurrence, nextRunAt, dependencies: null, cancellationToken);
+		var inserted = await storage.MaterializeRecurringAsync(schedule, occurrence, nextRunAt, dependencies: null, cancellationToken);
 		ConformanceAssert.True(inserted, MaterializeName, "the current due occurrence must be materialized");
 		var persistedJob = await GetJobAsync(storage, occurrence.JobHandle, MaterializeName, cancellationToken);
 		ConformanceAssert.Equal(
@@ -250,7 +233,6 @@ internal static class RecurringStorageConformance
 		CancellationToken cancellationToken
 	)
 	{
-		var recurring = Recurring(storage, TerminalParentName);
 		var now = timeProvider.GetUtcNow();
 		var parent = Occurrence("materialize-terminal-parent", Schedule("unused-parent", now, isCodeDefined: true), JobState.Succeeded, now) with
 		{
@@ -273,10 +255,10 @@ internal static class RecurringStorageConformance
 				Delay = TimeSpan.Zero,
 			},
 		};
-		await recurring.UpsertRecurringAsync(schedule, cancellationToken);
+		await storage.UpsertRecurringAsync(schedule, cancellationToken);
 
 		ConformanceAssert.True(
-			await recurring.MaterializeRecurringAsync(schedule, child, now.AddHours(1), dependencies, cancellationToken),
+			await storage.MaterializeRecurringAsync(schedule, child, now.AddHours(1), dependencies, cancellationToken),
 			TerminalParentName,
 			"the queued occurrence must be materialized"
 		);
@@ -297,17 +279,16 @@ internal static class RecurringStorageConformance
 		CancellationToken cancellationToken
 	)
 	{
-		var recurring = Recurring(storage, ConcurrentName);
 		var now = timeProvider.GetUtcNow();
 		var schedule = Schedule("materialize-concurrent", now, isCodeDefined: true);
 		var nextRunAt = now.AddHours(1);
-		await recurring.UpsertRecurringAsync(schedule, cancellationToken);
+		await storage.UpsertRecurringAsync(schedule, cancellationToken);
 		var first = Occurrence("materialize-concurrent-a", schedule, JobState.Pending, now);
 		var second = Occurrence("materialize-concurrent-b", schedule, JobState.Pending, now);
 
 		var results = await Task.WhenAll(
-			recurring.MaterializeRecurringAsync(schedule, first, nextRunAt, dependencies: null, cancellationToken).AsTask(),
-			recurring.MaterializeRecurringAsync(schedule, second, nextRunAt, dependencies: null, cancellationToken).AsTask()
+			storage.MaterializeRecurringAsync(schedule, first, nextRunAt, dependencies: null, cancellationToken).AsTask(),
+			storage.MaterializeRecurringAsync(schedule, second, nextRunAt, dependencies: null, cancellationToken).AsTask()
 		);
 		ConformanceAssert.Equal(
 			1,
@@ -327,22 +308,21 @@ internal static class RecurringStorageConformance
 		CancellationToken cancellationToken
 	)
 	{
-		var recurring = Recurring(storage, DedupeAdvanceName);
 		var now = timeProvider.GetUtcNow();
 		var schedule = Schedule("materialize-dedupe", now, isCodeDefined: true);
 		var nextRunAt = now.AddHours(1);
 		var original = Occurrence("materialize-dedupe-original", schedule, JobState.Pending, now);
-		await recurring.UpsertRecurringAsync(schedule, cancellationToken);
+		await storage.UpsertRecurringAsync(schedule, cancellationToken);
 		ConformanceAssert.True(
-			await recurring.MaterializeRecurringAsync(schedule, original, nextRunAt, dependencies: null, cancellationToken),
+			await storage.MaterializeRecurringAsync(schedule, original, nextRunAt, dependencies: null, cancellationToken),
 			DedupeAdvanceName,
 			"the first occurrence must be materialized"
 		);
-		await recurring.UpsertRecurringAsync(schedule, cancellationToken);
+		await storage.UpsertRecurringAsync(schedule, cancellationToken);
 
 		var duplicate = original with { JobHandle = JobHandle.FromString("materialize-dedupe-duplicate") };
 		ConformanceAssert.False(
-			await recurring.MaterializeRecurringAsync(schedule, duplicate, nextRunAt, dependencies: null, cancellationToken),
+			await storage.MaterializeRecurringAsync(schedule, duplicate, nextRunAt, dependencies: null, cancellationToken),
 			DedupeAdvanceName,
 			"a retained occurrence key must reject a duplicate job"
 		);
@@ -362,13 +342,12 @@ internal static class RecurringStorageConformance
 		CancellationToken cancellationToken
 	)
 	{
-		var recurring = Recurring(storage, StaleName);
 		var now = timeProvider.GetUtcNow();
 		var schedule = Schedule("materialize-stale", now, isCodeDefined: true);
 		var nextRunAt = now.AddHours(1);
-		await recurring.UpsertRecurringAsync(schedule, cancellationToken);
+		await storage.UpsertRecurringAsync(schedule, cancellationToken);
 		ConformanceAssert.True(
-			await recurring.MaterializeRecurringAsync(
+			await storage.MaterializeRecurringAsync(
 				schedule,
 				Occurrence("materialize-stale-current", schedule, JobState.Pending, now),
 				nextRunAt,
@@ -380,7 +359,7 @@ internal static class RecurringStorageConformance
 
 		var staleJob = Occurrence("materialize-stale-replay", schedule, JobState.Pending, now);
 		ConformanceAssert.False(
-			await recurring.MaterializeRecurringAsync(schedule, staleJob, now.AddDays(1), dependencies: null, cancellationToken),
+			await storage.MaterializeRecurringAsync(schedule, staleJob, now.AddDays(1), dependencies: null, cancellationToken),
 			StaleName,
 			"a stale due snapshot must not materialize another occurrence"
 		);
@@ -399,7 +378,6 @@ internal static class RecurringStorageConformance
 		CancellationToken cancellationToken
 	)
 	{
-		var recurring = Recurring(storage, SkippedName);
 		var now = timeProvider.GetUtcNow();
 		var schedule = Schedule("materialize-skipped", now, isCodeDefined: true);
 		var skipped = Occurrence("materialize-skipped-job", schedule, JobState.Skipped, now) with
@@ -407,9 +385,9 @@ internal static class RecurringStorageConformance
 			LastError = "overlap policy skipped this occurrence",
 			CompletedAt = now,
 		};
-		await recurring.UpsertRecurringAsync(schedule, cancellationToken);
+		await storage.UpsertRecurringAsync(schedule, cancellationToken);
 		ConformanceAssert.True(
-			await recurring.MaterializeRecurringAsync(schedule, skipped, now.AddHours(1), dependencies: null, cancellationToken),
+			await storage.MaterializeRecurringAsync(schedule, skipped, now.AddHours(1), dependencies: null, cancellationToken),
 			SkippedName,
 			"a skipped occurrence must still be durably materialized"
 		);
@@ -425,13 +403,12 @@ internal static class RecurringStorageConformance
 		CancellationToken cancellationToken
 	)
 	{
-		var recurring = Recurring(storage, PurgeName);
 		var now = timeProvider.GetUtcNow();
 		var schedule = Schedule("materialize-purge", now, isCodeDefined: true);
 		var original = Occurrence("materialize-purge-original", schedule, JobState.Pending, now);
-		await recurring.UpsertRecurringAsync(schedule, cancellationToken);
+		await storage.UpsertRecurringAsync(schedule, cancellationToken);
 		ConformanceAssert.True(
-			await recurring.MaterializeRecurringAsync(schedule, original, now.AddHours(1), dependencies: null, cancellationToken),
+			await storage.MaterializeRecurringAsync(schedule, original, now.AddHours(1), dependencies: null, cancellationToken),
 			PurgeName,
 			"the occurrence used by the retention scenario must be inserted"
 		);
@@ -453,10 +430,10 @@ internal static class RecurringStorageConformance
 			"retention cleanup must delete the completed occurrence"
 		);
 
-		await recurring.UpsertRecurringAsync(schedule, cancellationToken);
+		await storage.UpsertRecurringAsync(schedule, cancellationToken);
 		var replacement = original with { JobHandle = JobHandle.FromString("materialize-purge-replacement") };
 		ConformanceAssert.True(
-			await recurring.MaterializeRecurringAsync(schedule, replacement, now.AddHours(1), dependencies: null, cancellationToken),
+			await storage.MaterializeRecurringAsync(schedule, replacement, now.AddHours(1), dependencies: null, cancellationToken),
 			PurgeName,
 			"purging an occurrence must release its provider-owned deduplication key"
 		);
@@ -468,39 +445,31 @@ internal static class RecurringStorageConformance
 		CancellationToken cancellationToken
 	)
 	{
-		var recurring = Recurring(storage, ExceptionsName);
 		var now = timeProvider.GetUtcNow();
 		var codeDefined = Schedule("exceptions-code-defined", now.AddHours(1), isCodeDefined: true);
-		await recurring.UpsertRecurringAsync(codeDefined, cancellationToken);
+		await storage.UpsertRecurringAsync(codeDefined, cancellationToken);
 
 		_ = await ConformanceAssert.ThrowsAsync<KeyNotFoundException>(
-			() => recurring.PauseRecurringAsync("exceptions-missing", cancellationToken),
+			() => storage.PauseRecurringAsync("exceptions-missing", cancellationToken),
 			ExceptionsName,
 			"pausing a missing schedule must throw KeyNotFoundException"
 		);
 		_ = await ConformanceAssert.ThrowsAsync<KeyNotFoundException>(
-			() => recurring.ResumeRecurringAsync("exceptions-missing", cancellationToken),
+			() => storage.ResumeRecurringAsync("exceptions-missing", cancellationToken),
 			ExceptionsName,
 			"resuming a missing schedule must throw KeyNotFoundException"
 		);
 		_ = await ConformanceAssert.ThrowsAsync<KeyNotFoundException>(
-			() => recurring.RemoveRecurringAsync("exceptions-missing", cancellationToken),
+			() => storage.RemoveRecurringAsync("exceptions-missing", cancellationToken),
 			ExceptionsName,
 			"removing a missing schedule must throw KeyNotFoundException"
 		);
 		_ = await ConformanceAssert.ThrowsAsync<ImmediateJobException>(
-			() => recurring.RemoveRecurringAsync(codeDefined.Name, cancellationToken),
+			() => storage.RemoveRecurringAsync(codeDefined.Name, cancellationToken),
 			ExceptionsName,
 			"removing a code-defined schedule must throw ImmediateJobException"
 		);
 	}
-
-	private static IRecurringJobStorage Recurring(IJobStorage storage, string caseName) =>
-		ConformanceAssert.IsAssignableFrom<IRecurringJobStorage>(
-			storage,
-			caseName,
-			"a storage advertising recurring support must implement IRecurringJobStorage"
-		);
 
 	private static RecurringJobSchedule Schedule(string name, DateTimeOffset nextRunAt, bool isCodeDefined) => new()
 	{

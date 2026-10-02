@@ -3,7 +3,6 @@ using System.Globalization;
 using Immediate.Handlers.Shared;
 using Immediate.Jobs.Shared.Apis;
 using Immediate.Jobs.Shared.Interfaces;
-using Immediate.Jobs.Shared.Storage;
 using Immediate.Jobs.Testing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -270,17 +269,16 @@ public sealed class ContextPropagationTests
 	{
 		var cancellationToken = TestContext.Current.CancellationToken;
 		await using var harness = CreateHarness(new());
-		var recurringStorage = Assert.IsType<IRecurringJobStorage>(harness.Storage, exactMatch: false);
 		var nextRunAt = harness.TimeProvider.GetUtcNow() + TimeSpan.FromHours(1);
-		await recurringStorage.UpsertRecurringAsync(
+		await harness.Storage.UpsertRecurringAsync(
 			CreateRecurringSchedule("removed-job", "removed-job", isCodeDefined: true, nextRunAt),
 			cancellationToken
 		);
-		await recurringStorage.UpsertRecurringAsync(
+		await harness.Storage.UpsertRecurringAsync(
 			CreateRecurringSchedule("context-round-trip", "context-round-trip", isCodeDefined: true, nextRunAt),
 			cancellationToken
 		);
-		await recurringStorage.UpsertRecurringAsync(
+		await harness.Storage.UpsertRecurringAsync(
 			CreateRecurringSchedule("dynamic-context", "context-round-trip", isCodeDefined: false, nextRunAt),
 			cancellationToken
 		);

@@ -225,4 +225,54 @@ public interface IJobGraphStorage : IJobStorage
 		TimeSpan batchFailedRetention,
 		CancellationToken cancellationToken = default
 	);
+
+	/// <summary>
+	/// 	Acquires the specified due invocations for the supplied worker.
+	/// </summary>
+	/// <param name="jobs">
+	/// 	The due invocation identifiers to acquire.
+	/// </param>
+	/// <param name="workerId">
+	/// 	The identifier of the worker taking ownership.
+	/// </param>
+	/// <param name="lease">
+	/// 	The lease duration assigned to acquired invocations.
+	/// </param>
+	/// <param name="cancellationToken">
+	/// 	A token that can cancel the storage operation.
+	/// </param>
+	/// <returns>
+	/// 	The invocations acquired for the worker.
+	/// </returns>
+	/// <remarks>
+	/// 	Used by single-server mode to mirror the exact set of jobs selected by its authoritative in-process queue.
+	/// 	Providers that cannot act as a single-server durable store may throw <see cref="NotSupportedException"/>.
+	/// </remarks>
+	ValueTask<IReadOnlyList<JobRecord>> AcquireJobsAsync(
+		IReadOnlyCollection<JobHandle> jobs,
+		string workerId,
+		TimeSpan lease,
+		CancellationToken cancellationToken = default
+	);
+
+	/// <summary>
+	/// 	Gets incoming continuation edges so a single-server store can reconstruct standalone continuations.
+	/// </summary>
+	/// <param name="childJobs">
+	/// 	The child invocation handles whose incoming edges should be returned.
+	/// </param>
+	/// <param name="cancellationToken">
+	/// 	A token that can cancel the storage operation.
+	/// </param>
+	/// <returns>
+	/// 	The incoming continuation edges for the supplied child invocations.
+	/// </returns>
+	/// <remarks>
+	/// 	Used by single-server startup recovery. Providers that cannot act as a single-server durable store may throw
+	/// 	<see cref="NotSupportedException"/>.
+	/// </remarks>
+	ValueTask<IReadOnlyList<JobContinuationEdge>> GetIncomingEdgesAsync(
+		IReadOnlyCollection<JobHandle> childJobs,
+		CancellationToken cancellationToken = default
+	);
 }

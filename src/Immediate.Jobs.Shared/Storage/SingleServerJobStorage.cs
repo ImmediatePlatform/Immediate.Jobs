@@ -27,9 +27,7 @@ internal sealed partial class SingleServerJobStorage(
 	ILogger<SingleServerJobStorage>? logger
 ) :
 	IJobStorage,
-	IRecurringJobStorage,
 	IJobGraphStorage,
-	IFairQueueStorage,
 	IAsyncDisposable
 {
 	private const int RecoveryBatchSize = 1000;
@@ -56,25 +54,13 @@ internal sealed partial class SingleServerJobStorage(
 			InMemoryJobStorage =>
 				throw new ArgumentException("An in-memory store cannot be used as a durable replica.", nameof(durableStorage)),
 
-			not IJobStorageReplica =>
-				throw new ArgumentException("Single-server durable storage must implement IJobStorageReplica.", nameof(durableStorage)),
-
-			not IRecurringJobStorage =>
-				throw new ArgumentException("Single-server durable storage must support recurring jobs.", nameof(durableStorage)),
-
 			not IJobGraphStorage =>
 				throw new ArgumentException("Single-server durable storage must support batches and continuations.", nameof(durableStorage)),
-
-			not IJobGraphStorageReplica =>
-				throw new ArgumentException("Single-server durable storage must implement IJobGraphStorageReplica.", nameof(durableStorage)),
 
 			_ => durableStorage,
 		};
 
-	private IRecurringJobStorage RecurringJobStorage => (IRecurringJobStorage)DurableStorage;
 	private IJobGraphStorage JobGraphStorage => (IJobGraphStorage)DurableStorage;
-	private IJobStorageReplica JobStorageReplica => (IJobStorageReplica)DurableStorage;
-	private IJobGraphStorageReplica JobGraphStorageReplica => (IJobGraphStorageReplica)DurableStorage;
 
 	/// <inheritdoc />
 	public async ValueTask InitializeAsync(CancellationToken cancellationToken = default)
@@ -139,7 +125,7 @@ internal sealed partial class SingleServerJobStorage(
 		if (acquired.Count == 0)
 			return acquired;
 
-		var replicated = await JobStorageReplica
+		var replicated = await JobGraphStorage
 			.AcquireJobsAsync(
 				[.. acquired.Select(x => x.JobHandle)],
 				request.WorkerId,
@@ -294,7 +280,7 @@ internal sealed partial class SingleServerJobStorage(
 		SingleServerMergeRecurringSchedulesListAsyncCalled(schedules.Count);
 		await TaskScheduler.Yield();
 		await EnsureInitializedAsync(cancellationToken);
-		await RecurringJobStorage.MergeRecurringSchedulesListAsync(schedules, cancellationToken);
+		await DurableStorage.MergeRecurringSchedulesListAsync(schedules, cancellationToken);
 		await PrimaryStorage.MergeRecurringSchedulesListAsync(schedules, cancellationToken);
 	}
 
@@ -304,7 +290,7 @@ internal sealed partial class SingleServerJobStorage(
 		SingleServerUpsertRecurringAsyncCalled(schedule.Name);
 		await TaskScheduler.Yield();
 		await EnsureInitializedAsync(cancellationToken);
-		await RecurringJobStorage.UpsertRecurringAsync(schedule, cancellationToken);
+		await DurableStorage.UpsertRecurringAsync(schedule, cancellationToken);
 		await PrimaryStorage.UpsertRecurringAsync(schedule, cancellationToken);
 	}
 
@@ -314,7 +300,7 @@ internal sealed partial class SingleServerJobStorage(
 		SingleServerRemoveRecurringAsyncCalled(name);
 		await TaskScheduler.Yield();
 		await EnsureInitializedAsync(cancellationToken);
-		await RecurringJobStorage.RemoveRecurringAsync(name, cancellationToken);
+		await DurableStorage.RemoveRecurringAsync(name, cancellationToken);
 		await PrimaryStorage.RemoveRecurringAsync(name, cancellationToken);
 	}
 
@@ -324,7 +310,7 @@ internal sealed partial class SingleServerJobStorage(
 		SingleServerPauseRecurringAsyncCalled(name);
 		await TaskScheduler.Yield();
 		await EnsureInitializedAsync(cancellationToken);
-		await RecurringJobStorage.PauseRecurringAsync(name, cancellationToken);
+		await DurableStorage.PauseRecurringAsync(name, cancellationToken);
 		await PrimaryStorage.PauseRecurringAsync(name, cancellationToken);
 	}
 
@@ -334,7 +320,7 @@ internal sealed partial class SingleServerJobStorage(
 		SingleServerResumeRecurringAsyncCalled(name);
 		await TaskScheduler.Yield();
 		await EnsureInitializedAsync(cancellationToken);
-		await RecurringJobStorage.ResumeRecurringAsync(name, cancellationToken);
+		await DurableStorage.ResumeRecurringAsync(name, cancellationToken);
 		await PrimaryStorage.ResumeRecurringAsync(name, cancellationToken);
 	}
 
@@ -368,7 +354,7 @@ internal sealed partial class SingleServerJobStorage(
 
 		try
 		{
-			var durableResult = await RecurringJobStorage
+			var durableResult = await DurableStorage
 				.MaterializeRecurringAsync(schedule, job, nextRunAt, dependencies, cancellationToken);
 
 			var primaryResult = await PrimaryStorage
@@ -601,6 +587,30 @@ internal sealed partial class SingleServerJobStorage(
 	}
 
 	/// <inheritdoc />
+	/// <remarks>
+	/// 	Not supported: a single-server store cannot be used as another single-server store's durable store.
+	/// </remarks>
+	/// <exception cref="NotSupportedException">Always thrown.</exception>
+	public ValueTask<IReadOnlyList<JobRecord>> AcquireJobsAsync(
+		IReadOnlyCollection<JobHandle> jobs,
+		string workerId,
+		TimeSpan lease,
+		CancellationToken cancellationToken = default
+	) =>
+		throw new NotSupportedException(JobStorageCapabilityGuards.SingleServerReplicaNotSupportedMessage);
+
+	/// <inheritdoc />
+	/// <remarks>
+	/// 	Not supported: a single-server store cannot be used as another single-server store's durable store.
+	/// </remarks>
+	/// <exception cref="NotSupportedException">Always thrown.</exception>
+	public ValueTask<IReadOnlyList<JobContinuationEdge>> GetIncomingEdgesAsync(
+		IReadOnlyCollection<JobHandle> childJobs,
+		CancellationToken cancellationToken = default
+	) =>
+		throw new NotSupportedException(JobStorageCapabilityGuards.SingleServerReplicaNotSupportedMessage);
+
+	/// <inheritdoc />
 	public async ValueTask HeartbeatAsync(JobServerSnapshot server, CancellationToken cancellationToken = default)
 	{
 		SingleServerHeartbeatAsyncCalled(server.WorkerId, server.ActiveWorkers, server.MaxWorkers);
@@ -677,7 +687,7 @@ internal sealed partial class SingleServerJobStorage(
 					{
 						// Standalone continuation edges are not represented by a batch graph, so recovery must
 						// load them explicitly before it can restore dependency-gated jobs into the primary queue.
-						var incomingEdges = await JobGraphStorageReplica
+						var incomingEdges = await JobGraphStorage
 							.GetIncomingEdgesAsync(
 								standaloneJobs,
 								cancellationToken

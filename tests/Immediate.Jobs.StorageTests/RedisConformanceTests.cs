@@ -13,11 +13,14 @@ namespace Immediate.Jobs.StorageTests;
 public sealed class RedisConformanceTests(RedisStorageFixture redis)
 {
 	private const StorageCapabilities Capabilities =
-		StorageCapabilities.Queue |
-		StorageCapabilities.Recurring;
+		StorageCapabilities.Queue;
 
+	// Redis does not implement fair-queue acquisition yet.
 	public static TheoryData<JobStorageConformanceTestCase> Cases =>
-		[.. JobStorageConformanceSuite.GetCases(Capabilities)];
+		[
+			.. JobStorageConformanceSuite.GetCases(Capabilities)
+				.Where(c => !c.Name.StartsWith("FairQueues.", StringComparison.Ordinal)),
+		];
 
 	[Theory]
 	[MemberData(nameof(Cases))]
@@ -117,7 +120,7 @@ file sealed class RedisConformanceFixture : IAsyncDisposable
 		if (schedules is [])
 			return;
 
-		var storage = (IRecurringJobStorage)serviceProvider.GetRequiredService<IJobStorage>();
+		var storage = serviceProvider.GetRequiredService<IJobStorage>();
 		foreach (var schedule in schedules)
 			await storage.UpsertRecurringAsync(schedule);
 	}

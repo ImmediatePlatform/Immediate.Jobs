@@ -25,15 +25,11 @@ public sealed class StorageCapabilityTests
 		await using var provider = services.BuildServiceProvider();
 		var storage = provider.GetRequiredService<IJobStorage>();
 
-		Assert.IsType<IFairQueueStorage>(storage, exactMatch: false);
-		Assert.IsType<IRecurringJobStorage>(storage, exactMatch: false);
 		Assert.IsType<IJobGraphStorage>(storage, exactMatch: false);
 
 		Assert.Equal(
 			StorageCapabilities.Queue |
-			StorageCapabilities.Recurring |
-			StorageCapabilities.Graph |
-			StorageCapabilities.FairQueues,
+			StorageCapabilities.Graph,
 			(await storage.GetMonitoringSnapshotAsync(cancellationToken)).Capabilities
 		);
 	}
@@ -70,7 +66,7 @@ public sealed class StorageCapabilityTests
 	}
 
 	[Fact]
-	public async Task QueueOnlySchedulerUsesPlainCompletionAndSkipsRecurring()
+	public async Task QueueOnlySchedulerUsesPlainCompletion()
 	{
 		var cancellationToken = TestContext.Current.CancellationToken;
 		var timeProvider = new FakeTimeProvider(DateTimeOffset.UnixEpoch);
@@ -85,7 +81,6 @@ public sealed class StorageCapabilityTests
 		_ = services.AddSingleton(new JobDefinition
 		{
 			Name = "queue-only",
-			Cron = "* * * * *",
 			JobType = typeof(StorageCapabilityTests),
 			Invoker = new NoopInvoker(),
 		});
@@ -106,7 +101,6 @@ public sealed class StorageCapabilityTests
 		Assert.Equal(1, storage.CompleteCalls);
 		Assert.Equal(JobState.Succeeded, (await storage.GetJobStatusAsync(JobHandle.FromString("queue-only-job"), cancellationToken))!.State);
 		var snapshot = await storage.GetMonitoringSnapshotAsync(cancellationToken);
-		Assert.Empty(snapshot.Recurring);
 		Assert.Equal(StorageCapabilities.Queue, snapshot.Capabilities);
 	}
 
@@ -270,5 +264,36 @@ public sealed class StorageCapabilityTests
 
 		public ValueTask<bool> IsHealthyAsync(CancellationToken cancellationToken = default) =>
 			_inner.IsHealthyAsync(cancellationToken);
+
+		public ValueTask MergeRecurringSchedulesListAsync(
+			IReadOnlyList<RecurringJobSchedule> schedules,
+			CancellationToken cancellationToken = default
+		) => _inner.MergeRecurringSchedulesListAsync(schedules, cancellationToken);
+
+		public ValueTask UpsertRecurringAsync(RecurringJobSchedule schedule, CancellationToken cancellationToken = default) =>
+			_inner.UpsertRecurringAsync(schedule, cancellationToken);
+
+		public ValueTask RemoveRecurringAsync(string name, CancellationToken cancellationToken = default) =>
+			_inner.RemoveRecurringAsync(name, cancellationToken);
+
+		public ValueTask PauseRecurringAsync(string name, CancellationToken cancellationToken = default) =>
+			_inner.PauseRecurringAsync(name, cancellationToken);
+
+		public ValueTask ResumeRecurringAsync(string name, CancellationToken cancellationToken = default) =>
+			_inner.ResumeRecurringAsync(name, cancellationToken);
+
+		public ValueTask<IReadOnlyList<RecurringJobSchedule>> GetDueRecurringAsync(
+			DateTimeOffset now,
+			int batchSize,
+			CancellationToken cancellationToken = default
+		) => _inner.GetDueRecurringAsync(now, batchSize, cancellationToken);
+
+		public ValueTask<bool> MaterializeRecurringAsync(
+			RecurringJobSchedule schedule,
+			JobRecord job,
+			DateTimeOffset nextRunAt,
+			IReadOnlyList<JobContinuationEdge>? dependencies = null,
+			CancellationToken cancellationToken = default
+		) => _inner.MaterializeRecurringAsync(schedule, job, nextRunAt, dependencies, cancellationToken);
 	}
 }

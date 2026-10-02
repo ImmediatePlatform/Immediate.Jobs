@@ -9,7 +9,6 @@ internal static class LibraryEventIds
 	public const int JobSchedulingJobWillRetry = 11004;
 	public const int JobSchedulingJobExhaustedAttempts = 11005;
 	public const int JobSchedulingGraphFeaturesDisabled = 11006;
-	public const int JobSchedulingRecurringJobFeaturesDisabled = 11007;
 	public const int JobSchedulingGroupedJobsAcquiredWithoutFairQueues = 11008;
 	public const int JobSchedulingExecutionTelemetryPersistenceFailed = 11009;
 	public const int JobSchedulingLeaseRenewalFailed = 11010;

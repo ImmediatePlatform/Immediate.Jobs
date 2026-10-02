@@ -124,7 +124,7 @@ public enum OverlapPolicy
 	/// 	Create the scheduled occurrence and run it after the earlier invocation.
 	/// </summary>
 	/// <remarks>
-	///		Requires that the underlying storage is both <see cref="IRecurringJobStorage"/> and <see cref="IJobGraphStorage"/>.
+	///		Requires that the underlying storage is <see cref="IJobGraphStorage"/>.
 	/// </remarks>
 	Queue,
 

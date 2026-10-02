@@ -85,12 +85,13 @@ Each property returns a snapshot, so assertions do not observe a collection chan
 ## Storage-provider conformance
 
 If you are implementing a new `IJobStorage` provider, use `JobStorageConformanceSuite` to verify its shared behavior.
-Select the feature flags the provider supports, create a fresh service provider and backend for each case, and pass the
-service provider to `RunAsync`.
+Select `StorageCapabilities.Queue`, adding `StorageCapabilities.Graph` for providers that implement `IJobGraphStorage`.
+Pass `includeSingleServerReplicaCases: true` as well when the provider can back single-server mode. Create a fresh
+service provider and backend for each case, and pass the service provider to `RunAsync`.
 
 ```csharp
 private const StorageCapabilities Capabilities =
-	StorageCapabilities.Queue | StorageCapabilities.Recurring;
+	StorageCapabilities.Queue;
 
 public static TheoryData<JobStorageConformanceTestCase> Cases =>
 	[.. JobStorageConformanceSuite.GetCases(Capabilities)];

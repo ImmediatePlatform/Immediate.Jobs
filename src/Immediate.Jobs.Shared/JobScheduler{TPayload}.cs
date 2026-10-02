@@ -827,7 +827,7 @@ public abstract class JobScheduler<TPayload>(
 		var next = TimeProvider.GetUtcNow()
 			.GetNextOccurrence(cron, timeZone, name);
 
-		await JobStorageCapabilityGuards.RequireRecurring(Storage)
+		await Storage
 			.UpsertRecurringAsync(
 				new()
 				{
@@ -861,7 +861,7 @@ public abstract class JobScheduler<TPayload>(
 	)
 	{
 		ArgumentException.ThrowIfNullOrWhiteSpace(name);
-		await JobStorageCapabilityGuards.RequireRecurring(Storage)
+		await Storage
 			.RemoveRecurringAsync(name, cancellationToken);
 	}
 }
