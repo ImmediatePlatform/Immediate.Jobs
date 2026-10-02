@@ -166,7 +166,6 @@ public sealed class StorageCapabilityTests
 			var snapshot = await _inner.GetMonitoringSnapshotAsync(cancellationToken);
 			return snapshot with
 			{
-				Recurring = [],
 				Capabilities = this.GetCapabilities(),
 			};
 		}
