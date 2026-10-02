@@ -19,7 +19,7 @@ internal sealed partial class RedisJobStorage(
 	IOptions<RedisJobStorageOptions> options,
 	TimeProvider timeProvider,
 	ILogger<RedisJobStorage>? logger = null
-) : IJobStorage, IRecurringJobStorage
+) : IJobStorage
 {
 	[SuppressMessage("Performance", "CA1823:Avoid unused private fields", Justification = "Used by generated logger methods")]
 	[SuppressMessage("Style", "IDE0052:Remove unread private members", Justification = "Used by generated logger methods")]

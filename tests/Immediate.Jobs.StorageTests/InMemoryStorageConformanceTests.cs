@@ -9,9 +9,7 @@ public sealed class InMemoryStorageConformanceTests
 {
 	private const StorageCapabilities Capabilities =
 		StorageCapabilities.Queue |
-		StorageCapabilities.Recurring |
-		StorageCapabilities.Graph |
-		StorageCapabilities.FairQueues;
+		StorageCapabilities.Graph;
 
 	public static TheoryData<JobStorageConformanceTestCase> Cases =>
 		[.. JobStorageConformanceSuite.GetCases(Capabilities)];

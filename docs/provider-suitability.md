@@ -69,8 +69,8 @@ A representative KV/wide-column analysis (Cassandra/Scylla/Redis rhyme with it).
   **sharded queue keys** (`queue#shardN`), which makes ordered claiming approximate.
 
 **Conclusion:** DynamoDB is an excellent **queue-only** provider and a poor **graph** provider — the
-exact split the capability model expects. Ship it implementing `IJobQueueStorage`
-(+ `IRecurringJobStorage`); direct batching users to SQL.
+exact split the capability model expects. Ship it implementing `IJobStorage` (queue, recurring, and
+fair acquisition); direct batching users to SQL.
 
 ## 4. Fair queues across backends
 

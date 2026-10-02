@@ -25,9 +25,7 @@ public sealed partial class InMemoryJobStorage(
 	ILogger<InMemoryJobStorage>? logger = null
 ) :
 	IJobStorage,
-	IRecurringJobStorage,
-	IJobGraphStorage,
-	IFairQueueStorage
+	IJobGraphStorage
 {
 	[SuppressMessage("Performance", "CA1823:Avoid unused private fields", Justification = "Used by generated logger methods")]
 	[SuppressMessage("Style", "IDE0052:Remove unread private members", Justification = "Used by generated logger methods")]
@@ -1308,6 +1306,30 @@ public sealed partial class InMemoryJobStorage(
 			RemoveEdgesForJobs(batchJobHandles, batchHandles);
 		}
 	}
+
+	/// <inheritdoc />
+	/// <remarks>
+	/// 	Not supported: the in-memory provider cannot be used as a single-server durable store.
+	/// </remarks>
+	/// <exception cref="NotSupportedException">Always thrown.</exception>
+	public ValueTask<IReadOnlyList<JobRecord>> AcquireJobsAsync(
+		IReadOnlyCollection<JobHandle> jobs,
+		string workerId,
+		TimeSpan lease,
+		CancellationToken cancellationToken = default
+	) =>
+		throw new NotSupportedException(JobStorageCapabilityGuards.SingleServerReplicaNotSupportedMessage);
+
+	/// <inheritdoc />
+	/// <remarks>
+	/// 	Not supported: the in-memory provider cannot be used as a single-server durable store.
+	/// </remarks>
+	/// <exception cref="NotSupportedException">Always thrown.</exception>
+	public ValueTask<IReadOnlyList<JobContinuationEdge>> GetIncomingEdgesAsync(
+		IReadOnlyCollection<JobHandle> childJobs,
+		CancellationToken cancellationToken = default
+	) =>
+		throw new NotSupportedException(JobStorageCapabilityGuards.SingleServerReplicaNotSupportedMessage);
 
 	/// <inheritdoc />
 	public async ValueTask HeartbeatAsync(JobServerSnapshot server, CancellationToken cancellationToken = default)

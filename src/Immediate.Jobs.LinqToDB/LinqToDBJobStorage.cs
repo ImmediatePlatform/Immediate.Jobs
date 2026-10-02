@@ -18,7 +18,7 @@ internal sealed partial class LinqToDBJobStorage<T>(
 	IOptions<LinqToDBJobStorageOptions> options,
 	TimeProvider timeProvider,
 	ILogger<LinqToDBJobStorage<T>>? logger = null
-) : IRecurringJobStorage, IJobGraphStorage, IFairQueueStorage, IJobStorageReplica, IJobGraphStorageReplica
+) : IJobGraphStorage
 	where T : DataConnection
 {
 	[SuppressMessage("Performance", "CA1823:Avoid unused private fields", Justification = "Used by generated logger methods")]

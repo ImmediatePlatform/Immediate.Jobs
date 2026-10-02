@@ -145,8 +145,6 @@ public sealed partial class JobSchedulingService : BackgroundService
 
 		if (storage is not IJobGraphStorage)
 			GraphFeaturesDisabled(storage.GetType().Name);
-		if (storage is not IRecurringJobStorage)
-			RecurringJobFeaturesDisabled(storage.GetType().Name);
 	}
 
 	/// <inheritdoc />
@@ -239,9 +237,6 @@ public sealed partial class JobSchedulingService : BackgroundService
 	{
 		await _storage.InitializeAsync(cancellationToken);
 
-		if (_storage is not IRecurringJobStorage recurringStorage)
-			return;
-
 		var now = _timeProvider.GetUtcNow();
 
 		var schedules = _definitions.Values
@@ -262,7 +257,7 @@ public sealed partial class JobSchedulingService : BackgroundService
 			})
 			.ToList();
 
-		await recurringStorage.MergeRecurringSchedulesListAsync(
+		await _storage.MergeRecurringSchedulesListAsync(
 			schedules,
 			cancellationToken
 		);
@@ -779,11 +774,8 @@ public sealed partial class JobSchedulingService : BackgroundService
 
 	private async Task MaterializeRecurringAsync(CancellationToken cancellationToken)
 	{
-		if (_storage is not IRecurringJobStorage recurringStorage)
-			return;
-
 		var now = _timeProvider.GetUtcNow();
-		var schedules = await recurringStorage.GetDueRecurringAsync(now, _options.AcquisitionBatchSize, cancellationToken);
+		var schedules = await _storage.GetDueRecurringAsync(now, _options.AcquisitionBatchSize, cancellationToken);
 
 		foreach (var schedule in schedules)
 		{
@@ -793,7 +785,6 @@ public sealed partial class JobSchedulingService : BackgroundService
 			try
 			{
 				await MaterializeRecurringScheduleAsync(
-					recurringStorage,
 					schedule,
 					definition,
 					now,
@@ -814,7 +805,6 @@ public sealed partial class JobSchedulingService : BackgroundService
 	}
 
 	private async Task MaterializeRecurringScheduleAsync(
-		IRecurringJobStorage recurringStorage,
 		RecurringJobSchedule schedule,
 		JobDefinition definition,
 		DateTimeOffset now,
@@ -856,7 +846,7 @@ public sealed partial class JobSchedulingService : BackgroundService
 						NextRunAt = nextAfterMisfires,
 					};
 
-					await recurringStorage.UpsertRecurringAsync(schedule, cancellationToken);
+					await _storage.UpsertRecurringAsync(schedule, cancellationToken);
 
 					return;
 				}
@@ -901,7 +891,7 @@ public sealed partial class JobSchedulingService : BackgroundService
 					if (jobs.Count != 0)
 						record = record with { State = JobState.Skipped, CompletedAt = now };
 
-					if (await recurringStorage.MaterializeRecurringAsync(schedule, record, next, dependencies: null, cancellationToken)
+					if (await _storage.MaterializeRecurringAsync(schedule, record, next, dependencies: null, cancellationToken)
 						&& record.State == JobState.Pending)
 					{
 						JobTelemetry.Enqueued(record.JobName, record.QueueName);
@@ -912,7 +902,7 @@ public sealed partial class JobSchedulingService : BackgroundService
 
 				case OverlapPolicy.Queue:
 				{
-					if (recurringStorage is not IJobGraphStorage)
+					if (_storage is not IJobGraphStorage)
 						throw new ImmediateJobException("Unable to queue recurring job without graph support.");
 
 					var jobs = await _storage.QueryNonCompletedJobsAsync(definition.Name, cancellationToken);
@@ -938,7 +928,7 @@ public sealed partial class JobSchedulingService : BackgroundService
 						})
 						.ToList();
 
-					if (await recurringStorage.MaterializeRecurringAsync(
+					if (await _storage.MaterializeRecurringAsync(
 							schedule,
 							record,
 							next,
@@ -957,7 +947,7 @@ public sealed partial class JobSchedulingService : BackgroundService
 				default:
 				{
 
-					if (await recurringStorage.MaterializeRecurringAsync(schedule, record, next, dependencies: null, cancellationToken))
+					if (await _storage.MaterializeRecurringAsync(schedule, record, next, dependencies: null, cancellationToken))
 						JobTelemetry.Enqueued(record.JobName, record.QueueName);
 
 					break;
@@ -1046,14 +1036,6 @@ public sealed partial class JobSchedulingService : BackgroundService
 		Message = "Batch & continuation features are disabled: the configured storage '{storageType}' implements the queue capability only. Configure a SQL provider to enable them."
 	)]
 	private partial void GraphFeaturesDisabled(string storageType);
-
-	[LoggerMessage(
-		EventId = LibraryEventIds.JobSchedulingRecurringJobFeaturesDisabled,
-		EventName = "Immediate.Jobs.Shared.RecurringJobFeaturesDisabled",
-		Level = LogLevel.Information,
-		Message = "Recurring job features are disabled: the configured storage '{storageType}' implements the queue capability only. Configure a SQL provider to enable them."
-	)]
-	private partial void RecurringJobFeaturesDisabled(string storageType);
 
 	[LoggerMessage(
 		EventId = LibraryEventIds.JobSchedulingGroupedJobsAcquiredWithoutFairQueues,

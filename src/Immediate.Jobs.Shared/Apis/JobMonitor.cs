@@ -94,10 +94,7 @@ public sealed class JobMonitor(
 		await TaskScheduler.Yield();
 		ArgumentException.ThrowIfNullOrWhiteSpace(name);
 
-		if (storage is not IRecurringJobStorage recurringStorage)
-			throw new KeyNotFoundException($"Recurring schedule '{name}' is not available.");
-
-		await recurringStorage.PauseRecurringAsync(name, cancellationToken);
+		await storage.PauseRecurringAsync(name, cancellationToken);
 	}
 
 	/// <summary>Resumes a recurring schedule.</summary>
@@ -108,10 +105,7 @@ public sealed class JobMonitor(
 		await TaskScheduler.Yield();
 		ArgumentException.ThrowIfNullOrWhiteSpace(name);
 
-		if (storage is not IRecurringJobStorage recurringStorage)
-			throw new KeyNotFoundException($"Recurring schedule '{name}' is not available.");
-
-		await recurringStorage.ResumeRecurringAsync(name, cancellationToken);
+		await storage.ResumeRecurringAsync(name, cancellationToken);
 	}
 
 	/// <summary>Creates an immediate invocation from a recurring schedule.</summary>

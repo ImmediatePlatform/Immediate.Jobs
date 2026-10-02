@@ -9,7 +9,6 @@ namespace Immediate.Jobs.Testing;
 
 internal static class ReplicaStorageConformance
 {
-	private const string CapabilityName = "Replica.Capability.ResolvesAdvertisedStorage";
 	private const string ExactDueName = "Replica.Acquisition.ClaimsExactlyTheRequestedDueJobs";
 	private const string DuplicateName = "Replica.Acquisition.IgnoresDuplicateAndMissingRequestedIds";
 	private const string ProjectionName = "Replica.Acquisition.PersistsOwnershipLeaseAttemptAndHistory";
@@ -21,25 +20,13 @@ internal static class ReplicaStorageConformance
 
 	internal static IReadOnlyList<JobStorageConformanceTestCase> Cases { get; } =
 	[
-		new(CapabilityName, StorageCapabilities.Replica, ResolvesAdvertisedStorage),
-		new(ExactDueName, StorageCapabilities.Replica, ClaimsExactlyRequestedDueJobsAsync),
-		new(DuplicateName, StorageCapabilities.Replica, IgnoresDuplicateAndMissingIdsAsync),
-		new(ProjectionName, StorageCapabilities.Replica, PersistsProjectionAndHistoryAsync),
-		new(ContentionName, StorageCapabilities.Replica, ClaimsOnceUnderContentionAsync),
-		new(StaleName, StorageCapabilities.Replica, ReclaimsAndFencesStaleOwnerAsync),
-		new(FieldsName, StorageCapabilities.Replica, PreservesRecoveryFieldsAsync),
+		new(ExactDueName, StorageCapabilities.Graph, ClaimsExactlyRequestedDueJobsAsync),
+		new(DuplicateName, StorageCapabilities.Graph, IgnoresDuplicateAndMissingIdsAsync),
+		new(ProjectionName, StorageCapabilities.Graph, PersistsProjectionAndHistoryAsync),
+		new(ContentionName, StorageCapabilities.Graph, ClaimsOnceUnderContentionAsync),
+		new(StaleName, StorageCapabilities.Graph, ReclaimsAndFencesStaleOwnerAsync),
+		new(FieldsName, StorageCapabilities.Graph, PreservesRecoveryFieldsAsync),
 	];
-
-	private static ValueTask ResolvesAdvertisedStorage(
-		IJobStorage storage,
-		FakeTimeProvider timeProvider,
-		CancellationToken cancellationToken
-	)
-	{
-		cancellationToken.ThrowIfCancellationRequested();
-		_ = Replica(storage, CapabilityName);
-		return ValueTask.CompletedTask;
-	}
 
 	private static async ValueTask ClaimsExactlyRequestedDueJobsAsync(
 		IJobStorage storage,
@@ -404,11 +391,11 @@ internal static class ReplicaStorageConformance
 		);
 	}
 
-	private static IJobStorageReplica Replica(IJobStorage storage, string caseName) =>
-		ConformanceAssert.IsAssignableFrom<IJobStorageReplica>(
+	private static IJobGraphStorage Replica(IJobStorage storage, string caseName) =>
+		ConformanceAssert.IsAssignableFrom<IJobGraphStorage>(
 			storage,
 			caseName,
-			"a storage advertising replica support must implement IJobStorageReplica"
+			"a storage running single-server replica cases must implement IJobGraphStorage"
 		);
 
 	private static JobRecord Job(string id, DateTimeOffset now) =>

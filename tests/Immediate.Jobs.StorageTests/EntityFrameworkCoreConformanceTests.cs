@@ -19,21 +19,16 @@ public static class EntityFrameworkCoreConformanceTestCases
 {
 	private const StorageCapabilities Capabilities =
 		StorageCapabilities.Queue |
-		StorageCapabilities.Recurring |
-		StorageCapabilities.Graph |
-		StorageCapabilities.FairQueues |
-		StorageCapabilities.Replica;
+		StorageCapabilities.Graph;
 
 	public static TheoryData<ConformanceTopology, JobStorageConformanceTestCase> CreateCases()
 	{
 		var data = new TheoryData<ConformanceTopology, JobStorageConformanceTestCase>();
 		foreach (var topology in Enum.GetValues<ConformanceTopology>())
 		{
-			var capabilities = topology == ConformanceTopology.Distributed
-				? Capabilities
-				: Capabilities & ~StorageCapabilities.Replica;
+			var includeSingleServerReplicaCases = topology == ConformanceTopology.Distributed;
 
-			foreach (var testCase in JobStorageConformanceSuite.GetCases(capabilities))
+			foreach (var testCase in JobStorageConformanceSuite.GetCases(Capabilities, includeSingleServerReplicaCases))
 				data.Add(topology, testCase);
 		}
 

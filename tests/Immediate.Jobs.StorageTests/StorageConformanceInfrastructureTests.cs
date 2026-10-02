@@ -8,38 +8,29 @@ namespace Immediate.Jobs.StorageTests;
 
 public sealed class StorageConformanceInfrastructureTests
 {
-	private const StorageCapabilities InMemoryCapabilities =
-		StorageCapabilities.Queue |
-		StorageCapabilities.Recurring |
-		StorageCapabilities.Graph |
-		StorageCapabilities.FairQueues;
 	private const StorageCapabilities AllCapabilities =
-		InMemoryCapabilities |
-		StorageCapabilities.Replica;
+		StorageCapabilities.Queue |
+		StorageCapabilities.Graph;
 
 	[Fact]
-	public void GetCasesAlwaysIncludesQueueAndRoutesOnlyAdvertisedOptionalSuites()
+	public void GetCasesAlwaysIncludesQueueTierAndRoutesOnlyAdvertisedOptionalSuites()
 	{
 		var queueCases = JobStorageConformanceSuite.GetCases(StorageCapabilities.Queue);
-		var recurringCases = JobStorageConformanceSuite.GetCases(
-			StorageCapabilities.Queue | StorageCapabilities.Recurring
-		);
-		var allCases = JobStorageConformanceSuite.GetCases(AllCapabilities);
+		var graphCases = JobStorageConformanceSuite.GetCases(AllCapabilities);
+		var replicaCases = JobStorageConformanceSuite.GetCases(AllCapabilities, includeSingleServerReplicaCases: true);
 
-		Assert.Equal(15, queueCases.Count);
+		Assert.Equal(31, queueCases.Count);
 		Assert.All(queueCases, testCase => Assert.Equal(StorageCapabilities.Queue, testCase.RequiredCapabilities));
-		Assert.Contains(recurringCases, testCase => testCase.RequiredCapabilities == StorageCapabilities.Recurring);
-		Assert.DoesNotContain(recurringCases, testCase => testCase.RequiredCapabilities == StorageCapabilities.Graph);
-		Assert.DoesNotContain(recurringCases, testCase => testCase.RequiredCapabilities == StorageCapabilities.FairQueues);
-		Assert.DoesNotContain(recurringCases, testCase => testCase.RequiredCapabilities == StorageCapabilities.Replica);
-		Assert.Contains(allCases, testCase => testCase.RequiredCapabilities == StorageCapabilities.Recurring);
-		Assert.Contains(allCases, testCase => testCase.RequiredCapabilities == StorageCapabilities.Graph);
-		Assert.Contains(allCases, testCase => testCase.RequiredCapabilities == StorageCapabilities.FairQueues);
-		Assert.Contains(allCases, testCase => testCase.RequiredCapabilities == StorageCapabilities.Replica);
+		Assert.Contains(queueCases, testCase => testCase.Name.StartsWith("Recurring.", StringComparison.Ordinal));
+		Assert.Contains(queueCases, testCase => testCase.Name.StartsWith("FairQueues.", StringComparison.Ordinal));
+		Assert.Contains(graphCases, testCase => testCase.RequiredCapabilities == StorageCapabilities.Graph);
+		Assert.DoesNotContain(graphCases, testCase => testCase.Name.StartsWith("Replica.", StringComparison.Ordinal));
+		Assert.Contains(replicaCases, testCase => testCase.Name.StartsWith("Replica.", StringComparison.Ordinal));
 	}
 
 	[Theory]
 	[InlineData(StorageCapabilities.None)]
+	[InlineData((StorageCapabilities)2)]
 	[InlineData((StorageCapabilities)32)]
 	public void GetCasesRejectsImpossibleCapabilityClaims(StorageCapabilities capabilities)
 	{
@@ -47,17 +38,25 @@ public sealed class StorageConformanceInfrastructureTests
 	}
 
 	[Fact]
+	public void GetCasesRejectsReplicaCasesWithoutGraph()
+	{
+		_ = Assert.Throws<ArgumentException>(
+			() => JobStorageConformanceSuite.GetCases(StorageCapabilities.Queue, includeSingleServerReplicaCases: true)
+		);
+	}
+
+	[Fact]
 	public void CasesHaveUniqueStableNamesUsedByToString()
 	{
-		var cases = JobStorageConformanceSuite.GetCases(AllCapabilities);
+		var cases = JobStorageConformanceSuite.GetCases(AllCapabilities, includeSingleServerReplicaCases: true);
 
 		Assert.All(cases, testCase => Assert.Equal(testCase.Name, testCase.ToString()));
 		Assert.Equal(cases.Count, cases.Select(testCase => testCase.Name).Distinct(StringComparer.Ordinal).Count());
 		Assert.Contains(cases, testCase => string.Equals(testCase.Name, "Queue.Lifecycle.InitializesIdempotently", StringComparison.Ordinal));
-		Assert.Contains(cases, testCase => string.Equals(testCase.Name, "Recurring.Capability.ResolvesAdvertisedStorage", StringComparison.Ordinal));
+		Assert.Contains(cases, testCase => string.Equals(testCase.Name, "Recurring.Lifecycle.UpdatesPausesResumesAndRemovesDynamicSchedule", StringComparison.Ordinal));
 		Assert.Contains(cases, testCase => string.Equals(testCase.Name, "Graph.Capability.ResolvesAdvertisedStorage", StringComparison.Ordinal));
-		Assert.Contains(cases, testCase => string.Equals(testCase.Name, "FairQueues.Capability.ResolvesAdvertisedStorage", StringComparison.Ordinal));
-		Assert.Contains(cases, testCase => string.Equals(testCase.Name, "Replica.Capability.ResolvesAdvertisedStorage", StringComparison.Ordinal));
+		Assert.Contains(cases, testCase => string.Equals(testCase.Name, "FairQueues.Disabled.PreservesOrdinaryDueOrder", StringComparison.Ordinal));
+		Assert.Contains(cases, testCase => string.Equals(testCase.Name, "Replica.Acquisition.ClaimsExactlyTheRequestedDueJobs", StringComparison.Ordinal));
 	}
 
 	[Fact]
@@ -97,9 +96,9 @@ public sealed class StorageConformanceInfrastructureTests
 	[InlineData("Queue.Lifecycle.InitializesIdempotently")]
 	[InlineData("Queue.Health.ReportsProvisionedBackendReachable")]
 	[InlineData("Queue.Cancellation.ObservesPreCancelledOperation")]
-	[InlineData("Recurring.Capability.ResolvesAdvertisedStorage")]
+	[InlineData("Recurring.Lifecycle.UpdatesPausesResumesAndRemovesDynamicSchedule")]
 	[InlineData("Graph.Capability.ResolvesAdvertisedStorage")]
-	[InlineData("FairQueues.Capability.ResolvesAdvertisedStorage")]
+	[InlineData("FairQueues.Disabled.PreservesOrdinaryDueOrder")]
 	public async Task RunAsyncExecutesSelectedCaseAgainstStorageResolvedFromContainer(string caseName)
 	{
 		await using var services = CreateInMemoryServices();

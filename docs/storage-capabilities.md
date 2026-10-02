@@ -1,6 +1,8 @@
 # Storage capabilities (segmented providers)
 
-> **Status:** Implemented.
+> **Status:** Implemented, then consolidated by [`storage-consolidation.md`](storage-consolidation.md): the
+> recurring, fair-queue, and replica interfaces described below were folded into `IJobStorage` and
+> `IJobGraphStorage`.
 > **Goal:** Split the single `IJobStorage` seam into **capability interfaces** so a provider can
 > implement a subset, such as Redis with queue and recurring support but no graph support. Batches
 > and continuations require a **graph-capable** provider (a SQL database); when the active provider

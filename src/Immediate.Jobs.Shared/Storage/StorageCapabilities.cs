@@ -12,29 +12,14 @@ public enum StorageCapabilities
 	None = 0,
 
 	/// <summary>
-	/// 	Ordinary queueing, execution, history, and monitoring.
+	/// 	Queueing, execution, history, monitoring, recurring schedules, and fair acquisition.
 	/// </summary>
 	Queue = 1,
-
-	/// <summary>
-	/// 	Durable recurring schedules and occurrence materialization.
-	/// </summary>
-	Recurring = 2,
 
 	/// <summary>
 	/// 	Atomic batches, dependency graphs, and continuations.
 	/// </summary>
 	Graph = 4,
-
-	/// <summary>
-	/// 	Fair acquisition across queue groups.
-	/// </summary>
-	FairQueues = 8,
-
-	/// <summary>
-	/// 	Exact-identifier acquisition for durable replication.
-	/// </summary>
-	Replica = 16,
 }
 
 /// <summary>
@@ -56,14 +41,8 @@ public static class JobStorageCapabilities
 		ArgumentNullException.ThrowIfNull(storage);
 
 		var capabilities = StorageCapabilities.Queue;
-		if (storage is IRecurringJobStorage)
-			capabilities |= StorageCapabilities.Recurring;
 		if (storage is IJobGraphStorage)
 			capabilities |= StorageCapabilities.Graph;
-		if (storage is IFairQueueStorage)
-			capabilities |= StorageCapabilities.FairQueues;
-		if (storage is IJobStorageReplica)
-			capabilities |= StorageCapabilities.Replica;
 		return capabilities;
 	}
 }
@@ -74,13 +53,9 @@ internal static class JobStorageCapabilityGuards
 		"Batches & continuations require a graph-capable storage provider (a SQL database). " +
 		"The configured provider implements the queue capability only.";
 
-	internal const string RecurringNotSupportedMessage =
-		"Recurring schedules require a recurring-capable storage provider. " +
-		"The configured provider implements the queue capability only.";
+	internal const string SingleServerReplicaNotSupportedMessage =
+		"This storage provider cannot be used as a single-server durable store.";
 
 	internal static IJobGraphStorage RequireGraph(IJobStorage storage) =>
 		storage as IJobGraphStorage ?? throw new NotSupportedException(GraphNotSupportedMessage);
-
-	internal static IRecurringJobStorage RequireRecurring(IJobStorage storage) =>
-		storage as IRecurringJobStorage ?? throw new NotSupportedException(RecurringNotSupportedMessage);
 }

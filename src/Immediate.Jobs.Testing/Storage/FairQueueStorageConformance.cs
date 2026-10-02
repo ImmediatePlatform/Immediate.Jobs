@@ -9,7 +9,6 @@ namespace Immediate.Jobs.Testing;
 
 internal static class FairQueueStorageConformance
 {
-	private const string CapabilityName = "FairQueues.Capability.ResolvesAdvertisedStorage";
 	private const string RotationName = "FairQueues.Rotation.ServesNewGroupAheadOfServedBacklog";
 	private const string InterleaveName = "FairQueues.Rotation.InterleavesGroupsWithinOneAcquisition";
 	private const string NoisyName = "FairQueues.NoisyNeighbors.ServesQuietGroupFirst";
@@ -26,25 +25,13 @@ internal static class FairQueueStorageConformance
 
 	internal static IReadOnlyList<JobStorageConformanceTestCase> Cases { get; } =
 	[
-		new(CapabilityName, StorageCapabilities.FairQueues, ResolvesAdvertisedStorage),
-		new(RotationName, StorageCapabilities.FairQueues, RotatesAcrossGroupsAsync),
-		new(InterleaveName, StorageCapabilities.FairQueues, InterleavesGroupsAsync),
-		new(NoisyName, StorageCapabilities.FairQueues, ServesQuietGroupAsync),
-		new(ExpiredName, StorageCapabilities.FairQueues, IgnoresExpiredLeasesAsync),
-		new(OrdinaryName, StorageCapabilities.FairQueues, NullPolicyPreservesOrderAsync),
-		new(ConcurrencyName, StorageCapabilities.FairQueues, ConcurrentClaimsAreDistinctAsync),
+		new(RotationName, StorageCapabilities.Queue, RotatesAcrossGroupsAsync),
+		new(InterleaveName, StorageCapabilities.Queue, InterleavesGroupsAsync),
+		new(NoisyName, StorageCapabilities.Queue, ServesQuietGroupAsync),
+		new(ExpiredName, StorageCapabilities.Queue, IgnoresExpiredLeasesAsync),
+		new(OrdinaryName, StorageCapabilities.Queue, NullPolicyPreservesOrderAsync),
+		new(ConcurrencyName, StorageCapabilities.Queue, ConcurrentClaimsAreDistinctAsync),
 	];
-
-	private static ValueTask ResolvesAdvertisedStorage(
-		IJobStorage storage,
-		FakeTimeProvider timeProvider,
-		CancellationToken cancellationToken
-	)
-	{
-		cancellationToken.ThrowIfCancellationRequested();
-		_ = GetFairStorage(storage, CapabilityName);
-		return ValueTask.CompletedTask;
-	}
 
 	private static async ValueTask RotatesAcrossGroupsAsync(
 		IJobStorage storage,
@@ -52,7 +39,6 @@ internal static class FairQueueStorageConformance
 		CancellationToken cancellationToken
 	)
 	{
-		_ = GetFairStorage(storage, RotationName);
 		var clock = timeProvider;
 		await EnqueueAsync(storage, clock, "rotation-a-1", 0, "group-a", cancellationToken);
 		await EnqueueAsync(storage, clock, "rotation-a-2", 1, "group-a", cancellationToken);
@@ -139,7 +125,6 @@ internal static class FairQueueStorageConformance
 		CancellationToken cancellationToken
 	)
 	{
-		_ = GetFairStorage(storage, InterleaveName);
 		var clock = timeProvider;
 		await EnqueueAsync(storage, clock, "interleave-a-1", 0, "group-a", cancellationToken);
 		await EnqueueAsync(storage, clock, "interleave-a-2", 1, "group-a", cancellationToken);
@@ -162,7 +147,6 @@ internal static class FairQueueStorageConformance
 		CancellationToken cancellationToken
 	)
 	{
-		_ = GetFairStorage(storage, NoisyName);
 		var clock = timeProvider;
 		await EnqueueAsync(storage, clock, "noisy-active-1", 0, "noisy", cancellationToken);
 		await EnqueueAsync(storage, clock, "noisy-active-2", 1, "noisy", cancellationToken);
@@ -192,7 +176,6 @@ internal static class FairQueueStorageConformance
 		CancellationToken cancellationToken
 	)
 	{
-		_ = GetFairStorage(storage, ExpiredName);
 		var clock = timeProvider;
 		await EnqueueAsync(storage, clock, "expired-1", 0, "formerly-noisy", cancellationToken, "expired-setup");
 		await EnqueueAsync(storage, clock, "expired-2", 1, "formerly-noisy", cancellationToken, "expired-setup");
@@ -224,7 +207,6 @@ internal static class FairQueueStorageConformance
 		CancellationToken cancellationToken
 	)
 	{
-		_ = GetFairStorage(storage, OrdinaryName);
 		var clock = timeProvider;
 		await EnqueueAsync(storage, clock, "ordinary-a-1", 0, "group-a", cancellationToken);
 		await EnqueueAsync(storage, clock, "ordinary-a-2", 1, "group-a", cancellationToken);
@@ -328,7 +310,6 @@ internal static class FairQueueStorageConformance
 		CancellationToken cancellationToken
 	)
 	{
-		_ = GetFairStorage(storage, ConcurrencyName);
 		var clock = timeProvider;
 		for (var index = 0; index < 12; index++)
 		{
@@ -360,13 +341,6 @@ internal static class FairQueueStorageConformance
 		ConformanceAssert.Equal(12, allIds.Distinct(StringComparer.Ordinal).Count(), ConcurrencyName,
 			"concurrent and follow-up acquisitions must never claim the same job twice");
 	}
-
-	private static IFairQueueStorage GetFairStorage(IJobStorage storage, string caseName) =>
-		ConformanceAssert.IsAssignableFrom<IFairQueueStorage>(
-			storage,
-			caseName,
-			"a storage advertising fair-queue support must implement IFairQueueStorage"
-		);
 
 	private static JobAcquisitionRequest CreateRequest(
 		string workerId,
