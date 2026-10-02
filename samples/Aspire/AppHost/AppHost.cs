@@ -8,6 +8,7 @@ var jobsApi = builder.AddProject<Projects.Immediate_Jobs_Aspire_Api>("jobs-api")
 	.WithReference(jobsDatabase)
 	.WaitFor(jobsDatabase)
 	.WithExternalHttpEndpoints()
+	.WithHttpHealthCheck("/health")
 	.WithUrlForEndpoint("http", static url => url.DisplayText = "Scalar")
 	.WithUrlForEndpoint("http", static _ => new()
 	{
