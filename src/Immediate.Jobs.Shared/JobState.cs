@@ -10,12 +10,9 @@ public enum JobState
 	/// </summary>
 	AwaitingContinuation,
 	/// <summary>
-	/// 	The job is parked until required inputs are supplied.
+	/// 	The job is durably created but parked until it is explicitly triggered.
 	/// </summary>
-	/// <remarks>
-	/// 	This state is unused at the moment, but reserved for future work.
-	/// </remarks>
-	AwaitingParameters,
+	WaitingForTrigger,
 	/// <summary>
 	/// 	The job is delayed until its due time.
 	/// </summary>

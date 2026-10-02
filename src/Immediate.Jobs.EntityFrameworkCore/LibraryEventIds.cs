@@ -42,4 +42,7 @@ internal static class LibraryEventIds
 	public const int PurgeBatchesAsyncCalled = 11537;
 	public const int HeartbeatAsyncCalled = 11538;
 	public const int IsHealthyAsyncCalled = 11539;
+	public const int UpdatePayloadAsyncCalled = 11540;
+	public const int TryTriggerAsyncCalled = 11541;
+	public const int TryTriggerBatchAsyncCalled = 11542;
 }

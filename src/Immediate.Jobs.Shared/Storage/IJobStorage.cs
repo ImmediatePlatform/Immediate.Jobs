@@ -35,6 +35,74 @@ public interface IJobStorage : IAsyncDisposable
 	ValueTask EnqueueAsync(JobRecord job, CancellationToken cancellationToken = default);
 
 	/// <summary>
+	/// 	Atomically replaces the payload of an invocation that is waiting for a trigger.
+	/// </summary>
+	/// <param name="jobHandle">
+	/// 	The invocation identifier.
+	/// </param>
+	/// <param name="expectedJobName">
+	/// 	The job name the invocation must have.
+	/// </param>
+	/// <param name="payload">
+	/// 	The serialized replacement payload.
+	/// </param>
+	/// <param name="cancellationToken">
+	/// 	A token that can cancel the storage operation.
+	/// </param>
+	/// <returns>
+	/// 	A value task that represents the asynchronous update.
+	/// </returns>
+	/// <exception cref="KeyNotFoundException">
+	/// 	The invocation does not exist.
+	/// </exception>
+	/// <exception cref="ImmediateJobException">
+	/// 	The invocation has a different job name or is not <see cref="JobState.WaitingForTrigger"/>.
+	/// </exception>
+	ValueTask UpdatePayloadAsync(
+		JobHandle jobHandle,
+		string expectedJobName,
+		string payload,
+		CancellationToken cancellationToken = default
+	);
+
+	/// <summary>
+	/// 	Atomically releases an invocation that is waiting for a trigger.
+	/// </summary>
+	/// <param name="jobHandle">
+	/// 	The invocation identifier.
+	/// </param>
+	/// <param name="expectedJobName">
+	/// 	The job name the invocation must have.
+	/// </param>
+	/// <param name="dueAt">
+	/// 	The UTC time at which the released invocation becomes due.
+	/// </param>
+	/// <param name="cancellationToken">
+	/// 	A token that can cancel the storage operation.
+	/// </param>
+	/// <returns>
+	/// 	<see langword="true"/> when this call released the invocation; <see langword="false"/> when it is no
+	/// 	longer <see cref="JobState.WaitingForTrigger"/>.
+	/// </returns>
+	/// <exception cref="KeyNotFoundException">
+	/// 	The invocation does not exist.
+	/// </exception>
+	/// <exception cref="ImmediateJobException">
+	/// 	The invocation has a different job name, or is waiting without a payload.
+	/// </exception>
+	/// <remarks>
+	/// 	A released invocation with unsettled dependencies becomes <see cref="JobState.AwaitingContinuation"/>.
+	/// 	Otherwise it becomes <see cref="JobState.Pending"/> or <see cref="JobState.Scheduled"/>, after its
+	/// 	incoming continuation triggers are evaluated.
+	/// </remarks>
+	ValueTask<bool> TryTriggerAsync(
+		JobHandle jobHandle,
+		string expectedJobName,
+		DateTimeOffset dueAt,
+		CancellationToken cancellationToken = default
+	);
+
+	/// <summary>
 	/// 	Atomically claims due work in the requested queue and job-capacity order.
 	/// </summary>
 	/// <param name="request">

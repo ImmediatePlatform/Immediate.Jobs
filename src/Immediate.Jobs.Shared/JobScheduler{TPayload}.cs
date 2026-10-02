@@ -44,6 +44,9 @@ public abstract class JobScheduler<TPayload>(
 	Func<System.Text.Json.JsonSerializerOptions, JsonTypeInfo<TPayload>> payloadTypeInfoFactory
 ) : IJobScheduler<TPayload>
 {
+	// No serializer produces an empty document, so it marks a waiting invocation whose parameters are not supplied yet.
+	private const string MissingPayload = "";
+
 	/// <summary>
 	/// 	The storage provider.
 	/// </summary>
@@ -515,6 +518,136 @@ public abstract class JobScheduler<TPayload>(
 	}
 
 	/// <inheritdoc />
+	public async ValueTask<JobHandle> WaitForTriggerAsync(TPayload payload, CancellationToken cancellationToken = default)
+	{
+		await TaskScheduler.Yield();
+		return await WaitForTriggerCoreAsync(Serializer.Serialize(payload, payloadTypeInfoFactory), groupId: null, cancellationToken);
+	}
+
+	/// <inheritdoc />
+	public async ValueTask<JobHandle> WaitForTriggerAsync(TPayload payload, string groupId, CancellationToken cancellationToken = default)
+	{
+		await TaskScheduler.Yield();
+		return await WaitForTriggerCoreAsync(Serializer.Serialize(payload, payloadTypeInfoFactory), groupId, cancellationToken);
+	}
+
+	/// <inheritdoc />
+	public async ValueTask<JobHandle> WaitForTriggerAsync(CancellationToken cancellationToken = default)
+	{
+		await TaskScheduler.Yield();
+		return await WaitForTriggerCoreAsync(MissingPayload, groupId: null, cancellationToken);
+	}
+
+	/// <inheritdoc />
+	public async ValueTask<JobHandle> WaitForTriggerAsync(string groupId, CancellationToken cancellationToken = default)
+	{
+		await TaskScheduler.Yield();
+		return await WaitForTriggerCoreAsync(MissingPayload, groupId, cancellationToken);
+	}
+
+	/// <inheritdoc />
+	public async ValueTask<JobHandle> WaitForTriggerAsync(
+		TPayload payload,
+		IReadOnlyList<ContinuationHandle> parents,
+		ContinuationTrigger on = ContinuationTrigger.Success,
+		CancellationToken cancellationToken = default
+	)
+	{
+		await TaskScheduler.Yield();
+		return await WaitForTriggerAfterCoreAsync(Serializer.Serialize(payload, payloadTypeInfoFactory), groupId: null, parents, on, cancellationToken);
+	}
+
+	/// <inheritdoc />
+	public async ValueTask<JobHandle> WaitForTriggerAsync(
+		TPayload payload,
+		IReadOnlyList<ContinuationHandle> parents,
+		string groupId,
+		ContinuationTrigger on = ContinuationTrigger.Success,
+		CancellationToken cancellationToken = default
+	)
+	{
+		await TaskScheduler.Yield();
+		return await WaitForTriggerAfterCoreAsync(Serializer.Serialize(payload, payloadTypeInfoFactory), groupId, parents, on, cancellationToken);
+	}
+
+	/// <inheritdoc />
+	public async ValueTask<JobHandle> WaitForTriggerAsync(
+		IReadOnlyList<ContinuationHandle> parents,
+		ContinuationTrigger on = ContinuationTrigger.Success,
+		CancellationToken cancellationToken = default
+	)
+	{
+		await TaskScheduler.Yield();
+		return await WaitForTriggerAfterCoreAsync(MissingPayload, groupId: null, parents, on, cancellationToken);
+	}
+
+	/// <inheritdoc />
+	public async ValueTask<JobHandle> WaitForTriggerAsync(
+		IReadOnlyList<ContinuationHandle> parents,
+		string groupId,
+		ContinuationTrigger on = ContinuationTrigger.Success,
+		CancellationToken cancellationToken = default
+	)
+	{
+		await TaskScheduler.Yield();
+		return await WaitForTriggerAfterCoreAsync(MissingPayload, groupId, parents, on, cancellationToken);
+	}
+
+	/// <inheritdoc />
+	public async ValueTask UpdateParametersAsync(JobHandle job, TPayload payload, CancellationToken cancellationToken = default)
+	{
+		ArgumentNullException.ThrowIfNull(job);
+		await TaskScheduler.Yield();
+
+		await Storage.UpdatePayloadAsync(job, JobName, Serializer.Serialize(payload, payloadTypeInfoFactory), cancellationToken);
+	}
+
+	/// <inheritdoc />
+	public async ValueTask TriggerAsync(JobHandle job, CancellationToken cancellationToken = default)
+	{
+		await TaskScheduler.Yield();
+		if (!await TryTriggerCoreAsync(job, GetTriggerDueAt(TimeSpan.Zero), cancellationToken))
+			ImmediateJobException.Throw($"Job '{job}' is not waiting for a trigger.");
+	}
+
+	/// <inheritdoc />
+	public async ValueTask TriggerAsync(JobHandle job, TimeSpan delay, CancellationToken cancellationToken = default)
+	{
+		await TaskScheduler.Yield();
+		if (!await TryTriggerCoreAsync(job, GetTriggerDueAt(delay), cancellationToken))
+			ImmediateJobException.Throw($"Job '{job}' is not waiting for a trigger.");
+	}
+
+	/// <inheritdoc />
+	public async ValueTask TriggerAsync(JobHandle job, DateTimeOffset at, CancellationToken cancellationToken = default)
+	{
+		await TaskScheduler.Yield();
+		if (!await TryTriggerCoreAsync(job, GetTriggerDueAt(at), cancellationToken))
+			ImmediateJobException.Throw($"Job '{job}' is not waiting for a trigger.");
+	}
+
+	/// <inheritdoc />
+	public async ValueTask<bool> TryTriggerAsync(JobHandle job, CancellationToken cancellationToken = default)
+	{
+		await TaskScheduler.Yield();
+		return await TryTriggerCoreAsync(job, GetTriggerDueAt(TimeSpan.Zero), cancellationToken);
+	}
+
+	/// <inheritdoc />
+	public async ValueTask<bool> TryTriggerAsync(JobHandle job, TimeSpan delay, CancellationToken cancellationToken = default)
+	{
+		await TaskScheduler.Yield();
+		return await TryTriggerCoreAsync(job, GetTriggerDueAt(delay), cancellationToken);
+	}
+
+	/// <inheritdoc />
+	public async ValueTask<bool> TryTriggerAsync(JobHandle job, DateTimeOffset at, CancellationToken cancellationToken = default)
+	{
+		await TaskScheduler.Yield();
+		return await TryTriggerCoreAsync(job, GetTriggerDueAt(at), cancellationToken);
+	}
+
+	/// <inheritdoc />
 	public async ValueTask CancelAsync(JobHandle job, CancellationToken cancellationToken = default)
 	{
 		ArgumentNullException.ThrowIfNull(job);
@@ -537,6 +670,34 @@ public abstract class JobScheduler<TPayload>(
 		if (delay < TimeSpan.Zero)
 			ArgumentOutOfRangeException.Throw(nameof(delay), $"A job delay cannot be negative. (delay: {delay:c})");
 
+		ValidateParents(parents);
+
+		var now = TimeProvider.GetUtcNow();
+		var waiting = CreateRecord(payload, JobState.AwaitingContinuation, runAt: now + delay, now, groupId);
+
+		return await EnqueueContinuationCoreAsync(graphStorage, waiting, parents, on, delay, cancellationToken);
+	}
+
+	private async ValueTask<JobHandle> WaitForTriggerAfterCoreAsync(
+		string payload,
+		string? groupId,
+		IReadOnlyList<ContinuationHandle> parents,
+		ContinuationTrigger on,
+		CancellationToken cancellationToken
+	)
+	{
+		var graphStorage = JobStorageCapabilityGuards.RequireGraph(Storage);
+
+		ValidateParents(parents);
+
+		var now = TimeProvider.GetUtcNow();
+		var waiting = CreateSerializedRecord(payload, JobState.WaitingForTrigger, runAt: now, now, groupId);
+
+		return await EnqueueContinuationCoreAsync(graphStorage, waiting, parents, on, TimeSpan.Zero, cancellationToken);
+	}
+
+	private static void ValidateParents(IReadOnlyList<ContinuationHandle> parents)
+	{
 		if (parents is [])
 			ArgumentException.Throw(nameof(parents), "No prior jobs or batches were provided");
 
@@ -546,9 +707,18 @@ public abstract class JobScheduler<TPayload>(
 			if (!parentIds.Add(parent))
 				ImmediateJobException.Throw($"Duplicate continuation parent '{parent}'.");
 		}
+	}
 
-		var now = TimeProvider.GetUtcNow();
-		var waiting = CreateRecord(payload, JobState.AwaitingContinuation, runAt: now + delay, now, groupId) with { RemainingDependencies = parents.Count };
+	private async ValueTask<JobHandle> EnqueueContinuationCoreAsync(
+		IJobGraphStorage graphStorage,
+		JobRecord job,
+		IReadOnlyList<ContinuationHandle> parents,
+		ContinuationTrigger on,
+		TimeSpan delay,
+		CancellationToken cancellationToken
+	)
+	{
+		var waiting = job with { RemainingDependencies = parents.Count };
 
 		var edges = parents
 			.Select(parent => new JobContinuationEdge
@@ -563,6 +733,47 @@ public abstract class JobScheduler<TPayload>(
 		await graphStorage.EnqueueContinuationAsync(waiting, [.. edges], cancellationToken);
 		JobTelemetry.Enqueued(JobName, QueueName);
 		return waiting.JobHandle;
+	}
+
+	private async ValueTask<JobHandle> WaitForTriggerCoreAsync(
+		string payload,
+		string? groupId,
+		CancellationToken cancellationToken
+	)
+	{
+		var now = TimeProvider.GetUtcNow();
+		var record = CreateSerializedRecord(payload, JobState.WaitingForTrigger, runAt: now, now, groupId);
+
+		await Storage.EnqueueAsync(record, cancellationToken);
+		JobTelemetry.Enqueued(JobName, QueueName);
+		return record.JobHandle;
+	}
+
+	private async ValueTask<bool> TryTriggerCoreAsync(
+		JobHandle job,
+		DateTimeOffset at,
+		CancellationToken cancellationToken
+	)
+	{
+		ArgumentNullException.ThrowIfNull(job);
+		return await Storage.TryTriggerAsync(job, JobName, at, cancellationToken);
+	}
+
+	private DateTimeOffset GetTriggerDueAt(TimeSpan delay)
+	{
+		if (delay < TimeSpan.Zero)
+			ArgumentOutOfRangeException.Throw(nameof(delay), $"A job delay cannot be negative. (delay: {delay:c})");
+
+		return TimeProvider.GetUtcNow() + delay;
+	}
+
+	private DateTimeOffset GetTriggerDueAt(DateTimeOffset at)
+	{
+		var now = TimeProvider.GetUtcNow();
+		if (at < now)
+			ArgumentOutOfRangeException.Throw(nameof(at), $"A job cannot be scheduled in the past (at: {at:O}, now: {now:O}).");
+
+		return at;
 	}
 
 	private async ValueTask<JobHandle> ScheduleJobAsync(
@@ -767,7 +978,10 @@ public abstract class JobScheduler<TPayload>(
 		return record.JobHandle;
 	}
 
-	private JobRecord CreateRecord(TPayload payload, JobState state, DateTimeOffset runAt, DateTimeOffset now, string? groupId = null)
+	private JobRecord CreateRecord(TPayload payload, JobState state, DateTimeOffset runAt, DateTimeOffset now, string? groupId = null) =>
+		CreateSerializedRecord(Serializer.Serialize(payload, payloadTypeInfoFactory), state, runAt, now, groupId);
+
+	private JobRecord CreateSerializedRecord(string payload, JobState state, DateTimeOffset runAt, DateTimeOffset now, string? groupId)
 	{
 		var (traceParent, traceState) = Activity.Current;
 		var context = CaptureContext();
@@ -778,7 +992,7 @@ public abstract class JobScheduler<TPayload>(
 			JobName = JobName,
 			QueueName = QueueName,
 			GroupId = NormalizeGroupId(groupId),
-			Payload = Serializer.Serialize(payload, payloadTypeInfoFactory),
+			Payload = payload,
 			State = state,
 			DueAt = runAt,
 			CreatedAt = now,

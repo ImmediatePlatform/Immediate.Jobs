@@ -43,7 +43,7 @@ internal static class ReplicaStorageConformance
 			State = JobState.Scheduled,
 			DueAt = now.AddMinutes(1),
 		};
-		var requestedParked = Job("exact-parked", now) with { State = JobState.AwaitingParameters };
+		var requestedParked = Job("exact-parked", now) with { State = JobState.WaitingForTrigger };
 		var unrequested = Job("exact-unrequested", now);
 		var unavailable = Job("exact-unavailable", now);
 		foreach (var job in new[]

@@ -214,6 +214,20 @@ public sealed class StorageCapabilityTests
 		public ValueTask<bool> IsHealthyAsync(CancellationToken cancellationToken = default) =>
 			_inner.IsHealthyAsync(cancellationToken);
 
+		public ValueTask UpdatePayloadAsync(
+			JobHandle jobHandle,
+			string expectedJobName,
+			string payload,
+			CancellationToken cancellationToken = default
+		) => _inner.UpdatePayloadAsync(jobHandle, expectedJobName, payload, cancellationToken);
+
+		public ValueTask<bool> TryTriggerAsync(
+			JobHandle jobHandle,
+			string expectedJobName,
+			DateTimeOffset dueAt,
+			CancellationToken cancellationToken = default
+		) => _inner.TryTriggerAsync(jobHandle, expectedJobName, dueAt, cancellationToken);
+
 		public ValueTask MergeRecurringSchedulesListAsync(
 			IReadOnlyList<RecurringJobSchedule> schedules,
 			CancellationToken cancellationToken = default

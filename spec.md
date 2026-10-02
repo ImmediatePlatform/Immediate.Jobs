@@ -361,8 +361,8 @@ operations.
 - **Poison-safety:** an unhandled exception in one job never affects the worker pool or other jobs.
 - **Job states:** `Scheduled → Pending → Active → Succeeded | Failed | Cancelled`. Continuation
   children are created parked in `AwaitingContinuation` and flip to `Pending` (or `Cancelled`) as
-  their incoming edges are satisfied; `AwaitingParameters` is a reserved, currently-unused state for a
-  future deferred-input capability (providers treat it as non-acquirable, like `AwaitingContinuation`).
+  their incoming edges are satisfied; `WaitingForTrigger` parks a durably created job until it is
+  explicitly triggered (providers treat it as non-acquirable, like `AwaitingContinuation`).
   Succeeded history retained (default 24h, configurable).
 
 ---

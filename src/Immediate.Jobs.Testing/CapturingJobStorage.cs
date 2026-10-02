@@ -279,6 +279,12 @@ public class CapturingJobStorage(TimeProvider timeProvider) :
 	/// <inheritdoc />
 	public virtual async ValueTask CancelBatchAsync(BatchHandle batchHandle, CancellationToken cancellationToken = default) => await _inner.CancelBatchAsync(batchHandle, cancellationToken);
 	/// <inheritdoc />
+	public virtual async ValueTask<bool> TryTriggerBatchAsync(BatchHandle batchHandle, CancellationToken cancellationToken = default) => await _inner.TryTriggerBatchAsync(batchHandle, cancellationToken);
+	/// <inheritdoc />
+	public virtual async ValueTask UpdatePayloadAsync(JobHandle jobHandle, string expectedJobName, string payload, CancellationToken cancellationToken = default) => await _inner.UpdatePayloadAsync(jobHandle, expectedJobName, payload, cancellationToken);
+	/// <inheritdoc />
+	public virtual async ValueTask<bool> TryTriggerAsync(JobHandle jobHandle, string expectedJobName, DateTimeOffset dueAt, CancellationToken cancellationToken = default) => await _inner.TryTriggerAsync(jobHandle, expectedJobName, dueAt, cancellationToken);
+	/// <inheritdoc />
 	public virtual async ValueTask DeleteBatchAsync(BatchHandle batchHandle, CancellationToken cancellationToken = default) => await _inner.DeleteBatchAsync(batchHandle, cancellationToken);
 	/// <inheritdoc />
 	public virtual async ValueTask CancelAsync(JobHandle jobHandle, CancellationToken cancellationToken = default) => await _inner.CancelAsync(jobHandle, cancellationToken);

@@ -513,7 +513,7 @@ code {
 .state-summary [data-state="scheduled"] { --state-color: color-mix(in srgb, var(--warning) 55%, var(--panel)); }
 .state-summary [data-state="active"] { --state-color: var(--info); }
 .state-summary [data-state="awaitingcontinuation"] { --state-color: var(--pause); }
-.state-summary [data-state="awaitingparameters"] { --state-color: color-mix(in srgb, var(--pause) 55%, var(--panel)); }
+.state-summary [data-state="waitingfortrigger"] { --state-color: color-mix(in srgb, var(--pause) 55%, var(--panel)); }
 .state-summary [data-state="succeeded"] { --state-color: var(--accent); }
 .state-summary [data-state="failed"] { --state-color: var(--danger); }
 .state-summary [data-state="cancelled"] { --state-color: var(--text-subtle); }
@@ -825,6 +825,7 @@ tbody tr:hover {
 .state-badge[data-state="pending"],
 .state-badge[data-state="scheduled"],
 .state-badge[data-state="executing"],
+.state-badge[data-state="waitingfortrigger"],
 .state-badge[data-state="interrupted"],
 .state-badge[data-state="paused"] {
 	border-color: color-mix(in srgb, var(--warning) 30%, var(--border));
@@ -1353,7 +1354,7 @@ tbody tr:hover {
 .node-segment[data-state="pending"],
 .node-segment[data-state="scheduled"] { fill: var(--warning); }
 .node-segment[data-state="awaitingcontinuation"],
-.node-segment[data-state="awaitingparameters"] { fill: var(--pause); }
+.node-segment[data-state="waitingfortrigger"] { fill: var(--pause); }
 .node-segment[data-state="cancelled"],
 .node-segment[data-state="skipped"] { fill: var(--border-strong); }
 

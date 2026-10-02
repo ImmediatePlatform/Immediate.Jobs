@@ -89,4 +89,10 @@ internal static class LibraryEventIds
 	public const int SingleServerHeartbeatAsyncCalled = 11085;
 	public const int SingleServerIsHealthyAsyncCalled = 11086;
 	public const int SingleServerDisposeAsyncCalled = 11087;
+	public const int InMemoryUpdatePayloadAsyncCalled = 11088;
+	public const int InMemoryTryTriggerAsyncCalled = 11089;
+	public const int InMemoryTryTriggerBatchAsyncCalled = 11090;
+	public const int SingleServerUpdatePayloadAsyncCalled = 11091;
+	public const int SingleServerTryTriggerAsyncCalled = 11092;
+	public const int SingleServerTryTriggerBatchAsyncCalled = 11093;
 }

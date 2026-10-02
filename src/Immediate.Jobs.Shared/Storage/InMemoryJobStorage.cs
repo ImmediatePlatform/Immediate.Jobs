@@ -111,6 +111,53 @@ public sealed partial class InMemoryJobStorage(
 	}
 
 	/// <inheritdoc />
+	public async ValueTask UpdatePayloadAsync(
+		JobHandle jobHandle,
+		string expectedJobName,
+		string payload,
+		CancellationToken cancellationToken = default
+	)
+	{
+		UpdatePayloadAsyncCalled(jobHandle);
+		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
+
+		lock (_gate)
+		{
+			var job = GetTriggerable(jobHandle, expectedJobName);
+			if (job.State != JobState.WaitingForTrigger)
+				throw new ImmediateJobException($"Job '{jobHandle}' is not waiting for a trigger.");
+
+			_jobs[jobHandle] = job with { Payload = payload };
+		}
+	}
+
+	/// <inheritdoc />
+	public async ValueTask<bool> TryTriggerAsync(
+		JobHandle jobHandle,
+		string expectedJobName,
+		DateTimeOffset dueAt,
+		CancellationToken cancellationToken = default
+	)
+	{
+		TryTriggerAsyncCalled(jobHandle);
+		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
+
+		lock (_gate)
+		{
+			var job = GetTriggerable(jobHandle, expectedJobName);
+			if (job.State != JobState.WaitingForTrigger)
+				return false;
+			if (job.Payload.Length == 0)
+				throw new ImmediateJobException($"Job '{jobHandle}' cannot be triggered before its parameters are supplied.");
+
+			Trigger(job, dueAt);
+			return true;
+		}
+	}
+
+	/// <inheritdoc />
 	public async ValueTask EnqueueContinuationAsync(
 		JobRecord job,
 		IReadOnlyList<JobContinuationEdge> edges,
@@ -127,7 +174,7 @@ public sealed partial class InMemoryJobStorage(
 			ValidateEdges([job], edges, batchHandle: null);
 
 			var restoreExistingState = HasTerminalParent(edges) &&
-				(job.State != JobState.AwaitingContinuation || job.RemainingDependencies < edges.Count);
+				(job.State is not (JobState.AwaitingContinuation or JobState.WaitingForTrigger) || job.RemainingDependencies < edges.Count);
 			_jobs.Add(job.JobHandle, restoreExistingState ? job : NormalizeWaitingJob(job, edges.Count));
 			_edges.AddRange(edges);
 			if (restoreExistingState)
@@ -862,6 +909,8 @@ public sealed partial class InMemoryJobStorage(
 				jobs = jobs.Where(x => string.Equals(x.QueueName, query.QueueName, StringComparison.Ordinal));
 			if (!string.IsNullOrWhiteSpace(query.JobName))
 				jobs = jobs.Where(x => string.Equals(x.JobName, query.JobName, StringComparison.Ordinal));
+			if (query.CreatedBefore is { } createdBefore)
+				jobs = jobs.Where(x => x.CreatedAt < createdBefore);
 
 			if (!string.IsNullOrWhiteSpace(query.Search))
 				jobs = jobs.Where(x => x.JobName.Contains(query.Search, StringComparison.OrdinalIgnoreCase));
@@ -890,7 +939,7 @@ public sealed partial class InMemoryJobStorage(
 				.Where(
 					j => j.State is
 						JobState.AwaitingContinuation
-						or JobState.AwaitingParameters
+						or JobState.WaitingForTrigger
 						or JobState.Scheduled
 						or JobState.Pending
 						or JobState.Active
@@ -1094,7 +1143,7 @@ public sealed partial class InMemoryJobStorage(
 		{
 			if (!_batches.TryGetValue(batchHandle, out var batch))
 				throw new KeyNotFoundException($"Batch '{batchHandle}' was not found.");
-			if (batch.State != BatchState.Executing)
+			if (IsTerminal(batch.State))
 				throw new ImmediateJobException("Only an executing batch can be cancelled.");
 
 			var now = timeProvider.GetUtcNow();
@@ -1115,6 +1164,32 @@ public sealed partial class InMemoryJobStorage(
 	}
 
 	/// <inheritdoc />
+	public async ValueTask<bool> TryTriggerBatchAsync(BatchHandle batchHandle, CancellationToken cancellationToken = default)
+	{
+		TryTriggerBatchAsyncCalled(batchHandle);
+		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
+
+		lock (_gate)
+		{
+			if (!_batches.TryGetValue(batchHandle, out var batch))
+				throw new KeyNotFoundException($"Batch '{batchHandle}' was not found.");
+			if (batch.State != BatchState.WaitingForTrigger)
+				return false;
+
+			_batches[batchHandle] = batch with { State = BatchState.Executing };
+			foreach (var job in _jobs.Values
+				.Where(job => job.BatchHandle == batchHandle && job.State == JobState.WaitingForTrigger)
+				.ToList())
+			{
+				Trigger(job, job.DueAt);
+			}
+
+			return true;
+		}
+	}
+
+	/// <inheritdoc />
 	public async ValueTask DeleteBatchAsync(BatchHandle batchHandle, CancellationToken cancellationToken = default)
 	{
 		DeleteBatchAsyncCalled(batchHandle);
@@ -1125,7 +1200,7 @@ public sealed partial class InMemoryJobStorage(
 		{
 			if (!_batches.TryGetValue(batchHandle, out var batch))
 				throw new KeyNotFoundException($"Batch '{batchHandle}' was not found.");
-			if (batch.State == BatchState.Executing)
+			if (!IsTerminal(batch.State))
 				throw new ImmediateJobException("Only a terminal batch can be deleted.");
 
 			var jobHandles = _jobs.Values
@@ -1400,7 +1475,7 @@ public sealed partial class InMemoryJobStorage(
 			batch.FailedCount != failed ||
 			batch.CancelledCount != cancelled ||
 			batch.SkippedCount != skipped ||
-			batch.State != expectedState ||
+			(batch.State != expectedState && !(expectedState == BatchState.Executing && batch.State == BatchState.WaitingForTrigger)) ||
 			(pending == 0 != (batch.CompletedAt is not null))
 		)
 		{
@@ -1491,7 +1566,7 @@ public sealed partial class InMemoryJobStorage(
 
 	private static JobRecord NormalizeWaitingJob(JobRecord job, int dependencyCount) => job with
 	{
-		State = dependencyCount == 0 ? job.State : JobState.AwaitingContinuation,
+		State = dependencyCount == 0 || job.State == JobState.WaitingForTrigger ? job.State : JobState.AwaitingContinuation,
 		RemainingDependencies = dependencyCount,
 		FailedDependencies = 0,
 		WorkerId = null,
@@ -1523,7 +1598,7 @@ public sealed partial class InMemoryJobStorage(
 			.GroupBy(static edge => edge.ChildJobHandle)
 			.ToDictionary(static group => group.Key, static group => group.Count());
 		return jobs.Any(job => incomingCounts.TryGetValue(job.JobHandle, out var incoming) &&
-			(job.State != JobState.AwaitingContinuation || job.RemainingDependencies < incoming));
+			(job.State is not (JobState.AwaitingContinuation or JobState.WaitingForTrigger) || job.RemainingDependencies < incoming));
 	}
 
 	private bool HasTerminalParent(IEnumerable<JobContinuationEdge> edges) =>
@@ -1774,7 +1849,7 @@ public sealed partial class InMemoryJobStorage(
 
 			_jobs[child.JobHandle] = child with
 			{
-				State = JobState.AwaitingContinuation,
+				State = child.State == JobState.WaitingForTrigger ? JobState.WaitingForTrigger : JobState.AwaitingContinuation,
 				RemainingDependencies = child.RemainingDependencies + 1,
 			};
 			_edges.Add(new()
@@ -1817,6 +1892,44 @@ public sealed partial class InMemoryJobStorage(
 		};
 	}
 
+	private JobRecord GetTriggerable(JobHandle jobHandle, string expectedJobName)
+	{
+		if (!_jobs.TryGetValue(jobHandle, out var job))
+			throw new KeyNotFoundException($"Job '{jobHandle}' was not found.");
+		if (!string.Equals(job.JobName, expectedJobName, StringComparison.Ordinal))
+			throw new ImmediateJobException($"Job '{jobHandle}' is not a '{expectedJobName}' job.");
+
+		return job;
+	}
+
+	private void Trigger(JobRecord job, DateTimeOffset dueAt)
+	{
+		if (job.RemainingDependencies != 0)
+		{
+			_jobs[job.JobHandle] = job with { State = JobState.AwaitingContinuation, DueAt = dueAt };
+			return;
+		}
+
+		var now = timeProvider.GetUtcNow();
+		if (_edges.Any(edge => edge.ChildJobHandle == job.JobHandle))
+		{
+			var (triggersSatisfied, _, delay) = EvaluateIncomingTriggers(job.JobHandle);
+			if (!triggersSatisfied)
+			{
+				TransitionToTerminal(job.JobHandle, JobState.Skipped, error: null, now);
+				return;
+			}
+
+			dueAt = dueAt > now + delay ? dueAt : now + delay;
+		}
+
+		_jobs[job.JobHandle] = job with
+		{
+			State = dueAt <= now ? JobState.Pending : JobState.Scheduled,
+			DueAt = dueAt,
+		};
+	}
+
 	private void MarkBatchStarted(BatchHandle? batchHandle, DateTimeOffset startedAt)
 	{
 		if (batchHandle is not null && _batches.TryGetValue(batchHandle, out var batch) && batch.StartedAt is null)
@@ -1826,7 +1939,7 @@ public sealed partial class InMemoryJobStorage(
 	private static bool IsTerminal(JobState state) =>
 		state is JobState.Succeeded or JobState.Failed or JobState.Cancelled or JobState.Skipped;
 
-	private static bool IsTerminal(BatchState state) => state is not BatchState.Executing;
+	private static bool IsTerminal(BatchState state) => state is not (BatchState.Executing or BatchState.WaitingForTrigger);
 
 	private static BatchStatus ToStatus(BatchRecord batch) =>
 		new()
@@ -1999,6 +2112,22 @@ public sealed partial class InMemoryJobStorage(
 		Message = "EnqueueAsync called (JobHandle={JobHandle})"
 	)]
 	private partial void EnqueueAsyncCalled(JobHandle jobHandle);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.InMemoryUpdatePayloadAsyncCalled,
+		EventName = "Immediate.Jobs.Shared.UpdatePayloadAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "UpdatePayloadAsync called (JobHandle={JobHandle})"
+	)]
+	private partial void UpdatePayloadAsyncCalled(JobHandle jobHandle);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.InMemoryTryTriggerAsyncCalled,
+		EventName = "Immediate.Jobs.Shared.TryTriggerAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "TryTriggerAsync called (JobHandle={JobHandle})"
+	)]
+	private partial void TryTriggerAsyncCalled(JobHandle jobHandle);
 
 	[LoggerMessage(
 		EventId = LibraryEventIds.InMemoryEnqueueContinuationAsyncCalled,
@@ -2207,6 +2336,14 @@ public sealed partial class InMemoryJobStorage(
 		Message = "CancelBatchAsync called (BatchHandle={BatchHandle})"
 	)]
 	private partial void CancelBatchAsyncCalled(BatchHandle batchHandle);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.InMemoryTryTriggerBatchAsyncCalled,
+		EventName = "Immediate.Jobs.Shared.TryTriggerBatchAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "TryTriggerBatchAsync called (BatchHandle={BatchHandle})"
+	)]
+	private partial void TryTriggerBatchAsyncCalled(BatchHandle batchHandle);
 
 	[LoggerMessage(
 		EventId = LibraryEventIds.InMemoryDeleteBatchAsyncCalled,

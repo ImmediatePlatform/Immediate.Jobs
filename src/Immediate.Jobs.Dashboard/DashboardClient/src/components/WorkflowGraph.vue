@@ -100,7 +100,7 @@ const segmentInset = 12;
 const stateOrder: JobState[] = [
 	'Active',
 	'Failed',
-	'AwaitingParameters',
+	'WaitingForTrigger',
 	'AwaitingContinuation',
 	'Pending',
 	'Scheduled',

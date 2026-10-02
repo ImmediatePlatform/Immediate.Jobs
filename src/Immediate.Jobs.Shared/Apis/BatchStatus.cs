@@ -102,4 +102,9 @@ public enum BatchState
 	/// 	No member failed and at least one member was cancelled.
 	/// </summary>
 	Cancelled,
+
+	/// <summary>
+	/// 	The batch is durably created but its members are parked until the batch is explicitly triggered.
+	/// </summary>
+	WaitingForTrigger,
 }
