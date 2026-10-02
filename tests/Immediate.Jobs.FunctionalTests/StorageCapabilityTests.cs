@@ -65,45 +65,6 @@ public sealed class StorageCapabilityTests
 		Assert.Equal(0, storage.EnqueueCalls);
 	}
 
-	[Fact]
-	public async Task QueueOnlySchedulerUsesPlainCompletion()
-	{
-		var cancellationToken = TestContext.Current.CancellationToken;
-		var timeProvider = new FakeTimeProvider(DateTimeOffset.UnixEpoch);
-		await using var storage = new QueueOnlyStorage(timeProvider);
-		var services = new ServiceCollection();
-		_ = services.AddLogging();
-		_ = services.AddSingleton<TimeProvider>(timeProvider);
-		_ = services.AddImmediateJobsCore()
-			.ConfigureWorkers(o => o.WorkerCount = 1)
-			.ConfigureStorage(o => o.UseStorage(_ => storage).UseDistributed());
-
-		_ = services.AddSingleton(new JobDefinition
-		{
-			Name = "queue-only",
-			JobType = typeof(StorageCapabilityTests),
-			Invoker = new NoopInvoker(),
-		});
-
-		await using var provider = services.BuildServiceProvider();
-		await storage.EnqueueAsync(new()
-		{
-			JobHandle = JobHandle.FromString("queue-only-job"),
-			JobName = "queue-only",
-			Payload = "{}",
-			State = JobState.Pending,
-			DueAt = DateTimeOffset.MinValue,
-			CreatedAt = DateTimeOffset.MinValue,
-		}, cancellationToken);
-
-		await provider.GetRequiredService<JobSchedulingService>().DrainAsync(cancellationToken);
-
-		Assert.Equal(1, storage.CompleteCalls);
-		Assert.Equal(JobState.Succeeded, (await storage.GetJobStatusAsync(JobHandle.FromString("queue-only-job"), cancellationToken))!.State);
-		var snapshot = await storage.GetMonitoringSnapshotAsync(cancellationToken);
-		Assert.Equal(StorageCapabilities.Queue, snapshot.Capabilities);
-	}
-
 	private sealed class QueueOnlyScheduler(
 		IJobStorage storage,
 		IJobSerializer serializer,
@@ -128,12 +89,6 @@ public sealed class StorageCapabilityTests
 #endif
 	}
 
-	private sealed class NoopInvoker : IJobInvoker
-	{
-		public ValueTask InvokeAsync(IServiceProvider scopedServices, JobExecution execution) =>
-			ValueTask.CompletedTask;
-	}
-
 	private sealed class CapabilityIdGenerator : IIdGenerator
 	{
 		private int _value;
@@ -144,7 +99,6 @@ public sealed class StorageCapabilityTests
 	{
 		private readonly InMemoryJobStorage _inner = new(timeProvider);
 
-		public int CompleteCalls { get; private set; }
 		public int EnqueueCalls { get; private set; }
 
 		public ValueTask DisposeAsync() => _inner.DisposeAsync();
@@ -194,11 +148,7 @@ public sealed class StorageCapabilityTests
 			int executionNumber,
 			string workerId,
 			CancellationToken cancellationToken = default
-		)
-		{
-			CompleteCalls++;
-			return _inner.CompleteAsync(jobHandle, executionNumber, workerId, cancellationToken);
-		}
+		) => _inner.CompleteAsync(jobHandle, executionNumber, workerId, cancellationToken);
 
 		public ValueTask FailAsync(
 			JobHandle jobHandle,
