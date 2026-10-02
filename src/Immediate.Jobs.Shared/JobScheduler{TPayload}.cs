@@ -606,7 +606,9 @@ public abstract class JobScheduler<TPayload>(
 	public async ValueTask TriggerAsync(JobHandle job, CancellationToken cancellationToken = default)
 	{
 		await TaskScheduler.Yield();
-		if (!await TryTriggerCoreAsync(job, GetTriggerDueAt(TimeSpan.Zero), cancellationToken))
+		ArgumentNullException.ThrowIfNull(job);
+
+		if (!await Storage.TryTriggerAsync(job, JobName, TimeProvider.GetUtcNow(), cancellationToken))
 			ImmediateJobException.Throw($"Job '{job}' is not waiting for a trigger.");
 	}
 
@@ -614,7 +616,14 @@ public abstract class JobScheduler<TPayload>(
 	public async ValueTask TriggerAsync(JobHandle job, TimeSpan delay, CancellationToken cancellationToken = default)
 	{
 		await TaskScheduler.Yield();
-		if (!await TryTriggerCoreAsync(job, GetTriggerDueAt(delay), cancellationToken))
+		ArgumentNullException.ThrowIfNull(job);
+
+		if (delay < TimeSpan.Zero)
+			ArgumentOutOfRangeException.Throw(nameof(delay), $"A job delay cannot be negative. (delay: {delay:c})");
+
+		var now = TimeProvider.GetUtcNow();
+
+		if (!await Storage.TryTriggerAsync(job, JobName, now + delay, cancellationToken))
 			ImmediateJobException.Throw($"Job '{job}' is not waiting for a trigger.");
 	}
 
@@ -622,7 +631,14 @@ public abstract class JobScheduler<TPayload>(
 	public async ValueTask TriggerAsync(JobHandle job, DateTimeOffset at, CancellationToken cancellationToken = default)
 	{
 		await TaskScheduler.Yield();
-		if (!await TryTriggerCoreAsync(job, GetTriggerDueAt(at), cancellationToken))
+		ArgumentNullException.ThrowIfNull(job);
+
+		var now = TimeProvider.GetUtcNow();
+
+		if (at < now)
+			ArgumentOutOfRangeException.Throw(nameof(at), $"A job cannot be scheduled in the past (at: {at:O}, now: {now:O}).");
+
+		if (!await Storage.TryTriggerAsync(job, JobName, at, cancellationToken))
 			ImmediateJobException.Throw($"Job '{job}' is not waiting for a trigger.");
 	}
 
@@ -630,21 +646,37 @@ public abstract class JobScheduler<TPayload>(
 	public async ValueTask<bool> TryTriggerAsync(JobHandle job, CancellationToken cancellationToken = default)
 	{
 		await TaskScheduler.Yield();
-		return await TryTriggerCoreAsync(job, GetTriggerDueAt(TimeSpan.Zero), cancellationToken);
+		ArgumentNullException.ThrowIfNull(job);
+
+		return await Storage.TryTriggerAsync(job, JobName, TimeProvider.GetUtcNow(), cancellationToken);
 	}
 
 	/// <inheritdoc />
 	public async ValueTask<bool> TryTriggerAsync(JobHandle job, TimeSpan delay, CancellationToken cancellationToken = default)
 	{
 		await TaskScheduler.Yield();
-		return await TryTriggerCoreAsync(job, GetTriggerDueAt(delay), cancellationToken);
+		ArgumentNullException.ThrowIfNull(job);
+
+		if (delay < TimeSpan.Zero)
+			ArgumentOutOfRangeException.Throw(nameof(delay), $"A job delay cannot be negative. (delay: {delay:c})");
+
+		var now = TimeProvider.GetUtcNow();
+
+		return await Storage.TryTriggerAsync(job, JobName, now + delay, cancellationToken);
 	}
 
 	/// <inheritdoc />
 	public async ValueTask<bool> TryTriggerAsync(JobHandle job, DateTimeOffset at, CancellationToken cancellationToken = default)
 	{
 		await TaskScheduler.Yield();
-		return await TryTriggerCoreAsync(job, GetTriggerDueAt(at), cancellationToken);
+		ArgumentNullException.ThrowIfNull(job);
+
+		var now = TimeProvider.GetUtcNow();
+
+		if (at < now)
+			ArgumentOutOfRangeException.Throw(nameof(at), $"A job cannot be scheduled in the past (at: {at:O}, now: {now:O}).");
+
+		return await Storage.TryTriggerAsync(job, JobName, at, cancellationToken);
 	}
 
 	/// <inheritdoc />
@@ -747,33 +779,6 @@ public abstract class JobScheduler<TPayload>(
 		await Storage.EnqueueAsync(record, cancellationToken);
 		JobTelemetry.Enqueued(JobName, QueueName);
 		return record.JobHandle;
-	}
-
-	private async ValueTask<bool> TryTriggerCoreAsync(
-		JobHandle job,
-		DateTimeOffset at,
-		CancellationToken cancellationToken
-	)
-	{
-		ArgumentNullException.ThrowIfNull(job);
-		return await Storage.TryTriggerAsync(job, JobName, at, cancellationToken);
-	}
-
-	private DateTimeOffset GetTriggerDueAt(TimeSpan delay)
-	{
-		if (delay < TimeSpan.Zero)
-			ArgumentOutOfRangeException.Throw(nameof(delay), $"A job delay cannot be negative. (delay: {delay:c})");
-
-		return TimeProvider.GetUtcNow() + delay;
-	}
-
-	private DateTimeOffset GetTriggerDueAt(DateTimeOffset at)
-	{
-		var now = TimeProvider.GetUtcNow();
-		if (at < now)
-			ArgumentOutOfRangeException.Throw(nameof(at), $"A job cannot be scheduled in the past (at: {at:O}, now: {now:O}).");
-
-		return at;
 	}
 
 	private async ValueTask<JobHandle> ScheduleJobAsync(
