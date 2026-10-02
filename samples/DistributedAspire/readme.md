@@ -20,7 +20,15 @@ only the worker executes it.
 Prerequisites are the .NET 10 SDK and a Docker-compatible container runtime.
 
 ```console
-dotnet run --project samples/DistributedAspire/AppHost/Immediate.Jobs.DistributedAspire.AppHost.csproj
+dotnet user-secrets init --project "samples/DistributedAspire/AppHost/Immediate.Jobs.DistributedAspire.AppHost.csproj"
+```
+
+```console
+dotnet user-secrets set "Parameters:postgres-password" "YourSecurePassword123" --project "samples/DistributedAspire/AppHost/Immediate.Jobs.DistributedAspire.AppHost.csproj"
+```
+
+```console
+dotnet run --project "samples/DistributedAspire/AppHost/Immediate.Jobs.DistributedAspire.AppHost.csproj"
 ```
 
 The PostgreSQL password is a secret Aspire parameter. Enter it when the Aspire dashboard prompts for it, or set it
