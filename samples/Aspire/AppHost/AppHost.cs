@@ -8,7 +8,17 @@ var jobsApi = builder.AddProject<Projects.Immediate_Jobs_Aspire_Api>("jobs-api")
 	.WithReference(jobsDatabase)
 	.WaitFor(jobsDatabase)
 	.WithExternalHttpEndpoints()
-	.WithHttpHealthCheck("/health");
+	.WithUrlForEndpoint("http", static url => url.DisplayText = "Scalar")
+	.WithUrlForEndpoint("http", static _ => new()
+	{
+		Url = "/health",
+		DisplayText = "🏥 Health",
+	})
+	.WithUrlForEndpoint("http", static _ => new()
+	{
+		Url = "/jobs",
+		DisplayText = "💼 Jobs",
+	});
 
 if (builder.Configuration["ASPNETCORE_URLS"]?
 	.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)

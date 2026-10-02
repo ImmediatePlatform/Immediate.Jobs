@@ -164,10 +164,11 @@ those features in the current release. See
 
 ## Samples and documentation
 
-The [online documentation](https://immediateplatform.dev/docs/Immediate.Jobs/introduction) covers the complete API.
-The [Aspire sample](samples/Aspire/readme.md) runs the EF Core provider against an Aspire-managed PostgreSQL container,
-exports logs, traces, metrics, and health status, and exposes the Immediate.Jobs dashboard.
-The [SQLite sample](samples/Sqlite/readme.md) runs the same EF Core provider against a local SQLite file, with no
+- The [online documentation](https://immediateplatform.dev/docs/Immediate.Jobs/introduction) covers the complete API.
+- The [Aspire sample](samples/Aspire/readme.md) runs the EF Core provider against an Aspire-managed PostgreSQL container,
+exports logs, traces, metrics, and health status, and exposes the Immediate.Jobs dashboard. Run it with:
+- The [Distributed sample](samples/DistributedAspire/readme.md) runs the same EF Core provider against a Aspire-managed PostgreSQL container. But splitting responsibilites between an ASP.NET Core WebApi (hosts dashboard(s)) a hosted service (runs jobs) and a cli (enqueueing jobs via aspire). Run it with:
+- The [SQLite sample](samples/Sqlite/readme.md) runs the same EF Core provider against a local SQLite file, with no
 containers or external services.
 
 ## Benchmarks

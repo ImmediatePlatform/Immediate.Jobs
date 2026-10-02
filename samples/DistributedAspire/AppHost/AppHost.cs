@@ -1,6 +1,6 @@
 var builder = DistributedApplication.CreateBuilder(args);
 
-var username = builder.AddParameter("postgres-username", secret: true);
+var username = builder.AddParameter("postgres-username", "admin");
 var password = builder.AddParameter("postgres-password", secret: true);
 
 var postgres = builder
