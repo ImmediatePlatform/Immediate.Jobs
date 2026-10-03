@@ -247,11 +247,26 @@ selection only to non-null group ids; they do not need to materialize job ids as
 | EF Core, distributed | Uses transactional SQL cursor rows and optimistic job claims. |
 | LinqToDB, distributed | Uses the same cursor semantics with transactions and compare-and-swap updates. |
 | Single-server | The in-memory primary performs fair selection; the durable replica mirrors the selected job ids. |
-| Redis, distributed | Persists `GroupId`, but fair acquisition throws `NotSupportedException`. |
+| Redis, distributed | Uses per-group due indexes, cursor hashes, and active counters maintained by the existing atomic Lua scripts. |
 
 In single-server mode, fair cursor state is intentionally in memory. The EF Core or LinqToDB
 replica's `immediate_fair_queue_groups` table therefore remains empty because the durable replica
 does not perform a second acquisition decision.
+
+Redis keeps its fair-queue state next to the queue's due set, under the storage key prefix:
+
+```text
+fair:due:{queue length}:{queue}:{group}   sorted set: due members of one group
+fair:ungrouped:{queue}                    sorted set: due members without a group
+fair:groups:{queue}                       set: groups that have due members
+fair:active:{queue}                       hash: active job count per group ('' for ungrouped)
+fair:cursor:{queue}                       hash: last-served sequence per group
+```
+
+Every script that adds a job to the due set also indexes it, and claims, cancellations, and retries
+remove it. The acquisition script reclaims expired leases, ranks the head job of each group, and
+claims, all in one atomic evaluation. Terminal transitions remove a group's cursor once the group has no
+due or active jobs.
 
 Distributed EF Core and LinqToDB fair acquisition select and claim one slot at a time so each slot
 observes the cursor advanced by the previous claim. The cursor write is part of the existing
@@ -278,6 +293,6 @@ The test suite covers:
 - queue, job-name, and request capacity limits;
 - cursor removal and cleanup failures;
 - disabled-policy warnings and group-id validation;
-- Redis provider rejection;
+- Redis indexing of retried and cancelled jobs;
 - single-server selection and replica mirroring;
 - dashboard group display and serialization.

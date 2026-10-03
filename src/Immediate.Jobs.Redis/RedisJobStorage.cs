@@ -103,13 +103,6 @@ internal sealed partial class RedisJobStorage(
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 
-		if (request.FairQueues is not null)
-		{
-			throw new NotSupportedException(
-				"Direct distributed fair-queue acquisition is not supported by the Redis provider."
-			);
-		}
-
 		var keys = new List<RedisKey>(4 + request.Queues.Count)
 		{
 			LeasesKey,
@@ -129,6 +122,10 @@ internal sealed partial class RedisJobStorage(
 			request.Queues.Count,
 			_root,
 			Ticks(now),
+			request.FairQueues is null ? 0 : 1,
+			request.FairQueues?.ConcurrencyShareThreshold ?? 0,
+			request.FairQueues?.MinInflightForNoisy ?? 0,
+			request.FairQueues?.GroupRoundRobin == true ? 1 : 0,
 		};
 		foreach (var queue in request.Queues)
 		{
@@ -225,7 +222,7 @@ internal sealed partial class RedisJobStorage(
 				ExecutionIndexKey(jobHandle),
 				ExecutionDataKey(jobHandle),
 			],
-			[workerId, executionNumber, Ticks(now), jobHandle.Value, Score(now)],
+			[workerId, executionNumber, Ticks(now), jobHandle.Value, Score(now), _root],
 			cancellationToken
 		);
 		ThrowIfNotOwned(result, jobHandle, workerId);
@@ -1103,7 +1100,7 @@ internal sealed partial class RedisJobStorage(
 		return (long)result;
 	}
 
-	private static RedisValue[] CreateEnqueueArguments(JobRecord job) =>
+	private RedisValue[] CreateEnqueueArguments(JobRecord job) =>
 	[
 		JsonSerializer.Serialize(job, RedisJsonSerializerContext.Default.JobRecord),
 		(int)job.State,
@@ -1123,9 +1120,11 @@ internal sealed partial class RedisJobStorage(
 		Score(job.DueAt),
 		Ticks(job.CreatedAt),
 		DueMember(job),
+		job.GroupId ?? "",
+		_root,
 	];
 
-	private static RedisValue[] CreateMaterializeArguments(
+	private RedisValue[] CreateMaterializeArguments(
 		RecurringJobSchedule schedule,
 		JobRecord job,
 		DateTimeOffset nextRunAt,
@@ -1156,6 +1155,7 @@ internal sealed partial class RedisJobStorage(
 		Ticks(job.CreatedAt),
 		job.CompletedAt is { } completedAt ? Score(completedAt) : 0,
 		Score(now),
+		_root,
 	];
 
 	private static void ValidateQueueJob(JobRecord job)
