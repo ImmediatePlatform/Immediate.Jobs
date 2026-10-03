@@ -83,7 +83,8 @@ then trigger) and deferred parameters.
 - **Releasing.** `TriggerAsync`/`TryTriggerAsync` (job) and `BatchScheduler.TriggerAsync`/
   `TryTriggerAsync` (batch) call storage's `TryTriggerAsync`/`TryTriggerBatchAsync`. Storage returns
   `false` when the target is no longer waiting; the `Trigger…` forms turn that into an exception.
-  A batch member can only be released by its batch: storage throws if one is triggered as a job.
+  While a batch is waiting, its members can only be released by the batch: storage throws if one is
+  triggered as a job.
   Timing passed to a job trigger is measured from the trigger; batch members keep the due times they
   were created with.
 - **Two gates.** `WaitingForTrigger` and `RemainingDependencies` are independent:
