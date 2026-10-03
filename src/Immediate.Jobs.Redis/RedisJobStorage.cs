@@ -27,6 +27,7 @@ internal sealed partial class RedisJobStorage(
 
 	private const int QueryWindowSize = 256;
 	private const int MaximumQueryTake = 1000;
+	private const int MaxConcurrencyAttempts = 5;
 
 	private static readonly RedisValue[] JobMutableFields =
 	[
@@ -105,7 +106,7 @@ internal sealed partial class RedisJobStorage(
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 
-		while (true)
+		for (var attempt = 0; attempt < MaxConcurrencyAttempts; attempt++)
 		{
 			var values = await Database.HashGetAsync(JobKey(jobHandle), ["record", "state", "jobName"])
 				.WaitAsync(cancellationToken);
@@ -126,6 +127,8 @@ internal sealed partial class RedisJobStorage(
 			if (result == 1)
 				return;
 		}
+
+		throw new ImmediateJobException($"Job '{jobHandle}' was changed concurrently while its parameters were being updated.");
 	}
 
 	/// <inheritdoc />
