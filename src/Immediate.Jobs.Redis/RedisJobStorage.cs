@@ -27,7 +27,6 @@ internal sealed partial class RedisJobStorage(
 
 	private const int QueryWindowSize = 256;
 	private const int MaximumQueryTake = 1000;
-	private const int FairQueueIndexBatchSize = 500;
 
 	private static readonly RedisValue[] JobMutableFields =
 	[
@@ -74,7 +73,6 @@ internal sealed partial class RedisJobStorage(
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 		await Database.PingAsync().WaitAsync(cancellationToken);
-		await IndexFairQueuesAsync(cancellationToken);
 	}
 
 	/// <inheritdoc />
@@ -1090,28 +1088,6 @@ internal sealed partial class RedisJobStorage(
 		};
 	}
 
-	private async ValueTask IndexFairQueuesAsync(CancellationToken cancellationToken)
-	{
-		if (await Database.KeyExistsAsync(FairQueueIndexKey).WaitAsync(cancellationToken))
-			return;
-
-		var values = new List<RedisValue>(FairQueueIndexBatchSize + 1) { _root };
-		await foreach (var entry in Database.SortedSetScanAsync(AllJobsKey, pageSize: FairQueueIndexBatchSize).WithCancellation(cancellationToken))
-		{
-			values.Add(entry.Element);
-			if (values.Count <= FairQueueIndexBatchSize)
-				continue;
-
-			_ = await EvaluateInt64Async(RedisScripts.IndexFairQueues, [AllJobsKey], [.. values], cancellationToken);
-			values.RemoveRange(1, values.Count - 1);
-		}
-
-		if (values.Count > 1)
-			_ = await EvaluateInt64Async(RedisScripts.IndexFairQueues, [AllJobsKey], [.. values], cancellationToken);
-
-		_ = await Database.StringSetAsync(FairQueueIndexKey, 1).WaitAsync(cancellationToken);
-	}
-
 	private async ValueTask<long> EvaluateInt64Async(
 		string script,
 		RedisKey[] keys,
@@ -1230,7 +1206,6 @@ internal sealed partial class RedisJobStorage(
 	private RedisKey RecurringDueKey => _root + "recurring:due";
 	private RedisKey RecurringDedupeKey => _root + "recurring:dedupe";
 	private RedisKey ServersKey => _root + "servers";
-	private RedisKey FairQueueIndexKey => _root + "fair:indexed";
 
 	private static long Score(DateTimeOffset value) => value.ToUnixTimeMilliseconds();
 	private static string Ticks(DateTimeOffset value) => value.UtcTicks.ToString("D19", CultureInfo.InvariantCulture);

@@ -266,7 +266,7 @@ fair:cursor:{queue}                       hash: last-served sequence per group
 Every script that adds a job to the due set also indexes it, and claims, cancellations, and retries
 remove it. The acquisition script reclaims expired leases, ranks the head job of each group, and
 claims, all in one atomic evaluation. Terminal transitions remove a group's cursor once the group has no
-due or active jobs. Jobs written before fair-queue support are indexed once by `InitializeAsync`.
+due or active jobs.
 
 Distributed EF Core and LinqToDB fair acquisition select and claim one slot at a time so each slot
 observes the cursor advanced by the previous claim. The cursor write is part of the existing
@@ -293,6 +293,6 @@ The test suite covers:
 - queue, job-name, and request capacity limits;
 - cursor removal and cleanup failures;
 - disabled-policy warnings and group-id validation;
-- Redis indexing of retried, cancelled, and pre-existing jobs;
+- Redis indexing of retried and cancelled jobs;
 - single-server selection and replica mirroring;
 - dashboard group display and serialization.

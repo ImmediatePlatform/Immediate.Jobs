@@ -315,30 +315,6 @@ internal static class RedisScripts
 		return acquired
 		""";
 
-	internal const string IndexFairQueues =
-		FairQueueFunctions +
-		"""
-		local root = ARGV[1]
-		for index = 2, #ARGV do
-			local jobKey = root .. 'job:' .. ARGV[index]
-			local values = redis.call('HMGET', jobKey, 'state', 'queue', 'dueScore', 'dueMember', 'group', 'record')
-			if values[1] and not values[5] then
-				local group = ''
-				local decoded, record = pcall(cjson.decode, values[6] or '')
-				if decoded and type(record) == 'table' and type(record.GroupId) == 'string' then
-					group = record.GroupId
-				end
-				redis.call('HSET', jobKey, 'group', group)
-				if (values[1] == '2' or values[1] == '3') and values[4] then
-					indexDue(root, values[2], group, values[3], values[4])
-				elseif values[1] == '4' then
-					changeActive(root, values[2], group, 1)
-				end
-			end
-		end
-		return 1
-		""";
-
 	internal const string SetTelemetry =
 		"""
 		if redis.call('EXISTS', KEYS[1]) == 0 then return 0 end
