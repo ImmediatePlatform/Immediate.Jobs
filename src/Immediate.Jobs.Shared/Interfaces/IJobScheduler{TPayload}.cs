@@ -865,6 +865,353 @@ public interface IJobScheduler<TPayload>
 	);
 
 	/// <summary>
+	/// 	Creates work that waits for an explicit trigger and returns its opaque invocation identifier.
+	/// </summary>
+	/// <param name="payload">
+	/// 	The payload for the job.
+	/// </param>
+	/// <param name="cancellationToken">
+	/// 	A token that can cancel the scheduling operation.
+	/// </param>
+	/// <returns>
+	/// 	A handle for the waiting invocation.
+	/// </returns>
+	ValueTask<JobHandle> WaitForTriggerAsync(TPayload payload, CancellationToken cancellationToken = default);
+
+	/// <summary>
+	/// 	Creates grouped work that waits for an explicit trigger and returns its opaque invocation identifier.
+	/// </summary>
+	/// <param name="payload">
+	/// 	The payload for the job.
+	/// </param>
+	/// <param name="groupId">
+	/// 	The fair queue group identifier.
+	/// </param>
+	/// <param name="cancellationToken">
+	/// 	A token that can cancel the scheduling operation.
+	/// </param>
+	/// <returns>
+	/// 	A handle for the waiting invocation.
+	/// </returns>
+	ValueTask<JobHandle> WaitForTriggerAsync(
+		TPayload payload,
+		string groupId,
+		CancellationToken cancellationToken = default
+	);
+
+	/// <summary>
+	/// 	Creates work without parameters that waits for an explicit trigger and returns its opaque invocation identifier.
+	/// </summary>
+	/// <param name="cancellationToken">
+	/// 	A token that can cancel the scheduling operation.
+	/// </param>
+	/// <returns>
+	/// 	A handle for the waiting invocation.
+	/// </returns>
+	/// <remarks>
+	/// 	The invocation cannot be triggered until <see cref="UpdateParametersAsync"/> supplies its payload.
+	/// </remarks>
+	ValueTask<JobHandle> WaitForTriggerAsync(CancellationToken cancellationToken = default);
+
+	/// <summary>
+	/// 	Creates grouped work without parameters that waits for an explicit trigger and returns its opaque invocation identifier.
+	/// </summary>
+	/// <param name="groupId">
+	/// 	The fair queue group identifier.
+	/// </param>
+	/// <param name="cancellationToken">
+	/// 	A token that can cancel the scheduling operation.
+	/// </param>
+	/// <returns>
+	/// 	A handle for the waiting invocation.
+	/// </returns>
+	/// <remarks>
+	/// 	The invocation cannot be triggered until <see cref="UpdateParametersAsync"/> supplies its payload.
+	/// </remarks>
+	ValueTask<JobHandle> WaitForTriggerAsync(string groupId, CancellationToken cancellationToken = default);
+
+	/// <summary>
+	/// 	Creates work that waits for an explicit trigger and for all supplied jobs to complete, and returns its opaque invocation identifier.
+	/// </summary>
+	/// <param name="payload">
+	/// 	The payload for the job.
+	/// </param>
+	/// <param name="parents">
+	/// 	The parent activities that must all complete before this work is released.
+	/// </param>
+	/// <param name="on">
+	/// 	The parent activity outcome that releases the job.
+	/// </param>
+	/// <param name="cancellationToken">
+	/// 	A token that can cancel the scheduling operation.
+	/// </param>
+	/// <returns>
+	/// 	A handle for the waiting invocation.
+	/// </returns>
+	ValueTask<JobHandle> WaitForTriggerAsync(
+		TPayload payload,
+		IReadOnlyList<ContinuationHandle> parents,
+		ContinuationTrigger on = ContinuationTrigger.Success,
+		CancellationToken cancellationToken = default
+	);
+
+	/// <summary>
+	/// 	Creates grouped work that waits for an explicit trigger and for all supplied jobs to complete, and returns its opaque invocation identifier.
+	/// </summary>
+	/// <param name="payload">
+	/// 	The payload for the job.
+	/// </param>
+	/// <param name="parents">
+	/// 	The parent activities that must all complete before this work is released.
+	/// </param>
+	/// <param name="groupId">
+	/// 	The fair queue group identifier.
+	/// </param>
+	/// <param name="on">
+	/// 	The parent activity outcome that releases the job.
+	/// </param>
+	/// <param name="cancellationToken">
+	/// 	A token that can cancel the scheduling operation.
+	/// </param>
+	/// <returns>
+	/// 	A handle for the waiting invocation.
+	/// </returns>
+	ValueTask<JobHandle> WaitForTriggerAsync(
+		TPayload payload,
+		IReadOnlyList<ContinuationHandle> parents,
+		string groupId,
+		ContinuationTrigger on = ContinuationTrigger.Success,
+		CancellationToken cancellationToken = default
+	);
+
+	/// <summary>
+	/// 	Creates work without parameters that waits for an explicit trigger and for all supplied jobs to complete, and returns its opaque invocation identifier.
+	/// </summary>
+	/// <param name="parents">
+	/// 	The parent activities that must all complete before this work is released.
+	/// </param>
+	/// <param name="on">
+	/// 	The parent activity outcome that releases the job.
+	/// </param>
+	/// <param name="cancellationToken">
+	/// 	A token that can cancel the scheduling operation.
+	/// </param>
+	/// <returns>
+	/// 	A handle for the waiting invocation.
+	/// </returns>
+	/// <remarks>
+	/// 	The invocation cannot be triggered until <see cref="UpdateParametersAsync"/> supplies its payload.
+	/// </remarks>
+	ValueTask<JobHandle> WaitForTriggerAsync(
+		IReadOnlyList<ContinuationHandle> parents,
+		ContinuationTrigger on = ContinuationTrigger.Success,
+		CancellationToken cancellationToken = default
+	);
+
+	/// <summary>
+	/// 	Creates grouped work without parameters that waits for an explicit trigger and for all supplied jobs to complete, and returns its opaque invocation identifier.
+	/// </summary>
+	/// <param name="parents">
+	/// 	The parent activities that must all complete before this work is released.
+	/// </param>
+	/// <param name="groupId">
+	/// 	The fair queue group identifier.
+	/// </param>
+	/// <param name="on">
+	/// 	The parent activity outcome that releases the job.
+	/// </param>
+	/// <param name="cancellationToken">
+	/// 	A token that can cancel the scheduling operation.
+	/// </param>
+	/// <returns>
+	/// 	A handle for the waiting invocation.
+	/// </returns>
+	/// <remarks>
+	/// 	The invocation cannot be triggered until <see cref="UpdateParametersAsync"/> supplies its payload.
+	/// </remarks>
+	ValueTask<JobHandle> WaitForTriggerAsync(
+		IReadOnlyList<ContinuationHandle> parents,
+		string groupId,
+		ContinuationTrigger on = ContinuationTrigger.Success,
+		CancellationToken cancellationToken = default
+	);
+
+	/// <summary>
+	/// 	Replaces the payload of an invocation that is waiting for a trigger.
+	/// </summary>
+	/// <param name="job">
+	/// 	The waiting invocation.
+	/// </param>
+	/// <param name="payload">
+	/// 	The payload for the job.
+	/// </param>
+	/// <param name="cancellationToken">
+	/// 	A token that can cancel the scheduling operation.
+	/// </param>
+	/// <returns>
+	/// 	A value task that represents the asynchronous update.
+	/// </returns>
+	/// <exception cref="KeyNotFoundException">
+	/// 	The invocation does not exist.
+	/// </exception>
+	/// <exception cref="ImmediateJobException">
+	/// 	The invocation belongs to a different job or is no longer waiting for a trigger.
+	/// </exception>
+	ValueTask UpdateParametersAsync(
+		JobHandle job,
+		TPayload payload,
+		CancellationToken cancellationToken = default
+	);
+
+	/// <summary>
+	/// 	Releases an invocation that is waiting for a trigger so that it runs as soon as possible.
+	/// </summary>
+	/// <param name="job">
+	/// 	The waiting invocation.
+	/// </param>
+	/// <param name="cancellationToken">
+	/// 	A token that can cancel the scheduling operation.
+	/// </param>
+	/// <returns>
+	/// 	A value task that represents the asynchronous trigger.
+	/// </returns>
+	/// <exception cref="KeyNotFoundException">
+	/// 	The invocation does not exist.
+	/// </exception>
+	/// <exception cref="ImmediateJobException">
+	/// 	The invocation belongs to a different job, is no longer waiting for a trigger, or has no payload.
+	/// </exception>
+	ValueTask TriggerAsync(JobHandle job, CancellationToken cancellationToken = default);
+
+	/// <summary>
+	/// 	Releases an invocation that is waiting for a trigger so that it runs after a delay.
+	/// </summary>
+	/// <param name="job">
+	/// 	The waiting invocation.
+	/// </param>
+	/// <param name="delay">
+	/// 	The delay, measured from the trigger, before the invocation becomes due.
+	/// </param>
+	/// <param name="cancellationToken">
+	/// 	A token that can cancel the scheduling operation.
+	/// </param>
+	/// <returns>
+	/// 	A value task that represents the asynchronous trigger.
+	/// </returns>
+	/// <exception cref="KeyNotFoundException">
+	/// 	The invocation does not exist.
+	/// </exception>
+	/// <exception cref="ImmediateJobException">
+	/// 	The invocation belongs to a different job, is no longer waiting for a trigger, or has no payload.
+	/// </exception>
+	ValueTask TriggerAsync(
+		JobHandle job,
+		TimeSpan delay,
+		CancellationToken cancellationToken = default
+	);
+
+	/// <summary>
+	/// 	Releases an invocation that is waiting for a trigger so that it runs at a specific time.
+	/// </summary>
+	/// <param name="job">
+	/// 	The waiting invocation.
+	/// </param>
+	/// <param name="at">
+	/// 	The UTC time at which the invocation becomes due.
+	/// </param>
+	/// <param name="cancellationToken">
+	/// 	A token that can cancel the scheduling operation.
+	/// </param>
+	/// <returns>
+	/// 	A value task that represents the asynchronous trigger.
+	/// </returns>
+	/// <exception cref="KeyNotFoundException">
+	/// 	The invocation does not exist.
+	/// </exception>
+	/// <exception cref="ImmediateJobException">
+	/// 	The invocation belongs to a different job, is no longer waiting for a trigger, or has no payload.
+	/// </exception>
+	ValueTask TriggerAsync(
+		JobHandle job,
+		DateTimeOffset at,
+		CancellationToken cancellationToken = default
+	);
+
+	/// <summary>
+	/// 	Releases an invocation that is waiting for a trigger so that it runs as soon as possible, unless it has already been released, cancelled, or skipped.
+	/// </summary>
+	/// <param name="job">
+	/// 	The waiting invocation.
+	/// </param>
+	/// <param name="cancellationToken">
+	/// 	A token that can cancel the scheduling operation.
+	/// </param>
+	/// <returns>
+	/// 	<see langword="true"/> when this call released the invocation; <see langword="false"/> when it is no longer waiting for a trigger.
+	/// </returns>
+	/// <exception cref="KeyNotFoundException">
+	/// 	The invocation does not exist.
+	/// </exception>
+	/// <exception cref="ImmediateJobException">
+	/// 	The invocation belongs to a different job or to a batch that is waiting for a trigger, or is waiting without a payload.
+	/// </exception>
+	ValueTask<bool> TryTriggerAsync(JobHandle job, CancellationToken cancellationToken = default);
+
+	/// <summary>
+	/// 	Releases an invocation that is waiting for a trigger so that it runs after a delay, unless it has already been released, cancelled, or skipped.
+	/// </summary>
+	/// <param name="job">
+	/// 	The waiting invocation.
+	/// </param>
+	/// <param name="delay">
+	/// 	The delay, measured from the trigger, before the invocation becomes due.
+	/// </param>
+	/// <param name="cancellationToken">
+	/// 	A token that can cancel the scheduling operation.
+	/// </param>
+	/// <returns>
+	/// 	<see langword="true"/> when this call released the invocation; <see langword="false"/> when it is no longer waiting for a trigger.
+	/// </returns>
+	/// <exception cref="KeyNotFoundException">
+	/// 	The invocation does not exist.
+	/// </exception>
+	/// <exception cref="ImmediateJobException">
+	/// 	The invocation belongs to a different job or to a batch that is waiting for a trigger, or is waiting without a payload.
+	/// </exception>
+	ValueTask<bool> TryTriggerAsync(
+		JobHandle job,
+		TimeSpan delay,
+		CancellationToken cancellationToken = default
+	);
+
+	/// <summary>
+	/// 	Releases an invocation that is waiting for a trigger so that it runs at a specific time, unless it has already been released, cancelled, or skipped.
+	/// </summary>
+	/// <param name="job">
+	/// 	The waiting invocation.
+	/// </param>
+	/// <param name="at">
+	/// 	The UTC time at which the invocation becomes due.
+	/// </param>
+	/// <param name="cancellationToken">
+	/// 	A token that can cancel the scheduling operation.
+	/// </param>
+	/// <returns>
+	/// 	<see langword="true"/> when this call released the invocation; <see langword="false"/> when it is no longer waiting for a trigger.
+	/// </returns>
+	/// <exception cref="KeyNotFoundException">
+	/// 	The invocation does not exist.
+	/// </exception>
+	/// <exception cref="ImmediateJobException">
+	/// 	The invocation belongs to a different job or to a batch that is waiting for a trigger, or is waiting without a payload.
+	/// </exception>
+	ValueTask<bool> TryTriggerAsync(
+		JobHandle job,
+		DateTimeOffset at,
+		CancellationToken cancellationToken = default
+	);
+
+	/// <summary>
 	///		Cancels a non-terminal durable invocation.
 	/// </summary>
 	/// <param name="job">

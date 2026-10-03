@@ -10,7 +10,7 @@ const props = defineProps<{
 
 const groups: { title: string; caption: string; states: JobState[] }[] = [
 	{ title: 'Queue', caption: 'Waiting for a worker or running', states: ['Pending', 'Scheduled', 'Active'] },
-	{ title: 'Waiting', caption: 'Paused until input arrives', states: ['AwaitingContinuation', 'AwaitingParameters'] },
+	{ title: 'Waiting', caption: 'Paused until dependencies settle or a trigger arrives', states: ['AwaitingContinuation', 'WaitingForTrigger'] },
 	{ title: 'Finished', caption: 'Reached a terminal state', states: ['Succeeded', 'Failed', 'Cancelled', 'Skipped'] },
 ];
 

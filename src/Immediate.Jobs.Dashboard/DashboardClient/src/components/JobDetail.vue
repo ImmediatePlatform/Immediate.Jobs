@@ -386,7 +386,8 @@ function retryButtonLabel(job: JobRecord, pending: boolean): string {
 
 			<section class="code-section">
 				<h3>Payload</h3>
-				<pre>{{ formatJson(job.payload) }}</pre>
+				<pre v-if="job.payload">{{ formatJson(job.payload) }}</pre>
+				<span v-else class="text-muted">Parameters not supplied</span>
 			</section>
 			<section v-if="job.context" class="code-section">
 				<h3>Context envelope</h3>

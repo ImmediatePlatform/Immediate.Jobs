@@ -310,6 +310,15 @@ describe('dashboard components', () => {
 		expect(table.text()).toContain('Skipped');
 	});
 
+	it('shows a placeholder for a waiting job without parameters', () => {
+		const waiting = { ...completedJob, jobHandle: 'waiting', state: 'WaitingForTrigger' as const, payload: '' };
+		const detail = mountJobDetail({ job: waiting });
+
+		const payload = detail.findAll('.code-section').find(section => section.find('h3').text() === 'Payload');
+		expect(payload?.text()).toContain('Parameters not supplied');
+		expect(payload?.find('pre').exists()).toBe(false);
+	});
+
 	it.each([
 		{ groupId: null, rendersGroup: false },
 		{ groupId: '', rendersGroup: true },

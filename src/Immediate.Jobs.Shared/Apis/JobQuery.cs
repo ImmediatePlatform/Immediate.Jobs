@@ -37,6 +37,11 @@ public sealed partial record JobQuery : IValidationTarget<JobQuery>
 	public string? Search { get; init; }
 
 	/// <summary>
+	/// 	Matches only jobs created before this time, or <see langword="null"/> to match every creation time.
+	/// </summary>
+	public DateTimeOffset? CreatedBefore { get; init; }
+
+	/// <summary>
 	/// 	The number of matching jobs to skip.
 	/// </summary>
 	[GreaterThanOrEqual(0)]

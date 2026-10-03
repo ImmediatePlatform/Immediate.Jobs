@@ -17,8 +17,39 @@ public interface IBatchScheduler
 	/// <returns>
 	/// 	A value task that represents the asynchronous cancellation.
 	/// </returns>
-	ValueTask CancelAsync(BatchHandle batchHandle, CancellationToken cancellationToken = default) =>
-		throw new NotSupportedException("This scheduler does not support cancelling batches.");
+	ValueTask CancelAsync(BatchHandle batchHandle, CancellationToken cancellationToken = default);
+
+	/// <summary>
+	/// 	Releases a batch committed with <see cref="Batch.CommitWaitingForTriggerAsync"/>.
+	/// </summary>
+	/// <param name="batchHandle">
+	/// 	The waiting batch to release.
+	/// </param>
+	/// <param name="cancellationToken">
+	/// 	A token that can cancel the storage operation.
+	/// </param>
+	/// <returns>
+	/// 	A value task that represents the asynchronous trigger.
+	/// </returns>
+	/// <exception cref="ImmediateJobException">
+	/// 	The batch is no longer waiting for a trigger.
+	/// </exception>
+	ValueTask TriggerAsync(BatchHandle batchHandle, CancellationToken cancellationToken = default);
+
+	/// <summary>
+	/// 	Releases a batch committed with <see cref="Batch.CommitWaitingForTriggerAsync"/>, unless it has already
+	/// 	been released, cancelled, or completed.
+	/// </summary>
+	/// <param name="batchHandle">
+	/// 	The waiting batch to release.
+	/// </param>
+	/// <param name="cancellationToken">
+	/// 	A token that can cancel the storage operation.
+	/// </param>
+	/// <returns>
+	/// 	<see langword="true"/> when this call released the batch; otherwise, <see langword="false"/>.
+	/// </returns>
+	ValueTask<bool> TryTriggerAsync(BatchHandle batchHandle, CancellationToken cancellationToken = default);
 
 	/// <summary>
 	/// 	Begins an in-memory batch buffer.

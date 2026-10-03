@@ -144,7 +144,7 @@ async function confirmJobCancel(): Promise<void> {
 					<div class="batch-summary-actions">
 						<StateBadge :state="batchQuery.data.value.state" />
 						<button
-							v-if="batchQuery.data.value.state === 'Executing'"
+							v-if="batchQuery.data.value.state === 'Executing' || batchQuery.data.value.state === 'WaitingForTrigger'"
 							class="button button-secondary danger-text"
 							type="button"
 							:disabled="batchMutations.mutating.value"
