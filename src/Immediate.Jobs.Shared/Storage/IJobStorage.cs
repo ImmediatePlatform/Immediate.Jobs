@@ -88,7 +88,7 @@ public interface IJobStorage : IAsyncDisposable
 	/// 	The invocation does not exist.
 	/// </exception>
 	/// <exception cref="ImmediateJobException">
-	/// 	The invocation has a different job name, or is waiting without a payload.
+	/// 	The invocation has a different job name, belongs to a batch, or is waiting without a payload.
 	/// </exception>
 	/// <remarks>
 	/// 	A released invocation with unsettled dependencies becomes <see cref="JobState.AwaitingContinuation"/>.

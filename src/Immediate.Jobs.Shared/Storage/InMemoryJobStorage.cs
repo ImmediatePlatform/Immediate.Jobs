@@ -147,6 +147,8 @@ public sealed partial class InMemoryJobStorage(
 		lock (_gate)
 		{
 			var job = GetTriggerable(jobHandle, expectedJobName);
+			if (job.BatchHandle is not null)
+				throw new ImmediateJobException($"Job '{jobHandle}' belongs to batch '{job.BatchHandle}' and can only be triggered through the batch.");
 			if (job.State != JobState.WaitingForTrigger)
 				return false;
 			if (job.Payload.Length == 0)

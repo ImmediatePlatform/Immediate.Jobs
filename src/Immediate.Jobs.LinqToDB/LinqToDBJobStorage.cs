@@ -210,6 +210,8 @@ internal sealed partial class LinqToDBJobStorage<T>(
 	)
 	{
 		var job = await GetTriggerableAsync(connection, jobHandle, expectedJobName, cancellationToken);
+		if (job.BatchHandle is not null)
+			throw new ImmediateJobException($"Job '{jobHandle}' belongs to batch '{job.BatchHandle}' and can only be triggered through the batch.");
 		if (job.State != JobState.WaitingForTrigger)
 			return false;
 		if (job.Payload.Length == 0)

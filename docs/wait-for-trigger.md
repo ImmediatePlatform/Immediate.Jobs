@@ -192,7 +192,7 @@ await batchScheduler.TriggerAsync(handle, cancellationToken);
   same way.
 - `BatchScheduler.TriggerAsync(BatchHandle)` and `TryTriggerAsync(BatchHandle)` have the same
   semantics as their job counterparts. In one transaction they move the batch to `Executing` and
-  release every waiting member following §3. Members can't be triggered individually, which keeps the
+  release every waiting member following §3. Triggering a member individually throws, which keeps the
   batch atomic. Batch members are always added with a payload, so a batch can't be missing parameters.
 - `UpdateParametersAsync` works on any waiting member through its `JobHandle`. That handle becomes
   readable once the batch is committed.

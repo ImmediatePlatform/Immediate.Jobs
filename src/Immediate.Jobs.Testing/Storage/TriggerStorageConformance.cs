@@ -351,6 +351,11 @@ internal static class TriggerStorageConformance
 			BatchName,
 			"a batch committed waiting for a trigger must keep that state"
 		);
+		_ = await ConformanceAssert.ThrowsAsync<ImmediateJobException>(
+			async () => _ = await graph.TryTriggerAsync(root.JobHandle, JobName, now, cancellationToken),
+			BatchName,
+			"triggering a batch member individually must throw"
+		);
 		ConformanceAssert.Equal(
 			0,
 			(await graph.AcquireDueJobsAsync(CreateRequest("batch-worker-a", 2), cancellationToken)).Count,
