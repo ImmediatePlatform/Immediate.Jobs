@@ -1153,7 +1153,7 @@ public interface IJobScheduler<TPayload>
 	/// 	The invocation does not exist.
 	/// </exception>
 	/// <exception cref="ImmediateJobException">
-	/// 	The invocation belongs to a different job or to a batch, or is waiting without a payload.
+	/// 	The invocation belongs to a different job or to a batch that is waiting for a trigger, or is waiting without a payload.
 	/// </exception>
 	ValueTask<bool> TryTriggerAsync(JobHandle job, CancellationToken cancellationToken = default);
 
@@ -1176,7 +1176,7 @@ public interface IJobScheduler<TPayload>
 	/// 	The invocation does not exist.
 	/// </exception>
 	/// <exception cref="ImmediateJobException">
-	/// 	The invocation belongs to a different job or to a batch, or is waiting without a payload.
+	/// 	The invocation belongs to a different job or to a batch that is waiting for a trigger, or is waiting without a payload.
 	/// </exception>
 	ValueTask<bool> TryTriggerAsync(
 		JobHandle job,
@@ -1203,7 +1203,7 @@ public interface IJobScheduler<TPayload>
 	/// 	The invocation does not exist.
 	/// </exception>
 	/// <exception cref="ImmediateJobException">
-	/// 	The invocation belongs to a different job or to a batch, or is waiting without a payload.
+	/// 	The invocation belongs to a different job or to a batch that is waiting for a trigger, or is waiting without a payload.
 	/// </exception>
 	ValueTask<bool> TryTriggerAsync(
 		JobHandle job,

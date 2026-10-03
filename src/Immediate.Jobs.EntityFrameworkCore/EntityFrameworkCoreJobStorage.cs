@@ -210,8 +210,12 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>(
 		await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 		await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
 		var job = await GetTriggerableAsync(context, jobHandle, expectedJobName, cancellationToken);
-		if (job.BatchHandle is not null)
-			throw new ImmediateJobException($"Job '{jobHandle}' belongs to batch '{job.BatchHandle}' and can only be triggered through the batch.");
+		if (job.BatchHandle is not null && await context.Set<ImmediateJobBatchEntity>()
+			.AnyAsync(batch => batch.Id == job.BatchHandle && batch.State == BatchState.WaitingForTrigger, cancellationToken))
+		{
+			throw new ImmediateJobException($"Job '{jobHandle}' belongs to batch '{job.BatchHandle}', which is waiting for a trigger; trigger the batch instead.");
+		}
+
 		if (job.State != JobState.WaitingForTrigger)
 			return false;
 		if (job.Payload.Length == 0)

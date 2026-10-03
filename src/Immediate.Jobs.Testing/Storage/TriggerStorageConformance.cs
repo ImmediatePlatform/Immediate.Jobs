@@ -354,7 +354,7 @@ internal static class TriggerStorageConformance
 		_ = await ConformanceAssert.ThrowsAsync<ImmediateJobException>(
 			async () => _ = await graph.TryTriggerAsync(root.JobHandle, JobName, now, cancellationToken),
 			BatchName,
-			"triggering a batch member individually must throw"
+			"triggering a member of a waiting batch individually must throw"
 		);
 		ConformanceAssert.Equal(
 			0,
@@ -390,6 +390,11 @@ internal static class TriggerStorageConformance
 			await graph.TryTriggerBatchAsync(batchHandle, cancellationToken),
 			BatchName,
 			"a second batch trigger must report that the batch is no longer waiting"
+		);
+		ConformanceAssert.False(
+			await graph.TryTriggerAsync(root.JobHandle, JobName, now, cancellationToken),
+			BatchName,
+			"triggering a member of a released batch must report that the member is no longer waiting"
 		);
 		_ = await ConformanceAssert.ThrowsAsync<KeyNotFoundException>(
 			async () => _ = await graph.TryTriggerBatchAsync(BatchHandle.FromString("trigger-batch-missing"), cancellationToken),
