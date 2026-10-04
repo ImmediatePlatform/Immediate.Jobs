@@ -1,9 +1,6 @@
 using System.Globalization;
-using System.Text.Json;
-using System.Text.Json.Serialization.Metadata;
 using Immediate.Jobs.Shared.Apis;
 using Immediate.Jobs.Shared.Interfaces;
-using Immediate.Jobs.Shared.Internals;
 using Immediate.Jobs.Shared.Storage;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Time.Testing;
@@ -40,7 +37,7 @@ public sealed class StorageCapabilityTests
 		var timeProvider = new FakeTimeProvider(DateTimeOffset.UnixEpoch);
 		await using var storage = new QueueOnlyStorage(timeProvider);
 		var idGenerator = new CapabilityIdGenerator();
-		var scheduler = new QueueOnlyScheduler(
+		var scheduler = new PlainRequestJob.Scheduler(
 			storage,
 			new SystemTextJsonJobSerializer(),
 			timeProvider,
@@ -57,36 +54,12 @@ public sealed class StorageCapabilityTests
 
 		var continuationException = await Assert.ThrowsAsync<NotSupportedException>(() =>
 			scheduler.ScheduleAfterAsync(
-				"payload",
+				new("payload"),
 				JobHandle.FromString("parent"),
 				cancellationToken: TestContext.Current.CancellationToken
 			).AsTask());
 		Assert.Contains("SQL database", continuationException.Message, StringComparison.Ordinal);
 		Assert.Equal(0, storage.EnqueueCalls);
-	}
-
-	private sealed class QueueOnlyScheduler(
-		IJobStorage storage,
-		IJobSerializer serializer,
-		TimeProvider timeProvider,
-		IIdGenerator idGenerator
-	) : JobScheduler<string>(
-		storage,
-		serializer,
-		timeProvider,
-		idGenerator,
-		"queue-only",
-		JobQueueDefinition.DefaultName,
-		GetStringTypeInfo
-	);
-
-	private static JsonTypeInfo<string> GetStringTypeInfo(JsonSerializerOptions options)
-	{
-#if NET11_0_OR_GREATER
-		return options.GetTypeInfo<string>();
-#else
-		return (JsonTypeInfo<string>)options.GetTypeInfo(typeof(string));
-#endif
 	}
 
 	private sealed class CapabilityIdGenerator : IIdGenerator
@@ -213,6 +186,20 @@ public sealed class StorageCapabilityTests
 
 		public ValueTask<bool> IsHealthyAsync(CancellationToken cancellationToken = default) =>
 			_inner.IsHealthyAsync(cancellationToken);
+
+		public ValueTask UpdatePayloadAsync(
+			JobHandle jobHandle,
+			string expectedJobName,
+			string payload,
+			CancellationToken cancellationToken = default
+		) => _inner.UpdatePayloadAsync(jobHandle, expectedJobName, payload, cancellationToken);
+
+		public ValueTask<bool> TryTriggerAsync(
+			JobHandle jobHandle,
+			string expectedJobName,
+			DateTimeOffset dueAt,
+			CancellationToken cancellationToken = default
+		) => _inner.TryTriggerAsync(jobHandle, expectedJobName, dueAt, cancellationToken);
 
 		public ValueTask MergeRecurringSchedulesListAsync(
 			IReadOnlyList<RecurringJobSchedule> schedules,

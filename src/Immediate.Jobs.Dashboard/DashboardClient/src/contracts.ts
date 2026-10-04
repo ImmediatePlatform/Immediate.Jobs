@@ -2,7 +2,7 @@ export const jobStates = [
 	'Scheduled',
 	'Pending',
 	'AwaitingContinuation',
-	'AwaitingParameters',
+	'WaitingForTrigger',
 	'Active',
 	'Succeeded',
 	'Failed',
@@ -12,7 +12,7 @@ export const jobStates = [
 
 export type JobState = (typeof jobStates)[number];
 
-export const batchStates = ['Executing', 'Succeeded', 'Failed', 'Cancelled'] as const;
+export const batchStates = ['WaitingForTrigger', 'Executing', 'Succeeded', 'Failed', 'Cancelled'] as const;
 
 export type BatchState = (typeof batchStates)[number];
 export type ContinuationTrigger = 'Success' | 'Failure' | 'Complete';

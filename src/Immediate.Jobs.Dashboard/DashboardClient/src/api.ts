@@ -159,5 +159,5 @@ export function setRecurringPaused(name: string, paused: boolean): Promise<void>
 }
 
 export function isBatchState(value: string): value is BatchState {
-	return ['Executing', 'Succeeded', 'Failed', 'Cancelled'].includes(value);
+	return ['WaitingForTrigger', 'Executing', 'Succeeded', 'Failed', 'Cancelled'].includes(value);
 }

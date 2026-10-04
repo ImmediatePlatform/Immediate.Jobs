@@ -66,7 +66,7 @@ function width(value: number, total: number): string {
 									<Eye :size="15" aria-hidden="true" />
 								</button>
 								<button
-									v-if="batch.state === 'Executing'"
+									v-if="batch.state === 'Executing' || batch.state === 'WaitingForTrigger'"
 									class="icon-button danger"
 									type="button"
 									:disabled="busyBatchHandle === batch.batchHandle"

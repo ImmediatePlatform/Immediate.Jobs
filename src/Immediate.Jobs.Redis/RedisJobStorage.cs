@@ -27,6 +27,7 @@ internal sealed partial class RedisJobStorage(
 
 	private const int QueryWindowSize = 256;
 	private const int MaximumQueryTake = 1000;
+	private const int MaxConcurrencyAttempts = 5;
 
 	private static readonly RedisValue[] JobMutableFields =
 	[
@@ -91,6 +92,71 @@ internal sealed partial class RedisJobStorage(
 		);
 		if (result == 0)
 			throw new ImmediateJobException($"Job '{job.JobHandle}' already exists.");
+	}
+
+	/// <inheritdoc />
+	public async ValueTask UpdatePayloadAsync(
+		JobHandle jobHandle,
+		string expectedJobName,
+		string payload,
+		CancellationToken cancellationToken = default
+	)
+	{
+		UpdatePayloadAsyncCalled(jobHandle);
+		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
+
+		for (var attempt = 0; attempt < MaxConcurrencyAttempts; attempt++)
+		{
+			var values = await Database.HashGetAsync(JobKey(jobHandle), ["record", "state", "jobName"])
+				.WaitAsync(cancellationToken);
+			if (values[0].IsNull)
+				throw new KeyNotFoundException($"Job '{jobHandle}' was not found.");
+			if (!string.Equals(values[2], expectedJobName, StringComparison.Ordinal))
+				throw new ImmediateJobException($"Job '{jobHandle}' is not a '{expectedJobName}' job.");
+			if ((int)values[1] != (int)JobState.WaitingForTrigger)
+				throw new ImmediateJobException($"Job '{jobHandle}' is not waiting for a trigger.");
+
+			var record = JsonSerializer.Deserialize((string)values[0]!, RedisJsonSerializerContext.Default.JobRecord)!;
+			var result = await EvaluateInt64Async(
+				RedisScripts.UpdatePayload,
+				[JobKey(jobHandle)],
+				[values[0], JsonSerializer.Serialize(record with { Payload = payload }, RedisJsonSerializerContext.Default.JobRecord)],
+				cancellationToken
+			);
+			if (result == 1)
+				return;
+		}
+
+		throw new ImmediateJobException($"Job '{jobHandle}' was changed concurrently while its parameters were being updated.");
+	}
+
+	/// <inheritdoc />
+	public async ValueTask<bool> TryTriggerAsync(
+		JobHandle jobHandle,
+		string expectedJobName,
+		DateTimeOffset dueAt,
+		CancellationToken cancellationToken = default
+	)
+	{
+		TryTriggerAsyncCalled(jobHandle);
+		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
+
+		var now = _timeProvider.GetUtcNow();
+		var result = await EvaluateInt64Async(
+			RedisScripts.Trigger,
+			[JobKey(jobHandle)],
+			[expectedJobName, Ticks(dueAt), Score(dueAt), Score(now), _root, jobHandle.Value],
+			cancellationToken
+		);
+		if (result == 0)
+			throw new KeyNotFoundException($"Job '{jobHandle}' was not found.");
+		if (result == -1)
+			throw new ImmediateJobException($"Job '{jobHandle}' is not a '{expectedJobName}' job.");
+		if (result == -3)
+			throw new ImmediateJobException($"Job '{jobHandle}' cannot be triggered before its parameters are supplied.");
+		return result == 1;
 	}
 
 	/// <inheritdoc />
@@ -384,7 +450,7 @@ internal sealed partial class RedisJobStorage(
 					!string.Equals(job.JobName, jobName, StringComparison.Ordinal)
 					|| job.State is not (
 						JobState.AwaitingContinuation
-						or JobState.AwaitingParameters
+						or JobState.WaitingForTrigger
 						or JobState.Scheduled
 						or JobState.Pending
 						or JobState.Active
@@ -1052,12 +1118,14 @@ internal sealed partial class RedisJobStorage(
 
 	private static bool HasFilters(JobQuery query) =>
 		query.State is not null ||
+		query.CreatedBefore is not null ||
 		!string.IsNullOrWhiteSpace(query.QueueName) ||
 		!string.IsNullOrWhiteSpace(query.JobName) ||
 		!string.IsNullOrWhiteSpace(query.Search);
 
 	private static bool MatchesQuery(JobRecord job, JobQuery query) =>
 		(query.State is not { } state || job.State == state) &&
+		(query.CreatedBefore is not { } createdBefore || job.CreatedAt < createdBefore) &&
 		(string.IsNullOrWhiteSpace(query.QueueName) || string.Equals(job.QueueName, query.QueueName, StringComparison.Ordinal)) &&
 		(string.IsNullOrWhiteSpace(query.JobName) || string.Equals(job.JobName, query.JobName, StringComparison.Ordinal)) &&
 		(string.IsNullOrWhiteSpace(query.Search) ||
@@ -1167,7 +1235,7 @@ internal sealed partial class RedisJobStorage(
 			);
 		}
 
-		if (job.State is not (JobState.Pending or JobState.Scheduled))
+		if (job.State is not (JobState.Pending or JobState.Scheduled or JobState.WaitingForTrigger))
 			throw new ImmediateJobException($"Queue job '{job.JobHandle}' has invalid state '{job.State}'.");
 	}
 
@@ -1237,6 +1305,22 @@ internal sealed partial class RedisJobStorage(
 		Message = "EnqueueAsync called (JobHandle={JobHandle})"
 	)]
 	private partial void EnqueueAsyncCalled(JobHandle jobHandle);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.UpdatePayloadAsyncCalled,
+		EventName = "Immediate.Jobs.Redis.UpdatePayloadAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "UpdatePayloadAsync called (JobHandle={JobHandle})"
+	)]
+	private partial void UpdatePayloadAsyncCalled(JobHandle jobHandle);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.TryTriggerAsyncCalled,
+		EventName = "Immediate.Jobs.Redis.TryTriggerAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "TryTriggerAsync called (JobHandle={JobHandle})"
+	)]
+	private partial void TryTriggerAsyncCalled(JobHandle jobHandle);
 
 	[LoggerMessage(
 		EventId = LibraryEventIds.AcquireDueJobsAsyncCalled,

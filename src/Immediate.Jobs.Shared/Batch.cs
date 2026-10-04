@@ -109,7 +109,27 @@ public sealed class Batch : IAsyncDisposable
 	/// <returns>
 	/// 	The dependency graph for the committed batch.
 	/// </returns>
-	public async ValueTask<BatchHandle> CommitAsync(CancellationToken cancellationToken = default)
+	public ValueTask<BatchHandle> CommitAsync(CancellationToken cancellationToken = default) =>
+		CommitCoreAsync(waitForTrigger: false, cancellationToken);
+
+	/// <summary>
+	/// 	Atomically persists the buffered jobs and dependencies, parked until the batch is triggered.
+	/// </summary>
+	/// <param name="cancellationToken">
+	/// 	A token that can cancel the commit operation.
+	/// </param>
+	/// <returns>
+	/// 	The dependency graph for the committed batch.
+	/// </returns>
+	/// <remarks>
+	/// 	Every member is committed as <see cref="JobState.WaitingForTrigger"/> and the batch as
+	/// 	<see cref="BatchState.WaitingForTrigger"/>. Release them together with
+	/// 	<see cref="BatchScheduler.TriggerAsync"/> or <see cref="BatchScheduler.TryTriggerAsync"/>.
+	/// </remarks>
+	public ValueTask<BatchHandle> CommitWaitingForTriggerAsync(CancellationToken cancellationToken = default) =>
+		CommitCoreAsync(waitForTrigger: true, cancellationToken);
+
+	private async ValueTask<BatchHandle> CommitCoreAsync(bool waitForTrigger, CancellationToken cancellationToken)
 	{
 		await TaskScheduler.Yield();
 		EnsureOpenCore();
@@ -143,13 +163,19 @@ public sealed class Batch : IAsyncDisposable
 			}
 		}
 
+		if (waitForTrigger)
+		{
+			foreach (ref var job in CollectionsMarshal.AsSpan(_jobs))
+				job = job with { State = JobState.WaitingForTrigger };
+		}
+
 		var record = new BatchRecord
 		{
 			BatchHandle = BatchHandle,
 			CreatedAt = _timeProvider.GetUtcNow(),
 			TotalJobs = _jobs.Count,
 			PendingCount = _jobs.Count,
-			State = BatchState.Executing,
+			State = waitForTrigger ? BatchState.WaitingForTrigger : BatchState.Executing,
 		};
 
 		_lifecycle = Lifecycle.Committing;

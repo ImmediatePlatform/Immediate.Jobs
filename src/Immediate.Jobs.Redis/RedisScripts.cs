@@ -409,6 +409,32 @@ internal static class RedisScripts
 		return 1
 		""";
 
+	internal const string UpdatePayload =
+		"""
+		local values = redis.call('HMGET', KEYS[1], 'record', 'state')
+		if values[1] ~= ARGV[1] or values[2] ~= '1' then return 0 end
+		redis.call('HSET', KEYS[1], 'record', ARGV[2])
+		return 1
+		""";
+
+	internal const string Trigger =
+		FairQueueFunctions +
+		"""
+		if redis.call('EXISTS', KEYS[1]) == 0 then return 0 end
+		local values = redis.call('HMGET', KEYS[1], 'state', 'jobName', 'queue', 'created', 'group', 'record')
+		if values[2] ~= ARGV[1] then return -1 end
+		if values[1] ~= '1' then return -2 end
+		if cjson.decode(values[6]).Payload == '' then return -3 end
+		local state = tonumber(ARGV[3]) <= tonumber(ARGV[4]) and '3' or '2'
+		local member = ARGV[2] .. '|' .. values[4] .. '|' .. ARGV[6]
+		redis.call('HSET', KEYS[1], 'state', state, 'due', ARGV[2], 'dueScore', ARGV[3], 'dueMember', member)
+		redis.call('SREM', ARGV[5] .. 'state:1', ARGV[6])
+		redis.call('SADD', ARGV[5] .. 'state:' .. state, ARGV[6])
+		redis.call('ZADD', ARGV[5] .. 'due:' .. values[3], ARGV[3], member)
+		indexDue(ARGV[5], values[3], values[5] or '', ARGV[3], member)
+		return 1
+		""";
+
 	internal const string Cancel =
 		FairQueueFunctions +
 		"""

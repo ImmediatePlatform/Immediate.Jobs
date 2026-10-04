@@ -29,4 +29,6 @@ internal static class LibraryEventIds
 	public const int MaterializeRecurringAsyncCalled = 11724;
 	public const int DisposeAsyncCalled = 11725;
 	public const int MaterializeRecurringAsyncCalledWithDependencies = 11726;
+	public const int UpdatePayloadAsyncCalled = 11727;
+	public const int TryTriggerAsyncCalled = 11728;
 }

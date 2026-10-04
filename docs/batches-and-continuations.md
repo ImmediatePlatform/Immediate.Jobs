@@ -336,15 +336,12 @@ A new lifecycle state parks pre-created continuation rows, plus one reserved sta
 Scheduled → Pending → Active → Succeeded | Failed | Cancelled | Skipped
                  ↑
    AwaitingContinuation   (created, ineligible until every incoming edge is satisfied)
-   AwaitingParameters     (reserved; ineligible until required inputs are supplied → Pending)
+   WaitingForTrigger      (reserved here; ineligible until explicitly triggered)
 ```
 
-`AwaitingParameters` is **reserved and unused by this spec.** Nothing in the current design produces
-or consumes it — it is defined now so the `JobState` enum, storage columns, and provider queries
-account for it up front, letting a future human-in-the-loop / deferred-input capability (a job created
-without complete parameters, released to `Pending` once they are supplied) land **without a state-enum
-or schema migration**. Providers should treat an `AwaitingParameters` row as non-acquirable, exactly
-like `AwaitingContinuation`.
+The reserved state was later implemented as `WaitingForTrigger`; see
+[`wait-for-trigger.md`](wait-for-trigger.md). Providers treat a `WaitingForTrigger` row as
+non-acquirable, exactly like `AwaitingContinuation`.
 
 ### 4.2 Schema deltas
 

@@ -144,6 +144,143 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>(
 	}
 
 	/// <inheritdoc />
+	public async ValueTask UpdatePayloadAsync(
+		JobHandle jobHandle,
+		string expectedJobName,
+		string payload,
+		CancellationToken cancellationToken = default
+	)
+	{
+		UpdatePayloadAsyncCalled(jobHandle);
+		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
+
+		await RetryConcurrencyAsync(
+			operationCancellationToken => UpdatePayloadCoreAsync(jobHandle, expectedJobName, payload, operationCancellationToken),
+			cancellationToken
+		);
+	}
+
+	private async Task UpdatePayloadCoreAsync(
+		JobHandle jobHandle,
+		string expectedJobName,
+		string payload,
+		CancellationToken cancellationToken
+	)
+	{
+		await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+		var job = await GetTriggerableAsync(context, jobHandle, expectedJobName, cancellationToken);
+		if (job.State != JobState.WaitingForTrigger)
+			throw new ImmediateJobException($"Job '{jobHandle}' is not waiting for a trigger.");
+
+		job.Payload = payload;
+		job.ConcurrencyStamp = Guid.NewGuid();
+		_ = await context.SaveChangesAsync(cancellationToken);
+	}
+
+	/// <inheritdoc />
+	public async ValueTask<bool> TryTriggerAsync(
+		JobHandle jobHandle,
+		string expectedJobName,
+		DateTimeOffset dueAt,
+		CancellationToken cancellationToken = default
+	)
+	{
+		TryTriggerAsyncCalled(jobHandle);
+		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
+
+		var triggered = false;
+		await RetryConcurrencyAsync(
+			async operationCancellationToken =>
+				triggered = await TryTriggerCoreAsync(jobHandle, expectedJobName, dueAt, operationCancellationToken),
+			cancellationToken
+		);
+		return triggered;
+	}
+
+	private async Task<bool> TryTriggerCoreAsync(
+		JobHandle jobHandle,
+		string expectedJobName,
+		DateTimeOffset dueAt,
+		CancellationToken cancellationToken
+	)
+	{
+		var now = _timeProvider.GetUtcNow();
+		await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+		await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
+		var job = await GetTriggerableAsync(context, jobHandle, expectedJobName, cancellationToken);
+		if (job.BatchHandle is not null && await context.Set<ImmediateJobBatchEntity>()
+			.AnyAsync(batch => batch.Id == job.BatchHandle && batch.State == BatchState.WaitingForTrigger, cancellationToken))
+		{
+			throw new ImmediateJobException($"Job '{jobHandle}' belongs to batch '{job.BatchHandle}', which is waiting for a trigger; trigger the batch instead.");
+		}
+
+		if (job.State != JobState.WaitingForTrigger)
+			return false;
+		if (job.Payload.Length == 0)
+			throw new ImmediateJobException($"Job '{jobHandle}' cannot be triggered before its parameters are supplied.");
+
+		await TriggerWaitingJobAsync(context, job, dueAt, now, cancellationToken);
+
+		var terminalGroups = GetTerminalFairQueueGroups(context);
+		_ = await context.SaveChangesAsync(cancellationToken);
+		await transaction.CommitAsync(cancellationToken);
+		foreach (var (queueName, groupId) in terminalGroups)
+		{
+			await TryRemoveFairQueueCursorAsync(queueName, groupId, CancellationToken.None);
+		}
+
+		return true;
+	}
+
+	private static async Task<ImmediateJobEntity> GetTriggerableAsync(
+		TContext context,
+		JobHandle jobHandle,
+		string expectedJobName,
+		CancellationToken cancellationToken
+	)
+	{
+		var job = await context.Set<ImmediateJobEntity>()
+			.SingleOrDefaultAsync(item => item.Id == jobHandle.Value, cancellationToken)
+			?? throw new KeyNotFoundException($"Job '{jobHandle}' was not found.");
+		if (!string.Equals(job.JobName, expectedJobName, StringComparison.Ordinal))
+			throw new ImmediateJobException($"Job '{jobHandle}' is not a '{expectedJobName}' job.");
+
+		return job;
+	}
+
+	private static async Task TriggerWaitingJobAsync(
+		TContext context,
+		ImmediateJobEntity job,
+		DateTimeOffset dueAt,
+		DateTimeOffset now,
+		CancellationToken cancellationToken
+	)
+	{
+		job.DueAt = dueAt;
+		job.ConcurrencyStamp = Guid.NewGuid();
+		if (job.RemainingDependencies != 0)
+		{
+			job.State = JobState.AwaitingContinuation;
+			return;
+		}
+
+		if (await ShouldSkipSettledContinuationAsync(context, job.Id, cancellationToken))
+		{
+			job.State = JobState.Skipped;
+			job.CompletedAt = now;
+			await PropagateTerminalAsync(context, job, now, cancellationToken);
+			return;
+		}
+
+		var delayedDueAt = now + await GetMaximumContinuationDelayAsync(context, job.Id, cancellationToken);
+		if (job.DueAt < delayedDueAt)
+			job.DueAt = delayedDueAt;
+		job.State = job.DueAt <= now ? JobState.Pending : JobState.Scheduled;
+	}
+
+	/// <inheritdoc />
 	public async ValueTask EnqueueContinuationAsync(
 		JobRecord job,
 		IReadOnlyList<JobContinuationEdge> edges,
@@ -233,7 +370,9 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>(
 				SkippedCount = skipped,
 				StartedAt = batch.StartedAt,
 				CompletedAt = pending == 0 ? batch.CompletedAt ?? _timeProvider.GetUtcNow() : null,
-				State = pending == 0 ? GetTerminalBatchState(failed, cancelled) : BatchState.Executing,
+				State = pending == 0
+					? GetTerminalBatchState(failed, cancelled)
+					: batch.State == BatchState.WaitingForTrigger ? BatchState.WaitingForTrigger : BatchState.Executing,
 				ConcurrencyStamp = Guid.NewGuid(),
 			});
 		}
@@ -1267,6 +1406,8 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>(
 			jobs = jobs.Where(job => job.QueueName == query.QueueName);
 		if (!string.IsNullOrWhiteSpace(query.JobName))
 			jobs = jobs.Where(job => job.JobName == query.JobName);
+		if (query.CreatedBefore is { } createdBefore)
+			jobs = jobs.Where(job => job.CreatedAt < createdBefore);
 		if (!string.IsNullOrWhiteSpace(query.Search))
 		{
 			var search = query.Search.ToUpperInvariant();
@@ -1302,7 +1443,7 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>(
 			.Where(
 				job =>
 					job.State == JobState.AwaitingContinuation
-					|| job.State == JobState.AwaitingParameters
+					|| job.State == JobState.WaitingForTrigger
 					|| job.State == JobState.Scheduled
 					|| job.State == JobState.Pending
 					|| job.State == JobState.Active
@@ -1565,7 +1706,7 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>(
 		var batch = await context.Set<ImmediateJobBatchEntity>()
 			.SingleOrDefaultAsync(item => item.Id == batchHandle.Value, cancellationToken)
 			?? throw new KeyNotFoundException($"Batch '{batchHandle}' was not found.");
-		if (batch.State != BatchState.Executing)
+		if (IsTerminal(batch.State))
 			throw new ImmediateJobException("Only an executing batch can be cancelled.");
 
 		var jobs = await context.Set<ImmediateJobEntity>()
@@ -1603,6 +1744,53 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>(
 	}
 
 	/// <inheritdoc />
+	public async ValueTask<bool> TryTriggerBatchAsync(BatchHandle batchHandle, CancellationToken cancellationToken = default)
+	{
+		TryTriggerBatchAsyncCalled(batchHandle);
+		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
+
+		var triggered = false;
+		await RetryConcurrencyAsync(
+			async operationCancellationToken =>
+				triggered = await TryTriggerBatchCoreAsync(batchHandle, operationCancellationToken),
+			cancellationToken
+		);
+		return triggered;
+	}
+
+	private async Task<bool> TryTriggerBatchCoreAsync(BatchHandle batchHandle, CancellationToken cancellationToken)
+	{
+		var now = _timeProvider.GetUtcNow();
+		await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+		await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
+		var batch = await context.Set<ImmediateJobBatchEntity>()
+			.SingleOrDefaultAsync(item => item.Id == batchHandle.Value, cancellationToken)
+			?? throw new KeyNotFoundException($"Batch '{batchHandle}' was not found.");
+		if (batch.State != BatchState.WaitingForTrigger)
+			return false;
+
+		batch.State = BatchState.Executing;
+		batch.ConcurrencyStamp = Guid.NewGuid();
+		var jobs = await context.Set<ImmediateJobEntity>()
+			.Where(job => job.BatchHandle == batchHandle.Value && job.State == JobState.WaitingForTrigger)
+			.OrderBy(static job => job.Id)
+			.ToListAsync(cancellationToken);
+		foreach (var job in jobs)
+			await TriggerWaitingJobAsync(context, job, job.DueAt, now, cancellationToken);
+
+		var terminalGroups = GetTerminalFairQueueGroups(context);
+		_ = await context.SaveChangesAsync(cancellationToken);
+		await transaction.CommitAsync(cancellationToken);
+		foreach (var (queueName, groupId) in terminalGroups)
+		{
+			await TryRemoveFairQueueCursorAsync(queueName, groupId, CancellationToken.None);
+		}
+
+		return true;
+	}
+
+	/// <inheritdoc />
 	public async ValueTask DeleteBatchAsync(BatchHandle batchHandle, CancellationToken cancellationToken = default)
 	{
 		DeleteBatchAsyncCalled(batchHandle);
@@ -1622,7 +1810,7 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>(
 		var batch = await context.Set<ImmediateJobBatchEntity>()
 			.SingleOrDefaultAsync(item => item.Id == batchHandle.Value, cancellationToken)
 			?? throw new KeyNotFoundException($"Batch '{batchHandle}' was not found.");
-		if (batch.State == BatchState.Executing)
+		if (!IsTerminal(batch.State))
 			throw new ImmediateJobException("Only a terminal batch can be deleted.");
 
 		var jobs = await context.Set<ImmediateJobEntity>()
@@ -2390,7 +2578,7 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>(
 		return waiterIds.Count == 0
 			? []
 			: await context.Set<ImmediateJobEntity>()
-				.Where(job => waiterIds.Contains(job.Id) && job.State == JobState.AwaitingContinuation)
+				.Where(job => waiterIds.Contains(job.Id) && (job.State == JobState.AwaitingContinuation || job.State == JobState.WaitingForTrigger))
 				.ToListAsync(cancellationToken);
 	}
 
@@ -2427,7 +2615,7 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>(
 				if (child is null || IsTerminal(child.State))
 					continue;
 
-				if (child.State != JobState.AwaitingContinuation || child.RemainingDependencies <= 0)
+				if (child.State is not (JobState.AwaitingContinuation or JobState.WaitingForTrigger) || child.RemainingDependencies <= 0)
 					continue;
 				child.RemainingDependencies--;
 				if (parent.Outcome == ContinuationParentOutcome.Failed)
@@ -2446,7 +2634,7 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>(
 						parents.Enqueue((ContinuationParentKind.Job, child.Id, ContinuationParentOutcome.Other));
 						await UpdateBatchForTerminalJobAsync(context, child, now, parents, cancellationToken);
 					}
-					else
+					else if (child.State != JobState.WaitingForTrigger)
 					{
 						var delay = await GetMaximumContinuationDelayAsync(
 							context,
@@ -2534,7 +2722,7 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>(
 				batch.SkippedCount++;
 				break;
 			case JobState.AwaitingContinuation:
-			case JobState.AwaitingParameters:
+			case JobState.WaitingForTrigger:
 			case JobState.Scheduled:
 			case JobState.Pending:
 			case JobState.Active:
@@ -2593,7 +2781,7 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>(
 			throw new ImmediateJobException("A continuation parent does not exist.");
 		foreach (var parent in externalJobEntities.Where(parent => !IsTerminal(parent.State)))
 			parent.ConcurrencyStamp = Guid.NewGuid();
-		foreach (var parent in externalBatchEntities.Where(parent => parent.State == BatchState.Executing))
+		foreach (var parent in externalBatchEntities.Where(parent => !IsTerminal(parent.State)))
 			parent.ConcurrencyStamp = Guid.NewGuid();
 
 		var incoming = edges.ToLookup(static edge => edge.ChildJobHandle, StringComparer.Ordinal);
@@ -2647,12 +2835,14 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>(
 				}
 				else if (remaining == 0)
 				{
-					job.State = job.DueAt <= now ? JobState.Pending : JobState.Scheduled;
+					if (job.State != JobState.WaitingForTrigger)
+						job.State = job.DueAt <= now ? JobState.Pending : JobState.Scheduled;
 					job.RemainingDependencies = 0;
 				}
 				else
 				{
-					job.State = JobState.AwaitingContinuation;
+					if (job.State != JobState.WaitingForTrigger)
+						job.State = JobState.AwaitingContinuation;
 					job.RemainingDependencies = remaining;
 				}
 			}
@@ -2669,7 +2859,7 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>(
 		if (edge.ParentKind == ContinuationParentKind.Batch)
 		{
 			var state = externalBatches[edge.ParentId].State;
-			return (state != BatchState.Executing, state == BatchState.Succeeded, state == BatchState.Failed);
+			return (IsTerminal(state), state == BatchState.Succeeded, state == BatchState.Failed);
 		}
 
 		var jobState = jobs.TryGetValue(edge.ParentId, out var job) ? job.State : externalJobs[edge.ParentId].State;
@@ -2713,12 +2903,15 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>(
 	private static bool IsTerminal(JobState state) =>
 		state is JobState.Succeeded or JobState.Failed or JobState.Cancelled or JobState.Skipped;
 
+	private static bool IsTerminal(BatchState state) =>
+		state is not (BatchState.Executing or BatchState.WaitingForTrigger);
+
 	private static ContinuationParentOutcome GetParentOutcome(JobState state) => state switch
 	{
 		JobState.Succeeded => ContinuationParentOutcome.Succeeded,
 		JobState.Failed => ContinuationParentOutcome.Failed,
 		JobState.AwaitingContinuation or
-		JobState.AwaitingParameters or
+		JobState.WaitingForTrigger or
 		JobState.Scheduled or
 		JobState.Pending or
 		JobState.Active or
@@ -2731,7 +2924,7 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>(
 	{
 		BatchState.Succeeded => ContinuationParentOutcome.Succeeded,
 		BatchState.Failed => ContinuationParentOutcome.Failed,
-		BatchState.Executing or BatchState.Cancelled => ContinuationParentOutcome.Other,
+		BatchState.Executing or BatchState.WaitingForTrigger or BatchState.Cancelled => ContinuationParentOutcome.Other,
 		_ => throw new ArgumentOutOfRangeException(nameof(state), state, "Unknown batch state."),
 	};
 
@@ -3051,6 +3244,22 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>(
 	private partial void EnqueueAsyncCalled(JobHandle jobHandle);
 
 	[LoggerMessage(
+		EventId = LibraryEventIds.UpdatePayloadAsyncCalled,
+		EventName = "Immediate.Jobs.EntityFrameworkCore.UpdatePayloadAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "UpdatePayloadAsync called (JobHandle={JobHandle})"
+	)]
+	private partial void UpdatePayloadAsyncCalled(JobHandle jobHandle);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.TryTriggerAsyncCalled,
+		EventName = "Immediate.Jobs.EntityFrameworkCore.TryTriggerAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "TryTriggerAsync called (JobHandle={JobHandle})"
+	)]
+	private partial void TryTriggerAsyncCalled(JobHandle jobHandle);
+
+	[LoggerMessage(
 		EventId = LibraryEventIds.EnqueueContinuationAsyncCalled,
 		EventName = "Immediate.Jobs.EntityFrameworkCore.EnqueueContinuationAsyncCalled",
 		Level = LogLevel.Debug,
@@ -3273,6 +3482,14 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>(
 		Message = "CancelBatchAsync called (BatchHandle={BatchHandle})"
 	)]
 	private partial void CancelBatchAsyncCalled(BatchHandle batchHandle);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.TryTriggerBatchAsyncCalled,
+		EventName = "Immediate.Jobs.EntityFrameworkCore.TryTriggerBatchAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "TryTriggerBatchAsync called (BatchHandle={BatchHandle})"
+	)]
+	private partial void TryTriggerBatchAsyncCalled(BatchHandle batchHandle);
 
 	[LoggerMessage(
 		EventId = LibraryEventIds.DeleteBatchAsyncCalled,

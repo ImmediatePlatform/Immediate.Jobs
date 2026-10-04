@@ -192,6 +192,28 @@ public interface IJobGraphStorage : IJobStorage
 	ValueTask CancelBatchAsync(BatchHandle batchHandle, CancellationToken cancellationToken = default);
 
 	/// <summary>
+	/// 	Atomically releases a batch that is waiting for a trigger, together with all of its waiting members.
+	/// </summary>
+	/// <param name="batchHandle">
+	/// 	The batch identifier.
+	/// </param>
+	/// <param name="cancellationToken">
+	/// 	A token that can cancel the storage operation.
+	/// </param>
+	/// <returns>
+	/// 	<see langword="true"/> when this call released the batch; <see langword="false"/> when it is no longer
+	/// 	<see cref="BatchState.WaitingForTrigger"/>.
+	/// </returns>
+	/// <exception cref="KeyNotFoundException">
+	/// 	The batch does not exist.
+	/// </exception>
+	/// <remarks>
+	/// 	The batch becomes <see cref="BatchState.Executing"/>. Each waiting member is released as described by
+	/// 	<see cref="IJobStorage.TryTriggerAsync"/>, keeping its own due time.
+	/// </remarks>
+	ValueTask<bool> TryTriggerBatchAsync(BatchHandle batchHandle, CancellationToken cancellationToken = default);
+
+	/// <summary>
 	/// 	Deletes a terminal batch, all of its members, and all related edges.
 	/// </summary>
 	/// <param name="batchHandle">

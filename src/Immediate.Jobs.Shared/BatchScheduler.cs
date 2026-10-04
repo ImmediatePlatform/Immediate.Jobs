@@ -32,6 +32,21 @@ public sealed class BatchScheduler(
 	}
 
 	/// <inheritdoc />
+	public async ValueTask TriggerAsync(BatchHandle batchHandle, CancellationToken cancellationToken = default)
+	{
+		if (!await TryTriggerAsync(batchHandle, cancellationToken))
+			ImmediateJobException.Throw($"Batch '{batchHandle}' is not waiting for a trigger.");
+	}
+
+	/// <inheritdoc />
+	public async ValueTask<bool> TryTriggerAsync(BatchHandle batchHandle, CancellationToken cancellationToken = default)
+	{
+		await TaskScheduler.Yield();
+		ArgumentNullException.ThrowIfNull(batchHandle);
+		return await JobStorageCapabilityGuards.RequireGraph(storage).TryTriggerBatchAsync(batchHandle, cancellationToken);
+	}
+
+	/// <inheritdoc />
 	public Batch Begin()
 	{
 		return new Batch(

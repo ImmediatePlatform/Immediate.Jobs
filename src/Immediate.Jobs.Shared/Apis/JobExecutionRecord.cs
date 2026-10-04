@@ -118,7 +118,7 @@ internal static class JobExecutionRecords
 			JobState.Cancelled => JobExecutionState.Cancelled,
 			JobState.Pending or JobState.Scheduled when job.LastError is not null => JobExecutionState.Failed,
 			JobState.AwaitingContinuation or
-			JobState.AwaitingParameters or
+			JobState.WaitingForTrigger or
 			JobState.Scheduled or
 			JobState.Pending or
 			JobState.Skipped => JobExecutionState.Interrupted,
