@@ -210,7 +210,7 @@ async function confirmJobCancel(): Promise<void> {
 
 		<ConfirmDialog
 			:open="Boolean(pendingAction)"
-			:title="pendingAction === 'cancel' ? 'Cancel executing batch?' : 'Delete settled batch?'"
+			:title="pendingAction === 'cancel' ? 'Cancel batch?' : 'Delete settled batch?'"
 			:description="pendingAction === 'cancel'
 				? 'All non-terminal members will be cancelled. Work already running may finish its current attempt.'
 				: 'This permanently removes the batch header, members, and dependency graph.'"
