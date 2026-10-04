@@ -7,9 +7,9 @@ internal sealed partial class SingleServerJobStorage
 {
 	private const int RecoveryBatchSize = 1000;
 
-	private readonly TaskCompletionSource _initializationTask = new(TaskCreationOptions.RunContinuationsAsynchronously);
+	private readonly TaskCompletionSource _initializationTask = new();
 
-	private int _initializationStarted;
+	private bool _initialized;
 
 	/// <inheritdoc />
 	public async ValueTask InitializeAsync(CancellationToken cancellationToken = default)
@@ -27,11 +27,9 @@ internal sealed partial class SingleServerJobStorage
 
 	private async Task InitializeCoreAsync(CancellationToken cancellationToken)
 	{
-		if (Interlocked.CompareExchange(ref _initializationStarted, 1, 0) != 0)
-		{
-			await _initializationTask.Task.WaitAsync(cancellationToken);
+		// Initialization runs once during application startup; callers must not invoke it concurrently.
+		if (_initialized)
 			return;
-		}
 
 		try
 		{
@@ -260,11 +258,13 @@ internal sealed partial class SingleServerJobStorage
 			foreach (var schedule in snapshot.Recurring)
 				await PrimaryStorage.UpsertRecurringAsync(schedule, cancellationToken);
 
-			_ = _initializationTask.TrySetResult();
+			_initializationTask.SetResult();
+			_initialized = true;
 		}
 		catch (Exception ex)
 		{
-			_ = _initializationTask.TrySetException(ex);
+			_initializationTask.SetException(ex);
+			_initialized = true;
 
 			throw;
 		}
