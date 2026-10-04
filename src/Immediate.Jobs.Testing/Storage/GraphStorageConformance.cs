@@ -14,6 +14,7 @@ internal static class GraphStorageConformance
 	private const string FanInName = "Graph.Dependencies.FanInWaitsForEveryParent";
 	private const string PropagationDelayName = "Graph.Dependencies.AppliesDelayFromParentSettlement";
 	private const string DynamicName = "Graph.Dynamic.SpliceAndOwnershipAreAtomic";
+	private const string SpliceFailureName = "Graph.Dynamic.SplicedWaitersRequireInsertedJobSuccess";
 	private const string StaleDynamicName = "Graph.Dynamic.RejectsStaleActiveExecution";
 	private const string TerminalParentName = "Graph.Dependencies.EvaluatesAlreadyTerminalParents";
 	private const string InvalidDynamicName = "Graph.Dynamic.RejectsInvalidBatchRelationshipsAtomically";
@@ -31,6 +32,7 @@ internal static class GraphStorageConformance
 		new(FanInName, StorageCapabilities.Graph, FanInAsync),
 		new(PropagationDelayName, StorageCapabilities.Graph, PropagationDelayAsync),
 		new(DynamicName, StorageCapabilities.Graph, DynamicContinuationsAsync),
+		new(SpliceFailureName, StorageCapabilities.Graph, SplicedWaitersRequireSuccessAsync),
 		new(StaleDynamicName, StorageCapabilities.Graph, RejectsStaleActiveExecutionAsync),
 		new(TerminalParentName, StorageCapabilities.Graph, EvaluatesAlreadyTerminalParentsAsync),
 		new(InvalidDynamicName, StorageCapabilities.Graph, RejectsInvalidBatchRelationshipsAsync),
@@ -517,6 +519,18 @@ internal static class GraphStorageConformance
 			cancellationToken
 		);
 		_ = await graph.AcquireDueJobsAsync(CreateRequest("dynamic-worker", current.JobName), cancellationToken);
+		var invalid = CreateJob("dynamic-waiting-for-trigger", batchHandle: "dynamic-batch") with
+		{
+			State = JobState.WaitingForTrigger,
+		};
+		_ = await ConformanceAssert.ThrowsAsync<ImmediateJobException>(
+			() => graph.AddBatchJobAsync(current.JobHandle, 1, invalid, ContinuationOptions.BesideContinuations, cancellationToken),
+			DynamicName, "a dynamic batch member must be pending or scheduled");
+		ConformanceAssert.Null(await graph.GetJobStatusAsync(invalid.JobHandle, cancellationToken),
+			DynamicName, "an invalid member must not be inserted");
+		var unchangedBatch = ConformanceAssert.NotNull(
+			await graph.GetBatchStatusAsync(current.BatchHandle!, cancellationToken), DynamicName, "the batch must remain queryable");
+		ConformanceAssert.Equal(2, unchangedBatch.Total, DynamicName, "a rejected addition must not increment the batch count");
 		var inserted = CreateJob("dynamic-inserted", batchHandle: "dynamic-batch");
 		await graph.CompleteWithContinuationsAsync(
 			current.JobHandle,
@@ -548,6 +562,54 @@ internal static class GraphStorageConformance
 		);
 		ConformanceAssert.Null(await graph.GetJobStatusAsync(stale.JobHandle, cancellationToken),
 			DynamicName, "a rejected dynamic addition must not partially insert its job");
+	}
+
+	private static async ValueTask SplicedWaitersRequireSuccessAsync(
+		IJobStorage storage,
+		FakeTimeProvider timeProvider,
+		CancellationToken cancellationToken
+	)
+	{
+		var graph = GetGraph(storage, SpliceFailureName);
+		foreach (var addDuringCompletion in new[] { false, true })
+		{
+			var batchHandle = $"splice-failure-{addDuringCompletion}";
+			var current = CreateJob(batchHandle + "-current", batchHandle);
+			var waiter = CreateJob(batchHandle + "-waiter", batchHandle) with
+			{
+				State = JobState.AwaitingContinuation,
+				RemainingDependencies = 1,
+			};
+			await graph.EnqueueBatchAsync(CreateBatch(batchHandle, 2), [current, waiter],
+				[
+					new()
+					{
+						ChildJobHandle = waiter.JobHandle,
+						ParentJobHandle = current.JobHandle,
+						Trigger = ContinuationTrigger.Failure,
+						Delay = TimeSpan.Zero,
+					},
+				], cancellationToken);
+			_ = await graph.AcquireDueJobsAsync(CreateRequest("splice-worker", current.JobName), cancellationToken);
+			var inserted = CreateJob(batchHandle + "-inserted", batchHandle);
+			if (addDuringCompletion)
+			{
+				await graph.CompleteWithContinuationsAsync(current.JobHandle, 1, "splice-worker",
+					[new() { Job = inserted, Delay = TimeSpan.Zero, Options = ContinuationOptions.BeforeContinuations }],
+					cancellationToken);
+			}
+			else
+			{
+				await graph.AddBatchJobAsync(current.JobHandle, 1, inserted, ContinuationOptions.BeforeContinuations, cancellationToken);
+				await graph.CompleteAsync(current.JobHandle, 1, "splice-worker", cancellationToken);
+			}
+
+			_ = await graph.AcquireDueJobsAsync(CreateRequest("splice-worker", inserted.JobName), cancellationToken);
+			await graph.FailAsync(inserted.JobHandle, 1, "splice-worker", "inserted job failed", nextRetryAt: null, cancellationToken);
+			var result = await GetJobAsync(graph, waiter.JobHandle, SpliceFailureName, cancellationToken);
+			ConformanceAssert.Equal(JobState.Skipped, result.State, SpliceFailureName,
+				"a failed spliced job must not satisfy the original waiter's failure trigger");
+		}
 	}
 
 	private static async ValueTask CancelUnsettledChainAsync(

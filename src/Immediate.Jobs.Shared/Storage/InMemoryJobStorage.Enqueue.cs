@@ -124,7 +124,7 @@ public sealed partial class InMemoryJobStorage
 			ValidateNewJob(job);
 			if (job.BatchHandle != current.BatchHandle)
 				throw new ImmediateJobException("The new job must belong to the current job's batch.");
-			if (job.State is JobState.Active or JobState.AwaitingContinuation || IsTerminal(job.State))
+			if (job.State is not (JobState.Pending or JobState.Scheduled))
 				throw new ImmediateJobException($"Concurrent batch member '{job.JobHandle}' has invalid state '{job.State}'.");
 
 			var existingWaiters = options == ContinuationOptions.BeforeContinuations

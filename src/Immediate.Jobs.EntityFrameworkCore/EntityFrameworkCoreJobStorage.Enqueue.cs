@@ -195,7 +195,7 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 			throw new ArgumentOutOfRangeException(nameof(options));
 		if (!string.Equals(record.BatchHandle?.Value, batchHandle, StringComparison.Ordinal))
 			throw new ImmediateJobException("The new job must belong to the current job's batch.");
-		if (record.State is JobState.Active or JobState.AwaitingContinuation || IsTerminal(record.State))
+		if (record.State is not (JobState.Pending or JobState.Scheduled))
 			throw new ImmediateJobException($"Concurrent batch member '{record.JobHandle}' has invalid state '{record.State}'.");
 
 		var batch = await context.Set<ImmediateJobBatchEntity>()

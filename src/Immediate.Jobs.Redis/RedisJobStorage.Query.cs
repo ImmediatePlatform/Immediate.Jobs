@@ -104,40 +104,27 @@ internal sealed partial class RedisJobStorage
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 
-		var matches = new List<JobRecord>();
-		var rank = 0L;
-
-		while (true)
-		{
-			cancellationToken.ThrowIfCancellationRequested();
-			var ids = await ReadJobHandlesByRankAsync(rank, QueryWindowSize, cancellationToken);
-			if (ids.Count == 0)
-				break;
-
-			var jobs = await ReadJobsAsync(ids, cancellationToken);
-			foreach (var job in jobs)
-			{
-				if (
-					!string.Equals(job.JobName, jobName, StringComparison.Ordinal)
-					|| job.State is not (
-						JobState.AwaitingContinuation
-						or JobState.WaitingForTrigger
-						or JobState.Scheduled
-						or JobState.Pending
-						or JobState.Active
-					)
-				)
-				{
-					continue;
-				}
-
-				matches.Add(job);
-			}
-
-			rank += ids.Count;
-		}
-
-		return matches;
+		JobState[] states =
+		[
+			JobState.AwaitingContinuation,
+			JobState.WaitingForTrigger,
+			JobState.Scheduled,
+			JobState.Pending,
+			JobState.Active,
+		];
+		var members = await Task.WhenAll(states.Select(state => Database.SetMembersAsync(StateKey(state))))
+			.WaitAsync(cancellationToken);
+		var ids = members.SelectMany(static set => set)
+			.Select(static value => (string)value!)
+			.Distinct(StringComparer.Ordinal)
+			.ToList();
+		var jobs = await ReadJobsAsync(ids, cancellationToken);
+		return
+		[
+			.. jobs.Where(job => string.Equals(job.JobName, jobName, StringComparison.Ordinal)
+				&& job.State is (JobState.AwaitingContinuation or JobState.WaitingForTrigger
+					or JobState.Scheduled or JobState.Pending or JobState.Active)),
+		];
 	}
 
 	/// <inheritdoc />

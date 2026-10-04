@@ -171,7 +171,7 @@ public sealed partial class InMemoryJobStorage
 			{
 				ChildJobHandle = child.JobHandle,
 				ParentJobHandle = newParentJobHandle,
-				Trigger = existingEdge.Trigger,
+				Trigger = ContinuationTrigger.Success,
 				Delay = TimeSpan.Zero,
 			});
 		}

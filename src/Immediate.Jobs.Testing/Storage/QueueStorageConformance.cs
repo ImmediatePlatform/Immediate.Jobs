@@ -536,6 +536,22 @@ internal static class QueueStorageConformance
 		);
 
 		ConformanceAssert.Equal(0, status.DependsOn.Count, QueryName, "ordinary queue jobs must report no incoming graph edges");
+
+		await storage.CancelAsync(JobHandle.FromString("page-a"), cancellationToken);
+		var waiting = CreateJob("noncompleted-waiting", created, "priority", "Email.Receipt") with
+		{
+			State = JobState.WaitingForTrigger,
+		};
+		await storage.EnqueueAsync(waiting, cancellationToken);
+		await storage.EnqueueAsync(CreateJob("noncompleted-active", created, "priority", "Email.Receipt"), cancellationToken);
+		_ = await storage.AcquireDueJobsAsync(
+			CreateRequest("query-worker", 1, ("priority", 1, CreateCapacities(("Email.Receipt", 1)))), cancellationToken);
+		await storage.EnqueueAsync(CreateJob("noncompleted-pending", created, "priority", "Email.Receipt"), cancellationToken);
+		var noncompleted = await storage.QueryNonCompletedJobsAsync("Email.Receipt", cancellationToken);
+		ConformanceAssert.SequenceEqual(
+			["noncompleted-active", "noncompleted-pending", "noncompleted-waiting", "page-c"],
+			noncompleted.Select(static job => job.JobHandle.Value).Order(StringComparer.Ordinal),
+			QueryName, "non-completed queries must return active, pending, scheduled, and waiting jobs for only the requested name");
 	}
 
 	private static async ValueTask ReportsMonitoringAsync(

@@ -144,7 +144,7 @@ public sealed partial class InMemoryJobStorage
 
 		lock (_gate)
 		{
-			if (!_recurring.TryGetValue(schedule.Name, out var current) || current.NextRunAt != schedule.NextRunAt)
+			if (!_recurring.TryGetValue(schedule.Name, out var current) || current.IsPaused || current.NextRunAt != schedule.NextRunAt)
 				return false;
 
 			var inserted = job.RecurringKey is null || _recurringKeys.Add(job.RecurringKey);

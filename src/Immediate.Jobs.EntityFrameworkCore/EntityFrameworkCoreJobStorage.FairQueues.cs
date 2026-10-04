@@ -349,10 +349,48 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 			await transaction.CommitAsync(cancellationToken);
 			return ToRecord(entity);
 		}
+		catch (DbUpdateConcurrencyException)
+		{
+			// A tracked job, group cursor, or batch header lost its optimistic-concurrency check.
+			return null;
+		}
 		catch (DbUpdateException)
 		{
-			// The job or its group cursor changed after candidate selection.
-			return null;
+			await transaction.RollbackAsync(cancellationToken);
+			if (await CandidateWasClaimedAsync(candidate, cancellationToken)
+				|| await FairQueueCursorAdvancedAsync(candidate, nextSequence, cancellationToken))
+			{
+				return null;
+			}
+
+			throw;
+		}
+	}
+
+	private async ValueTask<bool> FairQueueCursorAdvancedAsync(
+		ImmediateJobEntity candidate,
+		long nextSequence,
+		CancellationToken cancellationToken
+	)
+	{
+		if (candidate.GroupId is not { } groupId)
+			return false;
+
+		try
+		{
+			await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+			return await context.Set<ImmediateFairQueueGroupEntity>()
+				.AsNoTracking()
+				.AnyAsync(
+					group => group.QueueName == candidate.QueueName
+						&& group.GroupId == groupId
+						&& group.LastServedSequence >= nextSequence,
+					cancellationToken
+				);
+		}
+		catch (Exception exception) when (exception is DbException or InvalidOperationException)
+		{
+			return false;
 		}
 	}
 
