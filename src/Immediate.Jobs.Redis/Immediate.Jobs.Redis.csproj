@@ -21,6 +21,10 @@
   </ItemGroup>
 
   <ItemGroup>
+	<Compile Update="RedisJobStorage.*.cs" DependentUpon="RedisJobStorage.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
 	<PackageReference Include="StackExchange.Redis" />
   </ItemGroup>
 

@@ -21,6 +21,10 @@
   </ItemGroup>
 
   <ItemGroup>
+	<Compile Update="LinqToDBJobStorage.*.cs" DependentUpon="LinqToDBJobStorage.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
 	<PackageReference Include="linq2db" />
 	<PackageReference Include="linq2db.Extensions" />
   </ItemGroup>
