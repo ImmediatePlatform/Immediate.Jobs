@@ -346,10 +346,21 @@ internal static class RecurringStorageConformance
 		var schedule = Schedule("materialize-stale", now, isCodeDefined: true);
 		var nextRunAt = now.AddHours(1);
 		await storage.UpsertRecurringAsync(schedule, cancellationToken);
+		var occurrence = Occurrence("materialize-stale-current", schedule, JobState.Pending, now);
+		await storage.PauseRecurringAsync(schedule.Name, cancellationToken);
+		ConformanceAssert.False(
+			await storage.MaterializeRecurringAsync(schedule, occurrence, nextRunAt, dependencies: null, cancellationToken),
+			StaleName, "a schedule paused after its due scan must not materialize an occurrence");
+		ConformanceAssert.Null(await storage.GetJobStatusAsync(occurrence.JobHandle, cancellationToken),
+			StaleName, "a paused schedule must not insert a job");
+		var paused = await GetScheduleAsync(storage, schedule.Name, StaleName, cancellationToken);
+		ConformanceAssert.Equal(schedule.NextRunAt, paused.NextRunAt, StaleName, "a paused schedule must not advance");
+		ConformanceAssert.Equal(schedule.LastRunAt, paused.LastRunAt, StaleName, "a paused schedule must not update its last occurrence");
+		await storage.ResumeRecurringAsync(schedule.Name, cancellationToken);
 		ConformanceAssert.True(
 			await storage.MaterializeRecurringAsync(
 				schedule,
-				Occurrence("materialize-stale-current", schedule, JobState.Pending, now),
+				occurrence,
 				nextRunAt,
 				dependencies: null, cancellationToken
 			),

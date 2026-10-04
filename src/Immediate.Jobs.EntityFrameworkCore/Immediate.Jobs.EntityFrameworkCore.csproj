@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup Label="Nuget">
 	<IsPackable>true</IsPackable>
@@ -21,6 +21,10 @@
   </ItemGroup>
 
   <ItemGroup>
+	<Compile Update="EntityFrameworkCoreJobStorage.*.cs" DependentUpon="EntityFrameworkCoreJobStorage.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
 	<PackageReference Include="Microsoft.EntityFrameworkCore" NoWarn="NU5104" />
 	<PackageReference Include="Microsoft.EntityFrameworkCore.Relational" NoWarn="NU5104" />
   </ItemGroup>
@@ -33,5 +37,5 @@
   <ItemGroup>
 	<InternalsVisibleTo Include="Immediate.Jobs.StorageTests" />
   </ItemGroup>
-  
+
 </Project>

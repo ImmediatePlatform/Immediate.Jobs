@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
 	<IsAotCompatible>true</IsAotCompatible>
@@ -8,6 +8,11 @@
   <PropertyGroup Condition="'$(TargetFramework)' == 'net11.0'">
 	<Features>runtime-async=on</Features>
   </PropertyGroup>
+
+  <ItemGroup>
+	<Compile Update="Storage/InMemoryJobStorage.*.cs" DependentUpon="InMemoryJobStorage.cs" />
+	<Compile Update="Storage/SingleServerJobStorage.*.cs" DependentUpon="SingleServerJobStorage.cs" />
+  </ItemGroup>
 
   <ItemGroup>
 	<PackageReference Include="Meziantou.Framework.Scheduling" />
