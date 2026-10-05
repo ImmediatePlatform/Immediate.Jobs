@@ -15,6 +15,7 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 		CancellationToken cancellationToken
 	)
 	{
+		var fairQueues = request.FairQueues!;
 		var now = _timeProvider.GetUtcNow();
 		var acquired = new List<JobRecord>(request.BatchSize);
 		foreach (var queue in request.Queues)
@@ -38,14 +39,18 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 				if (eligibleNames.Count == 0)
 					break;
 
-				await using var readContext = await contextFactory.CreateDbContextAsync(cancellationToken);
-				var eligibleQuery = readContext.Set<ImmediateJobEntity>()
-					.AsNoTracking()
-					.Where(job => job.QueueName == queue.QueueName && eligibleNames.Contains(job.JobName) &&
-						(((job.State == JobState.Scheduled || job.State == JobState.Pending) && job.DueAt <= now)
-							|| (job.State == JobState.Active && job.LeaseExpiresAt <= now)));
-				if (!await eligibleQuery
-					.AnyAsync(static job => job.GroupId != null, cancellationToken))
+				var selection = await ReadWithStrategyAsync(
+					(readContext, operationCancellationToken) => SelectFairCandidateAsync(
+						readContext,
+						queue.QueueName,
+						eligibleNames,
+						now,
+						fairQueues,
+						operationCancellationToken
+					),
+					cancellationToken
+				);
+				if (selection is null)
 				{
 					var claimed = await AcquireFairFastPathAsync(
 						queue.QueueName,
@@ -61,113 +66,17 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 					break;
 				}
 
-				var groupedHeads = await eligibleQuery
-					.Where(static job => job.GroupId != null)
-					.GroupBy(static job => job.GroupId)
-					.Select(static group => group
-						.OrderBy(job => job.DueAt)
-						.ThenBy(job => job.CreatedAt)
-						.ThenBy(job => job.Id)
-						.First())
-					.ToListAsync(cancellationToken);
-				var ungroupedHead = await eligibleQuery
-					.Where(static job => job.GroupId == null)
-					.OrderBy(job => job.DueAt)
-					.ThenBy(job => job.CreatedAt)
-					.ThenBy(job => job.Id)
-					.FirstOrDefaultAsync(cancellationToken);
-				if (groupedHeads.Count == 0)
-				{
-					var claimed = await AcquireFairFastPathAsync(
-						queue.QueueName,
-						jobCapacities,
-						queueCapacity,
-						request.WorkerId,
-						request.Lease,
-						now,
-						cancellationToken
-					);
-					queueCapacity -= claimed.Count;
-					acquired.AddRange(claimed);
-					break;
-				}
-
-				var activeQuery = readContext.Set<ImmediateJobEntity>()
-					.AsNoTracking()
-					.Where(job => job.QueueName == queue.QueueName
-						&& job.State == JobState.Active
-						&& job.LeaseExpiresAt > now);
-				var totalInflight = await activeQuery
-					.CountAsync(cancellationToken);
-				var groupedHeadIds = groupedHeads.Select(static job => job.Id).ToList();
-				var cursorQuery = readContext.Set<ImmediateFairQueueGroupEntity>()
-					.AsNoTracking()
-					.Where(group => group.QueueName == queue.QueueName);
-				var groupStateQuery = eligibleQuery
-					.Where(job => groupedHeadIds.Contains(job.Id));
-				var groupStates = request.FairQueues!.GroupRoundRobin
-					? await groupStateQuery
-						.Select(job => new FairQueueCandidateState(
-							job.Id,
-							activeQuery.Count(active => active.GroupId == job.GroupId),
-							cursorQuery
-								.Where(cursor => cursor.GroupId == job.GroupId)
-								.Select(static cursor => cursor.LastServedSequence)
-								.FirstOrDefault()
-						))
-						.ToDictionaryAsync(static state => state.JobHandle, StringComparer.Ordinal, cancellationToken)
-					: await groupStateQuery
-						.Select(job => new FairQueueCandidateState(
-							job.Id,
-							activeQuery.Count(active => active.GroupId == job.GroupId),
-							0
-						))
-						.ToDictionaryAsync(static state => state.JobHandle, StringComparer.Ordinal, cancellationToken);
-				var nextSequence = 0L;
-				if (request.FairQueues.GroupRoundRobin)
-				{
-					var maxSequence = await cursorQuery
-						.MaxAsync(static group => (long?)group.LastServedSequence, cancellationToken);
-					nextSequence = (maxSequence ?? 0) + 1;
-				}
-
-				var candidates = ungroupedHead is null ? groupedHeads : [.. groupedHeads, ungroupedHead];
-				var ranked = candidates.Select(job =>
-				{
-					FairQueueCandidateState? state = null;
-					if (job.GroupId is not null)
-						_ = groupStates.TryGetValue(job.Id, out state);
-					var noisy = IsNoisy(job.GroupId, state?.Inflight ?? 0, totalInflight, request.FairQueues);
-					return new
-					{
-						Job = job,
-						Noisy = noisy,
-						NoisyInflight = noisy ? state!.Inflight : 0,
-						LastServedSequence = state?.LastServedSequence ?? 0,
-					};
-				});
-				var selected = ranked
-					.OrderBy(static candidate => candidate.Noisy)
-					.ThenBy(static candidate => candidate.NoisyInflight)
-					.ThenBy(candidate => request.FairQueues.GroupRoundRobin
-						? candidate.LastServedSequence
-						: 0)
-					.ThenBy(static candidate => candidate.Job.DueAt)
-					.ThenBy(static candidate => candidate.Job.CreatedAt)
-					.ThenBy(static candidate => candidate.Job.Id, StringComparer.Ordinal)
-					.First()
-					.Job;
-				var claimedJob = request.FairQueues.GroupRoundRobin
+				var claimedJob = fairQueues.GroupRoundRobin
 					? await AcquireFairCandidateAsync(
-						selected,
+						selection.Job,
 						request.WorkerId,
 						request.Lease,
 						now,
-						nextSequence,
+						selection.NextSequence,
 						cancellationToken
 					)
 					: GetFirstOrDefault(await AcquireCandidatesAsync(
-							[selected],
+							[selection.Job],
 							request.WorkerId,
 							request.Lease,
 							now,
@@ -190,6 +99,111 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 		return acquired;
 	}
 
+	private static async Task<FairQueueSelection?> SelectFairCandidateAsync(
+		TContext readContext,
+		string queueName,
+		List<string> eligibleNames,
+		DateTimeOffset now,
+		FairQueuePolicy fairQueues,
+		CancellationToken cancellationToken
+	)
+	{
+		var eligibleQuery = readContext.Set<ImmediateJobEntity>()
+			.AsNoTracking()
+			.Where(job => job.QueueName == queueName && eligibleNames.Contains(job.JobName) &&
+				(((job.State == JobState.Scheduled || job.State == JobState.Pending) && job.DueAt <= now)
+					|| (job.State == JobState.Active && job.LeaseExpiresAt <= now)));
+		if (!await eligibleQuery
+			.AnyAsync(static job => job.GroupId != null, cancellationToken))
+			return null;
+
+		var groupedHeads = await eligibleQuery
+			.Where(static job => job.GroupId != null)
+			.GroupBy(static job => job.GroupId)
+			.Select(static group => group
+				.OrderBy(job => job.DueAt)
+				.ThenBy(job => job.CreatedAt)
+				.ThenBy(job => job.Id)
+				.First())
+			.ToListAsync(cancellationToken);
+		var ungroupedHead = await eligibleQuery
+			.Where(static job => job.GroupId == null)
+			.OrderBy(job => job.DueAt)
+			.ThenBy(job => job.CreatedAt)
+			.ThenBy(job => job.Id)
+			.FirstOrDefaultAsync(cancellationToken);
+		if (groupedHeads.Count == 0)
+			return null;
+
+		var activeQuery = readContext.Set<ImmediateJobEntity>()
+			.AsNoTracking()
+			.Where(job => job.QueueName == queueName
+				&& job.State == JobState.Active
+				&& job.LeaseExpiresAt > now);
+		var totalInflight = await activeQuery
+			.CountAsync(cancellationToken);
+		var groupedHeadIds = groupedHeads.Select(static job => job.Id).ToList();
+		var cursorQuery = readContext.Set<ImmediateFairQueueGroupEntity>()
+			.AsNoTracking()
+			.Where(group => group.QueueName == queueName);
+		var groupStateQuery = eligibleQuery
+			.Where(job => groupedHeadIds.Contains(job.Id));
+		var groupStates = fairQueues.GroupRoundRobin
+			? await groupStateQuery
+				.Select(job => new FairQueueCandidateState(
+					job.Id,
+					activeQuery.Count(active => active.GroupId == job.GroupId),
+					cursorQuery
+						.Where(cursor => cursor.GroupId == job.GroupId)
+						.Select(static cursor => cursor.LastServedSequence)
+						.FirstOrDefault()
+				))
+				.ToDictionaryAsync(static state => state.JobHandle, StringComparer.Ordinal, cancellationToken)
+			: await groupStateQuery
+				.Select(job => new FairQueueCandidateState(
+					job.Id,
+					activeQuery.Count(active => active.GroupId == job.GroupId),
+					0
+				))
+				.ToDictionaryAsync(static state => state.JobHandle, StringComparer.Ordinal, cancellationToken);
+		var nextSequence = 0L;
+		if (fairQueues.GroupRoundRobin)
+		{
+			var maxSequence = await cursorQuery
+				.MaxAsync(static group => (long?)group.LastServedSequence, cancellationToken);
+			nextSequence = (maxSequence ?? 0) + 1;
+		}
+
+		var candidates = ungroupedHead is null ? groupedHeads : [.. groupedHeads, ungroupedHead];
+		var ranked = candidates.Select(job =>
+		{
+			FairQueueCandidateState? state = null;
+			if (job.GroupId is not null)
+				_ = groupStates.TryGetValue(job.Id, out state);
+			var noisy = IsNoisy(job.GroupId, state?.Inflight ?? 0, totalInflight, fairQueues);
+			return new
+			{
+				Job = job,
+				Noisy = noisy,
+				NoisyInflight = noisy ? state!.Inflight : 0,
+				LastServedSequence = state?.LastServedSequence ?? 0,
+			};
+		});
+		var selected = ranked
+			.OrderBy(static candidate => candidate.Noisy)
+			.ThenBy(static candidate => candidate.NoisyInflight)
+			.ThenBy(candidate => fairQueues.GroupRoundRobin
+				? candidate.LastServedSequence
+				: 0)
+			.ThenBy(static candidate => candidate.Job.DueAt)
+			.ThenBy(static candidate => candidate.Job.CreatedAt)
+			.ThenBy(static candidate => candidate.Job.Id, StringComparer.Ordinal)
+			.First()
+			.Job;
+
+		return new FairQueueSelection(selected, nextSequence);
+	}
+
 	private async ValueTask<IReadOnlyList<JobRecord>> AcquireFairFastPathAsync(
 		string queueName,
 		Dictionary<string, int> jobCapacities,
@@ -210,17 +224,19 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 			if (eligibleNames.Count == 0)
 				break;
 
-			await using var readContext = await contextFactory.CreateDbContextAsync(cancellationToken);
-			var candidates = await readContext.Set<ImmediateJobEntity>()
-				.AsNoTracking()
-				.Where(job => job.QueueName == queueName && eligibleNames.Contains(job.JobName) &&
-					(((job.State == JobState.Scheduled || job.State == JobState.Pending) && job.DueAt <= now)
-						|| (job.State == JobState.Active && job.LeaseExpiresAt <= now)))
-				.OrderBy(job => job.DueAt)
-				.ThenBy(job => job.CreatedAt)
-				.ThenBy(job => job.Id)
-				.Take(queueCapacity)
-				.ToListAsync(cancellationToken);
+			var candidates = await ReadWithStrategyAsync(
+				(readContext, operationCancellationToken) => readContext.Set<ImmediateJobEntity>()
+					.AsNoTracking()
+					.Where(job => job.QueueName == queueName && eligibleNames.Contains(job.JobName) &&
+						(((job.State == JobState.Scheduled || job.State == JobState.Pending) && job.DueAt <= now)
+							|| (job.State == JobState.Active && job.LeaseExpiresAt <= now)))
+					.OrderBy(job => job.DueAt)
+					.ThenBy(job => job.CreatedAt)
+					.ThenBy(job => job.Id)
+					.Take(queueCapacity)
+					.ToListAsync(operationCancellationToken),
+				cancellationToken
+			);
 			if (candidates.Count == 0)
 				break;
 
@@ -409,6 +425,11 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 			&& inflight >= policy.MinInflightForNoisy
 			&& (double)inflight / totalInflight > policy.ConcurrencyShareThreshold;
 	}
+
+	private sealed record FairQueueSelection(
+		ImmediateJobEntity Job,
+		long NextSequence
+	);
 
 	private sealed record FairQueueCandidateState(
 		string JobHandle,

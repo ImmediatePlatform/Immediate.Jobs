@@ -69,6 +69,25 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 		await strategy.ExecuteAsync(operation, cancellationToken);
 	}
 
+	private async ValueTask<T> ReadWithStrategyAsync<T>(
+		Func<TContext, CancellationToken, Task<T>> read,
+		CancellationToken cancellationToken
+	)
+	{
+		await using var strategyContext = await contextFactory.CreateDbContextAsync(cancellationToken);
+		var strategy = strategyContext.Database.CreateExecutionStrategy();
+		return await strategy.ExecuteAsync(
+			async operationCancellationToken =>
+			{
+				// Locking reads can be chosen as deadlock victims (SQL Server); a fresh context per attempt lets
+				// a retrying strategy rerun the read.
+				await using var readContext = await contextFactory.CreateDbContextAsync(operationCancellationToken);
+				return await read(readContext, operationCancellationToken);
+			},
+			cancellationToken
+		);
+	}
+
 	private async ValueTask<bool> IsSyntheticExecutionInsertRaceAsync(
 		DbUpdateException exception,
 		CancellationToken cancellationToken

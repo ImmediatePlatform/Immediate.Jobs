@@ -37,17 +37,19 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 				if (eligibleNames.Count == 0)
 					break;
 
-				await using var readContext = await contextFactory.CreateDbContextAsync(cancellationToken);
-				var candidates = await readContext.Set<ImmediateJobEntity>()
-					.AsNoTracking()
-					.Where(job => job.QueueName == queue.QueueName && eligibleNames.Contains(job.JobName) &&
-						(((job.State == JobState.Scheduled || job.State == JobState.Pending) && job.DueAt <= now)
-							|| (job.State == JobState.Active && job.LeaseExpiresAt <= now)))
-					.OrderBy(job => job.DueAt)
-					.ThenBy(job => job.CreatedAt)
-					.ThenBy(job => job.Id)
-					.Take(queueCapacity)
-					.ToListAsync(cancellationToken);
+				var candidates = await ReadWithStrategyAsync(
+					(readContext, operationCancellationToken) => readContext.Set<ImmediateJobEntity>()
+						.AsNoTracking()
+						.Where(job => job.QueueName == queue.QueueName && eligibleNames.Contains(job.JobName) &&
+							(((job.State == JobState.Scheduled || job.State == JobState.Pending) && job.DueAt <= now)
+								|| (job.State == JobState.Active && job.LeaseExpiresAt <= now)))
+						.OrderBy(job => job.DueAt)
+						.ThenBy(job => job.CreatedAt)
+						.ThenBy(job => job.Id)
+						.Take(queueCapacity)
+						.ToListAsync(operationCancellationToken),
+					cancellationToken
+				);
 				if (candidates.Count == 0)
 					break;
 

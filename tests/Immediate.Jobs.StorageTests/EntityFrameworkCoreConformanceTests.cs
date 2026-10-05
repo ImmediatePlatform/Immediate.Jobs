@@ -148,8 +148,11 @@ file sealed class RelationalConformanceFixture(
 			ConformanceDatabase.PostgreSql =>
 				new DbContextOptionsBuilder<ConformanceDbContext>().UseNpgsql(connectionString),
 
+			// Concurrent acquisition can pick a locking read as a deadlock victim; SQL Server deployments are
+			// expected to enable retries, which the storage applies to its reads and writes.
 			ConformanceDatabase.SqlServer =>
-				new DbContextOptionsBuilder<ConformanceDbContext>().UseSqlServer(connectionString),
+				new DbContextOptionsBuilder<ConformanceDbContext>()
+					.UseSqlServer(connectionString, static sqlServer => sqlServer.EnableRetryOnFailure()),
 
 			_ => throw new ArgumentOutOfRangeException(nameof(database)),
 		};

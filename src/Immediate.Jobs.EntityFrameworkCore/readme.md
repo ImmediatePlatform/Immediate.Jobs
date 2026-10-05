@@ -33,7 +33,7 @@ builder.Services.AddDbContext<AppDbContext>(db =>
 builder.Services.AddDbContextFactory<JobsDbContext>(db =>
 	db.UseNpgsql(jobsConnectionString));       // PostgreSQL
 // db.UseSqlite(jobsConnectionString);       // SQLite
-// db.UseSqlServer(jobsConnectionString);    // SQL Server
+// db.UseSqlServer(jobsConnectionString, sql => sql.EnableRetryOnFailure()); // SQL Server
 
 builder.Services.AddMyAppHandlers();
 builder.Services.AddMyAppJobs()
@@ -62,6 +62,10 @@ public sealed class JobsDbContext(DbContextOptions<JobsDbContext> options) : DbC
 ```
 
 `AddMyAppJobs` is the generated registration method for an assembly named `MyApp`.
+
+On SQL Server, enable `EnableRetryOnFailure()`. Concurrent job acquisition can make SQL Server choose one of the
+storage's reads as a deadlock victim. The storage runs its writes and its acquisition reads through the configured
+execution strategy, so a retrying strategy reruns them.
 
 `AddImmediateJobs` configures the model but does not ship or apply migrations. Generate an application-owned migration
 after adding the model:
