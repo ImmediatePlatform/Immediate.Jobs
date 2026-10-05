@@ -26,13 +26,16 @@ parents settle.
 
 When a parent reaches a terminal state, each unsettled outgoing edge settles: the child's
 `RemainingDependencies` decrements (and `FailedDependencies` increments for a failed parent). When it
-reaches zero, the child's incoming triggers are evaluated:
+reaches zero, the child's incoming triggers are evaluated. Each edge carries its own trigger, and the
+child runs only when all of these hold:
 
-| Trigger | Child runs when |
-| --- | --- |
-| `Success` | every parent succeeded |
-| `Failure` | every parent is terminal and at least one failed |
-| `Complete` | every parent is terminal |
+- every parent is terminal;
+- every parent on a `Success` edge succeeded;
+- if any incoming edge is `Failure`, at least one parent (on any edge) failed.
+
+A `Complete` edge adds nothing beyond the first rule, so a failed parent on a `Complete` edge doesn't
+block release. Only `Failed` counts as failed: a cancelled or skipped parent is terminal but neither
+succeeded nor failed.
 
 A child whose condition fails becomes `Skipped`, which is itself terminal and propagates to its own
 children. A released child's `DueAt` becomes the later of its own `DueAt` and the release time plus

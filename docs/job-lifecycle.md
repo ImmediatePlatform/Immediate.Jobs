@@ -37,7 +37,8 @@ whose lease has expired (they are reclaimed first).
 - **Claiming** sets `Active`, increments `Attempt`, assigns the worker and a lease of
   `ImmediateJobsOptions.LeaseDuration`, and opens an execution row.
 - **Timeout** comes from `[Job(Timeout = "hh:mm:ss")]`; the handler's token is cancelled when it
-  elapses, which counts as a failed attempt.
+  elapses. That fails the attempt only if the handler throws; a handler that ignores the token and
+  returns completes the job.
 - **Failure** calls `FailAsync` with a `nextRetryAt` while `Attempt < MaxAttempts`, which moves the job
   to `Scheduled` (or `Pending` if already due). After the last attempt the job becomes `Failed`.
 - **Backoff** is computed in `JobSchedulingService.GetRetryDelay`: `Fixed` uses `BackoffBase`;

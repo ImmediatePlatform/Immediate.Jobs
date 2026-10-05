@@ -8,7 +8,7 @@ has established idioms; follow them rather than introducing a parallel style.
 From `Directory.Build.props` and `.editorconfig`:
 
 - **Language.** Tabs for indentation, file-scoped namespaces, `LangVersion` preview (the code uses
-  C# 14 features such as extension blocks and `[with(...)]` collection arguments), nullable enabled
+  C# 14 extension blocks and C# 15 `[with(...)]` collection-expression arguments), nullable enabled
   with nullable warnings as errors.
 - **Analysis.** `AnalysisLevel` `latest-all`, code style enforced in the build, Meziantou analyzers,
   and warnings as errors in CI. A Release build must be warning-free.
