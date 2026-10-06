@@ -16,7 +16,7 @@
 	<PackageVersion Include="Microsoft.CodeAnalysis.Analyzers" Version="5.9.0" />
 	<PackageVersion Include="Microsoft.CodeAnalysis.CSharp.Analyzer.Testing" Version="1.1.4" />
 	<PackageVersion Include="Microsoft.Testing.Extensions.CodeCoverage" Version="18.11.2" />
-	<PackageVersion Include="NodaTime" Version="3.3.4" />
+	<PackageVersion Include="NodaTime" Version="3.3.5" />
 	<PackageVersion Include="NodaTime.Serialization.SystemTextJson" Version="1.4.0" />
 	<PackageVersion Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" Version="1.19.1" />
 	<PackageVersion Include="OpenTelemetry.Extensions.Hosting" Version="1.19.1" />
