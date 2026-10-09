@@ -32,6 +32,7 @@ public sealed partial class ImmediateJobsGenerator
 		public required string Backoff { get; init; }
 		public required string BackoffBase { get; init; }
 		public required string? Tags { get; init; }
+		public required string JobTags { get; init; }
 		public required EquatableReadOnlyList<JobContextModel> Contexts { get; init; }
 		public required JsonMetadataRenderModel Json { get; init; }
 	}

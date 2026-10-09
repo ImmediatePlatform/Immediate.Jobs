@@ -4,6 +4,31 @@ namespace Immediate.Jobs.Tests.GeneratorTests;
 
 public sealed class ImmediateJobsGeneratorTests
 {
+	[Theory]
+	[InlineData("", "Tags = [\"default\"]")]
+	[InlineData("Tags = null", "Tags = [\"default\"]")]
+	[InlineData("Tags = new string[0]", "Tags = [\"default\"]")]
+	[InlineData("Tags = new[] { \"email\", \"default\", \"email\" }", "Tags = [\"email\", \"default\"]")]
+	public void JobTagsAreGeneratedSeparatelyFromHandlerRegistrationTags(string configuration, string expected)
+	{
+		var result = GeneratorTestHelper.RunGenerator(
+			$$"""
+			using System.Threading;
+			using System.Threading.Tasks;
+			using Immediate.Handlers.Shared;
+			using Immediate.Jobs.Shared;
+			[Handler(Tags = new[] { "registration" }), Job({{configuration}})]
+			public sealed partial class TaggedJob
+			{
+				public record Request;
+				private static ValueTask HandleAsync(Request request, CancellationToken token) => ValueTask.CompletedTask;
+			}
+			""");
+		var source = result.GeneratedTrees.Single(tree => tree.FilePath.EndsWith("IJ..TaggedJob.g.cs", StringComparison.Ordinal)).ToString();
+		Assert.Contains(expected, source, StringComparison.Ordinal);
+		Assert.DoesNotContain("Tags = [\"registration\"]", source, StringComparison.Ordinal);
+	}
+
 	[Fact]
 	public async Task PayloadJobGeneratesTypedSchedulerDirectInvokerAndRegistrations()
 	{

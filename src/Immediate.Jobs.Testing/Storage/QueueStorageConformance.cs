@@ -568,6 +568,8 @@ internal static class QueueStorageConformance
 		await storage.CancelAsync(JobHandle.FromString("monitor-cancelled"), cancellationToken);
 
 		await storage.HeartbeatAsync(new() { WorkerId = "old-server", LastHeartbeat = now, ActiveWorkers = 1, MaxWorkers = 4, ServerTimeout = TimeSpan.FromMinutes(1) }, cancellationToken);
+		ConformanceAssert.SequenceEqual(["default"], (await storage.GetMonitoringSnapshotAsync(cancellationToken)).Servers.Single().Tags,
+			MonitoringName, "omitted server tags must persist as default");
 
 		timeProvider.Advance(TimeSpan.FromSeconds(90));
 
@@ -577,6 +579,7 @@ internal static class QueueStorageConformance
 		await storage.HeartbeatAsync(new()
 		{
 			WorkerId = "live-server",
+			Tags = ["email", "default", "email"],
 			LastHeartbeat = liveAt,
 			ActiveWorkers = 1,
 			MaxWorkers = 2,
@@ -604,6 +607,7 @@ internal static class QueueStorageConformance
 			"heartbeats must appear while live and disappear after their configured liveness window"
 		);
 		ConformanceAssert.Equal(TimeSpan.FromMinutes(5), snapshot.Servers[0].ServerTimeout, MonitoringName, "monitoring must preserve each server's configured liveness window");
+		ConformanceAssert.SequenceEqual(["email", "default"], snapshot.Servers[0].Tags, MonitoringName, "monitoring must preserve effective server tags");
 		ConformanceAssert.Equal(2, snapshot.Servers[0].Workers.Count, MonitoringName, "monitoring must preserve worker snapshots");
 		ConformanceAssert.Equal(JobHandle.FromString("monitor-running"), snapshot.Servers[0].Workers[0].JobHandle, MonitoringName, "monitoring must preserve active worker handles");
 		ConformanceAssert.Equal(startedAt, snapshot.Servers[0].Workers[0].StartedAt, MonitoringName, "monitoring must preserve worker start times");

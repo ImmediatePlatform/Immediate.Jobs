@@ -4,9 +4,7 @@
 
 #pragma warning disable CS1591
 
-
 namespace Dummy;
-
 
 partial class GetUsersQuery
 {
@@ -52,6 +50,7 @@ partial class GetUsersQuery
 		new()
 		{
 			Name = "get-users-query",
+			Tags = ["default"],
 			Queue = new global::Immediate.Jobs.Shared.Internals.JobQueueDefinition
 			{
 				Name = "default",
@@ -130,7 +129,6 @@ partial class GetUsersQuery
 		);
 
 		global::Microsoft.Extensions.DependencyInjection.Extensions.ServiceCollectionDescriptorExtensions.TryAddSingleton<GetUsersQuery.Invoker>(services);
-
 
 		return services;
 	}

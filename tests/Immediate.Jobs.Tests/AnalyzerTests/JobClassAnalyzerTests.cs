@@ -4,6 +4,26 @@ namespace Immediate.Jobs.Tests.AnalyzerTests;
 
 public sealed class JobClassAnalyzerTests
 {
+	[Theory]
+	[InlineData("null")]
+	[InlineData("\"\"")]
+	[InlineData("\" \"")]
+	public async Task InvalidJobTagEntriesAreRejected(string entry) =>
+		await AnalyzerTestHelpers.CreateAnalyzerTest<JobClassAnalyzer>(
+			$$"""
+			using System.Threading;
+			using System.Threading.Tasks;
+			using Immediate.Handlers.Shared;
+			using Immediate.Jobs.Shared;
+			[Handler, {|IJOB0005:Job(Tags = new[] { "email", {{entry}} })|}]
+			public sealed partial class TaggedJob
+			{
+				public record Request;
+				private static ValueTask HandleAsync(Request request, CancellationToken token) => ValueTask.CompletedTask;
+			}
+			"""
+		).RunAsync(TestContext.Current.CancellationToken);
+
 	[Fact]
 	public async Task ValidConfigurationShouldNotTrigger() =>
 		await AnalyzerTestHelpers.CreateAnalyzerTest<JobClassAnalyzer>(

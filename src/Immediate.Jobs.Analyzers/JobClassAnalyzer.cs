@@ -156,6 +156,12 @@ public sealed class JobClassAnalyzer : DiagnosticAnalyzer
 
 		var arguments = jobAttribute.NamedArguments;
 
+		if (arguments.GetArgumentValue("Tags") is { IsNull: false, Kind: TypedConstantKind.Array } tags
+			&& tags.Values.Any(static tag => string.IsNullOrWhiteSpace(tag.Value as string)))
+		{
+			ReportInvalidConfigurationDiagnostic(context, jobAttribute, "`Tags` must not contain null, empty, or whitespace entries");
+		}
+
 		var maxAttempts = arguments.GetIntValue("MaxAttempts", 3);
 		if (maxAttempts < 1)
 		{

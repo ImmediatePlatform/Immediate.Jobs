@@ -130,6 +130,7 @@ partial class {{ class_name }}
 		new()
 		{
 			Name = {{ job_name_literal }},
+			Tags = [{{ job_tags }}],
 			Queue = new global::Immediate.Jobs.Shared.Internals.JobQueueDefinition
 			{
 				Name = {{ queue_name_literal }},

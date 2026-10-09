@@ -27,6 +27,8 @@ public sealed partial class JobSchedulingService : BackgroundService
 	private readonly IIdGenerator _idGenerator;
 	private readonly ILogger<JobSchedulingService> _logger;
 	private readonly Dictionary<string, JobDefinition> _definitions;
+	private readonly IReadOnlyList<string> _eligibleJobNames;
+	private readonly IReadOnlyList<string> _serverTags;
 
 	/// <summary>
 	///		Complex structure used to simplify repeated access in <see cref="BuildAcquisitionRequest"/>.
@@ -114,7 +116,11 @@ public sealed partial class JobSchedulingService : BackgroundService
 		_definitions = definitions
 			.ToDictionary(x => x.Name, StringComparer.OrdinalIgnoreCase);
 
-		_queuesByPriority = _definitions.Values
+		_serverTags = JobTags.Normalize(_options.Tags);
+		var eligibleDefinitions = _definitions.Values.Where(definition => JobTags.Intersect(definition.Tags, _serverTags)).ToList();
+		_eligibleJobNames = eligibleDefinitions.Select(static definition => definition.Name).ToList();
+
+		_queuesByPriority = eligibleDefinitions
 			.GroupBy(d => d.Queue)
 			.GroupBy(
 				g => g.Key.Priority,
@@ -260,9 +266,11 @@ public sealed partial class JobSchedulingService : BackgroundService
 		await _storage.MergeJobDefinitionsListAsync(
 			new()
 			{
+				ServerTags = _serverTags,
 				Definitions = _definitions.Values.Select(static definition => new JobDefinitionRecord
 				{
 					Name = definition.Name,
+					Tags = definition.Tags,
 					QueueName = definition.Queue.Name,
 					QueuePriority = definition.Queue.Priority,
 					QueueConcurrency = definition.Queue.Concurrency,
@@ -794,7 +802,7 @@ public sealed partial class JobSchedulingService : BackgroundService
 	private async Task MaterializeRecurringAsync(CancellationToken cancellationToken)
 	{
 		var now = _timeProvider.GetUtcNow();
-		var schedules = await _storage.GetDueRecurringAsync(now, _options.AcquisitionBatchSize, cancellationToken);
+		var schedules = await _storage.GetDueRecurringAsync(now, _options.AcquisitionBatchSize, _eligibleJobNames, cancellationToken);
 
 		foreach (var schedule in schedules)
 		{

@@ -4,9 +4,7 @@
 
 #pragma warning disable CS1591
 
-
 namespace Dummy;
-
 
 partial class Job
 {
@@ -74,6 +72,7 @@ partial class Job
 		new()
 		{
 			Name = "the-job",
+			Tags = ["default"],
 			Queue = new global::Immediate.Jobs.Shared.Internals.JobQueueDefinition
 			{
 				Name = "default",
@@ -144,7 +143,6 @@ partial class Job
 		global::Microsoft.Extensions.DependencyInjection.Extensions.ServiceCollectionDescriptorExtensions.TryAddScoped<Job.Scheduler>(services);
 
 		global::Microsoft.Extensions.DependencyInjection.Extensions.ServiceCollectionDescriptorExtensions.TryAddSingleton<Job.Invoker>(services);
-
 
 		return services;
 	}

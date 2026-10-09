@@ -6,6 +6,12 @@ namespace Immediate.Jobs.Shared.Apis;
 public sealed record JobDefinitionRecord
 {
 	/// <summary>
+	/// 	The effective job tags. Omitted or empty lists use the default tag.
+	/// </summary>
+	[System.Diagnostics.CodeAnalysis.AllowNull]
+	public IReadOnlyList<string> Tags { get; init => field = JobTags.Normalize(value); } = JobTags.Normalize(tags: null);
+
+	/// <summary>
 	/// 	The stable job name.
 	/// </summary>
 	public required string Name { get; init; }

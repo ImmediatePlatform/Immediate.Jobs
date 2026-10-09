@@ -6,6 +6,12 @@ namespace Immediate.Jobs.Shared.Apis;
 public sealed record JobServerSnapshot
 {
 	/// <summary>
+	/// 	The effective server tags. Omitted or empty lists use the default tag.
+	/// </summary>
+	[System.Diagnostics.CodeAnalysis.AllowNull]
+	public IReadOnlyList<string> Tags { get; init => field = JobTags.Normalize(value); } = JobTags.Normalize(tags: null);
+
+	/// <summary>
 	/// 	The scheduler-node identifier.
 	/// </summary>
 	public required string WorkerId { get; init; }

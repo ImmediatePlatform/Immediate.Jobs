@@ -4,7 +4,6 @@
 
 #pragma warning disable CS1591
 
-
 partial class PlainRequestJob
 {
 	public sealed class Scheduler(
@@ -49,6 +48,7 @@ partial class PlainRequestJob
 		new()
 		{
 			Name = "plain-request",
+			Tags = ["default"],
 			Queue = new global::Immediate.Jobs.Shared.Internals.JobQueueDefinition
 			{
 				Name = "default",
@@ -151,7 +151,6 @@ partial class PlainRequestJob
 		);
 
 		global::Microsoft.Extensions.DependencyInjection.Extensions.ServiceCollectionDescriptorExtensions.TryAddSingleton<PlainRequestJob.Invoker>(services);
-
 
 		return services;
 	}

@@ -9,6 +9,12 @@ namespace Immediate.Jobs.Shared;
 public sealed partial class ImmediateJobsOptions : IValidationTarget<ImmediateJobsOptions>
 {
 	/// <summary>
+	/// 	The effective server tags. Omitted or empty lists use the default tag.
+	/// </summary>
+	[System.Diagnostics.CodeAnalysis.AllowNull]
+	public IReadOnlyList<string> Tags { get; set => field = JobTags.Normalize(value); } = JobTags.Normalize(tags: null);
+
+	/// <summary>
 	///		Controls whether the scheduling service and it's attendant workers are enabled.
 	/// </summary>
 	public bool IsJobSchedulingServiceEnabled { get; set; } = true;
