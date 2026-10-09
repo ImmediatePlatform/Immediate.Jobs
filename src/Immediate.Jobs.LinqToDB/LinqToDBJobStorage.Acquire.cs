@@ -31,7 +31,7 @@ internal sealed partial class LinqToDBJobStorage<T>
 			if (queueCapacity <= 0)
 				continue;
 
-			var jobCapacities = queue.JobCapacities.ToDictionary(static pair => pair.Key, static pair => pair.Value, StringComparer.Ordinal);
+			var jobCapacities = queue.JobCapacities.ToDictionary(static pair => pair.Key, static pair => pair.Value, StringComparer.OrdinalIgnoreCase);
 			while (queueCapacity > 0)
 			{
 				var eligibleNames = jobCapacities.Where(static pair => pair.Value > 0).Select(static pair => pair.Key).ToList();
@@ -52,7 +52,7 @@ internal sealed partial class LinqToDBJobStorage<T>
 				if (candidates.Count == 0)
 					break;
 
-				var selectionCapacities = new Dictionary<string, int>(jobCapacities, StringComparer.Ordinal);
+				var selectionCapacities = new Dictionary<string, int>(jobCapacities, StringComparer.OrdinalIgnoreCase);
 				var selected = candidates.Where(candidate => selectionCapacities[candidate.JobName]-- > 0).ToList();
 				var claimed = await AcquireCandidatesAsync(selected, request.WorkerId, request.Lease, now, cancellationToken);
 				foreach (var job in claimed)

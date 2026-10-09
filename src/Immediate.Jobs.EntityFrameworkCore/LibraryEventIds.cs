@@ -45,4 +45,6 @@ internal static class LibraryEventIds
 	public const int UpdatePayloadAsyncCalled = 11540;
 	public const int TryTriggerAsyncCalled = 11541;
 	public const int TryTriggerBatchAsyncCalled = 11542;
+	public const int MergeJobDefinitionsListAsyncCalled = 11543;
+	public const int GetJobDefinitionsAsyncCalled = 11544;
 }

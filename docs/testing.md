@@ -25,7 +25,7 @@
 `src/Immediate.Jobs.Testing/Storage` ships in the `Immediate.Jobs.Testing` package, so custom
 providers can run it too.
 
-- **Case files.** `QueueStorageConformance`, `RecurringStorageConformance`,
+- **Case files.** `QueueStorageConformance`, `DefinitionCatalogStorageConformance`, `RecurringStorageConformance`,
   `FairQueueStorageConformance`, `TriggerStorageConformance`, `GraphStorageConformance`, and
   `ReplicaStorageConformance`.
 - **Case shape.** Each case is `new(Name, RequiredCapabilities, Scenario[, PersistedJobState])`. Names

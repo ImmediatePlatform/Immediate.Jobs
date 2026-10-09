@@ -32,7 +32,7 @@ For each `[Job]` class (see `Templates/Job.sbntxt`), nested in the user's partia
 - **`Invoker`**: a singleton `IJobInvoker` that deserializes the payload and runs the handler through
   the Immediate.Handlers pipeline.
 - **`JobDefinition`**: the runtime description (name, queue, attempts, timeout, backoff, cron,
-  overlap and misfire policies, concurrency).
+  overlap and misfire policies, and concurrency).
 - **`PayloadJsonContext`**: hand-emitted System.Text.Json metadata for the payload and context
   types, so serialization never uses reflection.
 
@@ -44,8 +44,11 @@ configuration surface (`ConfigureStorage`, `ConfigureWorkers`, `UseFairQueues`, 
 
 `JobSchedulingService` (`Internals/JobSchedulingService.cs`) is one hosted service per process:
 
+- **Startup.** Initializes storage and submits the complete definition catalogue and code-defined
+  schedules through `MergeJobDefinitionsListAsync`, even when workers are disabled. The storage
+  reconciles the complete catalogue. Metadata has no invoker or CLR type.
 - **Polling loop.** Each iteration materializes due recurring schedules, builds a
-  `JobAcquisitionRequest` from free worker capacity and queue/job concurrency limits, calls
+  `JobAcquisitionRequest` from local definitions, free worker capacity, and queue/job concurrency limits, calls
   `IJobStorage.AcquireDueJobsAsync`, and writes the claimed records to an unbounded channel. On
   `PurgeInterval` it also purges job and batch history. It then waits `PollingInterval`.
 - **Workers.** `WorkerCount` tasks read the channel and run `ExecuteJobAsync`: a new DI scope, a

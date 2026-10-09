@@ -4,4 +4,5 @@ using Immediate.Jobs.Shared.Apis;
 namespace Immediate.Jobs.EntityFrameworkCore;
 
 [JsonSerializable(typeof(JobServerSnapshot))]
+[JsonSerializable(typeof(JobDefinitionRecord))]
 internal sealed partial class EntityFrameworkCoreJsonSerializerContext : JsonSerializerContext;

@@ -39,6 +39,7 @@ public static class JobStorageConformanceSuite
 		return QueueStorageConformance.Cases
 			.Concat(AddOptionalCases(capabilities, StorageCapabilities.Queue, RecurringStorageConformance.Cases))
 			.Concat(AddOptionalCases(capabilities, StorageCapabilities.Graph, GraphStorageConformance.Cases))
+			.Concat(DefinitionCatalogStorageConformance.Cases)
 			.Concat(FairQueueStorageConformance.Cases)
 			.Concat(AddOptionalCases(capabilities, StorageCapabilities.Queue, TriggerStorageConformance.Cases))
 			.Concat(includeSingleServerReplicaCases ? ReplicaStorageConformance.Cases : [])

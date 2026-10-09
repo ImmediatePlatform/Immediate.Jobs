@@ -300,7 +300,7 @@ internal sealed partial class RedisJobStorage
 		job.ExecutionSpanId ?? "",
 		NullableTicks(job.ExecutionStartedAt),
 		job.QueueName,
-		job.JobName,
+		job.JobName.ToUpperInvariant(),
 		Score(job.CreatedAt),
 		Ticks(nextRunAt),
 		Score(nextRunAt),

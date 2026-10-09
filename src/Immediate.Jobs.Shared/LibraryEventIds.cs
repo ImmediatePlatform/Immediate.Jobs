@@ -95,4 +95,8 @@ internal static class LibraryEventIds
 	public const int SingleServerUpdatePayloadAsyncCalled = 11091;
 	public const int SingleServerTryTriggerAsyncCalled = 11092;
 	public const int SingleServerTryTriggerBatchAsyncCalled = 11093;
+	public const int InMemoryMergeJobDefinitionsListAsyncCalled = 11094;
+	public const int InMemoryGetJobDefinitionsAsyncCalled = 11095;
+	public const int SingleServerMergeJobDefinitionsListAsyncCalled = 11096;
+	public const int SingleServerGetJobDefinitionsAsyncCalled = 11097;
 }
