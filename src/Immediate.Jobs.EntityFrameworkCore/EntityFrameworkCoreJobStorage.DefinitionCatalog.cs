@@ -154,6 +154,10 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 		MisfireHandlingMode = definition.MisfireHandlingMode,
 		Backoff = definition.Backoff,
 		BackoffBaseTicks = definition.BackoffBase.Ticks,
+		SlidingWindowMax = definition.SlidingWindowMax,
+		SlidingWindowPeriodTicks = definition.SlidingWindowPeriod?.Ticks,
+		FixedWindowMax = definition.FixedWindowMax,
+		FixedWindowPeriodTicks = definition.FixedWindowPeriod?.Ticks,
 		Tags = JsonSerializer.Serialize([.. definition.Tags], EntityFrameworkCoreJsonSerializerContext.Default.StringArray),
 	};
 
@@ -172,6 +176,10 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 		MisfireHandlingMode = entity.MisfireHandlingMode,
 		Backoff = entity.Backoff,
 		BackoffBase = TimeSpan.FromTicks(entity.BackoffBaseTicks),
+		SlidingWindowMax = entity.SlidingWindowMax,
+		SlidingWindowPeriod = entity.SlidingWindowPeriodTicks is { } slidingTicks ? TimeSpan.FromTicks(slidingTicks) : null,
+		FixedWindowMax = entity.FixedWindowMax,
+		FixedWindowPeriod = entity.FixedWindowPeriodTicks is { } fixedTicks ? TimeSpan.FromTicks(fixedTicks) : null,
 		Tags = JsonSerializer.Deserialize(entity.Tags, EntityFrameworkCoreJsonSerializerContext.Default.StringArray) ?? [],
 	};
 

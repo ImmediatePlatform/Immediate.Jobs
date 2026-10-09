@@ -407,7 +407,7 @@ public sealed class BatchesAndContinuationsTests
 	}
 
 	[Fact]
-	public async Task MonitoringLeavesMaxAttemptsUnknownForAnUnregisteredPersistedJob()
+	public async Task MonitoringLeavesMaxAttemptsUnknownWhenTheDefinitionIsMissingFromStorage()
 	{
 		var cancellationToken = TestContext.Current.CancellationToken;
 		await using var harness = CreateHarness();

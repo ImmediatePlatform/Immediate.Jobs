@@ -33,10 +33,7 @@ internal sealed partial class LinqToDBJobStorage<T>
 			);
 			while (queueCapacity > 0)
 			{
-				var eligibleNames = jobCapacities
-					.Where(static pair => pair.Value > 0)
-					.Select(static pair => pair.Key)
-					.ToList();
+				var eligibleNames = await FilterAcquisitionNamesAsync(jobCapacities, request!, cancellationToken);
 				if (eligibleNames.Count == 0)
 					break;
 
@@ -55,7 +52,8 @@ internal sealed partial class LinqToDBJobStorage<T>
 						request.WorkerId,
 						request.Lease,
 						now,
-						cancellationToken
+						cancellationToken,
+						request
 					);
 					queueCapacity -= fastPath.Count;
 					acquired.AddRange(fastPath);
@@ -86,7 +84,8 @@ internal sealed partial class LinqToDBJobStorage<T>
 						request.WorkerId,
 						request.Lease,
 						now,
-						cancellationToken
+						cancellationToken,
+						request
 					);
 					queueCapacity -= fastPath.Count;
 					acquired.AddRange(fastPath);
@@ -164,14 +163,16 @@ internal sealed partial class LinqToDBJobStorage<T>
 						request.Lease,
 						now,
 						nextSequence,
-						cancellationToken
+						cancellationToken,
+						request
 					)
 					: GetFirstOrDefault(await AcquireCandidatesAsync(
 							[selected],
 							request.WorkerId,
 							request.Lease,
 							now,
-							cancellationToken
+							cancellationToken,
+							request
 						));
 				if (claimedJob is null)
 				{
@@ -197,16 +198,14 @@ internal sealed partial class LinqToDBJobStorage<T>
 		string workerId,
 		TimeSpan lease,
 		DateTimeOffset now,
-		CancellationToken cancellationToken
+		CancellationToken cancellationToken,
+		JobAcquisitionRequest? request = null
 	)
 	{
 		var acquired = new List<JobRecord>(queueCapacity);
 		while (queueCapacity > 0)
 		{
-			var eligibleNames = jobCapacities
-				.Where(static pair => pair.Value > 0)
-				.Select(static pair => pair.Key)
-				.ToList();
+			var eligibleNames = await FilterAcquisitionNamesAsync(jobCapacities, request!, cancellationToken);
 			if (eligibleNames.Count == 0)
 				break;
 
@@ -239,7 +238,8 @@ internal sealed partial class LinqToDBJobStorage<T>
 				workerId,
 				lease,
 				now,
-				cancellationToken
+				cancellationToken,
+				request
 			);
 			foreach (var job in claimed)
 			{
@@ -262,9 +262,11 @@ internal sealed partial class LinqToDBJobStorage<T>
 		TimeSpan lease,
 		DateTimeOffset now,
 		long nextSequence,
-		CancellationToken cancellationToken
+		CancellationToken cancellationToken,
+		JobAcquisitionRequest? request = null
 	)
 	{
+		await EnsureDefinitionAsync(candidate.JobName, cancellationToken);
 		await using var scope = contextScope.GetScope(out var connection);
 
 		_ = await connection.BeginTransactionAsync(cancellationToken);
@@ -272,6 +274,12 @@ internal sealed partial class LinqToDBJobStorage<T>
 		var cursorWasMissing = false;
 		try
 		{
+			if (!await ReserveDefinitionAsync(connection, candidate.JobName, request, now, cancellationToken))
+			{
+				await connection.CommitTransactionAsync(cancellationToken);
+				return null;
+			}
+
 			var previous = ToRecord(candidate);
 			var oldStamp = candidate.ConcurrencyStamp;
 			candidate.State = JobState.Active;
@@ -318,10 +326,12 @@ internal sealed partial class LinqToDBJobStorage<T>
 						ConcurrencyStamp = Guid.NewGuid(),
 					}, cancellationToken);
 				}
+
 				else if (cursor.LastServedSequence >= nextSequence)
 				{
 					throw new LostRaceException();
 				}
+
 				else
 				{
 					var cursorStamp = cursor.ConcurrencyStamp;
@@ -335,9 +345,11 @@ internal sealed partial class LinqToDBJobStorage<T>
 				}
 			}
 
+			await RefreshAcquiredDefinitionAsync(connection, candidate.JobName, request, now, cancellationToken);
 			await connection.CommitTransactionAsync(cancellationToken);
 			return ToRecord(candidate);
 		}
+
 		catch (SyntheticExecutionInsertFailedException exception)
 		{
 			await connection.RollbackTransactionAsync(cancellationToken);
@@ -345,17 +357,20 @@ internal sealed partial class LinqToDBJobStorage<T>
 				return null;
 			throw exception.DatabaseException;
 		}
+
 		catch (LostRaceException)
 		{
 			await connection.RollbackTransactionAsync(cancellationToken);
 			return null;
 		}
+
 		catch (DbException)
 		{
 			try
 			{
 				await connection.RollbackTransactionAsync(cancellationToken);
 			}
+
 			catch (DbException)
 			{
 				// The original database error remains authoritative.

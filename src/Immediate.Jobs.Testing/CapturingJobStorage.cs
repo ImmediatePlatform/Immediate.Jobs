@@ -5,11 +5,11 @@ using Immediate.Jobs.Shared.Storage;
 namespace Immediate.Jobs.Testing;
 
 /// <summary>
-///	    An in-memory storage provider that records the data written by job and batch schedulers.
+/// 	An in-memory storage provider that records the data written by job and batch schedulers.
 /// </summary>
 /// <remarks>
-///	    Capturing does not alter storage behavior: every operation is forwarded to an <see cref="InMemoryJobStorage"/>
-///     and captures the resulting persisted records.
+/// 	Capturing does not alter storage behavior: every operation is forwarded to an <see cref="InMemoryJobStorage"/>
+/// 	and captures the resulting persisted records.
 /// </remarks>
 [SuppressMessage("Usage", "CA1816:Dispose methods should call SuppressFinalize", Justification = "Class is only used for testing; shouldn't need to worry about this.")]
 [SuppressMessage("Design", "CA1063:Implement IDisposable Correctly", Justification = "Class is only used for testing; shouldn't need to worry about this.")]
@@ -111,23 +111,23 @@ public class CapturingJobStorage(TimeProvider timeProvider) :
 	public void Dispose() { }
 
 	/// <summary>
-	///	    Used for testing to pre-load various values to the storage before the test starts.
+	/// 	Used for testing to pre-load various values to the storage before the test starts.
 	/// </summary>
 	/// <param name="jobs">
-	///	    The jobs that should be loaded in the database.
+	/// 	The jobs that should be loaded in the database.
 	/// </param>
 	/// <param name="batches">
-	///	    The batches that should be loaded in the database.
+	/// 	The batches that should be loaded in the database.
 	/// </param>
 	/// <param name="edges">
-	///	    The continuation edges that should be loaded in the database.
+	/// 	The continuation edges that should be loaded in the database.
 	/// </param>
 	/// <param name="recurringSchedules">
-	///	    The recurring schedules that should be loaded in the database.
+	/// 	The recurring schedules that should be loaded in the database.
 	/// </param>
 	/// <remarks>
-	///	    This method should run before any other methods run to initialize test state. Use in regular app code is not
-	///	    supported.
+	/// 	This method should run before any other methods run to initialize test state. Use in regular app code is not
+	/// 	supported.
 	/// </remarks>
 	public void LoadPersistedJobState(
 		IReadOnlyList<JobRecord> jobs,
@@ -167,6 +167,13 @@ public class CapturingJobStorage(TimeProvider timeProvider) :
 	/// <inheritdoc />
 	public virtual ValueTask<IReadOnlyList<RecurringJobSchedule>> GetDueRecurringAsync(DateTimeOffset now, int batchSize, IReadOnlyList<string> jobNames, CancellationToken cancellationToken = default) =>
 		_inner.GetDueRecurringAsync(now, batchSize, jobNames, cancellationToken);
+
+	/// <inheritdoc />
+	public virtual ValueTask PauseJobAsync(string jobName, CancellationToken cancellationToken = default) => _inner.PauseJobAsync(jobName, cancellationToken);
+	/// <inheritdoc />
+	public virtual ValueTask ResumeJobAsync(string jobName, JobAcquisitionLimits limits, CancellationToken cancellationToken = default) => _inner.ResumeJobAsync(jobName, limits, cancellationToken);
+	/// <inheritdoc />
+	public virtual ValueTask<JobAcquisitionState> GetJobAcquisitionStateAsync(string jobName, JobAcquisitionLimits limits, CancellationToken cancellationToken = default) => _inner.GetJobAcquisitionStateAsync(jobName, limits, cancellationToken);
 
 	/// <inheritdoc />
 	public virtual async ValueTask EnqueueAsync(JobSubmission job, CancellationToken cancellationToken = default)

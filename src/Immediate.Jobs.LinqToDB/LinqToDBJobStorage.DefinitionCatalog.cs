@@ -189,6 +189,10 @@ internal sealed partial class LinqToDBJobStorage<T>
 				MisfireHandlingMode = src.MisfireHandlingMode,
 				Backoff = src.Backoff,
 				BackoffBaseTicks = src.BackoffBaseTicks,
+				SlidingWindowMax = src.SlidingWindowMax,
+				SlidingWindowPeriodTicks = src.SlidingWindowPeriodTicks,
+				FixedWindowMax = src.FixedWindowMax,
+				FixedWindowPeriodTicks = src.FixedWindowPeriodTicks,
 				Tags = src.Tags,
 			})
 			.InsertWhenNotMatched();
@@ -267,6 +271,10 @@ internal sealed partial class LinqToDBJobStorage<T>
 		MisfireHandlingMode = definition.MisfireHandlingMode,
 		Backoff = definition.Backoff,
 		BackoffBaseTicks = definition.BackoffBase.Ticks,
+		SlidingWindowMax = definition.SlidingWindowMax,
+		SlidingWindowPeriodTicks = definition.SlidingWindowPeriod?.Ticks,
+		FixedWindowMax = definition.FixedWindowMax,
+		FixedWindowPeriodTicks = definition.FixedWindowPeriod?.Ticks,
 		Tags = JsonSerializer.Serialize([.. definition.Tags], LinqToDBJsonSerializerContext.Default.StringArray),
 	};
 
@@ -285,6 +293,10 @@ internal sealed partial class LinqToDBJobStorage<T>
 		MisfireHandlingMode = entity.MisfireHandlingMode,
 		Backoff = entity.Backoff,
 		BackoffBase = TimeSpan.FromTicks(entity.BackoffBaseTicks),
+		SlidingWindowMax = entity.SlidingWindowMax,
+		SlidingWindowPeriod = entity.SlidingWindowPeriodTicks is { } slidingTicks ? TimeSpan.FromTicks(slidingTicks) : null,
+		FixedWindowMax = entity.FixedWindowMax,
+		FixedWindowPeriod = entity.FixedWindowPeriodTicks is { } fixedTicks ? TimeSpan.FromTicks(fixedTicks) : null,
 		Tags = JsonSerializer.Deserialize(entity.Tags, LinqToDBJsonSerializerContext.Default.StringArray) ?? [],
 	};
 

@@ -12,7 +12,7 @@ internal sealed partial class SingleServerJobStorage
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 		await EnsureInitializedAsync(cancellationToken);
-		await _recurringMaterialization.WaitAsync(cancellationToken);
+		await _writeThrough.WaitAsync(cancellationToken);
 		try
 		{
 			await DurableStorage.MergeJobDefinitionsListAsync(registration, cancellationToken);
@@ -40,7 +40,7 @@ internal sealed partial class SingleServerJobStorage
 		}
 		finally
 		{
-			_recurringMaterialization.Release();
+			_writeThrough.Release();
 		}
 	}
 

@@ -17,6 +17,9 @@ internal sealed partial class RedisJobStorage
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 
+		foreach (var limits in request.JobLimits.Values)
+			limits.Validate();
+
 		var keys = new List<RedisKey>(4 + request.Queues.Count)
 		{
 			LeasesKey,
@@ -50,6 +53,7 @@ internal sealed partial class RedisJobStorage
 			{
 				values.Add(capacity.Key.ToUpperInvariant());
 				values.Add(Math.Max(0, capacity.Value));
+				AddDefinitionLimits(values, request.LimitsFor(capacity.Key), now);
 			}
 		}
 

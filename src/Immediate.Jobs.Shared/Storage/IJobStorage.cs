@@ -3,14 +3,62 @@ using Immediate.Jobs.Shared.Apis;
 namespace Immediate.Jobs.Shared.Storage;
 
 /// <summary>
-/// The storage seam implemented by all job providers. Implementations must tolerate repeated
-/// <see cref="IAsyncDisposable.DisposeAsync"/> calls because one instance may expose multiple storage capabilities.
+/// 	The storage seam implemented by all job providers. Implementations must tolerate repeated
+/// 	<see cref="IAsyncDisposable.DisposeAsync"/> calls because one instance may expose multiple storage capabilities.
 /// 
 /// </summary>
 public interface IJobStorage : IAsyncDisposable
 {
 	/// <summary>
-	/// 	Creates or upgrades provider storage.
+	/// 	Idempotently pauses acquisition for a definition without preventing job creation.
+	/// </summary>
+	/// <param name="jobName">
+	/// 	The stable definition name.
+	/// </param>
+	/// <param name="cancellationToken">
+	/// 	The operation cancellation token.
+	/// </param>
+	/// <returns>
+	/// 	The asynchronous pause operation.
+	/// </returns>
+	ValueTask PauseJobAsync(string jobName, CancellationToken cancellationToken = default);
+
+	/// <summary>
+	/// 	Clears a definition's pause and reevaluates its limits without resetting counters.
+	/// </summary>
+	/// <param name="jobName">
+	/// 	The stable definition name.
+	/// </param>
+	/// <param name="limits">
+	/// 	The definition's parsed limits.
+	/// </param>
+	/// <param name="cancellationToken">
+	/// 	The operation cancellation token.
+	/// </param>
+	/// <returns>
+	/// 	The asynchronous resume operation.
+	/// </returns>
+	ValueTask ResumeJobAsync(string jobName, JobAcquisitionLimits limits, CancellationToken cancellationToken = default);
+
+	/// <summary>
+	/// 	Evaluates the current acquisition status and active unexpired leases for a definition.
+	/// </summary>
+	/// <param name="jobName">
+	/// 	The stable definition name.
+	/// </param>
+	/// <param name="limits">
+	/// 	The definition's parsed limits.
+	/// </param>
+	/// <param name="cancellationToken">
+	/// 	The operation cancellation token.
+	/// </param>
+	/// <returns>
+	/// 	The current definition acquisition state.
+	/// </returns>
+	ValueTask<JobAcquisitionState> GetJobAcquisitionStateAsync(string jobName, JobAcquisitionLimits limits, CancellationToken cancellationToken = default);
+
+	/// <summary>
+	/// 	Initializes provider storage.
 	/// </summary>
 	/// <param name="cancellationToken">
 	/// 	A token that can cancel the storage operation.
@@ -322,8 +370,8 @@ public interface IJobStorage : IAsyncDisposable
 	/// 	The jobs matching the query.
 	/// </returns>
 	/// <remarks>
-	///		Used primarily by the scheduling service to materialize recurring jobs,
-	///		but offered publicly for general use.
+	/// 	Used primarily by the scheduling service to materialize recurring jobs,
+	/// 	but offered publicly for general use.
 	/// </remarks>
 	ValueTask<IReadOnlyList<JobRecord>> QueryNonCompletedJobsAsync(
 		string jobName,
@@ -334,7 +382,7 @@ public interface IJobStorage : IAsyncDisposable
 	/// 	Returns retained executions for one job, newest first unless an exact ordinal is requested.
 	/// </summary>
 	/// <param name="jobHandle">
-	///		The job identifier.
+	/// 	The job identifier.
 	/// </param>
 	/// <param name="query">
 	/// 	The exact-ordinal filter and paging options.
@@ -366,16 +414,16 @@ public interface IJobStorage : IAsyncDisposable
 	ValueTask<JobStatus?> GetJobStatusAsync(JobHandle jobHandle, CancellationToken cancellationToken = default);
 
 	/// <summary>
-	///		Moves a non-terminal invocation to the cancelled state.
+	/// 	Moves a non-terminal invocation to the cancelled state.
 	/// </summary>
 	/// <param name="jobHandle">
-	///		The non-terminal invocation identifier.
+	/// 	The non-terminal invocation identifier.
 	/// </param>
 	/// <param name="cancellationToken">
-	///		A token that can cancel the storage operation.
+	/// 	A token that can cancel the storage operation.
 	/// </param>
 	/// <returns>
-	///		A value task that represents the asynchronous cancellation.
+	/// 	A value task that represents the asynchronous cancellation.
 	/// </returns>
 	ValueTask CancelAsync(JobHandle jobHandle, CancellationToken cancellationToken = default);
 
@@ -547,13 +595,13 @@ public interface IJobStorage : IAsyncDisposable
 	/// 	The next UTC occurrence for the schedule.
 	/// </param>
 	/// <param name="dependencies">
-	///		A list of continuation edges for use with <see cref="OverlapPolicy.Queue"/>.
+	/// 	A list of continuation edges for use with <see cref="OverlapPolicy.Queue"/>.
 	/// </param>
 	/// <param name="cancellationToken">
 	/// 	A token that can cancel the storage operation.
 	/// </param>
 	/// <returns>
-	///		<see langword="true"/> when the occurrence was materialized; otherwise, <see langword="false"/>.
+	/// 	<see langword="true"/> when the occurrence was materialized; otherwise, <see langword="false"/>.
 	/// </returns>
 	ValueTask<bool> MaterializeRecurringAsync(
 		RecurringJobSchedule schedule,

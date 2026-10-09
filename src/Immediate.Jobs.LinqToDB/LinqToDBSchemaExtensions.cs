@@ -51,6 +51,18 @@ public static class LinqToDBSchemaExtensions
 			token: cancellationToken
 		);
 
+		await context.CreateTableAsync<ImmediateJobDefinitionEntity>(
+			schemaName: schema,
+			tableOptions: TableOptions.CreateIfNotExists,
+			token: cancellationToken
+		);
+
+		await context.CreateTableAsync<ImmediateJobAcquisitionEntity>(
+			schemaName: schema,
+			tableOptions: TableOptions.CreateIfNotExists,
+			token: cancellationToken
+		);
+
 		await context.CreateTableAsync<ImmediateJobBatchEntity>(
 			schemaName: schema,
 			tableOptions: TableOptions.CreateIfNotExists,
@@ -240,6 +252,8 @@ public static class LinqToDBSchemaExtensions
 	{
 		var definitions = new (string Name, string Table, string Columns, bool Unique)[]
 		{
+			("IX_immediate_job_acquisitions_JobName_AcquiredAt", "immediate_job_acquisitions", "JobName, AcquiredAt", false),
+			("IX_immediate_jobs_JobName_State_LeaseExpiresAt", "immediate_jobs", "JobName, State, LeaseExpiresAt", false),
 			("IX_immediate_job_batches_State_CompletedAt", "immediate_job_batches", "State, CompletedAt", false),
 			("IX_immediate_jobs_RecurringKey", "immediate_jobs", "RecurringKey", true),
 			("IX_immediate_jobs_BatchHandle", "immediate_jobs", "BatchHandle", false),

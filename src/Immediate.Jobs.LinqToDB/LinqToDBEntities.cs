@@ -1,4 +1,6 @@
 using Immediate.Jobs.Shared.Apis;
+using Immediate.Jobs.Shared.Internals;
+using Immediate.Jobs.Shared.Storage;
 using LinqToDB;
 using LinqToDB.Mapping;
 
@@ -234,8 +236,46 @@ internal sealed class ImmediateJobDefinitionMetadataEntity
 	public BackoffStrategy Backoff { get; set; }
 	[Column(DataType = DataType.Int64)]
 	public long BackoffBaseTicks { get; set; }
+	[Column(DataType = DataType.Int32)]
+	public int SlidingWindowMax { get; set; }
+	[Column(DataType = DataType.Int64, CanBeNull = true)]
+	public long? SlidingWindowPeriodTicks { get; set; }
+	[Column(DataType = DataType.Int32)]
+	public int FixedWindowMax { get; set; }
+	[Column(DataType = DataType.Int64, CanBeNull = true)]
+	public long? FixedWindowPeriodTicks { get; set; }
 	[Column(DataType = DataType.Text, CanBeNull = false)]
 	[Column(Configuration = ProviderName.SqlServer, DbType = "nvarchar(max)", CanBeNull = false)]
 	[Column(Configuration = ProviderName.PostgreSQL, DataType = DataType.BinaryJson, CanBeNull = false)]
 	public string Tags { get; set; } = null!;
+}
+
+[Table(Name = "immediate_job_definitions")]
+internal sealed class ImmediateJobDefinitionEntity
+{
+	[PrimaryKey, Column(Length = 256, CanBeNull = false)]
+	public string JobName { get; set; } = null!;
+	[Column]
+	public bool IsPaused { get; set; }
+	[Column(DataType = DataType.Int16)]
+	public JobAcquisitionStatus AcquisitionStatus { get; set; }
+	[Column(DataType = DataType.Int64, CanBeNull = true)]
+	public long? NextEligibleAt { get; set; }
+	[Column(DataType = DataType.Int64, CanBeNull = true)]
+	public long? FixedWindowStart { get; set; }
+	[Column]
+	public int FixedWindowCount { get; set; }
+	[Column(DataType = DataType.Guid)]
+	public Guid ConcurrencyStamp { get; set; }
+}
+
+[Table(Name = "immediate_job_acquisitions")]
+internal sealed class ImmediateJobAcquisitionEntity
+{
+	[PrimaryKey, Column(DataType = DataType.Guid)]
+	public Guid Id { get; set; }
+	[Column(Length = 256, CanBeNull = false)]
+	public string JobName { get; set; } = null!;
+	[Column(DataType = DataType.Int64)]
+	public long AcquiredAt { get; set; }
 }

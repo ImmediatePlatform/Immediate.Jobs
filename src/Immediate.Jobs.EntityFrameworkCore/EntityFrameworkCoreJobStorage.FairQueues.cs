@@ -32,10 +32,7 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 			);
 			while (queueCapacity > 0)
 			{
-				var eligibleNames = jobCapacities
-					.Where(static pair => pair.Value > 0)
-					.Select(static pair => pair.Key)
-					.ToList();
+				var eligibleNames = await FilterAcquisitionNamesAsync(jobCapacities, request!, cancellationToken);
 				if (eligibleNames.Count == 0)
 					break;
 
@@ -59,7 +56,8 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 						request.WorkerId,
 						request.Lease,
 						now,
-						cancellationToken
+						cancellationToken,
+						request
 					);
 					queueCapacity -= claimed.Count;
 					acquired.AddRange(claimed);
@@ -74,14 +72,16 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 						request.Lease,
 						now,
 						selection.NextSequence,
-						cancellationToken
+						cancellationToken,
+						request
 					)
 					: GetFirstOrDefault(await AcquireCandidatesAsync(
 							[selection.Job],
 							request.WorkerId,
 							request.Lease,
 							now,
-							cancellationToken
+							cancellationToken,
+							request
 						));
 				if (claimedJob is null)
 				{
@@ -212,16 +212,14 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 		string workerId,
 		TimeSpan lease,
 		DateTimeOffset now,
-		CancellationToken cancellationToken
+		CancellationToken cancellationToken,
+		JobAcquisitionRequest? request = null
 	)
 	{
 		var acquired = new List<JobRecord>(queueCapacity);
 		while (queueCapacity > 0)
 		{
-			var eligibleNames = jobCapacities
-				.Where(static pair => pair.Value > 0)
-				.Select(static pair => pair.Key)
-				.ToList();
+			var eligibleNames = await FilterAcquisitionNamesAsync(jobCapacities, request!, cancellationToken);
 			if (eligibleNames.Count == 0)
 				break;
 
@@ -256,7 +254,8 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 				workerId,
 				lease,
 				now,
-				cancellationToken
+				cancellationToken,
+				request
 			);
 			foreach (var job in claimed)
 			{
@@ -279,9 +278,11 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 		TimeSpan lease,
 		DateTimeOffset now,
 		long nextSequence,
-		CancellationToken cancellationToken
+		CancellationToken cancellationToken,
+		JobAcquisitionRequest? request = null
 	)
 	{
+		await EnsureDefinitionAsync(candidate.JobName, cancellationToken);
 		await using var strategyContext = await contextFactory.CreateDbContextAsync(cancellationToken);
 		var strategy = strategyContext.Database.CreateExecutionStrategy();
 		return await strategy.ExecuteAsync(
@@ -292,7 +293,8 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 				lease,
 				now,
 				nextSequence,
-				operationCancellationToken
+				operationCancellationToken,
+				request
 			),
 			cancellationToken
 		);
@@ -305,11 +307,19 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 		TimeSpan lease,
 		DateTimeOffset now,
 		long nextSequence,
-		CancellationToken cancellationToken
+		CancellationToken cancellationToken,
+		JobAcquisitionRequest? request = null
 	)
 	{
 		await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 		await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
+		if (!await ReserveDefinitionAsync(context, candidate.JobName, request, now, cancellationToken))
+		{
+			_ = await context.SaveChangesAsync(cancellationToken);
+			await transaction.CommitAsync(cancellationToken);
+			return null;
+		}
+
 		var entity = Copy(candidate);
 		_ = context.Attach(entity);
 		await PrepareAcquisitionExecutionsAsync(context, candidate, workerId, now, cancellationToken);
@@ -340,11 +350,13 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 					ConcurrencyStamp = Guid.NewGuid(),
 				});
 			}
+
 			else if (group.LastServedSequence >= nextSequence)
 			{
 				// Selection observed an older cursor snapshot. Re-rank instead of moving this group backward.
 				return null;
 			}
+
 			else
 			{
 				group.LastServedSequence = nextSequence;
@@ -366,14 +378,17 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 		try
 		{
 			_ = await context.SaveChangesAsync(cancellationToken);
+			await RefreshAcquiredDefinitionAsync(context, candidate.JobName, request, now, cancellationToken);
 			await transaction.CommitAsync(cancellationToken);
 			return ToRecord(entity, candidate.QueueName);
 		}
+
 		catch (DbUpdateConcurrencyException)
 		{
 			// A tracked job, group cursor, or batch header lost its optimistic-concurrency check.
 			return null;
 		}
+
 		catch (DbUpdateException)
 		{
 			await transaction.RollbackAsync(cancellationToken);
@@ -408,6 +423,7 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 					cancellationToken
 				);
 		}
+
 		catch (Exception exception) when (exception is DbException or InvalidOperationException)
 		{
 			return false;
@@ -482,6 +498,7 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 			_ = context.Remove(cursor);
 			_ = await context.SaveChangesAsync(cancellationToken);
 		}
+
 		catch (Exception exception) when (
 			!cancellationToken.IsCancellationRequested
 			&& exception is DbException or DbUpdateException
