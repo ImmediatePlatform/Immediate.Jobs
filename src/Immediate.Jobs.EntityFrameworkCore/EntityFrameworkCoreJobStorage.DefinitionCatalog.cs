@@ -16,7 +16,7 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 		// Validate before taking a write lock or creating the catalogue sentinel.
-		_ = JobDefinitionReconciliation.Create(registration, [], []);
+		JobDefinitionReconciliation.Create(registration, [], []);
 		await RetryConcurrencyAsync(async token =>
 		{
 			await EnsureDefinitionCatalogAsync(token);
@@ -24,7 +24,7 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 			await using var transaction = await context.Database.BeginTransactionAsync(token);
 			// A singleton row serializes the complete read/merge/write across application instances.
 			var stamp = Guid.NewGuid();
-			_ = await context.Set<ImmediateJobDefinitionCatalogEntity>().Where(item => item.Id == 1)
+			await context.Set<ImmediateJobDefinitionCatalogEntity>().Where(item => item.Id == 1)
 				.ExecuteUpdateAsync(update => update.SetProperty(item => item.ConcurrencyStamp, stamp), token);
 			var definitions = await context.Set<ImmediateJobDefinitionMetadataEntity>()
 				.ToDictionaryAsync(static item => item.Name, StringComparer.OrdinalIgnoreCase, token);
@@ -41,7 +41,7 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 				if (definitions.TryGetValue(definition.Name, out var current))
 					current.Metadata = metadata;
 				else
-					_ = context.Add(new ImmediateJobDefinitionMetadataEntity { Name = definition.Name, Metadata = metadata });
+					context.Add(new ImmediateJobDefinitionMetadataEntity { Name = definition.Name, Metadata = metadata });
 			}
 
 			foreach (var name in changes.RemovedScheduleNames)
@@ -51,10 +51,10 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 				if (schedules.TryGetValue(schedule.Name, out var current))
 					context.Entry(current).CurrentValues.SetValues(ToEntity(schedule));
 				else
-					_ = context.Add(ToEntity(schedule));
+					context.Add(ToEntity(schedule));
 			}
 
-			_ = await context.SaveChangesAsync(token);
+			await context.SaveChangesAsync(token);
 			await transaction.CommitAsync(token);
 		}, cancellationToken);
 	}
@@ -80,10 +80,10 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 		await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 		if (await context.Set<ImmediateJobDefinitionCatalogEntity>().AnyAsync(item => item.Id == 1, cancellationToken))
 			return;
-		_ = context.Add(new ImmediateJobDefinitionCatalogEntity { Id = 1, ConcurrencyStamp = Guid.NewGuid() });
+		context.Add(new ImmediateJobDefinitionCatalogEntity { Id = 1, ConcurrencyStamp = Guid.NewGuid() });
 		try
 		{
-			_ = await context.SaveChangesAsync(cancellationToken);
+			await context.SaveChangesAsync(cancellationToken);
 		}
 		catch (DbUpdateException)
 		{

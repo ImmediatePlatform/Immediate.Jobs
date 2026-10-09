@@ -10,32 +10,34 @@ internal sealed partial class RedisJobStorage
 	private static readonly RedisValue[] RecurringMutableFields = ["record", "paused", "next", "last"];
 
 	/// <inheritdoc />
-	public async ValueTask MergeRecurringSchedulesListAsync(
-		IReadOnlyList<RecurringJobSchedule> schedules,
-		CancellationToken cancellationToken = default
-	)
-	{
-		MergeRecurringSchedulesListAsyncCalled();
-		cancellationToken.ThrowIfCancellationRequested();
-		await TaskScheduler.Yield();
-
-		foreach (var schedule in schedules)
-			await UpsertRecurringAsync(schedule, preserveUnchangedNextRun: true, cancellationToken);
-
-		await RemoveObsoleteCodeDefinedRecurringAsync(
-			schedules.Select(static schedule => schedule.Name).ToList(),
-			cancellationToken
-		);
-	}
-
-	/// <inheritdoc />
 	public async ValueTask UpsertRecurringAsync(
 		RecurringJobSchedule schedule,
 		CancellationToken cancellationToken = default
 	)
 	{
 		UpsertRecurringAsyncCalled(schedule.Name);
-		await UpsertRecurringAsync(schedule, preserveUnchangedNextRun: false, cancellationToken);
+		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
+
+		var result = await EvaluateInt64Async(
+			RedisScripts.UpsertRecurring,
+			[RecurringKey(schedule.Name), RecurringNamesKey, RecurringDueKey],
+			[
+				JsonSerializer.Serialize(schedule, RedisJsonSerializerContext.Default.RecurringJobSchedule),
+				schedule.IsCodeDefined ? 1 : 0,
+				schedule.IsPaused ? 1 : 0,
+				Ticks(schedule.NextRunAt),
+				NullableTicks(schedule.LastRunAt),
+				schedule.Name,
+				Score(schedule.NextRunAt),
+				RecurringDueMember(schedule.NextRunAt, schedule.Name),
+				schedule.Cron,
+				schedule.TimeZone,
+			],
+			cancellationToken
+		);
+		if (result < 0)
+			throw new ImmediateJobException("Code-defined recurring schedules cannot be replaced by dynamic schedules.");
 	}
 
 	/// <inheritdoc />
@@ -168,57 +170,6 @@ internal sealed partial class RedisJobStorage
 		return result == 1;
 	}
 
-	private async ValueTask UpsertRecurringAsync(
-		RecurringJobSchedule schedule,
-		bool preserveUnchangedNextRun,
-		CancellationToken cancellationToken
-	)
-	{
-		cancellationToken.ThrowIfCancellationRequested();
-		await TaskScheduler.Yield();
-
-		var result = await EvaluateInt64Async(
-			RedisScripts.UpsertRecurring,
-			[RecurringKey(schedule.Name), RecurringNamesKey, RecurringDueKey],
-			[
-				JsonSerializer.Serialize(schedule, RedisJsonSerializerContext.Default.RecurringJobSchedule),
-				schedule.IsCodeDefined ? 1 : 0,
-				schedule.IsPaused ? 1 : 0,
-				Ticks(schedule.NextRunAt),
-				NullableTicks(schedule.LastRunAt),
-				schedule.Name,
-				Score(schedule.NextRunAt),
-				RecurringDueMember(schedule.NextRunAt, schedule.Name),
-				schedule.Cron,
-				schedule.TimeZone,
-				preserveUnchangedNextRun ? 1 : 0,
-			],
-			cancellationToken
-		);
-		if (result < 0)
-			throw new ImmediateJobException("Code-defined recurring schedules cannot be replaced by dynamic schedules.");
-	}
-
-	private async ValueTask RemoveObsoleteCodeDefinedRecurringAsync(
-		List<string> activeScheduleNames,
-		CancellationToken cancellationToken = default
-	)
-	{
-		var values = new RedisValue[activeScheduleNames.Count + 1];
-		values[0] = _root;
-
-		var index = 1;
-		foreach (var name in activeScheduleNames)
-			values[index++] = name;
-
-		_ = await EvaluateInt64Async(
-			RedisScripts.RemoveObsoleteRecurring,
-			[RecurringNamesKey, RecurringDueKey],
-			values,
-			cancellationToken
-		);
-	}
-
 	private async ValueTask SetRecurringPausedAsync(
 		string name,
 		bool isPaused,
@@ -327,14 +278,6 @@ internal sealed partial class RedisJobStorage
 	}
 
 	private static string RecurringDueMember(DateTimeOffset nextRunAt, string name) => $"{Ticks(nextRunAt)}|{name}";
-
-	[LoggerMessage(
-		EventId = LibraryEventIds.MergeRecurringSchedulesListAsyncCalled,
-		EventName = "Immediate.Jobs.Redis.MergeRecurringSchedulesListAsyncCalled",
-		Level = LogLevel.Debug,
-		Message = "MergeRecurringSchedulesListAsync called"
-	)]
-	private partial void MergeRecurringSchedulesListAsyncCalled();
 
 	[LoggerMessage(
 		EventId = LibraryEventIds.UpsertRecurringAsyncCalled,

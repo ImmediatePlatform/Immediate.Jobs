@@ -201,11 +201,6 @@ public sealed class StorageCapabilityTests
 			CancellationToken cancellationToken = default
 		) => _inner.TryTriggerAsync(jobHandle, expectedJobName, dueAt, cancellationToken);
 
-		public ValueTask MergeRecurringSchedulesListAsync(
-			IReadOnlyList<RecurringJobSchedule> schedules,
-			CancellationToken cancellationToken = default
-		) => _inner.MergeRecurringSchedulesListAsync(schedules, cancellationToken);
-
 		public ValueTask UpsertRecurringAsync(RecurringJobSchedule schedule, CancellationToken cancellationToken = default) =>
 			_inner.UpsertRecurringAsync(schedule, cancellationToken);
 

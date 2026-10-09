@@ -1,4 +1,4 @@
-using System.Data.Common;
+using System.Data;
 using System.Text.Json;
 using Immediate.Jobs.Shared.Apis;
 using Immediate.Jobs.Shared.Storage;
@@ -18,13 +18,9 @@ internal sealed partial class LinqToDBJobStorage<T>
 		MergeJobDefinitionsListAsyncCalled();
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
-		_ = JobDefinitionReconciliation.Create(registration, [], []);
-		await EnsureDefinitionCatalogAsync(cancellationToken);
+		JobDefinitionReconciliation.Create(registration, [], []);
 		await RetryConcurrencyAsync(async connection =>
 		{
-			var stamp = Guid.NewGuid();
-			_ = await DefinitionCatalog(connection).Where(item => item.Id == 1)
-				.Set(item => item.ConcurrencyStamp, stamp).UpdateAsync(cancellationToken);
 			var definitions = await Definitions(connection)
 				.ToDictionaryAsync(static item => item.Name, StringComparer.OrdinalIgnoreCase, cancellationToken);
 			var schedules = await Recurring(connection)
@@ -32,31 +28,9 @@ internal sealed partial class LinqToDBJobStorage<T>
 			var changes = JobDefinitionReconciliation.Create(registration,
 				definitions.Values.Select(static item => JsonSerializer.Deserialize(item.Metadata, LinqToDBJsonSerializerContext.Default.JobDefinitionRecord)!).ToList(),
 				schedules.Values.Select(ToRecord).ToList());
-			foreach (var name in changes.RemovedDefinitionNames)
-				_ = await Definitions(connection).Where(item => item.Name == name).DeleteAsync(cancellationToken);
-			foreach (var definition in changes.Definitions)
-			{
-				var metadata = JsonSerializer.Serialize(definition, LinqToDBJsonSerializerContext.Default.JobDefinitionRecord);
-				_ = definitions.ContainsKey(definition.Name)
-					? await Definitions(connection).Where(item => item.Name == definition.Name)
-						.Set(item => item.Metadata, metadata).UpdateAsync(cancellationToken)
-					: await InsertAsync(connection, new ImmediateJobDefinitionMetadataEntity { Name = definition.Name, Metadata = metadata }, cancellationToken);
-			}
-
-			foreach (var name in changes.RemovedScheduleNames)
-				_ = await Recurring(connection).Where(item => item.Name == name).DeleteAsync(cancellationToken);
-			foreach (var schedule in changes.Schedules)
-			{
-				var entity = ToEntity(schedule);
-				if (schedules.TryGetValue(schedule.Name, out var current))
-				{
-					if (!await UpdateRecurringAsync(connection, entity, current.ConcurrencyStamp, cancellationToken))
-						throw new LostRaceException();
-				}
-				else
-					_ = await InsertAsync(connection, entity, cancellationToken);
-			}
-		}, cancellationToken);
+			await MergeDefinitionMetadataAsync(connection, changes, cancellationToken);
+			await MergeRecurringDefinitionsAsync(connection, changes, cancellationToken);
+		}, cancellationToken, isolationLevel: IsolationLevel.Serializable);
 	}
 
 	/// <inheritdoc />
@@ -71,21 +45,72 @@ internal sealed partial class LinqToDBJobStorage<T>
 			.OrderBy(static definition => definition.Name, StringComparer.OrdinalIgnoreCase)];
 	}
 
-	private async Task EnsureDefinitionCatalogAsync(CancellationToken cancellationToken)
+	private async Task MergeDefinitionMetadataAsync(
+		DataConnection connection,
+		JobDefinitionReconciliation changes,
+		CancellationToken cancellationToken
+	)
 	{
-		await using var scope = contextScope.GetScope(out var connection);
-		if (await DefinitionCatalog(connection).AnyAsync(item => item.Id == 1, cancellationToken))
+		var source = changes.Definitions.Select(static definition => new
+		{
+			definition.Name,
+			Metadata = JsonSerializer.Serialize(definition, LinqToDBJsonSerializerContext.Default.JobDefinitionRecord),
+			Remove = false,
+		}).Concat(changes.RemovedDefinitionNames.Select(static name => new { Name = name, Metadata = "", Remove = true })).ToList();
+		if (source.Count == 0)
 			return;
-		try
+
+		// SQLite has no SQL MERGE. Keep its upserts and deletes in the same serializable transaction.
+		if (connection.DataProvider.Name.Contains("SQLite", StringComparison.OrdinalIgnoreCase))
 		{
-			_ = await InsertAsync(connection, new ImmediateJobDefinitionCatalogEntity { Id = 1, ConcurrencyStamp = Guid.NewGuid() }, cancellationToken);
+			await Definitions(connection).Where(item => item.Name.In(changes.RemovedDefinitionNames)).DeleteAsync(cancellationToken);
+			foreach (var item in source.Where(static item => !item.Remove))
+				await connection.InsertOrReplaceAsync(
+					new ImmediateJobDefinitionMetadataEntity { Name = item.Name, Metadata = item.Metadata },
+					schemaName: _schema,
+					token: cancellationToken
+				);
+			return;
 		}
-		catch (DbException)
+
+		await Definitions(connection).Merge()
+			.Using(source)
+			.On(static (target, item) => target.Name == item.Name)
+			.DeleteWhenMatchedAnd(static (target, item) => item.Remove)
+			.UpdateWhenMatched(static (target, item) => new ImmediateJobDefinitionMetadataEntity { Metadata = item.Metadata })
+			.InsertWhenNotMatchedAnd(static item => !item.Remove,
+				static item => new ImmediateJobDefinitionMetadataEntity { Name = item.Name, Metadata = item.Metadata })
+			.MergeAsync(cancellationToken);
+	}
+
+	private async Task MergeRecurringDefinitionsAsync(
+		DataConnection connection,
+		JobDefinitionReconciliation changes,
+		CancellationToken cancellationToken
+	)
+	{
+		// Only code-defined schedules are upserted. Non-code-defined source rows mark obsolete names for deletion.
+		var source = changes.Schedules.Select(ToEntity)
+			.Concat(changes.RemovedScheduleNames.Select(static name => new ImmediateRecurringJobEntity { Name = name }))
+			.ToList();
+		if (source.Count == 0)
+			return;
+
+		if (connection.DataProvider.Name.Contains("SQLite", StringComparison.OrdinalIgnoreCase))
 		{
-			await using var verificationScope = contextScope.GetScope(out var verification);
-			if (!await DefinitionCatalog(verification).AnyAsync(item => item.Id == 1, cancellationToken))
-				throw;
+			await Recurring(connection).Where(item => item.Name.In(changes.RemovedScheduleNames)).DeleteAsync(cancellationToken);
+			foreach (var item in source.Where(static item => item.IsCodeDefined))
+				await connection.InsertOrReplaceAsync(item, schemaName: _schema, token: cancellationToken);
+			return;
 		}
+
+		await Recurring(connection).Merge()
+			.Using(source)
+			.OnTargetKey()
+			.DeleteWhenMatchedAnd(static (target, item) => !item.IsCodeDefined)
+			.UpdateWhenMatched()
+			.InsertWhenNotMatchedAnd(static item => item.IsCodeDefined)
+			.MergeAsync(cancellationToken);
 	}
 
 	[LoggerMessage(

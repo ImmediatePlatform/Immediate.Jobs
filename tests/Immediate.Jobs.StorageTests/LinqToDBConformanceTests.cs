@@ -131,7 +131,6 @@ file sealed class RelationalConformanceFixture(
 		"immediate_recurring_jobs",
 		"immediate_job_servers",
 		"immediate_job_definition_metadata",
-		"immediate_job_definition_catalog",
 	];
 
 	internal IServiceProvider Services => services;

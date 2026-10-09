@@ -444,31 +444,10 @@ public interface IJobStorage : IAsyncDisposable
 	/// <param name="cancellationToken">
 	/// 	A token that can cancel the storage operation.
 	/// </param>
-	/// <returns><see langword="true"/> when the provider is reachable; otherwise, <see langword="false"/>.
+	/// <returns>
+	/// 	<see langword="true"/> when the provider is reachable; otherwise, <see langword="false"/>.
 	/// </returns>
 	ValueTask<bool> IsHealthyAsync(CancellationToken cancellationToken = default);
-
-	/// <summary>
-	///     Resets the list of code-defined recurring job schedules to the provided list.
-	/// </summary>
-	/// <param name="schedules">
-	///     The complete list of code-defined recurring job schedules.
-	/// </param>
-	/// <param name="cancellationToken">
-	///     A token that can cancel the storage operation.
-	/// </param>
-	/// <returns>
-	///     A value task that represents the asynchronous merge.
-	/// </returns>
-	/// <remarks>
-	///	    This method should be called exactly once per app start, after <see
-	///	    cref="IJobStorage.InitializeAsync(CancellationToken)"/> to reset the list of code-defined cron jobs to the
-	///	    currently compiled list.
-	/// </remarks>
-	ValueTask MergeRecurringSchedulesListAsync(
-		IReadOnlyList<RecurringJobSchedule> schedules,
-		CancellationToken cancellationToken = default
-	);
 
 	/// <summary>
 	/// 	Creates or updates a recurring schedule.

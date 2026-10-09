@@ -13,7 +13,7 @@ internal sealed partial class RedisJobStorage
 		MergeJobDefinitionsListAsyncCalled();
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
-		_ = JobDefinitionReconciliation.Create(registration, [], []);
+		JobDefinitionReconciliation.Create(registration, [], []);
 		while (true)
 		{
 			cancellationToken.ThrowIfCancellationRequested();

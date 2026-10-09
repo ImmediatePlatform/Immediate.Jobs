@@ -20,8 +20,7 @@ A `RecurringJobSchedule` has a unique `Name`, the `JobName` it materializes, a `
 At startup `JobSchedulingService.InitializeAsync` submits all definitions and their code-defined schedules
 through `MergeJobDefinitionsListAsync`. Storage atomically reconciles the catalogue, removing code-defined schedules when a definition disappears or loses its cron expression. It preserves
 dynamic schedules. Unchanged cron/time zone retains the next occurrence; updates
-preserve the pause state and last occurrence. The older `MergeRecurringSchedulesListAsync` operation
-still performs an explicit global replacement and is not used by application startup.
+preserve the pause state and last occurrence.
 
 ## Materialization
 

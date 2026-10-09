@@ -20,7 +20,6 @@ internal static class LibraryEventIds
 	public const int PurgeJobsAsyncCalled = 11715;
 	public const int HeartbeatAsyncCalled = 11716;
 	public const int IsHealthyAsyncCalled = 11717;
-	public const int MergeRecurringSchedulesListAsyncCalled = 11718;
 	public const int UpsertRecurringAsyncCalled = 11719;
 	public const int RemoveRecurringAsyncCalled = 11720;
 	public const int PauseRecurringAsyncCalled = 11721;

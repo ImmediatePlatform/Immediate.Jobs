@@ -212,12 +212,3 @@ internal sealed class ImmediateJobDefinitionMetadataEntity
 	[Column(DataType = DataType.Text, CanBeNull = false)]
 	public string Metadata { get; set; } = null!;
 }
-
-[Table(Name = "immediate_job_definition_catalog")]
-internal sealed class ImmediateJobDefinitionCatalogEntity
-{
-	[PrimaryKey, Column]
-	public int Id { get; set; }
-	[Column]
-	public Guid ConcurrencyStamp { get; set; }
-}

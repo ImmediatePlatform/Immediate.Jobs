@@ -21,7 +21,9 @@ public static class JobStorageConformanceSuite
 	/// 	Whether to include the cases for <see cref="IJobGraphStorage.AcquireJobsAsync"/>, which only providers that
 	/// 	can act as a single-server durable store implement. Requires <see cref="StorageCapabilities.Graph"/>.
 	/// </param>
-	/// <returns>Individually discoverable conformance test cases.</returns>
+	/// <returns>
+	/// 	Individually discoverable conformance test cases.
+	/// </returns>
 	public static IReadOnlyList<JobStorageConformanceTestCase> GetCases(
 		StorageCapabilities capabilities,
 		bool includeSingleServerReplicaCases = false

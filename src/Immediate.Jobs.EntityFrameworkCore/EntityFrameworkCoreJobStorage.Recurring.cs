@@ -8,61 +8,6 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 	where TContext : DbContext
 {
 	/// <inheritdoc />
-	public async ValueTask MergeRecurringSchedulesListAsync(
-		IReadOnlyList<RecurringJobSchedule> schedules,
-		CancellationToken cancellationToken = default
-	)
-	{
-		MergeRecurringSchedulesListAsyncCalled();
-		cancellationToken.ThrowIfCancellationRequested();
-		await TaskScheduler.Yield();
-		await using var strategyContext = await contextFactory.CreateDbContextAsync(cancellationToken);
-		var strategy = strategyContext.Database.CreateExecutionStrategy();
-		await strategy.ExecuteAsync(async operationCancellationToken =>
-		{
-			await using var context = await contextFactory.CreateDbContextAsync(operationCancellationToken);
-			await using var transaction = await context.Database.BeginTransactionAsync(operationCancellationToken);
-			var existing = await context.Set<ImmediateRecurringJobEntity>()
-				.ToDictionaryAsync(schedule => schedule.Name, StringComparer.Ordinal, operationCancellationToken);
-
-			foreach (var schedule in schedules)
-			{
-				if (!existing.Remove(schedule.Name, out var entity))
-				{
-					_ = context.Add(ToEntity(schedule));
-					continue;
-				}
-
-				entity.NextRunAt =
-					string.Equals(entity.Cron, schedule.Cron, StringComparison.Ordinal)
-					&& string.Equals(entity.TimeZone, schedule.TimeZone, StringComparison.Ordinal)
-					? entity.NextRunAt
-					: schedule.NextRunAt;
-
-				entity.JobName = schedule.JobName;
-				entity.QueueName = schedule.QueueName;
-				entity.Cron = schedule.Cron;
-				entity.TimeZone = schedule.TimeZone;
-				entity.IsCodeDefined = true;
-				entity.ConcurrencyStamp = Guid.NewGuid();
-			}
-
-			if (existing.Count != 0)
-			{
-				var toRemove = existing
-					.Where(kvp => kvp.Value.IsCodeDefined)
-					.Select(kvp => kvp.Value)
-					.ToList();
-
-				context.RemoveRange(toRemove);
-			}
-
-			await context.SaveChangesAsync(operationCancellationToken);
-			await transaction.CommitAsync(operationCancellationToken);
-		}, cancellationToken);
-	}
-
-	/// <inheritdoc />
 	public async ValueTask UpsertRecurringAsync(RecurringJobSchedule schedule, CancellationToken cancellationToken = default)
 	{
 		UpsertRecurringAsyncCalled(schedule.Name);
@@ -314,14 +259,6 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 			throw new ImmediateJobException("Code-defined recurring schedules cannot be replaced by dynamic schedules.");
 		}
 	}
-
-	[LoggerMessage(
-		EventId = LibraryEventIds.MergeRecurringSchedulesListAsyncCalled,
-		EventName = "Immediate.Jobs.EntityFrameworkCore.MergeRecurringSchedulesListAsyncCalled",
-		Level = LogLevel.Debug,
-		Message = "MergeRecurringSchedulesListAsync called"
-	)]
-	private partial void MergeRecurringSchedulesListAsyncCalled();
 
 	[LoggerMessage(
 		EventId = LibraryEventIds.UpsertRecurringAsyncCalled,

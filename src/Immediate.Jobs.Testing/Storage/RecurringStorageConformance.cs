@@ -114,16 +114,30 @@ internal static class RecurringStorageConformance
 		var persistedAt = new DateTimeOffset(2026, 8, 8, 10, 0, 0, TimeSpan.Zero);
 		var updatedDefinition = Schedule("merge-update", now.AddHours(4), isCodeDefined: true) with
 		{
-			JobName = "merge-updated-job",
+			JobName = "merge-update",
 			QueueName = "merge-updated-queue",
 			Cron = "30 * * * *",
 			TimeZone = "Europe/Vienna",
 		};
-		var insertedDefinition = Schedule("merge-insert", now.AddHours(5), isCodeDefined: true);
-		var upgradeToStatic = Schedule("merge-dynamic-to-static", now.AddHours(3), isCodeDefined: true);
-		var preserve = Schedule("preserve-next-run", persistedAt.AddHours(12), isCodeDefined: true);
+		var insertedDefinition = Schedule("merge-insert", now.AddHours(5), isCodeDefined: true) with { JobName = "merge-insert" };
+		var upgradeToStatic = Schedule("merge-dynamic-to-static", now.AddHours(3), isCodeDefined: true) with { JobName = "merge-dynamic-to-static" };
+		var preserve = Schedule("preserve-next-run", persistedAt.AddHours(12), isCodeDefined: true) with { JobName = "preserve-next-run" };
 
-		await storage.MergeRecurringSchedulesListAsync([updatedDefinition, insertedDefinition, upgradeToStatic, preserve], cancellationToken);
+		var supplied = new[] { updatedDefinition, insertedDefinition, upgradeToStatic, preserve };
+		await storage.MergeJobDefinitionsListAsync(
+			new()
+			{
+				Definitions = supplied.Select(static schedule => new JobDefinitionRecord
+				{
+					Name = schedule.JobName,
+					QueueName = schedule.QueueName,
+					Cron = schedule.Cron,
+					TimeZone = schedule.TimeZone,
+				}).ToList(),
+				RecurringSchedules = supplied,
+			},
+			cancellationToken
+		);
 
 		var schedules = (await storage.GetMonitoringSnapshotAsync(cancellationToken)).Recurring;
 		var updated = schedules.Single(schedule => string.Equals(schedule.Name, "merge-update", StringComparison.Ordinal));

@@ -8,6 +8,10 @@ LinqToDB storage for [Immediate.Jobs](https://www.nuget.org/packages/Immediate.J
 SQLite, and SQL Server. The adapter supports durable jobs, recurring schedules, batches, continuations, execution
 history, multiple worker processes, and fair queues between tenant groups.
 
+PostgreSQL storage requires PostgreSQL 15 or later. Definition reconciliation uses SQL `MERGE`;
+configure LinqToDB with a PostgreSQL 15+ dialect. The adapter assumes this requirement is met and
+does not validate the PostgreSQL version at runtime.
+
 ## Installation
 
 Install the core scheduler, this adapter, and the ADO.NET driver for your database:

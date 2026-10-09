@@ -45,8 +45,11 @@ provider conventions can pass `definitionNameCollation` to `AddImmediateJobs`.
 Definition names must not have leading or trailing whitespace: the job analyzer reports `IJOB0008`,
 and storage rejects invalid manually supplied names before modifying the catalogue.
 
-Concurrent startup snapshots commit atomically. In-memory uses its gate; relational providers take
-an early write lock on a singleton catalogue row; Redis compares a version and applies metadata and
+Concurrent startup snapshots commit atomically. In-memory uses its gate; EF Core takes an early write
+lock on a singleton catalogue row. LinqToDB uses a serializable transaction and one SQL `MERGE` per
+table on SQL Server and PostgreSQL 15 or later. SQLite uses transactional upserts and deletes because
+it does not support SQL `MERGE`. Serialization conflicts retry the complete LinqToDB snapshot.
+Redis compares a version and applies metadata and
 schedule changes in one Lua script, recomputing after a competing startup. Single-server delegates
 metadata reads and reconciliation to durable storage, then refreshes the primary's code-defined
 schedules. Pause and unchanged schedule progress survive startup.
@@ -54,8 +57,9 @@ schedules. Pause and unchanged schedule progress survive startup.
 Each application's list is authoritative for the catalogue. Concurrent applications with inconsistent
 lists can remove or replace each other's definitions; the last successful reconciliation wins.
 
-Custom providers must implement the catalogue operations. Relational users must add the two catalogue tables through their normal
-schema update process; the bootstrap helpers do not upgrade existing production databases.
+Custom providers must implement the catalogue operations. Relational users must add the definition metadata table
+through their normal schema update process; EF Core also requires the singleton catalogue table. The
+bootstrap helpers do not upgrade existing production databases.
 
 ## Providers
 
@@ -78,8 +82,8 @@ back a job transition.
 
 Tables: `immediate_jobs`, `immediate_job_executions`, `immediate_job_continuations`,
 `immediate_job_batches`, `immediate_recurring_jobs`, `immediate_job_servers`, and
-`immediate_fair_queue_groups`, `immediate_job_definition_metadata`, and
-`immediate_job_definition_catalog`.
+`immediate_fair_queue_groups`, and `immediate_job_definition_metadata`. EF Core also uses
+`immediate_job_definition_catalog` to serialize catalogue updates.
 
 - **EF Core**: applications call `modelBuilder.AddImmediateJobs()` and own their migrations. A schema
   change is a breaking change for every EF Core user, and needs a migration note in the pull request.

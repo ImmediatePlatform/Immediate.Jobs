@@ -1,9 +1,11 @@
+using System.Data;
 using System.Data.Common;
 using Immediate.Jobs.Shared.Apis;
 using Immediate.Jobs.Shared.Storage;
 using LinqToDB;
 using LinqToDB.Async;
 using LinqToDB.Data;
+using LinqToDB.DataProvider.SqlServer;
 
 namespace Immediate.Jobs.LinqToDB;
 
@@ -107,7 +109,8 @@ internal sealed partial class LinqToDBJobStorage<T>
 	private async ValueTask RetryConcurrencyAsync(
 		Func<T, Task> operation,
 		CancellationToken cancellationToken,
-		int maxAttempts = MaxConcurrencyAttempts
+		int maxAttempts = MaxConcurrencyAttempts,
+		IsolationLevel isolationLevel = IsolationLevel.Unspecified
 	)
 	{
 		var concurrencyAttempt = 0;
@@ -115,7 +118,10 @@ internal sealed partial class LinqToDBJobStorage<T>
 		{
 			await using var scope = contextScope.GetScope(out var connection);
 
-			_ = await connection.BeginTransactionAsync(cancellationToken);
+			if (isolationLevel == IsolationLevel.Unspecified)
+				await connection.BeginTransactionAsync(cancellationToken);
+			else
+				await connection.BeginTransactionAsync(isolationLevel, cancellationToken);
 			try
 			{
 				await operation(connection);
@@ -135,6 +141,18 @@ internal sealed partial class LinqToDBJobStorage<T>
 			catch (LostRaceException) when (++concurrencyAttempt < maxAttempts)
 			{
 				await connection.RollbackTransactionAsync(cancellationToken);
+				await DelayConcurrencyRetryAsync(cancellationToken);
+			}
+			catch (DbException exception) when (
+				isolationLevel == IsolationLevel.Serializable
+				&& (exception.SqlState is "40001" or "40P01" || SqlServerTransientExceptionDetector.ShouldRetryOn(exception))
+				&& ++concurrencyAttempt < maxAttempts
+			)
+			{
+				// A failed serializable commit may already have completed the underlying transaction.
+				if (connection.Transaction?.Connection is not null)
+					await connection.RollbackTransactionAsync(cancellationToken);
+				// Serializable catalogues can deadlock or fail validation; retry the entire snapshot.
 				await DelayConcurrencyRetryAsync(cancellationToken);
 			}
 			catch (SyntheticExecutionInsertFailedException exception)
@@ -160,7 +178,8 @@ internal sealed partial class LinqToDBJobStorage<T>
 			}
 			catch
 			{
-				await connection.RollbackTransactionAsync(cancellationToken);
+				if (connection.Transaction?.Connection is not null)
+					await connection.RollbackTransactionAsync(cancellationToken);
 				throw;
 			}
 		}

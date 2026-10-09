@@ -38,7 +38,7 @@ internal static class DefinitionCatalogStorageConformance
 		ConformanceAssert.True(definitions.All(static definition => definition.MaxAttempts == 9), CaseNameCase, "updates must reach case-insensitive identities");
 		ConformanceAssert.SequenceEqual(original.Select(static definition => definition.Name).Order(StringComparer.OrdinalIgnoreCase),
 			definitions.Select(static definition => definition.Name), CaseNameCase, "registration aliases must preserve the original stored spelling");
-		_ = await ConformanceAssert.ThrowsAsync<ArgumentException>(() => storage.MergeJobDefinitionsListAsync(Registration([Definition("Invoice"), Definition("invoice")]), token),
+		await ConformanceAssert.ThrowsAsync<ArgumentException>(() => storage.MergeJobDefinitionsListAsync(Registration([Definition("Invoice"), Definition("invoice")]), token),
 			CaseNameCase, "one catalogue cannot contain duplicate names that differ only by case");
 		await storage.MergeJobDefinitionsListAsync(Registration([]), token);
 		ConformanceAssert.Equal(0, (await storage.GetJobDefinitionsAsync(token)).Count, CaseNameCase, "an empty catalogue must remove aliases as one identity");
@@ -99,27 +99,47 @@ internal static class DefinitionCatalogStorageConformance
 
 	private static async ValueTask ReconcilesConcurrentlyAsync(IJobStorage storage, FakeTimeProvider timeProvider, CancellationToken token)
 	{
-		await Task.WhenAll(
-			storage.MergeJobDefinitionsListAsync(Registration([Definition("a"), Definition("b")]), token).AsTask(),
-			storage.MergeJobDefinitionsListAsync(Registration([Definition("c"), Definition("d")]), token).AsTask());
-		var names = (await storage.GetJobDefinitionsAsync(token)).Select(static item => item.Name).ToList();
-		ConformanceAssert.True(names.SequenceEqual(["a", "b"], StringComparer.Ordinal) || names.SequenceEqual(["c", "d"], StringComparer.Ordinal), ConcurrentCase, "concurrent startup snapshots must commit whole lists without mixed results");
+		var firstCron = Definition("a") with { Cron = "* * * * *" };
+		var secondCron = Definition("c") with { Cron = "15 * * * *" };
+		var first = new JobDefinitionRegistration
+		{
+			Definitions = [firstCron, Definition("b"), Definition("shared")],
+			RecurringSchedules = [Schedule(firstCron, timeProvider.GetUtcNow())],
+		};
+		var second = new JobDefinitionRegistration
+		{
+			Definitions = [secondCron, Definition("d"), Definition("shared")],
+			RecurringSchedules = [Schedule(secondCron, timeProvider.GetUtcNow())],
+		};
+		for (var round = 0; round < 5; round++)
+		{
+			await Task.WhenAll(
+				storage.MergeJobDefinitionsListAsync(first, token).AsTask(),
+				storage.MergeJobDefinitionsListAsync(second, token).AsTask(),
+				storage.MergeJobDefinitionsListAsync(Registration([]), token).AsTask());
+			var names = (await storage.GetJobDefinitionsAsync(token)).Select(static item => item.Name).ToList();
+			ConformanceAssert.True(names.Count == 0 || names.SequenceEqual(["a", "b", "shared"], StringComparer.Ordinal) || names.SequenceEqual(["c", "d", "shared"], StringComparer.Ordinal),
+				ConcurrentCase, "concurrent startup snapshots, including empty lists, must commit whole catalogues without mixed results");
+			var schedules = (await storage.GetMonitoringSnapshotAsync(token)).Recurring;
+			ConformanceAssert.SequenceEqual(names.Where(static name => name is "a" or "c"), schedules.Select(static schedule => schedule.JobName),
+				ConcurrentCase, "definitions and their code-defined schedules must commit together");
+		}
 	}
 
 	private static async ValueTask RejectsInvalidAsync(IJobStorage storage, FakeTimeProvider timeProvider, CancellationToken token)
 	{
 		await storage.MergeJobDefinitionsListAsync(Registration([Definition("original")]), token);
 		var invalid = Registration([Definition("missing-schedule") with { Cron = "* * * * *" }]);
-		_ = await ConformanceAssert.ThrowsAsync<ArgumentException>(() => storage.MergeJobDefinitionsListAsync(invalid, token), InvalidCase, "invalid catalogues must be rejected before mutation");
+		await ConformanceAssert.ThrowsAsync<ArgumentException>(() => storage.MergeJobDefinitionsListAsync(invalid, token), InvalidCase, "invalid catalogues must be rejected before mutation");
 		foreach (var name in new[] { " original", "original ", "\toriginal", "original\n", "\u00a0original", "original\u00a0" })
 		{
-			_ = await ConformanceAssert.ThrowsAsync<ArgumentException>(() => storage.MergeJobDefinitionsListAsync(Registration([Definition(name)]), token),
+			await ConformanceAssert.ThrowsAsync<ArgumentException>(() => storage.MergeJobDefinitionsListAsync(Registration([Definition(name)]), token),
 				InvalidCase, "names with leading or trailing whitespace must be rejected before mutation");
 		}
 
 		using var cancellation = new CancellationTokenSource();
 		await cancellation.CancelAsync();
-		_ = await ConformanceAssert.ThrowsAsync<OperationCanceledException>(() => storage.MergeJobDefinitionsListAsync(Registration([]), cancellation.Token), InvalidCase, "cancelled startup must not delete metadata");
+		await ConformanceAssert.ThrowsAsync<OperationCanceledException>(() => storage.MergeJobDefinitionsListAsync(Registration([]), cancellation.Token), InvalidCase, "cancelled startup must not delete metadata");
 		ConformanceAssert.SequenceEqual(["original"], (await storage.GetJobDefinitionsAsync(token)).Select(static item => item.Name), InvalidCase, "rejected calls must preserve the complete previous catalogue");
 	}
 }
