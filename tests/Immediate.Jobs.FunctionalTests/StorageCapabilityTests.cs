@@ -218,6 +218,12 @@ public sealed class StorageCapabilityTests
 		public ValueTask ResumeRecurringAsync(string name, CancellationToken cancellationToken = default) =>
 			_inner.ResumeRecurringAsync(name, cancellationToken);
 
+		public ValueTask MergeJobDefinitionsListAsync(JobDefinitionRegistration registration, CancellationToken cancellationToken = default) =>
+			_inner.MergeJobDefinitionsListAsync(registration, cancellationToken);
+
+		public ValueTask<IReadOnlyList<JobDefinitionRecord>> GetJobDefinitionsAsync(CancellationToken cancellationToken = default) =>
+			_inner.GetJobDefinitionsAsync(cancellationToken);
+
 		public ValueTask<IReadOnlyList<RecurringJobSchedule>> GetDueRecurringAsync(
 			DateTimeOffset now,
 			int batchSize,

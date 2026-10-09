@@ -44,7 +44,7 @@ public sealed partial class JobSchedulingService : BackgroundService
 	> _queuesByPriority;
 
 	private readonly ConcurrentDictionary<string, int> _queueReservations = new(StringComparer.Ordinal);
-	private readonly ConcurrentDictionary<string, int> _jobReservations = new(StringComparer.Ordinal);
+	private readonly ConcurrentDictionary<string, int> _jobReservations = new(StringComparer.OrdinalIgnoreCase);
 	private readonly ConcurrentDictionary<JobHandle, OpenLease> _openLeases = [];
 	private readonly CancellationTokenSource _workerCancellation = new();
 	private readonly string _workerId = string.Create(CultureInfo.InvariantCulture, $"{Environment.MachineName}:{Environment.ProcessId}:{DateTimeOffset.UtcNow.Ticks}");
@@ -112,9 +112,9 @@ public sealed partial class JobSchedulingService : BackgroundService
 
 #pragma warning disable CA1851 // `definitions` is backed by a list
 		_definitions = definitions
-			.ToDictionary(x => x.Name, StringComparer.Ordinal);
+			.ToDictionary(x => x.Name, StringComparer.OrdinalIgnoreCase);
 
-		_queuesByPriority = definitions
+		_queuesByPriority = _definitions.Values
 			.GroupBy(d => d.Queue)
 			.GroupBy(
 				g => g.Key.Priority,
@@ -257,8 +257,27 @@ public sealed partial class JobSchedulingService : BackgroundService
 			})
 			.ToList();
 
-		await _storage.MergeRecurringSchedulesListAsync(
-			schedules,
+		await _storage.MergeJobDefinitionsListAsync(
+			new()
+			{
+				Definitions = _definitions.Values.Select(static definition => new JobDefinitionRecord
+				{
+					Name = definition.Name,
+					QueueName = definition.Queue.Name,
+					QueuePriority = definition.Queue.Priority,
+					QueueConcurrency = definition.Queue.Concurrency,
+					Cron = definition.Cron,
+					TimeZone = definition.TimeZone,
+					MaxAttempts = definition.MaxAttempts,
+					Timeout = definition.Timeout,
+					MaxConcurrency = definition.MaxConcurrency,
+					OverlapPolicy = definition.OverlapPolicy,
+					MisfireHandlingMode = definition.MisfireHandlingMode,
+					Backoff = definition.Backoff,
+					BackoffBase = definition.BackoffBase,
+				}).ToList(),
+				RecurringSchedules = schedules,
+			},
 			cancellationToken
 		);
 	}
@@ -663,7 +682,7 @@ public sealed partial class JobSchedulingService : BackgroundService
 						Capacity = GetJobAcquisitionCapacity(definition, capacity),
 					})
 					.Where(item => item.Capacity > 0)
-					.ToDictionary(item => item.Name, item => item.Capacity, StringComparer.Ordinal);
+					.ToDictionary(item => item.Name, item => item.Capacity, StringComparer.OrdinalIgnoreCase);
 
 				if (jobCapacities.Count == 0)
 					continue;

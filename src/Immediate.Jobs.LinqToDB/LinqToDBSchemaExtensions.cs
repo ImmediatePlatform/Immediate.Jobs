@@ -30,6 +30,8 @@ public static class LinqToDBSchemaExtensions
 		if (schema is not null)
 			await CreateSchemaAsync(context, provider, schema, cancellationToken);
 
+		await CreateDefinitionMetadataTableAsync(context, provider, schema, cancellationToken);
+
 		await context.CreateTableAsync<ImmediateJobBatchEntity>(
 			schemaName: schema,
 			tableOptions: TableOptions.CreateIfNotExists,
@@ -72,6 +74,8 @@ public static class LinqToDBSchemaExtensions
 			token: cancellationToken
 		);
 
+		await context.CreateTableAsync<ImmediateJobDefinitionCatalogEntity>(schemaName: schema, tableOptions: TableOptions.CreateIfNotExists, token: cancellationToken);
+
 		await CreateConstraintsAndDefaultsAsync(context, provider, schema, cancellationToken);
 
 		await CreateIndexesAsync(context, provider, schema, cancellationToken);
@@ -86,6 +90,56 @@ public static class LinqToDBSchemaExtensions
 		{
 			throw new ArgumentException("Schema names may contain only letters, digits, and underscores.", nameof(schema));
 		}
+	}
+
+	private static Task<int> CreateDefinitionMetadataTableAsync(
+		DataConnection connection,
+		string provider,
+		string? schema,
+		CancellationToken cancellationToken
+	)
+	{
+		if (provider.Contains("SqlServer", StringComparison.OrdinalIgnoreCase))
+		{
+			var qualified = schema is null ? "[dbo].[immediate_job_definition_metadata]" : $"[{schema}].[immediate_job_definition_metadata]";
+			return connection.ExecuteAsync($$"""
+				IF OBJECT_ID(N'{{qualified}}', N'U') IS NULL
+					CREATE TABLE {{qualified}} (
+						[Name] nvarchar(256) NOT NULL PRIMARY KEY,
+						[Metadata] nvarchar(max) NOT NULL
+					);
+				""", cancellationToken);
+		}
+
+		if (provider.Contains("PostgreSQL", StringComparison.OrdinalIgnoreCase))
+		{
+			var qualified = schema is null ? "\"immediate_job_definition_metadata\"" : $"\"{schema}\".\"immediate_job_definition_metadata\"";
+			return connection.ExecuteAsync($$"""
+				DO $collation$
+				BEGIN
+					IF NOT EXISTS (SELECT 1 FROM pg_collation WHERE collname = 'immediate_jobs_case_insensitive') THEN
+						CREATE COLLATION "immediate_jobs_case_insensitive" (provider = icu, locale = 'und-u-ks-level2', deterministic = false);
+					END IF;
+				EXCEPTION WHEN duplicate_object THEN NULL;
+				END $collation$;
+				CREATE TABLE IF NOT EXISTS {{qualified}} (
+					"Name" character varying(256) COLLATE "immediate_jobs_case_insensitive" NOT NULL PRIMARY KEY,
+					"Metadata" text NOT NULL
+				);
+				""", cancellationToken);
+		}
+
+		if (provider.Contains("SQLite", StringComparison.OrdinalIgnoreCase))
+		{
+			return connection.ExecuteAsync("""
+				CREATE TABLE IF NOT EXISTS "immediate_job_definition_metadata" (
+					"Name" nvarchar(256) COLLATE NOCASE NOT NULL PRIMARY KEY,
+					"Metadata" text NOT NULL
+				);
+				""", cancellationToken);
+		}
+
+		throw new NotSupportedException($"Immediate.Jobs schema bootstrap does not support provider '{provider}'.");
 	}
 
 	private static Task<int> CreateSchemaAsync(

@@ -36,6 +36,36 @@ public sealed class UnnameableJobsTests
 		_ = await Utility.VerifyIgnoreImmediateHandlers(result);
 	}
 
+	[Theory]
+	[InlineData(" Invoice")]
+	[InlineData("Invoice ")]
+	[InlineData("\tInvoice")]
+	[InlineData("Invoice\n")]
+	[InlineData("\u00a0Invoice")]
+	[InlineData("Invoice\u00a0")]
+	public void ExplicitNameWithLeadingOrTrailingWhitespaceShouldNotGenerate(string name)
+	{
+		var result = GeneratorTestHelper.RunGenerator(
+			$$"""
+			using System.Threading;
+			using System.Threading.Tasks;
+			using Immediate.Handlers.Shared;
+			using Immediate.Jobs.Shared;
+
+			namespace Dummy;
+
+			[Handler, Job(Name = {{Microsoft.CodeAnalysis.CSharp.SymbolDisplay.FormatLiteral(name, quote: true)}})]
+			public sealed partial class NamedJob
+			{
+				private ValueTask HandleAsync(EmptyJobRequest request, CancellationToken token) => ValueTask.CompletedTask;
+			}
+			""",
+			skippedSteps: ["Jobs"]
+		);
+
+		Assert.DoesNotContain(result.GeneratedTrees, tree => tree.FilePath.EndsWith("IJ.Dummy.NamedJob.g.cs", StringComparison.Ordinal));
+	}
+
 	[Fact]
 	public async Task ExplicitNameShouldRescueAnUnderivableClassName()
 	{

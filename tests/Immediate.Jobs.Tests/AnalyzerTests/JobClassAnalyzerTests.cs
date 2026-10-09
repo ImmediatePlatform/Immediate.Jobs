@@ -212,6 +212,51 @@ public sealed class JobClassAnalyzerTests
 			"""
 		).RunAsync(TestContext.Current.CancellationToken);
 
+	[Theory]
+	[InlineData(" Invoice")]
+	[InlineData("Invoice ")]
+	[InlineData("\tInvoice")]
+	[InlineData("Invoice\t")]
+	[InlineData("\nInvoice")]
+	[InlineData("Invoice\r\n")]
+	[InlineData("\u00a0Invoice")]
+	[InlineData("Invoice\u00a0")]
+	public async Task ExplicitNameWithLeadingOrTrailingWhitespaceShouldTrigger(string name) =>
+		await AnalyzerTestHelpers.CreateAnalyzerTest<JobClassAnalyzer>(
+			$$"""
+			using System.Threading;
+			using System.Threading.Tasks;
+			using Immediate.Handlers.Shared;
+			using Immediate.Jobs.Shared;
+
+			[Handler, Job(Name = {{Microsoft.CodeAnalysis.CSharp.SymbolDisplay.FormatLiteral(name, quote: true)}})]
+			public sealed partial class {|IJOB0008:NamedJob|}
+			{
+				private ValueTask HandleAsync(EmptyJobRequest request, CancellationToken token) => ValueTask.CompletedTask;
+			}
+			"""
+		).RunAsync(TestContext.Current.CancellationToken);
+
+	[Theory]
+	[InlineData("Invoice")]
+	[InlineData("invoice")]
+	[InlineData("Invoice Upload")]
+	public async Task ExplicitNameWithoutLeadingOrTrailingWhitespaceShouldNotTrigger(string name) =>
+		await AnalyzerTestHelpers.CreateAnalyzerTest<JobClassAnalyzer>(
+			$$"""
+			using System.Threading;
+			using System.Threading.Tasks;
+			using Immediate.Handlers.Shared;
+			using Immediate.Jobs.Shared;
+
+			[Handler, Job(Name = {{Microsoft.CodeAnalysis.CSharp.SymbolDisplay.FormatLiteral(name, quote: true)}})]
+			public sealed partial class NamedJob
+			{
+				private ValueTask HandleAsync(EmptyJobRequest request, CancellationToken token) => ValueTask.CompletedTask;
+			}
+			"""
+		).RunAsync(TestContext.Current.CancellationToken);
+
 	[Fact]
 	public async Task ExplicitNameShouldRescueAnUnderivableClassName() =>
 		await AnalyzerTestHelpers.CreateAnalyzerTest<JobClassAnalyzer>(

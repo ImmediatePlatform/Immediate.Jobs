@@ -23,7 +23,7 @@ internal sealed partial class RedisJobStorage
 				.WaitAsync(cancellationToken);
 			if (values[0].IsNull)
 				throw new KeyNotFoundException($"Job '{jobHandle}' was not found.");
-			if (!string.Equals(values[2], expectedJobName, StringComparison.Ordinal))
+			if (!string.Equals(values[2], expectedJobName, StringComparison.OrdinalIgnoreCase))
 				throw new ImmediateJobException($"Job '{jobHandle}' is not a '{expectedJobName}' job.");
 			if ((int)values[1] != (int)JobState.WaitingForTrigger)
 				throw new ImmediateJobException($"Job '{jobHandle}' is not waiting for a trigger.");
@@ -58,7 +58,7 @@ internal sealed partial class RedisJobStorage
 		var result = await EvaluateInt64Async(
 			RedisScripts.Trigger,
 			[JobKey(jobHandle)],
-			[expectedJobName, Ticks(dueAt), Score(dueAt), Score(now), _root, jobHandle.Value],
+			[expectedJobName.ToUpperInvariant(), Ticks(dueAt), Score(dueAt), Score(now), _root, jobHandle.Value],
 			cancellationToken
 		);
 		if (result == 0)

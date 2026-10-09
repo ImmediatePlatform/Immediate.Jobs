@@ -118,6 +118,24 @@ public class CapturingJobStorage(TimeProvider timeProvider) :
 	public virtual async ValueTask InitializeAsync(CancellationToken cancellationToken = default) => await _inner.InitializeAsync(cancellationToken);
 
 	/// <inheritdoc />
+	public virtual async ValueTask MergeJobDefinitionsListAsync(JobDefinitionRegistration registration, CancellationToken cancellationToken = default)
+	{
+		ArgumentNullException.ThrowIfNull(registration);
+		await _inner.MergeJobDefinitionsListAsync(registration, cancellationToken);
+		lock (_gate)
+		{
+			foreach (var schedule in registration.RecurringSchedules)
+			{
+				_recurringSchedules[schedule.Name] = schedule;
+			}
+		}
+	}
+
+	/// <inheritdoc />
+	public virtual ValueTask<IReadOnlyList<JobDefinitionRecord>> GetJobDefinitionsAsync(CancellationToken cancellationToken = default) =>
+		_inner.GetJobDefinitionsAsync(cancellationToken);
+
+	/// <inheritdoc />
 	public virtual async ValueTask EnqueueAsync(JobRecord job, CancellationToken cancellationToken = default)
 	{
 		Capture(job);

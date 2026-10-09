@@ -550,6 +550,46 @@ internal static class RedisScripts
 		return 1
 		""";
 
+	internal const string MergeDefinitionCatalog =
+		"""
+		if (redis.call('GET', KEYS[2]) or '0') ~= ARGV[1] then return 0 end
+		local changes = cjson.decode(ARGV[3])
+		for _, name in ipairs(changes.RemovedDefinitions) do redis.call('HDEL', KEYS[1], name) end
+		for _, definition in ipairs(changes.Definitions) do
+			redis.call('HSET', KEYS[1], definition.Name, definition.Metadata)
+		end
+		for _, name in ipairs(changes.RemovedSchedules) do
+			local key = ARGV[2] .. 'recurring:' .. name
+			if redis.call('HGET', key, 'code') == '1' then
+				local dueMember = redis.call('HGET', key, 'dueMember')
+				if dueMember then redis.call('ZREM', KEYS[4], dueMember) end
+				redis.call('DEL', key)
+				redis.call('SREM', KEYS[3], name)
+			end
+		end
+		for _, schedule in ipairs(changes.Schedules) do
+			local key = ARGV[2] .. 'recurring:' .. schedule.Name
+			local paused, last, next = schedule.Paused, schedule.Last, schedule.Next
+			local dueScore, dueMember = schedule.DueScore, schedule.DueMember
+			local current = redis.call('HMGET', key, 'paused', 'last', 'next', 'dueScore', 'dueMember', 'cron', 'timeZone')
+			paused = current[1] or paused
+			last = current[2] or last
+			if current[5] then redis.call('ZREM', KEYS[4], current[5]) end
+			if current[6] == schedule.Cron and current[7] == schedule.TimeZone then
+				next = current[3] or next
+				dueScore = current[4] or dueScore
+				dueMember = current[5] or dueMember
+			end
+			redis.call('HSET', key, 'record', schedule.Record, 'code', '1', 'paused', paused,
+				'next', next, 'last', last, 'dueScore', dueScore, 'dueMember', dueMember,
+				'cron', schedule.Cron, 'timeZone', schedule.TimeZone)
+			redis.call('SADD', KEYS[3], schedule.Name)
+			if paused ~= '1' then redis.call('ZADD', KEYS[4], dueScore, dueMember) end
+		end
+		redis.call('INCR', KEYS[2])
+		return 1
+		""";
+
 	internal const string UpsertRecurring =
 		"""
 		local exists = redis.call('EXISTS', KEYS[1]) == 1
