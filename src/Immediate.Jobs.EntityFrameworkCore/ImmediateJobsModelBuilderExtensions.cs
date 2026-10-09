@@ -1,12 +1,15 @@
 using Immediate.Jobs.Shared.Apis;
 using Immediate.Jobs.Shared.Internals;
+using Immediate.Jobs.Shared.Storage;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.ChangeTracking;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
 namespace Immediate.Jobs.EntityFrameworkCore;
 
-/// <summary>Adds the Immediate.Jobs persistence model to an application DbContext.</summary>
+/// <summary>
+/// 	Adds the Immediate.Jobs persistence model to an application DbContext.
+/// </summary>
 public static class ImmediateJobsModelBuilderExtensions
 {
 	/// <summary>Configures the entities required by the Immediate.Jobs EF Core storage provider.</summary>
@@ -17,6 +20,8 @@ public static class ImmediateJobsModelBuilderExtensions
 	public static ModelBuilder AddImmediateJobs(this ModelBuilder modelBuilder, string? schema = null, string? definitionNameCollation = null)
 	{
 		ArgumentNullException.ThrowIfNull(modelBuilder);
+		ConfigureDefinitions(modelBuilder.Entity<ImmediateJobDefinitionEntity>(), schema);
+		ConfigureAcquisitions(modelBuilder.Entity<ImmediateJobAcquisitionEntity>(), schema);
 		ConfigureBatches(modelBuilder.Entity<ImmediateJobBatchEntity>(), schema);
 		ConfigureJobs(modelBuilder.Entity<ImmediateJobEntity>(), schema);
 		ConfigureExecutions(modelBuilder.Entity<ImmediateJobExecutionEntity>(), schema);
@@ -50,6 +55,31 @@ public static class ImmediateJobsModelBuilderExtensions
 		_ = catalogue.HasKey(item => item.Id);
 		_ = catalogue.Property(item => item.Id).ValueGeneratedNever();
 		return modelBuilder;
+	}
+
+	private static void ConfigureDefinitions(EntityTypeBuilder<ImmediateJobDefinitionEntity> entity, string? schema)
+	{
+		_ = entity.ToTable("immediate_job_definitions", schema);
+		_ = entity.HasKey(item => item.JobName);
+		_ = entity.Property(item => item.JobName).HasMaxLength(256);
+		_ = entity.Property(item => item.AcquisitionStatus).HasConversion<short>();
+		_ = entity.Property(item => item.ConcurrencyStamp).IsConcurrencyToken();
+		_ = entity.Property(item => item.NextEligibleAt).HasConversion(
+			value => value.HasValue ? value.Value.UtcTicks : (long?)null,
+			value => value.HasValue ? new DateTimeOffset(value.Value, TimeSpan.Zero) : null);
+		_ = entity.Property(item => item.FixedWindowStart).HasConversion(
+			value => value.HasValue ? value.Value.UtcTicks : (long?)null,
+			value => value.HasValue ? new DateTimeOffset(value.Value, TimeSpan.Zero) : null);
+	}
+
+	private static void ConfigureAcquisitions(EntityTypeBuilder<ImmediateJobAcquisitionEntity> entity, string? schema)
+	{
+		_ = entity.ToTable("immediate_job_acquisitions", schema);
+		_ = entity.HasKey(item => item.Id);
+		_ = entity.Property(item => item.JobName).HasMaxLength(256);
+		_ = entity.Property(item => item.AcquiredAt).HasConversion(
+			value => value.UtcTicks, value => new DateTimeOffset(value, TimeSpan.Zero));
+		_ = entity.HasIndex(item => new { item.JobName, item.AcquiredAt });
 	}
 
 	private static void ConfigureExecutions(EntityTypeBuilder<ImmediateJobExecutionEntity> entity, string? schema)
@@ -144,6 +174,7 @@ public static class ImmediateJobsModelBuilderExtensions
 			.WithMany()
 			.HasForeignKey(job => job.BatchHandle)
 			.OnDelete(DeleteBehavior.Cascade);
+		_ = entity.HasIndex(job => new { job.JobName, job.State, job.LeaseExpiresAt });
 		_ = entity.HasIndex(job => job.RecurringKey).IsUnique();
 		_ = entity.HasIndex(job => job.BatchHandle);
 		_ = entity.HasIndex(job => new { job.State, job.DueAt });
@@ -348,4 +379,22 @@ internal sealed class ImmediateJobDefinitionCatalogEntity
 {
 	public int Id { get; set; }
 	public Guid ConcurrencyStamp { get; set; }
+}
+
+internal sealed class ImmediateJobDefinitionEntity
+{
+	public string JobName { get; set; } = null!;
+	public bool IsPaused { get; set; }
+	public JobAcquisitionStatus AcquisitionStatus { get; set; }
+	public DateTimeOffset? NextEligibleAt { get; set; }
+	public DateTimeOffset? FixedWindowStart { get; set; }
+	public int FixedWindowCount { get; set; }
+	public Guid ConcurrencyStamp { get; set; }
+}
+
+internal sealed class ImmediateJobAcquisitionEntity
+{
+	public Guid Id { get; set; }
+	public string JobName { get; set; } = null!;
+	public DateTimeOffset AcquiredAt { get; set; }
 }

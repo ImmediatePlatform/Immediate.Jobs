@@ -4,7 +4,7 @@
 
 Two interfaces in `src/Immediate.Jobs.Shared/Storage`:
 
-- **`IJobStorage`**: queueing, acquisition (including fair-queue policies), leases, completion and
+- **`IJobStorage`**: queueing, definition pause/resume and acquisition status, acquisition (including rate limits and fair-queue policies), leases, completion and
   failure, scoped definition catalogues, recurring schedules, wait-for-trigger updates and triggers, queries, monitoring snapshots,
   heartbeats, purging. Every provider implements all of it.
 - **`IJobGraphStorage : IJobStorage`**: batches, continuations, dynamic additions from running jobs,
@@ -84,7 +84,7 @@ remove the queue argument from their base constructor; the scheduler's `QueueNam
 | Provider | Location | Concurrency idiom |
 | --- | --- | --- |
 | In-memory | `Shared/Storage/InMemoryJobStorage.cs` | One `Lock` (`_gate`) around every operation. Also the primary inside single-server mode. |
-| Single-server | `Shared/Storage/SingleServerJobStorage.cs` | Mutations go to the durable store first, then to the in-memory primary. Acquisition is decided by the primary and mirrored with `IJobGraphStorage.AcquireJobsAsync`. Startup recovery reloads every job (in every state), its batches, and standalone continuation edges from the durable store into the primary. |
+| Single-server | `Shared/Storage/SingleServerJobStorage.cs` | Mutations go to the durable store first, then to the in-memory primary. A shared semaphore serializes write-through mutations and acquisitions so durable claims cannot overtake an unfinished mirror update. Acquisition reserves definition controls and claims jobs in durable storage, then mirrors committed ownership into the primary, so pauses and counters survive restarts. Startup recovery reloads every job (in every state), its batches, and standalone continuation edges from the durable store into the primary. |
 | EF Core | `EntityFrameworkCore/EntityFrameworkCoreJobStorage.cs` | `IDbContextFactory<TContext>`. Each mutation is a `...CoreAsync` method that opens a context and transaction, updates tracked entities with a fresh `ConcurrencyStamp`, and runs through `RetryConcurrencyAsync` (optimistic-concurrency retries) or `ExecuteWithStrategyAsync`. |
 | LinqToDB | `LinqToDB/LinqToDBJobStorage.cs` | Explicit compare-and-swap: `UpdateJobAsync(connection, job, oldStamp)` / `UpdateBatchAsync` return `false` on a lost race, and the caller throws `LostRaceException`, which `RetryConcurrencyAsync` retries. |
 | Redis | `Redis/RedisJobStorage.cs`, `Redis/RedisScripts.cs` | Every multi-key mutation is one Lua script, so it is atomic. Implements `IJobStorage` only. |
@@ -100,16 +100,43 @@ back a job transition.
 
 Tables: `immediate_jobs`, `immediate_job_executions`, `immediate_job_continuations`,
 `immediate_job_batches`, `immediate_recurring_jobs`, `immediate_job_servers`, and
-`immediate_fair_queue_groups`, `immediate_job_definition_metadata`, and
-`immediate_job_definition_catalog`.
+`immediate_fair_queue_groups`, `immediate_job_definition_metadata`, `immediate_job_definition_catalog`,
+`immediate_job_definitions`, and `immediate_job_acquisitions`.
 
-- **EF Core**: applications call `modelBuilder.AddImmediateJobs()` and own their migrations. A schema
-  change is a breaking change for every EF Core user, and needs a migration note in the pull request.
-- **LinqToDB**: `CreateImmediateJobsSchemaAsync` creates tables for new databases only; existing
-  databases need a manual additive update.
+- **EF Core**: applications call `modelBuilder.AddImmediateJobs()` to configure the current model.
+- **LinqToDB**: `CreateImmediateJobsSchemaAsync` bootstraps the current tables and indexes.
 
-Prefer changes that fit the existing columns. For example, wait-for-trigger reuses `State` and
-`Payload` instead of adding columns.
+Pre-v1.0 schema changes are applied directly. No migrations, backfills, or compatibility handling for
+prior data are provided; users recreate their storage when its schema no longer matches the code.
+
+### Definition acquisition controls
+
+`JobAcquisitionRequest.JobLimits` carries the parsed attribute limits keyed by job name. Definition metadata persists configured limits for monitoring and management on other servers.
+Acquisition requests carry the worker's parsed limits; operational counters are stored separately. `immediate_job_definitions` stores `IsPaused`, `AcquisitionStatus`,
+`NextEligibleAt`, and fixed-window start/count. Sliding windows use independent acquisition rows
+indexed by job name and timestamp; deleting or purging invocation history must not erase rate capacity.
+New definition timestamps and sliding acquisition timestamps are stored as UTC ticks to preserve
+TimeSpan precision consistently across SQL providers. Concurrency is evaluated against active,
+unexpired invocation leases, indexed by job name/state/expiry.
+
+SQL providers take a write lock on the definition row when claiming a job and hold it through
+claim/counter commit. Advisory acquisition filters and monitoring queries do not insert or update
+definition rows or acquire write locks. In-memory uses its existing gate; Redis evaluates and claims
+inside one Lua script, caching each definition status for the invocation and refreshing it after a claim.
+All enabled limits must pass, including fair-queue paths. Failed claims roll back reservations.
+
+`PauseJobAsync` prevents acquisition while allowing enqueue, trigger release, and recurring
+materialization. `ResumeJobAsync` clears only the pause and reevaluates limits. Both are idempotent.
+`GetJobAcquisitionStateAsync` reevaluates current eligibility using the supplied parsed limits; stored
+status is a snapshot and must never be the sole authority for acquisition. Pause takes precedence over
+rate and concurrency restrictions. Time-based `NextEligibleAt` is the latest blocking window boundary;
+it is absent if pause or concurrency also blocks work. `ActiveCount` counts active, unexpired leases
+even for definitions without a concurrency limit. `IsConcurrencyLimited` reports exhausted concurrency
+independently of the primary restriction, including while paused.
+
+The shared `JobAcquisitionEvaluator`, `JobAcquisitionRequest.LimitsFor`, and
+`JobAcquisitionLimits.FixedWindowStart` are public provider helpers. Custom providers have the same
+access as built-in providers; `Immediate.Jobs.Shared` grants no friend-assembly access.
 
 ### Redis keys
 
@@ -123,6 +150,9 @@ may build keys from the root):
 | `state:{n}` / `completed:{n}` | set / sorted set | Ids by state; terminal ids by completion time. |
 | `due:{queue}` | sorted set | Due-ordered members `dueTicks\|createdTicks\|id`. Stale members are removed lazily. |
 | `leases` | sorted set | Active job ids by lease expiry. |
+| `definitions:state:{name}` | hash | Definition pause, acquisition status, next eligible time, fixed-window start/count. |
+| `definitions:acquisitions:{name}` | sorted set | Sliding acquisition history, ordered lexicographically by exact UTC ticks and a unique execution identity. |
+| `definitions:leases:{name}` | sorted set | Active lease candidates by definition; refreshed on renewal and cleaned against invocation state during evaluation. |
 | `executions:index:{id}` / `executions:data:{id}` | sorted set / hash | Execution history. |
 | `recurring:*` | various | Schedules, due index, names, materialization de-duplication. |
 | `server:{worker}` / `servers` | hash / sorted set | Heartbeats, including normalized tags. |

@@ -47,10 +47,10 @@ assembly's `LibraryEventIds`:
 
 | Assembly | Range in use |
 | --- | --- |
-| `Immediate.Jobs.Shared` | 11000–11097 (scheduler, in-memory, single-server) |
-| `Immediate.Jobs.EntityFrameworkCore` | 11500–11544 |
-| `Immediate.Jobs.LinqToDB` | 11600–11644 |
-| `Immediate.Jobs.Redis` | 11700–11730 |
+| `Immediate.Jobs.Shared` | 11000–11103 (scheduler, in-memory, single-server) |
+| `Immediate.Jobs.EntityFrameworkCore` | 11500–11547 |
+| `Immediate.Jobs.LinqToDB` | 11600–11647 |
+| `Immediate.Jobs.Redis` | 11700–11733 |
 
 Append new ids after the current maximum of the assembly's range; never reuse or renumber an id,
 because users filter on them. `EventName` is `Immediate.Jobs.{Assembly}.{Name}`.

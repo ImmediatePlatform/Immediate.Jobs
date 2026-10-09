@@ -14,33 +14,26 @@ internal sealed partial class SingleServerJobStorage
 		SingleServerAcquireDueJobsAsyncCalled(request.WorkerId, request.BatchSize, request.Queues.Count);
 		await TaskScheduler.Yield();
 		await EnsureInitializedAsync(cancellationToken);
+		await _writeThrough.WaitAsync(cancellationToken);
 
-		var acquired = await PrimaryStorage
-			.AcquireDueJobsAsync(request, cancellationToken);
-
-		if (acquired.Count == 0)
-			return acquired;
-
-		var replicated = await JobGraphStorage
-			.AcquireJobsAsync(
-				[.. acquired.Select(x => x.JobHandle)],
-				request.WorkerId,
-				request.Lease,
-				cancellationToken
-			);
-
-		var replicatedExecutions = replicated.ToDictionary(static job => job.JobHandle, static job => job.Attempt);
-
-		if (acquired.Count != replicated.Count ||
-			acquired.Any(job => !replicatedExecutions.TryGetValue(job.JobHandle, out var attempt) || attempt != job.Attempt))
+		try
 		{
-			throw new ImmediateJobException(
-				"The durable job replica has drifted from the authoritative in-memory queue. " +
-				"Single-server mode must not be used by multiple scheduler processes."
-			);
-		}
+			// Definition pause, counters, and acquisition history must survive process restart.
+			// Reserve them with the durable claim, then mirror the committed ownership into the primary.
+			var acquired = await DurableStorage
+				.AcquireDueJobsAsync(request, cancellationToken);
 
-		return acquired;
+			if (acquired.Count == 0)
+				return acquired;
+
+			PrimaryStorage.ApplyAcquiredJobs(acquired);
+
+			return acquired;
+		}
+		finally
+		{
+			_writeThrough.Release();
+		}
 	}
 
 	/// <inheritdoc />
@@ -55,9 +48,17 @@ internal sealed partial class SingleServerJobStorage
 		SingleServerRenewLeaseAsyncCalled(jobHandle, executionNumber, workerId, lease);
 		await TaskScheduler.Yield();
 		await EnsureInitializedAsync(cancellationToken);
+		await _writeThrough.WaitAsync(cancellationToken);
 
-		await DurableStorage.RenewLeaseAsync(jobHandle, executionNumber, workerId, lease, cancellationToken);
-		await PrimaryStorage.RenewLeaseAsync(jobHandle, executionNumber, workerId, lease, cancellationToken);
+		try
+		{
+			await DurableStorage.RenewLeaseAsync(jobHandle, executionNumber, workerId, lease, cancellationToken);
+			await PrimaryStorage.RenewLeaseAsync(jobHandle, executionNumber, workerId, lease, cancellationToken);
+		}
+		finally
+		{
+			_writeThrough.Release();
+		}
 	}
 
 	[LoggerMessage(

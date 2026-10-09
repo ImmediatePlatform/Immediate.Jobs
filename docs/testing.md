@@ -28,7 +28,7 @@ typed submission. This uses the existing harness API and runs no work in a fresh
 `src/Immediate.Jobs.Testing/Storage` ships in the `Immediate.Jobs.Testing` package, so custom
 providers can run it too.
 
-- **Case files.** `QueueStorageConformance`, `DefinitionCatalogStorageConformance`, `TagStorageConformance`, `RecurringStorageConformance`,
+- **Case files.** `DefinitionAcquisitionStorageConformance`, `QueueStorageConformance`, `DefinitionCatalogStorageConformance`, `TagStorageConformance`, `RecurringStorageConformance`,
   `FairQueueStorageConformance`, `TriggerStorageConformance`, `GraphStorageConformance`, and
   `ReplicaStorageConformance`.
 - **Case shape.** Each case is `new(Name, RequiredCapabilities, Scenario[, PersistedJobState])`. Names

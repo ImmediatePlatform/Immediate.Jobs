@@ -6,8 +6,8 @@ using Microsoft.Extensions.Logging.Abstractions;
 namespace Immediate.Jobs.Shared.Storage;
 
 /// <summary>
-///		A single-server storage topology that executes against an authoritative in-process store while
-///		synchronously replicating changes to durable storage and restoring them when the process starts.
+/// 	A single-server storage topology that mirrors committed durable acquisitions into an in-process store while
+/// 	synchronously replicating changes to durable storage and restoring them when the process starts.
 /// </summary>
 /// <param name="durableStorage">
 /// 	The durable write-through replica.
@@ -35,6 +35,9 @@ internal sealed partial class SingleServerJobStorage(
 	private readonly ILogger _logger = logger ?? NullLogger<SingleServerJobStorage>.Instance;
 
 	private bool _disposed;
+
+	// Durable claims must not overtake an unfinished update of the in-memory mirror.
+	private readonly SemaphoreSlim _writeThrough = new(1, 1);
 
 	private InMemoryJobStorage PrimaryStorage { get; } = new(timeProvider);
 
@@ -84,7 +87,7 @@ internal sealed partial class SingleServerJobStorage(
 		_disposed = true;
 		_initializationTask.TrySetException(new ObjectDisposedException(nameof(SingleServerJobStorage)));
 
-		_recurringMaterialization.Dispose();
+		_writeThrough.Dispose();
 
 		await PrimaryStorage.DisposeAsync();
 		await DurableStorage.DisposeAsync();

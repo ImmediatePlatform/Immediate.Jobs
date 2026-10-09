@@ -68,3 +68,29 @@ The polling loop purges on `PurgeInterval` (default one hour):
 - `PurgeBatchesAsync` (graph storage only) deletes terminal batches, with all their members and
   edges, older than `BatchSucceededRetention` / `BatchFailedRetention`. Batch members are never purged
   individually.
+
+## Definition pause and rate limits
+
+The generated scheduler exposes `PauseJobAsync`, `ResumeJobAsync`, and `GetAcquisitionStateAsync`
+returning `ValueTask` with optional cancellation tokens.
+Each call resolves the current stored definition by the generated job name, using its canonical name
+and persisted acquisition limits. A missing stored definition raises `KeyNotFoundException`. A pause leaves existing jobs queued and allows new
+jobs to be created; previously acquired work can finish. Pausing a recurring schedule is separate
+and prevents future occurrence creation.
+
+```csharp
+[Job(SlidingWindowMax = 100, SlidingWindowPeriod = "00:01:00",
+     FixedWindowMax = 1000, FixedWindowPeriod = "01:00:00", MaxConcurrency = 5)]
+```
+
+Period strings use the same invariant `TimeSpan` parsing as existing timeout and backoff settings.
+Both maximum and period must be positive, or both omitted. Zero concurrency disables that limit.
+`MaxConcurrency` is shared across all workers for a definition; queue concurrency remains per node.
+
+Sliding windows count acquisitions in `(now - period, now]`. Fixed windows align to UTC tick periods
+and reset at their boundary, allowing bursts around that boundary. Each successful acquisition,
+including a retry or expired-lease reacquisition, consumes time-based capacity. Blocked attempts
+consume no capacity or execution attempts. Resume preserves rate history and fixed counters.
+
+Definition acquisition states are `Ready`, `Paused`, `RateLimited`, and `ConcurrencyLimited`;
+individual job lifecycle state remains unchanged until the job is actually acquired.

@@ -54,8 +54,91 @@ internal static class RedisScripts
 		return 1
 		""";
 
+	private const string DefinitionFunctions =
+		"""
+		local function addTicks(left, right)
+			local carry = 0
+			local result = ''
+			for index = 19, 1, -1 do
+				local value = tonumber(string.sub(left, index, index)) + tonumber(string.sub(right, index, index)) + carry
+				result = tostring(value % 10) .. result
+				carry = math.floor(value / 10)
+			end
+			return result
+		end
+		local function readLimits(args, position)
+			return {
+				slidingMax = tonumber(args[position]), slidingPeriod = args[position + 1], slidingCutoff = args[position + 2],
+				fixedMax = tonumber(args[position + 3]), fixedStart = args[position + 4], fixedNext = args[position + 5],
+				concurrency = tonumber(args[position + 6])
+			}
+		end
+		local function definitionState(root, name, limits, nowScore, nowTicks, includeActiveCount)
+			local key = root .. 'definitions:state:' .. name
+			local paused = redis.call('HGET', key, 'paused') == '1'
+			local next = ''
+			if limits.slidingMax > 0 then
+				local logKey = root .. 'definitions:acquisitions:' .. name
+				redis.call('ZREMRANGEBYLEX', logKey, '-', '[' .. limits.slidingCutoff .. '~')
+				local recent = redis.call('ZRANGE', logKey, 0, -1)
+				if #recent >= limits.slidingMax then
+					next = addTicks(string.sub(recent[#recent - limits.slidingMax + 1], 1, 19), limits.slidingPeriod)
+				end
+			end
+			if limits.fixedMax > 0 then
+				local values = redis.call('HMGET', key, 'fixedStart', 'fixedCount')
+				if values[1] == limits.fixedStart and tonumber(values[2] or '0') >= limits.fixedMax then
+					if next == '' or limits.fixedNext > next then next = limits.fixedNext end
+				end
+			end
+			local activeCount = 0
+			local concurrencyLimited = false
+			if includeActiveCount or limits.concurrency > 0 then
+				local leasesKey = root .. 'definitions:leases:' .. name
+				redis.call('ZREMRANGEBYSCORE', leasesKey, '-inf', '(' .. nowScore)
+				local ids = redis.call('ZRANGEBYSCORE', leasesKey, nowScore, '+inf')
+				local count = 0
+				for _, id in ipairs(ids) do
+					local values = redis.call('HMGET', root .. 'job:' .. id, 'state', 'jobName', 'lease')
+					if values[1] == '4' and values[2] == name and values[3] > nowTicks then
+						count = count + 1
+					else
+						redis.call('ZREM', leasesKey, id)
+					end
+				end
+				activeCount = count
+				concurrencyLimited = limits.concurrency > 0 and count >= limits.concurrency
+			end
+			local status = paused and 1 or next ~= '' and 2 or concurrencyLimited and 3 or 0
+			if paused or concurrencyLimited then next = '' end
+			redis.call('HSET', key, 'status', status, 'next', next)
+			return { status, next, paused and 1 or 0, activeCount }
+		end
+		local function recordDefinitionAcquisition(root, name, limits, nowTicks, id, attempt)
+			local key = root .. 'definitions:state:' .. name
+			if limits.slidingMax > 0 then
+				redis.call('ZADD', root .. 'definitions:acquisitions:' .. name, 0, nowTicks .. '|' .. id .. '|' .. attempt)
+			end
+			if limits.fixedMax > 0 then
+				if redis.call('HGET', key, 'fixedStart') ~= limits.fixedStart then
+					redis.call('HSET', key, 'fixedStart', limits.fixedStart, 'fixedCount', '0')
+				end
+				redis.call('HINCRBY', key, 'fixedCount', 1)
+			end
+		end
+
+		""";
+
+	internal const string DefinitionState = DefinitionFunctions +
+		"""
+		local root = ARGV[1]
+		local name = ARGV[2]
+		if ARGV[5] == '1' then redis.call('HSET', root .. 'definitions:state:' .. name, 'paused', '0') end
+		return definitionState(root, name, readLimits(ARGV, 6), tonumber(ARGV[3]), ARGV[4], true)
+		""";
+
 	internal const string Acquire =
-		FairQueueFunctions +
+		DefinitionFunctions + FairQueueFunctions +
 		"""
 		local function materialize(jobKey, indexKey, dataKey, attempt, state, completed)
 			if attempt <= 0 or redis.call('HEXISTS', dataKey, attempt .. ':state') == 1 then return end
@@ -90,14 +173,17 @@ internal static class RedisScripts
 			local jobCount = tonumber(ARGV[position + 2])
 			position = position + 3
 			local jobCapacities = {}
+			local jobLimits = {}
 			for jobIndex = 1, jobCount do
 				jobCapacities[ARGV[position]] = tonumber(ARGV[position + 1])
-				position = position + 2
+				jobLimits[ARGV[position]] = readLimits(ARGV, position + 2)
+				position = position + 9
 			end
 			queues[queueIndex] = {
 				name = queueName,
 				capacity = capacity,
 				jobCapacities = jobCapacities,
+				jobLimits = jobLimits,
 				dueKey = KEYS[4 + queueIndex]
 			}
 		end
@@ -137,6 +223,15 @@ internal static class RedisScripts
 		end
 
 		local acquired = {}
+		local definitionStatuses = {}
+		local function cachedDefinitionStatus(queue, name)
+			local status = definitionStatuses[name]
+			if status == nil then
+				status = definitionState(root, name, queue.jobLimits[name], nowScore, nowTicks)[1]
+				definitionStatuses[name] = status
+			end
+			return status
+		end
 
 		local function claim(queue, candidate)
 			local jobKey = root .. 'job:' .. candidate.id
@@ -162,6 +257,10 @@ internal static class RedisScripts
 				attempt .. ':acquired', nowTicks, attempt .. ':started', '',
 				attempt .. ':completed', '', attempt .. ':trace', '', attempt .. ':span', '',
 				attempt .. ':error', '', attempt .. ':synthetic', '0')
+			redis.call('ZADD', root .. 'definitions:leases:' .. candidate.jobName, leaseScore, candidate.id)
+			recordDefinitionAcquisition(root, candidate.jobName, queue.jobLimits[candidate.jobName], nowTicks, candidate.id, attempt)
+			definitionStatuses[candidate.jobName] = nil
+			cachedDefinitionStatus(queue, candidate.jobName)
 			table.insert(acquired, candidate.id)
 		end
 
@@ -174,14 +273,17 @@ internal static class RedisScripts
 				local head = nil
 				for _, member in ipairs(members) do
 					local id = string.sub(member, 41)
-					local values = redis.call('HMGET', root .. 'job:' .. id, 'state', 'queue', 'jobName', 'dueMember')
-					local state = values[1]
-					local jobCapacity = queue.jobCapacities[values[3]]
-					if not state or values[2] ~= queue.name or (state ~= '2' and state ~= '3') or values[4] ~= member then
-						table.insert(stale, member)
-					elseif jobCapacity and jobCapacity > 0 then
-						head = { id = id, member = member, state = state, jobName = values[3], group = group }
-						break
+					local name = redis.call('HGET', root .. 'job:' .. id, 'jobName')
+					if not name or definitionStatuses[name] == nil or definitionStatuses[name] == 0 then
+						local values = redis.call('HMGET', root .. 'job:' .. id, 'state', 'queue', 'jobName', 'dueMember')
+						local state = values[1]
+						local jobCapacity = queue.jobCapacities[values[3]]
+						if not state or values[2] ~= queue.name or (state ~= '2' and state ~= '3') or values[4] ~= member then
+							table.insert(stale, member)
+						elseif jobCapacity and jobCapacity > 0 and cachedDefinitionStatus(queue, values[3]) == 0 then
+							head = { id = id, member = member, state = state, jobName = values[3], group = group }
+							break
+						end
 					end
 				end
 				for _, member in ipairs(stale) do redis.call('ZREM', key, member) end
@@ -264,7 +366,8 @@ internal static class RedisScripts
 				end
 
 				for group, head in pairs(heads) do
-					if group == candidate.group or queue.jobCapacities[head.jobName] <= 0 then
+					if group == candidate.group or queue.jobCapacities[head.jobName] <= 0 or
+						cachedDefinitionStatus(queue, head.jobName) ~= 0 then
 						heads[group] = fairHead(queue, group)
 					end
 				end
@@ -279,36 +382,33 @@ internal static class RedisScripts
 			local queue = queues[queueIndex]
 			local remaining = math.min(queue.capacity, batchSize - #acquired)
 			if remaining > 0 and not (fair and acquireFairly(queue, remaining)) then
-				local selected = {}
-				local stale = {}
 				local offset = 0
 				local chunkSize = math.min(256, math.max(64, remaining * 4))
-				while remaining > 0 and #acquired + #selected < batchSize do
-					local candidates = redis.call(
-						'ZRANGEBYSCORE', queue.dueKey, '-inf', nowScore, 'LIMIT', offset, chunkSize)
+				while remaining > 0 and #acquired < batchSize do
+					local candidates = redis.call('ZRANGEBYSCORE', queue.dueKey, '-inf', nowScore, 'LIMIT', offset, chunkSize)
 					if #candidates == 0 then break end
+					local removed = 0
 					for _, member in ipairs(candidates) do
-						if remaining <= 0 or #acquired + #selected >= batchSize then break end
+						if remaining <= 0 or #acquired >= batchSize then break end
 						local id = string.sub(member, 41)
-						local jobKey = root .. 'job:' .. id
-						local values = redis.call('HMGET', jobKey, 'state', 'queue', 'jobName', 'group')
-						local state = values[1]
-						local jobCapacity = queue.jobCapacities[values[3]]
-						if not state or values[2] ~= queue.name or (state ~= '2' and state ~= '3') then
-							table.insert(stale, member)
-						elseif jobCapacity and jobCapacity > 0 then
-							table.insert(selected,
-								{ id = id, member = member, state = state, jobName = values[3], group = values[4] or '' })
-							queue.jobCapacities[values[3]] = jobCapacity - 1
-							remaining = remaining - 1
+						local name = redis.call('HGET', root .. 'job:' .. id, 'jobName')
+						if not name or definitionStatuses[name] == nil or definitionStatuses[name] == 0 then
+							local values = redis.call('HMGET', root .. 'job:' .. id, 'state', 'queue', 'jobName', 'group')
+							local state = values[1]
+							local jobCapacity = queue.jobCapacities[values[3]]
+							if not state or values[2] ~= queue.name or (state ~= '2' and state ~= '3') then
+								redis.call('ZREM', queue.dueKey, member)
+								removed = removed + 1
+							elseif jobCapacity and jobCapacity > 0 and cachedDefinitionStatus(queue, values[3]) == 0 then
+								claim(queue, { id = id, member = member, state = state, jobName = values[3], group = values[4] or '' })
+								queue.jobCapacities[values[3]] = jobCapacity - 1
+								remaining = remaining - 1
+								removed = removed + 1
+							end
 						end
 					end
-					offset = offset + #candidates
+					offset = offset + #candidates - removed
 					if #candidates < chunkSize then break end
-				end
-				for _, member in ipairs(stale) do redis.call('ZREM', queue.dueKey, member) end
-				for _, candidate in ipairs(selected) do
-					claim(queue, candidate)
 				end
 			end
 		end
@@ -340,6 +440,7 @@ internal static class RedisScripts
 		if values[1] ~= '4' or values[2] ~= ARGV[1] or values[3] ~= ARGV[2] then return -1 end
 		redis.call('HSET', KEYS[1], 'lease', ARGV[3])
 		redis.call('ZADD', KEYS[2], ARGV[4], ARGV[5])
+		redis.call('ZADD', ARGV[6] .. 'definitions:leases:' .. redis.call('HGET', KEYS[1], 'jobName'), ARGV[4], ARGV[5])
 		return 1
 		""";
 

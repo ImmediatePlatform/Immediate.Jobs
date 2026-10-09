@@ -20,6 +20,9 @@ internal sealed partial class LinqToDBJobStorage<T>
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 
+		foreach (var limits in request.JobLimits.Values)
+			limits.Validate();
+
 		if (request.FairQueues is not null)
 			return await AcquireDueJobsFairAsync(request, cancellationToken);
 
@@ -34,7 +37,7 @@ internal sealed partial class LinqToDBJobStorage<T>
 			var jobCapacities = queue.JobCapacities.ToDictionary(static pair => pair.Key, static pair => pair.Value, StringComparer.OrdinalIgnoreCase);
 			while (queueCapacity > 0)
 			{
-				var eligibleNames = jobCapacities.Where(static pair => pair.Value > 0).Select(static pair => pair.Key).ToList();
+				var eligibleNames = await FilterAcquisitionNamesAsync(jobCapacities, request, cancellationToken);
 				if (eligibleNames.Count == 0)
 					break;
 
@@ -54,7 +57,8 @@ internal sealed partial class LinqToDBJobStorage<T>
 
 				var selectionCapacities = new Dictionary<string, int>(jobCapacities, StringComparer.OrdinalIgnoreCase);
 				var selected = candidates.Where(candidate => selectionCapacities[candidate.JobName]-- > 0).ToList();
-				var claimed = await AcquireCandidatesAsync(selected, request.WorkerId, request.Lease, now, cancellationToken);
+				var claimed = await AcquireCandidatesAsync(selected, request.WorkerId, request.Lease, now, cancellationToken,
+				request);
 				foreach (var job in claimed)
 				{
 					jobCapacities[job.JobName]--;
@@ -127,17 +131,25 @@ internal sealed partial class LinqToDBJobStorage<T>
 		string workerId,
 		TimeSpan lease,
 		DateTimeOffset now,
-		CancellationToken cancellationToken
+		CancellationToken cancellationToken,
+		JobAcquisitionRequest? request = null
 	)
 	{
 		var acquired = new List<JobRecord>(candidates.Count);
 		foreach (var candidate in candidates)
 		{
+			await EnsureDefinitionAsync(candidate.JobName, cancellationToken);
 			await using var scope = contextScope.GetScope(out var connection);
 
 			_ = await connection.BeginTransactionAsync(cancellationToken);
 			try
 			{
+				if (!await ReserveDefinitionAsync(connection, candidate.JobName, request, now, cancellationToken))
+				{
+					await connection.CommitTransactionAsync(cancellationToken);
+					continue;
+				}
+
 				var previous = ToRecord(candidate);
 				var oldStamp = candidate.ConcurrencyStamp;
 				candidate.State = JobState.Active;
@@ -170,9 +182,11 @@ internal sealed partial class LinqToDBJobStorage<T>
 					}
 				}
 
+				await RefreshAcquiredDefinitionAsync(connection, candidate.JobName, request, now, cancellationToken);
 				await connection.CommitTransactionAsync(cancellationToken);
 				acquired.Add(ToRecord(candidate));
 			}
+
 			catch (SyntheticExecutionInsertFailedException exception)
 			{
 				await connection.RollbackTransactionAsync(cancellationToken);
@@ -181,6 +195,7 @@ internal sealed partial class LinqToDBJobStorage<T>
 					throw exception.DatabaseException;
 				}
 			}
+
 			catch (LostRaceException)
 			{
 				await connection.RollbackTransactionAsync(cancellationToken);

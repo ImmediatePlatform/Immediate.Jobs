@@ -1,3 +1,5 @@
+using Immediate.Jobs.Shared.Storage;
+
 namespace Immediate.Jobs.Shared.Apis;
 
 /// <summary>
@@ -52,9 +54,38 @@ public sealed record JobDefinitionRecord
 	public TimeSpan? Timeout { get; init; }
 
 	/// <summary>
-	/// 	The per-server definition concurrency limit. Zero is unbounded.
+	/// 	The shared definition concurrency limit. Zero is unbounded.
 	/// </summary>
 	public int MaxConcurrency { get; init; }
+
+	/// <summary>
+	/// 	Maximum acquisitions in the preceding sliding period. Zero disables this limit.
+	/// </summary>
+	public int SlidingWindowMax { get; init; }
+	/// <summary>
+	/// 	The sliding acquisition period, or null when disabled.
+	/// </summary>
+	public TimeSpan? SlidingWindowPeriod { get; init; }
+	/// <summary>
+	/// 	Maximum acquisitions in each aligned fixed period. Zero disables this limit.
+	/// </summary>
+	public int FixedWindowMax { get; init; }
+	/// <summary>
+	/// 	The fixed acquisition period, or null when disabled.
+	/// </summary>
+	public TimeSpan? FixedWindowPeriod { get; init; }
+	/// <summary>
+	/// 	The parsed limits passed to storage for direct acquisition queries.
+	/// </summary>
+	[System.Text.Json.Serialization.JsonIgnore]
+	public JobAcquisitionLimits AcquisitionLimits => new()
+	{
+		MaxConcurrency = MaxConcurrency,
+		SlidingWindowMax = SlidingWindowMax,
+		SlidingWindowPeriod = SlidingWindowPeriod,
+		FixedWindowMax = FixedWindowMax,
+		FixedWindowPeriod = FixedWindowPeriod,
+	};
 
 	/// <summary>
 	/// 	The recurring overlap policy.

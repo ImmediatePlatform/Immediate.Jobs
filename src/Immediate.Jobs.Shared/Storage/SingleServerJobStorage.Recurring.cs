@@ -5,8 +5,6 @@ namespace Immediate.Jobs.Shared.Storage;
 
 internal sealed partial class SingleServerJobStorage
 {
-	private readonly SemaphoreSlim _recurringMaterialization = new(1, 1);
-
 	/// <inheritdoc />
 	public async ValueTask MergeRecurringSchedulesListAsync(
 		IReadOnlyList<RecurringJobSchedule> schedules,
@@ -16,8 +14,17 @@ internal sealed partial class SingleServerJobStorage
 		SingleServerMergeRecurringSchedulesListAsyncCalled(schedules.Count);
 		await TaskScheduler.Yield();
 		await EnsureInitializedAsync(cancellationToken);
-		await DurableStorage.MergeRecurringSchedulesListAsync(schedules, cancellationToken);
-		await PrimaryStorage.MergeRecurringSchedulesListAsync(schedules, cancellationToken);
+		await _writeThrough.WaitAsync(cancellationToken);
+
+		try
+		{
+			await DurableStorage.MergeRecurringSchedulesListAsync(schedules, cancellationToken);
+			await PrimaryStorage.MergeRecurringSchedulesListAsync(schedules, cancellationToken);
+		}
+		finally
+		{
+			_writeThrough.Release();
+		}
 	}
 
 	/// <inheritdoc />
@@ -26,8 +33,17 @@ internal sealed partial class SingleServerJobStorage
 		SingleServerUpsertRecurringAsyncCalled(schedule.Name);
 		await TaskScheduler.Yield();
 		await EnsureInitializedAsync(cancellationToken);
-		await DurableStorage.UpsertRecurringAsync(schedule, cancellationToken);
-		await PrimaryStorage.UpsertRecurringAsync(schedule, cancellationToken);
+		await _writeThrough.WaitAsync(cancellationToken);
+
+		try
+		{
+			await DurableStorage.UpsertRecurringAsync(schedule, cancellationToken);
+			await PrimaryStorage.UpsertRecurringAsync(schedule, cancellationToken);
+		}
+		finally
+		{
+			_writeThrough.Release();
+		}
 	}
 
 	/// <inheritdoc />
@@ -36,8 +52,17 @@ internal sealed partial class SingleServerJobStorage
 		SingleServerRemoveRecurringAsyncCalled(name);
 		await TaskScheduler.Yield();
 		await EnsureInitializedAsync(cancellationToken);
-		await DurableStorage.RemoveRecurringAsync(name, cancellationToken);
-		await PrimaryStorage.RemoveRecurringAsync(name, cancellationToken);
+		await _writeThrough.WaitAsync(cancellationToken);
+
+		try
+		{
+			await DurableStorage.RemoveRecurringAsync(name, cancellationToken);
+			await PrimaryStorage.RemoveRecurringAsync(name, cancellationToken);
+		}
+		finally
+		{
+			_writeThrough.Release();
+		}
 	}
 
 	/// <inheritdoc />
@@ -46,8 +71,17 @@ internal sealed partial class SingleServerJobStorage
 		SingleServerPauseRecurringAsyncCalled(name);
 		await TaskScheduler.Yield();
 		await EnsureInitializedAsync(cancellationToken);
-		await DurableStorage.PauseRecurringAsync(name, cancellationToken);
-		await PrimaryStorage.PauseRecurringAsync(name, cancellationToken);
+		await _writeThrough.WaitAsync(cancellationToken);
+
+		try
+		{
+			await DurableStorage.PauseRecurringAsync(name, cancellationToken);
+			await PrimaryStorage.PauseRecurringAsync(name, cancellationToken);
+		}
+		finally
+		{
+			_writeThrough.Release();
+		}
 	}
 
 	/// <inheritdoc />
@@ -56,8 +90,17 @@ internal sealed partial class SingleServerJobStorage
 		SingleServerResumeRecurringAsyncCalled(name);
 		await TaskScheduler.Yield();
 		await EnsureInitializedAsync(cancellationToken);
-		await DurableStorage.ResumeRecurringAsync(name, cancellationToken);
-		await PrimaryStorage.ResumeRecurringAsync(name, cancellationToken);
+		await _writeThrough.WaitAsync(cancellationToken);
+
+		try
+		{
+			await DurableStorage.ResumeRecurringAsync(name, cancellationToken);
+			await PrimaryStorage.ResumeRecurringAsync(name, cancellationToken);
+		}
+		finally
+		{
+			_writeThrough.Release();
+		}
 	}
 
 	/// <inheritdoc />
@@ -95,7 +138,7 @@ internal sealed partial class SingleServerJobStorage
 		await TaskScheduler.Yield();
 		await EnsureInitializedAsync(cancellationToken);
 
-		await _recurringMaterialization.WaitAsync(cancellationToken);
+		await _writeThrough.WaitAsync(cancellationToken);
 
 		try
 		{
@@ -116,7 +159,7 @@ internal sealed partial class SingleServerJobStorage
 		}
 		finally
 		{
-			_recurringMaterialization.Release();
+			_writeThrough.Release();
 		}
 	}
 

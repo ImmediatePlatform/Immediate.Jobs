@@ -37,9 +37,13 @@ public sealed class StorageCapabilityTests
 		var timeProvider = new FakeTimeProvider(DateTimeOffset.UnixEpoch);
 		await using var storage = new QueueOnlyStorage(timeProvider);
 		var idGenerator = new CapabilityIdGenerator();
+		await using var provider = new ServiceCollection()
+			.AddSingleton<IJobSerializer, SystemTextJsonJobSerializer>()
+			.AddSingleton<PlainRequestJob.Invoker>()
+			.BuildServiceProvider();
 		var scheduler = new PlainRequestJob.Scheduler(
 			storage,
-			new SystemTextJsonJobSerializer(),
+			provider.GetRequiredService<IJobSerializer>(),
 			timeProvider,
 			idGenerator
 		);
@@ -71,6 +75,10 @@ public sealed class StorageCapabilityTests
 	internal sealed class QueueOnlyStorage(TimeProvider timeProvider) : IJobStorage
 	{
 		private readonly InMemoryJobStorage _inner = new(timeProvider);
+
+		public ValueTask PauseJobAsync(string jobName, CancellationToken cancellationToken = default) => _inner.PauseJobAsync(jobName, cancellationToken);
+		public ValueTask ResumeJobAsync(string jobName, JobAcquisitionLimits limits, CancellationToken cancellationToken = default) => _inner.ResumeJobAsync(jobName, limits, cancellationToken);
+		public ValueTask<JobAcquisitionState> GetJobAcquisitionStateAsync(string jobName, JobAcquisitionLimits limits, CancellationToken cancellationToken = default) => _inner.GetJobAcquisitionStateAsync(jobName, limits, cancellationToken);
 
 		public int EnqueueCalls { get; private set; }
 

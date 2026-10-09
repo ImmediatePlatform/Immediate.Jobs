@@ -182,6 +182,18 @@ public sealed class JobClassAnalyzer : DiagnosticAnalyzer
 			);
 		}
 
+		foreach (var window in new[] { "SlidingWindow", "FixedWindow" })
+		{
+			var maximum = arguments.GetIntValue(window + "Max", 0);
+			var period = arguments.GetStringValue(window + "Period");
+			if (maximum < 0 || (maximum == 0 ? period is not null :
+				period is null || !TimeSpan.TryParse(period, CultureInfo.InvariantCulture, out var value) || value <= TimeSpan.Zero))
+			{
+				ReportInvalidConfigurationDiagnostic(context, jobAttribute,
+					$"`{window}Max` and `{window}Period` must both be positive, or both omitted");
+			}
+		}
+
 		var backoff = arguments.GetArgumentValue("Backoff") switch
 		{
 			{ } av => av.GetEnumValue()?.Name,

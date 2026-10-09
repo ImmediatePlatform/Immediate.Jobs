@@ -95,6 +95,35 @@ public sealed class LinqToDBMsSQLConformanceTests(LinqToDBMsSQLContainer contain
 [Collection("LinqToDB-SQLite")]
 public sealed class LinqToDBSQLiteConformanceTests
 {
+	[Fact]
+	public async Task IdlePollingAndMonitoringDoNotCreateOrUpdateDefinitionRows()
+	{
+		var token = TestContext.Current.CancellationToken;
+		await using var fixture = await RelationalConformanceFixture.CreateAsync(ConformanceDatabase.Sqlite,
+			useDistributedTopology: true, container: null,
+			new() { Jobs = [], Batches = [], Edges = [], RecurringSchedules = [] });
+		var storage = fixture.Services.GetRequiredService<IJobStorage>();
+		await storage.InitializeAsync(token);
+		await using var scope = fixture.Services.CreateAsyncScope();
+		var context = scope.ServiceProvider.GetRequiredService<ConformanceDbContext>();
+		var request = new JobAcquisitionRequest
+		{
+			WorkerId = "idle-worker",
+			Lease = TimeSpan.FromMinutes(1),
+			BatchSize = 1,
+			Queues = [new() { QueueName = "default", Capacity = 1, JobCapacities = new Dictionary<string, int>(StringComparer.Ordinal) { ["idle-job"] = 1 } }],
+		};
+		Assert.Empty(await storage.AcquireDueJobsAsync(request, token));
+		_ = await storage.GetJobAcquisitionStateAsync("idle-job", new(), token);
+		Assert.Empty(await global::LinqToDB.Async.AsyncExtensions.ToListAsync(context.GetTable<ImmediateJobDefinitionEntity>(), token));
+		await storage.PauseJobAsync("idle-job", token);
+		var before = Assert.Single(await global::LinqToDB.Async.AsyncExtensions.ToListAsync(context.GetTable<ImmediateJobDefinitionEntity>(), token));
+		Assert.Empty(await storage.AcquireDueJobsAsync(request, token));
+		Assert.True((await storage.GetJobAcquisitionStateAsync("idle-job", new(), token)).IsPaused);
+		var after = Assert.Single(await global::LinqToDB.Async.AsyncExtensions.ToListAsync(context.GetTable<ImmediateJobDefinitionEntity>(), token));
+		Assert.Equal(before.ConcurrencyStamp, after.ConcurrencyStamp);
+	}
+
 	[Theory]
 	[MemberData(nameof(LinqToDBConformanceTestCases.CreateCases), MemberType = typeof(LinqToDBConformanceTestCases))]
 	public async Task LinqToDBConforms(
@@ -123,6 +152,8 @@ file sealed class RelationalConformanceFixture(
 {
 	private static readonly string[] SqlServerTables =
 	[
+		"immediate_job_acquisitions",
+		"immediate_job_definitions",
 		"immediate_job_continuations",
 		"immediate_job_executions",
 		"immediate_fair_queue_groups",

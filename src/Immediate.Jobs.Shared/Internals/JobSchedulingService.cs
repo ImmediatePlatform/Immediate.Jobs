@@ -31,7 +31,7 @@ public sealed partial class JobSchedulingService : BackgroundService
 	private readonly IReadOnlyList<string> _serverTags;
 
 	/// <summary>
-	///		Complex structure used to simplify repeated access in <see cref="BuildAcquisitionRequest"/>.
+	/// 	Complex structure used to simplify repeated access in <see cref="BuildAcquisitionRequest"/>.
 	/// </summary>
 	private readonly List<
 		KeyValuePair<
@@ -115,6 +115,8 @@ public sealed partial class JobSchedulingService : BackgroundService
 #pragma warning disable CA1851 // `definitions` is backed by a list
 		_definitions = definitions
 			.ToDictionary(x => x.Name, StringComparer.OrdinalIgnoreCase);
+		foreach (var definition in _definitions.Values)
+			definition.AcquisitionLimits.Validate();
 
 		_serverTags = JobTags.Normalize(_options.Tags);
 		var eligibleDefinitions = _definitions.Values.Where(definition => JobTags.Intersect(definition.Tags, _serverTags)).ToList();
@@ -219,14 +221,14 @@ public sealed partial class JobSchedulingService : BackgroundService
 	}
 
 	/// <summary>
-	///	    Materializes and executes all work currently due, returning when the due queue is empty. Delayed work is
-	///     left in storage. This method is intended for deterministic test harnesses.
+	/// 	Materializes and executes all work currently due, returning when the due queue is empty. Delayed work is
+	/// 	left in storage. This method is intended for deterministic test harnesses.
 	/// </summary>
 	/// <param name="cancellationToken">
-	///     A token that can cancel draining.
+	/// 	A token that can cancel draining.
 	/// </param>
 	/// <returns>
-	///     A task that completes when no currently due work remains.
+	/// 	A task that completes when no currently due work remains.
 	/// </returns>
 	public async ValueTask DrainAsync(CancellationToken cancellationToken = default)
 	{
@@ -289,6 +291,10 @@ public sealed partial class JobSchedulingService : BackgroundService
 					MaxAttempts = definition.MaxAttempts,
 					Timeout = definition.Timeout,
 					MaxConcurrency = definition.MaxConcurrency,
+					SlidingWindowMax = definition.SlidingWindowMax,
+					SlidingWindowPeriod = definition.SlidingWindowPeriod,
+					FixedWindowMax = definition.FixedWindowMax,
+					FixedWindowPeriod = definition.FixedWindowPeriod,
 					OverlapPolicy = definition.OverlapPolicy,
 					MisfireHandlingMode = definition.MisfireHandlingMode,
 					Backoff = definition.Backoff,
@@ -302,7 +308,7 @@ public sealed partial class JobSchedulingService : BackgroundService
 	}
 
 	/// <summary>
-	///		Runs an infinite loop every <see cref="HeartbeatInterval"/> which reports a heartbeat to storage.
+	/// 	Runs an infinite loop every <see cref="HeartbeatInterval"/> which reports a heartbeat to storage.
 	/// </summary>
 	private async Task RunHeartbeatLoopAsync(CancellationToken cancellationToken)
 	{
@@ -342,8 +348,8 @@ public sealed partial class JobSchedulingService : BackgroundService
 	}
 
 	/// <summary>
-	///	    Runs an infinite loop which: a) queries and acquires jobs to place into the local execution queue, and then
-	///     b) delays <see cref="ImmediateJobsOptions.PollingInterval"/> between each loop.
+	/// 	Runs an infinite loop which: a) queries and acquires jobs to place into the local execution queue, and then
+	/// 	b) delays <see cref="ImmediateJobsOptions.PollingInterval"/> between each loop.
 	/// </summary>
 	private async Task RunPollingLoopAsync(CancellationToken cancellationToken)
 	{
@@ -426,8 +432,8 @@ public sealed partial class JobSchedulingService : BackgroundService
 	}
 
 	/// <summary>
-	///	    Runs an infinite loop every <see cref="LeaseRenewalInterval"/> which renews the lease on any outstanding
-	///     job.
+	/// 	Runs an infinite loop every <see cref="LeaseRenewalInterval"/> which renews the lease on any outstanding
+	/// 	job.
 	/// </summary>
 	private async Task RunLeaseRenewalLoopAsync(CancellationToken cancellationToken)
 	{
@@ -670,9 +676,9 @@ public sealed partial class JobSchedulingService : BackgroundService
 	}
 
 	/// <remarks>
-	///	    NB: If higher-priority jobs complete while this method is running, lower priority jobs may get requested
-	///	    before the higher-priority ones; this is a known race-condition, and effect should be rare enough to be
-	///	    acceptable. This is a future research point if effect is more pronounced than currently envisioned.
+	/// 	NB: If higher-priority jobs complete while this method is running, lower priority jobs may get requested
+	/// 	before the higher-priority ones; this is a known race-condition, and effect should be rare enough to be
+	/// 	acceptable. This is a future research point if effect is more pronounced than currently envisioned.
 	/// </remarks>
 	private JobAcquisitionRequest? BuildAcquisitionRequest()
 	{
@@ -733,6 +739,7 @@ public sealed partial class JobSchedulingService : BackgroundService
 			BatchSize = capacity,
 			Queues = queues,
 			FairQueues = _fairQueueOptions.ToPolicy(),
+			JobLimits = _definitions.ToDictionary(static pair => pair.Key, static pair => pair.Value.AcquisitionLimits, StringComparer.OrdinalIgnoreCase),
 		};
 	}
 

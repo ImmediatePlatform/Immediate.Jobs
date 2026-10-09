@@ -5,11 +5,11 @@ using Immediate.Jobs.Shared.Storage;
 namespace Immediate.Jobs.Testing;
 
 /// <summary>
-///	    An in-memory storage provider that records the data written by job and batch schedulers.
+/// 	An in-memory storage provider that records the data written by job and batch schedulers.
 /// </summary>
 /// <remarks>
-///	    Capturing does not alter storage behavior: every operation is forwarded to an <see cref="InMemoryJobStorage"/>
-///     after its input has been recorded.
+/// 	Capturing does not alter storage behavior: every operation is forwarded to an <see cref="InMemoryJobStorage"/>
+/// 	after its input has been recorded.
 /// </remarks>
 [SuppressMessage("Usage", "CA1816:Dispose methods should call SuppressFinalize", Justification = "Class is only used for testing; shouldn't need to worry about this.")]
 [SuppressMessage("Design", "CA1063:Implement IDisposable Correctly", Justification = "Class is only used for testing; shouldn't need to worry about this.")]
@@ -28,45 +28,67 @@ public class CapturingJobStorage(TimeProvider timeProvider) :
 	private readonly List<RecurringOperationCapture> _recurringOperations = [];
 	private readonly List<RecurringMaterializationCapture> _recurringMaterializations = [];
 
-	/// <summary>Gets snapshots of all job records submitted by schedulers.</summary>
+	/// <summary>
+	/// 	Gets snapshots of all job records submitted by schedulers.
+	/// </summary>
 	public IReadOnlyList<JobRecord> Jobs { get { lock (_gate) return [.. _jobs]; } }
 
-	/// <summary>Gets snapshots of continuation enqueue operations.</summary>
+	/// <summary>
+	/// 	Gets snapshots of continuation enqueue operations.
+	/// </summary>
 	public IReadOnlyList<ContinuationCapture> Continuations { get { lock (_gate) return [.. _continuations]; } }
 
-	/// <summary>Gets snapshots of committed batch enqueue operations.</summary>
+	/// <summary>
+	/// 	Gets snapshots of committed batch enqueue operations.
+	/// </summary>
 	public IReadOnlyList<BatchCapture> Batches { get { lock (_gate) return [.. _batches]; } }
 
-	/// <summary>Gets snapshots of jobs dynamically added to running batches.</summary>
+	/// <summary>
+	/// 	Gets snapshots of jobs dynamically added to running batches.
+	/// </summary>
 	public IReadOnlyList<BatchJobCapture> BatchJobs { get { lock (_gate) return [.. _batchJobs]; } }
 
-	/// <summary>Gets snapshots of continuations buffered by running jobs.</summary>
+	/// <summary>
+	/// 	Gets snapshots of continuations buffered by running jobs.
+	/// </summary>
 	public IReadOnlyList<DynamicContinuationCapture> DynamicContinuations { get { lock (_gate) return [.. _dynamicContinuations]; } }
 
-	/// <summary>Gets recurring schedules submitted for creation or update.</summary>
+	/// <summary>
+	/// 	Gets recurring schedules submitted for creation or update.
+	/// </summary>
 	public IReadOnlyDictionary<string, RecurringJobSchedule> RecurringSchedules { get { lock (_gate) return _recurringSchedules.ToDictionary(StringComparer.Ordinal); } }
 
-	/// <summary>Gets recurring schedule mutation calls in call order.</summary>
+	/// <summary>
+	/// 	Gets recurring schedule mutation calls in call order.
+	/// </summary>
 	public IReadOnlyList<RecurringOperationCapture> RecurringOperations { get { lock (_gate) return [.. _recurringOperations]; } }
 
-	/// <summary>Gets recurring occurrence materialization attempts.</summary>
+	/// <summary>
+	/// 	Gets recurring occurrence materialization attempts.
+	/// </summary>
 	public IReadOnlyList<RecurringMaterializationCapture> RecurringMaterializations { get { lock (_gate) return [.. _recurringMaterializations]; } }
 
-	/// <summary>Returns the captured job with the supplied identifier, or <see langword="null"/>.</summary>
+	/// <summary>
+	/// 	Returns the captured job with the supplied identifier, or <see langword="null"/>.
+	/// </summary>
 	public JobRecord? FindJob(JobHandle jobHandle)
 	{
 		lock (_gate)
 			return _jobs.LastOrDefault(job => job.JobHandle == jobHandle);
 	}
 
-	/// <summary>Returns the captured batch with the supplied identifier, or <see langword="null"/>.</summary>
+	/// <summary>
+	/// 	Returns the captured batch with the supplied identifier, or <see langword="null"/>.
+	/// </summary>
 	public BatchCapture? FindBatch(BatchHandle batchHandle)
 	{
 		lock (_gate)
 			return _batches.LastOrDefault(batch => batch.Batch.BatchHandle == batchHandle);
 	}
 
-	/// <summary>Clears captured inputs without changing persisted in-memory state.</summary>
+	/// <summary>
+	/// 	Clears captured inputs without changing persisted in-memory state.
+	/// </summary>
 	public void Clear()
 	{
 		lock (_gate)
@@ -89,23 +111,23 @@ public class CapturingJobStorage(TimeProvider timeProvider) :
 	public void Dispose() { }
 
 	/// <summary>
-	///	    Used for testing to pre-load various values to the storage before the test starts.
+	/// 	Used for testing to pre-load various values to the storage before the test starts.
 	/// </summary>
 	/// <param name="jobs">
-	///	    The jobs that should be loaded in the database.
+	/// 	The jobs that should be loaded in the database.
 	/// </param>
 	/// <param name="batches">
-	///	    The batches that should be loaded in the database.
+	/// 	The batches that should be loaded in the database.
 	/// </param>
 	/// <param name="edges">
-	///	    The continuation edges that should be loaded in the database.
+	/// 	The continuation edges that should be loaded in the database.
 	/// </param>
 	/// <param name="recurringSchedules">
-	///	    The recurring schedules that should be loaded in the database.
+	/// 	The recurring schedules that should be loaded in the database.
 	/// </param>
 	/// <remarks>
-	///	    This method should run before any other methods run to initialize test state. Use in regular app code is not
-	///	    supported.
+	/// 	This method should run before any other methods run to initialize test state. Use in regular app code is not
+	/// 	supported.
 	/// </remarks>
 	public void LoadPersistedJobState(
 		IReadOnlyList<JobRecord> jobs,
@@ -140,6 +162,13 @@ public class CapturingJobStorage(TimeProvider timeProvider) :
 	/// <inheritdoc />
 	public virtual ValueTask<IReadOnlyList<RecurringJobSchedule>> GetDueRecurringAsync(DateTimeOffset now, int batchSize, IReadOnlyList<string> jobNames, CancellationToken cancellationToken = default) =>
 		_inner.GetDueRecurringAsync(now, batchSize, jobNames, cancellationToken);
+
+	/// <inheritdoc />
+	public virtual ValueTask PauseJobAsync(string jobName, CancellationToken cancellationToken = default) => _inner.PauseJobAsync(jobName, cancellationToken);
+	/// <inheritdoc />
+	public virtual ValueTask ResumeJobAsync(string jobName, JobAcquisitionLimits limits, CancellationToken cancellationToken = default) => _inner.ResumeJobAsync(jobName, limits, cancellationToken);
+	/// <inheritdoc />
+	public virtual ValueTask<JobAcquisitionState> GetJobAcquisitionStateAsync(string jobName, JobAcquisitionLimits limits, CancellationToken cancellationToken = default) => _inner.GetJobAcquisitionStateAsync(jobName, limits, cancellationToken);
 
 	/// <inheritdoc />
 	public virtual async ValueTask EnqueueAsync(JobRecord job, CancellationToken cancellationToken = default)
@@ -321,12 +350,20 @@ public class CapturingJobStorage(TimeProvider timeProvider) :
 	/// <inheritdoc />
 	public virtual async ValueTask PurgeBatchesAsync(TimeSpan batchSucceededRetention, TimeSpan batchFailedRetention, CancellationToken cancellationToken = default) => await _inner.PurgeBatchesAsync(batchSucceededRetention, batchFailedRetention, cancellationToken);
 	/// <inheritdoc />
-	/// <remarks>Not supported: capturing storage cannot be used as a single-server durable store.</remarks>
-	/// <exception cref="NotSupportedException">Always thrown.</exception>
+	/// <remarks>
+	/// 	Not supported: capturing storage cannot be used as a single-server durable store.
+	/// </remarks>
+	/// <exception cref="NotSupportedException">
+	/// 	Always thrown.
+	/// </exception>
 	public virtual async ValueTask<IReadOnlyList<JobRecord>> AcquireJobsAsync(IReadOnlyCollection<JobHandle> jobs, string workerId, TimeSpan lease, CancellationToken cancellationToken = default) => await _inner.AcquireJobsAsync(jobs, workerId, lease, cancellationToken);
 	/// <inheritdoc />
-	/// <remarks>Not supported: capturing storage cannot be used as a single-server durable store.</remarks>
-	/// <exception cref="NotSupportedException">Always thrown.</exception>
+	/// <remarks>
+	/// 	Not supported: capturing storage cannot be used as a single-server durable store.
+	/// </remarks>
+	/// <exception cref="NotSupportedException">
+	/// 	Always thrown.
+	/// </exception>
 	public virtual async ValueTask<IReadOnlyList<JobContinuationEdge>> GetIncomingEdgesAsync(IReadOnlyCollection<JobHandle> childJobs, CancellationToken cancellationToken = default) => await _inner.GetIncomingEdgesAsync(childJobs, cancellationToken);
 	/// <inheritdoc />
 	public virtual async ValueTask HeartbeatAsync(JobServerSnapshot server, CancellationToken cancellationToken = default) => await _inner.HeartbeatAsync(server, cancellationToken);
@@ -339,35 +376,57 @@ public class CapturingJobStorage(TimeProvider timeProvider) :
 	}
 }
 
-/// <summary>A captured continuation enqueue operation.</summary>
+/// <summary>
+/// 	A captured continuation enqueue operation.
+/// </summary>
 public sealed record ContinuationCapture(JobRecord Job, IReadOnlyList<JobContinuationEdge> Edges);
 
-/// <summary>A captured atomic batch enqueue operation.</summary>
+/// <summary>
+/// 	A captured atomic batch enqueue operation.
+/// </summary>
 public sealed record BatchCapture(BatchRecord Batch, IReadOnlyList<JobRecord> Jobs, IReadOnlyList<JobContinuationEdge> Edges);
 
-/// <summary>A captured dynamic batch-member operation.</summary>
+/// <summary>
+/// 	A captured dynamic batch-member operation.
+/// </summary>
 public sealed record BatchJobCapture(JobHandle CurrentJobHandle, int ExecutionNumber, JobRecord Job, ContinuationOptions Options);
 
-/// <summary>A captured set of continuations flushed when a running job completed.</summary>
+/// <summary>
+/// 	A captured set of continuations flushed when a running job completed.
+/// </summary>
 public sealed record DynamicContinuationCapture(JobHandle JobHandle, int ExecutionNumber, string WorkerId, IReadOnlyList<JobContinuationAddition> Additions);
 
-/// <summary>The kind of recurring schedule mutation that was captured.</summary>
+/// <summary>
+/// 	The kind of recurring schedule mutation that was captured.
+/// </summary>
 public enum RecurringOperation
 {
-	/// <summary>A schedule was created or updated.</summary>
+	/// <summary>
+	/// 	A schedule was created or updated.
+	/// </summary>
 	Upsert,
-	/// <summary>A schedule was removed.</summary>
+	/// <summary>
+	/// 	A schedule was removed.
+	/// </summary>
 	Remove,
-	/// <summary>A schedule was paused.</summary>
+	/// <summary>
+	/// 	A schedule was paused.
+	/// </summary>
 	Pause,
-	/// <summary>A schedule was resumed.</summary>
+	/// <summary>
+	/// 	A schedule was resumed.
+	/// </summary>
 	Resume,
 }
 
-/// <summary>A captured recurring schedule mutation.</summary>
+/// <summary>
+/// 	A captured recurring schedule mutation.
+/// </summary>
 public sealed record RecurringOperationCapture(RecurringOperation Operation, string Name);
 
-/// <summary>A captured recurring occurrence materialization attempt.</summary>
+/// <summary>
+/// 	A captured recurring occurrence materialization attempt.
+/// </summary>
 public sealed record RecurringMaterializationCapture(
 	RecurringJobSchedule Schedule,
 	JobRecord Job,

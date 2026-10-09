@@ -28,11 +28,12 @@ For each `[Job]` class (see `Templates/Job.sbntxt`), nested in the user's partia
   `IJobScheduler<TPayload>`. A payloadless job's scheduler also implements `IRecurringJobScheduler`
   (dynamic schedules), or `IRecurringJobTrigger` when the job declares a code-defined `Cron`. All scheduling
   logic lives in the base class; the generated type only supplies the job name, JSON metadata,
-  and context capture.
+  and context capture. Submission routing and definition pause/resume/state queries resolve the
+  current persisted definition on each call, including its acquisition limits.
 - **`Invoker`**: a singleton `IJobInvoker` that deserializes the payload and runs the handler through
   the Immediate.Handlers pipeline.
 - **`JobDefinition`**: the runtime description (name, queue, attempts, timeout, backoff, cron,
-  overlap and misfire policies, concurrency, and normalized routing tags).
+  overlap and misfire policies, concurrency, acquisition windows, and normalized routing tags).
 - **`PayloadJsonContext`**: hand-emitted System.Text.Json metadata for the payload and context
   types, so serialization never uses reflection.
 
@@ -72,7 +73,7 @@ Selected through `ConfigureStorage(...)`:
 | Mode | Storage | Use |
 | --- | --- | --- |
 | `UseInMemory()` | `InMemoryJobStorage` | Development and tests. Not durable. |
-| `UseSingleServer()` | `SingleServerJobStorage` wrapping a durable provider | One scheduler process. The in-memory primary makes every acquisition decision; the durable provider is a write-through copy used for restart recovery. The default when a durable provider is configured without a mode. |
+| `UseSingleServer()` | `SingleServerJobStorage` wrapping a durable provider | One scheduler process. Durable storage reserves definition limits and commits acquisition; the in-memory primary mirrors committed claims and handles local queries and graph state. Startup recovery restores the primary. The default when a durable provider is configured without a mode. |
 | `UseDistributed()` | the durable provider directly | Several scheduler processes coordinating through the database or Redis. |
 
 ## Data flow

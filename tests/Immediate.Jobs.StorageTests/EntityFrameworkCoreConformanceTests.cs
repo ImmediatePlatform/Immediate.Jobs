@@ -96,6 +96,36 @@ public sealed class EntityFrameworkCoreMsSQLConformanceTests(EntityFrameworkCore
 [Collection("EntityFrameworkCore-SQLite")]
 public sealed class EntityFrameworkCoreSQLiteConformanceTests
 {
+	[Fact]
+	public async Task IdlePollingAndMonitoringDoNotCreateOrUpdateDefinitionRows()
+	{
+		var token = TestContext.Current.CancellationToken;
+		await using var fixture = await RelationalConformanceFixture.CreateAsync(ConformanceDatabase.Sqlite,
+			useDistributedTopology: true, container: null,
+			new() { Jobs = [], Batches = [], Edges = [], RecurringSchedules = [] });
+		var storage = fixture.Services.GetRequiredService<IJobStorage>();
+		await storage.InitializeAsync(token);
+		var factory = fixture.Services.GetRequiredService<IDbContextFactory<ConformanceDbContext>>();
+		await using var context = await factory.CreateDbContextAsync(token);
+		var request = new JobAcquisitionRequest
+		{
+			WorkerId = "idle-worker",
+			Lease = TimeSpan.FromMinutes(1),
+			BatchSize = 1,
+			Queues = [new() { QueueName = "default", Capacity = 1, JobCapacities = new Dictionary<string, int>(StringComparer.Ordinal) { ["idle-job"] = 1 } }],
+		};
+		Assert.Empty(await storage.AcquireDueJobsAsync(request, token));
+		_ = await storage.GetJobAcquisitionStateAsync("idle-job", new(), token);
+		Assert.Empty(await context.Set<ImmediateJobDefinitionEntity>().ToListAsync(token));
+		await storage.PauseJobAsync("idle-job", token);
+		var before = Assert.Single(await context.Set<ImmediateJobDefinitionEntity>().ToListAsync(token));
+		Assert.Empty(await storage.AcquireDueJobsAsync(request, token));
+		Assert.True((await storage.GetJobAcquisitionStateAsync("idle-job", new(), token)).IsPaused);
+		context.ChangeTracker.Clear();
+		var after = Assert.Single(await context.Set<ImmediateJobDefinitionEntity>().ToListAsync(token));
+		Assert.Equal(before.ConcurrencyStamp, after.ConcurrencyStamp);
+	}
+
 	[Theory]
 	[MemberData(nameof(EntityFrameworkCoreConformanceTestCases.CreateCases), MemberType = typeof(EntityFrameworkCoreConformanceTestCases))]
 	public async Task EntityFrameworkCoreConforms(
@@ -124,6 +154,8 @@ file sealed class RelationalConformanceFixture(
 {
 	private static readonly string[] SqlServerTables =
 	[
+		"immediate_job_acquisitions",
+		"immediate_job_definitions",
 		"immediate_job_continuations",
 		"immediate_job_executions",
 		"immediate_fair_queue_groups",

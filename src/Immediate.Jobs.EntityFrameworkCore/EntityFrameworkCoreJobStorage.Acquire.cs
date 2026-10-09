@@ -19,6 +19,9 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 
+		foreach (var limits in request.JobLimits.Values)
+			limits.Validate();
+
 		if (request.FairQueues is not null)
 			return await AcquireDueJobsFairAsync(request, cancellationToken);
 
@@ -33,7 +36,7 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 			var jobCapacities = queue.JobCapacities.ToDictionary(static pair => pair.Key, static pair => pair.Value, StringComparer.OrdinalIgnoreCase);
 			while (queueCapacity > 0)
 			{
-				var eligibleNames = jobCapacities.Where(static pair => pair.Value > 0).Select(static pair => pair.Key).ToList();
+				var eligibleNames = await FilterAcquisitionNamesAsync(jobCapacities, request, cancellationToken);
 				if (eligibleNames.Count == 0)
 					break;
 
@@ -68,7 +71,8 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 					request.WorkerId,
 					request.Lease,
 					now,
-					cancellationToken
+					cancellationToken,
+					request
 				);
 				foreach (var job in claimed)
 				{
@@ -140,50 +144,86 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 		string workerId,
 		TimeSpan lease,
 		DateTimeOffset now,
-		CancellationToken cancellationToken
+		CancellationToken cancellationToken,
+		JobAcquisitionRequest? request = null
 	)
 	{
 		var acquired = new List<JobRecord>(candidates.Count);
 		foreach (var candidate in candidates)
 		{
-			await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
-			var entity = Copy(candidate);
-			_ = context.Attach(entity);
-			await PrepareAcquisitionExecutionsAsync(context, candidate, workerId, now, cancellationToken);
-			entity.State = JobState.Active;
-			entity.WorkerId = workerId;
-			entity.LeaseExpiresAt = now + lease;
-			entity.Attempt++;
-			entity.CompletedAt = null;
-			entity.ExecutionTraceId = null;
-			entity.ExecutionSpanId = null;
-			entity.ExecutionStartedAt = null;
-			entity.ConcurrencyStamp = Guid.NewGuid();
-			if (entity.BatchHandle is { } batchHandle)
-			{
-				var batch = await context.Set<ImmediateJobBatchEntity>()
-					.SingleOrDefaultAsync(item => item.Id == batchHandle, cancellationToken);
-				if (batch is not null && batch.StartedAt is null)
-				{
-					batch.StartedAt = now;
-					batch.ConcurrencyStamp = Guid.NewGuid();
-				}
-			}
-
-			try
-			{
-				_ = await context.SaveChangesAsync(cancellationToken);
-				acquired.Add(ToRecord(entity));
-			}
-			catch (DbUpdateException)
-			{
-				// Suppress only an expected optimistic-claim race; genuine provider failures remain visible.
-				if (!await CandidateWasClaimedAsync(candidate, cancellationToken))
-					throw;
-			}
+			await EnsureDefinitionAsync(candidate.JobName, cancellationToken);
+			// Retry the entire reservation and claim transaction with a fresh context, as in fair acquisition.
+			await using var strategyContext = await contextFactory.CreateDbContextAsync(cancellationToken);
+			var strategy = strategyContext.Database.CreateExecutionStrategy();
+			var record = await strategy.ExecuteAsync(
+				operationCancellationToken => AcquireCandidateCoreAsync(candidate, workerId, lease, now, request, operationCancellationToken),
+				cancellationToken
+			);
+			if (record is not null)
+				acquired.Add(record);
 		}
 
 		return acquired;
+	}
+
+	private async Task<JobRecord?> AcquireCandidateCoreAsync(
+		ImmediateJobEntity candidate,
+		string workerId,
+		TimeSpan lease,
+		DateTimeOffset now,
+		JobAcquisitionRequest? request,
+		CancellationToken cancellationToken
+	)
+	{
+		await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+		await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
+		if (!await ReserveDefinitionAsync(context, candidate.JobName, request, now, cancellationToken))
+		{
+			_ = await context.SaveChangesAsync(cancellationToken);
+			await transaction.CommitAsync(cancellationToken);
+			return null;
+		}
+
+		var entity = Copy(candidate);
+		_ = context.Attach(entity);
+		await PrepareAcquisitionExecutionsAsync(context, candidate, workerId, now, cancellationToken);
+		entity.State = JobState.Active;
+		entity.WorkerId = workerId;
+		entity.LeaseExpiresAt = now + lease;
+		entity.Attempt++;
+		entity.CompletedAt = null;
+		entity.ExecutionTraceId = null;
+		entity.ExecutionSpanId = null;
+		entity.ExecutionStartedAt = null;
+		entity.ConcurrencyStamp = Guid.NewGuid();
+		if (entity.BatchHandle is { } batchHandle)
+		{
+			var batch = await context.Set<ImmediateJobBatchEntity>()
+				.SingleOrDefaultAsync(item => item.Id == batchHandle, cancellationToken);
+			if (batch is not null && batch.StartedAt is null)
+			{
+				batch.StartedAt = now;
+				batch.ConcurrencyStamp = Guid.NewGuid();
+			}
+		}
+
+		try
+		{
+			_ = await context.SaveChangesAsync(cancellationToken);
+			await RefreshAcquiredDefinitionAsync(context, candidate.JobName, request, now, cancellationToken);
+			await transaction.CommitAsync(cancellationToken);
+			return ToRecord(entity);
+		}
+
+		catch (DbUpdateException)
+		{
+			await transaction.RollbackAsync(cancellationToken);
+			// Suppress only an expected optimistic-claim race; genuine provider failures remain visible.
+			if (!await CandidateWasClaimedAsync(candidate, cancellationToken))
+				throw;
+		}
+
+		return null;
 	}
 
 	private async ValueTask<bool> CandidateWasClaimedAsync(
@@ -201,6 +241,7 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 				.SingleOrDefaultAsync(cancellationToken);
 			return currentStamp != candidate.ConcurrencyStamp;
 		}
+
 		catch (Exception exception) when (exception is DbException or InvalidOperationException)
 		{
 			return false;
