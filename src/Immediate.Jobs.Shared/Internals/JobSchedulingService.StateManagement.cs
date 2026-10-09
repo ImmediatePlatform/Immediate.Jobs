@@ -43,6 +43,7 @@ public sealed partial class JobSchedulingService
 		return new JobServerSnapshot
 		{
 			WorkerId = _workerId,
+			Tags = _serverTags,
 			LastHeartbeat = timestamp,
 			ActiveWorkers = _activeWorkers,
 			MaxWorkers = _options.WorkerCount,

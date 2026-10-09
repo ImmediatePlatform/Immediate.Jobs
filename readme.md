@@ -52,11 +52,20 @@ public sealed class SignupService(SendWelcomeEmail.Scheduler welcomeEmail)
 Register the generated handlers and jobs methods in `Program.cs`, in that order. For an assembly named `MyApp`, these
 are `AddMyAppHandlers()` and `AddMyAppJobs()`.
 
-## Persisted definitions
+## Routing jobs with tags
 
-Startup provides the complete local catalogue to storage, which inserts, updates, and removes job
-definitions and code-defined schedules. The dashboard shows every stored definition, including those
-absent from its local registrations.
+Configure job tags with `[Job(Tags = new[] { "email", "default" })]` and server tags through
+`ConfigureWorkers(options => options.Tags = ["email", "default"])`. A server manages definitions
+and acquires invocations only when the effective job and server lists intersect.
+
+Omitted, null, and empty lists become `["default"]`. Explicit nonempty lists replace that fallback:
+a server with `["email"]` does not process default-only jobs, while `["email", "default"]` processes
+both. Tags are case-sensitive, ordinal strings; duplicates are removed and null/blank entries are
+rejected. `default` is an ordinary tag, not a wildcard. `[Handler]` registration tags are separate.
+
+Startup provides the complete local catalogue to storage, which inserts, updates, and removes only
+matching definitions and code-defined schedules. Every server must supply an authoritative list for
+its tag scope. The dashboard always shows every definition in storage and each server's tags.
 
 Job names match case-insensitively. Explicit job names must not have leading or trailing whitespace; the analyzer reports `IJOB0008`
 for invalid names. Storage also rejects such names in manually supplied definition catalogues.

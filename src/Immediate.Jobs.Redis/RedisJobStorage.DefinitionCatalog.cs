@@ -33,6 +33,7 @@ internal sealed partial class RedisJobStorage
 				Schedules = changes.Schedules.Select(static schedule => new RedisDefinitionSchedule
 				{
 					Name = schedule.Name,
+					JobName = schedule.JobName.ToUpperInvariant(),
 					Record = JsonSerializer.Serialize(schedule, RedisJsonSerializerContext.Default.RecurringJobSchedule),
 					Cron = schedule.Cron,
 					TimeZone = schedule.TimeZone,
@@ -90,6 +91,7 @@ internal sealed record RedisDefinitionMetadata
 internal sealed record RedisDefinitionSchedule
 {
 	public required string Name { get; init; }
+	public required string JobName { get; init; }
 	public required string Record { get; init; }
 	public required string Cron { get; init; }
 	public required string TimeZone { get; init; }

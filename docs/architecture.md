@@ -32,7 +32,7 @@ For each `[Job]` class (see `Templates/Job.sbntxt`), nested in the user's partia
 - **`Invoker`**: a singleton `IJobInvoker` that deserializes the payload and runs the handler through
   the Immediate.Handlers pipeline.
 - **`JobDefinition`**: the runtime description (name, queue, attempts, timeout, backoff, cron,
-  overlap and misfire policies, and concurrency).
+  overlap and misfire policies, concurrency, and normalized routing tags).
 - **`PayloadJsonContext`**: hand-emitted System.Text.Json metadata for the payload and context
   types, so serialization never uses reflection.
 
@@ -46,9 +46,9 @@ configuration surface (`ConfigureStorage`, `ConfigureWorkers`, `UseFairQueues`, 
 
 - **Startup.** Initializes storage and submits the complete definition catalogue and code-defined
   schedules through `MergeJobDefinitionsListAsync`, even when workers are disabled. The storage
-  reconciles the complete catalogue. Metadata has no invoker or CLR type.
+  reconciles only definitions intersecting the server's effective tags. Metadata has no invoker or CLR type.
 - **Polling loop.** Each iteration materializes due recurring schedules, builds a
-  `JobAcquisitionRequest` from local definitions, free worker capacity, and queue/job concurrency limits, calls
+  `JobAcquisitionRequest` from tag-eligible local definitions, free worker capacity, and queue/job concurrency limits, calls
   `IJobStorage.AcquireDueJobsAsync`, and writes the claimed records to an unbounded channel. On
   `PurgeInterval` it also purges job and batch history. It then waits `PollingInterval`.
 - **Workers.** `WorkerCount` tasks read the channel and run `ExecuteJobAsync`: a new DI scope, a
@@ -56,7 +56,7 @@ configuration surface (`ConfigureStorage`, `ConfigureWorkers`, `UseFairQueues`, 
   completes the job (through `CompleteWithContinuationsAsync` on graph storage, so buffered mid-job
   scheduling commits atomically); failure retries with backoff until `MaxAttempts`.
 - **Lease renewal loop.** Renews leases for running jobs so another node doesn't reclaim them.
-- **Heartbeat loop.** Persists a `JobServerSnapshot` for the dashboard's servers page.
+- **Heartbeat loop.** Persists a `JobServerSnapshot`, including effective server tags, for the dashboard's servers page.
 - **Shutdown.** Completes the channel, lets workers drain for `ShutdownTimeout`, then cancels.
 
 `DrainAsync` runs polling iterations and executes inline until nothing is due; it exists for

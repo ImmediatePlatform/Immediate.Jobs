@@ -5,7 +5,7 @@
 Two interfaces in `src/Immediate.Jobs.Shared/Storage`:
 
 - **`IJobStorage`**: queueing, acquisition (including fair-queue policies), leases, completion and
-  failure, definition catalogues, recurring schedules, wait-for-trigger updates and triggers, queries, monitoring snapshots,
+  failure, scoped definition catalogues, recurring schedules, wait-for-trigger updates and triggers, queries, monitoring snapshots,
   heartbeats, purging. Every provider implements all of it.
 - **`IJobGraphStorage : IJobStorage`**: batches, continuations, dynamic additions from running jobs,
   batch triggers, batch reads and purging, plus the two single-server recovery reads
@@ -33,8 +33,10 @@ monitoring snapshots and health-check data.
 ## Definition reconciliation
 
 `MergeJobDefinitionsListAsync(JobDefinitionRegistration)` receives the complete local definition list,
-and all code-defined schedules. It inserts or updates supplied definitions and removes stored
-definitions absent from that list. An empty list clears the catalogue.
+all code-defined schedules, and normalized server tags. It upserts supplied matching definitions and
+removes stored matching definitions absent from that managed list. Scope is evaluated from the old
+stored tags before updates, so retagging a definition outside the old server's scope removes its stale
+entry. Definitions outside the scope remain untouched. Empty supplied lists clear only that scope.
 Definition deletion never cascades to invocations, running leases, or execution history.
 
 Definition names are case-insensitive identities and retain their readable spelling. In-memory
@@ -45,16 +47,24 @@ provider conventions can pass `definitionNameCollation` to `AddImmediateJobs`.
 Definition names must not have leading or trailing whitespace: the job analyzer reports `IJOB0008`,
 and storage rejects invalid manually supplied names before modifying the catalogue.
 
+Legacy code-defined schedules without catalogue metadata belong to the `default` scope, preserving
+startup cleanup after upgrading from a version without tags. A server without `default` leaves those
+schedules alone unless it supplies a matching definition.
+
 Concurrent startup snapshots commit atomically. In-memory uses its gate; relational providers take
 an early write lock on a singleton catalogue row; Redis compares a version and applies metadata and
 schedule changes in one Lua script, recomputing after a competing startup. Single-server delegates
 metadata reads and reconciliation to durable storage, then refreshes the primary's code-defined
 schedules. Pause and unchanged schedule progress survive startup.
 
-Each application's list is authoritative for the catalogue. Concurrent applications with inconsistent
-lists can remove or replace each other's definitions; the last successful reconciliation wins.
+Each server's list must be authoritative within its tag scope. Servers with overlapping tags and
+inconsistent lists can remove or replace each other's definitions: the last successful reconciliation
+wins. No per-server ownership or deployment-version arbitration is provided.
 
-Custom providers must implement the catalogue operations. Relational users must add the two catalogue tables through their normal
+`GetJobDefinitionsAsync` returns the complete persisted catalogue in ordinal, case-insensitive name order, independently of server tags.
+
+Custom providers must implement these operations and the eligible-name overload of
+`GetDueRecurringAsync`. Relational users must add the two catalogue tables through their normal
 schema update process; the bootstrap helpers do not upgrade existing production databases.
 
 ## Providers
@@ -103,9 +113,9 @@ may build keys from the root):
 | `leases` | sorted set | Active job ids by lease expiry. |
 | `executions:index:{id}` / `executions:data:{id}` | sorted set / hash | Execution history. |
 | `recurring:*` | various | Schedules, due index, names, materialization de-duplication. |
-| `server:{worker}` / `servers` | hash / sorted set | Scheduler heartbeats. |
+| `server:{worker}` / `servers` | hash / sorted set | Heartbeats, including normalized tags. |
 | `definition-metadata` | hash | All definition metadata keyed by stable job name. |
-| `definition-catalog-version` | string | Version used to atomically reconcile a complete catalogue. |
+| `definition-catalog-version` | string | Version used to atomically reconcile a complete scoped catalogue. |
 | `fair:*` | various | Fair-queue indexes, active counts, and cursors; see [fair queues](fair-queues.md). |
 
 The payload lives only inside `record`. Lua must not re-encode it with `cjson` (key order and escaping

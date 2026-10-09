@@ -12,6 +12,12 @@ namespace Immediate.Jobs.Shared.Internals;
 public record JobDefinition
 {
 	/// <summary>
+	/// 	The effective job tags. Omitted or empty lists use the default tag.
+	/// </summary>
+	[System.Diagnostics.CodeAnalysis.AllowNull]
+	public IReadOnlyList<string> Tags { get; init => field = JobTags.Normalize(value); } = JobTags.Normalize(tags: null);
+
+	/// <summary>
 	/// 	The queue used by newly-created invocations.
 	/// </summary>
 	public JobQueueDefinition Queue { get; init; } = JobQueueDefinition.Default;

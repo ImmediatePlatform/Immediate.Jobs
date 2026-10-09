@@ -15,7 +15,7 @@ public sealed record JobDefinitionReconciliation
 	public required IReadOnlyList<JobDefinitionRecord> Definitions { get; init; }
 
 	/// <summary>
-	/// 	The names of obsolete definitions in the catalogue.
+	/// 	The names of obsolete definitions in this server's scope.
 	/// </summary>
 	public required IReadOnlyList<string> RemovedDefinitionNames { get; init; }
 
@@ -25,7 +25,7 @@ public sealed record JobDefinitionReconciliation
 	public required IReadOnlyList<RecurringJobSchedule> Schedules { get; init; }
 
 	/// <summary>
-	/// 	The names of obsolete code-defined schedules in the catalogue.
+	/// 	The names of obsolete code-defined schedules in this server's scope.
 	/// </summary>
 	public required IReadOnlyList<string> RemovedScheduleNames { get; init; }
 
@@ -33,16 +33,16 @@ public sealed record JobDefinitionReconciliation
 	/// 	Validates a complete catalogue and computes changes against the provider's locked snapshot.
 	/// </summary>
 	/// <param name="registration">
-	/// 	The application's complete catalogue and code-defined schedules.
+	/// 	The application's complete catalogue and normalized server tags.
 	/// </param>
 	/// <param name="existingDefinitions">
-	/// 	The stored definitions before reconciliation.
+	/// 	The stored definitions before any tag changes.
 	/// </param>
 	/// <param name="existingSchedules">
 	/// 	The stored recurring schedules before this reconciliation.
 	/// </param>
 	/// <returns>
-	/// 	The changes to commit atomically.
+	/// 	The scoped changes to commit atomically.
 	/// </returns>
 	public static JobDefinitionReconciliation Create(
 		JobDefinitionRegistration registration,
@@ -65,13 +65,23 @@ public sealed record JobDefinitionReconciliation
 
 		var canonicalNames = existingDefinitions.ToDictionary(static definition => definition.Name, static definition => definition.Name, StringComparer.OrdinalIgnoreCase);
 		var desired = supplied.Values
+			.Where(definition => JobTags.Intersect(definition.Tags, registration.ServerTags))
 			.Select(definition => canonicalNames.TryGetValue(definition.Name, out var name) ? definition with { Name = name } : definition)
 			.ToDictionary(static definition => definition.Name, StringComparer.OrdinalIgnoreCase);
 		var managedNames = existingDefinitions
+			.Where(definition => JobTags.Intersect(definition.Tags, registration.ServerTags))
 			.Select(static definition => definition.Name)
 			.ToHashSet(StringComparer.OrdinalIgnoreCase);
 		var removedDefinitions = managedNames.Where(name => !desired.ContainsKey(name)).ToList();
-		managedNames.UnionWith(existingSchedules.Where(static schedule => schedule.IsCodeDefined).Select(static schedule => schedule.JobName));
+		// Schedules persisted before the definition catalogue existed belonged to the default scope.
+		if (registration.ServerTags.Contains(JobTags.Default, StringComparer.Ordinal))
+		{
+			var knownNames = existingDefinitions.Select(static definition => definition.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+			managedNames.UnionWith(existingSchedules
+				.Where(schedule => schedule.IsCodeDefined && !knownNames.Contains(schedule.JobName))
+				.Select(static schedule => schedule.JobName));
+		}
+
 		managedNames.UnionWith(desired.Keys);
 
 		var existing = existingSchedules.ToDictionary(static schedule => schedule.Name, StringComparer.Ordinal);

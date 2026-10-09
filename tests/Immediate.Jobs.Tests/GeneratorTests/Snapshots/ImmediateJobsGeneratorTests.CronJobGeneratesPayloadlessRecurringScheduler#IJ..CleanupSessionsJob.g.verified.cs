@@ -4,7 +4,6 @@
 
 #pragma warning disable CS1591
 
-
 partial class CleanupSessionsJob
 {
 	public sealed class Scheduler(
@@ -65,6 +64,7 @@ partial class CleanupSessionsJob
 		new()
 		{
 			Name = "cleanup-sessions",
+			Tags = ["default"],
 			Queue = new global::Immediate.Jobs.Shared.Internals.JobQueueDefinition
 			{
 				Name = "default",
@@ -136,7 +136,6 @@ partial class CleanupSessionsJob
 		global::Microsoft.Extensions.DependencyInjection.Extensions.ServiceCollectionDescriptorExtensions.TryAddScoped<CleanupSessionsJob.Scheduler>(services);
 
 		global::Microsoft.Extensions.DependencyInjection.Extensions.ServiceCollectionDescriptorExtensions.TryAddSingleton<CleanupSessionsJob.Invoker>(services);
-
 
 		return services;
 	}

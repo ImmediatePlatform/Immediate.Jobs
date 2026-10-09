@@ -18,16 +18,18 @@ A `RecurringJobSchedule` has a unique `Name`, the `JobName` it materializes, a `
   time (`IJOB0007`).
 
 At startup `JobSchedulingService.InitializeAsync` submits all definitions and their code-defined schedules
-through `MergeJobDefinitionsListAsync`. Storage atomically reconciles the catalogue, removing code-defined schedules when a definition disappears or loses its cron expression. It preserves
-dynamic schedules. Unchanged cron/time zone retains the next occurrence; updates
+through `MergeJobDefinitionsListAsync`. Storage atomically reconciles the server's tag scope, removing
+scoped code-defined schedules when a definition disappears or loses its cron expression. It preserves
+other scopes and dynamic schedules. Unchanged cron/time zone retains the next occurrence; updates
 preserve the pause state and last occurrence. The older `MergeRecurringSchedulesListAsync` operation
 still performs an explicit global replacement and is not used by application startup.
 
 ## Materialization
 
-Each polling iteration calls `GetDueRecurringAsync(now, AcquisitionBatchSize)` and, per schedule,
+Each polling iteration calls `GetDueRecurringAsync(now, AcquisitionBatchSize, eligibleJobNames)` and, per schedule,
 `MaterializeRecurringScheduleAsync`. One failing schedule is logged and skipped; it never blocks
-others or acquisition.
+others or acquisition. Providers filter eligible job names before applying the batch limit, so
+unrelated schedules cannot starve this server's due work.
 
 1. **Misfires.** If several occurrences were missed (for example while the app was down),
    `MisfireHandlingMode` decides what happens, and the count is logged:

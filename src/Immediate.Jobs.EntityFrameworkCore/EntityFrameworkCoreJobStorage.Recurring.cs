@@ -133,7 +133,16 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 	}
 
 	/// <inheritdoc />
-	public async ValueTask<IReadOnlyList<RecurringJobSchedule>> GetDueRecurringAsync(DateTimeOffset now, int batchSize, CancellationToken cancellationToken = default)
+	public ValueTask<IReadOnlyList<RecurringJobSchedule>> GetDueRecurringAsync(DateTimeOffset now, int batchSize, CancellationToken cancellationToken = default) =>
+		GetDueRecurringCoreAsync(now, batchSize, jobNames: null, cancellationToken);
+
+	/// <inheritdoc />
+	public ValueTask<IReadOnlyList<RecurringJobSchedule>> GetDueRecurringAsync(DateTimeOffset now, int batchSize, IReadOnlyList<string> jobNames, CancellationToken cancellationToken = default) =>
+		GetDueRecurringCoreAsync(now, batchSize, jobNames, cancellationToken);
+
+	private async ValueTask<IReadOnlyList<RecurringJobSchedule>> GetDueRecurringCoreAsync(
+		DateTimeOffset now, int batchSize, IReadOnlyList<string>? jobNames, CancellationToken cancellationToken
+	)
 	{
 		GetDueRecurringAsyncCalled(batchSize);
 		cancellationToken.ThrowIfCancellationRequested();
@@ -142,7 +151,7 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 		await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 		return await context.Set<ImmediateRecurringJobEntity>()
 			.AsNoTracking()
-			.Where(schedule => !schedule.IsPaused && schedule.NextRunAt <= now)
+			.Where(schedule => !schedule.IsPaused && schedule.NextRunAt <= now && (jobNames == null || jobNames.Contains(schedule.JobName)))
 			.OrderBy(schedule => schedule.NextRunAt)
 			.Take(batchSize)
 			.Select(schedule => new RecurringJobSchedule

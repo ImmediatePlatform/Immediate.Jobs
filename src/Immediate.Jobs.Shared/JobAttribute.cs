@@ -9,6 +9,12 @@ namespace Immediate.Jobs.Shared;
 public sealed class JobAttribute : Attribute
 {
 	/// <summary>
+	/// 	The job routing tags. Omitted, null, or empty lists use the default tag.
+	/// </summary>
+	[System.Diagnostics.CodeAnalysis.NotNull]
+	public string[]? Tags { get; init => field = [.. JobTags.Normalize(value)]; } = [JobTags.Default];
+
+	/// <summary>
 	/// 	The explicit persisted job name, or <see langword="null"/> to derive it.
 	/// </summary>
 	/// <remarks>Names must not have leading or trailing whitespace.</remarks>
