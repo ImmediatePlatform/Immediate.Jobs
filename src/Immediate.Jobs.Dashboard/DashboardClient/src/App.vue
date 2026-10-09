@@ -5,6 +5,7 @@ import { useColorMode } from '@vueuse/core';
 import {
 	Activity,
 	CalendarClock,
+	Gauge,
 	Layers3,
 	LayoutDashboard,
 	ListChecks,
@@ -32,6 +33,7 @@ const colorMode = useColorMode({
 const allNavigation = [
 	{ name: 'overview', label: 'Overview', icon: LayoutDashboard },
 	{ name: 'jobs', label: 'Jobs', icon: ListChecks },
+	{ name: 'definitions', label: 'Definitions', icon: Gauge },
 	{ name: 'batches', label: 'Batches', icon: Layers3 },
 	{ name: 'recurring', label: 'Recurring', icon: CalendarClock },
 	{ name: 'servers', label: 'Servers', icon: Server },

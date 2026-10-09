@@ -61,12 +61,21 @@ The dashboard includes:
 - filtered, server-paged job search;
 - job details and retained execution attempts;
 - recurring schedule actions;
+- definition pause/resume actions, active counts, and acquisition limits shared across workers;
 - retry, cancellation, and batch cancellation or deletion;
 - batch progress and a live dependency-graph viewer;
 - live updates over Server-Sent Events; and
 - application-defined links to traces and logs.
 
 Job search and filters are paged on the server in groups of 50. Batch members link back to their workflow.
+
+## Monitoring refresh
+
+`GET api/overview` and SSE share the live snapshot: counts, servers, job acquisition states and
+recurring pause/progress. `GET api/definitions` provides job and recurring configuration separately.
+The client shares the snapshot across pages and retains metadata for five minutes, polling it on
+that interval only while a Definitions or Recurring view is active. Disconnected live status polls
+every five seconds. Metadata is not included in every SSE update.
 
 ## Identifier fields
 

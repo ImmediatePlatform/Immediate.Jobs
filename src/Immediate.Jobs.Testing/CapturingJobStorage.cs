@@ -312,6 +312,10 @@ public class CapturingJobStorage(TimeProvider timeProvider) :
 	/// <inheritdoc />
 	public virtual async ValueTask<IReadOnlyList<RecurringJobSchedule>> GetDueRecurringAsync(DateTimeOffset now, int batchSize, CancellationToken cancellationToken = default) => await _inner.GetDueRecurringAsync(now, batchSize, cancellationToken);
 	/// <inheritdoc />
+	public virtual ValueTask<JobMonitoringDefinitions> GetMonitoringDefinitionsAsync(CancellationToken cancellationToken = default) =>
+		_inner.GetMonitoringDefinitionsAsync(cancellationToken);
+
+	/// <inheritdoc />
 	public virtual async ValueTask<JobMonitoringSnapshot> GetMonitoringSnapshotAsync(CancellationToken cancellationToken = default) => await _inner.GetMonitoringSnapshotAsync(cancellationToken);
 	/// <inheritdoc />
 	public virtual async ValueTask<IReadOnlyList<JobRecord>> QueryJobsAsync(JobQuery query, CancellationToken cancellationToken = default) => await _inner.QueryJobsAsync(query, cancellationToken);

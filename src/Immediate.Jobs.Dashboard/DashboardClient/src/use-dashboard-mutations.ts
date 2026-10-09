@@ -6,6 +6,7 @@ import {
 	cancelJob,
 	deleteBatch,
 	retryJob,
+	setDefinitionPaused,
 	setRecurringPaused,
 	triggerRecurring,
 } from '@/api';
@@ -98,7 +99,6 @@ export function useRecurringMutations() {
 		mutationFn: ({ name, paused }: { name: string; paused: boolean }) => setRecurringPaused(name, paused),
 		onSuccess: async (_, variables) => {
 			notify(variables.paused ? 'Schedule paused.' : 'Schedule resumed.');
-			await queryClient.invalidateQueries({ queryKey: queryKeys.recurring });
 			await queryClient.invalidateQueries({ queryKey: queryKeys.overview });
 		},
 		onError: (reason) => notify(errorText(reason), 'error'),
@@ -113,5 +113,22 @@ export function useRecurringMutations() {
 			}
 			return pauseMutation.isPending.value ? pauseMutation.variables.value?.name : undefined;
 		}),
+	};
+}
+
+export function useDefinitionMutations() {
+	const queryClient = useQueryClient();
+	const pauseMutation = useMutation({
+		mutationFn: ({ name, paused }: { name: string; paused: boolean }) => setDefinitionPaused(name, paused),
+		onSuccess: async (_, variables) => {
+			notify(variables.paused ? 'Definition paused.' : 'Definition resumed.');
+			await queryClient.invalidateQueries({ queryKey: queryKeys.overview });
+		},
+		onError: (reason) => notify(errorText(reason), 'error'),
+	});
+
+	return {
+		setPaused: pauseMutation.mutate,
+		busyName: computed(() => pauseMutation.isPending.value ? pauseMutation.variables.value?.name : undefined),
 	};
 }

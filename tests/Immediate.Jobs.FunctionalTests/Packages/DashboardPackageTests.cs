@@ -15,6 +15,151 @@ namespace Immediate.Jobs.FunctionalTests.Packages;
 
 public sealed class DashboardPackageTests
 {
+	[Fact]
+	public async Task DefinitionActionsPausePendingWorkAndResumeWithRegisteredLimits()
+	{
+		var token = TestContext.Current.CancellationToken;
+		var clock = new FakeTimeProvider(DateTimeOffset.UnixEpoch);
+		await using var storage = new InMemoryJobStorage(clock);
+		var builder = WebApplication.CreateBuilder(new WebApplicationOptions { EnvironmentName = Environments.Development });
+		builder.WebHost.UseTestServer();
+		_ = builder.Services.AddImmediateJobsCore().DisableWorkers().ConfigureStorage(options => _ = options.UseInMemory()).AddImmediateJobsDashboard();
+		_ = LimitedAcquisitionJob.AddJob(builder.Services);
+		ConfigureDashboardTestServices(builder.Services, storage, clock);
+		await using var app = builder.Build();
+		_ = app.MapImmediateJobsDashboard("/operations/background-work");
+		await app.StartAsync(token);
+		await app.Services.GetRequiredService<JobSchedulingService>().DrainAsync(token);
+		using var client = app.GetTestClient();
+		var monitor = app.Services.GetRequiredService<Immediate.Jobs.Shared.Interfaces.IJobMonitor>();
+		var definition = Assert.Single((await monitor.GetDefinitionsAsync(token)).Jobs);
+		await storage.EnqueueAsync(new()
+		{
+			JobHandle = JobHandle.FromString("definition-action-active"),
+			JobName = definition.Name,
+			Payload = "{}",
+			State = JobState.Pending,
+			CreatedAt = clock.GetUtcNow(),
+			DueAt = clock.GetUtcNow(),
+		}, token);
+		var request = new JobAcquisitionRequest
+		{
+			WorkerId = "dashboard-worker",
+			Lease = TimeSpan.FromSeconds(30),
+			BatchSize = 1,
+			Queues = [new() { QueueName = definition.QueueName, Capacity = 1, JobCapacities = new Dictionary<string, int>(StringComparer.Ordinal) { [definition.Name] = 2 } }],
+			JobLimits = new Dictionary<string, JobAcquisitionLimits>(StringComparer.Ordinal) { [definition.Name] = definition.AcquisitionLimits },
+		};
+		_ = Assert.Single(await storage.AcquireDueJobsAsync(request, token));
+		var pendingHandle = JobHandle.FromString("definition-action-pending");
+		await storage.EnqueueAsync(new()
+		{
+			JobHandle = pendingHandle,
+			JobName = definition.Name,
+			Payload = "{}",
+			State = JobState.Pending,
+			CreatedAt = clock.GetUtcNow(),
+			DueAt = clock.GetUtcNow(),
+		}, token);
+		foreach (var action in new[] { "pause", "pause", "resume", "resume" })
+		{
+			using var response = await client.PostAsync(
+				new Uri($"/operations/background-work/api/definitions/{definition.Name}/{action}", UriKind.Relative),
+				content: null,
+				token
+			);
+			Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+			using var statusResponse = await client.GetAsync(new Uri("/operations/background-work/api/overview", UriKind.Relative), token);
+			_ = statusResponse.EnsureSuccessStatusCode();
+			using var document = JsonDocument.Parse(await statusResponse.Content.ReadAsStringAsync(token));
+			var acquisition = Assert.Single(document.RootElement.GetProperty("definitionStatuses").EnumerateArray());
+			Assert.Equal(string.Equals(action, "pause", StringComparison.Ordinal), acquisition.GetProperty("isPaused").GetBoolean());
+			Assert.Equal(string.Equals(action, "pause", StringComparison.Ordinal) ? "Paused" : "RateLimited", acquisition.GetProperty("acquisitionStatus").GetString());
+			Assert.Equal(1, acquisition.GetProperty("activeCount").GetInt32());
+			Assert.Empty(await storage.AcquireDueJobsAsync(request, token));
+			var pending = await monitor.GetJobAsync(pendingHandle, token);
+			Assert.NotNull(pending);
+			Assert.Equal(JobState.Pending, pending.State);
+			Assert.Equal(0, pending.Attempt);
+		}
+
+		foreach (var action in new[] { "pause", "resume" })
+		{
+			using var response = await client.PostAsync(
+				new Uri($"/operations/background-work/api/definitions/missing-definition/{action}", UriKind.Relative),
+				content: null,
+				token
+			);
+			Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+		}
+
+		Assert.False((await storage.GetJobAcquisitionStateAsync("missing-definition", new(), token)).IsPaused);
+		Assert.Empty(await storage.AcquireDueJobsAsync(request, token));
+		clock.Advance(TimeSpan.FromSeconds(2));
+		Assert.Equal(pendingHandle, Assert.Single(await storage.AcquireDueJobsAsync(request, token)).JobHandle);
+	}
+
+	[Fact]
+	public async Task DefinitionsApiAndOverviewExposePauseAndConcurrencyIndependently()
+	{
+		var token = TestContext.Current.CancellationToken;
+		var clock = new FakeTimeProvider(DateTimeOffset.UnixEpoch);
+		await using var storage = new InMemoryJobStorage(clock);
+		await storage.EnqueueAsync(new()
+		{
+			JobHandle = JobHandle.FromString("definition-dashboard-job"),
+			JobName = "limited-acquisition",
+			Payload = "{}",
+			State = JobState.Pending,
+			CreatedAt = clock.GetUtcNow(),
+			DueAt = clock.GetUtcNow(),
+		}, token);
+		_ = await storage.AcquireDueJobsAsync(new()
+		{
+			WorkerId = "dashboard-worker",
+			Lease = TimeSpan.FromSeconds(30),
+			BatchSize = 1,
+			Queues = [new() { QueueName = "default", Capacity = 1, JobCapacities = new Dictionary<string, int>(StringComparer.Ordinal) { ["limited-acquisition"] = 1 } }],
+			JobLimits = new Dictionary<string, JobAcquisitionLimits>(StringComparer.Ordinal) { ["limited-acquisition"] = new() { MaxConcurrency = 1 } },
+		}, token);
+		await storage.PauseJobAsync("limited-acquisition", token);
+		var builder = WebApplication.CreateBuilder(new WebApplicationOptions { EnvironmentName = Environments.Development });
+		builder.WebHost.UseTestServer();
+		_ = builder.Services.AddImmediateJobsCore().DisableWorkers().ConfigureStorage(options => _ = options.UseInMemory()).AddImmediateJobsDashboard();
+		_ = LimitedAcquisitionJob.AddJob(builder.Services);
+		builder.Services.Replace(ServiceDescriptor.Singleton<JobDefinition>(provider => LimitedAcquisitionJob.CreateJobDefinition(provider) with { MaxConcurrency = 1 }));
+		ConfigureDashboardTestServices(builder.Services, storage, clock);
+		await using var app = builder.Build();
+		_ = app.MapImmediateJobsDashboard();
+		await app.StartAsync(token);
+		await app.Services.GetRequiredService<JobSchedulingService>().DrainAsync(token);
+		using var client = app.GetTestClient();
+		IReadOnlyList<string> routes = ["/jobs/api/definitions", "/jobs/api/overview"];
+		foreach (var route in routes)
+		{
+			using var response = await client.GetAsync(new Uri(route, UriKind.Relative), token);
+			_ = response.EnsureSuccessStatusCode();
+			using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync(token));
+			if (route.EndsWith("definitions", StringComparison.Ordinal))
+			{
+				var definition = Assert.Single(document.RootElement.GetProperty("jobs").EnumerateArray());
+				Assert.Equal("limited-acquisition", definition.GetProperty("name").GetString());
+				Assert.Equal(1, definition.GetProperty("maxConcurrency").GetInt32());
+				Assert.False(definition.TryGetProperty("acquisition", out _));
+			}
+			else
+			{
+				var acquisition = Assert.Single(document.RootElement.GetProperty("definitionStatuses").EnumerateArray());
+				Assert.Equal("limited-acquisition", acquisition.GetProperty("jobName").GetString());
+				Assert.True(acquisition.GetProperty("isPaused").GetBoolean());
+				Assert.Equal("Paused", acquisition.GetProperty("acquisitionStatus").GetString());
+				Assert.Equal(1, acquisition.GetProperty("activeCount").GetInt32());
+				Assert.True(acquisition.GetProperty("isConcurrencyLimited").GetBoolean());
+				Assert.False(acquisition.TryGetProperty("limits", out _));
+			}
+		}
+	}
+
 	private static void ConfigureDashboardTestServices(
 		IServiceCollection services,
 		IJobStorage storage,
@@ -24,6 +169,96 @@ public sealed class DashboardPackageTests
 		services.Replace(ServiceDescriptor.Singleton(storage));
 		services.Replace(ServiceDescriptor.Singleton<TimeProvider>(timeProvider));
 		services.RemoveAll<IHostedService>();
+	}
+
+	[Theory]
+	[InlineData("/jobs")]
+	[InlineData("/monitor")]
+	public async Task DefinitionsAndSnapshotsShowStorageCatalogueBeyondLocalTagsAndRegistrations(string prefix)
+	{
+		var token = TestContext.Current.CancellationToken;
+		var clock = new FakeTimeProvider(DateTimeOffset.UnixEpoch);
+		await using var storage = new InMemoryJobStorage(clock);
+		await storage.MergeJobDefinitionsListAsync(new() { Definitions = [new() { Name = "ordinary" }] }, token);
+		await storage.MergeJobDefinitionsListAsync(new()
+		{
+			ServerTags = ["email"],
+			Definitions = [new()
+			{
+				Name = "remote-email",
+				Tags = ["email"],
+				QueueName = "priority",
+				MaxAttempts = 7,
+				SlidingWindowMax = 1,
+				SlidingWindowPeriod = TimeSpan.FromMinutes(1),
+				MaxConcurrency = 2,
+			}],
+		}, token);
+		await storage.HeartbeatAsync(new()
+		{
+			WorkerId = "email-server",
+			Tags = ["email", "default"],
+			LastHeartbeat = clock.GetUtcNow(),
+			ActiveWorkers = 0,
+			MaxWorkers = 1,
+		}, token);
+		var builder = WebApplication.CreateBuilder(new WebApplicationOptions { EnvironmentName = Environments.Development });
+		builder.WebHost.UseTestServer();
+		builder.Services.AddImmediateJobsCore().DisableWorkers()
+			.ConfigureWorkers(options => options.Tags = ["dashboard"])
+			.ConfigureStorage(options => options.UseInMemory())
+			.AddImmediateJobsDashboard();
+		ConfigureDashboardTestServices(builder.Services, storage, clock);
+		await using var app = builder.Build();
+		app.MapImmediateJobsDashboard(prefix);
+		await app.StartAsync(token);
+		using var definitionsResponse = await app.GetTestClient().GetAsync(new Uri($"{prefix}/api/definitions", UriKind.Relative), token);
+		definitionsResponse.EnsureSuccessStatusCode();
+		using var definitions = JsonDocument.Parse(await definitionsResponse.Content.ReadAsStringAsync(token));
+		Assert.Equal(["ordinary", "remote-email"], definitions.RootElement.GetProperty("jobs").EnumerateArray().Select(static item => item.GetProperty("name").GetString()));
+		var remote = definitions.RootElement.GetProperty("jobs")[1];
+		Assert.Equal("email", remote.GetProperty("tags")[0].GetString());
+		Assert.Equal("priority", remote.GetProperty("queueName").GetString());
+		Assert.Equal(7, remote.GetProperty("maxAttempts").GetInt32());
+		var monitor = app.Services.GetRequiredService<Immediate.Jobs.Shared.Interfaces.IJobMonitor>();
+		var remoteStatus = (await monitor.GetDefinitionsAsync(token)).Jobs.Single(definition => string.Equals(definition.Name, "remote-email", StringComparison.OrdinalIgnoreCase));
+		Assert.NotNull(remoteStatus);
+		Assert.Equal(1, remoteStatus.AcquisitionLimits.SlidingWindowMax);
+		await storage.EnqueueAsync(new()
+		{
+			JobHandle = JobHandle.FromString("remote-definition-active"),
+			JobName = remoteStatus.Name,
+			QueueName = remoteStatus.QueueName,
+			Payload = "{}",
+			State = JobState.Pending,
+			CreatedAt = clock.GetUtcNow(),
+			DueAt = clock.GetUtcNow(),
+		}, token);
+		_ = Assert.Single(await storage.AcquireDueJobsAsync(new()
+		{
+			WorkerId = "remote-worker",
+			Lease = TimeSpan.FromMinutes(5),
+			BatchSize = 1,
+			Queues = [new() { QueueName = remoteStatus.QueueName, Capacity = 1, JobCapacities = new Dictionary<string, int>(StringComparer.Ordinal) { [remoteStatus.Name] = 1 } }],
+			JobLimits = new Dictionary<string, JobAcquisitionLimits>(StringComparer.Ordinal) { [remoteStatus.Name] = remoteStatus.AcquisitionLimits },
+		}, token));
+		foreach (var action in new[] { "pause", "resume" })
+		{
+			using var response = await app.GetTestClient().PostAsync(new Uri($"{prefix}/api/definitions/{remoteStatus.Name}/{action}", UriKind.Relative), content: null, token);
+			Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+			var status = (await monitor.GetSnapshotAsync(token)).DefinitionStatuses.Single(state => string.Equals(state.JobName, remoteStatus.Name, StringComparison.OrdinalIgnoreCase));
+			Assert.NotNull(status);
+			Assert.Equal(string.Equals(action, "pause", StringComparison.Ordinal) ? JobAcquisitionStatus.Paused : JobAcquisitionStatus.RateLimited, status.AcquisitionStatus);
+			Assert.Equal(1, status.ActiveCount);
+		}
+
+		using var overviewResponse = await app.GetTestClient().GetAsync(new Uri($"{prefix}/api/overview", UriKind.Relative), token);
+		overviewResponse.EnsureSuccessStatusCode();
+		using var snapshot = JsonDocument.Parse(await overviewResponse.Content.ReadAsStringAsync(token));
+		Assert.False(snapshot.RootElement.TryGetProperty("definitions", out _));
+		Assert.Equal(2, snapshot.RootElement.GetProperty("definitionStatuses").GetArrayLength());
+		Assert.Equal("RateLimited", snapshot.RootElement.GetProperty("definitionStatuses")[1].GetProperty("acquisitionStatus").GetString());
+		Assert.Equal("email-server", snapshot.RootElement.GetProperty("servers")[0].GetProperty("workerId").GetString());
 	}
 
 	[Fact]
@@ -77,6 +312,15 @@ public sealed class DashboardPackageTests
 		);
 
 		Assert.Equal(expectedStatus, response.StatusCode);
+		foreach (var action in new[] { "pause", "resume" })
+		{
+			using var mutationResponse = await app.GetTestClient().PostAsync(
+				new Uri($"/jobs/api/definitions/missing-definition/{action}", UriKind.Relative),
+				content: null,
+				TestContext.Current.CancellationToken
+			);
+			Assert.Equal(expectedStatus == HttpStatusCode.Forbidden ? HttpStatusCode.Forbidden : HttpStatusCode.NotFound, mutationResponse.StatusCode);
+		}
 	}
 
 	[Fact]

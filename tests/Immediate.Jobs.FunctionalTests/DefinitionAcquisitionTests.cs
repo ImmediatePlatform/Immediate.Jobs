@@ -1,4 +1,6 @@
 using Immediate.Handlers.Shared;
+using Immediate.Jobs.Shared.Apis;
+using Immediate.Jobs.Shared.Interfaces;
 using Immediate.Jobs.Shared.Internals;
 using Immediate.Jobs.Shared.Storage;
 using Immediate.Jobs.Testing;
@@ -61,7 +63,7 @@ public sealed class DefinitionAcquisitionTests
 	}
 
 	[Fact]
-	public async Task SchedulerReadsCurrentStoredDefinitionForLimitsAndConcurrency()
+	public async Task SchedulerAndMonitorReadCurrentStoredDefinitionForLimitsAndConcurrency()
 	{
 		var token = TestContext.Current.CancellationToken;
 		await using var harness = CreateHarness(services =>
@@ -111,7 +113,16 @@ public sealed class DefinitionAcquisitionTests
 		Assert.False(state.IsPaused);
 		Assert.True(state.IsConcurrencyLimited);
 		Assert.Equal(JobAcquisitionStatus.RateLimited, state.AcquisitionStatus);
-
+		var monitor = harness.Services.GetRequiredService<IJobMonitor>();
+		Assert.Equal(definition.MaxAttempts, (await monitor.GetJobAsync(first, token))!.MaxAttempts);
+		var metadata = Assert.Single((await monitor.GetDefinitionsAsync(token)).Jobs);
+		Assert.Equal(definition.AcquisitionLimits, metadata.AcquisitionLimits);
+		Assert.Equal(state, Assert.Single((await monitor.GetSnapshotAsync(token)).DefinitionStatuses));
+		await monitor.PauseDefinitionAsync(definition.Name.ToUpperInvariant(), token);
+		Assert.True((await scheduler.GetAcquisitionStateAsync(token)).IsPaused);
+		await monitor.ResumeDefinitionAsync(definition.Name.ToUpperInvariant(), token);
+		Assert.False((await scheduler.GetAcquisitionStateAsync(token)).IsPaused);
+		await Assert.ThrowsAsync<KeyNotFoundException>(async () => await monitor.PauseDefinitionAsync("missing-definition", token));
 	}
 
 	[Fact]
@@ -127,6 +138,66 @@ public sealed class DefinitionAcquisitionTests
 		Assert.False((await harness.Storage.GetJobAcquisitionStateAsync(scheduler.JobName, new(), token)).IsPaused);
 	}
 
+	[Fact]
+	public async Task MonitorShowsPauseAndConcurrencyTogetherAndDropsExpiredLeases()
+	{
+		var token = TestContext.Current.CancellationToken;
+		await using var harness = CreateHarness();
+		await harness.DrainAsync(TestContext.Current.CancellationToken);
+		await using var scope = harness.Services.CreateAsyncScope();
+		var scheduler = scope.ServiceProvider.GetRequiredService<LimitedAcquisitionJob.Scheduler>();
+		_ = await scheduler.EnqueueAsync(new(), token);
+		var definition = (await harness.Storage.GetJobDefinitionsAsync(TestContext.Current.CancellationToken)).Single(static definition => string.Equals(definition.Name, "limited-acquisition", StringComparison.Ordinal));
+		_ = await harness.Storage.AcquireDueJobsAsync(new()
+		{
+			WorkerId = "monitor-worker",
+			Lease = TimeSpan.FromSeconds(30),
+			BatchSize = 1,
+			Queues = [new() { QueueName = definition.QueueName, Capacity = 1, JobCapacities = new Dictionary<string, int>(StringComparer.Ordinal) { [definition.Name] = 1 } }],
+			JobLimits = new Dictionary<string, JobAcquisitionLimits>(StringComparer.Ordinal) { [definition.Name] = definition.AcquisitionLimits },
+		}, token);
+		await scheduler.PauseJobAsync(token);
+		await harness.Services.GetRequiredService<JobSchedulingService>().DrainAsync(token);
+		var monitor = harness.Services.GetRequiredService<JobMonitor>();
+		var status = (await monitor.GetSnapshotAsync(token)).DefinitionStatuses.Single(state => string.Equals(state.JobName, definition.Name, StringComparison.OrdinalIgnoreCase));
+		Assert.NotNull(status);
+		Assert.True(status.IsPaused);
+		Assert.Equal(JobAcquisitionStatus.Paused, status.AcquisitionStatus);
+		Assert.Equal(1, status.ActiveCount);
+		Assert.Equal(2, definition.AcquisitionLimits.MaxConcurrency);
+		harness.TimeProvider.Advance(TimeSpan.FromSeconds(30));
+		Assert.Equal(0, (await monitor.GetSnapshotAsync(token)).DefinitionStatuses.Single(state => string.Equals(state.JobName, definition.Name, StringComparison.OrdinalIgnoreCase)).ActiveCount);
+		Assert.True((await monitor.GetSnapshotAsync(token)).DefinitionStatuses.Single(state => string.Equals(state.JobName, definition.Name, StringComparison.OrdinalIgnoreCase)).IsPaused);
+	}
+
+	[Fact]
+	public async Task MonitorUsesStoredInformationForJobsAndRecurringTriggersWithoutLocalDefinitions()
+	{
+		var token = TestContext.Current.CancellationToken;
+		await using var harness = CreateHarness(static services => services.RemoveAll<JobDefinition>());
+		await harness.DrainAsync(token);
+		await harness.Storage.MergeJobDefinitionsListAsync(new()
+		{
+			Definitions = [new() { Name = "Remote-Job", QueueName = "current-queue", MaxAttempts = 7 }],
+		}, token);
+		await harness.Storage.UpsertRecurringAsync(new()
+		{
+			Name = "remote-recurring",
+			JobName = "remote-job",
+			QueueName = "previous-queue",
+			Cron = "* * * * *",
+			TimeZone = "UTC",
+			IsCodeDefined = false,
+			NextRunAt = harness.TimeProvider.GetUtcNow().AddMinutes(1),
+		}, token);
+		var monitor = harness.Services.GetRequiredService<JobMonitor>();
+		await monitor.TriggerRecurringAsync("remote-recurring", token);
+		var job = Assert.Single(await harness.Storage.QueryJobsAsync(new(), token));
+		Assert.Equal("Remote-Job", job.JobName);
+		Assert.Equal("current-queue", job.QueueName);
+		Assert.Equal(7, (await monitor.GetJobAsync(job.JobHandle, token))!.MaxAttempts);
+	}
+
 	private static JobTestHarness CreateHarness(Action<IServiceCollection>? configure = null) => new(services =>
 	{
 		_ = services.AddSingleton(new ExecutionState());
@@ -139,7 +210,9 @@ public sealed class DefinitionAcquisitionTests
 }
 
 [Handler, Job(Name = "limited-acquisition", SlidingWindowMax = 1, SlidingWindowPeriod = "00:00:01.0000003",
-	FixedWindowMax = 2, FixedWindowPeriod = "00:01:00", MaxConcurrency = 2)]
+	FixedWindowMax = 2,
+	FixedWindowPeriod = "00:01:00",
+	MaxConcurrency = 2)]
 public static partial class LimitedAcquisitionJob
 {
 	private static ValueTask HandleAsync(EmptyJobRequest _, CancellationToken __) => ValueTask.CompletedTask;

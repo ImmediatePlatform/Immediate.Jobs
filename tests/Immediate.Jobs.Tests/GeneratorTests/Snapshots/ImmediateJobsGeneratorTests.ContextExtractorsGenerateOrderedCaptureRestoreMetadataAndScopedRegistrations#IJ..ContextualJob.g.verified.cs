@@ -4,6 +4,7 @@
 
 #pragma warning disable CS1591
 
+
 partial class ContextualJob
 {
 	public sealed class Scheduler(

@@ -10,6 +10,57 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 	where TContext : DbContext
 {
 	/// <inheritdoc />
+	public async ValueTask<JobMonitoringDefinitions> GetMonitoringDefinitionsAsync(CancellationToken cancellationToken = default)
+	{
+		GetMonitoringDefinitionsAsyncCalled();
+		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
+		await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+		var recurring = await context.Set<ImmediateRecurringJobEntity>().AsNoTracking().OrderBy(schedule => schedule.Name)
+			.Select(schedule => new RecurringJobDefinition
+			{
+				Name = schedule.Name,
+				JobName = schedule.JobName,
+				QueueName = schedule.QueueName,
+				Cron = schedule.Cron,
+				TimeZone = schedule.TimeZone,
+				IsCodeDefined = schedule.IsCodeDefined,
+			}).ToListAsync(cancellationToken);
+		return new() { Jobs = await GetJobDefinitionsAsync(cancellationToken), Recurring = recurring };
+	}
+
+	private async ValueTask<IReadOnlyList<JobAcquisitionState>> ReadDefinitionStatusesAsync(CancellationToken cancellationToken)
+	{
+		var definitions = await GetJobDefinitionsAsync(cancellationToken);
+		if (definitions.Count == 0)
+			return [];
+		await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+		var now = _timeProvider.GetUtcNow();
+		var states = (await context.Set<ImmediateJobDefinitionEntity>().AsNoTracking().ToListAsync(cancellationToken))
+			.ToDictionary(static state => state.JobName, StringComparer.OrdinalIgnoreCase);
+		var active = (await context.Set<ImmediateJobEntity>().AsNoTracking()
+			.Where(job => job.State == JobState.Active && job.LeaseExpiresAt > now)
+			.GroupBy(job => job.JobName).Select(group => new { Name = group.Key, Count = group.Count() })
+			.ToListAsync(cancellationToken)).ToDictionary(static group => group.Name, static group => group.Count, StringComparer.OrdinalIgnoreCase);
+		var periods = definitions.Where(static definition => definition.SlidingWindowPeriod is not null)
+			.Select(static definition => definition.SlidingWindowPeriod!.Value).ToList();
+		var cutoff = now - (periods.Count == 0 ? TimeSpan.Zero : periods.Max());
+		var acquisitions = periods.Count == 0 ? [] : await context.Set<ImmediateJobAcquisitionEntity>().AsNoTracking()
+			.Where(acquisition => acquisition.AcquiredAt > cutoff)
+			.OrderBy(acquisition => acquisition.AcquiredAt).ToListAsync(cancellationToken);
+		var byName = acquisitions.ToLookup(static acquisition => acquisition.JobName, StringComparer.OrdinalIgnoreCase);
+		return [.. definitions.Select(definition =>
+		{
+			var state = states.GetValueOrDefault(definition.Name);
+			var limits = definition.AcquisitionLimits;
+			return JobAcquisitionEvaluator.Evaluate(definition.Name, state?.IsPaused ?? false, limits, now,
+				limits.SlidingWindowPeriod is { } period
+					? byName[definition.Name].Where(acquisition => acquisition.AcquiredAt > now - period).Select(static acquisition => acquisition.AcquiredAt).ToList() : [],
+				state?.FixedWindowStart, state?.FixedWindowCount ?? 0, active.GetValueOrDefault(definition.Name));
+		})];
+	}
+
+	/// <inheritdoc />
 	public async ValueTask<JobMonitoringSnapshot> GetMonitoringSnapshotAsync(CancellationToken cancellationToken = default)
 	{
 		GetMonitoringSnapshotAsyncCalled();
@@ -29,14 +80,9 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 		var recurring = await context.Set<ImmediateRecurringJobEntity>()
 			.AsNoTracking()
 			.OrderBy(schedule => schedule.Name)
-			.Select(schedule => new RecurringJobSchedule
+			.Select(schedule => new RecurringJobStatus
 			{
 				Name = schedule.Name,
-				JobName = schedule.JobName,
-				QueueName = schedule.QueueName,
-				Cron = schedule.Cron,
-				TimeZone = schedule.TimeZone,
-				IsCodeDefined = schedule.IsCodeDefined,
 				IsPaused = schedule.IsPaused,
 				NextRunAt = schedule.NextRunAt,
 				LastRunAt = schedule.LastRunAt,
@@ -57,6 +103,7 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 		{
 			CapturedAt = _timeProvider.GetUtcNow(),
 			Counts = counts,
+			DefinitionStatuses = await ReadDefinitionStatusesAsync(cancellationToken),
 			Recurring = recurring,
 			Servers = servers,
 			Capabilities = this.GetCapabilities(),
@@ -440,4 +487,12 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 		Message = "GetJobStatusAsync called (JobHandle={JobHandle})"
 	)]
 	private partial void GetJobStatusAsyncCalled(JobHandle jobHandle);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.GetMonitoringDefinitionsAsyncCalled,
+		EventName = "Immediate.Jobs.EntityFrameworkCore.GetMonitoringDefinitionsAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "GetMonitoringDefinitionsAsync called"
+	)]
+	private partial void GetMonitoringDefinitionsAsyncCalled();
 }

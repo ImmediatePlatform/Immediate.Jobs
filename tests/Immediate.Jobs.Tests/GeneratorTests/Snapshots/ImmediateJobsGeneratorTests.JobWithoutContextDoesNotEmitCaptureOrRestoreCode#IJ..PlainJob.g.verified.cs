@@ -4,6 +4,7 @@
 
 #pragma warning disable CS1591
 
+
 partial class PlainJob
 {
 	public sealed class Scheduler(
@@ -142,6 +143,7 @@ partial class PlainJob
 		global::Microsoft.Extensions.DependencyInjection.Extensions.ServiceCollectionDescriptorExtensions.TryAddScoped<PlainJob.Scheduler>(services);
 
 		global::Microsoft.Extensions.DependencyInjection.Extensions.ServiceCollectionDescriptorExtensions.TryAddSingleton<PlainJob.Invoker>(services);
+
 
 		return services;
 	}

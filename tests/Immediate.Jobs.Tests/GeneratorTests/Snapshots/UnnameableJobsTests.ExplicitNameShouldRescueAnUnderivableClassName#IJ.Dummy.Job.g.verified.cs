@@ -4,7 +4,9 @@
 
 #pragma warning disable CS1591
 
+
 namespace Dummy;
+
 
 partial class Job
 {
@@ -144,6 +146,7 @@ partial class Job
 		global::Microsoft.Extensions.DependencyInjection.Extensions.ServiceCollectionDescriptorExtensions.TryAddScoped<Job.Scheduler>(services);
 
 		global::Microsoft.Extensions.DependencyInjection.Extensions.ServiceCollectionDescriptorExtensions.TryAddSingleton<Job.Invoker>(services);
+
 
 		return services;
 	}

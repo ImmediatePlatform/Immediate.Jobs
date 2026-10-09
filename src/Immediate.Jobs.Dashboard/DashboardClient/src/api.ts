@@ -5,11 +5,10 @@ import type {
 	DashboardJobPage,
 	DashboardJobExecutionPage,
 	JobFilters,
+	JobMonitoringDefinitions,
 	JobMonitoringSnapshot,
 	JobRecord,
-	JobServerSnapshot,
 	JobTelemetryLink,
-	RecurringJobSchedule,
 } from '@/contracts';
 
 export class ApiError extends Error {
@@ -59,6 +58,10 @@ export async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 export function getOverview(signal?: AbortSignal): Promise<JobMonitoringSnapshot> {
 	return request('overview', { signal });
+}
+
+export function getDefinitions(signal?: AbortSignal): Promise<JobMonitoringDefinitions> {
+	return request('definitions', { signal });
 }
 
 export function getJobs(filters: JobFilters, signal?: AbortSignal): Promise<DashboardJobPage> {
@@ -125,14 +128,6 @@ export function getBatchGraph(batchHandle: string, signal?: AbortSignal): Promis
 	return request(`batches/${encodeURIComponent(batchHandle)}/graph`, { signal });
 }
 
-export function getRecurring(signal?: AbortSignal): Promise<RecurringJobSchedule[]> {
-	return request('recurring', { signal });
-}
-
-export function getServers(signal?: AbortSignal): Promise<JobServerSnapshot[]> {
-	return request('servers', { signal });
-}
-
 export function retryJob(jobHandle: string): Promise<void> {
 	return request(`jobs/${encodeURIComponent(jobHandle)}/retry`, { method: 'POST' });
 }
@@ -156,6 +151,11 @@ export function triggerRecurring(name: string): Promise<void> {
 export function setRecurringPaused(name: string, paused: boolean): Promise<void> {
 	const action = paused ? 'pause' : 'resume';
 	return request(`recurring/${encodeURIComponent(name)}/${action}`, { method: 'POST' });
+}
+
+export function setDefinitionPaused(name: string, paused: boolean): Promise<void> {
+	const action = paused ? 'pause' : 'resume';
+	return request(`definitions/${encodeURIComponent(name)}/${action}`, { method: 'POST' });
 }
 
 export function isBatchState(value: string): value is BatchState {

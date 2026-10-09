@@ -221,14 +221,16 @@ public sealed class ContextPropagationTests
 		);
 
 		var schedule = Assert.Single(
-			(await harness.Storage.GetMonitoringSnapshotAsync(cancellationToken)).Recurring,
+			(await harness.Storage.GetMonitoringDefinitionsAsync(cancellationToken)).Recurring,
 			static candidate => string.Equals(candidate.Name, "dynamic-capture", StringComparison.Ordinal)
 		);
 		Assert.Equal("capture-failure", schedule.JobName);
 		Assert.Equal("0 * * * *", schedule.Cron);
 		Assert.Equal("UTC", schedule.TimeZone);
 		Assert.False(schedule.IsCodeDefined);
-		Assert.True(schedule.NextRunAt > harness.TimeProvider.GetUtcNow());
+		var status = Assert.Single((await harness.Storage.GetMonitoringSnapshotAsync(cancellationToken)).Recurring,
+			static candidate => string.Equals(candidate.Name, "dynamic-capture", StringComparison.Ordinal));
+		Assert.True(status.NextRunAt > harness.TimeProvider.GetUtcNow());
 
 		await scheduler.RemoveRecurringAsync("dynamic-capture", cancellationToken);
 		Assert.DoesNotContain(

@@ -13,6 +13,51 @@ internal sealed partial class RedisJobStorage
 	private const int MaximumQueryTake = 1000;
 
 	/// <inheritdoc />
+	public async ValueTask<JobMonitoringDefinitions> GetMonitoringDefinitionsAsync(CancellationToken cancellationToken = default)
+	{
+		GetMonitoringDefinitionsAsyncCalled();
+		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
+		var recurring = await ReadAllRecurringAsync(cancellationToken);
+		return new()
+		{
+			Jobs = await GetJobDefinitionsAsync(cancellationToken),
+			Recurring = [.. recurring.Select(static schedule => schedule.ToDefinition())],
+		};
+	}
+
+	private async ValueTask<IReadOnlyList<JobAcquisitionState>> ReadDefinitionStatusesAsync(CancellationToken cancellationToken)
+	{
+		var definitions = await GetJobDefinitionsAsync(cancellationToken);
+		if (definitions.Count == 0)
+			return [];
+		var now = _timeProvider.GetUtcNow();
+		var arguments = new List<RedisValue> { _root, Score(now), Ticks(now) };
+		foreach (var definition in definitions)
+		{
+			arguments.Add(definition.Name.ToUpperInvariant());
+			AddDefinitionLimits(arguments, definition.AcquisitionLimits, now);
+		}
+
+		var results = (RedisResult[])(await Database.ScriptEvaluateAsync(RedisScripts.DefinitionStates, [LeasesKey], [.. arguments]).WaitAsync(cancellationToken))!;
+		return [.. definitions.Select((definition, index) =>
+		{
+			var result = (RedisResult[])results[index]!;
+			var next = (string)result[1]!;
+			var active = (int)(long)result[3];
+			return new JobAcquisitionState
+			{
+				JobName = definition.Name,
+				IsPaused = (long)result[2] == 1,
+				ActiveCount = active,
+				IsConcurrencyLimited = definition.MaxConcurrency > 0 && active >= definition.MaxConcurrency,
+				AcquisitionStatus = (JobAcquisitionStatus)(long)result[0],
+				NextEligibleAt = next.Length == 0 ? null : new DateTimeOffset(long.Parse(next, System.Globalization.CultureInfo.InvariantCulture), TimeSpan.Zero),
+			};
+		})];
+	}
+
+	/// <inheritdoc />
 	public async ValueTask<JobMonitoringSnapshot> GetMonitoringSnapshotAsync(
 		CancellationToken cancellationToken = default
 	)
@@ -37,7 +82,8 @@ internal sealed partial class RedisJobStorage
 		{
 			CapturedAt = _timeProvider.GetUtcNow(),
 			Counts = counts,
-			Recurring = recurring,
+			Recurring = [.. recurring.Select(static schedule => schedule.ToStatus())],
+			DefinitionStatuses = await ReadDefinitionStatusesAsync(cancellationToken),
 			Servers = servers,
 			Capabilities = this.GetCapabilities(),
 		};
@@ -381,4 +427,12 @@ internal sealed partial class RedisJobStorage
 		Message = "GetJobStatusAsync called (JobHandle={JobHandle})"
 	)]
 	private partial void GetJobStatusAsyncCalled(JobHandle jobHandle);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.GetMonitoringDefinitionsAsyncCalled,
+		EventName = "Immediate.Jobs.Redis.GetMonitoringDefinitionsAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "GetMonitoringDefinitionsAsync called"
+	)]
+	private partial void GetMonitoringDefinitionsAsyncCalled();
 }

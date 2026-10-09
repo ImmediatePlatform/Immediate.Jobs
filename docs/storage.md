@@ -61,7 +61,11 @@ Each server's list must be authoritative within its tag scope. Servers with over
 inconsistent lists can remove or replace each other's definitions: the last successful reconciliation
 wins. No per-server ownership or deployment-version arbitration is provided.
 
-`GetJobDefinitionsAsync` returns the complete persisted catalogue in ordinal, case-insensitive name order, independently of server tags.
+`GetJobDefinitionsAsync` returns the complete catalogue in ordinal, case-insensitive name order.
+`GetMonitoringDefinitionsAsync` returns job and recurring configuration; `GetMonitoringSnapshotAsync`
+returns live acquisition and recurring status without duplicating configuration. Both are global,
+independent of local registrations and server tags. Snapshots bulk-evaluate current state using
+stored limits without making an individual acquisition-state query per definition.
 
 Custom providers must implement these operations and the eligible-name overload of
 `GetDueRecurringAsync`. Relational users must add the two catalogue tables through their normal
