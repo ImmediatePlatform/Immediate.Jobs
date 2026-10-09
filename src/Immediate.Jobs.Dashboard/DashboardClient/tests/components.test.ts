@@ -7,6 +7,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { getJobExecutions, getJobExecutionTelemetryLinks } from '@/api';
 import BatchTable from '@/components/BatchTable.vue';
+import DefinitionTable from '@/components/DefinitionTable.vue';
 import HistoryChart from '@/components/HistoryChart.vue';
 import JobDetail from '@/components/JobDetail.vue';
 import JobStateSummary from '@/components/JobStateSummary.vue';
@@ -15,7 +16,7 @@ import ServerCard from '@/components/ServerCard.vue';
 import WorkflowGraph from '@/components/WorkflowGraph.vue';
 import type { BatchGraph, JobServerSnapshot } from '@/contracts';
 import { routes } from '@/router';
-import { completedJob, executingBatch, workflowGraph } from './fixtures';
+import { completedJob, executingBatch, pausedDefinition, storedDefinition, workflowGraph } from './fixtures';
 
 const dashboardStyles = readFileSync(resolve(process.cwd(), 'src/styles.css'), 'utf8');
 
@@ -34,9 +35,49 @@ function mountJobDetail(props: InstanceType<typeof JobDetail>['$props']) {
 }
 
 describe('dashboard components', () => {
+	it('renders persisted definition metadata and job links', async () => {
+		const router = createRouter({ history: createMemoryHistory(), routes });
+		const wrapper = mount(DefinitionTable, { props: { definitions: [storedDefinition] }, global: { plugins: [router] } });
+		expect(wrapper.text()).toContain('RemoteEmail');
+		expect(wrapper.text()).toContain('priority');
+		expect(wrapper.findAll('.tag').map(tag => tag.text())).toEqual(['email', 'default']);
+		expect(wrapper.text()).toContain('15 * * * *');
+		await wrapper.get('a').trigger('click');
+		await flushPromises();
+		expect(router.currentRoute.value.query).toEqual({ search: 'RemoteEmail', queue: 'priority' });
+	});
+
+	it('shows the definitions empty state', () => {
+		const wrapper = mount(DefinitionTable, { props: { definitions: [] } });
+		expect(wrapper.text()).toContain('No job definitions');
+	});
+
 	beforeEach(() => {
 		getJobExecutionsMock.mockReset().mockResolvedValue({ items: [], skip: 0, take: 20, hasNext: false });
 		getJobExecutionTelemetryLinksMock.mockReset().mockResolvedValue([]);
+	});
+
+	it('shows definition pause and concurrency independently and distinguishes unbounded limits', async () => {
+		const router = createRouter({ history: createMemoryHistory(), routes });
+		const wrapper = mount(DefinitionTable, {
+			props: { definitions: [pausedDefinition, {
+				...storedDefinition,
+				name: 'Unbounded', queueName: 'default',
+				limits: { slidingWindowMax: 0, slidingWindowPeriod: null, fixedWindowMax: 0, fixedWindowPeriod: null, maxConcurrency: 0 },
+				acquisition: { jobName: 'Unbounded', isPaused: false, acquisitionStatus: 'Ready', nextEligibleAt: null, activeCount: 3, isConcurrencyLimited: false },
+			}] },
+			global: { plugins: [router] },
+		});
+		await router.isReady();
+		const rows = wrapper.findAll('tbody tr');
+		expect(rows[0]?.text()).toContain('Paused');
+		expect(rows[0]?.text()).toContain('2 / 2 active');
+		expect(rows[0]?.text()).toContain('At capacity');
+		expect(rows[0]?.text()).toContain('10 / 00:01:00');
+		expect(rows[1]?.text()).toContain('3 active · no limit');
+		expect(rows[1]?.text()).not.toContain('At capacity');
+		expect(rows[1]?.text()).toContain('Ready');
+		expect(rows[0]?.get('a').attributes('href')).toBe('/invocations?search=SendGreeting&queue=default');
 	});
 
 	it('groups job state counts by lifecycle stage and links to filtered jobs', async () => {
@@ -367,6 +408,7 @@ describe('dashboard components', () => {
 		const workers = Array.from({ length: 32 }, (_, workerId) => ({ workerId, jobHandle: null, attempt: null, startedAt: null }))
 			.reverse();
 		const server: JobServerSnapshot = {
+			tags: ['default'],
 			workerId: 'node-1',
 			lastHeartbeat: '2026-07-21T12:00:00Z',
 			activeWorkers: 2,
@@ -383,6 +425,7 @@ describe('dashboard components', () => {
 		const router = createRouter({ history: createMemoryHistory(), routes });
 
 		const wrapper = mount(ServerCard, { props: { server }, global: { plugins: [router] } });
+		expect(wrapper.get('[aria-label="Server tags"]').text()).toBe('default');
 		const slots = wrapper.findAll('.server-slots .server-slot');
 		const busyRows = wrapper.findAll('.server-workers li');
 

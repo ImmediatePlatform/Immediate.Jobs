@@ -1,8 +1,21 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { ApiError, cancelJob, getJobs, request } from '@/api';
+import { ApiError, cancelJob, getDefinitions, getJobs, request, setDefinitionPaused } from '@/api';
 
 describe('dashboard API client', () => {
+	it.each([true, false])('sets definition pause to %s through an encoded POST route', async (paused) => {
+		const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(null, { status: 204 }));
+		await setDefinitionPaused('job:one with spaces', paused);
+		const requestedUrl = new URL(String(fetchMock.mock.calls[0]?.[0]));
+		expect(requestedUrl.pathname.endsWith(`/api/definitions/job%3Aone%20with%20spaces/${paused ? 'pause' : 'resume'}`)).toBe(true);
+		expect(fetchMock.mock.calls[0]?.[1]).toEqual(expect.objectContaining({ method: 'POST' }));
+	});
+	it('requests definitions under the mapped dashboard base', async () => {
+		const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('{"jobs":[],"recurring":[]}', { headers: { 'content-type': 'application/json' } }));
+		await expect(getDefinitions()).resolves.toEqual({ jobs: [], recurring: [] });
+		expect(new URL(String(fetchMock.mock.calls[0]?.[0])).pathname.endsWith('/api/definitions')).toBe(true);
+	});
+
 	it('requests server-side job pages of fifty with encoded filters', async () => {
 		const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
 			items: [], skip: 50, take: 50, hasNext: false,

@@ -6,12 +6,23 @@ namespace Immediate.Jobs.Shared.Storage;
 internal sealed partial class SingleServerJobStorage
 {
 	/// <inheritdoc />
+	public async ValueTask<JobMonitoringDefinitions> GetMonitoringDefinitionsAsync(CancellationToken cancellationToken = default)
+	{
+		SingleServerGetMonitoringDefinitionsAsyncCalled();
+		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
+		await EnsureInitializedAsync(cancellationToken);
+		return await DurableStorage.GetMonitoringDefinitionsAsync(cancellationToken);
+	}
+
+	/// <inheritdoc />
 	public async ValueTask<JobMonitoringSnapshot> GetMonitoringSnapshotAsync(CancellationToken cancellationToken = default)
 	{
 		SingleServerGetMonitoringSnapshotAsyncCalled();
 		await TaskScheduler.Yield();
 		await EnsureInitializedAsync(cancellationToken);
-		return await PrimaryStorage.GetMonitoringSnapshotAsync(cancellationToken);
+		var snapshot = await DurableStorage.GetMonitoringSnapshotAsync(cancellationToken);
+		return snapshot with { Servers = PrimaryStorage.GetLiveServersSnapshot(), Capabilities = this.GetCapabilities() };
 	}
 
 	/// <inheritdoc />
@@ -185,4 +196,12 @@ internal sealed partial class SingleServerJobStorage
 		Message = "Single-server storage GetJobStatusAsync called (JobHandle={JobHandle})"
 	)]
 	private partial void SingleServerGetJobStatusAsyncCalled(JobHandle jobHandle);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.SingleServerGetMonitoringDefinitionsAsyncCalled,
+		EventName = "Immediate.Jobs.Shared.SingleServerGetMonitoringDefinitionsAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "GetMonitoringDefinitionsAsync called"
+	)]
+	private partial void SingleServerGetMonitoringDefinitionsAsyncCalled();
 }

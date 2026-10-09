@@ -10,13 +10,12 @@ import {
 	getBatch,
 	getBatchGraph,
 	getBatches,
+	getDefinitions,
 	getJob,
 	getJobTelemetryLinks,
 	getJobs,
 	getOverview,
 	getRecentJobs,
-	getRecurring,
-	getServers,
 } from '@/api';
 import type {
 	BatchGraph,
@@ -24,9 +23,10 @@ import type {
 	DashboardJobPage,
 	DashboardState,
 	JobFilters,
+	JobDefinitionStatus,
+	JobMonitoringDefinitions,
 	JobMonitoringSnapshot,
 	JobRecord,
-	JobServerSnapshot,
 	JobTelemetryLink,
 	RecurringJobSchedule,
 } from '@/contracts';
@@ -34,6 +34,7 @@ import { connectionStatus, recordSnapshot } from '@/stream-state';
 
 export const queryKeys = {
 	overview: ['overview'] as const,
+	definitions: ['definitions'] as const,
 	recentJobs: ['jobs', 'recent'] as const,
 	jobPages: ['jobs', 'page'] as const,
 	jobs: (filters: JobFilters) => ['jobs', 'page', filters] as const,
@@ -43,8 +44,6 @@ export const queryKeys = {
 	batches: ['batches', 'list'] as const,
 	batch: (batchHandle: string) => ['batches', 'detail', batchHandle] as const,
 	batchGraph: (batchHandle: string) => ['batches', 'graph', batchHandle] as const,
-	recurring: ['recurring'] as const,
-	servers: ['servers'] as const,
 };
 
 function shouldRetry(failureCount: number, error: Error): boolean {
@@ -59,7 +58,42 @@ export function useOverviewQuery(): UseQueryReturnType<JobMonitoringSnapshot, Er
 		queryFn: ({ signal }) => getOverview(signal),
 		retry: shouldRetry,
 		refetchInterval: liveRefetchInterval,
+		staleTime: computed(() => connectionStatus.value === 'live' ? Infinity : 5_000),
 	});
+}
+
+export function useDefinitionsQuery(): UseQueryReturnType<JobMonitoringDefinitions, Error> {
+	return useQuery({
+		queryKey: queryKeys.definitions,
+		queryFn: ({ signal }) => getDefinitions(signal),
+		retry: shouldRetry,
+		staleTime: 300_000,
+		refetchInterval: 300_000,
+		refetchOnWindowFocus: false,
+	});
+}
+
+export function useDefinitionStatusesQuery() {
+	const definitions = useDefinitionsQuery();
+	const snapshot = useOverviewQuery();
+	return {
+		data: computed<JobDefinitionStatus[]>(() => {
+			const statuses = new Map(snapshot.data.value?.definitionStatuses.map(status => [status.jobName.toUpperCase(), status]));
+			return (definitions.data.value?.jobs ?? []).filter(definition => !snapshot.data.value || statuses.has(definition.name.toUpperCase())).map(definition => ({
+				...definition,
+				limits: {
+					maxConcurrency: definition.maxConcurrency,
+					slidingWindowMax: definition.slidingWindowMax,
+					slidingWindowPeriod: definition.slidingWindowPeriod,
+					fixedWindowMax: definition.fixedWindowMax,
+					fixedWindowPeriod: definition.fixedWindowPeriod,
+				},
+				acquisition: statuses.get(definition.name.toUpperCase()),
+			}));
+		}),
+		error: computed(() => definitions.error.value ?? snapshot.error.value),
+		isPending: definitions.isPending,
+	};
 }
 
 export function useRecentJobsQuery(): UseQueryReturnType<JobRecord[], Error> {
@@ -129,31 +163,39 @@ export function useBatchGraphQuery(batchHandle: MaybeRefOrGetter<string | undefi
 	});
 }
 
-export function useRecurringQuery(): UseQueryReturnType<RecurringJobSchedule[], Error> {
-	return useQuery({
-		queryKey: queryKeys.recurring,
-		queryFn: ({ signal }) => getRecurring(signal),
-		retry: shouldRetry,
-		refetchInterval: liveRefetchInterval,
-	});
+export function useRecurringQuery() {
+	const definitions = useDefinitionsQuery();
+	const snapshot = useOverviewQuery();
+	return {
+		data: computed<RecurringJobSchedule[]>(() => {
+			const statuses = new Map(snapshot.data.value?.recurring.map(status => [status.name, status]));
+			return (definitions.data.value?.recurring ?? []).flatMap(definition => {
+				const status = statuses.get(definition.name);
+				return status ? [{ ...definition, ...status }] : [];
+			});
+		}),
+		error: computed(() => definitions.error.value ?? snapshot.error.value),
+		isPending: computed(() => definitions.isPending.value || snapshot.isPending.value),
+	};
 }
 
-export function useServersQuery(): UseQueryReturnType<JobServerSnapshot[], Error> {
+export function useServersQuery() {
 	return useQuery({
-		queryKey: queryKeys.servers,
-		queryFn: ({ signal }) => getServers(signal),
+		queryKey: queryKeys.overview,
+		queryFn: ({ signal }) => getOverview(signal),
+		select: snapshot => snapshot.servers,
 		retry: shouldRetry,
+		staleTime: computed(() => connectionStatus.value === 'live' ? Infinity : 5_000),
 		refetchInterval: liveRefetchInterval,
 	});
 }
 
 export function applyDashboardState(queryClient: QueryClient, state: DashboardState): void {
+	void queryClient.cancelQueries({ queryKey: queryKeys.overview });
 	recordSnapshot(state.snapshot);
 	queryClient.setQueryData(queryKeys.overview, state.snapshot);
 	queryClient.setQueryData(queryKeys.recentJobs, state.jobs.slice(0, 8));
 	queryClient.setQueryData(queryKeys.batches, state.batches);
-	queryClient.setQueryData(queryKeys.recurring, state.snapshot.recurring);
-	queryClient.setQueryData(queryKeys.servers, state.snapshot.servers);
 
 	for (const job of state.jobs) {
 		queryClient.setQueryData(queryKeys.job(job.jobHandle), job);
@@ -165,10 +207,9 @@ export function applyDashboardState(queryClient: QueryClient, state: DashboardSt
 export async function refreshDashboardQueries(queryClient: QueryClient): Promise<void> {
 	await Promise.all([
 		queryClient.invalidateQueries({ queryKey: queryKeys.overview }),
+		queryClient.invalidateQueries({ queryKey: queryKeys.definitions }),
 		queryClient.invalidateQueries({ queryKey: queryKeys.recentJobs }),
 		queryClient.invalidateQueries({ queryKey: queryKeys.jobPages }),
 		queryClient.invalidateQueries({ queryKey: queryKeys.batches }),
-		queryClient.invalidateQueries({ queryKey: queryKeys.recurring }),
-		queryClient.invalidateQueries({ queryKey: queryKeys.servers }),
 	]);
 }

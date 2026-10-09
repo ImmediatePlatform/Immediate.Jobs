@@ -140,6 +140,9 @@ public sealed class StorageCapabilityTests
 			CancellationToken cancellationToken = default
 		) => _inner.FailAsync(jobHandle, executionNumber, workerId, error, nextRetryAt, cancellationToken);
 
+		public ValueTask<JobMonitoringDefinitions> GetMonitoringDefinitionsAsync(CancellationToken cancellationToken = default) =>
+			_inner.GetMonitoringDefinitionsAsync(cancellationToken);
+
 		public async ValueTask<JobMonitoringSnapshot> GetMonitoringSnapshotAsync(
 			CancellationToken cancellationToken = default
 		)

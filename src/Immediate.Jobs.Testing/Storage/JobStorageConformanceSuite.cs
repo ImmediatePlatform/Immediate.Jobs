@@ -40,6 +40,7 @@ public static class JobStorageConformanceSuite
 
 		return QueueStorageConformance.Cases
 			.Concat(DefinitionAcquisitionStorageConformance.Cases)
+			.Concat(MonitoringStorageConformance.Cases)
 			.Concat(AddOptionalCases(capabilities, StorageCapabilities.Queue, RecurringStorageConformance.Cases))
 			.Concat(AddOptionalCases(capabilities, StorageCapabilities.Graph, GraphStorageConformance.Cases))
 			.Concat(DefinitionCatalogStorageConformance.Cases)

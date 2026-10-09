@@ -20,12 +20,17 @@ public sealed record JobMonitoringSnapshot
 	/// <summary>
 	/// 	The recurring schedules in the snapshot.
 	/// </summary>
-	public required IReadOnlyList<RecurringJobSchedule> Recurring { get; init; }
+	public required IReadOnlyList<RecurringJobStatus> Recurring { get; init; }
 
 	/// <summary>
 	/// 	The scheduler-node heartbeats in the snapshot.
 	/// </summary>
 	public required IReadOnlyList<JobServerSnapshot> Servers { get; init; }
+
+	/// <summary>
+	/// 	Bulk-evaluated acquisition status for every persisted job definition.
+	/// </summary>
+	public IReadOnlyList<JobAcquisitionState> DefinitionStatuses { get; init; } = [];
 
 	/// <summary>
 	/// 	Capabilities implemented by the active storage provider.

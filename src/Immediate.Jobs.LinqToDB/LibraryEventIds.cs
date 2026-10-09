@@ -49,5 +49,6 @@ internal static class LibraryEventIds
 	public const int PauseJobAsyncCalled = 11645;
 	public const int ResumeJobAsyncCalled = 11646;
 	public const int GetJobAcquisitionStateAsyncCalled = 11647;
+	public const int GetMonitoringDefinitionsAsyncCalled = 11648;
 	public const int DefinitionRemoved = 11660;
 }

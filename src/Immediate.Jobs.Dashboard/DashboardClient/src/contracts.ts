@@ -66,7 +66,29 @@ export interface RecurringJobSchedule {
 	lastRunAt: IsoDateTime | null;
 }
 
+export interface JobDefinitionRecord {
+	name: string;
+	tags: string[];
+	queueName: string;
+	queuePriority: number;
+	queueConcurrency: number;
+	cron: string | null;
+	timeZone: string;
+	maxAttempts: number;
+	timeout: string | null;
+	maxConcurrency: number;
+	slidingWindowMax: number;
+	slidingWindowPeriod: string | null;
+	fixedWindowMax: number;
+	fixedWindowPeriod: string | null;
+	overlapPolicy: 'Skip' | 'Queue' | 'Concurrent';
+	misfireHandlingMode: 'EnqueueAll' | 'EnqueueOne' | 'EnqueueNone';
+	backoff: 'Fixed' | 'Exponential' | 'ExponentialJitter';
+	backoffBase: string;
+}
+
 export interface JobServerSnapshot {
+	tags: string[];
 	workerId: string;
 	lastHeartbeat: IsoDateTime;
 	activeWorkers: number;
@@ -98,9 +120,34 @@ export interface JobWorkerSnapshot {
 export interface JobMonitoringSnapshot {
 	capturedAt: IsoDateTime;
 	counts: Partial<Record<JobState, number>>;
-	recurring: RecurringJobSchedule[];
+	recurring: RecurringJobStatus[];
 	servers: JobServerSnapshot[];
+	definitionStatuses: JobAcquisitionState[];
 	capabilities?: string;
+}
+
+export type JobAcquisitionStatus = 'Ready' | 'Paused' | 'RateLimited' | 'ConcurrencyLimited';
+
+export interface JobAcquisitionLimits {
+	slidingWindowMax: number;
+	slidingWindowPeriod: string | null;
+	fixedWindowMax: number;
+	fixedWindowPeriod: string | null;
+	maxConcurrency: number;
+}
+
+export interface JobAcquisitionState {
+	jobName: string;
+	isPaused: boolean;
+	acquisitionStatus: JobAcquisitionStatus;
+	nextEligibleAt: IsoDateTime | null;
+	activeCount: number;
+	isConcurrencyLimited: boolean;
+}
+
+export interface JobDefinitionStatus extends JobDefinitionRecord {
+	limits: JobAcquisitionLimits;
+	acquisition?: JobAcquisitionState | undefined;
 }
 
 export interface DashboardJobPage {
@@ -201,4 +248,12 @@ export interface HistoryPoint {
 	complete: number;
 	throughput: number;
 	queued: number;
+}
+
+export type RecurringJobDefinition = Omit<RecurringJobSchedule, 'isPaused' | 'nextRunAt' | 'lastRunAt'>;
+export type RecurringJobStatus = Pick<RecurringJobSchedule, 'name' | 'isPaused' | 'nextRunAt' | 'lastRunAt'>;
+
+export interface JobMonitoringDefinitions {
+	jobs: JobDefinitionRecord[];
+	recurring: RecurringJobDefinition[];
 }
