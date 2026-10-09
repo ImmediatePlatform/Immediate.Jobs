@@ -582,12 +582,39 @@ internal static class RedisScripts
 			end
 			redis.call('HSET', key, 'record', schedule.Record, 'code', '1', 'paused', paused,
 				'next', next, 'last', last, 'dueScore', dueScore, 'dueMember', dueMember,
-				'cron', schedule.Cron, 'timeZone', schedule.TimeZone)
+				'cron', schedule.Cron, 'timeZone', schedule.TimeZone, 'jobName', schedule.JobName)
 			redis.call('SADD', KEYS[3], schedule.Name)
 			if paused ~= '1' then redis.call('ZADD', KEYS[4], dueScore, dueMember) end
 		end
 		redis.call('INCR', KEYS[2])
 		return 1
+		""";
+
+	internal const string GetDueRecurringForJobs =
+		"""
+		local eligible = {}
+		for index = 4, #ARGV do eligible[ARGV[index]] = true end
+		local result = {}
+		if tonumber(ARGV[3]) <= 0 then return result end
+		local offset = 0
+		while true do
+			local members = redis.call('ZRANGEBYSCORE', KEYS[1], '-inf', ARGV[2], 'LIMIT', offset, 256)
+			if #members == 0 then break end
+			for _, member in ipairs(members) do
+				local name = string.sub(member, 21)
+				local key = ARGV[1] .. 'recurring:' .. name
+				local current = redis.call('HMGET', key, 'record', 'paused', 'dueMember', 'jobName')
+				if current[1] and current[2] ~= '1' and current[3] == member then
+					local record = cjson.decode(current[1])
+					if eligible[current[4] or string.upper(record.JobName)] then
+						table.insert(result, member)
+						if #result >= tonumber(ARGV[3]) then return result end
+					end
+				end
+			end
+			offset = offset + #members
+		end
+		return result
 		""";
 
 	internal const string UpsertRecurring =
@@ -622,7 +649,7 @@ internal static class RedisScripts
 		redis.call('HSET', KEYS[1],
 			'record', ARGV[1], 'code', ARGV[2], 'paused', paused,
 			'next', next, 'last', last, 'dueScore', dueScore, 'dueMember', dueMember,
-			'cron', ARGV[9], 'timeZone', ARGV[10])
+			'cron', ARGV[9], 'timeZone', ARGV[10], 'jobName', ARGV[12])
 		redis.call('SADD', KEYS[2], ARGV[6])
 		if paused == '1' then
 			redis.call('ZREM', KEYS[3], dueMember)

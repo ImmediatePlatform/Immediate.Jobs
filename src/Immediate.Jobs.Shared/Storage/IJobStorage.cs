@@ -21,26 +21,26 @@ public interface IJobStorage : IAsyncDisposable
 	ValueTask InitializeAsync(CancellationToken cancellationToken = default);
 
 	/// <summary>
-	/// 	Atomically reconciles definitions and code-defined schedules against the complete application catalogue.
+	/// 	Atomically reconciles definitions and code-defined schedules within the server's tag scope.
 	/// </summary>
 	/// <param name="registration">
-	/// 	The complete local definition catalogue, and code-defined schedules.
+	/// 	The complete local definition catalogue, code-defined schedules, and server tags.
 	/// </param>
 	/// <param name="cancellationToken">
 	/// 	A token that can cancel the operation.
 	/// </param>
 	/// <returns>
-	/// 	A value task representing the complete reconciliation.
+	/// 	A value task representing the complete scoped reconciliation.
 	/// </returns>
 	/// <remarks>
-	/// 	Supplied definitions are inserted or updated; stored definitions omitted from the supplied list
-	/// 	are removed. Dynamic schedules, and invocation history are preserved.
-	/// 	Each server's list must be authoritative for the catalogue. Repeated calls are idempotent.
+	/// 	Matching definitions are inserted or updated; matching stored definitions omitted from the managed list
+	/// 	are removed. Unrelated definitions, dynamic schedules, and invocation history are preserved.
+	/// 	Each server's list must be authoritative for its scope. Repeated calls are idempotent.
 	/// </remarks>
 	ValueTask MergeJobDefinitionsListAsync(JobDefinitionRegistration registration, CancellationToken cancellationToken = default);
 
 	/// <summary>
-	/// 	Returns every persisted definition, ordered by ordinal, case-insensitive name, without local registration filtering.
+	/// 	Returns every persisted definition, ordered by ordinal, case-insensitive name, without server-tag or registration filtering.
 	/// </summary>
 	/// <param name="cancellationToken">
 	/// 	A token that can cancel the operation.
@@ -544,6 +544,31 @@ public interface IJobStorage : IAsyncDisposable
 	ValueTask<IReadOnlyList<RecurringJobSchedule>> GetDueRecurringAsync(
 		DateTimeOffset now,
 		int batchSize,
+		CancellationToken cancellationToken = default
+	);
+
+	/// <summary>
+	/// 	Returns due schedules for eligible job names, applying the filter before the batch limit.
+	/// </summary>
+	/// <param name="now">
+	/// 	The UTC evaluation time.
+	/// </param>
+	/// <param name="batchSize">
+	/// 	The maximum number of schedules to return.
+	/// </param>
+	/// <param name="jobNames">
+	/// 	The eligible registered job names; an empty list returns no schedules.
+	/// </param>
+	/// <param name="cancellationToken">
+	/// 	A token that can cancel the operation.
+	/// </param>
+	/// <returns>
+	/// 	The matching due schedules.
+	/// </returns>
+	ValueTask<IReadOnlyList<RecurringJobSchedule>> GetDueRecurringAsync(
+		DateTimeOffset now,
+		int batchSize,
+		IReadOnlyList<string> jobNames,
 		CancellationToken cancellationToken = default
 	);
 

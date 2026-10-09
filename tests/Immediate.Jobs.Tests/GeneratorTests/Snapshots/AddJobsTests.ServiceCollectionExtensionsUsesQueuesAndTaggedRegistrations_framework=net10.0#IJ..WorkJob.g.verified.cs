@@ -4,7 +4,6 @@
 
 #pragma warning disable CS1591
 
-
 partial class WorkJob
 {
 	public sealed class Scheduler(
@@ -42,7 +41,6 @@ partial class WorkJob
 			}
 			return global::Immediate.Jobs.Shared.Internals.JobContextEnvelope.Create(slices);
 		}
-
 
 		public global::System.Threading.Tasks.ValueTask<global::Immediate.Jobs.Shared.JobHandle> TriggerNowAsync(global::System.Threading.CancellationToken cancellationToken = default) =>
 			EnqueueAsync(default, cancellationToken);
@@ -98,6 +96,7 @@ partial class WorkJob
 		new()
 		{
 			Name = "work",
+			Tags = ["default"],
 			Queue = new global::Immediate.Jobs.Shared.Internals.JobQueueDefinition
 			{
 				Name = "critical-queue",

@@ -124,7 +124,9 @@ public class CapturingJobStorage(TimeProvider timeProvider) :
 		await _inner.MergeJobDefinitionsListAsync(registration, cancellationToken);
 		lock (_gate)
 		{
-			foreach (var schedule in registration.RecurringSchedules)
+			foreach (var schedule in registration.RecurringSchedules.Where(schedule =>
+				registration.Definitions.Any(definition => string.Equals(definition.Name, schedule.JobName, StringComparison.OrdinalIgnoreCase)
+					&& JobTags.Intersect(definition.Tags, registration.ServerTags))))
 			{
 				_recurringSchedules[schedule.Name] = schedule;
 			}
@@ -134,6 +136,10 @@ public class CapturingJobStorage(TimeProvider timeProvider) :
 	/// <inheritdoc />
 	public virtual ValueTask<IReadOnlyList<JobDefinitionRecord>> GetJobDefinitionsAsync(CancellationToken cancellationToken = default) =>
 		_inner.GetJobDefinitionsAsync(cancellationToken);
+
+	/// <inheritdoc />
+	public virtual ValueTask<IReadOnlyList<RecurringJobSchedule>> GetDueRecurringAsync(DateTimeOffset now, int batchSize, IReadOnlyList<string> jobNames, CancellationToken cancellationToken = default) =>
+		_inner.GetDueRecurringAsync(now, batchSize, jobNames, cancellationToken);
 
 	/// <inheritdoc />
 	public virtual async ValueTask EnqueueAsync(JobRecord job, CancellationToken cancellationToken = default)
