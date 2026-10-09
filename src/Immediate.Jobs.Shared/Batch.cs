@@ -1,6 +1,7 @@
 using System.Runtime.InteropServices;
 using Immediate.Jobs.Shared.Apis;
 using Immediate.Jobs.Shared.Interfaces;
+using Immediate.Jobs.Shared.Internals;
 using Immediate.Jobs.Shared.Storage;
 
 namespace Immediate.Jobs.Shared;
@@ -25,7 +26,7 @@ public sealed class Batch : IAsyncDisposable
 	private readonly List<JobRecord> _jobs = [];
 	private readonly HashSet<JobHandle> _rootJobs = [];
 	private readonly List<JobContinuationEdge> _edges = [];
-	private readonly IJobGraphStorage _storage;
+	private readonly IJobStorage _storage;
 	private readonly TimeProvider _timeProvider;
 	private readonly IReadOnlyList<BatchHandle>? _parents;
 	private readonly ContinuationTrigger _trigger;
@@ -37,13 +38,14 @@ public sealed class Batch : IAsyncDisposable
 	public bool IsCommitted { get; private set; }
 
 	internal Batch(
-		IJobGraphStorage storage,
+		IJobStorage storage,
 		TimeProvider timeProvider,
 		IIdGenerator idGenerator,
 		IReadOnlyList<BatchHandle>? parents,
 		ContinuationTrigger trigger
 	)
 	{
+		JobStorageCapabilityGuards.RequireGraph(storage);
 		_storage = storage;
 		_timeProvider = timeProvider;
 		_parents = parents;
@@ -182,7 +184,8 @@ public sealed class Batch : IAsyncDisposable
 
 		try
 		{
-			await _storage.EnqueueBatchAsync(record, _jobs, _edges, cancellationToken);
+			var jobs = await JobDefinitionResolver.ResolveAsync(_storage, _jobs, cancellationToken);
+			await JobStorageCapabilityGuards.RequireGraph(_storage).EnqueueBatchAsync(record, jobs, _edges, cancellationToken);
 			IsCommitted = true;
 
 			return BatchHandle;

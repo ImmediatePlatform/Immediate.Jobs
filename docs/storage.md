@@ -67,6 +67,18 @@ Custom providers must implement these operations and the eligible-name overload 
 `GetDueRecurringAsync`. Relational users must add the two catalogue tables through their normal
 schema update process; the bootstrap helpers do not upgrade existing production databases.
 
+## Typed submissions
+
+`JobScheduler<TPayload>` resolves the name and queue from persisted definitions before writing a
+job through the existing storage APIs. Unknown names fail before submission. Synchronous batch
+builders and buffered continuations resolve their queues when committed; dynamic recurring
+schedules use the same persisted queue. Each durable invocation retains the selected queue after
+definitions change or disappear.
+
+Queue selection uses a catalogue read before the provider's invocation write. Storage submission
+return contracts and raw `JobRecord` routing remain as before. Custom scheduler subclasses must
+remove the queue argument from their base constructor; the scheduler's `QueueName` property is removed.
+
 ## Providers
 
 | Provider | Location | Concurrency idiom |

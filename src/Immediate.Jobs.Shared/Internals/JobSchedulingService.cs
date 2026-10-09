@@ -154,6 +154,14 @@ public sealed partial class JobSchedulingService : BackgroundService
 	}
 
 	/// <inheritdoc />
+	public override async Task StartAsync(CancellationToken cancellationToken)
+	{
+		await TaskScheduler.Yield();
+		await InitializeAsync(cancellationToken);
+		await base.StartAsync(cancellationToken);
+	}
+
+	/// <inheritdoc />
 	protected override async Task ExecuteAsync(CancellationToken stoppingToken)
 	{
 		// initialization needs to be done no matter what, so that storage is initialized
@@ -241,6 +249,8 @@ public sealed partial class JobSchedulingService : BackgroundService
 
 	private async Task InitializeAsync(CancellationToken cancellationToken)
 	{
+		if (_drainInitialized)
+			return;
 		await _storage.InitializeAsync(cancellationToken);
 
 		var now = _timeProvider.GetUtcNow();
@@ -288,6 +298,7 @@ public sealed partial class JobSchedulingService : BackgroundService
 			},
 			cancellationToken
 		);
+		_drainInitialized = true;
 	}
 
 	/// <summary>
@@ -590,13 +601,18 @@ public sealed partial class JobSchedulingService : BackgroundService
 
 			if (_storage is IJobGraphStorage graphStorage)
 			{
+				var additions = executionBuffer.SealAndSnapshot();
+				var jobs = await JobDefinitionResolver.ResolveAsync(_storage, additions.Select(static addition => addition.Job).ToList(), stoppingToken);
+				additions = additions.Select((addition, index) => addition with { Job = jobs[index] }).ToList();
 				await graphStorage.CompleteWithContinuationsAsync(
 					record.JobHandle,
 					record.Attempt,
 					_workerId,
-					executionBuffer.SealAndSnapshot(),
+					additions,
 					stoppingToken
 				);
+				foreach (var addition in additions)
+					JobTelemetry.Enqueued(addition.Job.JobName, addition.Job.QueueName);
 			}
 			else
 			{

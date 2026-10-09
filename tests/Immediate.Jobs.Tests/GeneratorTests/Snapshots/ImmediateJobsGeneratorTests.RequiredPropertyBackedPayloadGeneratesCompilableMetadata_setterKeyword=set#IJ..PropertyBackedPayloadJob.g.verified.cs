@@ -17,7 +17,6 @@ partial class PropertyBackedPayloadJob
 		timeProvider,
 		idGenerator,
 		"property-backed-payload",
-		"default",
 		static options => new PayloadJsonContext(options).Payload
 	)
 	{

@@ -50,7 +50,7 @@ public sealed class BatchScheduler(
 	public Batch Begin()
 	{
 		return new Batch(
-			JobStorageCapabilityGuards.RequireGraph(storage),
+			storage,
 			timeProvider,
 			idGenerator,
 			parents: null,
@@ -63,7 +63,7 @@ public sealed class BatchScheduler(
 	{
 		ArgumentNullException.ThrowIfNull(batchHandle);
 		return new Batch(
-			JobStorageCapabilityGuards.RequireGraph(storage),
+			storage,
 			timeProvider,
 			idGenerator,
 			[batchHandle],
@@ -79,7 +79,7 @@ public sealed class BatchScheduler(
 			ArgumentException.Throw(nameof(batchHandle), "No parent batches were provided");
 
 		return new Batch(
-			JobStorageCapabilityGuards.RequireGraph(storage),
+			storage,
 			timeProvider,
 			idGenerator,
 			batchHandle,

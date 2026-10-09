@@ -48,6 +48,7 @@ public sealed class JobSchedulingServiceTests
 		var service = provider.GetRequiredService<JobSchedulingService>();
 		var storage = provider.GetRequiredService<FailingTelemetryStorage>();
 
+		await service.DrainAsync(cancellationToken);
 		var handle = await scheduler.EnqueueAsync(new("telemetry-failure"), cancellationToken);
 
 		await service.DrainAsync(cancellationToken);

@@ -34,6 +34,7 @@ public sealed class RecurringSchedulerTests
 		var cancellationToken = TestContext.Current.CancellationToken;
 
 		await using var harness = CreateHarness("cleanup", "0 * * * *");
+		await harness.DrainAsync(TestContext.Current.CancellationToken);
 		var storage = harness.Storage;
 
 		await storage.EnqueueAsync(
@@ -70,6 +71,7 @@ public sealed class RecurringSchedulerTests
 			OverlapPolicy.Skip,
 			MisfireHandlingMode.EnqueueAll
 		);
+		await harness.DrainAsync(TestContext.Current.CancellationToken);
 
 		var storage = harness.Storage;
 		var clock = harness.TimeProvider;
@@ -134,6 +136,7 @@ public sealed class RecurringSchedulerTests
 			OverlapPolicy.Queue,
 			MisfireHandlingMode.EnqueueAll
 		);
+		await harness.DrainAsync(TestContext.Current.CancellationToken);
 
 		var storage = harness.Storage;
 		var clock = harness.TimeProvider;
@@ -180,6 +183,7 @@ public sealed class RecurringSchedulerTests
 			OverlapPolicy.Queue,
 			MisfireHandlingMode.EnqueueAll
 		);
+		await harness.DrainAsync(TestContext.Current.CancellationToken);
 
 		var storage = harness.Storage;
 		var clock = harness.TimeProvider;
@@ -317,6 +321,7 @@ public sealed class RecurringSchedulerTests
 			OverlapPolicy.Concurrent,
 			misfireHandlingMode: mode
 		);
+		await harness.DrainAsync(TestContext.Current.CancellationToken);
 
 		var storage = harness.Storage;
 		var clock = harness.TimeProvider;
@@ -363,6 +368,7 @@ public sealed class RecurringSchedulerTests
 	{
 		var cancellationToken = TestContext.Current.CancellationToken;
 		await using var harness = new JobTestHarness(Start);
+		await harness.DrainAsync(TestContext.Current.CancellationToken);
 		var storage = harness.Storage;
 
 		var hourly = BuildScheduler(storage, harness.TimeProvider, "shifting", "0 * * * *");
@@ -385,6 +391,7 @@ public sealed class RecurringSchedulerTests
 		var cancellationToken = TestContext.Current.CancellationToken;
 
 		await using var harness = CreateHarness("analyzer-compatible", cron);
+		await harness.DrainAsync(TestContext.Current.CancellationToken);
 
 		var storage = harness.Storage;
 		var clock = harness.TimeProvider;
@@ -404,6 +411,7 @@ public sealed class RecurringSchedulerTests
 	{
 		var cancellationToken = TestContext.Current.CancellationToken;
 		await using var harness = new JobTestHarness(Start);
+		await harness.DrainAsync(TestContext.Current.CancellationToken);
 		var storage = harness.Storage;
 		await storage.UpsertRecurringAsync(new()
 		{

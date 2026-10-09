@@ -15,6 +15,8 @@ public sealed class TestingPackageTests
 	public async Task CapturingStorageRecordsTypedCallsWithoutInterruptingStorage()
 	{
 		await using var harness = new JobTestHarness();
+		await harness.DrainAsync(TestContext.Current.CancellationToken);
+		await harness.Storage.MergeJobDefinitionsListAsync(new() { Definitions = [new() { Name = "test-job" }] }, TestContext.Current.CancellationToken);
 		Assert.Same(harness.Storage, harness.Services.GetRequiredService<CapturingJobStorage>());
 		var scheduler = new TestScheduler(
 			harness.Storage,
@@ -45,6 +47,8 @@ public sealed class TestingPackageTests
 	{
 		var cancellationToken = TestContext.Current.CancellationToken;
 		await using var harness = new JobTestHarness();
+		await harness.DrainAsync(TestContext.Current.CancellationToken);
+		await harness.Storage.MergeJobDefinitionsListAsync(new() { Definitions = [new() { Name = "test-job" }] }, TestContext.Current.CancellationToken);
 		var scheduler = new TestScheduler(
 			harness.Storage,
 			harness.Services.GetRequiredService<IJobSerializer>(),
@@ -92,6 +96,7 @@ public sealed class TestingPackageTests
 			});
 			_ = services.AddSingleton<ILogger<JobSchedulingService>>(logger);
 		});
+		await harness.DrainAsync(TestContext.Current.CancellationToken);
 		var scheduler = new TestScheduler(
 			harness.Storage,
 			harness.Services.GetRequiredService<IJobSerializer>(),
@@ -135,6 +140,7 @@ public sealed class TestingPackageTests
 			_ = services.AddSingleton(counter);
 			_ = services.AddSingleton(definition);
 		});
+		await harness.DrainAsync(TestContext.Current.CancellationToken);
 		var scheduler = new TestScheduler(
 			harness.Storage,
 			harness.Services.GetRequiredService<IJobSerializer>(),
@@ -157,6 +163,7 @@ public sealed class TestingPackageTests
 	{
 		var cancellationToken = TestContext.Current.CancellationToken;
 		await using var harness = new JobTestHarness();
+		await harness.DrainAsync(TestContext.Current.CancellationToken);
 		var graphStorage = Assert.IsAssignableFrom<IJobGraphStorage>(harness.Storage);
 		var parent = CreateRawJob("parent");
 		var child = CreateRawJob("child") with
@@ -227,7 +234,6 @@ public sealed class TestingPackageTests
 			timeProvider,
 			idGenerator,
 			"test-job",
-			JobQueueDefinition.DefaultName,
 			static options => new TestingJsonContext(options).TestPayload
 		);
 

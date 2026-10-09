@@ -17,7 +17,6 @@ partial class StructJob
 		timeProvider,
 		idGenerator,
 		"struct",
-		"default",
 		static options => new PayloadJsonContext(options).Payload
 	)
 	{

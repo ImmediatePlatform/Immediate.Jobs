@@ -24,6 +24,7 @@ public sealed class JobDefinitionTests
 		var scheduler = provider.GetRequiredService<JobSchedulingService>();
 		await scheduler.StartAsync(token);
 		var storage = provider.GetRequiredService<StartupStorage>();
+		Assert.True(storage.Registered.Task.IsCompletedSuccessfully);
 		await storage.Registered.Task.WaitAsync(TimeSpan.FromSeconds(5), token);
 		Assert.Equal("metadata-only", Assert.Single(await storage.GetJobDefinitionsAsync(token)).Name);
 		await scheduler.StopAsync(token);

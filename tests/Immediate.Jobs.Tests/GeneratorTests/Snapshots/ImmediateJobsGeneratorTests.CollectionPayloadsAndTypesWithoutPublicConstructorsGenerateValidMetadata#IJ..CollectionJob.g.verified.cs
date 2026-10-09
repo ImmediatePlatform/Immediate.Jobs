@@ -17,7 +17,6 @@ partial class CollectionJob
 		timeProvider,
 		idGenerator,
 		"collection",
-		"default",
 		static options => new PayloadJsonContext(options).Payload
 	)
 	{
