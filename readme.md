@@ -67,6 +67,9 @@ Startup provides the complete local catalogue to storage, which inserts, updates
 matching definitions and code-defined schedules. Every server must supply an authoritative list for
 its tag scope. The dashboard always shows every definition in storage and each server's tags.
 
+Typed schedulers obtain their queue from the persisted definition when submitting work. Their base
+constructor requires the job name and serialization metadata alongside the normal scheduler services.
+
 Job names match case-insensitively. Explicit job names must not have leading or trailing whitespace; the analyzer reports `IJOB0008`
 for invalid names. Storage also rejects such names in manually supplied definition catalogues.
 

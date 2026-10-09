@@ -46,6 +46,7 @@ public sealed class GeneratedJobTests
 			_ = services.AddImmediateJobsFunctionalTestsHandlers();
 			_ = services.AddImmediateJobsFunctionalTestsJobs();
 		});
+		await harness.DrainAsync(TestContext.Current.CancellationToken);
 		await using var enqueueScope = harness.Services.CreateAsyncScope();
 		var scheduler = enqueueScope.ServiceProvider.GetRequiredService<RecordMessageJob.Scheduler>();
 
@@ -87,6 +88,7 @@ public sealed class GeneratedJobTests
 			_ = services.AddImmediateJobsFunctionalTestsHandlers();
 			_ = services.AddImmediateJobsFunctionalTestsJobs();
 		});
+		await harness.DrainAsync(TestContext.Current.CancellationToken);
 		await using var scope = harness.Services.CreateAsyncScope();
 		var scheduler = scope.ServiceProvider.GetRequiredService<CollectionPayloadJob.Scheduler>();
 		var payload = new CollectionPayloadJob.Payload(
@@ -124,6 +126,7 @@ public sealed class GeneratedJobTests
 			_ = services.AddImmediateJobsFunctionalTestsHandlers();
 			_ = services.AddImmediateJobsFunctionalTestsJobs();
 		});
+		await harness.DrainAsync(TestContext.Current.CancellationToken);
 		await using var scope = harness.Services.CreateAsyncScope();
 		var optionalScheduler = scope.ServiceProvider.GetRequiredService<PropertyBackedPayloadJob.Scheduler>();
 		var requiredScheduler = scope.ServiceProvider.GetRequiredService<RequiredPropertyBackedPayloadJob.Scheduler>();
@@ -152,6 +155,7 @@ public sealed class GeneratedJobTests
 			_ = services.AddImmediateJobsFunctionalTestsHandlers();
 			_ = services.AddImmediateJobsFunctionalTestsJobs();
 		});
+		await harness.DrainAsync(TestContext.Current.CancellationToken);
 		await using var enqueueScope = harness.Services.CreateAsyncScope();
 		var scheduler = enqueueScope.ServiceProvider.GetRequiredService<RetryOnceJob.Scheduler>();
 		var id = await scheduler.EnqueueAsync(new(42), cancellationToken);
@@ -188,6 +192,7 @@ public sealed class GeneratedJobTests
 			_ = services.AddImmediateJobsFunctionalTestsHandlers();
 			_ = services.AddImmediateJobsFunctionalTestsJobs();
 		});
+		await harness.DrainAsync(TestContext.Current.CancellationToken);
 		await using var scope = harness.Services.CreateAsyncScope();
 		var scheduler = scope.ServiceProvider.GetRequiredService<TimeoutJob.Scheduler>();
 		var handle = await scheduler.EnqueueAsync(default, cancellationToken);
@@ -241,6 +246,7 @@ public sealed class GeneratedJobTests
 			_ = services.AddImmediateJobsFunctionalTestsHandlers();
 			_ = services.AddImmediateJobsFunctionalTestsJobs();
 		});
+		await harness.DrainAsync(TestContext.Current.CancellationToken);
 		await using var scope = harness.Services.CreateAsyncScope();
 		var scheduler = scope.ServiceProvider.GetRequiredService<ValueTypeJob.Scheduler>();
 
@@ -264,6 +270,7 @@ public sealed class GeneratedJobTests
 			_ = services.AddImmediateJobsFunctionalTestsHandlers();
 			_ = services.AddImmediateJobsFunctionalTestsJobs();
 		});
+		await harness.DrainAsync(TestContext.Current.CancellationToken);
 		await using var scope = harness.Services.CreateAsyncScope();
 		var scheduler = scope.ServiceProvider.GetRequiredService<PlainRequestJob.Scheduler>();
 

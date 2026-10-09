@@ -27,7 +27,7 @@ For each `[Job]` class (see `Templates/Job.sbntxt`), nested in the user's partia
 - **`Scheduler`**: a scoped `JobScheduler<TPayload>` subclass that also implements
   `IJobScheduler<TPayload>`. A payloadless job's scheduler also implements `IRecurringJobScheduler`
   (dynamic schedules), or `IRecurringJobTrigger` when the job declares a code-defined `Cron`. All scheduling
-  logic lives in the base class; the generated type only supplies the job name, queue, JSON metadata,
+  logic lives in the base class; the generated type only supplies the job name, JSON metadata,
   and context capture.
 - **`Invoker`**: a singleton `IJobInvoker` that deserializes the payload and runs the handler through
   the Immediate.Handlers pipeline.
@@ -45,7 +45,8 @@ configuration surface (`ConfigureStorage`, `ConfigureWorkers`, `UseFairQueues`, 
 `JobSchedulingService` (`Internals/JobSchedulingService.cs`) is one hosted service per process:
 
 - **Startup.** Initializes storage and submits the complete definition catalogue and code-defined
-  schedules through `MergeJobDefinitionsListAsync`, even when workers are disabled. The storage
+  schedules through `MergeJobDefinitionsListAsync`, even when workers are disabled. `StartAsync`
+  completes this registration before returning. The storage
   reconciles only definitions intersecting the server's effective tags. Metadata has no invoker or CLR type.
 - **Polling loop.** Each iteration materializes due recurring schedules, builds a
   `JobAcquisitionRequest` from tag-eligible local definitions, free worker capacity, and queue/job concurrency limits, calls

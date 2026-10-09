@@ -28,9 +28,6 @@ namespace Immediate.Jobs.Shared;
 /// <param name="jobName">
 /// 	The stable generated job name.
 /// </param>
-/// <param name="queueName">
-/// 	The queue used for new invocations.
-/// </param>
 /// <param name="payloadTypeInfoFactory">
 /// 	The factory that supplies JSON metadata for the payload type.
 /// </param>
@@ -40,7 +37,6 @@ public abstract class JobScheduler<TPayload>(
 	TimeProvider timeProvider,
 	IIdGenerator idGenerator,
 	string jobName,
-	string queueName,
 	Func<System.Text.Json.JsonSerializerOptions, JsonTypeInfo<TPayload>> payloadTypeInfoFactory
 ) : IJobScheduler<TPayload>
 {
@@ -75,11 +71,6 @@ public abstract class JobScheduler<TPayload>(
 	/// 	The stable generated name.
 	/// </summary>
 	public string JobName { get; } = jobName;
-
-	/// <summary>
-	/// 	The stable queue used for new invocations.
-	/// </summary>
-	public string QueueName { get; } = queueName;
 
 	/// <summary>
 	/// 	Captures the context envelope persisted with a new invocation.
@@ -791,8 +782,9 @@ public abstract class JobScheduler<TPayload>(
 				Delay = delay,
 			});
 
+		waiting = await JobDefinitionResolver.ResolveAsync(Storage, waiting, cancellationToken);
 		await graphStorage.EnqueueContinuationAsync(waiting, [.. edges], cancellationToken);
-		JobTelemetry.Enqueued(JobName, QueueName);
+		JobTelemetry.Enqueued(waiting.JobName, waiting.QueueName);
 		return waiting.JobHandle;
 	}
 
@@ -805,8 +797,9 @@ public abstract class JobScheduler<TPayload>(
 		var now = TimeProvider.GetUtcNow();
 		var record = CreateRecord(payload, JobState.WaitingForTrigger, runAt: now, now, groupId);
 
+		record = await JobDefinitionResolver.ResolveAsync(Storage, record, cancellationToken);
 		await Storage.EnqueueAsync(record, cancellationToken);
-		JobTelemetry.Enqueued(JobName, QueueName);
+		JobTelemetry.Enqueued(record.JobName, record.QueueName);
 		return record.JobHandle;
 	}
 
@@ -819,8 +812,9 @@ public abstract class JobScheduler<TPayload>(
 		var now = TimeProvider.GetUtcNow();
 		var record = CreateRecord(payload, JobState.WaitingForTrigger, runAt: now, now, groupId);
 
+		record = await JobDefinitionResolver.ResolveAsync(Storage, record, cancellationToken);
 		await Storage.EnqueueAsync(record, cancellationToken);
-		JobTelemetry.Enqueued(JobName, QueueName);
+		JobTelemetry.Enqueued(record.JobName, record.QueueName);
 		return record.JobHandle;
 	}
 
@@ -863,8 +857,9 @@ public abstract class JobScheduler<TPayload>(
 		var state = runAt == now ? JobState.Pending : JobState.Scheduled;
 		var record = CreateRecord(payload, state, runAt, now, groupId);
 
+		record = await JobDefinitionResolver.ResolveAsync(Storage, record, cancellationToken);
 		await Storage.EnqueueAsync(record, cancellationToken);
-		JobTelemetry.Enqueued(JobName, QueueName);
+		JobTelemetry.Enqueued(record.JobName, record.QueueName);
 		return record.JobHandle;
 	}
 
@@ -984,8 +979,9 @@ public abstract class JobScheduler<TPayload>(
 		var state = runAt == now ? JobState.Pending : JobState.Scheduled;
 		var record = CreateRecord(payload, state, runAt, now, groupId) with { BatchHandle = currentJob.BatchHandle };
 
+		record = await JobDefinitionResolver.ResolveAsync(Storage, record, cancellationToken);
 		await graphStorage.AddBatchJobAsync(currentJob.JobHandle, currentJob.Attempt, record, options, cancellationToken);
-		JobTelemetry.Enqueued(JobName, QueueName);
+		JobTelemetry.Enqueued(record.JobName, record.QueueName);
 		return record.JobHandle;
 	}
 
@@ -1022,7 +1018,6 @@ public abstract class JobScheduler<TPayload>(
 			}
 		);
 
-		JobTelemetry.Enqueued(JobName, QueueName);
 		return record.JobHandle;
 	}
 
@@ -1040,7 +1035,7 @@ public abstract class JobScheduler<TPayload>(
 		{
 			JobHandle = JobHandle.FromString(idGenerator.CreateId(IdKind.Job)),
 			JobName = JobName,
-			QueueName = QueueName,
+			QueueName = string.Empty,
 			GroupId = NormalizeGroupId(groupId),
 			Payload = payload,
 			State = state,
@@ -1088,6 +1083,7 @@ public abstract class JobScheduler<TPayload>(
 	{
 		ArgumentException.ThrowIfNullOrWhiteSpace(name);
 
+		var definition = await JobDefinitionResolver.GetDefinitionAsync(Storage, JobName, cancellationToken);
 		var next = TimeProvider.GetUtcNow()
 			.GetNextOccurrence(cron, timeZone, name);
 
@@ -1096,9 +1092,9 @@ public abstract class JobScheduler<TPayload>(
 				new()
 				{
 					Name = name,
-					JobName = JobName,
+					JobName = definition.Name,
 					Cron = cron,
-					QueueName = QueueName,
+					QueueName = definition.QueueName,
 					TimeZone = timeZone,
 					IsCodeDefined = false,
 					NextRunAt = next,

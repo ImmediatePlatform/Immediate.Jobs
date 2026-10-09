@@ -19,7 +19,6 @@ partial class ContextualJob
 		timeProvider,
 		idGenerator,
 		"contextual",
-		"default",
 		static options => new PayloadJsonContext(options).Payload
 	)
 	{

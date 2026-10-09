@@ -20,6 +20,9 @@
 - **Don't test framework or library behaviour**, and don't add a test that duplicates one in another
   project.
 
+Initialize the startup catalogue with `await harness.DrainAsync(cancellationToken)` before the first
+typed submission. This uses the existing harness API and runs no work in a fresh harness.
+
 ## The conformance suite
 
 `src/Immediate.Jobs.Testing/Storage` ships in the `Immediate.Jobs.Testing` package, so custom

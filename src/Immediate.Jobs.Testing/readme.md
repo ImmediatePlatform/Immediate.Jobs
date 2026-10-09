@@ -18,7 +18,8 @@ dotnet add package Immediate.Jobs.Testing --prerelease
 ## Deterministic job tests
 
 `JobTestHarness` hosts the production scheduling service with in-memory storage and a controllable clock, without
-starting background threads. Register the generated jobs, handlers, and their dependencies in its service collection:
+starting background threads. Register the generated jobs, handlers, and their dependencies, then drain the fresh
+harness once to initialize the persisted definition catalogue before scheduling:
 
 ```csharp
 await using var harness = new JobTestHarness(services =>
@@ -27,6 +28,7 @@ await using var harness = new JobTestHarness(services =>
 	services.AddMyAppJobs();
 	services.AddSingleton<IEmailSender, RecordingEmailSender>();
 });
+await harness.DrainAsync(cancellationToken);
 
 await using var scope = harness.Services.CreateAsyncScope();
 var scheduler = scope.ServiceProvider.GetRequiredService<SendWelcomeEmail.Scheduler>();
