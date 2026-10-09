@@ -18,8 +18,11 @@ internal sealed partial class SingleServerJobStorage
 			await DurableStorage.MergeJobDefinitionsListAsync(registration, cancellationToken);
 			// Refresh the entire durable catalogue of schedules, from durable storage.
 			var snapshot = await DurableStorage.GetMonitoringSnapshotAsync(cancellationToken);
+			var definitions = await DurableStorage.GetMonitoringDefinitionsAsync(cancellationToken);
+			var statuses = snapshot.Recurring.ToDictionary(static status => status.Name, StringComparer.Ordinal);
 			await PrimaryStorage.MergeRecurringSchedulesListAsync(
-				snapshot.Recurring.Where(static schedule => schedule.IsCodeDefined).ToList(), cancellationToken);
+				definitions.Recurring.Where(definition => definition.IsCodeDefined && statuses.ContainsKey(definition.Name))
+					.Select(definition => RecurringJobSchedule.FromDefinition(definition, statuses[definition.Name])).ToList(), cancellationToken);
 		}
 		finally
 		{

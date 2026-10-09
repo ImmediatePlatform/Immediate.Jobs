@@ -94,3 +94,12 @@ consume no capacity or execution attempts. Resume preserves rate history and fix
 
 Definition acquisition states are `Ready`, `Paused`, `RateLimited`, and `ConcurrencyLimited`;
 individual job lifecycle state remains unchanged until the job is actually acquired.
+
+`JobMonitor.GetDefinitionsAsync()` returns all persisted job and recurring configuration.
+`GetSnapshotAsync()` returns acquisition states in `DefinitionStatuses`, including explicit pause,
+active unexpired leases, concurrency exhaustion and next eligibility. Storage evaluates the
+collection in bulk; the monitor does not loop over definitions to query status.
+`PauseDefinitionAsync(jobName)` and `ResumeDefinitionAsync(jobName)` use the stored canonical name
+and configured limits, rejecting missing definitions. The dashboard joins separately cached
+metadata and live status for its row actions. Manual recurring triggers use persisted configuration
+and routing without collecting a monitoring snapshot.

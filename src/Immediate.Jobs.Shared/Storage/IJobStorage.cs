@@ -337,6 +337,13 @@ public interface IJobStorage : IAsyncDisposable
 	ValueTask<JobMonitoringSnapshot> GetMonitoringSnapshotAsync(CancellationToken cancellationToken = default);
 
 	/// <summary>
+	/// 	Gets all stored job and recurring configuration without evaluating acquisition state.
+	/// </summary>
+	/// <param name="cancellationToken">A token that can cancel the read.</param>
+	/// <returns>The persisted monitoring definitions.</returns>
+	ValueTask<JobMonitoringDefinitions> GetMonitoringDefinitionsAsync(CancellationToken cancellationToken = default);
+
+	/// <summary>
 	/// 	Returns jobs matching a dashboard query.
 	/// </summary>
 	/// <param name="query">

@@ -4,6 +4,7 @@
 
 #pragma warning disable CS1591
 
+
 partial class NullablePayloadJob
 {
 	public sealed class Scheduler(
@@ -181,6 +182,7 @@ partial class NullablePayloadJob
 		);
 
 		global::Microsoft.Extensions.DependencyInjection.Extensions.ServiceCollectionDescriptorExtensions.TryAddSingleton<NullablePayloadJob.Invoker>(services);
+
 
 		return services;
 	}

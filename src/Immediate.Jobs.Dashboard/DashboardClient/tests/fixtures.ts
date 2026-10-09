@@ -1,4 +1,4 @@
-import type { BatchGraph, BatchStatus, JobRecord } from '@/contracts';
+import type { BatchGraph, BatchStatus, JobAcquisitionState, JobDefinitionStatus, JobRecord } from '@/contracts';
 
 export const completedJob: JobRecord = {
 	jobHandle: '86bf8c31-d8e6-415b-8e92-45587a09fc52',
@@ -55,4 +55,41 @@ export const workflowGraph: BatchGraph = {
 		{ childJobHandle: 'smoke', parentJobHandle: 'region-a', parentBatchHandle: null, trigger: 'Complete' },
 		{ childJobHandle: 'smoke', parentJobHandle: 'region-b', parentBatchHandle: null, trigger: 'Complete' },
 	],
+};
+
+export const storedDefinition: JobDefinitionStatus & { acquisition: JobAcquisitionState } = {
+	name: 'RemoteEmail',
+	tags: ['email', 'default'],
+	queueName: 'priority',
+	queuePriority: 5,
+	queueConcurrency: 2,
+	cron: '15 * * * *',
+	timeZone: 'UTC',
+	maxAttempts: 7,
+	timeout: '00:03:00',
+	maxConcurrency: 2,
+	slidingWindowMax: 0,
+	slidingWindowPeriod: null,
+	fixedWindowMax: 0,
+	fixedWindowPeriod: null,
+	overlapPolicy: 'Skip',
+	misfireHandlingMode: 'EnqueueOne',
+	backoff: 'Fixed',
+	backoffBase: '00:00:05',
+	limits: { slidingWindowMax: 0, slidingWindowPeriod: null, fixedWindowMax: 0, fixedWindowPeriod: null, maxConcurrency: 2 },
+	acquisition: { jobName: 'RemoteEmail', isPaused: false, acquisitionStatus: 'Ready', nextEligibleAt: null, activeCount: 0, isConcurrencyLimited: false },
+};
+
+export const pausedDefinition: JobDefinitionStatus & { acquisition: JobAcquisitionState } = {
+	...storedDefinition,
+	name: 'SendGreeting',
+	queueName: 'default',
+	cron: null,
+	timeout: null,
+	slidingWindowMax: 10,
+	slidingWindowPeriod: '00:01:00',
+	fixedWindowMax: 100,
+	fixedWindowPeriod: '01:00:00',
+	limits: { slidingWindowMax: 10, slidingWindowPeriod: '00:01:00', fixedWindowMax: 100, fixedWindowPeriod: '01:00:00', maxConcurrency: 2 },
+	acquisition: { jobName: 'SendGreeting', isPaused: true, acquisitionStatus: 'Paused', nextEligibleAt: null, activeCount: 2, isConcurrencyLimited: true },
 };

@@ -5,6 +5,42 @@ namespace Immediate.Jobs.Shared.Storage;
 
 public sealed partial class InMemoryJobStorage
 {
+	internal IReadOnlyList<JobServerSnapshot> GetLiveServersSnapshot()
+	{
+		var now = timeProvider.GetUtcNow();
+		lock (_gate)
+			return [.. _servers.Values.Where(server => server.LastHeartbeat + server.ServerTimeout >= now)];
+	}
+
+	/// <inheritdoc />
+	public async ValueTask<JobMonitoringDefinitions> GetMonitoringDefinitionsAsync(CancellationToken cancellationToken = default)
+	{
+		InMemoryGetMonitoringDefinitionsAsyncCalled();
+		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
+		lock (_gate)
+			return new()
+			{
+				Jobs = [.. _jobDefinitions.Values.OrderBy(static definition => definition.Name, StringComparer.OrdinalIgnoreCase)],
+				Recurring = [.. _recurring.Values.OrderBy(static schedule => schedule.Name, StringComparer.Ordinal).Select(static schedule => schedule.ToDefinition())],
+			};
+	}
+
+	private IReadOnlyList<JobAcquisitionState> GetDefinitionStatuses(DateTimeOffset now)
+	{
+		var active = _jobs.Values.Where(job => job.State == JobState.Active && job.LeaseExpiresAt > now)
+			.GroupBy(static job => job.JobName, StringComparer.OrdinalIgnoreCase)
+			.ToDictionary(static group => group.Key, static group => group.Count(), StringComparer.OrdinalIgnoreCase);
+		return [.. _jobDefinitions.Values.OrderBy(static definition => definition.Name, StringComparer.OrdinalIgnoreCase).Select(definition =>
+		{
+			var usage = GetAcquisitionDefinition(definition.Name);
+			var limits = definition.AcquisitionLimits;
+			return JobAcquisitionEvaluator.Evaluate(definition.Name, usage.State.IsPaused, limits, now,
+				limits.SlidingWindowPeriod is { } period ? usage.Acquisitions.Where(acquired => acquired > now - period).Order().ToList() : [],
+				usage.FixedWindowStart, usage.FixedWindowCount, active.GetValueOrDefault(definition.Name));
+		})];
+	}
+
 	/// <inheritdoc />
 	public async ValueTask<JobMonitoringSnapshot> GetMonitoringSnapshotAsync(CancellationToken cancellationToken = default)
 	{
@@ -16,12 +52,13 @@ public sealed partial class InMemoryJobStorage
 		{
 			var counts = Enum.GetValues<JobState>().ToDictionary(state => state, state => _jobs.Values.LongCount(x => x.State == state));
 			var now = timeProvider.GetUtcNow();
-			IReadOnlyList<JobServerSnapshot> servers = [.. _servers.Values.Where(x => x.LastHeartbeat + x.ServerTimeout >= now)];
+			var servers = GetLiveServersSnapshot();
 			return new JobMonitoringSnapshot
 			{
 				CapturedAt = timeProvider.GetUtcNow(),
 				Counts = counts,
-				Recurring = [.. _recurring.Values],
+				Recurring = [.. _recurring.Values.Select(static schedule => schedule.ToStatus())],
+				DefinitionStatuses = GetDefinitionStatuses(now),
 				Servers = servers,
 				Capabilities = this.GetCapabilities(),
 			};
@@ -357,4 +394,12 @@ public sealed partial class InMemoryJobStorage
 		Message = "GetJobStatusAsync called (JobHandle={JobHandle})"
 	)]
 	private partial void GetJobStatusAsyncCalled(JobHandle jobHandle);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.InMemoryGetMonitoringDefinitionsAsyncCalled,
+		EventName = "Immediate.Jobs.Shared.InMemoryGetMonitoringDefinitionsAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "GetMonitoringDefinitionsAsync called"
+	)]
+	private partial void InMemoryGetMonitoringDefinitionsAsyncCalled();
 }

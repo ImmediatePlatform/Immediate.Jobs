@@ -54,9 +54,12 @@ operation. Ranges and rules are in [conventions](conventions.md#logging).
 `JobMonitor` (`Apis/JobMonitor.cs`) is the programmatic surface the dashboard uses. Its read operations
 are also exposed through the `IJobMonitor` interface:
 
-- the overview snapshot (counts by state, servers, capabilities, recurring schedules);
+- the overview snapshot (counts by state, servers, capabilities, recurring schedules, definition status);
+- `GetDefinitionsAsync` for all stored job and recurring configuration, without acquisition evaluation;
+- live job acquisition and recurring pause/progress in `GetSnapshotAsync`, bulk-evaluated by storage;
 - paged job, execution, and batch queries, plus batch members and graphs;
 - cancel, retry, and delete for jobs and batches;
+- `PauseDefinitionAsync` and `ResumeDefinitionAsync` for stored job definitions, preserving configured limits;
 - pause, resume, and trigger for recurring schedules.
 
 Graph reads return "not available" on non-graph storage instead of throwing.

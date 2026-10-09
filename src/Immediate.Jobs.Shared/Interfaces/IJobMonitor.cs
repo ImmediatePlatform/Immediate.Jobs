@@ -3,7 +3,7 @@ using Immediate.Jobs.Shared.Apis;
 namespace Immediate.Jobs.Shared.Interfaces;
 
 /// <summary>
-/// 	Read-only monitoring for jobs, executions, batches, schedules, and scheduler nodes.
+/// 	Storage-backed monitoring and definition acquisition controls for jobs, executions, batches, schedules, and scheduler nodes.
 /// </summary>
 public interface IJobMonitor
 {
@@ -17,6 +17,47 @@ public interface IJobMonitor
 	/// 	The current aggregate monitoring snapshot.
 	/// </returns>
 	ValueTask<JobMonitoringSnapshot> GetSnapshotAsync(CancellationToken cancellationToken = default);
+
+	/// <summary>
+	/// 	Gets stored job and recurring configuration without live acquisition state.
+	/// </summary>
+	/// <param name="cancellationToken">A token that can cancel the read.</param>
+	/// <returns>All persisted monitoring definitions.</returns>
+	ValueTask<JobMonitoringDefinitions> GetDefinitionsAsync(CancellationToken cancellationToken = default);
+
+	/// <summary>
+	/// 	Pauses acquisition of a stored definition's pending and future jobs. Running work may finish.
+	/// </summary>
+	/// <param name="jobName">
+	/// 	The stable job definition name.
+	/// </param>
+	/// <param name="cancellationToken">
+	/// 	A token that can cancel the operation.
+	/// </param>
+	/// <returns>
+	/// 	The asynchronous pause operation.
+	/// </returns>
+	/// <exception cref="KeyNotFoundException">
+	/// 	The definition is not stored.
+	/// </exception>
+	ValueTask PauseDefinitionAsync(string jobName, CancellationToken cancellationToken = default);
+
+	/// <summary>
+	/// 	Resumes acquisition of a stored definition, preserving its rate counters and configured limits.
+	/// </summary>
+	/// <param name="jobName">
+	/// 	The stable job definition name.
+	/// </param>
+	/// <param name="cancellationToken">
+	/// 	A token that can cancel the operation.
+	/// </param>
+	/// <returns>
+	/// 	The asynchronous resume operation.
+	/// </returns>
+	/// <exception cref="KeyNotFoundException">
+	/// 	The definition is not stored.
+	/// </exception>
+	ValueTask ResumeDefinitionAsync(string jobName, CancellationToken cancellationToken = default);
 
 	/// <summary>
 	/// 	Returns jobs matching a monitoring query.
@@ -39,7 +80,7 @@ public interface IJobMonitor
 	/// 	Returns retained executions for one job.
 	/// </summary>
 	/// <param name="jobHandle">
-	///		The job identifier.
+	/// 	The job identifier.
 	/// </param>
 	/// <param name="query">
 	/// 	The exact-ordinal filter and paging options.

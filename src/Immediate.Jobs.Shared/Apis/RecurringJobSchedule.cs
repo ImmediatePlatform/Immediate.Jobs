@@ -55,4 +55,56 @@ public sealed record RecurringJobSchedule
 	/// 	The most recently materialized scheduled occurrence in UTC.
 	/// </summary>
 	public DateTimeOffset? LastRunAt { get; init; }
+
+	/// <summary>
+	/// 	Returns this schedule's configuration without live progress.
+	/// </summary>
+	/// <returns>The recurring configuration.</returns>
+	public RecurringJobDefinition ToDefinition() => new()
+	{
+		Name = Name,
+		JobName = JobName,
+		QueueName = QueueName,
+		Cron = Cron,
+		TimeZone = TimeZone,
+		IsCodeDefined = IsCodeDefined,
+	};
+
+	/// <summary>
+	/// 	Returns this schedule's live progress without configuration.
+	/// </summary>
+	/// <returns>The recurring status.</returns>
+	public RecurringJobStatus ToStatus() => new()
+	{
+		Name = Name,
+		IsPaused = IsPaused,
+		NextRunAt = NextRunAt,
+		LastRunAt = LastRunAt,
+	};
+
+	/// <summary>
+	/// 	Combines recurring configuration and live progress for persistence.
+	/// </summary>
+	/// <param name="definition">The schedule configuration.</param>
+	/// <param name="status">The matching live status.</param>
+	/// <returns>The complete persisted schedule.</returns>
+	public static RecurringJobSchedule FromDefinition(RecurringJobDefinition definition, RecurringJobStatus status)
+	{
+		ArgumentNullException.ThrowIfNull(definition);
+		ArgumentNullException.ThrowIfNull(status);
+		if (!string.Equals(definition.Name, status.Name, StringComparison.Ordinal))
+			throw new ArgumentException("Recurring definition and status names must match.", nameof(status));
+		return new()
+		{
+			Name = definition.Name,
+			JobName = definition.JobName,
+			QueueName = definition.QueueName,
+			Cron = definition.Cron,
+			TimeZone = definition.TimeZone,
+			IsCodeDefined = definition.IsCodeDefined,
+			IsPaused = status.IsPaused,
+			NextRunAt = status.NextRunAt,
+			LastRunAt = status.LastRunAt,
+		};
+	}
 }

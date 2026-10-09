@@ -105,4 +105,6 @@ internal static class LibraryEventIds
 	public const int SingleServerPauseJobAsyncCalled = 11101;
 	public const int SingleServerResumeJobAsyncCalled = 11102;
 	public const int SingleServerGetJobAcquisitionStateAsyncCalled = 11103;
+	public const int InMemoryGetMonitoringDefinitionsAsyncCalled = 11104;
+	public const int SingleServerGetMonitoringDefinitionsAsyncCalled = 11105;
 }

@@ -1,5 +1,4 @@
 using Immediate.Jobs.Shared.Interfaces;
-using Immediate.Jobs.Shared.Internals;
 using Immediate.Jobs.Shared.Storage;
 using Immediate.Validations.Shared;
 
@@ -11,9 +10,6 @@ namespace Immediate.Jobs.Shared.Apis;
 /// <param name="storage">
 /// 	The storage provider queried for job and batch status.
 /// </param>
-/// <param name="definitions">
-/// 	The generated job definitions used to enrich monitoring results.
-/// </param>
 /// <param name="timeProvider">
 /// 	The clock used when triggering recurring jobs.
 /// </param>
@@ -22,13 +18,10 @@ namespace Immediate.Jobs.Shared.Apis;
 /// </param>
 public sealed class JobMonitor(
 	IJobStorage storage,
-	IEnumerable<JobDefinition> definitions,
 	TimeProvider timeProvider,
 	IIdGenerator idGenerator
 ) : IJobMonitor
 {
-	private readonly Dictionary<string, JobDefinition> _definitionsByName = definitions.ToDictionary(x => x.Name, StringComparer.Ordinal);
-
 	/// <inheritdoc />
 	public async ValueTask<JobMonitoringSnapshot> GetSnapshotAsync(CancellationToken cancellationToken = default)
 	{
@@ -36,9 +29,48 @@ public sealed class JobMonitor(
 		return await storage.GetMonitoringSnapshotAsync(cancellationToken);
 	}
 
-	/// <summary>Cancels a non-terminal job.</summary>
-	/// <param name="jobHandle">The invocation identifier.</param>
-	/// <param name="cancellationToken">A token that can cancel the operation.</param>
+	/// <inheritdoc />
+	public async ValueTask<JobMonitoringDefinitions> GetDefinitionsAsync(CancellationToken cancellationToken = default)
+	{
+		await TaskScheduler.Yield();
+		return await storage.GetMonitoringDefinitionsAsync(cancellationToken);
+	}
+
+	/// <inheritdoc />
+	public async ValueTask PauseDefinitionAsync(string jobName, CancellationToken cancellationToken = default)
+	{
+		await TaskScheduler.Yield();
+		cancellationToken.ThrowIfCancellationRequested();
+		var definition = await GetStoredDefinitionAsync(jobName, cancellationToken);
+		await storage.PauseJobAsync(definition.Name, cancellationToken);
+	}
+
+	/// <inheritdoc />
+	public async ValueTask ResumeDefinitionAsync(string jobName, CancellationToken cancellationToken = default)
+	{
+		await TaskScheduler.Yield();
+		cancellationToken.ThrowIfCancellationRequested();
+		var definition = await GetStoredDefinitionAsync(jobName, cancellationToken);
+		await storage.ResumeJobAsync(definition.Name, definition.AcquisitionLimits, cancellationToken);
+	}
+
+	private async ValueTask<JobDefinitionRecord> GetStoredDefinitionAsync(string jobName, CancellationToken cancellationToken)
+	{
+		ArgumentException.ThrowIfNullOrWhiteSpace(jobName);
+		return (await storage.GetJobDefinitionsAsync(cancellationToken))
+			.FirstOrDefault(definition => string.Equals(definition.Name, jobName, StringComparison.OrdinalIgnoreCase))
+			?? throw new KeyNotFoundException($"Job definition '{jobName}' is not stored.");
+	}
+
+	/// <summary>
+	/// 	Cancels a non-terminal job.
+	/// </summary>
+	/// <param name="jobHandle">
+	/// 	The invocation identifier.
+	/// </param>
+	/// <param name="cancellationToken">
+	/// 	A token that can cancel the operation.
+	/// </param>
 	public async ValueTask CancelJobAsync(JobHandle jobHandle, CancellationToken cancellationToken = default)
 	{
 		await TaskScheduler.Yield();
@@ -47,9 +79,15 @@ public sealed class JobMonitor(
 		await storage.CancelAsync(jobHandle, cancellationToken);
 	}
 
-	/// <summary>Moves a terminal job back to pending.</summary>
-	/// <param name="jobHandle">The invocation identifier.</param>
-	/// <param name="cancellationToken">A token that can cancel the operation.</param>
+	/// <summary>
+	/// 	Moves a terminal job back to pending.
+	/// </summary>
+	/// <param name="jobHandle">
+	/// 	The invocation identifier.
+	/// </param>
+	/// <param name="cancellationToken">
+	/// 	A token that can cancel the operation.
+	/// </param>
 	public async ValueTask RetryJobAsync(JobHandle jobHandle, CancellationToken cancellationToken = default)
 	{
 		await TaskScheduler.Yield();
@@ -58,9 +96,15 @@ public sealed class JobMonitor(
 		await storage.RetryAsync(jobHandle, cancellationToken);
 	}
 
-	/// <summary>Cancels a batch and its non-terminal members.</summary>
-	/// <param name="batchHandle">The batch identifier.</param>
-	/// <param name="cancellationToken">A token that can cancel the operation.</param>
+	/// <summary>
+	/// 	Cancels a batch and its non-terminal members.
+	/// </summary>
+	/// <param name="batchHandle">
+	/// 	The batch identifier.
+	/// </param>
+	/// <param name="cancellationToken">
+	/// 	A token that can cancel the operation.
+	/// </param>
 	public async ValueTask CancelBatchAsync(BatchHandle batchHandle, CancellationToken cancellationToken = default)
 	{
 		await TaskScheduler.Yield();
@@ -72,9 +116,15 @@ public sealed class JobMonitor(
 		await graphStorage.CancelBatchAsync(batchHandle, cancellationToken);
 	}
 
-	/// <summary>Deletes a terminal batch and its retained graph.</summary>
-	/// <param name="batchHandle">The batch identifier.</param>
-	/// <param name="cancellationToken">A token that can cancel the operation.</param>
+	/// <summary>
+	/// 	Deletes a terminal batch and its retained graph.
+	/// </summary>
+	/// <param name="batchHandle">
+	/// 	The batch identifier.
+	/// </param>
+	/// <param name="cancellationToken">
+	/// 	A token that can cancel the operation.
+	/// </param>
 	public async ValueTask DeleteBatchAsync(BatchHandle batchHandle, CancellationToken cancellationToken = default)
 	{
 		await TaskScheduler.Yield();
@@ -86,9 +136,15 @@ public sealed class JobMonitor(
 		await graphStorage.DeleteBatchAsync(batchHandle, cancellationToken);
 	}
 
-	/// <summary>Pauses a recurring schedule.</summary>
-	/// <param name="name">The recurring schedule name.</param>
-	/// <param name="cancellationToken">A token that can cancel the operation.</param>
+	/// <summary>
+	/// 	Pauses a recurring schedule.
+	/// </summary>
+	/// <param name="name">
+	/// 	The recurring schedule name.
+	/// </param>
+	/// <param name="cancellationToken">
+	/// 	A token that can cancel the operation.
+	/// </param>
 	public async ValueTask PauseRecurringAsync(string name, CancellationToken cancellationToken = default)
 	{
 		await TaskScheduler.Yield();
@@ -97,9 +153,15 @@ public sealed class JobMonitor(
 		await storage.PauseRecurringAsync(name, cancellationToken);
 	}
 
-	/// <summary>Resumes a recurring schedule.</summary>
-	/// <param name="name">The recurring schedule name.</param>
-	/// <param name="cancellationToken">A token that can cancel the operation.</param>
+	/// <summary>
+	/// 	Resumes a recurring schedule.
+	/// </summary>
+	/// <param name="name">
+	/// 	The recurring schedule name.
+	/// </param>
+	/// <param name="cancellationToken">
+	/// 	A token that can cancel the operation.
+	/// </param>
 	public async ValueTask ResumeRecurringAsync(string name, CancellationToken cancellationToken = default)
 	{
 		await TaskScheduler.Yield();
@@ -108,30 +170,35 @@ public sealed class JobMonitor(
 		await storage.ResumeRecurringAsync(name, cancellationToken);
 	}
 
-	/// <summary>Creates an immediate invocation from a recurring schedule.</summary>
-	/// <param name="name">The recurring schedule name.</param>
-	/// <param name="cancellationToken">A token that can cancel the operation.</param>
+	/// <summary>
+	/// 	Creates an immediate invocation from a recurring schedule.
+	/// </summary>
+	/// <param name="name">
+	/// 	The recurring schedule name.
+	/// </param>
+	/// <param name="cancellationToken">
+	/// 	A token that can cancel the operation.
+	/// </param>
 	public async ValueTask TriggerRecurringAsync(string name, CancellationToken cancellationToken = default)
 	{
 		await TaskScheduler.Yield();
 		ArgumentException.ThrowIfNullOrWhiteSpace(name);
 
-		var snapshot = await GetSnapshotAsync(cancellationToken);
+		var definitions = await GetDefinitionsAsync(cancellationToken);
 
-		var schedule = snapshot.Recurring
+		var schedule = definitions.Recurring
 			.FirstOrDefault(candidate => string.Equals(candidate.Name, name, StringComparison.Ordinal))
 			?? throw new KeyNotFoundException($"Recurring schedule '{name}' is not available.");
 
-		if (!_definitionsByName.ContainsKey(schedule.JobName))
-			throw new ImmediateJobException($"No generated job definition exists for '{schedule.JobName}' (recurring job '{name}').");
+		var definition = await GetStoredDefinitionAsync(schedule.JobName, cancellationToken);
 
 		var now = timeProvider.GetUtcNow();
 		await storage.EnqueueAsync(
 			new()
 			{
 				JobHandle = JobHandle.FromString(idGenerator.CreateId(IdKind.Job)),
-				JobName = schedule.JobName,
-				QueueName = schedule.QueueName,
+				JobName = definition.Name,
+				QueueName = definition.QueueName,
 				Payload = "{}",
 				State = JobState.Pending,
 				DueAt = now,
@@ -237,9 +304,8 @@ public sealed class JobMonitor(
 		if (status is null)
 			return null;
 
-		if (!_definitionsByName.TryGetValue(status.JobName, out var definition))
-			return status;
-
-		return status with { MaxAttempts = definition.MaxAttempts };
+		var definition = (await storage.GetJobDefinitionsAsync(cancellationToken))
+			.FirstOrDefault(definition => string.Equals(definition.Name, status.JobName, StringComparison.OrdinalIgnoreCase));
+		return definition is not null ? status with { MaxAttempts = definition.MaxAttempts } : status;
 	}
 }

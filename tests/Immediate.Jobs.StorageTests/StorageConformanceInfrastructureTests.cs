@@ -19,7 +19,7 @@ public sealed class StorageConformanceInfrastructureTests
 		var graphCases = JobStorageConformanceSuite.GetCases(AllCapabilities);
 		var replicaCases = JobStorageConformanceSuite.GetCases(AllCapabilities, includeSingleServerReplicaCases: true);
 
-		Assert.Equal(60, queueCases.Count);
+		Assert.Equal(62, queueCases.Count);
 		Assert.All(queueCases, testCase => Assert.Equal(StorageCapabilities.Queue, testCase.RequiredCapabilities));
 		Assert.Contains(queueCases, testCase => testCase.Name.StartsWith("Recurring.", StringComparison.Ordinal));
 		Assert.Contains(queueCases, testCase => testCase.Name.StartsWith("FairQueues.", StringComparison.Ordinal));

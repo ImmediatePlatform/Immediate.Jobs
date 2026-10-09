@@ -4,6 +4,7 @@
 
 #pragma warning disable CS1591
 
+
 partial class ClockJob
 {
 	public sealed class Scheduler(
@@ -40,6 +41,7 @@ partial class ClockJob
 			}
 			return global::Immediate.Jobs.Shared.Internals.JobContextEnvelope.Create(slices);
 		}
+
 
 		public global::System.Threading.Tasks.ValueTask<global::Immediate.Jobs.Shared.JobHandle> TriggerNowAsync(global::System.Threading.CancellationToken cancellationToken = default) =>
 			EnqueueAsync(default, cancellationToken);

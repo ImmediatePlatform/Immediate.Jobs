@@ -73,7 +73,7 @@ internal static class RecurringStorageConformance
 
 		await storage.RemoveRecurringAsync(original.Name, cancellationToken);
 		ConformanceAssert.False(
-			(await storage.GetMonitoringSnapshotAsync(cancellationToken)).Recurring.Any(
+			(await MonitoringTestQueries.GetSchedulesAsync(storage, cancellationToken)).Any(
 				schedule => string.Equals(schedule.Name, original.Name, StringComparison.Ordinal)
 			),
 			LifecycleName,
@@ -125,7 +125,7 @@ internal static class RecurringStorageConformance
 
 		await storage.MergeRecurringSchedulesListAsync([updatedDefinition, insertedDefinition, upgradeToStatic, preserve], cancellationToken);
 
-		var schedules = (await storage.GetMonitoringSnapshotAsync(cancellationToken)).Recurring;
+		var schedules = (await MonitoringTestQueries.GetSchedulesAsync(storage, cancellationToken));
 		var updated = schedules.Single(schedule => string.Equals(schedule.Name, "merge-update", StringComparison.Ordinal));
 		ConformanceAssert.Equal(updatedDefinition.JobName, updated.JobName, MergeDefinitionsName, "merge must update the job name");
 		ConformanceAssert.Equal(updatedDefinition.QueueName, updated.QueueName, MergeDefinitionsName, "merge must update the queue name");
@@ -536,9 +536,8 @@ internal static class RecurringStorageConformance
 		CancellationToken cancellationToken
 	)
 	{
-		var snapshot = await storage.GetMonitoringSnapshotAsync(cancellationToken);
 		return ConformanceAssert.NotNull(
-			snapshot.Recurring.SingleOrDefault(schedule => string.Equals(schedule.Name, name, StringComparison.Ordinal)),
+			(await MonitoringTestQueries.GetSchedulesAsync(storage, cancellationToken)).SingleOrDefault(schedule => string.Equals(schedule.Name, name, StringComparison.Ordinal)),
 			caseName,
 			"the expected recurring schedule must be present in monitoring",
 			$"schedule={name}"
