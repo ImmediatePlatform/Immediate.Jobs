@@ -21,7 +21,9 @@ public static class JobStorageConformanceSuite
 	/// 	Whether to include the cases for <see cref="IJobGraphStorage.AcquireJobsAsync"/>, which only providers that
 	/// 	can act as a single-server durable store implement. Requires <see cref="StorageCapabilities.Graph"/>.
 	/// </param>
-	/// <returns>Individually discoverable conformance test cases.</returns>
+	/// <returns>
+	/// 	Individually discoverable conformance test cases.
+	/// </returns>
 	public static IReadOnlyList<JobStorageConformanceTestCase> GetCases(
 		StorageCapabilities capabilities,
 		bool includeSingleServerReplicaCases = false
@@ -37,6 +39,7 @@ public static class JobStorageConformanceSuite
 			throw new ArgumentException("Single-server replica cases require the Graph capability.", nameof(includeSingleServerReplicaCases));
 
 		return QueueStorageConformance.Cases
+			.Concat(DefinitionAcquisitionStorageConformance.Cases)
 			.Concat(AddOptionalCases(capabilities, StorageCapabilities.Queue, RecurringStorageConformance.Cases))
 			.Concat(AddOptionalCases(capabilities, StorageCapabilities.Graph, GraphStorageConformance.Cases))
 			.Concat(DefinitionCatalogStorageConformance.Cases)
@@ -48,7 +51,7 @@ public static class JobStorageConformanceSuite
 	}
 
 	/// <summary>
-	///		A map of all known cases by their case name.
+	/// 	A map of all known cases by their case name.
 	/// </summary>
 	public static IReadOnlyDictionary<string, JobStorageConformanceTestCase> AllCasesByName { get; } =
 		GetCases(KnownCapabilities, includeSingleServerReplicaCases: true)

@@ -3,15 +3,29 @@ using LinqToDB.Data;
 
 namespace Immediate.Jobs.LinqToDB;
 
-/// <summary>Explicit bootstrap helpers for a fresh Immediate.Jobs schema.</summary>
+/// <summary>
+/// 	Explicit bootstrap helpers for a fresh Immediate.Jobs schema.
+/// </summary>
 public static class LinqToDBSchemaExtensions
 {
-	/// <summary>Creates the Immediate.Jobs tables and indexes when they do not already exist.</summary>
-	/// <remarks>This helper bootstraps fresh storage only; it does not perform production schema upgrades.</remarks>
-	/// <param name="context">A LinqToDB Data Connection.</param>
-	/// <param name="schema">The database schema to create objects in, or <see langword="null"/> for the provider default.</param>
-	/// <param name="cancellationToken">A token that can cancel the operation.</param>
-	/// <returns>A task that represents the asynchronous schema creation operation.</returns>
+	/// <summary>
+	/// 	Creates the Immediate.Jobs tables and indexes when they do not already exist.
+	/// </summary>
+	/// <remarks>
+	/// 	This helper bootstraps fresh storage only; it does not perform production schema upgrades.
+	/// </remarks>
+	/// <param name="context">
+	/// 	A LinqToDB Data Connection.
+	/// </param>
+	/// <param name="schema">
+	/// 	The database schema to create objects in, or <see langword="null"/> for the provider default.
+	/// </param>
+	/// <param name="cancellationToken">
+	/// 	A token that can cancel the operation.
+	/// </param>
+	/// <returns>
+	/// 	A task that represents the asynchronous schema creation operation.
+	/// </returns>
 	public static async Task CreateImmediateJobsSchemaAsync<TContext>(
 		this TContext context,
 		string? schema = null,
@@ -31,6 +45,8 @@ public static class LinqToDBSchemaExtensions
 			await CreateSchemaAsync(context, provider, schema, cancellationToken);
 
 		await CreateDefinitionMetadataTableAsync(context, provider, schema, cancellationToken);
+		await context.CreateTableAsync<ImmediateJobDefinitionEntity>(schemaName: schema, tableOptions: TableOptions.CreateIfNotExists, token: cancellationToken);
+		await context.CreateTableAsync<ImmediateJobAcquisitionEntity>(schemaName: schema, tableOptions: TableOptions.CreateIfNotExists, token: cancellationToken);
 
 		await context.CreateTableAsync<ImmediateJobBatchEntity>(
 			schemaName: schema,
@@ -251,6 +267,8 @@ public static class LinqToDBSchemaExtensions
 	{
 		var definitions = new (string Name, string Table, string Columns, bool Unique)[]
 		{
+			("IX_immediate_job_acquisitions_JobName_AcquiredAt", "immediate_job_acquisitions", "JobName, AcquiredAt", false),
+			("IX_immediate_jobs_JobName_State_LeaseExpiresAt", "immediate_jobs", "JobName, State, LeaseExpiresAt", false),
 			("IX_immediate_job_batches_State_CompletedAt", "immediate_job_batches", "State, CompletedAt", false),
 			("IX_immediate_jobs_RecurringKey", "immediate_jobs", "RecurringKey", true),
 			("IX_immediate_jobs_BatchHandle", "immediate_jobs", "BatchHandle", false),

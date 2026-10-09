@@ -44,6 +44,54 @@ public abstract class JobScheduler<TPayload>(
 	private const string MissingPayload = "";
 
 	/// <summary>
+	/// 	Pauses acquisition without preventing creation of this definition's jobs.
+	/// </summary>
+	/// <param name="cancellationToken">
+	/// 	The operation cancellation token.
+	/// </param>
+	/// <returns>
+	/// 	The asynchronous pause operation.
+	/// </returns>
+	public async ValueTask PauseJobAsync(CancellationToken cancellationToken = default)
+	{
+		await TaskScheduler.Yield();
+		var definition = await JobDefinitionResolver.GetDefinitionAsync(Storage, JobName, cancellationToken);
+		await Storage.PauseJobAsync(definition.Name, cancellationToken);
+	}
+
+	/// <summary>
+	/// 	Clears this definition's execution pause without resetting its rate counters.
+	/// </summary>
+	/// <param name="cancellationToken">
+	/// 	The operation cancellation token.
+	/// </param>
+	/// <returns>
+	/// 	The asynchronous resume operation.
+	/// </returns>
+	public async ValueTask ResumeJobAsync(CancellationToken cancellationToken = default)
+	{
+		await TaskScheduler.Yield();
+		var definition = await JobDefinitionResolver.GetDefinitionAsync(Storage, JobName, cancellationToken);
+		await Storage.ResumeJobAsync(definition.Name, definition.AcquisitionLimits, cancellationToken);
+	}
+
+	/// <summary>
+	/// 	Returns this definition's current acquisition status.
+	/// </summary>
+	/// <param name="cancellationToken">
+	/// 	The operation cancellation token.
+	/// </param>
+	/// <returns>
+	/// 	The definition-wide acquisition snapshot.
+	/// </returns>
+	public async ValueTask<JobAcquisitionState> GetAcquisitionStateAsync(CancellationToken cancellationToken = default)
+	{
+		await TaskScheduler.Yield();
+		var definition = await JobDefinitionResolver.GetDefinitionAsync(Storage, JobName, cancellationToken);
+		return await Storage.GetJobAcquisitionStateAsync(definition.Name, definition.AcquisitionLimits, cancellationToken);
+	}
+
+	/// <summary>
 	/// 	The storage provider.
 	/// </summary>
 	/// <value>

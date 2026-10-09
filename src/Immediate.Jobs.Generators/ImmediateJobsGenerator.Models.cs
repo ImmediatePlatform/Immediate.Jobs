@@ -27,6 +27,10 @@ public sealed partial class ImmediateJobsGenerator
 		public required int MaxAttempts { get; init; }
 		public required string? Timeout { get; init; }
 		public required int MaxConcurrency { get; init; }
+		public required int SlidingWindowMax { get; init; }
+		public required string? SlidingWindowPeriod { get; init; }
+		public required int FixedWindowMax { get; init; }
+		public required string? FixedWindowPeriod { get; init; }
 		public required string OverlapPolicy { get; init; }
 		public required string MisfireHandlingMode { get; init; }
 		public required string Backoff { get; init; }

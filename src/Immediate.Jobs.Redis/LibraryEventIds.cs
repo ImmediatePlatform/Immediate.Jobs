@@ -33,4 +33,7 @@ internal static class LibraryEventIds
 	public const int TryTriggerAsyncCalled = 11728;
 	public const int MergeJobDefinitionsListAsyncCalled = 11729;
 	public const int GetJobDefinitionsAsyncCalled = 11730;
+	public const int PauseJobAsyncCalled = 11731;
+	public const int ResumeJobAsyncCalled = 11732;
+	public const int GetJobAcquisitionStateAsyncCalled = 11733;
 }

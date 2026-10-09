@@ -15,8 +15,17 @@ internal sealed partial class SingleServerJobStorage
 		SingleServerUpdatePayloadAsyncCalled(jobHandle);
 		await TaskScheduler.Yield();
 		await EnsureInitializedAsync(cancellationToken);
-		await DurableStorage.UpdatePayloadAsync(jobHandle, expectedJobName, payload, cancellationToken);
-		await PrimaryStorage.UpdatePayloadAsync(jobHandle, expectedJobName, payload, cancellationToken);
+		await _writeThrough.WaitAsync(cancellationToken);
+
+		try
+		{
+			await DurableStorage.UpdatePayloadAsync(jobHandle, expectedJobName, payload, cancellationToken);
+			await PrimaryStorage.UpdatePayloadAsync(jobHandle, expectedJobName, payload, cancellationToken);
+		}
+		finally
+		{
+			_writeThrough.Release();
+		}
 	}
 
 	/// <inheritdoc />
@@ -30,11 +39,20 @@ internal sealed partial class SingleServerJobStorage
 		SingleServerTryTriggerAsyncCalled(jobHandle);
 		await TaskScheduler.Yield();
 		await EnsureInitializedAsync(cancellationToken);
-		if (!await DurableStorage.TryTriggerAsync(jobHandle, expectedJobName, dueAt, cancellationToken))
-			return false;
+		await _writeThrough.WaitAsync(cancellationToken);
 
-		_ = await PrimaryStorage.TryTriggerAsync(jobHandle, expectedJobName, dueAt, cancellationToken);
-		return true;
+		try
+		{
+			if (!await DurableStorage.TryTriggerAsync(jobHandle, expectedJobName, dueAt, cancellationToken))
+				return false;
+
+			_ = await PrimaryStorage.TryTriggerAsync(jobHandle, expectedJobName, dueAt, cancellationToken);
+			return true;
+		}
+		finally
+		{
+			_writeThrough.Release();
+		}
 	}
 
 	/// <inheritdoc />
@@ -43,11 +61,20 @@ internal sealed partial class SingleServerJobStorage
 		SingleServerTryTriggerBatchAsyncCalled(batchHandle);
 		await TaskScheduler.Yield();
 		await EnsureInitializedAsync(cancellationToken);
-		if (!await JobGraphStorage.TryTriggerBatchAsync(batchHandle, cancellationToken))
-			return false;
+		await _writeThrough.WaitAsync(cancellationToken);
 
-		_ = await PrimaryStorage.TryTriggerBatchAsync(batchHandle, cancellationToken);
-		return true;
+		try
+		{
+			if (!await JobGraphStorage.TryTriggerBatchAsync(batchHandle, cancellationToken))
+				return false;
+
+			_ = await PrimaryStorage.TryTriggerBatchAsync(batchHandle, cancellationToken);
+			return true;
+		}
+		finally
+		{
+			_writeThrough.Release();
+		}
 	}
 
 	[LoggerMessage(

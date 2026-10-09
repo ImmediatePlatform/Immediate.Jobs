@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.Diagnostics.CodeAnalysis;
 using Immediate.Jobs.Shared.Interfaces;
+using Immediate.Jobs.Shared.Storage;
 
 namespace Immediate.Jobs.Shared.Internals;
 
@@ -58,9 +59,37 @@ public record JobDefinition
 	public TimeSpan? Timeout { get; init; }
 
 	/// <summary>
-	/// 	Maximum executions of this job per node. Zero is unbounded.
+	/// 	Maximum unexpired execution leases across workers. Zero is unbounded.
 	/// </summary>
 	public int MaxConcurrency { get; init; }
+
+	/// <summary>
+	/// 	Maximum acquisitions in the preceding sliding period. Zero disables this limit.
+	/// </summary>
+	public int SlidingWindowMax { get; init; }
+	/// <summary>
+	/// 	The sliding acquisition period, or null when disabled.
+	/// </summary>
+	public TimeSpan? SlidingWindowPeriod { get; init; }
+	/// <summary>
+	/// 	Maximum acquisitions in each aligned fixed period. Zero disables this limit.
+	/// </summary>
+	public int FixedWindowMax { get; init; }
+	/// <summary>
+	/// 	The fixed acquisition period, or null when disabled.
+	/// </summary>
+	public TimeSpan? FixedWindowPeriod { get; init; }
+	/// <summary>
+	/// 	The parsed limits passed to storage for direct acquisition queries.
+	/// </summary>
+	public JobAcquisitionLimits AcquisitionLimits => new()
+	{
+		MaxConcurrency = MaxConcurrency,
+		SlidingWindowMax = SlidingWindowMax,
+		SlidingWindowPeriod = SlidingWindowPeriod,
+		FixedWindowMax = FixedWindowMax,
+		FixedWindowPeriod = FixedWindowPeriod,
+	};
 
 	/// <summary>
 	/// 	Recurring overlap behavior.

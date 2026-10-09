@@ -7,6 +7,9 @@ namespace Immediate.Jobs.Generators;
 
 public sealed partial class ImmediateJobsGenerator
 {
+	private static bool ValidWindow(int maximum, string? period) => maximum >= 0 &&
+		(maximum == 0 ? period is null : period is not null && TimeSpan.TryParse(period, CultureInfo.InvariantCulture, out var value) && value > TimeSpan.Zero);
+
 	private static JobModel? TransformJob(
 		GeneratorAttributeSyntaxContext context,
 		CancellationToken cancellationToken
@@ -64,6 +67,13 @@ public sealed partial class ImmediateJobsGenerator
 
 		var maxConcurrency = arguments.GetIntValue("MaxConcurrency", 0);
 		if (maxConcurrency < 0)
+			return null;
+
+		var slidingWindowMax = arguments.GetIntValue("SlidingWindowMax", 0);
+		var slidingWindowPeriod = arguments.GetStringValue("SlidingWindowPeriod");
+		var fixedWindowMax = arguments.GetIntValue("FixedWindowMax", 0);
+		var fixedWindowPeriod = arguments.GetStringValue("FixedWindowPeriod");
+		if (!ValidWindow(slidingWindowMax, slidingWindowPeriod) || !ValidWindow(fixedWindowMax, fixedWindowPeriod))
 			return null;
 
 		var backoff = arguments.GetArgumentValue("Backoff") switch
@@ -167,6 +177,10 @@ public sealed partial class ImmediateJobsGenerator
 			MaxAttempts = maxAttempts,
 			Timeout = timeout,
 			MaxConcurrency = maxConcurrency,
+			SlidingWindowMax = slidingWindowMax,
+			SlidingWindowPeriod = slidingWindowPeriod,
+			FixedWindowMax = fixedWindowMax,
+			FixedWindowPeriod = fixedWindowPeriod,
 			OverlapPolicy = overlapPolicy,
 			MisfireHandlingMode = misfireHandlingMode,
 			Backoff = backoff,

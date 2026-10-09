@@ -1,3 +1,5 @@
+using Immediate.Jobs.Shared.Storage;
+
 namespace Immediate.Jobs.Shared.Interfaces;
 
 /// <summary>
@@ -8,6 +10,39 @@ namespace Immediate.Jobs.Shared.Interfaces;
 /// </typeparam>
 public interface IJobScheduler<TPayload>
 {
+	/// <summary>
+	/// 	Pauses acquisition for this stored job definition.
+	/// </summary>
+	/// <param name="cancellationToken">
+	/// 	The operation cancellation token.
+	/// </param>
+	/// <returns>
+	/// 	The asynchronous pause operation.
+	/// </returns>
+	ValueTask PauseJobAsync(CancellationToken cancellationToken = default);
+
+	/// <summary>
+	/// 	Clears this stored definition's execution pause using its persisted acquisition limits.
+	/// </summary>
+	/// <param name="cancellationToken">
+	/// 	The operation cancellation token.
+	/// </param>
+	/// <returns>
+	/// 	The asynchronous resume operation.
+	/// </returns>
+	ValueTask ResumeJobAsync(CancellationToken cancellationToken = default);
+
+	/// <summary>
+	/// 	Reevaluates acquisition status using the current stored definition's limits.
+	/// </summary>
+	/// <param name="cancellationToken">
+	/// 	The operation cancellation token.
+	/// </param>
+	/// <returns>
+	/// 	The definition acquisition snapshot.
+	/// </returns>
+	ValueTask<JobAcquisitionState> GetAcquisitionStateAsync(CancellationToken cancellationToken = default);
+
 	/// <summary>
 	/// 	Enqueues work immediately and returns its opaque invocation identifier.
 	/// </summary>
@@ -42,11 +77,21 @@ public interface IJobScheduler<TPayload>
 	/// <summary>
 	/// 	Immediately adds work to the batch containing the currently running job, without waiting for that job to complete.
 	/// </summary>
-	/// <param name="payload">The payload to enqueue.</param>
-	/// <param name="currentJob">Details of the currently running job whose batch receives the new work.</param>
-	/// <param name="options">The new job's relationship to continuations of the current job.</param>
-	/// <param name="cancellationToken">A token that can cancel the enqueue operation.</param>
-	/// <returns>A handle for the enqueued invocation.</returns>
+	/// <param name="payload">
+	/// 	The payload to enqueue.
+	/// </param>
+	/// <param name="currentJob">
+	/// 	Details of the currently running job whose batch receives the new work.
+	/// </param>
+	/// <param name="options">
+	/// 	The new job's relationship to continuations of the current job.
+	/// </param>
+	/// <param name="cancellationToken">
+	/// 	A token that can cancel the enqueue operation.
+	/// </param>
+	/// <returns>
+	/// 	A handle for the enqueued invocation.
+	/// </returns>
 	ValueTask<JobHandle> EnqueueAsync(
 		TPayload payload,
 		JobDetails currentJob,
@@ -57,12 +102,24 @@ public interface IJobScheduler<TPayload>
 	/// <summary>
 	/// 	Immediately adds grouped work to the batch containing the currently running job, without waiting for that job to complete.
 	/// </summary>
-	/// <param name="payload">The payload to enqueue.</param>
-	/// <param name="currentJob">Details of the currently running job whose batch receives the new work.</param>
-	/// <param name="groupId">The fair queue group identifier.</param>
-	/// <param name="options">The new job's relationship to continuations of the current job.</param>
-	/// <param name="cancellationToken">A token that can cancel the enqueue operation.</param>
-	/// <returns>A handle for the enqueued invocation.</returns>
+	/// <param name="payload">
+	/// 	The payload to enqueue.
+	/// </param>
+	/// <param name="currentJob">
+	/// 	Details of the currently running job whose batch receives the new work.
+	/// </param>
+	/// <param name="groupId">
+	/// 	The fair queue group identifier.
+	/// </param>
+	/// <param name="options">
+	/// 	The new job's relationship to continuations of the current job.
+	/// </param>
+	/// <param name="cancellationToken">
+	/// 	A token that can cancel the enqueue operation.
+	/// </param>
+	/// <returns>
+	/// 	A handle for the enqueued invocation.
+	/// </returns>
 	ValueTask<JobHandle> EnqueueAsync(
 		TPayload payload,
 		JobDetails currentJob,
@@ -116,12 +173,24 @@ public interface IJobScheduler<TPayload>
 	/// <summary>
 	/// 	Schedules work in the batch containing the currently running job after a delay, without waiting for that job to complete.
 	/// </summary>
-	/// <param name="payload">The payload to schedule.</param>
-	/// <param name="currentJob">Details of the currently running job whose batch receives the new work.</param>
-	/// <param name="delay">The delay before the invocation becomes due.</param>
-	/// <param name="options">The new job's relationship to continuations of the current job.</param>
-	/// <param name="cancellationToken">A token that can cancel the scheduling operation.</param>
-	/// <returns>A handle for the scheduled invocation.</returns>
+	/// <param name="payload">
+	/// 	The payload to schedule.
+	/// </param>
+	/// <param name="currentJob">
+	/// 	Details of the currently running job whose batch receives the new work.
+	/// </param>
+	/// <param name="delay">
+	/// 	The delay before the invocation becomes due.
+	/// </param>
+	/// <param name="options">
+	/// 	The new job's relationship to continuations of the current job.
+	/// </param>
+	/// <param name="cancellationToken">
+	/// 	A token that can cancel the scheduling operation.
+	/// </param>
+	/// <returns>
+	/// 	A handle for the scheduled invocation.
+	/// </returns>
 	ValueTask<JobHandle> ScheduleAsync(
 		TPayload payload,
 		JobDetails currentJob,
@@ -133,13 +202,27 @@ public interface IJobScheduler<TPayload>
 	/// <summary>
 	/// 	Schedules grouped work in the batch containing the currently running job after a delay, without waiting for that job to complete.
 	/// </summary>
-	/// <param name="payload">The payload to schedule.</param>
-	/// <param name="currentJob">Details of the currently running job whose batch receives the new work.</param>
-	/// <param name="delay">The delay before the invocation becomes due.</param>
-	/// <param name="groupId">The fair queue group identifier.</param>
-	/// <param name="options">The new job's relationship to continuations of the current job.</param>
-	/// <param name="cancellationToken">A token that can cancel the scheduling operation.</param>
-	/// <returns>A handle for the scheduled invocation.</returns>
+	/// <param name="payload">
+	/// 	The payload to schedule.
+	/// </param>
+	/// <param name="currentJob">
+	/// 	Details of the currently running job whose batch receives the new work.
+	/// </param>
+	/// <param name="delay">
+	/// 	The delay before the invocation becomes due.
+	/// </param>
+	/// <param name="groupId">
+	/// 	The fair queue group identifier.
+	/// </param>
+	/// <param name="options">
+	/// 	The new job's relationship to continuations of the current job.
+	/// </param>
+	/// <param name="cancellationToken">
+	/// 	A token that can cancel the scheduling operation.
+	/// </param>
+	/// <returns>
+	/// 	A handle for the scheduled invocation.
+	/// </returns>
 	ValueTask<JobHandle> ScheduleAsync(
 		TPayload payload,
 		JobDetails currentJob,
@@ -194,12 +277,24 @@ public interface IJobScheduler<TPayload>
 	/// <summary>
 	/// 	Schedules work in the batch containing the currently running job at an absolute time, without waiting for that job to complete.
 	/// </summary>
-	/// <param name="payload">The payload to schedule.</param>
-	/// <param name="currentJob">Details of the currently running job whose batch receives the new work.</param>
-	/// <param name="at">The absolute time at which the invocation becomes due.</param>
-	/// <param name="options">The new job's relationship to continuations of the current job.</param>
-	/// <param name="cancellationToken">A token that can cancel the scheduling operation.</param>
-	/// <returns>A handle for the scheduled invocation.</returns>
+	/// <param name="payload">
+	/// 	The payload to schedule.
+	/// </param>
+	/// <param name="currentJob">
+	/// 	Details of the currently running job whose batch receives the new work.
+	/// </param>
+	/// <param name="at">
+	/// 	The absolute time at which the invocation becomes due.
+	/// </param>
+	/// <param name="options">
+	/// 	The new job's relationship to continuations of the current job.
+	/// </param>
+	/// <param name="cancellationToken">
+	/// 	A token that can cancel the scheduling operation.
+	/// </param>
+	/// <returns>
+	/// 	A handle for the scheduled invocation.
+	/// </returns>
 	ValueTask<JobHandle> ScheduleAsync(
 		TPayload payload,
 		JobDetails currentJob,
@@ -211,13 +306,27 @@ public interface IJobScheduler<TPayload>
 	/// <summary>
 	/// 	Schedules grouped work in the batch containing the currently running job at an absolute time, without waiting for that job to complete.
 	/// </summary>
-	/// <param name="payload">The payload to schedule.</param>
-	/// <param name="currentJob">Details of the currently running job whose batch receives the new work.</param>
-	/// <param name="at">The absolute time at which the invocation becomes due.</param>
-	/// <param name="groupId">The fair queue group identifier.</param>
-	/// <param name="options">The new job's relationship to continuations of the current job.</param>
-	/// <param name="cancellationToken">A token that can cancel the scheduling operation.</param>
-	/// <returns>A handle for the scheduled invocation.</returns>
+	/// <param name="payload">
+	/// 	The payload to schedule.
+	/// </param>
+	/// <param name="currentJob">
+	/// 	Details of the currently running job whose batch receives the new work.
+	/// </param>
+	/// <param name="at">
+	/// 	The absolute time at which the invocation becomes due.
+	/// </param>
+	/// <param name="groupId">
+	/// 	The fair queue group identifier.
+	/// </param>
+	/// <param name="options">
+	/// 	The new job's relationship to continuations of the current job.
+	/// </param>
+	/// <param name="cancellationToken">
+	/// 	A token that can cancel the scheduling operation.
+	/// </param>
+	/// <returns>
+	/// 	A handle for the scheduled invocation.
+	/// </returns>
 	ValueTask<JobHandle> ScheduleAsync(
 		TPayload payload,
 		JobDetails currentJob,
@@ -1212,16 +1321,16 @@ public interface IJobScheduler<TPayload>
 	);
 
 	/// <summary>
-	///		Cancels a non-terminal durable invocation.
+	/// 	Cancels a non-terminal durable invocation.
 	/// </summary>
 	/// <param name="job">
-	///		The invocation to cancel.
+	/// 	The invocation to cancel.
 	/// </param>
 	/// <param name="cancellationToken">
-	///		A token that can cancel the storage operation.
+	/// 	A token that can cancel the storage operation.
 	/// </param>
 	/// <returns>
-	///		A value task that represents the asynchronous cancellation.
+	/// 	A value task that represents the asynchronous cancellation.
 	/// </returns>
 	ValueTask CancelAsync(JobHandle job, CancellationToken cancellationToken = default);
 }

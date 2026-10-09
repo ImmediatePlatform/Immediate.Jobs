@@ -15,9 +15,17 @@ internal sealed partial class SingleServerJobStorage
 		SingleServerCompleteAsyncCalled(jobHandle, executionNumber, workerId);
 		await TaskScheduler.Yield();
 		await EnsureInitializedAsync(cancellationToken);
+		await _writeThrough.WaitAsync(cancellationToken);
 
-		await DurableStorage.CompleteAsync(jobHandle, executionNumber, workerId, cancellationToken);
-		await PrimaryStorage.CompleteAsync(jobHandle, executionNumber, workerId, cancellationToken);
+		try
+		{
+			await DurableStorage.CompleteAsync(jobHandle, executionNumber, workerId, cancellationToken);
+			await PrimaryStorage.CompleteAsync(jobHandle, executionNumber, workerId, cancellationToken);
+		}
+		finally
+		{
+			_writeThrough.Release();
+		}
 	}
 
 	/// <inheritdoc />
@@ -32,12 +40,20 @@ internal sealed partial class SingleServerJobStorage
 		SingleServerCompleteWithContinuationsAsyncCalled(jobHandle, executionNumber, workerId, additions.Count);
 		await TaskScheduler.Yield();
 		await EnsureInitializedAsync(cancellationToken);
+		await _writeThrough.WaitAsync(cancellationToken);
 
-		await JobGraphStorage
-			.CompleteWithContinuationsAsync(jobHandle, executionNumber, workerId, additions, cancellationToken);
+		try
+		{
+			await JobGraphStorage
+				.CompleteWithContinuationsAsync(jobHandle, executionNumber, workerId, additions, cancellationToken);
 
-		await PrimaryStorage
-			.CompleteWithContinuationsAsync(jobHandle, executionNumber, workerId, additions, cancellationToken);
+			await PrimaryStorage
+				.CompleteWithContinuationsAsync(jobHandle, executionNumber, workerId, additions, cancellationToken);
+		}
+		finally
+		{
+			_writeThrough.Release();
+		}
 	}
 
 	/// <inheritdoc />
@@ -53,8 +69,17 @@ internal sealed partial class SingleServerJobStorage
 		SingleServerFailAsyncCalled(jobHandle, executionNumber, workerId, nextRetryAt);
 		await TaskScheduler.Yield();
 		await EnsureInitializedAsync(cancellationToken);
-		await DurableStorage.FailAsync(jobHandle, executionNumber, workerId, error, nextRetryAt, cancellationToken);
-		await PrimaryStorage.FailAsync(jobHandle, executionNumber, workerId, error, nextRetryAt, cancellationToken);
+		await _writeThrough.WaitAsync(cancellationToken);
+
+		try
+		{
+			await DurableStorage.FailAsync(jobHandle, executionNumber, workerId, error, nextRetryAt, cancellationToken);
+			await PrimaryStorage.FailAsync(jobHandle, executionNumber, workerId, error, nextRetryAt, cancellationToken);
+		}
+		finally
+		{
+			_writeThrough.Release();
+		}
 	}
 
 	/// <inheritdoc />
@@ -63,8 +88,17 @@ internal sealed partial class SingleServerJobStorage
 		SingleServerCancelBatchAsyncCalled(batchHandle);
 		await TaskScheduler.Yield();
 		await EnsureInitializedAsync(cancellationToken);
-		await JobGraphStorage.CancelBatchAsync(batchHandle, cancellationToken);
-		await PrimaryStorage.CancelBatchAsync(batchHandle, cancellationToken);
+		await _writeThrough.WaitAsync(cancellationToken);
+
+		try
+		{
+			await JobGraphStorage.CancelBatchAsync(batchHandle, cancellationToken);
+			await PrimaryStorage.CancelBatchAsync(batchHandle, cancellationToken);
+		}
+		finally
+		{
+			_writeThrough.Release();
+		}
 	}
 
 	/// <inheritdoc />
@@ -73,8 +107,17 @@ internal sealed partial class SingleServerJobStorage
 		SingleServerDeleteBatchAsyncCalled(batchHandle);
 		await TaskScheduler.Yield();
 		await EnsureInitializedAsync(cancellationToken);
-		await JobGraphStorage.DeleteBatchAsync(batchHandle, cancellationToken);
-		await PrimaryStorage.DeleteBatchAsync(batchHandle, cancellationToken);
+		await _writeThrough.WaitAsync(cancellationToken);
+
+		try
+		{
+			await JobGraphStorage.DeleteBatchAsync(batchHandle, cancellationToken);
+			await PrimaryStorage.DeleteBatchAsync(batchHandle, cancellationToken);
+		}
+		finally
+		{
+			_writeThrough.Release();
+		}
 	}
 
 	/// <inheritdoc />
@@ -83,8 +126,17 @@ internal sealed partial class SingleServerJobStorage
 		SingleServerCancelAsyncCalled(jobHandle);
 		await TaskScheduler.Yield();
 		await EnsureInitializedAsync(cancellationToken);
-		await DurableStorage.CancelAsync(jobHandle, cancellationToken);
-		await PrimaryStorage.CancelAsync(jobHandle, cancellationToken);
+		await _writeThrough.WaitAsync(cancellationToken);
+
+		try
+		{
+			await DurableStorage.CancelAsync(jobHandle, cancellationToken);
+			await PrimaryStorage.CancelAsync(jobHandle, cancellationToken);
+		}
+		finally
+		{
+			_writeThrough.Release();
+		}
 	}
 
 	/// <inheritdoc />
@@ -93,8 +145,17 @@ internal sealed partial class SingleServerJobStorage
 		SingleServerRetryAsyncCalled(jobHandle);
 		await TaskScheduler.Yield();
 		await EnsureInitializedAsync(cancellationToken);
-		await DurableStorage.RetryAsync(jobHandle, cancellationToken);
-		await PrimaryStorage.RetryAsync(jobHandle, cancellationToken);
+		await _writeThrough.WaitAsync(cancellationToken);
+
+		try
+		{
+			await DurableStorage.RetryAsync(jobHandle, cancellationToken);
+			await PrimaryStorage.RetryAsync(jobHandle, cancellationToken);
+		}
+		finally
+		{
+			_writeThrough.Release();
+		}
 	}
 
 	/// <inheritdoc />
@@ -103,8 +164,17 @@ internal sealed partial class SingleServerJobStorage
 		SingleServerDeleteAsyncCalled(jobHandle);
 		await TaskScheduler.Yield();
 		await EnsureInitializedAsync(cancellationToken);
-		await DurableStorage.DeleteAsync(jobHandle, cancellationToken);
-		await PrimaryStorage.DeleteAsync(jobHandle, cancellationToken);
+		await _writeThrough.WaitAsync(cancellationToken);
+
+		try
+		{
+			await DurableStorage.DeleteAsync(jobHandle, cancellationToken);
+			await PrimaryStorage.DeleteAsync(jobHandle, cancellationToken);
+		}
+		finally
+		{
+			_writeThrough.Release();
+		}
 	}
 
 	/// <inheritdoc />
@@ -117,20 +187,28 @@ internal sealed partial class SingleServerJobStorage
 		SingleServerPurgeJobsAsyncCalled(succeededRetention, failedRetention);
 		await TaskScheduler.Yield();
 		await EnsureInitializedAsync(cancellationToken);
+		await _writeThrough.WaitAsync(cancellationToken);
 
-		await DurableStorage
-			.PurgeJobsAsync(
-				succeededRetention,
-				failedRetention,
-				cancellationToken
-			);
+		try
+		{
+			await DurableStorage
+				.PurgeJobsAsync(
+					succeededRetention,
+					failedRetention,
+					cancellationToken
+				);
 
-		await PrimaryStorage
-			.PurgeJobsAsync(
-				succeededRetention,
-				failedRetention,
-				cancellationToken
-			);
+			await PrimaryStorage
+				.PurgeJobsAsync(
+					succeededRetention,
+					failedRetention,
+					cancellationToken
+				);
+		}
+		finally
+		{
+			_writeThrough.Release();
+		}
 	}
 
 	/// <inheritdoc />
@@ -143,20 +221,28 @@ internal sealed partial class SingleServerJobStorage
 		SingleServerPurgeBatchesAsyncCalled(batchSucceededRetention, batchFailedRetention);
 		await TaskScheduler.Yield();
 		await EnsureInitializedAsync(cancellationToken);
+		await _writeThrough.WaitAsync(cancellationToken);
 
-		await JobGraphStorage
-			.PurgeBatchesAsync(
-				batchSucceededRetention,
-				batchFailedRetention,
-				cancellationToken
-			);
+		try
+		{
+			await JobGraphStorage
+				.PurgeBatchesAsync(
+					batchSucceededRetention,
+					batchFailedRetention,
+					cancellationToken
+				);
 
-		await PrimaryStorage
-			.PurgeBatchesAsync(
-				batchSucceededRetention,
-				batchFailedRetention,
-				cancellationToken
-			);
+			await PrimaryStorage
+				.PurgeBatchesAsync(
+					batchSucceededRetention,
+					batchFailedRetention,
+					cancellationToken
+				);
+		}
+		finally
+		{
+			_writeThrough.Release();
+		}
 	}
 
 	[LoggerMessage(

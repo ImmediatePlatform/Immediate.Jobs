@@ -56,12 +56,29 @@ public sealed class JobAttribute : Attribute
 	public string? Timeout { get; init; }
 
 	/// <summary>
-	/// 	Maximum simultaneous executions per node. Zero means unbounded.
+	/// 	Maximum simultaneous execution leases across all workers for this definition. Zero means unbounded.
 	/// </summary>
 	/// <value>
-	/// 	The maximum simultaneous executions per node, or zero for no limit.
+	/// 	The maximum simultaneous executions across workers, or zero for no limit.
 	/// </value>
 	public int MaxConcurrency { get; init; }
+
+	/// <summary>
+	/// 	Maximum acquisitions in the preceding sliding period. Zero disables this limit.
+	/// </summary>
+	public int SlidingWindowMax { get; init; }
+	/// <summary>
+	/// 	A positive TimeSpan-formatted sliding period, paired with SlidingWindowMax.
+	/// </summary>
+	public string? SlidingWindowPeriod { get; init; }
+	/// <summary>
+	/// 	Maximum acquisitions in each UTC-aligned fixed period. Zero disables this limit.
+	/// </summary>
+	public int FixedWindowMax { get; init; }
+	/// <summary>
+	/// 	A positive TimeSpan-formatted fixed period, paired with FixedWindowMax.
+	/// </summary>
+	public string? FixedWindowPeriod { get; init; }
 
 	/// <summary>
 	/// 	Controls what happens when a recurring invocation overlaps.
@@ -131,7 +148,7 @@ public enum OverlapPolicy
 	/// 	Create the scheduled occurrence and run it after the earlier invocation.
 	/// </summary>
 	/// <remarks>
-	///		Requires that the underlying storage is <see cref="IJobGraphStorage"/>.
+	/// 	Requires that the underlying storage is <see cref="IJobGraphStorage"/>.
 	/// </remarks>
 	Queue,
 
