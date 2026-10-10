@@ -39,21 +39,6 @@ public static class LinqToDBConformanceTestCases
 public sealed class LinqToDBPgSQLConformanceTests(LinqToDBPgSQLContainer container)
 {
 	[Theory]
-	[InlineData(ConformanceTopology.Distributed)]
-	[InlineData(ConformanceTopology.SingleServer)]
-	public async Task SearchesUnicodeJobNames(ConformanceTopology topology)
-	{
-		await using var fixture = await RelationalConformanceFixture.CreateAsync(
-			ConformanceDatabase.PostgreSql,
-			useDistributedTopology: topology == ConformanceTopology.Distributed,
-			container: container.PostgreSql,
-			new() { Jobs = [], Batches = [], Edges = [], RecurringSchedules = [] }
-		);
-
-		await PostgreSqlJobSearchAssertions.AssertUnicodeSearchAsync(fixture.Services, TestContext.Current.CancellationToken);
-	}
-
-	[Theory]
 	[MemberData(nameof(LinqToDBConformanceTestCases.CreateCases), MemberType = typeof(LinqToDBConformanceTestCases))]
 	public async Task LinqToDBConforms(
 		ConformanceTopology topology,

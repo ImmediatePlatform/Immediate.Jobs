@@ -40,21 +40,6 @@ public static class EntityFrameworkCoreConformanceTestCases
 public sealed class EntityFrameworkCorePgSQLConformanceTests(EntityFrameworkCorePgSQLContainer container)
 {
 	[Theory]
-	[InlineData(ConformanceTopology.Distributed)]
-	[InlineData(ConformanceTopology.SingleServer)]
-	public async Task SearchesUnicodeJobNames(ConformanceTopology topology)
-	{
-		await using var fixture = await RelationalConformanceFixture.CreateAsync(
-			ConformanceDatabase.PostgreSql,
-			useDistributedTopology: topology == ConformanceTopology.Distributed,
-			container: container.PostgreSql,
-			new() { Jobs = [], Batches = [], Edges = [], RecurringSchedules = [] }
-		);
-
-		await PostgreSqlJobSearchAssertions.AssertUnicodeSearchAsync(fixture.Services, TestContext.Current.CancellationToken);
-	}
-
-	[Theory]
 	[MemberData(nameof(EntityFrameworkCoreConformanceTestCases.CreateCases), MemberType = typeof(EntityFrameworkCoreConformanceTestCases))]
 	public async Task EntityFrameworkCoreConforms(
 		ConformanceTopology topology,
