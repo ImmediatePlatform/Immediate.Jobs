@@ -47,7 +47,9 @@ and storage rejects invalid manually supplied names before modifying the catalog
 
 Concurrent startup snapshots commit atomically. In-memory uses its gate; EF Core takes an early write
 lock on a singleton catalogue row. LinqToDB uses a serializable transaction and one SQL `MERGE` per
-table on SQL Server and PostgreSQL 15 or later. SQLite uses transactional upserts and deletes because
+table on SQL Server and PostgreSQL 15 or later. The merge source queries reconcile obsolete records,
+canonical names, and recurring progress in the database. Only SQLite reads a snapshot for client-side
+reconciliation; it uses transactional upserts and deletes because
 it does not support SQL `MERGE`. Serialization conflicts retry the complete LinqToDB snapshot.
 Redis compares a version and applies metadata and
 schedule changes in one Lua script, recomputing after a competing startup. Single-server delegates
