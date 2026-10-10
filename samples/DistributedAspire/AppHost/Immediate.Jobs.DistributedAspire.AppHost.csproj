@@ -8,6 +8,7 @@
   </PropertyGroup>
   <ItemGroup>
 	<PackageReference Include="Aspire.Hosting.PostgreSQL" />
+	<PackageReference Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" />
   </ItemGroup>
   <ItemGroup>
 	<ProjectReference Include="../Api/Immediate.Jobs.DistributedAspire.Api.csproj" />
