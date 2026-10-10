@@ -27,6 +27,9 @@ internal sealed partial class LinqToDBJobStorage<T>
 	private ITable<ImmediateJobServerEntity> Servers(DataConnection connection) =>
 		WithSchema(connection.GetTable<ImmediateJobServerEntity>());
 
+	private ITable<ImmediateJobDefinitionMetadataEntity> Definitions(DataConnection connection) =>
+		WithSchema(connection.GetTable<ImmediateJobDefinitionMetadataEntity>());
+
 	private ITable<TTable> WithSchema<TTable>(ITable<TTable> table)
 		where TTable : notnull => _schema is null ? table : table.SchemaName(_schema);
 

@@ -7,47 +7,6 @@ namespace Immediate.Jobs.Shared.Storage;
 public sealed partial class InMemoryJobStorage
 {
 	/// <inheritdoc />
-	public async ValueTask MergeRecurringSchedulesListAsync(
-		IReadOnlyList<RecurringJobSchedule> schedules,
-		CancellationToken cancellationToken = default
-	)
-	{
-		MergeRecurringSchedulesListAsyncCalled();
-		cancellationToken.ThrowIfCancellationRequested();
-		await TaskScheduler.Yield();
-
-		lock (_gate)
-		{
-			var existingStaticDefinitions = _recurring
-				.Where(kvp => kvp.Value.IsCodeDefined)
-				.ToDictionary(StringComparer.Ordinal);
-
-			foreach (var schedule in schedules)
-			{
-				ref var current = ref CollectionsMarshal.GetValueRefOrAddDefault(_recurring, schedule.Name, out _);
-
-				current = current switch
-				{
-					{ } existing when
-						string.Equals(existing.Cron, schedule.Cron, StringComparison.Ordinal)
-						&& string.Equals(existing.TimeZone, schedule.TimeZone, StringComparison.Ordinal) =>
-						existing with { JobName = schedule.JobName, QueueName = schedule.QueueName, IsCodeDefined = true },
-
-					{ } existing =>
-						schedule with { IsPaused = existing.IsPaused, LastRunAt = existing.LastRunAt },
-
-					_ => schedule,
-				};
-
-				existingStaticDefinitions.Remove(schedule.Name);
-			}
-
-			foreach (var s in existingStaticDefinitions)
-				_recurring.Remove(s.Key);
-		}
-	}
-
-	/// <inheritdoc />
 	public async ValueTask UpsertRecurringAsync(RecurringJobSchedule schedule, CancellationToken cancellationToken = default)
 	{
 		UpsertRecurringAsyncCalled(schedule.Name);
@@ -178,14 +137,6 @@ public sealed partial class InMemoryJobStorage
 
 		return ValueTask.CompletedTask;
 	}
-
-	[LoggerMessage(
-		EventId = LibraryEventIds.InMemoryMergeRecurringSchedulesListAsyncCalled,
-		EventName = "Immediate.Jobs.Shared.MergeRecurringSchedulesListAsyncCalled",
-		Level = LogLevel.Debug,
-		Message = "MergeRecurringSchedulesListAsync called"
-	)]
-	private partial void MergeRecurringSchedulesListAsyncCalled();
 
 	[LoggerMessage(
 		EventId = LibraryEventIds.InMemoryUpsertRecurringAsyncCalled,

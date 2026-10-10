@@ -11,9 +11,8 @@
 
 **Guidance for adding tests:**
 
-- **Storage behaviour belongs in the conformance suite**, not in provider-specific tests, so every
-  provider is held to it. Write a provider-specific test only for behaviour that exists in that
-  provider alone.
+- **Every storage behaviour test belongs in the conformance suite**, so every provider is held to
+  the same contract. Do not write standalone or provider-specific storage tests.
 - **Functional tests cover only what the layer above storage adds**, for example a scheduler turning
   `TryTriggerAsync`'s `false` into an exception, or argument validation. Don't re-assert storage
   semantics there.
@@ -25,7 +24,7 @@
 `src/Immediate.Jobs.Testing/Storage` ships in the `Immediate.Jobs.Testing` package, so custom
 providers can run it too.
 
-- **Case files.** `QueueStorageConformance`, `RecurringStorageConformance`,
+- **Case files.** `QueueStorageConformance`, `DefinitionCatalogStorageConformance`, `RecurringStorageConformance`,
   `FairQueueStorageConformance`, `TriggerStorageConformance`, `GraphStorageConformance`, and
   `ReplicaStorageConformance`.
 - **Case shape.** Each case is `new(Name, RequiredCapabilities, Scenario[, PersistedJobState])`. Names

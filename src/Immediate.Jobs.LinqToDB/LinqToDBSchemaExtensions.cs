@@ -3,15 +3,29 @@ using LinqToDB.Data;
 
 namespace Immediate.Jobs.LinqToDB;
 
-/// <summary>Explicit bootstrap helpers for a fresh Immediate.Jobs schema.</summary>
+/// <summary>
+/// 	Explicit bootstrap helpers for a fresh Immediate.Jobs schema.
+/// </summary>
 public static class LinqToDBSchemaExtensions
 {
-	/// <summary>Creates the Immediate.Jobs tables and indexes when they do not already exist.</summary>
-	/// <remarks>This helper bootstraps fresh storage only; it does not perform production schema upgrades.</remarks>
-	/// <param name="context">A LinqToDB Data Connection.</param>
-	/// <param name="schema">The database schema to create objects in, or <see langword="null"/> for the provider default.</param>
-	/// <param name="cancellationToken">A token that can cancel the operation.</param>
-	/// <returns>A task that represents the asynchronous schema creation operation.</returns>
+	/// <summary>
+	/// 	Creates the Immediate.Jobs tables and indexes when they do not already exist.
+	/// </summary>
+	/// <remarks>
+	/// 	This helper bootstraps fresh storage only; it does not perform production schema upgrades.
+	/// </remarks>
+	/// <param name="context">
+	/// 	A LinqToDB Data Connection.
+	/// </param>
+	/// <param name="schema">
+	/// 	The database schema to create objects in, or <see langword="null"/> for the provider default.
+	/// </param>
+	/// <param name="cancellationToken">
+	/// 	A token that can cancel the operation.
+	/// </param>
+	/// <returns>
+	/// 	A task that represents the asynchronous schema creation operation.
+	/// </returns>
 	public static async Task CreateImmediateJobsSchemaAsync<TContext>(
 		this TContext context,
 		string? schema = null,
@@ -29,6 +43,8 @@ public static class LinqToDBSchemaExtensions
 
 		if (schema is not null)
 			await CreateSchemaAsync(context, provider, schema, cancellationToken);
+
+		await CreateDefinitionMetadataTableAsync(context, provider, schema, cancellationToken);
 
 		await context.CreateTableAsync<ImmediateJobBatchEntity>(
 			schemaName: schema,
@@ -86,6 +102,56 @@ public static class LinqToDBSchemaExtensions
 		{
 			throw new ArgumentException("Schema names may contain only letters, digits, and underscores.", nameof(schema));
 		}
+	}
+
+	private static Task<int> CreateDefinitionMetadataTableAsync(
+		DataConnection connection,
+		string provider,
+		string? schema,
+		CancellationToken cancellationToken
+	)
+	{
+		if (provider.Contains("SqlServer", StringComparison.OrdinalIgnoreCase))
+		{
+			var qualified = schema is null ? "[dbo].[immediate_job_definition_metadata]" : $"[{schema}].[immediate_job_definition_metadata]";
+			return connection.ExecuteAsync($$"""
+				IF OBJECT_ID(N'{{qualified}}', N'U') IS NULL
+					CREATE TABLE {{qualified}} (
+						[Name] nvarchar(256) NOT NULL PRIMARY KEY,
+						[Metadata] nvarchar(max) NOT NULL
+					);
+				""", cancellationToken);
+		}
+
+		if (provider.Contains("PostgreSQL", StringComparison.OrdinalIgnoreCase))
+		{
+			var qualified = schema is null ? "\"immediate_job_definition_metadata\"" : $"\"{schema}\".\"immediate_job_definition_metadata\"";
+			return connection.ExecuteAsync($$"""
+				DO $collation$
+				BEGIN
+					IF NOT EXISTS (SELECT 1 FROM pg_collation WHERE collname = 'immediate_jobs_case_insensitive') THEN
+						CREATE COLLATION "immediate_jobs_case_insensitive" (provider = icu, locale = 'und-u-ks-level2', deterministic = false);
+					END IF;
+				EXCEPTION WHEN duplicate_object THEN NULL;
+				END $collation$;
+				CREATE TABLE IF NOT EXISTS {{qualified}} (
+					"Name" character varying(256) COLLATE "immediate_jobs_case_insensitive" NOT NULL PRIMARY KEY,
+					"Metadata" text NOT NULL
+				);
+				""", cancellationToken);
+		}
+
+		if (provider.Contains("SQLite", StringComparison.OrdinalIgnoreCase))
+		{
+			return connection.ExecuteAsync("""
+				CREATE TABLE IF NOT EXISTS "immediate_job_definition_metadata" (
+					"Name" nvarchar(256) COLLATE NOCASE NOT NULL PRIMARY KEY,
+					"Metadata" text NOT NULL
+				);
+				""", cancellationToken);
+		}
+
+		throw new NotSupportedException($"Immediate.Jobs schema bootstrap does not support provider '{provider}'.");
 	}
 
 	private static Task<int> CreateSchemaAsync(

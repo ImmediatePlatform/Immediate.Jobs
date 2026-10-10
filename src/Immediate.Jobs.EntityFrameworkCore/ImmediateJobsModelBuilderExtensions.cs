@@ -1,18 +1,32 @@
 using Immediate.Jobs.Shared.Apis;
 using Immediate.Jobs.Shared.Internals;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.ChangeTracking;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
 namespace Immediate.Jobs.EntityFrameworkCore;
 
-/// <summary>Adds the Immediate.Jobs persistence model to an application DbContext.</summary>
+/// <summary>
+/// 	Adds the Immediate.Jobs persistence model to an application DbContext.
+/// </summary>
 public static class ImmediateJobsModelBuilderExtensions
 {
-	/// <summary>Configures the entities required by the Immediate.Jobs EF Core storage provider.</summary>
-	/// <param name="modelBuilder">The model builder to configure.</param>
-	/// <param name="schema">The database schema for the Immediate.Jobs tables, or <see langword="null"/> for the provider default.</param>
-	/// <returns>The configured model builder.</returns>
-	public static ModelBuilder AddImmediateJobs(this ModelBuilder modelBuilder, string? schema = null)
+	/// <summary>
+	/// 	Configures the entities required by the Immediate.Jobs EF Core storage provider.
+	/// </summary>
+	/// <param name="modelBuilder">
+	/// 	The model builder to configure.
+	/// </param>
+	/// <param name="schema">
+	/// 	The database schema for the Immediate.Jobs tables, or <see langword="null"/> for the provider default.
+	/// </param>
+	/// <param name="definitionNameCollation">
+	/// 	An optional case-insensitive collation for definition names; defaults to the supported provider's case-insensitive collation.
+	/// </param>
+	/// <returns>
+	/// 	The configured model builder.
+	/// </returns>
+	public static ModelBuilder AddImmediateJobs(this ModelBuilder modelBuilder, string? schema = null, string? definitionNameCollation = null)
 	{
 		ArgumentNullException.ThrowIfNull(modelBuilder);
 		ConfigureBatches(modelBuilder.Entity<ImmediateJobBatchEntity>(), schema);
@@ -22,6 +36,31 @@ public static class ImmediateJobsModelBuilderExtensions
 		ConfigureContinuations(modelBuilder.Entity<ImmediateJobContinuationEntity>(), schema);
 		ConfigureRecurring(modelBuilder.Entity<ImmediateRecurringJobEntity>(), schema);
 		ConfigureServers(modelBuilder.Entity<ImmediateJobServerEntity>(), schema);
+		var definitions = modelBuilder.Entity<ImmediateJobDefinitionMetadataEntity>();
+		definitions.ToTable("immediate_job_definition_metadata", schema);
+		definitions.HasKey(definition => definition.Name);
+		var isPostgreSql = modelBuilder.Model.FindAnnotation("Npgsql:ValueGenerationStrategy") is not null;
+		var postgresCollation = schema is null ? "immediate_jobs_case_insensitive" : schema + "_jobs_ci";
+		definitionNameCollation ??= isPostgreSql ? postgresCollation
+			: modelBuilder.Model.FindAnnotation("SqlServer:ValueGenerationStrategy") is not null ? null : "NOCASE";
+		if (isPostgreSql && string.Equals(definitionNameCollation, postgresCollation, StringComparison.Ordinal))
+		{
+			// Npgsql's public collation metadata is stored as this annotation (EF Core 8, 10, and 11).
+			modelBuilder.HasAnnotation("Npgsql:CollationDefinition:" + postgresCollation, "und-u-ks-level2,und-u-ks-level2,icu,False");
+		}
+
+		modelBuilder.Entity<ImmediateJobEntity>().Property(job => job.JobName).UseCollation(definitionNameCollation);
+		modelBuilder.Entity<ImmediateRecurringJobEntity>().Property(schedule => schedule.JobName).UseCollation(definitionNameCollation);
+		var name = definitions.Property(definition => definition.Name).HasMaxLength(256).UseCollation(definitionNameCollation);
+		name.Metadata.SetValueComparer(new ValueComparer<string>(
+			(left, right) => string.Equals(left, right, StringComparison.OrdinalIgnoreCase),
+			value => StringComparer.OrdinalIgnoreCase.GetHashCode(value),
+			value => value));
+		definitions.Property(definition => definition.Metadata).IsRequired();
+		var catalogue = modelBuilder.Entity<ImmediateJobDefinitionCatalogEntity>();
+		catalogue.ToTable("immediate_job_definition_catalog", schema);
+		catalogue.HasKey(item => item.Id);
+		catalogue.Property(item => item.Id).ValueGeneratedNever();
 		return modelBuilder;
 	}
 
@@ -309,4 +348,20 @@ internal sealed class ImmediateJobServerEntity
 	public int ActiveWorkers { get; set; }
 	public int MaxWorkers { get; set; }
 	public string Details { get; set; } = null!;
+}
+
+internal sealed class ImmediateJobDefinitionMetadataEntity
+{
+	public string Name { get; set; } = null!;
+	public string Metadata { get; set; } = null!;
+}
+
+/// <summary>
+/// 	A singleton row updated at the start of catalogue reconciliation to acquire a database write lock.
+/// 	The lock serializes complete definition and recurring-schedule snapshots across servers until commit.
+/// </summary>
+internal sealed class ImmediateJobDefinitionCatalogEntity
+{
+	public int Id { get; set; }
+	public Guid ConcurrencyStamp { get; set; }
 }

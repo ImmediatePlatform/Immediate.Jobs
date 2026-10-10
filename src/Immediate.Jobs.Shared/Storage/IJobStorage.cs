@@ -21,6 +21,36 @@ public interface IJobStorage : IAsyncDisposable
 	ValueTask InitializeAsync(CancellationToken cancellationToken = default);
 
 	/// <summary>
+	/// 	Atomically reconciles definitions and code-defined schedules against the complete application catalogue.
+	/// </summary>
+	/// <param name="registration">
+	/// 	The complete local definition catalogue, and code-defined schedules.
+	/// </param>
+	/// <param name="cancellationToken">
+	/// 	A token that can cancel the operation.
+	/// </param>
+	/// <returns>
+	/// 	A value task representing the complete reconciliation.
+	/// </returns>
+	/// <remarks>
+	/// 	Supplied definitions are inserted or updated; stored definitions omitted from the supplied list
+	/// 	are removed. Dynamic schedules, and invocation history are preserved.
+	/// 	Each server's list must be authoritative for the catalogue. Repeated calls are idempotent.
+	/// </remarks>
+	ValueTask MergeJobDefinitionsListAsync(JobDefinitionRegistration registration, CancellationToken cancellationToken = default);
+
+	/// <summary>
+	/// 	Returns every persisted definition, ordered by ordinal, case-insensitive name, without local registration filtering.
+	/// </summary>
+	/// <param name="cancellationToken">
+	/// 	A token that can cancel the operation.
+	/// </param>
+	/// <returns>
+	/// 	The complete stored definition catalogue.
+	/// </returns>
+	ValueTask<IReadOnlyList<JobDefinitionRecord>> GetJobDefinitionsAsync(CancellationToken cancellationToken = default);
+
+	/// <summary>
 	/// 	Inserts a pending or scheduled invocation.
 	/// </summary>
 	/// <param name="job">
@@ -414,31 +444,10 @@ public interface IJobStorage : IAsyncDisposable
 	/// <param name="cancellationToken">
 	/// 	A token that can cancel the storage operation.
 	/// </param>
-	/// <returns><see langword="true"/> when the provider is reachable; otherwise, <see langword="false"/>.
+	/// <returns>
+	/// 	<see langword="true"/> when the provider is reachable; otherwise, <see langword="false"/>.
 	/// </returns>
 	ValueTask<bool> IsHealthyAsync(CancellationToken cancellationToken = default);
-
-	/// <summary>
-	///     Resets the list of code-defined recurring job schedules to the provided list.
-	/// </summary>
-	/// <param name="schedules">
-	///     The complete list of code-defined recurring job schedules.
-	/// </param>
-	/// <param name="cancellationToken">
-	///     A token that can cancel the storage operation.
-	/// </param>
-	/// <returns>
-	///     A value task that represents the asynchronous merge.
-	/// </returns>
-	/// <remarks>
-	///	    This method should be called exactly once per app start, after <see
-	///	    cref="IJobStorage.InitializeAsync(CancellationToken)"/> to reset the list of code-defined cron jobs to the
-	///	    currently compiled list.
-	/// </remarks>
-	ValueTask MergeRecurringSchedulesListAsync(
-		IReadOnlyList<RecurringJobSchedule> schedules,
-		CancellationToken cancellationToken = default
-	);
 
 	/// <summary>
 	/// 	Creates or updates a recurring schedule.

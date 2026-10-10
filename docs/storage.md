@@ -5,7 +5,7 @@
 Two interfaces in `src/Immediate.Jobs.Shared/Storage`:
 
 - **`IJobStorage`**: queueing, acquisition (including fair-queue policies), leases, completion and
-  failure, recurring schedules, wait-for-trigger updates and triggers, queries, monitoring snapshots,
+  failure, definition catalogues, recurring schedules, wait-for-trigger updates and triggers, queries, monitoring snapshots,
   heartbeats, purging. Every provider implements all of it.
 - **`IJobGraphStorage : IJobStorage`**: batches, continuations, dynamic additions from running jobs,
   batch triggers, batch reads and purging, plus the two single-server recovery reads
@@ -30,6 +30,39 @@ monitoring snapshots and health-check data.
   is preserved through settlement and dynamic additions, and `BatchState.WaitingForTrigger` is
   non-terminal.
 
+## Definition reconciliation
+
+`MergeJobDefinitionsListAsync(JobDefinitionRegistration)` receives the complete local definition list,
+and all code-defined schedules. It inserts or updates supplied definitions and removes stored
+definitions absent from that list. An empty list clears the catalogue.
+Definition deletion never cascades to invocations, running leases, or execution history.
+
+Definition names are case-insensitive identities and retain their readable spelling. In-memory
+and single-server use `OrdinalIgnoreCase`; SQL Server inherits database collation; PostgreSQL uses
+a nondeterministic ICU collation (`und-u-ks-level2`); SQLite uses `NOCASE` (ASCII-only database
+comparison). EF tracking uses an ordinal case-insensitive key comparer. EF applications with custom
+provider conventions can pass `definitionNameCollation` to `AddImmediateJobs`.
+Definition names must not have leading or trailing whitespace: the job analyzer reports `IJOB0008`,
+and storage rejects invalid manually supplied names before modifying the catalogue.
+
+Concurrent startup snapshots commit atomically. In-memory uses its gate; EF Core takes an early write
+lock on a singleton catalogue row. LinqToDB uses a serializable transaction and one SQL `MERGE` per
+table on SQL Server and PostgreSQL 15 or later. The merge source queries reconcile obsolete records,
+canonical names, and recurring progress in the database. Only SQLite reads a snapshot for client-side
+reconciliation; it uses transactional upserts and deletes because
+it does not support SQL `MERGE`. Serialization conflicts retry the complete LinqToDB snapshot.
+Redis compares a version and applies metadata and
+schedule changes in one Lua script, recomputing after a competing startup. Single-server delegates
+metadata reads and reconciliation to durable storage, then refreshes the primary's code-defined
+schedules. Pause and unchanged schedule progress survive startup.
+
+Each application's list is authoritative for the catalogue. Concurrent applications with inconsistent
+lists can remove or replace each other's definitions; the last successful reconciliation wins.
+
+Custom providers must implement the catalogue operations. Relational users must add the definition metadata table
+through their normal schema update process; EF Core also requires the singleton catalogue table. The
+bootstrap helpers do not upgrade existing production databases.
+
 ## Providers
 
 | Provider | Location | Concurrency idiom |
@@ -51,7 +84,8 @@ back a job transition.
 
 Tables: `immediate_jobs`, `immediate_job_executions`, `immediate_job_continuations`,
 `immediate_job_batches`, `immediate_recurring_jobs`, `immediate_job_servers`, and
-`immediate_fair_queue_groups`.
+`immediate_fair_queue_groups`, and `immediate_job_definition_metadata`. EF Core also uses
+`immediate_job_definition_catalog` to serialize catalogue updates.
 
 - **EF Core**: applications call `modelBuilder.AddImmediateJobs()` and own their migrations. A schema
   change is a breaking change for every EF Core user, and needs a migration note in the pull request.
@@ -75,7 +109,9 @@ may build keys from the root):
 | `leases` | sorted set | Active job ids by lease expiry. |
 | `executions:index:{id}` / `executions:data:{id}` | sorted set / hash | Execution history. |
 | `recurring:*` | various | Schedules, due index, names, materialization de-duplication. |
-| `server:{worker}` / `servers` | hash / sorted set | Heartbeats. |
+| `server:{worker}` / `servers` | hash / sorted set | Scheduler heartbeats. |
+| `definition-metadata` | hash | All definition metadata keyed by stable job name. |
+| `definition-catalog-version` | string | Version used to atomically reconcile a complete catalogue. |
 | `fair:*` | various | Fair-queue indexes, active counts, and cursors; see [fair queues](fair-queues.md). |
 
 The payload lives only inside `record`. Lua must not re-encode it with `cjson` (key order and escaping

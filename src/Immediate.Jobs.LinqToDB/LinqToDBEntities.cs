@@ -56,6 +56,8 @@ internal sealed class ImmediateJobEntity
 	[Column(Length = 256, CanBeNull = false)]
 	public string QueueName { get; set; } = JobQueueDefinition.DefaultName;
 	[Column(Length = 256, CanBeNull = false)]
+	[Column(Configuration = ProviderName.PostgreSQL, DbType = "varchar(256) COLLATE \"immediate_jobs_case_insensitive\"", CanBeNull = false)]
+	[Column(Configuration = ProviderName.SQLite, DbType = "TEXT COLLATE NOCASE", CanBeNull = false)]
 	public string JobName { get; set; } = null!;
 	[Column(Length = 128, CanBeNull = true)]
 	public string? GroupId { get; set; }
@@ -164,6 +166,8 @@ internal sealed class ImmediateRecurringJobEntity
 	[PrimaryKey, Column(Length = 256, CanBeNull = false)]
 	public string Name { get; set; } = null!;
 	[Column(Length = 256, CanBeNull = false)]
+	[Column(Configuration = ProviderName.PostgreSQL, DbType = "varchar(256) COLLATE \"immediate_jobs_case_insensitive\"", CanBeNull = false)]
+	[Column(Configuration = ProviderName.SQLite, DbType = "TEXT COLLATE NOCASE", CanBeNull = false)]
 	public string JobName { get; set; } = null!;
 	[Column(Length = 256, CanBeNull = false)]
 	public string QueueName { get; set; } = null!;
@@ -198,4 +202,13 @@ internal sealed class ImmediateJobServerEntity
 	public int MaxWorkers { get; set; }
 	[Column(DataType = DataType.Text)]
 	public string Details { get; set; } = null!;
+}
+
+[Table(Name = "immediate_job_definition_metadata")]
+internal sealed class ImmediateJobDefinitionMetadataEntity
+{
+	[PrimaryKey, Column(Length = 256, CanBeNull = false)]
+	public string Name { get; set; } = null!;
+	[Column(DataType = DataType.Text, CanBeNull = false)]
+	public string Metadata { get; set; } = null!;
 }

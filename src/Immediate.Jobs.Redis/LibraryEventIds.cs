@@ -20,7 +20,6 @@ internal static class LibraryEventIds
 	public const int PurgeJobsAsyncCalled = 11715;
 	public const int HeartbeatAsyncCalled = 11716;
 	public const int IsHealthyAsyncCalled = 11717;
-	public const int MergeRecurringSchedulesListAsyncCalled = 11718;
 	public const int UpsertRecurringAsyncCalled = 11719;
 	public const int RemoveRecurringAsyncCalled = 11720;
 	public const int PauseRecurringAsyncCalled = 11721;
@@ -31,4 +30,6 @@ internal static class LibraryEventIds
 	public const int MaterializeRecurringAsyncCalledWithDependencies = 11726;
 	public const int UpdatePayloadAsyncCalled = 11727;
 	public const int TryTriggerAsyncCalled = 11728;
+	public const int MergeJobDefinitionsListAsyncCalled = 11729;
+	public const int GetJobDefinitionsAsyncCalled = 11730;
 }

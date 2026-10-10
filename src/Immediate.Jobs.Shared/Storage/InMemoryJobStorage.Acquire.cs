@@ -59,7 +59,7 @@ public sealed partial class InMemoryJobStorage
 				if (queueCapacity <= 0)
 					continue;
 
-				var jobCapacities = queue.JobCapacities.ToDictionary(static pair => pair.Key, static pair => pair.Value, StringComparer.Ordinal);
+				var jobCapacities = queue.JobCapacities.ToDictionary(static pair => pair.Key, static pair => pair.Value, StringComparer.OrdinalIgnoreCase);
 				if (!HasEligibleGroupedJob(queue.QueueName, jobCapacities, now))
 				{
 					AcquireQueueInExistingOrder(
@@ -96,7 +96,7 @@ public sealed partial class InMemoryJobStorage
 			if (queueCapacity <= 0)
 				continue;
 
-			var jobCapacities = queue.JobCapacities.ToDictionary(static pair => pair.Key, static pair => pair.Value, StringComparer.Ordinal);
+			var jobCapacities = queue.JobCapacities.ToDictionary(static pair => pair.Key, static pair => pair.Value, StringComparer.OrdinalIgnoreCase);
 			AcquireQueueInExistingOrder(
 				request,
 				queue.QueueName,

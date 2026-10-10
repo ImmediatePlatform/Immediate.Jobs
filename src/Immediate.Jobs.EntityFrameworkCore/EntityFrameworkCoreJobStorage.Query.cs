@@ -87,7 +87,9 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 			var search = query.Search.ToUpperInvariant();
 			// The parameterless form is intentionally used because relational providers translate it to SQL.
 #pragma warning disable CA1304, CA1311, CA1862, MA0011
-			jobs = jobs.Where(job => job.JobName.ToUpper().Contains(search));
+			jobs = context.Database.ProviderName!.Contains("Npgsql", StringComparison.Ordinal)
+				? jobs.Where(job => EF.Functions.Collate(job.JobName, "und-x-icu").ToUpper().Contains(search))
+				: jobs.Where(job => job.JobName.ToUpper().Contains(search));
 #pragma warning restore CA1304, CA1311, CA1862, MA0011
 		}
 

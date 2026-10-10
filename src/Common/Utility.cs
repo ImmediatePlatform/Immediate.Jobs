@@ -31,6 +31,9 @@ internal static class Utility
 		public string AsCSharpLiteral() =>
 			SymbolDisplay.FormatLiteral(str, quote: true);
 
+		public bool HasLeadingOrTrailingWhitespace() =>
+			str.Length > 0 && (char.IsWhiteSpace(str[0]) || char.IsWhiteSpace(str[^1]));
+
 		public string EscapeIdentifier() =>
 			SyntaxFacts.GetKeywordKind(str) == SyntaxKind.None
 			&& SyntaxFacts.GetContextualKeywordKind(str) == SyntaxKind.None

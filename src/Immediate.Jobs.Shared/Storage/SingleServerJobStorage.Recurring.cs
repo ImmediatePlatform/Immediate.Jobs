@@ -8,19 +8,6 @@ internal sealed partial class SingleServerJobStorage
 	private readonly SemaphoreSlim _recurringMaterialization = new(1, 1);
 
 	/// <inheritdoc />
-	public async ValueTask MergeRecurringSchedulesListAsync(
-		IReadOnlyList<RecurringJobSchedule> schedules,
-		CancellationToken cancellationToken = default
-	)
-	{
-		SingleServerMergeRecurringSchedulesListAsyncCalled(schedules.Count);
-		await TaskScheduler.Yield();
-		await EnsureInitializedAsync(cancellationToken);
-		await DurableStorage.MergeRecurringSchedulesListAsync(schedules, cancellationToken);
-		await PrimaryStorage.MergeRecurringSchedulesListAsync(schedules, cancellationToken);
-	}
-
-	/// <inheritdoc />
 	public async ValueTask UpsertRecurringAsync(RecurringJobSchedule schedule, CancellationToken cancellationToken = default)
 	{
 		SingleServerUpsertRecurringAsyncCalled(schedule.Name);
@@ -110,14 +97,6 @@ internal sealed partial class SingleServerJobStorage
 			_recurringMaterialization.Release();
 		}
 	}
-
-	[LoggerMessage(
-		EventId = LibraryEventIds.SingleServerMergeRecurringSchedulesListAsyncCalled,
-		EventName = "Immediate.Jobs.Shared.SingleServerMergeRecurringSchedulesListAsyncCalled",
-		Level = LogLevel.Debug,
-		Message = "Single-server storage MergeRecurringSchedulesListAsync called (Schedules={Schedules})"
-	)]
-	private partial void SingleServerMergeRecurringSchedulesListAsyncCalled(int schedules);
 
 	[LoggerMessage(
 		EventId = LibraryEventIds.SingleServerUpsertRecurringAsyncCalled,
