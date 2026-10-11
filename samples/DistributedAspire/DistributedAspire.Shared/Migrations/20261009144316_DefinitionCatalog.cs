@@ -39,7 +39,18 @@ public sealed partial class DefinitionCatalog : Migration
 			columns: table => new
 			{
 				Name = table.Column<string>(type: "character varying(256)", maxLength: 256, nullable: false, collation: "immediate_jobs_case_insensitive"),
-				Metadata = table.Column<string>(type: "text", nullable: false),
+				QueueName = table.Column<string>(type: "character varying(256)", maxLength: 256, nullable: false),
+				QueuePriority = table.Column<int>(type: "integer", nullable: false),
+				QueueConcurrency = table.Column<int>(type: "integer", nullable: false),
+				Cron = table.Column<string>(type: "character varying(128)", maxLength: 128, nullable: true),
+				TimeZone = table.Column<string>(type: "character varying(128)", maxLength: 128, nullable: false),
+				MaxAttempts = table.Column<int>(type: "integer", nullable: false),
+				TimeoutTicks = table.Column<long>(type: "bigint", nullable: true),
+				MaxConcurrency = table.Column<int>(type: "integer", nullable: false),
+				OverlapPolicy = table.Column<short>(type: "smallint", nullable: false),
+				MisfireHandlingMode = table.Column<short>(type: "smallint", nullable: false),
+				Backoff = table.Column<short>(type: "smallint", nullable: false),
+				BackoffBaseTicks = table.Column<long>(type: "bigint", nullable: false),
 			},
 			constraints: table => table.PrimaryKey("PK_immediate_job_definition_metadata", x => x.Name));
 	}

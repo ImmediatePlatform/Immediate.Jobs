@@ -10,6 +10,7 @@ internal static class DefinitionCatalogStorageConformance
 	private const string ConcurrentCase = "Definitions.Catalogue.SerializesConcurrentCompleteLists";
 	private const string InvalidCase = "Definitions.Catalogue.RejectsInvalidSnapshotsWithoutPartialChanges";
 	private const string CaseNameCase = "Definitions.Catalogue.ReconcilesCaseInsensitiveNames";
+	private const string ConfigurationCase = "Definitions.Catalogue.RoundTripsAndUpdatesConfiguration";
 
 	internal static IReadOnlyList<JobStorageConformanceTestCase> Cases { get; } =
 	[
@@ -17,12 +18,42 @@ internal static class DefinitionCatalogStorageConformance
 		new(ConcurrentCase, StorageCapabilities.Queue, ReconcilesConcurrentlyAsync),
 		new(InvalidCase, StorageCapabilities.Queue, RejectsInvalidAsync),
 		new(CaseNameCase, StorageCapabilities.Queue, ReconcilesCaseInsensitiveNamesAsync),
+		new(ConfigurationCase, StorageCapabilities.Queue, RoundTripsConfigurationAsync),
 	];
 
 	private static JobDefinitionRecord Definition(string name) => new() { Name = name };
 
 	private static JobDefinitionRegistration Registration(IReadOnlyList<JobDefinitionRecord> definitions) =>
 		new() { Definitions = definitions };
+
+	private static async ValueTask RoundTripsConfigurationAsync(IJobStorage storage, FakeTimeProvider timeProvider, CancellationToken token)
+	{
+		var definition = Definition("Configured") with
+		{
+			QueueName = "priority",
+			QueuePriority = 9,
+			QueueConcurrency = 2,
+			Cron = "15 * * * *",
+			TimeZone = "America/Chicago",
+			MaxAttempts = 7,
+			Timeout = TimeSpan.FromSeconds(3) + TimeSpan.FromTicks(1),
+			MaxConcurrency = 4,
+			OverlapPolicy = OverlapPolicy.Concurrent,
+			MisfireHandlingMode = MisfireHandlingMode.EnqueueNone,
+			Backoff = BackoffStrategy.Exponential,
+			BackoffBase = TimeSpan.FromSeconds(13) + TimeSpan.FromTicks(3),
+		};
+		await storage.MergeJobDefinitionsListAsync(new()
+		{
+			Definitions = [definition],
+			RecurringSchedules = [Schedule(definition, timeProvider.GetUtcNow())],
+		}, token);
+		ConformanceAssert.Equal(definition, (await storage.GetJobDefinitionsAsync(token)).Single(), ConfigurationCase,
+			"all configuration fields, nullable values, enums, and duration ticks must round trip");
+		await storage.MergeJobDefinitionsListAsync(Registration([Definition("CONFIGURED")]), token);
+		ConformanceAssert.Equal(Definition("Configured"), (await storage.GetJobDefinitionsAsync(token)).Single(), ConfigurationCase,
+			"an alias update must replace every field, clear nullable values, and preserve the stored name");
+	}
 
 	private static async ValueTask ReconcilesCaseInsensitiveNamesAsync(IJobStorage storage, FakeTimeProvider timeProvider, CancellationToken token)
 	{

@@ -178,9 +178,46 @@ namespace Immediate.Jobs.DistributedAspire.Shared.Migrations
                         .HasColumnType("character varying(256)")
                         .UseCollation("immediate_jobs_case_insensitive");
 
-                    b.Property<string>("Metadata")
+                    b.Property<short>("Backoff")
+                        .HasColumnType("smallint");
+
+                    b.Property<long>("BackoffBaseTicks")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("Cron")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<int>("MaxAttempts")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("MaxConcurrency")
+                        .HasColumnType("integer");
+
+                    b.Property<short>("MisfireHandlingMode")
+                        .HasColumnType("smallint");
+
+                    b.Property<short>("OverlapPolicy")
+                        .HasColumnType("smallint");
+
+                    b.Property<int>("QueueConcurrency")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("QueueName")
                         .IsRequired()
-                        .HasColumnType("text");
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<int>("QueuePriority")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("TimeZone")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<long?>("TimeoutTicks")
+                        .HasColumnType("bigint");
 
                     b.HasKey("Name");
 

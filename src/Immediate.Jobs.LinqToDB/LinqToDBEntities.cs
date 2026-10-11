@@ -209,6 +209,28 @@ internal sealed class ImmediateJobDefinitionMetadataEntity
 {
 	[PrimaryKey, Column(Length = 256, CanBeNull = false)]
 	public string Name { get; set; } = null!;
-	[Column(DataType = DataType.Text, CanBeNull = false)]
-	public string Metadata { get; set; } = null!;
+	[Column(Length = 256, CanBeNull = false)]
+	public string QueueName { get; set; } = null!;
+	[Column(DataType = DataType.Int32)]
+	public int QueuePriority { get; set; }
+	[Column(DataType = DataType.Int32)]
+	public int QueueConcurrency { get; set; }
+	[Column(Length = 128, CanBeNull = true)]
+	public string? Cron { get; set; }
+	[Column(Length = 128, CanBeNull = false)]
+	public string TimeZone { get; set; } = null!;
+	[Column(DataType = DataType.Int32)]
+	public int MaxAttempts { get; set; }
+	[Column(DataType = DataType.Int64, CanBeNull = true)]
+	public long? TimeoutTicks { get; set; }
+	[Column(DataType = DataType.Int32)]
+	public int MaxConcurrency { get; set; }
+	[Column(DataType = DataType.Int16)]
+	public OverlapPolicy OverlapPolicy { get; set; }
+	[Column(DataType = DataType.Int16)]
+	public MisfireHandlingMode MisfireHandlingMode { get; set; }
+	[Column(DataType = DataType.Int16)]
+	public BackoffStrategy Backoff { get; set; }
+	[Column(DataType = DataType.Int64)]
+	public long BackoffBaseTicks { get; set; }
 }

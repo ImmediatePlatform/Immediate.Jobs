@@ -56,7 +56,12 @@ public static class ImmediateJobsModelBuilderExtensions
 			(left, right) => string.Equals(left, right, StringComparison.OrdinalIgnoreCase),
 			value => StringComparer.OrdinalIgnoreCase.GetHashCode(value),
 			value => value));
-		definitions.Property(definition => definition.Metadata).IsRequired();
+		definitions.Property(definition => definition.QueueName).HasMaxLength(256).IsRequired();
+		definitions.Property(definition => definition.Cron).HasMaxLength(128);
+		definitions.Property(definition => definition.TimeZone).HasMaxLength(128).IsRequired();
+		definitions.Property(definition => definition.OverlapPolicy).HasConversion<short>();
+		definitions.Property(definition => definition.MisfireHandlingMode).HasConversion<short>();
+		definitions.Property(definition => definition.Backoff).HasConversion<short>();
 		var catalogue = modelBuilder.Entity<ImmediateJobDefinitionCatalogEntity>();
 		catalogue.ToTable("immediate_job_definition_catalog", schema);
 		catalogue.HasKey(item => item.Id);
@@ -353,7 +358,18 @@ internal sealed class ImmediateJobServerEntity
 internal sealed class ImmediateJobDefinitionMetadataEntity
 {
 	public string Name { get; set; } = null!;
-	public string Metadata { get; set; } = null!;
+	public string QueueName { get; set; } = null!;
+	public int QueuePriority { get; set; }
+	public int QueueConcurrency { get; set; }
+	public string? Cron { get; set; }
+	public string TimeZone { get; set; } = null!;
+	public int MaxAttempts { get; set; }
+	public long? TimeoutTicks { get; set; }
+	public int MaxConcurrency { get; set; }
+	public OverlapPolicy OverlapPolicy { get; set; }
+	public MisfireHandlingMode MisfireHandlingMode { get; set; }
+	public BackoffStrategy Backoff { get; set; }
+	public long BackoffBaseTicks { get; set; }
 }
 
 /// <summary>

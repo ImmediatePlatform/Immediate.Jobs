@@ -118,7 +118,18 @@ public static class LinqToDBSchemaExtensions
 				IF OBJECT_ID(N'{{qualified}}', N'U') IS NULL
 					CREATE TABLE {{qualified}} (
 						[Name] nvarchar(256) NOT NULL PRIMARY KEY,
-						[Metadata] nvarchar(max) NOT NULL
+						[QueueName] nvarchar(256) NOT NULL,
+						[QueuePriority] int NOT NULL,
+						[QueueConcurrency] int NOT NULL,
+						[Cron] nvarchar(128) NULL,
+						[TimeZone] nvarchar(128) NOT NULL,
+						[MaxAttempts] int NOT NULL,
+						[TimeoutTicks] bigint NULL,
+						[MaxConcurrency] int NOT NULL,
+						[OverlapPolicy] smallint NOT NULL,
+						[MisfireHandlingMode] smallint NOT NULL,
+						[Backoff] smallint NOT NULL,
+						[BackoffBaseTicks] bigint NOT NULL
 					);
 				""", cancellationToken);
 		}
@@ -136,7 +147,18 @@ public static class LinqToDBSchemaExtensions
 				END $collation$;
 				CREATE TABLE IF NOT EXISTS {{qualified}} (
 					"Name" character varying(256) COLLATE "immediate_jobs_case_insensitive" NOT NULL PRIMARY KEY,
-					"Metadata" text NOT NULL
+					"QueueName" character varying(256) NOT NULL,
+					"QueuePriority" integer NOT NULL,
+					"QueueConcurrency" integer NOT NULL,
+					"Cron" character varying(128) NULL,
+					"TimeZone" character varying(128) NOT NULL,
+					"MaxAttempts" integer NOT NULL,
+					"TimeoutTicks" bigint NULL,
+					"MaxConcurrency" integer NOT NULL,
+					"OverlapPolicy" smallint NOT NULL,
+					"MisfireHandlingMode" smallint NOT NULL,
+					"Backoff" smallint NOT NULL,
+					"BackoffBaseTicks" bigint NOT NULL
 				);
 				""", cancellationToken);
 		}
@@ -146,7 +168,18 @@ public static class LinqToDBSchemaExtensions
 			return connection.ExecuteAsync("""
 				CREATE TABLE IF NOT EXISTS "immediate_job_definition_metadata" (
 					"Name" nvarchar(256) COLLATE NOCASE NOT NULL PRIMARY KEY,
-					"Metadata" text NOT NULL
+					"QueueName" nvarchar(256) NOT NULL,
+					"QueuePriority" integer NOT NULL,
+					"QueueConcurrency" integer NOT NULL,
+					"Cron" nvarchar(128) NULL,
+					"TimeZone" nvarchar(128) NOT NULL,
+					"MaxAttempts" integer NOT NULL,
+					"TimeoutTicks" bigint NULL,
+					"MaxConcurrency" integer NOT NULL,
+					"OverlapPolicy" smallint NOT NULL,
+					"MisfireHandlingMode" smallint NOT NULL,
+					"Backoff" smallint NOT NULL,
+					"BackoffBaseTicks" bigint NOT NULL
 				);
 				""", cancellationToken);
 		}

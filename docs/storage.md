@@ -45,6 +45,11 @@ provider conventions can pass `definitionNameCollation` to `AddImmediateJobs`.
 Definition names must not have leading or trailing whitespace: the job analyzer reports `IJOB0008`,
 and storage rejects invalid manually supplied names before modifying the catalogue.
 
+Relational providers store definition configuration in individual columns in
+`immediate_job_definition_metadata`; the name key is the only persisted definition name.
+`TimeoutTicks` and `BackoffBaseTicks` store exact .NET ticks (100 nanoseconds), and policy enums
+use small integers. Redis continues storing serialized definition records.
+
 Concurrent startup snapshots commit atomically. In-memory uses its gate; EF Core takes an early write
 lock on a singleton catalogue row. LinqToDB uses a serializable transaction and merges supplied
 records directly into each table on SQL Server and PostgreSQL 15 or later. Matched updates preserve

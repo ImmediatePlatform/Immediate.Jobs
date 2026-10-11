@@ -1,5 +1,4 @@
 using System.Data;
-using System.Text.Json;
 using Immediate.Jobs.Shared.Apis;
 using Immediate.Jobs.Shared.Storage;
 using LinqToDB;
@@ -40,8 +39,7 @@ internal sealed partial class LinqToDBJobStorage<T>
 		await TaskScheduler.Yield();
 		await using var scope = contextScope.GetScope(out var connection);
 		var definitions = await Definitions(connection).ToListAsync(cancellationToken);
-		// The persisted name column is authoritative; serialized metadata may contain a registration alias.
-		return [.. definitions.Select(static item => JsonSerializer.Deserialize(item.Metadata, LinqToDBJsonSerializerContext.Default.JobDefinitionRecord)! with { Name = item.Name })
+		return [.. definitions.Select(static item => ToRecord(item))
 			.OrderBy(static definition => definition.Name, StringComparer.OrdinalIgnoreCase)];
 	}
 
@@ -85,15 +83,11 @@ internal sealed partial class LinqToDBJobStorage<T>
 		var definitions = await Definitions(connection).ToListAsync(cancellationToken);
 		var schedules = await Recurring(connection).ToListAsync(cancellationToken);
 		var changes = JobDefinitionReconciliation.Create(registration,
-			definitions.Select(static item => JsonSerializer.Deserialize(item.Metadata, LinqToDBJsonSerializerContext.Default.JobDefinitionRecord)!).ToList(),
+			definitions.Select(ToRecord).ToList(),
 			schedules.Select(ToRecord).ToList());
 		await Definitions(connection).Where(item => item.Name.In(changes.RemovedDefinitionNames)).DeleteAsync(cancellationToken);
 		foreach (var definition in changes.Definitions)
-			await connection.InsertOrReplaceAsync(new ImmediateJobDefinitionMetadataEntity
-			{
-				Name = definition.Name,
-				Metadata = JsonSerializer.Serialize(definition, LinqToDBJsonSerializerContext.Default.JobDefinitionRecord),
-			}, schemaName: _schema, token: cancellationToken);
+			await connection.InsertOrReplaceAsync(ToEntity(definition), schemaName: _schema, token: cancellationToken);
 
 		await Recurring(connection).Where(item => item.Name.In(changes.RemovedScheduleNames)).DeleteAsync(cancellationToken);
 		foreach (var schedule in changes.Schedules)
@@ -106,15 +100,25 @@ internal sealed partial class LinqToDBJobStorage<T>
 		CancellationToken cancellationToken
 	)
 	{
-		var supplied = definitions.Select(static definition => new ImmediateJobDefinitionMetadataEntity
-		{
-			Name = definition.Name,
-			Metadata = JsonSerializer.Serialize(definition, LinqToDBJsonSerializerContext.Default.JobDefinitionRecord),
-		}).ToList().AsQueryable(connection);
+		var supplied = definitions.Select(ToEntity).ToList().AsQueryable(connection);
 		var merge = Definitions(connection).Merge()
 			.Using(supplied)
 			.On(static (dst, src) => dst.Name == src.Name)
-			.UpdateWhenMatched(static (dst, src) => new ImmediateJobDefinitionMetadataEntity { Metadata = src.Metadata })
+			.UpdateWhenMatched(static (dst, src) => new ImmediateJobDefinitionMetadataEntity
+			{
+				QueueName = src.QueueName,
+				QueuePriority = src.QueuePriority,
+				QueueConcurrency = src.QueueConcurrency,
+				Cron = src.Cron,
+				TimeZone = src.TimeZone,
+				MaxAttempts = src.MaxAttempts,
+				TimeoutTicks = src.TimeoutTicks,
+				MaxConcurrency = src.MaxConcurrency,
+				OverlapPolicy = src.OverlapPolicy,
+				MisfireHandlingMode = src.MisfireHandlingMode,
+				Backoff = src.Backoff,
+				BackoffBaseTicks = src.BackoffBaseTicks,
+			})
 			.InsertWhenNotMatched();
 		if (connection.DataProvider.Name.Contains("SqlServer", StringComparison.OrdinalIgnoreCase))
 			await merge.DeleteWhenNotMatchedBySource().MergeAsync(cancellationToken);
@@ -176,6 +180,40 @@ internal sealed partial class LinqToDBJobStorage<T>
 	[Sql.Expression(ProviderName.SqlServer, "({0} COLLATE Latin1_General_100_BIN2 = {1} COLLATE Latin1_General_100_BIN2 AND DATALENGTH({0}) = DATALENGTH({1}))", ServerSideOnly = true, IsPredicate = true)]
 	[Sql.Expression(ProviderName.PostgreSQL, "{0} = {1}", ServerSideOnly = true, IsPredicate = true)]
 	private static bool EqualsOrdinal(string left, string right) => throw new InvalidOperationException("This function must be translated to SQL.");
+
+	private static ImmediateJobDefinitionMetadataEntity ToEntity(JobDefinitionRecord definition) => new()
+	{
+		Name = definition.Name,
+		QueueName = definition.QueueName,
+		QueuePriority = definition.QueuePriority,
+		QueueConcurrency = definition.QueueConcurrency,
+		Cron = definition.Cron,
+		TimeZone = definition.TimeZone,
+		MaxAttempts = definition.MaxAttempts,
+		TimeoutTicks = definition.Timeout?.Ticks,
+		MaxConcurrency = definition.MaxConcurrency,
+		OverlapPolicy = definition.OverlapPolicy,
+		MisfireHandlingMode = definition.MisfireHandlingMode,
+		Backoff = definition.Backoff,
+		BackoffBaseTicks = definition.BackoffBase.Ticks,
+	};
+
+	private static JobDefinitionRecord ToRecord(ImmediateJobDefinitionMetadataEntity entity) => new()
+	{
+		Name = entity.Name,
+		QueueName = entity.QueueName,
+		QueuePriority = entity.QueuePriority,
+		QueueConcurrency = entity.QueueConcurrency,
+		Cron = entity.Cron,
+		TimeZone = entity.TimeZone,
+		MaxAttempts = entity.MaxAttempts,
+		Timeout = entity.TimeoutTicks is { } ticks ? TimeSpan.FromTicks(ticks) : null,
+		MaxConcurrency = entity.MaxConcurrency,
+		OverlapPolicy = entity.OverlapPolicy,
+		MisfireHandlingMode = entity.MisfireHandlingMode,
+		Backoff = entity.Backoff,
+		BackoffBase = TimeSpan.FromTicks(entity.BackoffBaseTicks),
+	};
 
 	[LoggerMessage(
 		EventId = LibraryEventIds.MergeJobDefinitionsListAsyncCalled,

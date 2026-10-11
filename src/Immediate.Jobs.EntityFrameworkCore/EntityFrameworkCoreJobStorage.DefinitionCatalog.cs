@@ -1,4 +1,3 @@
-using System.Text.Json;
 using Immediate.Jobs.Shared.Apis;
 using Immediate.Jobs.Shared.Storage;
 using Microsoft.EntityFrameworkCore;
@@ -31,17 +30,17 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 			var schedules = await context.Set<ImmediateRecurringJobEntity>()
 				.ToDictionaryAsync(static item => item.Name, StringComparer.Ordinal, token);
 			var changes = JobDefinitionReconciliation.Create(registration,
-				definitions.Values.Select(static item => JsonSerializer.Deserialize(item.Metadata, EntityFrameworkCoreJsonSerializerContext.Default.JobDefinitionRecord)!).ToList(),
+				definitions.Values.Select(ToRecord).ToList(),
 				schedules.Values.Select(ToDefinitionSchedule).ToList());
 			foreach (var name in changes.RemovedDefinitionNames)
 				context.Remove(definitions[name]);
 			foreach (var definition in changes.Definitions)
 			{
-				var metadata = JsonSerializer.Serialize(definition, EntityFrameworkCoreJsonSerializerContext.Default.JobDefinitionRecord);
+				var entity = ToEntity(definition);
 				if (definitions.TryGetValue(definition.Name, out var current))
-					current.Metadata = metadata;
+					context.Entry(current).CurrentValues.SetValues(entity);
 				else
-					context.Add(new ImmediateJobDefinitionMetadataEntity { Name = definition.Name, Metadata = metadata });
+					context.Add(entity);
 			}
 
 			foreach (var name in changes.RemovedScheduleNames)
@@ -67,10 +66,8 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 		await TaskScheduler.Yield();
 		return await ReadWithStrategyAsync(async (context, token) =>
 		{
-			var metadata = await context.Set<ImmediateJobDefinitionMetadataEntity>().AsNoTracking()
-				.Select(static item => item.Metadata).ToListAsync(token);
-			return (IReadOnlyList<JobDefinitionRecord>)[.. metadata
-				.Select(static value => JsonSerializer.Deserialize(value, EntityFrameworkCoreJsonSerializerContext.Default.JobDefinitionRecord)!)
+			var definitions = await context.Set<ImmediateJobDefinitionMetadataEntity>().AsNoTracking().ToListAsync(token);
+			return (IReadOnlyList<JobDefinitionRecord>)[.. definitions.Select(ToRecord)
 				.OrderBy(static definition => definition.Name, StringComparer.OrdinalIgnoreCase)];
 		}, cancellationToken);
 	}
@@ -104,6 +101,40 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 		IsPaused = entity.IsPaused,
 		NextRunAt = entity.NextRunAt,
 		LastRunAt = entity.LastRunAt,
+	};
+
+	private static ImmediateJobDefinitionMetadataEntity ToEntity(JobDefinitionRecord definition) => new()
+	{
+		Name = definition.Name,
+		QueueName = definition.QueueName,
+		QueuePriority = definition.QueuePriority,
+		QueueConcurrency = definition.QueueConcurrency,
+		Cron = definition.Cron,
+		TimeZone = definition.TimeZone,
+		MaxAttempts = definition.MaxAttempts,
+		TimeoutTicks = definition.Timeout?.Ticks,
+		MaxConcurrency = definition.MaxConcurrency,
+		OverlapPolicy = definition.OverlapPolicy,
+		MisfireHandlingMode = definition.MisfireHandlingMode,
+		Backoff = definition.Backoff,
+		BackoffBaseTicks = definition.BackoffBase.Ticks,
+	};
+
+	private static JobDefinitionRecord ToRecord(ImmediateJobDefinitionMetadataEntity entity) => new()
+	{
+		Name = entity.Name,
+		QueueName = entity.QueueName,
+		QueuePriority = entity.QueuePriority,
+		QueueConcurrency = entity.QueueConcurrency,
+		Cron = entity.Cron,
+		TimeZone = entity.TimeZone,
+		MaxAttempts = entity.MaxAttempts,
+		Timeout = entity.TimeoutTicks is { } ticks ? TimeSpan.FromTicks(ticks) : null,
+		MaxConcurrency = entity.MaxConcurrency,
+		OverlapPolicy = entity.OverlapPolicy,
+		MisfireHandlingMode = entity.MisfireHandlingMode,
+		Backoff = entity.Backoff,
+		BackoffBase = TimeSpan.FromTicks(entity.BackoffBaseTicks),
 	};
 
 	[LoggerMessage(
