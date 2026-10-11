@@ -18,6 +18,8 @@ From `Directory.Build.props` and `.editorconfig`:
 
 ## Code patterns
 
+- **Readability.** Insert blank lines between logical groups of statements to make code easier for
+  human readers to follow.
 - **Async entry points.** Public async methods yield first with `await TaskScheduler.Yield()` (an
   internal helper that resumes on the thread pool, whatever the caller's synchronization context).
   Storage methods also log their "…Called" message and call
@@ -36,6 +38,8 @@ From `Directory.Build.props` and `.editorconfig`:
 ## Documentation comments
 
 - XML docs are required (`GenerateDocumentationFile`). Doc text is indented with a tab after `///`.
+- Always use the repo-wide multiline XML documentation style: put opening tags (including
+  `<param name="…">`), their contents, and closing tags on separate lines.
 - Interfaces carry the full documentation, including `<exception>` tags; implementations use
   `/// <inheritdoc />`, adding `<remarks>` only for implementation-specific behaviour (for example a
   provider that throws `NotSupportedException`).
@@ -73,6 +77,12 @@ A new diagnostic needs:
 - a row in `AnalyzerReleases.Unshipped.md`;
 - the descriptor in its analyzer;
 - tests in `tests/Immediate.Jobs.Tests/AnalyzerTests`.
+
+## Storage tests
+
+- Add storage tests only as conformance tests under `src/Immediate.Jobs.Testing/Storage` (see
+  [testing](testing.md)). A storage test must never be specific to a particular combination of
+  storage provider and underlying engine; cover the behaviour through the shared conformance suite.
 
 ## Pull requests
 
