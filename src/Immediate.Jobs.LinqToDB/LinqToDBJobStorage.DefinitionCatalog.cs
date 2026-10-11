@@ -1,3 +1,4 @@
+using System.Text.Json;
 using System.Data;
 using Immediate.Jobs.Shared.Apis;
 using Immediate.Jobs.Shared.Storage;
@@ -38,7 +39,7 @@ internal sealed partial class LinqToDBJobStorage<T>
 				&& !schedule.JobName.In(scheduledNames) && !schedule.Name.In(scheduledNames)
 				&& (schedule.JobName.In(names)
 					|| Definitions(connection).Any(definition => definition.Name == schedule.JobName
-						&& serverTags.Any(tag => HasTag(definition.Metadata, tag)))
+						&& serverTags.Any(tag => HasTag(definition.Tags, tag)))
 					|| (includesDefault && !Definitions(connection).Any(definition => definition.Name == schedule.JobName))))
 				.DeleteAsync(cancellationToken);
 			await MergeDefinitionMetadataAsync(connection, definitions, serverTags, cancellationToken);
@@ -134,15 +135,16 @@ internal sealed partial class LinqToDBJobStorage<T>
 				MisfireHandlingMode = src.MisfireHandlingMode,
 				Backoff = src.Backoff,
 				BackoffBaseTicks = src.BackoffBaseTicks,
+				Tags = src.Tags,
 			})
 			.InsertWhenNotMatched();
 		if (connection.DataProvider.Name.Contains("SqlServer", StringComparison.OrdinalIgnoreCase))
-			await merge.DeleteWhenNotMatchedBySourceAnd(dst => serverTags.Any(tag => HasTag(dst.Metadata, tag))).MergeAsync(cancellationToken);
+			await merge.DeleteWhenNotMatchedBySourceAnd(dst => serverTags.Any(tag => HasTag(dst.Tags, tag))).MergeAsync(cancellationToken);
 		else
 		{
 			await merge.MergeAsync(cancellationToken);
 			// PostgreSQL 15 has no WHEN NOT MATCHED BY SOURCE; remove obsolete rows in the same transaction.
-			await Definitions(connection).Where(dst => serverTags.Any(tag => HasTag(dst.Metadata, tag))
+			await Definitions(connection).Where(dst => serverTags.Any(tag => HasTag(dst.Tags, tag))
 				&& !supplied.Any(src => dst.Name == src.Name)).DeleteAsync(cancellationToken);
 		}
 	}
@@ -188,9 +190,9 @@ internal sealed partial class LinqToDBJobStorage<T>
 		await merge.MergeAsync(cancellationToken);
 	}
 
-	[Sql.Expression(ProviderName.SqlServer, "EXISTS (SELECT 1 FROM OPENJSON(CAST({0} AS nvarchar(max)), '$.Tags') jsonTag WHERE jsonTag.[value] COLLATE Latin1_General_100_CI_AS = {1} COLLATE Latin1_General_100_CI_AS AND DATALENGTH(jsonTag.[value]) = DATALENGTH({1}))", ServerSideOnly = true, IsPredicate = true)]
-	[Sql.Expression(ProviderName.PostgreSQL, "EXISTS (SELECT 1 FROM jsonb_array_elements_text(CAST({0} AS jsonb)->'Tags') AS jsonTag(value) WHERE jsonTag.value COLLATE \"immediate_jobs_case_insensitive\" = {1} COLLATE \"immediate_jobs_case_insensitive\")", ServerSideOnly = true, IsPredicate = true)]
-	private static bool HasTag(string metadata, string tag) => throw new InvalidOperationException("This function must be translated to SQL.");
+	[Sql.Expression(ProviderName.SqlServer, "EXISTS (SELECT 1 FROM OPENJSON(CAST({0} AS nvarchar(max))) jsonTag WHERE jsonTag.[value] COLLATE Latin1_General_100_CI_AS = {1} COLLATE Latin1_General_100_CI_AS AND DATALENGTH(jsonTag.[value]) = DATALENGTH({1}))", ServerSideOnly = true, IsPredicate = true)]
+	[Sql.Expression(ProviderName.PostgreSQL, "EXISTS (SELECT 1 FROM jsonb_array_elements_text(CAST({0} AS jsonb)) AS jsonTag(value) WHERE jsonTag.value COLLATE \"immediate_jobs_case_insensitive\" = {1} COLLATE \"immediate_jobs_case_insensitive\")", ServerSideOnly = true, IsPredicate = true)]
+	private static bool HasTag(string tags, string tag) => throw new InvalidOperationException("This function must be translated to SQL.");
 
 	[Sql.Expression(ProviderName.SqlServer, "({0} COLLATE Latin1_General_100_BIN2 = {1} COLLATE Latin1_General_100_BIN2 AND DATALENGTH({0}) = DATALENGTH({1}))", ServerSideOnly = true, IsPredicate = true)]
 	[Sql.Expression(ProviderName.PostgreSQL, "{0} = {1}", ServerSideOnly = true, IsPredicate = true)]
@@ -211,6 +213,7 @@ internal sealed partial class LinqToDBJobStorage<T>
 		MisfireHandlingMode = definition.MisfireHandlingMode,
 		Backoff = definition.Backoff,
 		BackoffBaseTicks = definition.BackoffBase.Ticks,
+		Tags = JsonSerializer.Serialize([.. definition.Tags], LinqToDBJsonSerializerContext.Default.StringArray),
 	};
 
 	private static JobDefinitionRecord ToRecord(ImmediateJobDefinitionMetadataEntity entity) => new()
@@ -228,6 +231,7 @@ internal sealed partial class LinqToDBJobStorage<T>
 		MisfireHandlingMode = entity.MisfireHandlingMode,
 		Backoff = entity.Backoff,
 		BackoffBase = TimeSpan.FromTicks(entity.BackoffBaseTicks),
+		Tags = JsonSerializer.Deserialize(entity.Tags, LinqToDBJsonSerializerContext.Default.StringArray),
 	};
 
 	[LoggerMessage(

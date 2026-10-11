@@ -50,7 +50,8 @@ and storage rejects invalid manually supplied names before modifying the catalog
 Relational providers store definition configuration in individual columns in
 `immediate_job_definition_metadata`; the name key is the only persisted definition name.
 `TimeoutTicks` and `BackoffBaseTicks` store exact .NET ticks (100 nanoseconds), and policy enums
-use small integers. Redis continues storing serialized definition records.
+use small integers. Tags occupy a single JSON array column (`Tags`): PostgreSQL uses `jsonb`,
+SQL Server uses `nvarchar(max)`, and SQLite uses `text`. Redis continues storing serialized definition records.
 
 Code-defined schedules without catalogue metadata belong to the `default` scope. A server without
 `default` leaves those schedules alone unless it supplies a matching definition.

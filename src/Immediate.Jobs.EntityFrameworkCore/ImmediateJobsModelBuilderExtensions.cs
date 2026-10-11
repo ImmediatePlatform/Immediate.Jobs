@@ -62,6 +62,9 @@ public static class ImmediateJobsModelBuilderExtensions
 		definitions.Property(definition => definition.OverlapPolicy).HasConversion<short>();
 		definitions.Property(definition => definition.MisfireHandlingMode).HasConversion<short>();
 		definitions.Property(definition => definition.Backoff).HasConversion<short>();
+		var tags = definitions.Property(definition => definition.Tags).IsRequired();
+		if (isPostgreSql)
+			tags.HasColumnType("jsonb");
 		var catalogue = modelBuilder.Entity<ImmediateJobDefinitionCatalogEntity>();
 		catalogue.ToTable("immediate_job_definition_catalog", schema);
 		catalogue.HasKey(item => item.Id);
@@ -370,6 +373,7 @@ internal sealed class ImmediateJobDefinitionMetadataEntity
 	public MisfireHandlingMode MisfireHandlingMode { get; set; }
 	public BackoffStrategy Backoff { get; set; }
 	public long BackoffBaseTicks { get; set; }
+	public string Tags { get; set; } = null!;
 }
 
 /// <summary>
