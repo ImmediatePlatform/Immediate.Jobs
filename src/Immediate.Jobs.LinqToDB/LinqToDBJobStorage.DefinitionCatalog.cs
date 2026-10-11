@@ -111,24 +111,19 @@ internal sealed partial class LinqToDBJobStorage<T>
 			Name = definition.Name,
 			Metadata = JsonSerializer.Serialize(definition, LinqToDBJsonSerializerContext.Default.JobDefinitionRecord),
 		}).ToList().AsQueryable(connection);
-		// A full join supplies obsolete rows as deletion markers, including an empty startup list.
-		// This works with PostgreSQL 15, which has no WHEN NOT MATCHED BY SOURCE clause.
-		var source = Definitions(connection).FullJoin(supplied,
-			static (stored, item) => stored.Name == item.Name,
-			static (stored, item) => new
-			{
-				Name = stored.Name ?? item.Name,
-				item.Metadata,
-				Remove = item.Name == null,
-			});
-		await Definitions(connection).Merge()
-			.Using(source)
-			.On(static (target, item) => target.Name == item.Name)
-			.DeleteWhenMatchedAnd(static (target, item) => item.Remove)
-			.UpdateWhenMatched(static (target, item) => new ImmediateJobDefinitionMetadataEntity { Metadata = item.Metadata })
-			.InsertWhenNotMatchedAnd(static item => !item.Remove,
-				static item => new ImmediateJobDefinitionMetadataEntity { Name = item.Name, Metadata = item.Metadata })
-			.MergeAsync(cancellationToken);
+		var merge = Definitions(connection).Merge()
+			.Using(supplied)
+			.On(static (dst, src) => dst.Name == src.Name)
+			.UpdateWhenMatched(static (dst, src) => new ImmediateJobDefinitionMetadataEntity { Metadata = src.Metadata })
+			.InsertWhenNotMatched();
+		if (connection.DataProvider.Name.Contains("SqlServer", StringComparison.OrdinalIgnoreCase))
+			await merge.DeleteWhenNotMatchedBySource().MergeAsync(cancellationToken);
+		else
+		{
+			await merge.MergeAsync(cancellationToken);
+			// PostgreSQL 15 has no WHEN NOT MATCHED BY SOURCE; remove obsolete rows in the same transaction.
+			await Definitions(connection).Where(dst => !supplied.Any(src => dst.Name == src.Name)).DeleteAsync(cancellationToken);
+		}
 	}
 
 	private async Task MergeRecurringDefinitionsAsync(
@@ -137,8 +132,8 @@ internal sealed partial class LinqToDBJobStorage<T>
 		CancellationToken cancellationToken
 	)
 	{
-		var supplied = schedules.Select(ToEntity).ToList().AsQueryable(connection);
-		var canonical = supplied.Join(Definitions(connection),
+		var incoming = schedules.Select(ToEntity).ToList().AsQueryable(connection);
+		var supplied = incoming.Join(Definitions(connection),
 			static schedule => schedule.JobName,
 			static definition => definition.Name,
 			static (schedule, definition) => new ImmediateRecurringJobEntity
@@ -154,35 +149,28 @@ internal sealed partial class LinqToDBJobStorage<T>
 				LastRunAt = schedule.LastRunAt,
 				ConcurrencyStamp = schedule.ConcurrencyStamp,
 			});
-		var source = Recurring(connection).FullJoin(canonical,
-			static (stored, item) => stored.Name == item.Name,
-			static (stored, item) => new
+		var merge = Recurring(connection).Merge()
+			.Using(supplied)
+			.On(static (dst, src) => dst.Name == src.Name)
+			.UpdateWhenMatched(static (dst, src) => new ImmediateRecurringJobEntity
 			{
-				Schedule = new ImmediateRecurringJobEntity
-				{
-					Name = stored.Name ?? item.Name,
-					JobName = item.JobName,
-					QueueName = item.QueueName,
-					Cron = item.Cron,
-					TimeZone = item.TimeZone,
-					IsCodeDefined = item.Name != null,
-					IsPaused = stored.Name != null ? stored.IsPaused : item.IsPaused,
-					LastRunAt = stored.Name != null ? stored.LastRunAt : item.LastRunAt,
-					NextRunAt = stored.Name != null && EqualsOrdinal(stored.Cron, item.Cron) && EqualsOrdinal(stored.TimeZone, item.TimeZone)
-						? stored.NextRunAt : item.NextRunAt,
-					ConcurrencyStamp = item.ConcurrencyStamp,
-				},
-				WasCodeDefined = stored.IsCodeDefined,
+				JobName = src.JobName,
+				QueueName = src.QueueName,
+				Cron = src.Cron,
+				TimeZone = src.TimeZone,
+				IsCodeDefined = true,
+				NextRunAt = EqualsOrdinal(dst.Cron, src.Cron) && EqualsOrdinal(dst.TimeZone, src.TimeZone)
+					? dst.NextRunAt : src.NextRunAt,
+				ConcurrencyStamp = src.ConcurrencyStamp,
 			})
-			.Where(static item => item.Schedule.IsCodeDefined || item.WasCodeDefined)
-			.Select(static item => item.Schedule);
-		await Recurring(connection).Merge()
-			.Using(source)
-			.OnTargetKey()
-			.DeleteWhenMatchedAnd(static (target, item) => !item.IsCodeDefined)
-			.UpdateWhenMatched()
-			.InsertWhenNotMatchedAnd(static item => item.IsCodeDefined)
-			.MergeAsync(cancellationToken);
+			.InsertWhenNotMatched();
+		if (connection.DataProvider.Name.Contains("SqlServer", StringComparison.OrdinalIgnoreCase))
+			await merge.DeleteWhenNotMatchedBySourceAnd(static dst => dst.IsCodeDefined).MergeAsync(cancellationToken);
+		else
+		{
+			await merge.MergeAsync(cancellationToken);
+			await Recurring(connection).Where(dst => dst.IsCodeDefined && !supplied.Any(src => dst.Name == src.Name)).DeleteAsync(cancellationToken);
+		}
 	}
 
 	[Sql.Expression(ProviderName.SqlServer, "({0} COLLATE Latin1_General_100_BIN2 = {1} COLLATE Latin1_General_100_BIN2 AND DATALENGTH({0}) = DATALENGTH({1}))", ServerSideOnly = true, IsPredicate = true)]
