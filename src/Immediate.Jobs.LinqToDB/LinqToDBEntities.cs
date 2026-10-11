@@ -208,6 +208,8 @@ internal sealed class ImmediateJobServerEntity
 internal sealed class ImmediateJobDefinitionMetadataEntity
 {
 	[PrimaryKey, Column(Length = 256, CanBeNull = false)]
+	[Column(Configuration = ProviderName.PostgreSQL, DbType = "varchar(256) COLLATE \"immediate_jobs_case_insensitive\"", CanBeNull = false)]
+	[Column(Configuration = ProviderName.SQLite, DbType = "TEXT COLLATE NOCASE", CanBeNull = false)]
 	public string Name { get; set; } = null!;
 	[Column(Length = 256, CanBeNull = false)]
 	public string QueueName { get; set; } = null!;

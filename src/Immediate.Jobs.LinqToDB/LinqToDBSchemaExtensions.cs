@@ -44,7 +44,12 @@ public static class LinqToDBSchemaExtensions
 		if (schema is not null)
 			await CreateSchemaAsync(context, provider, schema, cancellationToken);
 
-		await CreateDefinitionMetadataTableAsync(context, provider, schema, cancellationToken);
+		await CreateDefinitionNameCollationAsync(context, provider, cancellationToken);
+		await context.CreateTableAsync<ImmediateJobDefinitionMetadataEntity>(
+			schemaName: schema,
+			tableOptions: TableOptions.CreateIfNotExists,
+			token: cancellationToken
+		);
 
 		await context.CreateTableAsync<ImmediateJobBatchEntity>(
 			schemaName: schema,
@@ -104,40 +109,15 @@ public static class LinqToDBSchemaExtensions
 		}
 	}
 
-	private static Task<int> CreateDefinitionMetadataTableAsync(
+	private static Task CreateDefinitionNameCollationAsync(
 		DataConnection connection,
 		string provider,
-		string? schema,
 		CancellationToken cancellationToken
 	)
 	{
-		if (provider.Contains("SqlServer", StringComparison.OrdinalIgnoreCase))
-		{
-			var qualified = schema is null ? "[dbo].[immediate_job_definition_metadata]" : $"[{schema}].[immediate_job_definition_metadata]";
-			return connection.ExecuteAsync($$"""
-				IF OBJECT_ID(N'{{qualified}}', N'U') IS NULL
-					CREATE TABLE {{qualified}} (
-						[Name] nvarchar(256) NOT NULL PRIMARY KEY,
-						[QueueName] nvarchar(256) NOT NULL,
-						[QueuePriority] int NOT NULL,
-						[QueueConcurrency] int NOT NULL,
-						[Cron] nvarchar(128) NULL,
-						[TimeZone] nvarchar(128) NOT NULL,
-						[MaxAttempts] int NOT NULL,
-						[TimeoutTicks] bigint NULL,
-						[MaxConcurrency] int NOT NULL,
-						[OverlapPolicy] smallint NOT NULL,
-						[MisfireHandlingMode] smallint NOT NULL,
-						[Backoff] smallint NOT NULL,
-						[BackoffBaseTicks] bigint NOT NULL
-					);
-				""", cancellationToken);
-		}
-
 		if (provider.Contains("PostgreSQL", StringComparison.OrdinalIgnoreCase))
 		{
-			var qualified = schema is null ? "\"immediate_job_definition_metadata\"" : $"\"{schema}\".\"immediate_job_definition_metadata\"";
-			return connection.ExecuteAsync($$"""
+			return connection.ExecuteAsync("""
 				DO $collation$
 				BEGIN
 					IF NOT EXISTS (SELECT 1 FROM pg_collation WHERE collname = 'immediate_jobs_case_insensitive') THEN
@@ -145,44 +125,12 @@ public static class LinqToDBSchemaExtensions
 					END IF;
 				EXCEPTION WHEN duplicate_object THEN NULL;
 				END $collation$;
-				CREATE TABLE IF NOT EXISTS {{qualified}} (
-					"Name" character varying(256) COLLATE "immediate_jobs_case_insensitive" NOT NULL PRIMARY KEY,
-					"QueueName" character varying(256) NOT NULL,
-					"QueuePriority" integer NOT NULL,
-					"QueueConcurrency" integer NOT NULL,
-					"Cron" character varying(128) NULL,
-					"TimeZone" character varying(128) NOT NULL,
-					"MaxAttempts" integer NOT NULL,
-					"TimeoutTicks" bigint NULL,
-					"MaxConcurrency" integer NOT NULL,
-					"OverlapPolicy" smallint NOT NULL,
-					"MisfireHandlingMode" smallint NOT NULL,
-					"Backoff" smallint NOT NULL,
-					"BackoffBaseTicks" bigint NOT NULL
-				);
 				""", cancellationToken);
 		}
 
-		if (provider.Contains("SQLite", StringComparison.OrdinalIgnoreCase))
-		{
-			return connection.ExecuteAsync("""
-				CREATE TABLE IF NOT EXISTS "immediate_job_definition_metadata" (
-					"Name" nvarchar(256) COLLATE NOCASE NOT NULL PRIMARY KEY,
-					"QueueName" nvarchar(256) NOT NULL,
-					"QueuePriority" integer NOT NULL,
-					"QueueConcurrency" integer NOT NULL,
-					"Cron" nvarchar(128) NULL,
-					"TimeZone" nvarchar(128) NOT NULL,
-					"MaxAttempts" integer NOT NULL,
-					"TimeoutTicks" bigint NULL,
-					"MaxConcurrency" integer NOT NULL,
-					"OverlapPolicy" smallint NOT NULL,
-					"MisfireHandlingMode" smallint NOT NULL,
-					"Backoff" smallint NOT NULL,
-					"BackoffBaseTicks" bigint NOT NULL
-				);
-				""", cancellationToken);
-		}
+		if (provider.Contains("SqlServer", StringComparison.OrdinalIgnoreCase)
+			|| provider.Contains("SQLite", StringComparison.OrdinalIgnoreCase))
+			return Task.CompletedTask;
 
 		throw new NotSupportedException($"Immediate.Jobs schema bootstrap does not support provider '{provider}'.");
 	}
