@@ -8,7 +8,7 @@ public sealed class ImmediateJobsGeneratorTests
 	[InlineData("", "Tags = [\"default\"]")]
 	[InlineData("Tags = null", "Tags = [\"default\"]")]
 	[InlineData("Tags = new string[0]", "Tags = [\"default\"]")]
-	[InlineData("Tags = new[] { \"email\", \"default\", \"email\" }", "Tags = [\"email\", \"default\"]")]
+	[InlineData("Tags = new[] { \"email\", \"default\", \"EMAIL\", \"DEFAULT\" }", "Tags = [\"email\", \"default\"]")]
 	public void JobTagsAreGeneratedSeparatelyFromHandlerRegistrationTags(string configuration, string expected)
 	{
 		var result = GeneratorTestHelper.RunGenerator(

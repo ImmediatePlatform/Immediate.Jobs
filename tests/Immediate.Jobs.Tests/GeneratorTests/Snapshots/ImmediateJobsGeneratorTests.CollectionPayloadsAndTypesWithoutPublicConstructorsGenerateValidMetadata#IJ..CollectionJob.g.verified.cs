@@ -4,6 +4,7 @@
 
 #pragma warning disable CS1591
 
+
 partial class CollectionJob
 {
 	public sealed class Scheduler(
@@ -419,6 +420,7 @@ partial class CollectionJob
 		);
 
 		global::Microsoft.Extensions.DependencyInjection.Extensions.ServiceCollectionDescriptorExtensions.TryAddSingleton<CollectionJob.Invoker>(services);
+
 
 		return services;
 	}

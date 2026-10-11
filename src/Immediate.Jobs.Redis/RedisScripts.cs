@@ -636,7 +636,7 @@ internal static class RedisScripts
 		redis.call('HSET', KEYS[1],
 			'record', ARGV[1], 'code', ARGV[2], 'paused', paused,
 			'next', next, 'last', last, 'dueScore', dueScore, 'dueMember', dueMember,
-			'cron', ARGV[9], 'timeZone', ARGV[10], 'jobName', ARGV[12])
+			'cron', ARGV[9], 'timeZone', ARGV[10], 'jobName', ARGV[11])
 		redis.call('SADD', KEYS[2], ARGV[6])
 		if paused == '1' then
 			redis.call('ZREM', KEYS[3], dueMember)

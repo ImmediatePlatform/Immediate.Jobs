@@ -102,3 +102,6 @@ available settings.
 - [Immediate.Jobs core package](https://www.nuget.org/packages/Immediate.Jobs/)
 - [Storage-provider configuration](https://immediateplatform.dev/docs/Immediate.Jobs/configuring-storage-providers#linqtodb)
 - [GitHub repository](https://github.com/ImmediatePlatform/Immediate.Jobs)
+
+SQL Server storage requires SQL Server 2016 or later with database compatibility level 130 or higher.
+Tag-scoped definition reconciliation uses `OPENJSON` to compare persisted tags in the database.

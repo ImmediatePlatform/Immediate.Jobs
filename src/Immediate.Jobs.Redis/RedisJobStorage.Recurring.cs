@@ -33,6 +33,7 @@ internal sealed partial class RedisJobStorage
 				RecurringDueMember(schedule.NextRunAt, schedule.Name),
 				schedule.Cron,
 				schedule.TimeZone,
+				schedule.JobName.ToUpperInvariant(),
 			],
 			cancellationToken
 		);

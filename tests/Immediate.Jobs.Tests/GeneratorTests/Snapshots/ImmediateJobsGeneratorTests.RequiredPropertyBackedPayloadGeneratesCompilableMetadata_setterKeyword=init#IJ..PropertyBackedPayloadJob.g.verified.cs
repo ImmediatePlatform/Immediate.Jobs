@@ -4,6 +4,7 @@
 
 #pragma warning disable CS1591
 
+
 partial class PropertyBackedPayloadJob
 {
 	public sealed class Scheduler(
@@ -154,6 +155,7 @@ partial class PropertyBackedPayloadJob
 		);
 
 		global::Microsoft.Extensions.DependencyInjection.Extensions.ServiceCollectionDescriptorExtensions.TryAddSingleton<PropertyBackedPayloadJob.Invoker>(services);
+
 
 		return services;
 	}

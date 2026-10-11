@@ -58,9 +58,12 @@ Code-defined schedules without catalogue metadata belong to the `default` scope.
 Concurrent startup snapshots commit atomically. In-memory uses its gate; EF Core takes an early write
 lock on a singleton catalogue row. LinqToDB uses a serializable transaction and merges supplied
 records directly into each table on SQL Server and PostgreSQL 15 or later. Matched updates preserve
-canonical names and recurring progress using target values. SQL Server removes obsolete rows in the
+canonical names and recurring progress using target values. SQL Server removes obsolete definitions in the
 merge; PostgreSQL uses a separate set-based delete in the same transaction because PostgreSQL 15 has
-no WHEN NOT MATCHED BY SOURCE clause. Only SQLite reads a snapshot for client-side reconciliation; it uses transactional upserts and deletes because
+no WHEN NOT MATCHED BY SOURCE clause. A set-based delete reconciles code-defined schedules against
+stored tags before metadata updates can change their scope. Database JSON queries compare tags
+case-insensitively. Runtime normalization and matching use `OrdinalIgnoreCase`. Only SQLite reads a snapshot for client-side reconciliation; it uses
+transactional upserts and deletes because
 it does not support SQL `MERGE`. Serialization conflicts retry the complete LinqToDB snapshot.
 Redis compares a version and applies metadata and
 schedule changes in one Lua script, recomputing after a competing startup. Single-server delegates

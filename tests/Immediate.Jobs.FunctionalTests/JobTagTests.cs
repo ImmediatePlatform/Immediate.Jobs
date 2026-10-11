@@ -15,7 +15,8 @@ public sealed class JobTagTests
 	[InlineData(new[] { "default" }, "ordinary,shared")]
 	[InlineData(new[] { "email" }, "email,shared")]
 	[InlineData(new[] { "email", "default", "email" }, "email,ordinary,shared")]
-	[InlineData(new[] { "Email" }, "")]
+	[InlineData(new[] { "Email" }, "email,shared")]
+	[InlineData(new[] { "DEFAULT" }, "ordinary,shared")]
 	public async Task AcquisitionUsesEffectiveTagsWithoutClaimingExcludedJobs(string[]? serverTags, string expected)
 	{
 		var token = TestContext.Current.CancellationToken;
@@ -70,7 +71,7 @@ public sealed class JobTagTests
 		{
 			services.AddSingleton(eligible);
 			services.AddSingleton(ignored);
-		}, options => options.Tags = ["email"]);
+		}, options => options.Tags = ["EMAIL"]);
 		var now = harness.TimeProvider.GetUtcNow();
 		await harness.Storage.MergeJobDefinitionsListAsync(new()
 		{
@@ -94,7 +95,7 @@ public sealed class JobTagTests
 		services.AddLogging();
 		services.AddSingleton<TimeProvider>(TimeProvider.System);
 		services.AddImmediateJobsCore()
-			.ConfigureWorkers(options => options.Tags = ["email", "default", "email"])
+			.ConfigureWorkers(options => options.Tags = ["email", "default", "EMAIL", "DEFAULT"])
 			.ConfigureStorage(builder => builder.UseStorage<StartupStorage>().UseDistributed());
 		await using var provider = services.BuildServiceProvider();
 		var scheduler = provider.GetRequiredService<JobSchedulingService>();

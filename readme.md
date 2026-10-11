@@ -60,8 +60,8 @@ and acquires invocations only when the effective job and server lists intersect.
 
 Omitted, null, and empty lists become `["default"]`. Explicit nonempty lists replace that fallback:
 a server with `["email"]` does not process default-only jobs, while `["email", "default"]` processes
-both. Tags are case-sensitive, ordinal strings; duplicates are removed and null/blank entries are
-rejected. `default` is an ordinary tag, not a wildcard. `[Handler]` registration tags are separate.
+both. Tags match with `OrdinalIgnoreCase`; case variants are deduplicated while retaining the first
+spelling. Null/blank entries are rejected. `default` is an ordinary tag, not a wildcard. `[Handler]` registration tags are separate.
 
 Startup provides the complete local catalogue to storage, which inserts, updates, and removes only
 matching definitions and code-defined schedules. Every server must supply an authoritative list for

@@ -127,7 +127,7 @@ public sealed partial class ImmediateJobsGenerator
 			&& configuredTags.Values.Any(static tag => string.IsNullOrWhiteSpace(tag.Value as string)))
 			return null;
 		var jobTags = jobTagsArgument is { IsNull: false, Kind: TypedConstantKind.Array } tagArray
-			? string.Join(", ", tagArray.Values.Select(static tag => (string)tag.Value!).Distinct(StringComparer.Ordinal).Select(static tag => tag.AsCSharpLiteral()))
+			? string.Join(", ", tagArray.Values.Select(static tag => (string)tag.Value!).Distinct(StringComparer.OrdinalIgnoreCase).Select(static tag => tag.AsCSharpLiteral()))
 			: "";
 
 		var extractors = attributes.GetContextExtractors().ToList();

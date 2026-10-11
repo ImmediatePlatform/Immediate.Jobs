@@ -83,7 +83,7 @@ internal static class TagStorageConformance
 				actual.MaxAttempts, actual.MaxConcurrency, actual.Timeout, actual.OverlapPolicy, actual.MisfireHandlingMode, actual.Backoff, actual.BackoffBase),
 			ScopeCase, "all non-runtime metadata must round trip and repeated startup must be idempotent");
 		ConformanceAssert.SequenceEqual(["default"], actual.Tags, ScopeCase, "empty job tags must persist as default");
-		await storage.MergeJobDefinitionsListAsync(Registration([]), token);
+		await storage.MergeJobDefinitionsListAsync(Registration([], "DEFAULT"), token);
 		ConformanceAssert.SequenceEqual(["email"], (await storage.GetJobDefinitionsAsync(token)).Select(static definition => definition.Name), ScopeCase, "an empty default catalogue must preserve the email scope");
 	}
 
@@ -95,10 +95,18 @@ internal static class TagStorageConformance
 		await storage.MergeJobDefinitionsListAsync(Registration([retagged]), token);
 		ConformanceAssert.Equal(0, (await storage.GetJobDefinitionsAsync(token)).Count, RetagCase, "a definition retagged out of its former scope must not remain stale");
 		await storage.MergeJobDefinitionsListAsync(Registration([retagged], "email"), token);
+		await storage.MergeJobDefinitionsListAsync(Registration([], "email "), token);
+		ConformanceAssert.Equal(1, (await storage.GetJobDefinitionsAsync(token)).Count, RetagCase, "case-insensitive tags must still distinguish trailing spaces");
 		await storage.MergeJobDefinitionsListAsync(Registration([], "Email"), token);
-		ConformanceAssert.Equal(1, (await storage.GetJobDefinitionsAsync(token)).Count, RetagCase, "tags must match case-sensitively");
+		ConformanceAssert.Equal(0, (await storage.GetJobDefinitionsAsync(token)).Count, RetagCase, "tag case variants must manage the same scope");
+		await storage.MergeJobDefinitionsListAsync(Registration([retagged], "EMAIL"), token);
+
 		await storage.MergeJobDefinitionsListAsync(Registration([original]), token);
 		ConformanceAssert.SequenceEqual(["default"], (await storage.GetJobDefinitionsAsync(token)).Single().Tags, RetagCase, "a newly matching supplied definition can replace previously out-of-scope metadata");
+		var unicode = original with { Tags = ["Δοκιμή"] };
+		await storage.MergeJobDefinitionsListAsync(Registration([unicode], "Δοκιμή"), token);
+		await storage.MergeJobDefinitionsListAsync(Registration([], "δοκιμή"), token);
+		ConformanceAssert.Equal(0, (await storage.GetJobDefinitionsAsync(token)).Count, RetagCase, "Unicode tag case variants must manage the same scope");
 	}
 
 	private static RecurringJobSchedule Schedule(JobDefinitionRecord definition, DateTimeOffset next) => new()
@@ -139,7 +147,7 @@ internal static class TagStorageConformance
 		};
 		ConformanceAssert.True(await storage.MaterializeRecurringAsync(schedule, invocation, now.AddMinutes(1), cancellationToken: token), RecurringCase, "the initial occurrence must materialize");
 		await storage.PauseRecurringAsync(ordinary.Name, token);
-		await storage.MergeJobDefinitionsListAsync(new() { Definitions = [ordinary], RecurringSchedules = [Schedule(ordinary, now.AddHours(1))] }, token);
+		await storage.MergeJobDefinitionsListAsync(new() { Definitions = [ordinary], ServerTags = ["DEFAULT"], RecurringSchedules = [Schedule(ordinary, now.AddHours(1))] }, token);
 		var persisted = (await storage.GetMonitoringSnapshotAsync(token)).Recurring.Single(item => string.Equals(item.Name, ordinary.Name, StringComparison.Ordinal));
 		ConformanceAssert.False((await storage.GetMonitoringSnapshotAsync(token)).Recurring.Any(item => string.Equals(item.Name, legacy.Name, StringComparison.Ordinal)),
 			RecurringCase, "a default server must clean up obsolete legacy code schedules without metadata");
@@ -167,7 +175,7 @@ internal static class TagStorageConformance
 		await Task.WhenAll(
 			storage.MergeJobDefinitionsListAsync(Registration([Definition("a"), Definition("b")]), token).AsTask(),
 			storage.MergeJobDefinitionsListAsync(Registration([Definition("c"), Definition("d")]), token).AsTask());
-		var scoped = (await storage.GetJobDefinitionsAsync(token)).Where(definition => definition.Tags.Contains("default", StringComparer.Ordinal)).Select(static item => item.Name).ToList();
+		var scoped = (await storage.GetJobDefinitionsAsync(token)).Where(definition => definition.Tags.Contains("default", StringComparer.OrdinalIgnoreCase)).Select(static item => item.Name).ToList();
 		ConformanceAssert.True(scoped.SequenceEqual(["a", "b"], StringComparer.Ordinal) || scoped.SequenceEqual(["c", "d"], StringComparer.Ordinal), ConcurrentCase, "overlapping startup snapshots must commit whole lists without mixed results");
 	}
 

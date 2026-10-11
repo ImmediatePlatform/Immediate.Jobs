@@ -4,7 +4,9 @@
 
 #pragma warning disable CS1591
 
+
 namespace Example;
+
 
 partial class SendEmailJob
 {
@@ -187,6 +189,7 @@ partial class SendEmailJob
 		);
 
 		global::Microsoft.Extensions.DependencyInjection.Extensions.ServiceCollectionDescriptorExtensions.TryAddSingleton<SendEmailJob.Invoker>(services);
+
 
 		return services;
 	}

@@ -14,7 +14,7 @@ public static class JobTags
 	public const string Default = "default";
 
 	/// <summary>
-	/// 	Copies tags, removes ordinal duplicates, and supplies the default for an omitted or empty list.
+	/// 	Copies tags, removes ordinal case-insensitive duplicates, and supplies the default for an omitted or empty list.
 	/// </summary>
 	/// <param name="tags">
 	/// 	The configured tags, or <see langword="null"/> for the default.
@@ -28,7 +28,7 @@ public static class JobTags
 	public static IReadOnlyList<string> Normalize(IEnumerable<string>? tags)
 	{
 		var normalized = new List<string>();
-		var seen = new HashSet<string>(StringComparer.Ordinal);
+		var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 		if (tags is not null)
 		{
 			foreach (var tag in tags)
@@ -45,7 +45,7 @@ public static class JobTags
 	}
 
 	/// <summary>
-	/// 	Tests whether two effective tag lists share an ordinal, case-sensitive tag.
+	/// 	Tests whether two effective tag lists share an ordinal, case-insensitive tag.
 	/// </summary>
 	/// <param name="jobTags">
 	/// 	The normalized job tags.
@@ -60,6 +60,6 @@ public static class JobTags
 	{
 		ArgumentNullException.ThrowIfNull(jobTags);
 		ArgumentNullException.ThrowIfNull(serverTags);
-		return jobTags.Any(tag => serverTags.Contains(tag, StringComparer.Ordinal));
+		return jobTags.Any(tag => serverTags.Contains(tag, StringComparer.OrdinalIgnoreCase));
 	}
 }
