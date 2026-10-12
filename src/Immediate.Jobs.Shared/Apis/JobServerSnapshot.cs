@@ -6,12 +6,6 @@ namespace Immediate.Jobs.Shared.Apis;
 public sealed record JobServerSnapshot
 {
 	/// <summary>
-	/// 	The effective server tags. Omitted or empty lists use the default tag.
-	/// </summary>
-	[System.Diagnostics.CodeAnalysis.AllowNull]
-	public IReadOnlyList<string> Tags { get; init => field = JobTags.Normalize(value); } = JobTags.Normalize(tags: null);
-
-	/// <summary>
 	/// 	The scheduler-node identifier.
 	/// </summary>
 	public required string WorkerId { get; init; }
@@ -30,6 +24,11 @@ public sealed record JobServerSnapshot
 	/// 	The maximum number of workers on the node.
 	/// </summary>
 	public required int MaxWorkers { get; init; }
+
+	/// <summary>
+	/// 	The effective server tags. Omitted or empty lists use the default tag.
+	/// </summary>
+	public required IReadOnlyList<string> Tags { get; init; }
 
 	/// <summary>
 	/// 	How long this scheduler may be silent before it is considered dead.
