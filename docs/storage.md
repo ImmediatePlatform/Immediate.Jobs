@@ -45,8 +45,11 @@ number of canceled invocations and schedules.
 
 Persisted durations, including continuation delays and server timeouts in snapshots, use
 ISO8601 strings (for example, `PT5S` or `PT1.0000001S`). Job attribute duration settings
-accept both ISO8601 durations and invariant `TimeSpan` strings. UTC timestamps and
-numeric rate-limit calculations retain their existing representations.
+accept both ISO8601 durations and invariant `TimeSpan` strings.
+SQL Server timestamps use `datetimeoffset`; PostgreSQL uses `timestamp with time zone`
+and returns UTC instants. SQLite and Redis persist readable ISO8601 timestamps. Native
+database precision applies, so timestamp round trips may lose sub-microsecond precision
+or the original offset. Redis sorted-set scores remain numeric indexes.
 
 Definition names are case-insensitive identities and retain their readable spelling. In-memory
 and single-server use `OrdinalIgnoreCase`; SQL Server inherits database collation; PostgreSQL uses
@@ -142,8 +145,8 @@ prior data are provided; users recreate their storage when its schema no longer 
 Acquisition requests carry the worker's parsed limits; operational counters are stored separately. `immediate_job_definitions` stores `IsPaused`, `AcquisitionStatus`,
 `NextEligibleAt`, and fixed-window start/count. Sliding windows use independent acquisition rows
 indexed by job name and timestamp; deleting or purging invocation history must not erase rate capacity.
-New definition timestamps and sliding acquisition timestamps are stored as UTC ticks to preserve
-TimeSpan precision consistently across SQL providers. Concurrency is evaluated against active,
+Definition timestamps and sliding acquisition timestamps use the same native temporal columns
+as other records; precision follows the database engine. Concurrency is evaluated against active,
 unexpired invocation leases, indexed by job name/state/expiry.
 
 SQL providers take a write lock on the definition row when claiming a job and hold it through
@@ -175,11 +178,11 @@ may build keys from the root):
 | `job:{id}` | hash | Serialized `record` plus mutable fields (`state`, `due`, `dueScore`, `dueMember`, `attempt`, `worker`, `lease`, `group`, …). Reads overlay the mutable fields onto the record. |
 | `jobs` | sorted set | Every job id, scored by creation time. |
 | `state:{n}` / `completed:{n}` | set / sorted set | Ids by state; terminal ids by completion time. |
-| `due:{job name}` | sorted set | Due-ordered members `dueTicks\|createdTicks\|id`. Stale members are removed lazily. |
+| `due:{job name}` | sorted set | Due-ordered members `dueTimestamp\|createdTimestamp\|id`. Stale members are removed lazily. |
 | `leases` | sorted set | Active job ids by lease expiry. |
 | `active:job:{job name}` | sorted set | Active invocations for one job definition, scored by lease expiry. |
 | `definitions:state:{name}` | hash | Definition pause, acquisition status, next eligible time, fixed-window start/count. |
-| `definitions:acquisitions:{name}` | sorted set | Sliding acquisition history, ordered lexicographically by exact UTC ticks and a unique execution identity. |
+| `definitions:acquisitions:{name}` | sorted set | Sliding acquisition history, ordered lexicographically by UTC ISO8601 timestamps and a unique execution identity. |
 | `definitions:leases:{name}` | sorted set | Active lease candidates by definition; refreshed on renewal and cleaned against invocation state during evaluation. |
 | `executions:index:{id}` / `executions:data:{id}` | sorted set / hash | Execution history. |
 | `recurring:*` | various | Schedules, global and per-job due indexes, names, materialization de-duplication. |

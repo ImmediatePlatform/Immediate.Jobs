@@ -26,8 +26,8 @@ internal sealed partial class RedisJobStorage
 				JsonSerializer.Serialize(schedule with { QueueName = null }, RedisJsonSerializerContext.Default.RecurringJobSchedule),
 				schedule.IsCodeDefined ? 1 : 0,
 				schedule.IsPaused ? 1 : 0,
-				Ticks(schedule.NextRunAt),
-				NullableTicks(schedule.LastRunAt),
+				Timestamp(schedule.NextRunAt),
+				NullableTimestamp(schedule.LastRunAt),
 				schedule.Name,
 				Score(schedule.NextRunAt),
 				RecurringDueMember(schedule.NextRunAt, schedule.Name),
@@ -103,7 +103,7 @@ internal sealed partial class RedisJobStorage
 		RedisValue[] values = [.. ((RedisResult[])result!).Select(static item => (RedisValue)(string)item!)];
 
 		var members = values.Select(static value => (string)value!).ToList();
-		var names = members.Select(static member => member[20..]).Distinct(StringComparer.Ordinal).ToList();
+		var names = members.Select(static member => member[(member.IndexOf('|', StringComparison.Ordinal) + 1)..]).Distinct(StringComparer.Ordinal).ToList();
 		var schedules = await ReadRecurringAsync(
 			names,
 			cancellationToken
@@ -114,7 +114,7 @@ internal sealed partial class RedisJobStorage
 		var stale = new List<RedisValue>();
 		foreach (var member in members)
 		{
-			var name = member[20..];
+			var name = member[(member.IndexOf('|', StringComparison.Ordinal) + 1)..];
 			if (!schedulesByName.TryGetValue(name, out var schedule)
 				|| !string.Equals(member, RecurringDueMember(schedule.NextRunAt, name), StringComparison.Ordinal))
 			{
@@ -242,8 +242,8 @@ internal sealed partial class RedisJobStorage
 		{
 			IsPaused = values[1] == "1",
 			CancellationReason = values[4].IsNull ? schedule.CancellationReason : NullIfEmpty(values[4]),
-			NextRunAt = FromTicks(values[2]),
-			LastRunAt = FromNullableTicks(values[3]),
+			NextRunAt = FromTimestamp(values[2]),
+			LastRunAt = FromNullableTimestamp(values[3]),
 		};
 	}
 
@@ -254,27 +254,27 @@ internal sealed partial class RedisJobStorage
 		DateTimeOffset now
 	) =>
 	[
-		Ticks(schedule.NextRunAt),
+		Timestamp(schedule.NextRunAt),
 		job.RecurringKey ?? "",
 		job.JobHandle.Value,
 		JsonSerializer.Serialize(job with { QueueName = null }, RedisJsonSerializerContext.Default.JobRecord),
 		(int)job.State,
-		Ticks(job.DueAt),
+		Timestamp(job.DueAt),
 		Score(job.DueAt),
 		job.Attempt,
 		job.WorkerId ?? "",
-		NullableTicks(job.LeaseExpiresAt),
+		NullableTimestamp(job.LeaseExpiresAt),
 		job.LastError ?? "",
-		NullableTicks(job.CompletedAt),
+		NullableTimestamp(job.CompletedAt),
 		job.ExecutionTraceId ?? "",
 		job.ExecutionSpanId ?? "",
-		NullableTicks(job.ExecutionStartedAt),
+		NullableTimestamp(job.ExecutionStartedAt),
 		job.JobName.ToUpperInvariant(),
 		Score(job.CreatedAt),
-		Ticks(nextRunAt),
+		Timestamp(nextRunAt),
 		Score(nextRunAt),
 		schedule.Name,
-		Ticks(job.CreatedAt),
+		Timestamp(job.CreatedAt),
 		job.CompletedAt is { } completedAt ? Score(completedAt) : 0,
 		Score(now),
 		_root,
@@ -295,7 +295,7 @@ internal sealed partial class RedisJobStorage
 			throw new ImmediateJobException($"Terminal recurring job '{job.JobHandle}' must have a completion time.");
 	}
 
-	private static string RecurringDueMember(DateTimeOffset nextRunAt, string name) => $"{Ticks(nextRunAt)}|{name}";
+	private static string RecurringDueMember(DateTimeOffset nextRunAt, string name) => $"{Timestamp(nextRunAt)}|{name}";
 
 	[LoggerMessage(
 		EventId = LibraryEventIds.UpsertRecurringAsyncCalled,

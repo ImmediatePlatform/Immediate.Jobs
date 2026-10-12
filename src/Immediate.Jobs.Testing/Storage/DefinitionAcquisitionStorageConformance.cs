@@ -90,7 +90,7 @@ internal static class DefinitionAcquisitionStorageConformance
 
 	private static async ValueTask SlidingAsync(IJobStorage storage, FakeTimeProvider clock, CancellationToken token)
 	{
-		var limits = new JobAcquisitionLimits { SlidingWindowMax = 1, SlidingWindowPeriod = TimeSpan.FromSeconds(1) + TimeSpan.FromTicks(3) };
+		var limits = new JobAcquisitionLimits { SlidingWindowMax = 1, SlidingWindowPeriod = TimeSpan.FromSeconds(1) + TimeSpan.FromMilliseconds(3) };
 		var now = clock.GetUtcNow();
 		await storage.EnqueueAsync(Job("one", now), token);
 		await storage.EnqueueAsync(Job("two", now), token);
@@ -98,9 +98,9 @@ internal static class DefinitionAcquisitionStorageConformance
 		await storage.CompleteAsync(active.JobHandle, active.Attempt, "worker", token);
 		await storage.DeleteAsync(active.JobHandle, token);
 		Equal(now + limits.SlidingWindowPeriod, (await storage.GetJobAcquisitionStateAsync(Name, limits, token)).NextEligibleAt, "deletion must not erase sliding rate history or duration precision");
-		clock.Advance(limits.SlidingWindowPeriod.Value - TimeSpan.FromTicks(1));
+		clock.Advance(limits.SlidingWindowPeriod.Value - TimeSpan.FromMilliseconds(1));
 		Equal(0, (await storage.AcquireDueJobsAsync(Request(limits), token)).Count, "sliding capacity remains exhausted until the exact boundary");
-		clock.Advance(TimeSpan.FromTicks(1));
+		clock.Advance(TimeSpan.FromMilliseconds(1));
 		Equal(JobAcquisitionStatus.Ready, (await storage.GetJobAcquisitionStateAsync(Name, limits, token)).AcquisitionStatus, "status refreshes without an acquisition");
 		Equal(1, (await storage.AcquireDueJobsAsync(Request(limits), token)).Count, "capacity returns at the exact sliding boundary");
 		Equal(clock.GetUtcNow() + limits.SlidingWindowPeriod, (await storage.GetJobAcquisitionStateAsync(Name, limits, token)).NextEligibleAt, "new acquisition timestamps retain their fractional-second precision");
@@ -129,13 +129,13 @@ internal static class DefinitionAcquisitionStorageConformance
 		var period = TimeSpan.FromMinutes(1);
 		var now = clock.GetUtcNow();
 		var boundary = new DateTimeOffset(now.UtcTicks - now.UtcTicks % period.Ticks, TimeSpan.Zero) + period;
-		clock.Advance(boundary - now - TimeSpan.FromTicks(1));
+		clock.Advance(boundary - now - TimeSpan.FromMilliseconds(1));
 		var limits = new JobAcquisitionLimits { FixedWindowMax = 1, FixedWindowPeriod = period };
 		await storage.EnqueueAsync(Job("one", clock.GetUtcNow()), token);
 		await storage.EnqueueAsync(Job("two", clock.GetUtcNow()), token);
 		Equal(1, (await storage.AcquireDueJobsAsync(Request(limits), token)).Count, "one acquisition is permitted in the old fixed window");
 		Equal(boundary, (await storage.GetJobAcquisitionStateAsync(Name, limits, token)).NextEligibleAt, "fixed windows align to UTC boundaries");
-		clock.Advance(TimeSpan.FromTicks(1));
+		clock.Advance(TimeSpan.FromMilliseconds(1));
 		Equal(1, (await storage.AcquireDueJobsAsync(Request(limits), token)).Count, "fixed capacity resets at the aligned boundary");
 	}
 
@@ -196,7 +196,7 @@ internal static class DefinitionAcquisitionStorageConformance
 		var limits = new JobAcquisitionLimits { SlidingWindowMax = 1, SlidingWindowPeriod = TimeSpan.FromMinutes(1) };
 		await storage.EnqueueAsync(Job("one", clock.GetUtcNow(), group: "shared"), token);
 		await storage.EnqueueAsync(Job("two", clock.GetUtcNow(), group: "shared"), token);
-		await storage.EnqueueAsync(Job("other", clock.GetUtcNow().AddTicks(1), "other-job", "shared") with { DueAt = clock.GetUtcNow() }, token);
+		await storage.EnqueueAsync(Job("other", clock.GetUtcNow().AddMilliseconds(1), "other-job", "shared") with { DueAt = clock.GetUtcNow() }, token);
 		var acquired = await storage.AcquireDueJobsAsync(Request(limits, fair: true), token);
 		Equal(2, acquired.Count, "fair acquisition skips limited work without starving an eligible definition in the same group");
 		Equal(1, acquired.Count(static job => string.Equals(job.JobName, Name, StringComparison.Ordinal)), "fair queues enforce definition limits within a batch");

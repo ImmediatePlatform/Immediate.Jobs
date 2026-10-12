@@ -86,7 +86,7 @@ internal sealed partial class LinqToDBJobStorage<T>
 	private async Task<JobAcquisitionState> EvaluateDefinitionAsync(DataConnection connection, ImmediateJobDefinitionEntity definition, JobAcquisitionLimits limits, DateTimeOffset now, CancellationToken cancellationToken, bool includeActiveCount = false)
 	{
 		// UTC ticks retain TimeSpan precision on providers whose native timestamp precision is lower.
-		var cutoff = limits.SlidingWindowPeriod is { } period ? (now - period).UtcTicks : 0;
+		var cutoff = limits.SlidingWindowPeriod is { } period ? now - period : DateTimeOffset.MinValue;
 		var acquisitions = limits.SlidingWindowMax > 0
 			? await Acquisitions(connection).Where(item => item.JobName == definition.JobName && item.AcquiredAt > cutoff)
 				.OrderBy(item => item.AcquiredAt).Select(item => item.AcquiredAt).ToListAsync(cancellationToken)
@@ -95,10 +95,10 @@ internal sealed partial class LinqToDBJobStorage<T>
 			? await Jobs(connection).CountAsync(job => job.JobName == definition.JobName && job.State == JobState.Active && job.LeaseExpiresAt > now, cancellationToken)
 			: 0;
 		var state = JobAcquisitionEvaluator.Evaluate(definition.JobName, definition.IsPaused, limits, now,
-			acquisitions.Select(static ticks => new DateTimeOffset(ticks, TimeSpan.Zero)).ToList(),
-			definition.FixedWindowStart is { } windowTicks ? new DateTimeOffset(windowTicks, TimeSpan.Zero) : null, definition.FixedWindowCount, activeCount);
+			acquisitions,
+			definition.FixedWindowStart, definition.FixedWindowCount, activeCount);
 		definition.AcquisitionStatus = state.AcquisitionStatus;
-		definition.NextEligibleAt = state.NextEligibleAt?.UtcTicks;
+		definition.NextEligibleAt = state.NextEligibleAt;
 		return state;
 	}
 
@@ -126,16 +126,16 @@ internal sealed partial class LinqToDBJobStorage<T>
 
 		if (limits.SlidingWindowPeriod is { } period)
 		{
-			var cutoff = (now - period).UtcTicks;
+			var cutoff = now - period;
 			await Acquisitions(connection).Where(item => item.JobName == jobName && item.AcquiredAt <= cutoff).DeleteAsync(cancellationToken);
-			await InsertAsync(connection, new ImmediateJobAcquisitionEntity { Id = Guid.NewGuid(), JobName = jobName, AcquiredAt = now.UtcTicks }, cancellationToken);
+			await InsertAsync(connection, new ImmediateJobAcquisitionEntity { Id = Guid.NewGuid(), JobName = jobName, AcquiredAt = now }, cancellationToken);
 		}
 
 		if (limits.FixedWindowStart(now) is { } start)
 		{
-			if (definition.FixedWindowStart != start.UtcTicks)
+			if (definition.FixedWindowStart != start)
 			{
-				definition.FixedWindowStart = start.UtcTicks;
+				definition.FixedWindowStart = start;
 				definition.FixedWindowCount = 0;
 			}
 

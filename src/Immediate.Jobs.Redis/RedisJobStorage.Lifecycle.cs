@@ -29,7 +29,7 @@ internal sealed partial class RedisJobStorage
 				ExecutionIndexKey(jobHandle),
 				ExecutionDataKey(jobHandle),
 			],
-			[workerId, executionNumber, Ticks(now), jobHandle.Value, Score(now), _root],
+			[workerId, executionNumber, Timestamp(now), jobHandle.Value, Score(now), _root],
 			cancellationToken
 		);
 		ThrowIfNotOwned(result, jobHandle, workerId);
@@ -50,7 +50,7 @@ internal sealed partial class RedisJobStorage
 		await TaskScheduler.Yield();
 
 		var now = _timeProvider.GetUtcNow();
-		var nextTicks = nextRetryAt is { } retryAt ? Ticks(retryAt) : "";
+		var nextTimestamp = nextRetryAt is { } retryAt ? Timestamp(retryAt) : "";
 		var nextScore = nextRetryAt is { } retryScore ? Score(retryScore) : 0;
 		var result = await EvaluateInt64Async(
 			RedisScripts.Fail,
@@ -69,9 +69,9 @@ internal sealed partial class RedisJobStorage
 				workerId,
 				executionNumber,
 				jobHandle.Value,
-				nextTicks,
+				nextTimestamp,
 				error,
-				Ticks(now),
+				Timestamp(now),
 				Score(now),
 				nextScore,
 				Score(now),
@@ -93,7 +93,7 @@ internal sealed partial class RedisJobStorage
 		var result = await EvaluateInt64Async(
 			RedisScripts.Cancel,
 			[JobKey(jobHandle), LeasesKey, ExecutionIndexKey(jobHandle), ExecutionDataKey(jobHandle)],
-			[jobHandle.Value, Ticks(now), Score(now), _root],
+			[jobHandle.Value, Timestamp(now), Score(now), _root],
 			cancellationToken
 		);
 		if (result == 0)
@@ -121,7 +121,7 @@ internal sealed partial class RedisJobStorage
 				ExecutionIndexKey(jobHandle),
 				ExecutionDataKey(jobHandle),
 			],
-			[Ticks(now), Score(now), jobHandle.Value, _root],
+			[Timestamp(now), Score(now), jobHandle.Value, _root],
 			cancellationToken
 		);
 		if (result == 0)

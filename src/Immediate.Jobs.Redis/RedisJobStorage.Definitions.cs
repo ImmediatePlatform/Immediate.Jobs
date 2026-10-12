@@ -1,5 +1,4 @@
 using Microsoft.Extensions.Logging;
-using System.Globalization;
 using Immediate.Jobs.Shared.Storage;
 using StackExchange.Redis;
 
@@ -14,7 +13,7 @@ internal sealed partial class RedisJobStorage
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 		await Database.ScriptEvaluateAsync(
-			"redis.call('HSET', KEYS[1], 'paused', '1', 'status', '1', 'next', ''); return 1",
+			"redis.call('HSET', KEYS[1], 'paused', '1', 'status', '1', 'slidingOldest', '', 'fixedNext', ''); return 1",
 			[_root + "definitions:state:" + jobName.ToUpperInvariant()], []).WaitAsync(cancellationToken);
 	}
 
@@ -41,29 +40,33 @@ internal sealed partial class RedisJobStorage
 		cancellationToken.ThrowIfCancellationRequested();
 		limits.Validate();
 		var now = _timeProvider.GetUtcNow();
-		var values = new List<RedisValue> { _root, jobName.ToUpperInvariant(), Score(now), Ticks(now), resume ? 1 : 0 };
+		var values = new List<RedisValue> { _root, jobName.ToUpperInvariant(), Score(now), Timestamp(now), resume ? 1 : 0 };
 		AddDefinitionLimits(values, limits, now);
 		var result = (RedisResult[])(await Database.ScriptEvaluateAsync(RedisScripts.DefinitionState, [LeasesKey], [.. values]).WaitAsync(cancellationToken))!;
-		var next = (string)result[1]!;
+		var slidingOldest = FromNullableTimestamp((string)result[1]!);
+		var fixedNext = FromNullableTimestamp((string)result[2]!);
+		var next = slidingOldest + limits.SlidingWindowPeriod;
+		if (fixedNext is { } boundary && (next is null || boundary > next))
+			next = boundary;
+
 		return new()
 		{
 			JobName = jobName,
-			IsPaused = (long)result[2] == 1,
-			ActiveCount = (int)(long)result[3],
-			IsConcurrencyLimited = limits.MaxConcurrency > 0 && (long)result[3] >= limits.MaxConcurrency,
+			IsPaused = (long)result[3] == 1,
+			ActiveCount = (int)(long)result[4],
+			IsConcurrencyLimited = limits.MaxConcurrency > 0 && (long)result[4] >= limits.MaxConcurrency,
 			AcquisitionStatus = (JobAcquisitionStatus)(long)result[0],
-			NextEligibleAt = next.Length == 0 ? null : new DateTimeOffset(long.Parse(next, CultureInfo.InvariantCulture), TimeSpan.Zero),
+			NextEligibleAt = next,
 		};
 	}
 
 	private static void AddDefinitionLimits(List<RedisValue> values, JobAcquisitionLimits limits, DateTimeOffset now)
 	{
 		values.Add(limits.SlidingWindowMax);
-		values.Add((limits.SlidingWindowPeriod?.Ticks ?? 0).ToString("D19", CultureInfo.InvariantCulture));
-		values.Add(limits.SlidingWindowPeriod is { } sliding ? Ticks(now - sliding) : "");
+		values.Add(limits.SlidingWindowPeriod is { } sliding ? Timestamp(now - sliding) : "");
 		values.Add(limits.FixedWindowMax);
-		values.Add(limits.FixedWindowStart(now) is { } start ? Ticks(start) : "");
-		values.Add(limits.FixedWindowStart(now) is { } fixedStart ? Ticks(fixedStart + limits.FixedWindowPeriod!.Value) : "");
+		values.Add(limits.FixedWindowStart(now) is { } start ? Timestamp(start) : "");
+		values.Add(limits.FixedWindowStart(now) is { } fixedStart ? Timestamp(fixedStart + limits.FixedWindowPeriod!.Value) : "");
 		values.Add(limits.MaxConcurrency);
 	}
 

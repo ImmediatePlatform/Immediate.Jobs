@@ -1,9 +1,11 @@
+using System.Globalization;
 using Immediate.Jobs.Shared.Apis;
 using Immediate.Jobs.Shared.Internals;
 using Immediate.Jobs.Shared.Storage;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.ChangeTracking;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 namespace Immediate.Jobs.EntityFrameworkCore;
 
@@ -76,7 +78,33 @@ public static class ImmediateJobsModelBuilderExtensions
 		catalogue.ToTable("immediate_job_definition_catalog", schema);
 		catalogue.HasKey(item => item.Id);
 		catalogue.Property(item => item.Id).ValueGeneratedNever();
+		ConfigureTimestamps(modelBuilder, isPostgreSql);
 		return modelBuilder;
+	}
+
+	private static void ConfigureTimestamps(ModelBuilder modelBuilder, bool isPostgreSql)
+	{
+		var isSqlServer = modelBuilder.Model.FindAnnotation("SqlServer:ValueGenerationStrategy") is not null;
+		if (isSqlServer)
+			return;
+
+		ValueConverter converter = isPostgreSql
+			? new ValueConverter<DateTimeOffset, DateTimeOffset>(value => value.ToUniversalTime(), value => value)
+			: new ValueConverter<DateTimeOffset, string>(
+				value => value.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture),
+				value => DateTimeOffset.Parse(value, CultureInfo.InvariantCulture));
+
+		foreach (var entity in modelBuilder.Model.GetEntityTypes())
+		{
+			if (!string.Equals(entity.ClrType.Namespace, typeof(ImmediateJobEntity).Namespace, StringComparison.Ordinal))
+				continue;
+
+			foreach (var property in entity.GetProperties())
+			{
+				if ((Nullable.GetUnderlyingType(property.ClrType) ?? property.ClrType) == typeof(DateTimeOffset))
+					property.SetValueConverter(converter);
+			}
+		}
 	}
 
 	private static void ConfigureDefinitions(EntityTypeBuilder<ImmediateJobDefinitionEntity> entity, string? schema)
@@ -86,12 +114,6 @@ public static class ImmediateJobsModelBuilderExtensions
 		entity.Property(item => item.JobName).HasMaxLength(256);
 		entity.Property(item => item.AcquisitionStatus).HasConversion<short>();
 		entity.Property(item => item.ConcurrencyStamp).IsConcurrencyToken();
-		entity.Property(item => item.NextEligibleAt).HasConversion(
-			value => value.HasValue ? value.Value.UtcTicks : (long?)null,
-			value => value.HasValue ? new DateTimeOffset(value.Value, TimeSpan.Zero) : null);
-		entity.Property(item => item.FixedWindowStart).HasConversion(
-			value => value.HasValue ? value.Value.UtcTicks : (long?)null,
-			value => value.HasValue ? new DateTimeOffset(value.Value, TimeSpan.Zero) : null);
 	}
 
 	private static void ConfigureAcquisitions(EntityTypeBuilder<ImmediateJobAcquisitionEntity> entity, string? schema)
@@ -99,8 +121,6 @@ public static class ImmediateJobsModelBuilderExtensions
 		entity.ToTable("immediate_job_acquisitions", schema);
 		entity.HasKey(item => item.Id);
 		entity.Property(item => item.JobName).HasMaxLength(256);
-		entity.Property(item => item.AcquiredAt).HasConversion(
-			value => value.UtcTicks, value => new DateTimeOffset(value, TimeSpan.Zero));
 		entity.HasIndex(item => new { item.JobName, item.AcquiredAt });
 	}
 
@@ -111,18 +131,6 @@ public static class ImmediateJobsModelBuilderExtensions
 		_ = entity.Property(execution => execution.JobHandle).HasMaxLength(256);
 		_ = entity.Property(execution => execution.State).HasConversion<short>();
 		_ = entity.Property(execution => execution.WorkerId).HasMaxLength(256);
-		_ = entity.Property(execution => execution.AcquiredAt).HasConversion(
-			value => value.HasValue ? value.Value.UtcTicks : (long?)null,
-			value => value.HasValue ? new DateTimeOffset(value.Value, TimeSpan.Zero) : null
-		);
-		_ = entity.Property(execution => execution.ExecutionStartedAt).HasConversion(
-			value => value.HasValue ? value.Value.UtcTicks : (long?)null,
-			value => value.HasValue ? new DateTimeOffset(value.Value, TimeSpan.Zero) : null
-		);
-		_ = entity.Property(execution => execution.CompletedAt).HasConversion(
-			value => value.HasValue ? value.Value.UtcTicks : (long?)null,
-			value => value.HasValue ? new DateTimeOffset(value.Value, TimeSpan.Zero) : null
-		);
 		_ = entity.Property(execution => execution.ExecutionTraceId).HasMaxLength(32);
 		_ = entity.Property(execution => execution.ExecutionSpanId).HasMaxLength(16);
 		_ = entity.Property(execution => execution.IsSynthetic).HasDefaultValue(value: false);
@@ -138,18 +146,6 @@ public static class ImmediateJobsModelBuilderExtensions
 		_ = entity.HasKey(batch => batch.Id);
 		_ = entity.Property(batch => batch.Id).HasMaxLength(256);
 		_ = entity.Property(batch => batch.State).HasConversion<short>();
-		_ = entity.Property(batch => batch.CreatedAt).HasConversion(
-			value => value.UtcTicks,
-			value => new DateTimeOffset(value, TimeSpan.Zero)
-		);
-		_ = entity.Property(batch => batch.StartedAt).HasConversion(
-			value => value.HasValue ? value.Value.UtcTicks : (long?)null,
-			value => value.HasValue ? new DateTimeOffset(value.Value, TimeSpan.Zero) : null
-		);
-		_ = entity.Property(batch => batch.CompletedAt).HasConversion(
-			value => value.HasValue ? value.Value.UtcTicks : (long?)null,
-			value => value.HasValue ? new DateTimeOffset(value.Value, TimeSpan.Zero) : null
-		);
 		_ = entity.Property(batch => batch.ConcurrencyStamp).IsConcurrencyToken();
 		_ = entity.HasIndex(batch => new { batch.State, batch.CompletedAt });
 	}
@@ -164,26 +160,6 @@ public static class ImmediateJobsModelBuilderExtensions
 		_ = entity.Property(job => job.Payload).IsRequired();
 		_ = entity.Property(job => job.Context).IsRequired(false);
 		_ = entity.Property(job => job.State).HasConversion<short>();
-		_ = entity.Property(job => job.DueAt).HasConversion(
-			value => value.UtcTicks,
-			value => new DateTimeOffset(value, TimeSpan.Zero)
-		);
-		_ = entity.Property(job => job.CreatedAt).HasConversion(
-			value => value.UtcTicks,
-			value => new DateTimeOffset(value, TimeSpan.Zero)
-		);
-		_ = entity.Property(job => job.LeaseExpiresAt).HasConversion(
-			value => value.HasValue ? value.Value.UtcTicks : (long?)null,
-			value => value.HasValue ? new DateTimeOffset(value.Value, TimeSpan.Zero) : null
-		);
-		_ = entity.Property(job => job.CompletedAt).HasConversion(
-			value => value.HasValue ? value.Value.UtcTicks : (long?)null,
-			value => value.HasValue ? new DateTimeOffset(value.Value, TimeSpan.Zero) : null
-		);
-		_ = entity.Property(job => job.ExecutionStartedAt).HasConversion(
-			value => value.HasValue ? value.Value.UtcTicks : (long?)null,
-			value => value.HasValue ? new DateTimeOffset(value.Value, TimeSpan.Zero) : null
-		);
 		_ = entity.Property(job => job.WorkerId).HasMaxLength(256);
 		_ = entity.Property(job => job.RecurringKey).HasMaxLength(512);
 		_ = entity.Property(job => job.TraceParent).HasMaxLength(256);
@@ -244,14 +220,6 @@ public static class ImmediateJobsModelBuilderExtensions
 		_ = entity.Property(schedule => schedule.JobName).HasMaxLength(256).IsRequired();
 		_ = entity.Property(schedule => schedule.Cron).HasMaxLength(128).IsRequired();
 		_ = entity.Property(schedule => schedule.TimeZone).HasMaxLength(128).IsRequired();
-		_ = entity.Property(schedule => schedule.NextRunAt).HasConversion(
-			value => value.UtcTicks,
-			value => new DateTimeOffset(value, TimeSpan.Zero)
-		);
-		_ = entity.Property(schedule => schedule.LastRunAt).HasConversion(
-			value => value.HasValue ? value.Value.UtcTicks : (long?)null,
-			value => value.HasValue ? new DateTimeOffset(value.Value, TimeSpan.Zero) : null
-		);
 		_ = entity.Property(schedule => schedule.ConcurrencyStamp).IsConcurrencyToken();
 		_ = entity.HasIndex(schedule => new { schedule.IsPaused, schedule.NextRunAt });
 	}
@@ -262,14 +230,6 @@ public static class ImmediateJobsModelBuilderExtensions
 		_ = entity.HasKey(server => server.WorkerId);
 		_ = entity.Property(server => server.WorkerId).HasMaxLength(256);
 		_ = entity.Property(server => server.Details).IsRequired();
-		_ = entity.Property(server => server.LastHeartbeat).HasConversion(
-			value => value.UtcTicks,
-			value => new DateTimeOffset(value, TimeSpan.Zero)
-		);
-		_ = entity.Property(server => server.ExpiresAt).HasConversion(
-			value => value.UtcTicks,
-			value => new DateTimeOffset(value, TimeSpan.Zero)
-		);
 		_ = entity.HasIndex(server => server.ExpiresAt);
 	}
 }

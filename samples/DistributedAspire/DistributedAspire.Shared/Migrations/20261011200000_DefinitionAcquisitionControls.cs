@@ -42,7 +42,7 @@ public sealed partial class DefinitionAcquisitionControls : Migration
 			{
 				Id = table.Column<Guid>(type: "uuid", nullable: false),
 				JobName = table.Column<string>(type: "character varying(256)", maxLength: 256, nullable: false),
-				AcquiredAt = table.Column<long>(type: "bigint", nullable: false),
+				AcquiredAt = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
 			},
 			constraints: table => table.PrimaryKey("PK_immediate_job_acquisitions", x => x.Id));
 
@@ -53,8 +53,8 @@ public sealed partial class DefinitionAcquisitionControls : Migration
 				JobName = table.Column<string>(type: "character varying(256)", maxLength: 256, nullable: false),
 				IsPaused = table.Column<bool>(type: "boolean", nullable: false),
 				AcquisitionStatus = table.Column<short>(type: "smallint", nullable: false),
-				NextEligibleAt = table.Column<long>(type: "bigint", nullable: true),
-				FixedWindowStart = table.Column<long>(type: "bigint", nullable: true),
+				NextEligibleAt = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: true),
+				FixedWindowStart = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: true),
 				FixedWindowCount = table.Column<int>(type: "integer", nullable: false),
 				ConcurrencyStamp = table.Column<Guid>(type: "uuid", nullable: false),
 			},

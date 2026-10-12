@@ -47,7 +47,7 @@ internal static class RedisScripts
 
 		""";
 
-	private const string DefinitionFunctions =
+	private const string SubmissionFunctions =
 		"""
 		local function createRecord(record, definitions, jobName)
 			local metadata = redis.call('HGET', definitions, jobName)
@@ -61,7 +61,7 @@ internal static class RedisScripts
 		""";
 
 	internal const string Enqueue =
-		FairQueueFunctions + DefinitionFunctions +
+		FairQueueFunctions + SubmissionFunctions +
 		"""
 		if redis.call('EXISTS', KEYS[1]) == 1 then
 			return 0
@@ -87,39 +87,30 @@ internal static class RedisScripts
 
 	private const string DefinitionFunctions =
 		"""
-		local function addTicks(left, right)
-			local carry = 0
-			local result = ''
-			for index = 19, 1, -1 do
-				local value = tonumber(string.sub(left, index, index)) + tonumber(string.sub(right, index, index)) + carry
-				result = tostring(value % 10) .. result
-				carry = math.floor(value / 10)
-			end
-			return result
-		end
 		local function readLimits(args, position)
 			return {
-				slidingMax = tonumber(args[position]), slidingPeriod = args[position + 1], slidingCutoff = args[position + 2],
-				fixedMax = tonumber(args[position + 3]), fixedStart = args[position + 4], fixedNext = args[position + 5],
-				concurrency = tonumber(args[position + 6])
+				slidingMax = tonumber(args[position]), slidingCutoff = args[position + 1],
+				fixedMax = tonumber(args[position + 2]), fixedStart = args[position + 3], fixedNext = args[position + 4],
+				concurrency = tonumber(args[position + 5])
 			}
 		end
-		local function definitionState(root, name, limits, nowScore, nowTicks, includeActiveCount)
+		local function definitionState(root, name, limits, nowScore, nowTimestamp, includeActiveCount)
 			local key = root .. 'definitions:state:' .. name
 			local paused = redis.call('HGET', key, 'paused') == '1'
-			local next = ''
+			local slidingOldest = ''
+			local fixedNext = ''
 			if limits.slidingMax > 0 then
 				local logKey = root .. 'definitions:acquisitions:' .. name
 				redis.call('ZREMRANGEBYLEX', logKey, '-', '[' .. limits.slidingCutoff .. '~')
 				local recent = redis.call('ZRANGE', logKey, 0, -1)
 				if #recent >= limits.slidingMax then
-					next = addTicks(string.sub(recent[#recent - limits.slidingMax + 1], 1, 19), limits.slidingPeriod)
+					slidingOldest = string.match(recent[#recent - limits.slidingMax + 1], '^([^|]+)|')
 				end
 			end
 			if limits.fixedMax > 0 then
 				local values = redis.call('HMGET', key, 'fixedStart', 'fixedCount')
 				if values[1] == limits.fixedStart and tonumber(values[2] or '0') >= limits.fixedMax then
-					if next == '' or limits.fixedNext > next then next = limits.fixedNext end
+					fixedNext = limits.fixedNext
 				end
 			end
 			local activeCount = 0
@@ -131,7 +122,7 @@ internal static class RedisScripts
 				local count = 0
 				for _, id in ipairs(ids) do
 					local values = redis.call('HMGET', root .. 'job:' .. id, 'state', 'jobName', 'lease')
-					if values[1] == '4' and values[2] == name and values[3] > nowTicks then
+					if values[1] == '4' and values[2] == name and values[3] > nowTimestamp then
 						count = count + 1
 					else
 						redis.call('ZREM', leasesKey, id)
@@ -140,15 +131,15 @@ internal static class RedisScripts
 				activeCount = count
 				concurrencyLimited = limits.concurrency > 0 and count >= limits.concurrency
 			end
-			local status = paused and 1 or next ~= '' and 2 or concurrencyLimited and 3 or 0
-			if paused or concurrencyLimited then next = '' end
-			redis.call('HSET', key, 'status', status, 'next', next)
-			return { status, next, paused and 1 or 0, activeCount }
+			local status = paused and 1 or (slidingOldest ~= '' or fixedNext ~= '') and 2 or concurrencyLimited and 3 or 0
+			if paused or concurrencyLimited then slidingOldest = ''; fixedNext = '' end
+			redis.call('HSET', key, 'status', status, 'slidingOldest', slidingOldest, 'fixedNext', fixedNext)
+			return { status, slidingOldest, fixedNext, paused and 1 or 0, activeCount }
 		end
-		local function recordDefinitionAcquisition(root, name, limits, nowTicks, id, attempt)
+		local function recordDefinitionAcquisition(root, name, limits, nowTimestamp, id, attempt)
 			local key = root .. 'definitions:state:' .. name
 			if limits.slidingMax > 0 then
-				redis.call('ZADD', root .. 'definitions:acquisitions:' .. name, 0, nowTicks .. '|' .. id .. '|' .. attempt)
+				redis.call('ZADD', root .. 'definitions:acquisitions:' .. name, 0, nowTimestamp .. '|' .. id .. '|' .. attempt)
 			end
 			if limits.fixedMax > 0 then
 				if redis.call('HGET', key, 'fixedStart') ~= limits.fixedStart then
@@ -184,12 +175,12 @@ internal static class RedisScripts
 		end
 		local nowScore = tonumber(ARGV[1])
 		local leaseScore = tonumber(ARGV[2])
-		local leaseTicks = ARGV[3]
+		local leaseTimestamp = ARGV[3]
 		local worker = ARGV[4]
 		local batchSize = tonumber(ARGV[5])
 		local queueCount = tonumber(ARGV[6])
 		local root = ARGV[7]
-		local nowTicks = ARGV[8]
+		local nowTimestamp = ARGV[8]
 		local fair = ARGV[9] == '1'
 		local threshold = tonumber(ARGV[10])
 		local minimum = tonumber(ARGV[11])
@@ -208,7 +199,7 @@ internal static class RedisScripts
 					queue.jobLimits[name] = readLimits(ARGV, position + 2)
 					eligible[name] = true
 				end
-				position = position + 9
+				position = position + 8
 			end
 			queues[index] = queue
 		end
@@ -235,7 +226,7 @@ internal static class RedisScripts
 		local function cachedDefinitionStatus(queue, name)
 			local status = definitionStatuses[name]
 			if status == nil then
-				status = definitionState(root, name, queue.jobLimits[name], nowScore, nowTicks)[1]
+				status = definitionState(root, name, queue.jobLimits[name], nowScore, nowTimestamp)[1]
 				definitionStatuses[name] = status
 			end
 			return status
@@ -249,7 +240,7 @@ internal static class RedisScripts
 						local members = redis.call('ZRANGEBYSCORE', key, '-inf', nowScore, 'LIMIT', 0, 1)
 						local member = members[1]
 						if not member then break end
-						local id = string.sub(member, 41)
+						local id = string.match(member, '^[^|]+|[^|]+|(.+)$')
 						local values = redis.call('HMGET', root .. 'job:' .. id, 'state', 'dueMember', 'group', 'jobName')
 						if (values[1] == '2' or values[1] == '3') and values[2] == member and values[4] == name then
 							local candidate = { id = id, member = member, state = values[1], group = values[3] or '', jobName = name }
@@ -269,7 +260,7 @@ internal static class RedisScripts
 			local error = redis.call('HGET', key, 'error') or ''
 			materialize(key, indexKey, dataKey, attempt, error ~= '' and '2' or '4', '')
 			attempt = attempt + 1
-			redis.call('HSET', key, 'state', '4', 'attempt', attempt, 'worker', worker, 'lease', leaseTicks,
+			redis.call('HSET', key, 'state', '4', 'attempt', attempt, 'worker', worker, 'lease', leaseTimestamp,
 				'executionTraceId', '', 'executionSpanId', '', 'executionStartedAt', '')
 			redis.call('ZREM', root .. 'due:' .. candidate.jobName, candidate.member)
 			unindexDue(root, candidate.jobName, candidate.group, candidate.member)
@@ -279,11 +270,11 @@ internal static class RedisScripts
 			redis.call('SADD', KEYS[2], candidate.id)
 			redis.call('ZADD', indexKey, attempt, attempt)
 			redis.call('HSET', dataKey, attempt .. ':state', '0', attempt .. ':worker', worker,
-				attempt .. ':acquired', nowTicks, attempt .. ':started', '', attempt .. ':completed', '',
+				attempt .. ':acquired', nowTimestamp, attempt .. ':started', '', attempt .. ':completed', '',
 				attempt .. ':trace', '', attempt .. ':span', '', attempt .. ':error', '', attempt .. ':synthetic', '0')
 			queue.jobs[candidate.jobName] = queue.jobs[candidate.jobName] - 1
 			redis.call('ZADD', root .. 'definitions:leases:' .. candidate.jobName, leaseScore, candidate.id)
-			recordDefinitionAcquisition(root, candidate.jobName, queue.jobLimits[candidate.jobName], nowTicks, candidate.id, attempt)
+			recordDefinitionAcquisition(root, candidate.jobName, queue.jobLimits[candidate.jobName], nowTimestamp, candidate.id, attempt)
 			definitionStatuses[candidate.jobName] = nil
 			cachedDefinitionStatus(queue, candidate.jobName)
 			table.insert(acquired, candidate.id)
@@ -708,7 +699,7 @@ internal static class RedisScripts
 		""";
 
 	internal const string UpsertRecurring =
-		RecurringDueFunctions + DefinitionFunctions +
+		RecurringDueFunctions + SubmissionFunctions +
 		"""
 		local record = ARGV[1]
 		local canonical = createRecord(record, KEYS[4], ARGV[11])

@@ -84,8 +84,8 @@ namespace Immediate.Jobs.DistributedAspire.Shared.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
-                    b.Property<long>("AcquiredAt")
-                        .HasColumnType("bigint");
+                    b.Property<DateTimeOffset>("AcquiredAt")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("JobName")
                         .IsRequired()
@@ -108,15 +108,15 @@ namespace Immediate.Jobs.DistributedAspire.Shared.Migrations
                     b.Property<int>("CancelledCount")
                         .HasColumnType("integer");
 
-                    b.Property<long?>("CompletedAt")
-                        .HasColumnType("bigint");
+                    b.Property<DateTimeOffset?>("CompletedAt")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<Guid>("ConcurrencyStamp")
                         .IsConcurrencyToken()
                         .HasColumnType("uuid");
 
-                    b.Property<long>("CreatedAt")
-                        .HasColumnType("bigint");
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<int>("FailedCount")
                         .HasColumnType("integer");
@@ -127,8 +127,8 @@ namespace Immediate.Jobs.DistributedAspire.Shared.Migrations
                     b.Property<int>("SkippedCount")
                         .HasColumnType("integer");
 
-                    b.Property<long?>("StartedAt")
-                        .HasColumnType("bigint");
+                    b.Property<DateTimeOffset?>("StartedAt")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<short>("State")
                         .HasColumnType("smallint");
@@ -206,14 +206,14 @@ namespace Immediate.Jobs.DistributedAspire.Shared.Migrations
                     b.Property<int>("FixedWindowCount")
                         .HasColumnType("integer");
 
-                    b.Property<long?>("FixedWindowStart")
-                        .HasColumnType("bigint");
+                    b.Property<DateTimeOffset?>("FixedWindowStart")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<bool>("IsPaused")
                         .HasColumnType("boolean");
 
-                    b.Property<long?>("NextEligibleAt")
-                        .HasColumnType("bigint");
+                    b.Property<DateTimeOffset?>("NextEligibleAt")
+                        .HasColumnType("timestamp with time zone");
 
                     b.HasKey("JobName");
 
@@ -310,8 +310,8 @@ namespace Immediate.Jobs.DistributedAspire.Shared.Migrations
                     b.Property<string>("CancellationReason")
                         .HasColumnType("text");
 
-                    b.Property<long?>("CompletedAt")
-                        .HasColumnType("bigint");
+                    b.Property<DateTimeOffset?>("CompletedAt")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<Guid>("ConcurrencyStamp")
                         .IsConcurrencyToken()
@@ -320,18 +320,18 @@ namespace Immediate.Jobs.DistributedAspire.Shared.Migrations
                     b.Property<string>("Context")
                         .HasColumnType("text");
 
-                    b.Property<long>("CreatedAt")
-                        .HasColumnType("bigint");
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
 
-                    b.Property<long>("DueAt")
-                        .HasColumnType("bigint");
+                    b.Property<DateTimeOffset>("DueAt")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("ExecutionSpanId")
                         .HasMaxLength(16)
                         .HasColumnType("character varying(16)");
 
-                    b.Property<long?>("ExecutionStartedAt")
-                        .HasColumnType("bigint");
+                    b.Property<DateTimeOffset?>("ExecutionStartedAt")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("ExecutionTraceId")
                         .HasMaxLength(32)
@@ -353,8 +353,8 @@ namespace Immediate.Jobs.DistributedAspire.Shared.Migrations
                     b.Property<string>("LastError")
                         .HasColumnType("text");
 
-                    b.Property<long?>("LeaseExpiresAt")
-                        .HasColumnType("bigint");
+                    b.Property<DateTimeOffset?>("LeaseExpiresAt")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("Payload")
                         .IsRequired()
@@ -409,11 +409,11 @@ namespace Immediate.Jobs.DistributedAspire.Shared.Migrations
                     b.Property<int>("Attempt")
                         .HasColumnType("integer");
 
-                    b.Property<long?>("AcquiredAt")
-                        .HasColumnType("bigint");
+                    b.Property<DateTimeOffset?>("AcquiredAt")
+                        .HasColumnType("timestamp with time zone");
 
-                    b.Property<long?>("CompletedAt")
-                        .HasColumnType("bigint");
+                    b.Property<DateTimeOffset?>("CompletedAt")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("Error")
                         .HasColumnType("text");
@@ -422,8 +422,8 @@ namespace Immediate.Jobs.DistributedAspire.Shared.Migrations
                         .HasMaxLength(16)
                         .HasColumnType("character varying(16)");
 
-                    b.Property<long?>("ExecutionStartedAt")
-                        .HasColumnType("bigint");
+                    b.Property<DateTimeOffset?>("ExecutionStartedAt")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("ExecutionTraceId")
                         .HasMaxLength(32)
@@ -459,11 +459,11 @@ namespace Immediate.Jobs.DistributedAspire.Shared.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
-                    b.Property<long>("ExpiresAt")
-                        .HasColumnType("bigint");
+                    b.Property<DateTimeOffset>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone");
 
-                    b.Property<long>("LastHeartbeat")
-                        .HasColumnType("bigint");
+                    b.Property<DateTimeOffset>("LastHeartbeat")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<int>("MaxWorkers")
                         .HasColumnType("integer");
@@ -505,11 +505,11 @@ namespace Immediate.Jobs.DistributedAspire.Shared.Migrations
                         .HasColumnType("character varying(256)")
                         .UseCollation("immediate_jobs_case_insensitive");
 
-                    b.Property<long?>("LastRunAt")
-                        .HasColumnType("bigint");
+                    b.Property<DateTimeOffset?>("LastRunAt")
+                        .HasColumnType("timestamp with time zone");
 
-                    b.Property<long>("NextRunAt")
-                        .HasColumnType("bigint");
+                    b.Property<DateTimeOffset>("NextRunAt")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("TimeZone")
                         .IsRequired()

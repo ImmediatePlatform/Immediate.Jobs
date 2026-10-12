@@ -33,12 +33,12 @@ internal sealed partial class RedisJobStorage
 		{
 			Score(now),
 			Score(leaseExpiresAt),
-			Ticks(leaseExpiresAt),
+			Timestamp(leaseExpiresAt),
 			request.WorkerId,
 			request.BatchSize,
 			request.Queues.Count,
 			_root,
-			Ticks(now),
+			Timestamp(now),
 			request.FairQueues is null ? 0 : 1,
 			request.FairQueues?.ConcurrencyShareThreshold ?? 0,
 			request.FairQueues?.MinInflightForNoisy ?? 0,
@@ -93,7 +93,7 @@ internal sealed partial class RedisJobStorage
 		var result = await EvaluateInt64Async(
 			RedisScripts.RenewLease,
 			[JobKey(jobHandle), LeasesKey],
-			[workerId, executionNumber, Ticks(expiresAt), Score(expiresAt), jobHandle.Value, _root],
+			[workerId, executionNumber, Timestamp(expiresAt), Score(expiresAt), jobHandle.Value, _root],
 			cancellationToken
 		);
 		ThrowIfNotOwned(result, jobHandle, workerId);

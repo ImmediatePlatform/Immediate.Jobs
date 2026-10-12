@@ -83,7 +83,7 @@ internal static class QueueStorageConformance
 
 		var original = CreateJob(
 			"roundtrip-id:opaque/1",
-			timeProvider.GetUtcNow(),
+			timeProvider.GetUtcNow().AddMilliseconds(3).ToOffset(TimeSpan.FromHours(5.5)),
 			"RoundTrip.Job"
 		) with
 		{
@@ -91,7 +91,7 @@ internal static class QueueStorageConformance
 			Context = "{\"tenant\":\"acme\"}",
 			GroupId = "group-alpha",
 			State = JobState.Scheduled,
-			DueAt = timeProvider.GetUtcNow().AddMinutes(5),
+			DueAt = timeProvider.GetUtcNow().AddMinutes(5).AddMilliseconds(3).ToOffset(TimeSpan.FromHours(-7)),
 			RecurringKey = "schedule:638000000000000000",
 			TraceParent = "00-11111111111111111111111111111111-2222222222222222-01",
 			TraceState = "vendor=value",
@@ -135,13 +135,13 @@ internal static class QueueStorageConformance
 
 		var now = timeProvider.GetUtcNow();
 
-		await storage.EnqueueAsync(CreateJob("due", now), cancellationToken);
+		await storage.EnqueueAsync(CreateJob("due", now.ToOffset(TimeSpan.FromHours(5.5))), cancellationToken);
 
 		await storage.EnqueueAsync(
 			CreateJob("future", now) with
 			{
 				State = JobState.Scheduled,
-				DueAt = now.AddHours(1),
+				DueAt = now.AddHours(1).ToOffset(TimeSpan.FromHours(-7)),
 			},
 			cancellationToken
 		);

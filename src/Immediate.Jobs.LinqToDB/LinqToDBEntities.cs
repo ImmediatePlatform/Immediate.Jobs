@@ -259,10 +259,10 @@ internal sealed class ImmediateJobDefinitionEntity
 	public bool IsPaused { get; set; }
 	[Column(DataType = DataType.Int16)]
 	public JobAcquisitionStatus AcquisitionStatus { get; set; }
-	[Column(DataType = DataType.Int64, CanBeNull = true)]
-	public long? NextEligibleAt { get; set; }
-	[Column(DataType = DataType.Int64, CanBeNull = true)]
-	public long? FixedWindowStart { get; set; }
+	[Column(DataType = DataType.DateTimeOffset, CanBeNull = true)]
+	public DateTimeOffset? NextEligibleAt { get; set; }
+	[Column(DataType = DataType.DateTimeOffset, CanBeNull = true)]
+	public DateTimeOffset? FixedWindowStart { get; set; }
 	[Column]
 	public int FixedWindowCount { get; set; }
 	[Column(DataType = DataType.Guid)]
@@ -276,6 +276,6 @@ internal sealed class ImmediateJobAcquisitionEntity
 	public Guid Id { get; set; }
 	[Column(Length = 256, CanBeNull = false)]
 	public string JobName { get; set; } = null!;
-	[Column(DataType = DataType.Int64)]
-	public long AcquiredAt { get; set; }
+	[Column(DataType = DataType.DateTimeOffset)]
+	public DateTimeOffset AcquiredAt { get; set; }
 }

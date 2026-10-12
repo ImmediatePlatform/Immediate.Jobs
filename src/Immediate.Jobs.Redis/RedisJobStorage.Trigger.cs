@@ -58,7 +58,7 @@ internal sealed partial class RedisJobStorage
 		var result = await EvaluateInt64Async(
 			RedisScripts.Trigger,
 			[JobKey(jobHandle)],
-			[expectedJobName.ToUpperInvariant(), Ticks(dueAt), Score(dueAt), Score(now), _root, jobHandle.Value],
+			[expectedJobName.ToUpperInvariant(), Timestamp(dueAt), Score(dueAt), Score(now), _root, jobHandle.Value],
 			cancellationToken
 		);
 		if (result == 0)
