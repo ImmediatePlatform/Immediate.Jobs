@@ -244,13 +244,13 @@ internal sealed partial class RedisJobStorage
 				.Select(static server => server.Values[4] is { IsNullOrEmpty: false }
 					? JsonSerializer.Deserialize((string)server.Values[4]!, RedisJsonSerializerContext.Default.JobServerSnapshot)!
 					: new JobServerSnapshot
-				{
-					WorkerId = server.Id,
-					LastHeartbeat = FromTicks(server.Values[0]),
-					ActiveWorkers = ParseInt32(server.Values[1]),
-					MaxWorkers = ParseInt32(server.Values[2]),
-					ServerTimeout = FromTicks(server.Values[3]) - FromTicks(server.Values[0]),
-				}),
+					{
+						WorkerId = server.Id,
+						LastHeartbeat = FromTicks(server.Values[0]),
+						ActiveWorkers = ParseInt32(server.Values[1]),
+						MaxWorkers = ParseInt32(server.Values[2]),
+						ServerTimeout = FromTicks(server.Values[3]) - FromTicks(server.Values[0]),
+					}),
 		];
 	}
 

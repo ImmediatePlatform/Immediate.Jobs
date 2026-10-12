@@ -25,24 +25,8 @@ public static class JobTags
 	/// <exception cref="ArgumentException">
 	/// 	A configured tag is null, empty, or whitespace.
 	/// </exception>
-	public static IReadOnlyList<string> Normalize(IEnumerable<string>? tags)
-	{
-		var normalized = new List<string>();
-		var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-		if (tags is not null)
-		{
-			foreach (var tag in tags)
-			{
-				ArgumentException.ThrowIfNullOrWhiteSpace(tag, nameof(tags));
-				if (seen.Add(tag))
-					normalized.Add(tag);
-			}
-		}
-
-		if (normalized.Count == 0)
-			normalized.Add(Default);
-		return normalized.AsReadOnly();
-	}
+	public static IReadOnlyList<string> Normalize(IEnumerable<string>? tags) =>
+		(tags ?? []).Distinct(StringComparer.OrdinalIgnoreCase).DefaultIfEmpty(Default).ToList();
 
 	/// <summary>
 	/// 	Tests whether two effective tag lists share an ordinal, case-insensitive tag.
@@ -60,6 +44,7 @@ public static class JobTags
 	{
 		ArgumentNullException.ThrowIfNull(jobTags);
 		ArgumentNullException.ThrowIfNull(serverTags);
-		return jobTags.Any(tag => serverTags.Contains(tag, StringComparer.OrdinalIgnoreCase));
+
+		return jobTags.Intersect(serverTags, StringComparer.OrdinalIgnoreCase).Any();
 	}
 }

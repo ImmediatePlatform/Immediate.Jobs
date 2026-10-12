@@ -25,10 +25,10 @@ public sealed partial class JobSchedulingService : BackgroundService
 	private readonly FairQueueOptions _fairQueueOptions;
 	private readonly TimeProvider _timeProvider;
 	private readonly IIdGenerator _idGenerator;
-	private readonly ILogger<JobSchedulingService> _logger;
+	private readonly IReadOnlyList<string> _serverTags;
 	private readonly Dictionary<string, JobDefinition> _definitions;
 	private readonly IReadOnlyList<string> _eligibleJobNames;
-	private readonly IReadOnlyList<string> _serverTags;
+	private readonly ILogger<JobSchedulingService> _logger;
 
 	/// <summary>
 	///		Complex structure used to simplify repeated access in <see cref="BuildAcquisitionRequest"/>.
@@ -109,14 +109,13 @@ public sealed partial class JobSchedulingService : BackgroundService
 		_fairQueueOptions = fairQueueOptions.Value;
 		_timeProvider = timeProvider;
 		_idGenerator = idGenerator;
-		_logger = logger;
 		InitializeState(_options.WorkerCount);
+		_serverTags = JobTags.Normalize(_options.Tags);
+		_logger = logger;
 
-#pragma warning disable CA1851 // `definitions` is backed by a list
 		_definitions = definitions
 			.ToDictionary(x => x.Name, StringComparer.OrdinalIgnoreCase);
 
-		_serverTags = JobTags.Normalize(_options.Tags);
 		var eligibleDefinitions = _definitions.Values.Where(definition => JobTags.Intersect(definition.Tags, _serverTags)).ToList();
 		_eligibleJobNames = eligibleDefinitions.Select(static definition => definition.Name).ToList();
 
@@ -138,7 +137,6 @@ public sealed partial class JobSchedulingService : BackgroundService
 			)
 			.OrderByDescending(d => d.Key)
 			.ToList();
-#pragma warning restore CA1851
 
 		// Reservation accounting in BuildAcquisitionRequest is the admission control, so the channel is
 		// only a handoff buffer. A bounded channel would add a second, redundant limit whose sole effect
@@ -243,6 +241,26 @@ public sealed partial class JobSchedulingService : BackgroundService
 	{
 		await _storage.InitializeAsync(cancellationToken);
 
+		var definitions = _definitions.Values
+			.Select(static definition => new JobDefinitionRecord
+			{
+				Name = definition.Name,
+				Tags = definition.Tags,
+				QueueName = definition.Queue.Name,
+				QueuePriority = definition.Queue.Priority,
+				QueueConcurrency = definition.Queue.Concurrency,
+				Cron = definition.Cron,
+				TimeZone = definition.TimeZone,
+				MaxAttempts = definition.MaxAttempts,
+				Timeout = definition.Timeout,
+				MaxConcurrency = definition.MaxConcurrency,
+				OverlapPolicy = definition.OverlapPolicy,
+				MisfireHandlingMode = definition.MisfireHandlingMode,
+				Backoff = definition.Backoff,
+				BackoffBase = definition.BackoffBase,
+			})
+			.ToList();
+
 		var now = _timeProvider.GetUtcNow();
 
 		var schedules = _definitions.Values
@@ -267,23 +285,7 @@ public sealed partial class JobSchedulingService : BackgroundService
 			new()
 			{
 				ServerTags = _serverTags,
-				Definitions = _definitions.Values.Select(static definition => new JobDefinitionRecord
-				{
-					Name = definition.Name,
-					Tags = definition.Tags,
-					QueueName = definition.Queue.Name,
-					QueuePriority = definition.Queue.Priority,
-					QueueConcurrency = definition.Queue.Concurrency,
-					Cron = definition.Cron,
-					TimeZone = definition.TimeZone,
-					MaxAttempts = definition.MaxAttempts,
-					Timeout = definition.Timeout,
-					MaxConcurrency = definition.MaxConcurrency,
-					OverlapPolicy = definition.OverlapPolicy,
-					MisfireHandlingMode = definition.MisfireHandlingMode,
-					Backoff = definition.Backoff,
-					BackoffBase = definition.BackoffBase,
-				}).ToList(),
+				Definitions = definitions,
 				RecurringSchedules = schedules,
 			},
 			cancellationToken

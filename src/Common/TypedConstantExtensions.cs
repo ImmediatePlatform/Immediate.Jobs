@@ -88,4 +88,21 @@ internal static class TypedConstantExtensions
 				_ => null,
 			};
 	}
+
+	extension(TypedConstant? constant)
+	{
+		public string? GetTags()
+		{
+			if (constant is not { IsNull: false, Kind: TypedConstantKind.Array, Values: var values } av)
+				return "default";
+
+			if (values is [])
+				return "default";
+
+			if (values.Any(tag => string.IsNullOrWhiteSpace(tag.Value as string)))
+				return null;
+
+			return av.GetStringValue();
+		}
+	}
 }

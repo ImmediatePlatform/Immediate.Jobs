@@ -6,12 +6,6 @@ namespace Immediate.Jobs.Shared.Apis;
 public sealed record JobDefinitionRecord
 {
 	/// <summary>
-	/// 	The effective job tags. Omitted or empty lists use the default tag.
-	/// </summary>
-	[System.Diagnostics.CodeAnalysis.AllowNull]
-	public IReadOnlyList<string> Tags { get; init => field = JobTags.Normalize(value); } = JobTags.Normalize(tags: null);
-
-	/// <summary>
 	/// 	The stable job name.
 	/// </summary>
 	public required string Name { get; init; }
@@ -70,6 +64,11 @@ public sealed record JobDefinitionRecord
 	/// 	The retry delay algorithm.
 	/// </summary>
 	public BackoffStrategy Backoff { get; init; } = BackoffStrategy.ExponentialJitter;
+
+	/// <summary>
+	/// 	The effective job tags. Omitted or empty lists use the default tag.
+	/// </summary>
+	public IReadOnlyList<string> Tags { get; init => field = JobTags.Normalize(value); } = [JobTags.Default];
 
 	/// <summary>
 	/// 	The retry base delay.

@@ -66,25 +66,25 @@ public sealed partial class ImmediateJobsGenerator
 		if (maxConcurrency < 0)
 			return null;
 
-		var backoff = arguments.GetArgumentValue("Backoff") switch
+		var backoff = arguments.GetEnumValue("Backoff") switch
 		{
-			{ } av => av.GetEnumValue()?.Name,
+			{ } ev => ev?.Name,
 			_ => "ExponentialJitter",
 		};
 		if (backoff is not { })
 			return null;
 
-		var overlapPolicy = arguments.GetArgumentValue("OverlapPolicy") switch
+		var overlapPolicy = arguments.GetEnumValue("OverlapPolicy") switch
 		{
-			{ } av => av.GetEnumValue()?.Name,
+			{ } ev => ev?.Name,
 			_ => "Skip",
 		};
 		if (overlapPolicy is not { })
 			return null;
 
-		var misfireHandlingMode = arguments.GetArgumentValue("MisfireHandlingMode") switch
+		var misfireHandlingMode = arguments.GetEnumValue("MisfireHandlingMode") switch
 		{
-			{ } av => av.GetEnumValue()?.Name,
+			{ } ev => ev?.Name,
 			_ => "EnqueueOne",
 		};
 		if (misfireHandlingMode is not { })
@@ -121,14 +121,8 @@ public sealed partial class ImmediateJobsGenerator
 		if (hasPayload && !PayloadValidation.CanSerializeToJson(parameterType, reportError: null))
 			return null;
 
-		var tags = handlerAttribute?.NamedArguments.GetStringArray("Tags");
-		var jobTagsArgument = arguments.GetArgumentValue("Tags");
-		if (jobTagsArgument is { IsNull: false, Kind: TypedConstantKind.Array } configuredTags
-			&& configuredTags.Values.Any(static tag => string.IsNullOrWhiteSpace(tag.Value as string)))
+		if (arguments.GetArgumentValue("Tags").GetTags() is not { } tags)
 			return null;
-		var jobTags = jobTagsArgument is { IsNull: false, Kind: TypedConstantKind.Array } tagArray
-			? string.Join(", ", tagArray.Values.Select(static tag => (string)tag.Value!).Distinct(StringComparer.OrdinalIgnoreCase).Select(static tag => tag.AsCSharpLiteral()))
-			: "";
 
 		var extractors = attributes.GetContextExtractors().ToList();
 
@@ -172,7 +166,6 @@ public sealed partial class ImmediateJobsGenerator
 			Backoff = backoff,
 			BackoffBase = backoffBase,
 			Tags = tags,
-			JobTags = string.IsNullOrEmpty(jobTags) ? "\"default\"" : jobTags,
 			Contexts = contexts,
 			Json = jsonMetadataEmitter,
 		};
