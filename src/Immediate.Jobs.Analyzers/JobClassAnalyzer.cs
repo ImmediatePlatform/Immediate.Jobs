@@ -154,7 +154,7 @@ public sealed class JobClassAnalyzer : DiagnosticAnalyzer
 	{
 		context.CancellationToken.ThrowIfCancellationRequested();
 
-		var arguments = jobAttribute.NamedArguments;
+		var arguments = jobAttribute.GetJobArguments((INamedTypeSymbol)context.Symbol);
 
 		if (arguments.GetArgumentValue("Tags").GetTags() is null)
 		{
@@ -275,7 +275,7 @@ public sealed class JobClassAnalyzer : DiagnosticAnalyzer
 		context.CancellationToken.ThrowIfCancellationRequested();
 
 		var hasPayload = !parameterType.IsEmptyJobRequest;
-		var arguments = jobAttribute.NamedArguments;
+		var arguments = jobAttribute.GetJobArguments((INamedTypeSymbol)context.Symbol);
 
 		var cron = arguments.GetStringValue("Cron");
 		var timeZone = arguments.GetStringValue("TimeZone") ?? "UTC";

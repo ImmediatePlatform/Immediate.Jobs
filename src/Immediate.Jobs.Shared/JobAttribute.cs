@@ -9,7 +9,7 @@ namespace Immediate.Jobs.Shared;
 public sealed class JobAttribute : Attribute
 {
 	/// <summary>
-	/// 	The job routing tags. Omitted, null, or empty lists use the default tag.
+	/// 	The job routing tags. Omitted, null, or empty lists inherit assembly defaults, or use the default tag.
 	/// </summary>
 	[System.Diagnostics.CodeAnalysis.NotNull]
 	public string[]? Tags { get; init => field = [.. JobTags.Normalize(value)]; } = [JobTags.Default];

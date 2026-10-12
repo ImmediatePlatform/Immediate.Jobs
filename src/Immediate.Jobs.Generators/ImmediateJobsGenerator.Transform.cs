@@ -34,7 +34,11 @@ public sealed partial class ImmediateJobsGenerator
 		if (!jobName.HasNameContent() || jobName.HasLeadingOrTrailingWhitespace())
 			return null;
 
-		var arguments = attribute.NamedArguments;
+		var defaults = symbol.ContainingAssembly.GetAttributes().FirstOrDefault(attribute => attribute.AttributeClass.IsJobDefaultsAttribute);
+		if (defaults is not null && defaults.NamedArguments.GetJobDefaultsErrors().Any())
+			return null;
+
+		var arguments = attribute.GetJobArguments(symbol);
 
 		var cron = arguments.GetStringValue("Cron");
 		var timeZone = arguments.GetStringValue("TimeZone") ?? "UTC";

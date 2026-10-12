@@ -54,6 +54,21 @@ are `AddMyAppHandlers()` and `AddMyAppJobs()`.
 
 ## Routing jobs with tags
 
+Set defaults for jobs in an assembly with:
+
+```csharp
+[assembly: JobDefaults(
+    Tags = new[] { "email", "default" },
+    TimeZone = "UTC",
+    MaxAttempts = 5,
+    Timeout = "00:02:00")]
+```
+
+Explicit `[Job]` settings override assembly defaults. Omitted, null, or empty job tag lists inherit
+assembly tags; without assembly tags, jobs use `default`. An explicit nonempty list replaces the
+assembly list. Setting `Timeout = null` on a job disables its inherited timeout, and
+`TimeZone = null` uses UTC. Defaults apply only to jobs declared in that assembly.
+
 Configure job tags with `[Job(Tags = new[] { "email", "default" })]` and server tags through
 `ConfigureWorkers(options => options.Tags = ["email", "default"])`. A server manages definitions
 and acquires invocations only when the effective job and server lists intersect.

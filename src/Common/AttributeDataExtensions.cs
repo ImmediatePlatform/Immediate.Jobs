@@ -22,6 +22,25 @@ internal static class AttributeDataExtensions
 
 	extension(AttributeData attribute)
 	{
+		public ImmutableArray<KeyValuePair<string, TypedConstant>> GetJobArguments(INamedTypeSymbol job)
+		{
+			var defaults = job.ContainingAssembly.GetAttributes().FirstOrDefault(attribute => attribute.AttributeClass.IsJobDefaultsAttribute);
+			if (defaults is null)
+				return attribute.NamedArguments;
+
+			var arguments = defaults.NamedArguments.ToDictionary(static argument => argument.Key, static argument => argument.Value, StringComparer.Ordinal);
+			foreach (var argument in attribute.NamedArguments)
+			{
+				if (string.Equals(argument.Key, "Tags", StringComparison.Ordinal)
+					&& (argument.Value.IsNull || argument.Value is { Kind: TypedConstantKind.Array, Values.Length: 0 }))
+					continue;
+
+				arguments[argument.Key] = argument.Value;
+			}
+
+			return [.. arguments];
+		}
+
 		public string GetJobName(string className) =>
 			attribute.NamedArguments.GetStringValue("Name") ?? className.AsJobName();
 

@@ -15,6 +15,14 @@ internal static class ITypeSymbolExtensions
 				ContainingNamespace.IsImmediateJobsShared: true,
 			};
 
+		public bool IsJobDefaultsAttribute =>
+			typeSymbol is INamedTypeSymbol
+			{
+				Arity: 0,
+				Name: "JobDefaultsAttribute",
+				ContainingNamespace.IsImmediateJobsShared: true,
+			};
+
 		public bool IsJobDetails =>
 			typeSymbol is INamedTypeSymbol
 			{
