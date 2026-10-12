@@ -34,6 +34,7 @@ internal sealed partial class RedisJobStorage
 				schedule.Cron,
 				schedule.TimeZone,
 				schedule.JobName.ToUpperInvariant(),
+				_root,
 			],
 			cancellationToken
 		);
@@ -51,7 +52,7 @@ internal sealed partial class RedisJobStorage
 		var result = await EvaluateInt64Async(
 			RedisScripts.RemoveRecurring,
 			[RecurringKey(name), RecurringNamesKey, RecurringDueKey],
-			[name],
+			[name, _root],
 			cancellationToken
 		);
 		if (result == 0)
@@ -129,6 +130,10 @@ internal sealed partial class RedisJobStorage
 				continue;
 			}
 
+			if (schedule.IsPaused || schedule.NextRunAt > now
+				|| (jobNames is not null && !jobNames.Contains(schedule.JobName, StringComparer.OrdinalIgnoreCase)))
+				continue;
+
 			if (added.Add(name))
 				due.Add(schedule);
 		}
@@ -194,7 +199,7 @@ internal sealed partial class RedisJobStorage
 		var result = await EvaluateInt64Async(
 			RedisScripts.SetRecurringPaused,
 			[RecurringKey(name), RecurringDueKey],
-			[isPaused ? 1 : 0],
+			[isPaused ? 1 : 0, _root],
 			cancellationToken
 		);
 		if (result == 0)

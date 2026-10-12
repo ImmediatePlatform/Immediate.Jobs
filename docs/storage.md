@@ -128,7 +128,7 @@ may build keys from the root):
 | `due:{queue}` | sorted set | Due-ordered members `dueTicks\|createdTicks\|id`. Stale members are removed lazily. |
 | `leases` | sorted set | Active job ids by lease expiry. |
 | `executions:index:{id}` / `executions:data:{id}` | sorted set / hash | Execution history. |
-| `recurring:*` | various | Schedules, due index, names, materialization de-duplication. |
+| `recurring:*` | various | Schedules, global and per-job due indexes, names, materialization de-duplication. |
 | `server:{worker}` / `servers` | hash / sorted set | Heartbeats, including normalized tags. |
 | `definition-metadata` | hash | All definition metadata keyed by stable job name. |
 | `definition-catalog-version` | string | Version used to atomically reconcile a complete scoped catalogue. |

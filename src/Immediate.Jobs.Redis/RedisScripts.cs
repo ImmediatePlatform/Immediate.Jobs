@@ -550,7 +550,22 @@ internal static class RedisScripts
 		return 1
 		""";
 
+	private const string RecurringDueFunctions =
+		"""
+		local function removeRecurringDue(root, dueKey, jobName, member)
+			if not member then return end
+			redis.call('ZREM', dueKey, member)
+			if jobName then redis.call('ZREM', root .. 'recurring:due:job:' .. jobName, member) end
+		end
+		local function addRecurringDue(root, dueKey, jobName, score, member)
+			redis.call('ZADD', dueKey, score, member)
+			redis.call('ZADD', root .. 'recurring:due:job:' .. jobName, score, member)
+		end
+
+		""";
+
 	internal const string MergeDefinitionCatalog =
+		RecurringDueFunctions +
 		"""
 		if (redis.call('GET', KEYS[2]) or '0') ~= ARGV[1] then return 0 end
 		local changes = cjson.decode(ARGV[3])
@@ -561,8 +576,8 @@ internal static class RedisScripts
 		for _, name in ipairs(changes.RemovedSchedules) do
 			local key = ARGV[2] .. 'recurring:' .. name
 			if redis.call('HGET', key, 'code') == '1' then
-				local dueMember = redis.call('HGET', key, 'dueMember')
-				if dueMember then redis.call('ZREM', KEYS[4], dueMember) end
+				local due = redis.call('HMGET', key, 'dueMember', 'jobName')
+				removeRecurringDue(ARGV[2], KEYS[4], due[2], due[1])
 				redis.call('DEL', key)
 				redis.call('SREM', KEYS[3], name)
 			end
@@ -571,10 +586,10 @@ internal static class RedisScripts
 			local key = ARGV[2] .. 'recurring:' .. schedule.Name
 			local paused, last, next = schedule.Paused, schedule.Last, schedule.Next
 			local dueScore, dueMember = schedule.DueScore, schedule.DueMember
-			local current = redis.call('HMGET', key, 'paused', 'last', 'next', 'dueScore', 'dueMember', 'cron', 'timeZone')
+			local current = redis.call('HMGET', key, 'paused', 'last', 'next', 'dueScore', 'dueMember', 'cron', 'timeZone', 'jobName')
 			paused = current[1] or paused
 			last = current[2] or last
-			if current[5] then redis.call('ZREM', KEYS[4], current[5]) end
+			removeRecurringDue(ARGV[2], KEYS[4], current[8], current[5])
 			if current[6] == schedule.Cron and current[7] == schedule.TimeZone then
 				next = current[3] or next
 				dueScore = current[4] or dueScore
@@ -584,7 +599,7 @@ internal static class RedisScripts
 				'next', next, 'last', last, 'dueScore', dueScore, 'dueMember', dueMember,
 				'cron', schedule.Cron, 'timeZone', schedule.TimeZone, 'jobName', schedule.JobName)
 			redis.call('SADD', KEYS[3], schedule.Name)
-			if paused ~= '1' then redis.call('ZADD', KEYS[4], dueScore, dueMember) end
+			if paused ~= '1' then addRecurringDue(ARGV[2], KEYS[4], schedule.JobName, dueScore, dueMember) end
 		end
 		redis.call('INCR', KEYS[2])
 		return 1
@@ -592,32 +607,33 @@ internal static class RedisScripts
 
 	internal const string GetDueRecurringForJobs =
 		"""
-		local eligible = {}
-		for index = 4, #ARGV do eligible[ARGV[index]] = true end
-		local result = {}
-		if tonumber(ARGV[3]) <= 0 then return result end
-		local offset = 0
-		while true do
-			local members = redis.call('ZRANGEBYSCORE', KEYS[1], '-inf', ARGV[2], 'LIMIT', offset, 256)
-			if #members == 0 then break end
-			for _, member in ipairs(members) do
-				local name = string.sub(member, 21)
-				local key = ARGV[1] .. 'recurring:' .. name
-				local current = redis.call('HMGET', key, 'record', 'paused', 'dueMember', 'jobName')
-				if current[1] and current[2] ~= '1' and current[3] == member then
-					local record = cjson.decode(current[1])
-					if eligible[current[4] or string.upper(record.JobName)] then
+		local limit = tonumber(ARGV[3])
+		local result, jobs, seen = {}, {}, {}
+		if limit <= 0 then return result end
+		for index = 4, #ARGV do
+			local jobName = ARGV[index]
+			if not jobs[jobName] then
+				jobs[jobName] = true
+				local key = ARGV[1] .. 'recurring:due:job:' .. jobName
+				local members = redis.call('ZRANGEBYSCORE', key, '-inf', ARGV[2], 'LIMIT', 0, limit)
+				for _, member in ipairs(members) do
+					local name = string.sub(member, 21)
+					local scheduleKey = ARGV[1] .. 'recurring:' .. name
+					local current = redis.call('HMGET', scheduleKey, 'paused', 'dueMember', 'jobName')
+					if current[1] ~= '1' and current[2] == member and current[3] == jobName and not seen[member] then
+						seen[member] = true
 						table.insert(result, member)
-						if #result >= tonumber(ARGV[3]) then return result end
 					end
 				end
 			end
-			offset = offset + #members
 		end
+		table.sort(result)
+		while #result > limit do table.remove(result) end
 		return result
 		""";
 
 	internal const string UpsertRecurring =
+		RecurringDueFunctions +
 		"""
 		local exists = redis.call('EXISTS', KEYS[1]) == 1
 		local paused = ARGV[3]
@@ -626,11 +642,11 @@ internal static class RedisScripts
 		local dueScore = ARGV[7]
 		local dueMember = ARGV[8]
 		if exists then
-			local current = redis.call('HMGET', KEYS[1], 'code', 'paused', 'last', 'dueMember')
+			local current = redis.call('HMGET', KEYS[1], 'code', 'paused', 'last', 'dueMember', 'jobName')
 			if current[1] == '1' and ARGV[2] == '0' then return -1 end
 			paused = current[2] or paused
 			last = current[3] or last
-			if current[4] then redis.call('ZREM', KEYS[3], current[4]) end
+			removeRecurringDue(ARGV[12], KEYS[3], current[5], current[4])
 
 		end
 		redis.call('HSET', KEYS[1],
@@ -639,42 +655,44 @@ internal static class RedisScripts
 			'cron', ARGV[9], 'timeZone', ARGV[10], 'jobName', ARGV[11])
 		redis.call('SADD', KEYS[2], ARGV[6])
 		if paused == '1' then
-			redis.call('ZREM', KEYS[3], dueMember)
+			removeRecurringDue(ARGV[12], KEYS[3], ARGV[11], dueMember)
 		else
-			redis.call('ZADD', KEYS[3], dueScore, dueMember)
+			addRecurringDue(ARGV[12], KEYS[3], ARGV[11], dueScore, dueMember)
 		end
 		return 1
 		""";
 
 	internal const string RemoveRecurring =
+		RecurringDueFunctions +
 		"""
 		if redis.call('EXISTS', KEYS[1]) == 0 then return 0 end
 		if redis.call('HGET', KEYS[1], 'code') == '1' then return -1 end
-		local dueMember = redis.call('HGET', KEYS[1], 'dueMember')
+		local due = redis.call('HMGET', KEYS[1], 'dueMember', 'jobName')
+		removeRecurringDue(ARGV[2], KEYS[3], due[2], due[1])
 		redis.call('DEL', KEYS[1])
 		redis.call('SREM', KEYS[2], ARGV[1])
-		if dueMember then redis.call('ZREM', KEYS[3], dueMember) end
 		return 1
 		""";
 
 	internal const string SetRecurringPaused =
+		RecurringDueFunctions +
 		"""
 		if redis.call('EXISTS', KEYS[1]) == 0 then return 0 end
 		redis.call('HSET', KEYS[1], 'paused', ARGV[1])
-		local due = redis.call('HMGET', KEYS[1], 'dueScore', 'dueMember')
+		local due = redis.call('HMGET', KEYS[1], 'dueScore', 'dueMember', 'jobName')
 		if ARGV[1] == '1' then
-			if due[2] then redis.call('ZREM', KEYS[2], due[2]) end
+			removeRecurringDue(ARGV[2], KEYS[2], due[3], due[2])
 		elseif due[1] and due[2] then
-			redis.call('ZADD', KEYS[2], due[1], due[2])
+			addRecurringDue(ARGV[2], KEYS[2], due[3], due[1], due[2])
 		end
 		return 1
 		""";
 
 	internal const string MaterializeRecurring =
-		FairQueueFunctions +
+		FairQueueFunctions + RecurringDueFunctions +
 		"""
 		if redis.call('EXISTS', KEYS[1]) == 0 then return 0 end
-		local schedule = redis.call('HMGET', KEYS[1], 'next', 'paused', 'dueMember')
+		local schedule = redis.call('HMGET', KEYS[1], 'next', 'paused', 'dueMember', 'jobName')
 		if schedule[1] ~= ARGV[1] or schedule[2] == '1' then return 0 end
 		local previousDueMember = schedule[3]
 		if not previousDueMember or previousDueMember ~= ARGV[1] .. '|' .. ARGV[21] then return 0 end
@@ -709,8 +727,8 @@ internal static class RedisScripts
 		local nextDueMember = ARGV[19] .. '|' .. ARGV[21]
 		redis.call('HSET', KEYS[1],
 			'last', ARGV[1], 'next', ARGV[19], 'dueScore', ARGV[20], 'dueMember', nextDueMember)
-		if previousDueMember then redis.call('ZREM', KEYS[7], previousDueMember) end
-		redis.call('ZADD', KEYS[7], ARGV[20], nextDueMember)
+		removeRecurringDue(ARGV[25], KEYS[7], schedule[4], previousDueMember)
+		addRecurringDue(ARGV[25], KEYS[7], schedule[4], ARGV[20], nextDueMember)
 		return inserted
 		""";
 

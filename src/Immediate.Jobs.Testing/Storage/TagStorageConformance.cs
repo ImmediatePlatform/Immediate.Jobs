@@ -190,6 +190,42 @@ internal static class TagStorageConformance
 		var schedules = await storage.GetDueRecurringAsync(now, 1, [eligible.Name], token);
 		ConformanceAssert.SequenceEqual([eligible.Name], schedules.Select(static item => item.JobName), DueCase, "ineligible schedules must not occupy the batch");
 		ConformanceAssert.Equal(0, (await storage.GetDueRecurringAsync(now, 1, [], token)).Count, DueCase, "an empty eligible-name list must return no schedules");
+
+		await storage.PauseRecurringAsync(eligible.Name, token);
+		ConformanceAssert.Equal(0, (await storage.GetDueRecurringAsync(now, 1, [eligible.Name], token)).Count, DueCase, "pause must remove eligibility");
+		await storage.ResumeRecurringAsync(eligible.Name, token);
+		ConformanceAssert.Equal(1, (await storage.GetDueRecurringAsync(now, 1, [eligible.Name], token)).Count, DueCase, "resume must restore eligibility");
+
+		var moved = Schedule(eligible, now.AddMinutes(-1)) with { IsCodeDefined = false, JobName = "moved" };
+		await storage.UpsertRecurringAsync(moved, token);
+		ConformanceAssert.Equal(0, (await storage.GetDueRecurringAsync(now, 1, [eligible.Name], token)).Count, DueCase, "retargeting must remove the old job's eligibility");
+		var second = moved with { Name = "second", JobName = "other-eligible", NextRunAt = now.AddSeconds(-30) };
+		await storage.UpsertRecurringAsync(second, token);
+		schedules = await storage.GetDueRecurringAsync(now, 1, [second.JobName, moved.JobName, moved.JobName], token);
+		ConformanceAssert.SequenceEqual([moved.Name], schedules.Select(static item => item.Name), DueCase, "merge eligible jobs by due time before taking the batch, without duplicates");
+
+		var job = new JobRecord
+		{
+			JobHandle = JobHandle.FromString("tagged-index-occurrence"),
+			JobName = moved.JobName,
+			QueueName = moved.QueueName,
+			State = JobState.Pending,
+			Payload = "{}",
+			CreatedAt = now,
+			DueAt = now,
+			RecurringKey = "tagged-index-occurrence",
+		};
+		ConformanceAssert.True(await storage.MaterializeRecurringAsync(moved, job, now.AddMinutes(1), cancellationToken: token), DueCase, "materialization must advance the due index");
+		ConformanceAssert.Equal(0, (await storage.GetDueRecurringAsync(now, 1, [moved.JobName], token)).Count, DueCase, "materialized schedules must leave the due batch");
+		ConformanceAssert.Equal(1, (await storage.GetDueRecurringAsync(now.AddMinutes(1), 1, [moved.JobName], token)).Count, DueCase, "the advanced occurrence must retain its job eligibility");
+		await storage.RemoveRecurringAsync(moved.Name, token);
+		ConformanceAssert.Equal(0, (await storage.GetDueRecurringAsync(now.AddMinutes(1), 1, [moved.JobName], token)).Count, DueCase, "removal must clear job eligibility");
+
+		var code = Definition("indexed-code") with { Cron = "* * * * *" };
+		await storage.MergeJobDefinitionsListAsync(new() { Definitions = [code], RecurringSchedules = [Schedule(code, now)] }, token);
+		ConformanceAssert.Equal(1, (await storage.GetDueRecurringAsync(now, 1, [code.Name], token)).Count, DueCase, "catalogue reconciliation must maintain job eligibility");
+		await storage.MergeJobDefinitionsListAsync(Registration([]), token);
+		ConformanceAssert.Equal(0, (await storage.GetDueRecurringAsync(now, 1, [code.Name], token)).Count, DueCase, "catalogue removal must clear job eligibility");
 	}
 
 }
