@@ -49,7 +49,7 @@ internal sealed partial class RedisJobStorage
 			values.Add(queue.JobCapacities.Count);
 			foreach (var capacity in queue.JobCapacities)
 			{
-				values.Add(capacity.Key);
+				values.Add(capacity.Key.ToUpperInvariant());
 				values.Add(Math.Max(0, capacity.Value));
 			}
 		}

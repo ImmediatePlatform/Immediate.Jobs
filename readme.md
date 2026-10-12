@@ -52,6 +52,15 @@ public sealed class SignupService(SendWelcomeEmail.Scheduler welcomeEmail)
 Register the generated handlers and jobs methods in `Program.cs`, in that order. For an assembly named `MyApp`, these
 are `AddMyAppHandlers()` and `AddMyAppJobs()`.
 
+## Persisted definitions
+
+Startup provides the complete local catalogue to storage, which inserts, updates, and removes job
+definitions and code-defined schedules. The dashboard shows every stored definition, including those
+absent from its local registrations.
+
+Job names match case-insensitively. Explicit job names must not have leading or trailing whitespace; the analyzer reports `IJOB0008`
+for invalid names. Storage also rejects such names in manually supplied definition catalogues.
+
 ## Scheduling and handles
 
 Generated schedulers use one method name for relative and absolute scheduling. Pass a `TimeSpan` for a delay or a

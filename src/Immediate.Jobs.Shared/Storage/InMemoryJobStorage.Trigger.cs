@@ -84,7 +84,7 @@ public sealed partial class InMemoryJobStorage
 	{
 		if (!_jobs.TryGetValue(jobHandle, out var job))
 			throw new KeyNotFoundException($"Job '{jobHandle}' was not found.");
-		if (!string.Equals(job.JobName, expectedJobName, StringComparison.Ordinal))
+		if (!string.Equals(job.JobName, expectedJobName, StringComparison.OrdinalIgnoreCase))
 			throw new ImmediateJobException($"Job '{jobHandle}' is not a '{expectedJobName}' job.");
 
 		return job;

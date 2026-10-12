@@ -16,6 +16,10 @@ internal sealed partial class RedisJobStorage
 
 	private RedisKey RecurringDedupeKey => _root + "recurring:dedupe";
 
+	private RedisKey DefinitionMetadataKey => _root + "definition-metadata";
+
+	private RedisKey DefinitionCatalogVersionKey => _root + "definition-catalog-version";
+
 	private RedisKey ServersKey => _root + "servers";
 
 	private RedisKey JobKey(JobHandle id) => _root + "job:" + id.Value;

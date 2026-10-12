@@ -116,6 +116,8 @@ file sealed class RelationalConformanceFixture(
 		"immediate_job_batches",
 		"immediate_recurring_jobs",
 		"immediate_job_servers",
+		"immediate_job_definition_metadata",
+		"immediate_job_definition_catalog",
 	];
 
 	internal IServiceProvider Services => services;
@@ -240,6 +242,7 @@ file sealed class RelationalConformanceFixture(
 		if (database == ConformanceDatabase.PostgreSql)
 		{
 			await connection.ExecuteAsync($"DROP SCHEMA IF EXISTS \"{schema}\" CASCADE");
+			await connection.ExecuteAsync($"DROP COLLATION IF EXISTS \"{schema}_jobs_ci\"");
 			return;
 		}
 

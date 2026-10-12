@@ -45,7 +45,7 @@ public sealed partial class InMemoryJobStorage
 			if (!string.IsNullOrWhiteSpace(query.QueueName))
 				jobs = jobs.Where(x => string.Equals(x.QueueName, query.QueueName, StringComparison.Ordinal));
 			if (!string.IsNullOrWhiteSpace(query.JobName))
-				jobs = jobs.Where(x => string.Equals(x.JobName, query.JobName, StringComparison.Ordinal));
+				jobs = jobs.Where(x => string.Equals(x.JobName, query.JobName, StringComparison.OrdinalIgnoreCase));
 			if (query.CreatedBefore is { } createdBefore)
 				jobs = jobs.Where(x => x.CreatedAt < createdBefore);
 
@@ -72,7 +72,7 @@ public sealed partial class InMemoryJobStorage
 		lock (_gate)
 		{
 			return _jobs.Values
-				.Where(j => string.Equals(j.JobName, jobName, StringComparison.Ordinal))
+				.Where(j => string.Equals(j.JobName, jobName, StringComparison.OrdinalIgnoreCase))
 				.Where(
 					j => j.State is
 						JobState.AwaitingContinuation

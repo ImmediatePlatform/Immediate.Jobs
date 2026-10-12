@@ -157,7 +157,7 @@ public sealed class DuplicateElementsAnalyzer : DiagnosticAnalyzer
 
 	private static void AnalyzeDuplicateJobNames(CompilationAnalysisContext context, List<Job> jobs)
 	{
-		foreach (var jobGroup in jobs.GroupBy(x => x.JobName, StringComparer.Ordinal).Where(g => g.Skip(1).Any()))
+		foreach (var jobGroup in jobs.GroupBy(x => x.JobName, StringComparer.OrdinalIgnoreCase).Where(g => g.Skip(1).Any()))
 		{
 			var classes = string.Join(", ", jobGroup.Select(l => l.ClassName));
 

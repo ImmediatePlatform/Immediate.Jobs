@@ -4,10 +4,12 @@ namespace Immediate.Jobs.Tests.AnalyzerTests;
 
 public sealed class DuplicateElementsAnalyzerTests
 {
-	[Fact]
-	public async Task DuplicateJobNamesShouldTriggerAtAllLocations() =>
+	[Theory]
+	[InlineData("my-name")]
+	[InlineData("MY-NAME")]
+	public async Task DuplicateJobNamesShouldTriggerAtAllLocations(string secondName) =>
 		await AnalyzerTestHelpers.CreateAnalyzerTest<DuplicateElementsAnalyzer>(
-			"""
+			$$"""
 			using System.Threading;
 			using System.Threading.Tasks;
 			using Immediate.Handlers.Shared;
@@ -21,7 +23,7 @@ public sealed class DuplicateElementsAnalyzerTests
 				private async ValueTask Handle(EmptyJobRequest _, CancellationToken token) { }
 			}
 			
-			[Handler, Job(Name = "my-name")]
+			[Handler, Job(Name = "{{secondName}}")]
 			public sealed partial class {|IJOB0002:JobTwo|}
 			{
 				private async ValueTask Handle(EmptyJobRequest _, CancellationToken token) { }

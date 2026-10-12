@@ -17,7 +17,6 @@ internal static class LibraryEventIds
 	public const int CompleteWithContinuationsAsyncCalled = 11612;
 	public const int AddBatchJobAsyncCalled = 11613;
 	public const int FailAsyncCalled = 11614;
-	public const int MergeRecurringSchedulesListAsyncCalled = 11615;
 	public const int UpsertRecurringAsyncCalled = 11616;
 	public const int RemoveRecurringAsyncCalled = 11617;
 	public const int PauseRecurringAsyncCalled = 11618;
@@ -45,4 +44,6 @@ internal static class LibraryEventIds
 	public const int UpdatePayloadAsyncCalled = 11640;
 	public const int TryTriggerAsyncCalled = 11641;
 	public const int TryTriggerBatchAsyncCalled = 11642;
+	public const int MergeJobDefinitionsListAsyncCalled = 11643;
+	public const int GetJobDefinitionsAsyncCalled = 11644;
 }

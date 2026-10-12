@@ -131,7 +131,7 @@ internal sealed partial class LinqToDBJobStorage<T>
 	{
 		var job = await Jobs(connection).SingleOrDefaultAsync(item => item.Id == jobHandle.Value, cancellationToken)
 			?? throw new KeyNotFoundException($"Job '{jobHandle}' was not found.");
-		if (!string.Equals(job.JobName, expectedJobName, StringComparison.Ordinal))
+		if (!string.Equals(job.JobName, expectedJobName, StringComparison.OrdinalIgnoreCase))
 			throw new ImmediateJobException($"Job '{jobHandle}' is not a '{expectedJobName}' job.");
 
 		return job;

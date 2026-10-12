@@ -27,7 +27,6 @@ internal static class LibraryEventIds
 	public const int InMemoryCompleteWithContinuationsAsyncCalled = 11023;
 	public const int InMemoryAddBatchJobAsyncCalled = 11024;
 	public const int InMemoryFailAsyncCalled = 11025;
-	public const int InMemoryMergeRecurringSchedulesListAsyncCalled = 11026;
 	public const int InMemoryUpsertRecurringAsyncCalled = 11027;
 	public const int InMemoryRemoveRecurringAsyncCalled = 11028;
 	public const int InMemoryPauseRecurringAsyncCalled = 11029;
@@ -63,7 +62,6 @@ internal static class LibraryEventIds
 	public const int SingleServerCompleteWithContinuationsAsyncCalled = 11059;
 	public const int SingleServerAddBatchJobAsyncCalled = 11060;
 	public const int SingleServerFailAsyncCalled = 11061;
-	public const int SingleServerMergeRecurringSchedulesListAsyncCalled = 11062;
 	public const int SingleServerUpsertRecurringAsyncCalled = 11063;
 	public const int SingleServerRemoveRecurringAsyncCalled = 11064;
 	public const int SingleServerPauseRecurringAsyncCalled = 11065;
@@ -95,4 +93,8 @@ internal static class LibraryEventIds
 	public const int SingleServerUpdatePayloadAsyncCalled = 11091;
 	public const int SingleServerTryTriggerAsyncCalled = 11092;
 	public const int SingleServerTryTriggerBatchAsyncCalled = 11093;
+	public const int InMemoryMergeJobDefinitionsListAsyncCalled = 11094;
+	public const int InMemoryGetJobDefinitionsAsyncCalled = 11095;
+	public const int SingleServerMergeJobDefinitionsListAsyncCalled = 11096;
+	public const int SingleServerGetJobDefinitionsAsyncCalled = 11097;
 }

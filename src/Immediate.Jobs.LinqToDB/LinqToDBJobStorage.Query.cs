@@ -102,7 +102,9 @@ internal sealed partial class LinqToDBJobStorage<T>
 		{
 			var search = query.Search.ToUpperInvariant();
 #pragma warning disable CA1304, CA1311, CA1862, MA0011
-			jobs = jobs.Where(job => job.JobName.ToUpper().Contains(search));
+			jobs = connection.DataProvider.Name.Contains("PostgreSQL", StringComparison.OrdinalIgnoreCase)
+				? jobs.Where(job => Sql.Collate(job.JobName, "und-x-icu").ToUpper().Contains(search))
+				: jobs.Where(job => job.JobName.ToUpper().Contains(search));
 #pragma warning restore CA1304, CA1311, CA1862, MA0011
 		}
 

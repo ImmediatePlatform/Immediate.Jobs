@@ -11,68 +11,6 @@ internal sealed partial class LinqToDBJobStorage<T>
 	where T : DataConnection
 {
 	/// <inheritdoc />
-	public async ValueTask MergeRecurringSchedulesListAsync(
-		IReadOnlyList<RecurringJobSchedule> schedules,
-		CancellationToken cancellationToken = default
-	)
-	{
-		MergeRecurringSchedulesListAsyncCalled();
-		cancellationToken.ThrowIfCancellationRequested();
-		await TaskScheduler.Yield();
-
-		await using var scope = contextScope.GetScope(out var connection);
-		await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
-
-		var existing = await Recurring(connection)
-			.ToDictionaryAsync(r => r.Name, StringComparer.Ordinal, cancellationToken);
-
-		foreach (var schedule in schedules)
-		{
-			var entity = ToEntity(schedule);
-
-			if (!existing.TryGetValue(schedule.Name, out var current))
-			{
-				await connection.InsertAsync(entity, schemaName: _schema, token: cancellationToken);
-				continue;
-			}
-
-			existing.Remove(schedule.Name);
-
-			var oldStamp = current.ConcurrencyStamp;
-
-			current.NextRunAt =
-				string.Equals(current.Cron, schedule.Cron, StringComparison.Ordinal)
-				&& string.Equals(current.TimeZone, schedule.TimeZone, StringComparison.Ordinal)
-				? current.NextRunAt
-				: schedule.NextRunAt;
-
-			current.JobName = schedule.JobName;
-			current.QueueName = schedule.QueueName;
-			current.Cron = schedule.Cron;
-			current.TimeZone = schedule.TimeZone;
-			current.IsCodeDefined = true;
-			current.ConcurrencyStamp = Guid.NewGuid();
-
-			if (!await UpdateRecurringAsync(connection, current, oldStamp, cancellationToken))
-				throw new ImmediateJobException("Failure saving updated schedule.");
-		}
-
-		if (existing.Count != 0)
-		{
-			var toRemove = existing
-				.Where(kvp => kvp.Value.IsCodeDefined)
-				.Select(kvp => kvp.Key)
-				.ToList();
-
-			await Recurring(connection)
-				.Where(r => r.Name.In(toRemove))
-				.DeleteAsync(cancellationToken);
-		}
-
-		await transaction.CommitAsync(cancellationToken);
-	}
-
-	/// <inheritdoc />
 	public async ValueTask UpsertRecurringAsync(
 		RecurringJobSchedule schedule,
 		CancellationToken cancellationToken = default
@@ -313,14 +251,6 @@ internal sealed partial class LinqToDBJobStorage<T>
 			.UpdateAsync(cancellationToken);
 		return updated != 0;
 	}
-
-	[LoggerMessage(
-		EventId = LibraryEventIds.MergeRecurringSchedulesListAsyncCalled,
-		EventName = "Immediate.Jobs.LinqToDB.MergeRecurringSchedulesListAsyncCalled",
-		Level = LogLevel.Debug,
-		Message = "MergeRecurringSchedulesListAsync called"
-	)]
-	private partial void MergeRecurringSchedulesListAsyncCalled();
 
 	[LoggerMessage(
 		EventId = LibraryEventIds.UpsertRecurringAsyncCalled,

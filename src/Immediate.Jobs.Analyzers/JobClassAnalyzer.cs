@@ -53,7 +53,7 @@ public sealed class JobClassAnalyzer : DiagnosticAnalyzer
 			category: "ImmediateJobs",
 			defaultSeverity: DiagnosticSeverity.Error,
 			isEnabledByDefault: true,
-			description: "A job must have a name that can identify it in storage.",
+			description: "A job name must contain a letter or digit and must not have leading or trailing whitespace.",
 			customTags: [WellKnownDiagnosticTags.NotConfigurable]
 		);
 
@@ -130,7 +130,8 @@ public sealed class JobClassAnalyzer : DiagnosticAnalyzer
 	{
 		context.CancellationToken.ThrowIfCancellationRequested();
 
-		if (jobAttribute.GetJobName(className: context.Symbol.Name).HasNameContent())
+		var name = jobAttribute.GetJobName(className: context.Symbol.Name);
+		if (name.HasNameContent() && !name.HasLeadingOrTrailingWhitespace())
 			return;
 
 		var explicitName = jobAttribute.NamedArguments.GetStringValue("Name");
@@ -142,7 +143,9 @@ public sealed class JobClassAnalyzer : DiagnosticAnalyzer
 				context.Symbol.Name,
 				explicitName is null
 					? $"a name cannot be derived from the class name `{context.Symbol.Name}`; rename the class or set `Name`"
-					: "`Name` must contain at least one letter or digit"
+					: !name.HasNameContent()
+						? "`Name` must contain at least one letter or digit"
+						: "`Name` must not have leading or trailing whitespace"
 			)
 		);
 	}

@@ -17,6 +17,7 @@ namespace Immediate.Jobs.DistributedAspire.Shared.Migrations
         {
 #pragma warning disable 612, 618
             modelBuilder
+                .HasAnnotation("Npgsql:CollationDefinition:immediate_jobs_case_insensitive", "und-u-ks-level2,und-u-ks-level2,icu,False")
                 .HasAnnotation("ProductVersion", "10.0.12")
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
@@ -154,6 +155,72 @@ namespace Immediate.Jobs.DistributedAspire.Shared.Migrations
                     b.ToTable("immediate_job_continuations", (string)null);
                 });
 
+            modelBuilder.Entity("Immediate.Jobs.EntityFrameworkCore.ImmediateJobDefinitionCatalogEntity", b =>
+                {
+                    b.Property<int>("Id")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("ConcurrencyStamp")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("immediate_job_definition_catalog", (string)null);
+                });
+
+            modelBuilder.Entity("Immediate.Jobs.EntityFrameworkCore.ImmediateJobDefinitionMetadataEntity", b =>
+                {
+                    b.Property<string>("Name")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .UseCollation("immediate_jobs_case_insensitive");
+
+                    b.Property<short>("Backoff")
+                        .HasColumnType("smallint");
+
+                    b.Property<long>("BackoffBaseTicks")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("Cron")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<int>("MaxAttempts")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("MaxConcurrency")
+                        .HasColumnType("integer");
+
+                    b.Property<short>("MisfireHandlingMode")
+                        .HasColumnType("smallint");
+
+                    b.Property<short>("OverlapPolicy")
+                        .HasColumnType("smallint");
+
+                    b.Property<int>("QueueConcurrency")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("QueueName")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<int>("QueuePriority")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("TimeZone")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<long?>("TimeoutTicks")
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Name");
+
+                    b.ToTable("immediate_job_definition_metadata", (string)null);
+                });
+
             modelBuilder.Entity("Immediate.Jobs.EntityFrameworkCore.ImmediateJobEntity", b =>
                 {
                     b.Property<string>("Id")
@@ -204,7 +271,8 @@ namespace Immediate.Jobs.DistributedAspire.Shared.Migrations
                     b.Property<string>("JobName")
                         .IsRequired()
                         .HasMaxLength(256)
-                        .HasColumnType("character varying(256)");
+                        .HasColumnType("character varying(256)")
+                        .UseCollation("immediate_jobs_case_insensitive");
 
                     b.Property<string>("LastError")
                         .HasColumnType("text");
@@ -361,7 +429,8 @@ namespace Immediate.Jobs.DistributedAspire.Shared.Migrations
                     b.Property<string>("JobName")
                         .IsRequired()
                         .HasMaxLength(256)
-                        .HasColumnType("character varying(256)");
+                        .HasColumnType("character varying(256)")
+                        .UseCollation("immediate_jobs_case_insensitive");
 
                     b.Property<long?>("LastRunAt")
                         .HasColumnType("bigint");

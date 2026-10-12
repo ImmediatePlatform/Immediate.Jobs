@@ -11,6 +11,9 @@ public sealed class JobAttribute : Attribute
 	/// <summary>
 	/// 	The explicit persisted job name, or <see langword="null"/> to derive it.
 	/// </summary>
+	/// <remarks>
+	/// 	Names must not have leading or trailing whitespace.
+	/// </remarks>
 	/// <value>
 	/// 	The explicit persisted job name, or <see langword="null"/> to derive it.
 	/// </value>

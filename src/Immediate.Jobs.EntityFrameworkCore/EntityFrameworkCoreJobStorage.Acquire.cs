@@ -30,7 +30,7 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 			if (queueCapacity <= 0)
 				continue;
 
-			var jobCapacities = queue.JobCapacities.ToDictionary(static pair => pair.Key, static pair => pair.Value, StringComparer.Ordinal);
+			var jobCapacities = queue.JobCapacities.ToDictionary(static pair => pair.Key, static pair => pair.Value, StringComparer.OrdinalIgnoreCase);
 			while (queueCapacity > 0)
 			{
 				var eligibleNames = jobCapacities.Where(static pair => pair.Value > 0).Select(static pair => pair.Key).ToList();
@@ -54,7 +54,7 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 					break;
 
 				var selected = new List<ImmediateJobEntity>(candidates.Count);
-				var selectionCapacities = new Dictionary<string, int>(jobCapacities, StringComparer.Ordinal);
+				var selectionCapacities = new Dictionary<string, int>(jobCapacities, StringComparer.OrdinalIgnoreCase);
 				foreach (var candidate in candidates)
 				{
 					if (selectionCapacities[candidate.JobName] <= 0)

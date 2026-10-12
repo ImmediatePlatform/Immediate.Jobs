@@ -31,7 +31,7 @@ public sealed partial class ImmediateJobsGenerator
 		var attribute = context.Attributes[0];
 		var jobName = attribute.GetJobName(className: symbol.Name);
 
-		if (!jobName.HasNameContent())
+		if (!jobName.HasNameContent() || jobName.HasLeadingOrTrailingWhitespace())
 			return null;
 
 		var arguments = attribute.NamedArguments;
@@ -122,7 +122,6 @@ public sealed partial class ImmediateJobsGenerator
 			return null;
 
 		var tags = handlerAttribute?.NamedArguments.GetStringArray("Tags");
-
 		var extractors = attributes.GetContextExtractors().ToList();
 
 		if (extractors.Any(e => !PayloadValidation.CanSerializeToJson(e.ContextType, reportError: null)))

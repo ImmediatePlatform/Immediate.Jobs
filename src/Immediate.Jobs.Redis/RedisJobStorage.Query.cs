@@ -121,7 +121,7 @@ internal sealed partial class RedisJobStorage
 		var jobs = await ReadJobsAsync(ids, cancellationToken);
 		return
 		[
-			.. jobs.Where(job => string.Equals(job.JobName, jobName, StringComparison.Ordinal)
+			.. jobs.Where(job => string.Equals(job.JobName, jobName, StringComparison.OrdinalIgnoreCase)
 				&& job.State is (JobState.AwaitingContinuation or JobState.WaitingForTrigger
 					or JobState.Scheduled or JobState.Pending or JobState.Active)),
 		];
@@ -338,7 +338,7 @@ internal sealed partial class RedisJobStorage
 		(query.State is not { } state || job.State == state) &&
 		(query.CreatedBefore is not { } createdBefore || job.CreatedAt < createdBefore) &&
 		(string.IsNullOrWhiteSpace(query.QueueName) || string.Equals(job.QueueName, query.QueueName, StringComparison.Ordinal)) &&
-		(string.IsNullOrWhiteSpace(query.JobName) || string.Equals(job.JobName, query.JobName, StringComparison.Ordinal)) &&
+		(string.IsNullOrWhiteSpace(query.JobName) || string.Equals(job.JobName, query.JobName, StringComparison.OrdinalIgnoreCase)) &&
 		(string.IsNullOrWhiteSpace(query.Search) ||
 			job.JobName.Contains(query.Search, StringComparison.OrdinalIgnoreCase));
 
