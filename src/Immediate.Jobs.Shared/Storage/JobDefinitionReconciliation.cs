@@ -111,6 +111,7 @@ public sealed record JobDefinitionReconciliation
 				schedules.Add(schedule with
 				{
 					IsPaused = current.IsPaused,
+					CancellationReason = current.CancellationReason ?? schedule.CancellationReason,
 					LastRunAt = current.LastRunAt,
 					NextRunAt = string.Equals(current.Cron, schedule.Cron, StringComparison.Ordinal)
 						&& string.Equals(current.TimeZone, schedule.TimeZone, StringComparison.Ordinal)

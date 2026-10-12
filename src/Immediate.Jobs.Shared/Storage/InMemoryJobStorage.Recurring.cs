@@ -23,7 +23,12 @@ public sealed partial class InMemoryJobStorage
 					throw new ImmediateJobException("Code-defined recurring schedules cannot be replaced by dynamic schedules."),
 
 				{ } =>
-					schedule with { IsPaused = current.IsPaused, LastRunAt = current.LastRunAt },
+					schedule with
+					{
+						IsPaused = current.IsPaused || (schedule.CancellationReason ?? current.CancellationReason) is not null,
+						LastRunAt = current.LastRunAt,
+						CancellationReason = schedule.CancellationReason ?? current.CancellationReason,
+					},
 
 				_ => schedule,
 			};

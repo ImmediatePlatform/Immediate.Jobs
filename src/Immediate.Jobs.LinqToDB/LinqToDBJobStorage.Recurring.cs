@@ -49,6 +49,8 @@ internal sealed partial class LinqToDBJobStorage<T>
 			var oldStamp = existing.ConcurrencyStamp;
 			existing.JobName = schedule.JobName;
 			existing.QueueName = schedule.QueueName;
+			existing.CancellationReason = schedule.CancellationReason ?? existing.CancellationReason;
+			existing.IsPaused |= existing.CancellationReason is not null;
 			existing.Cron = schedule.Cron;
 			existing.TimeZone = schedule.TimeZone;
 			existing.IsCodeDefined = schedule.IsCodeDefined;

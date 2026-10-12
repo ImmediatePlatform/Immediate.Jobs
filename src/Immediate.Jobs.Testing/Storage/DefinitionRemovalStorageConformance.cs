@@ -81,8 +81,18 @@ internal static class DefinitionRemovalStorageConformance
 		ConformanceAssert.True(cancelled.IsPaused, CancellationCase, "canceled schedules cannot emit occurrences");
 		ConformanceAssert.Equal(expected: 0, (await storage.GetDueRecurringAsync(now.AddHours(1), 10, [definition.Name], token)).Count, CancellationCase, "due queries exclude canceled schedules");
 		await ConformanceAssert.ThrowsAsync<ImmediateJobException>(() => storage.ResumeRecurringAsync(schedule.Name, token), CancellationCase, "ordinary resume cannot restart a canceled schedule");
+		// A scheduler may have read this original snapshot before reconciliation canceled it.
+		await storage.UpsertRecurringAsync(schedule with { IsPaused = false, NextRunAt = now.AddMinutes(2) }, token);
+		var updated = (await storage.GetMonitoringSnapshotAsync(token)).Recurring.Single();
+		ConformanceAssert.Equal(cancelled.CancellationReason, updated.CancellationReason, CancellationCase, "a stale upsert preserves cancellation");
+		ConformanceAssert.True(updated.IsPaused, CancellationCase, "a stale upsert cannot reactivate a canceled schedule");
+		await ConformanceAssert.ThrowsAsync<ImmediateJobException>(() => storage.ResumeRecurringAsync(schedule.Name, token), CancellationCase, "resume remains rejected after a stale upsert");
 		await storage.MergeJobDefinitionsListAsync(new() { Definitions = [], ServerTags = ["alpha"] }, token);
-		ConformanceAssert.Equal(cancelled, (await storage.GetMonitoringSnapshotAsync(token)).Recurring.Single(), CancellationCase, "repeated reconciliation retains cancellation history");
+		ConformanceAssert.Equal(updated, (await storage.GetMonitoringSnapshotAsync(token)).Recurring.Single(), CancellationCase, "repeated reconciliation retains cancellation history");
+		await storage.RemoveRecurringAsync(schedule.Name, token);
+		await storage.UpsertRecurringAsync(schedule, token);
+		var recreated = (await storage.GetMonitoringSnapshotAsync(token)).Recurring.Single();
+		ConformanceAssert.Equal<string?>(expected: null, recreated.CancellationReason, CancellationCase, "explicit deletion and recreation creates a new schedule");
 	}
 
 	private static async ValueTask SettlesGraphAsync(IJobStorage storage, FakeTimeProvider clock, CancellationToken token)

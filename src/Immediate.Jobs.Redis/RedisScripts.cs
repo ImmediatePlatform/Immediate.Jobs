@@ -576,20 +576,31 @@ internal static class RedisScripts
 		"""
 		if (redis.call('GET', KEYS[2]) or '0') ~= ARGV[1] then return false end
 		local changes = cjson.decode(ARGV[3])
-		local reports = {}
+		local reports, removed = {}, {}
+		for _, name in ipairs(changes.RemovedDefinitions) do
+			removed[name] = { jobs = {}, schedules = {} }
+		end
+		if #changes.RemovedDefinitions > 0 then
+			for _, id in ipairs(redis.call('ZRANGE', ARGV[2] .. 'jobs', 0, -1)) do
+				local name = redis.call('HGET', ARGV[2] .. 'job:' .. id, 'jobName')
+				if name and removed[name] then table.insert(removed[name].jobs, id) end
+			end
+			for _, name in ipairs(redis.call('SMEMBERS', KEYS[3])) do
+				local jobName = redis.call('HGET', ARGV[2] .. 'recurring:' .. name, 'jobName')
+				if jobName and removed[jobName] then table.insert(removed[jobName].schedules, name) end
+			end
+		end
 		for _, name in ipairs(changes.RemovedDefinitions) do
 			local jobCount, scheduleCount = 0, 0
-			for _, id in ipairs(redis.call('ZRANGE', ARGV[2] .. 'jobs', 0, -1)) do
-				if redis.call('HGET', ARGV[2] .. 'job:' .. id, 'jobName') == name then
-					if cancelJob(ARGV[2], id, ARGV[4], tonumber(ARGV[5]), ARGV[6]) == 1 then jobCount = jobCount + 1 end
-				end
+			for _, id in ipairs(removed[name].jobs) do
+				if cancelJob(ARGV[2], id, ARGV[4], tonumber(ARGV[5]), ARGV[6]) == 1 then jobCount = jobCount + 1 end
 			end
-			for _, scheduleName in ipairs(redis.call('SMEMBERS', KEYS[3])) do
+			for _, scheduleName in ipairs(removed[name].schedules) do
 				local key = ARGV[2] .. 'recurring:' .. scheduleName
-				local values = redis.call('HMGET', key, 'jobName', 'code', 'cancellationReason', 'dueMember')
-				if values[1] == name and values[2] ~= '1' and (not values[3] or values[3] == '') then
+				local values = redis.call('HMGET', key, 'code', 'cancellationReason', 'dueMember')
+				if values[1] ~= '1' and (not values[2] or values[2] == '') then
 					redis.call('HSET', key, 'paused', '1', 'cancellationReason', ARGV[6])
-					removeRecurringDue(ARGV[2], KEYS[4], name, values[4])
+					removeRecurringDue(ARGV[2], KEYS[4], name, values[3])
 					scheduleCount = scheduleCount + 1
 				end
 			end
@@ -667,6 +678,10 @@ internal static class RedisScripts
 		local next = ARGV[4]
 		local dueScore = ARGV[7]
 		local dueMember = ARGV[8]
+		local cancellationReason = cjson.decode(ARGV[1]).CancellationReason
+		if not cancellationReason or cancellationReason == cjson.null then
+			cancellationReason = redis.call('HGET', KEYS[1], 'cancellationReason') or ''
+		end
 		if exists then
 			local current = redis.call('HMGET', KEYS[1], 'code', 'paused', 'last', 'dueMember', 'jobName')
 			if current[1] == '1' and ARGV[2] == '0' then return -1 end
@@ -675,11 +690,12 @@ internal static class RedisScripts
 			removeRecurringDue(ARGV[12], KEYS[3], current[5], current[4])
 
 		end
+		if cancellationReason ~= '' then paused = '1' end
 		redis.call('HSET', KEYS[1],
 			'record', ARGV[1], 'code', ARGV[2], 'paused', paused,
 			'next', next, 'last', last, 'dueScore', dueScore, 'dueMember', dueMember,
 			'cron', ARGV[9], 'timeZone', ARGV[10], 'jobName', ARGV[11],
-			'cancellationReason', cjson.decode(ARGV[1]).CancellationReason ~= cjson.null and cjson.decode(ARGV[1]).CancellationReason or '')
+			'cancellationReason', cancellationReason)
 		redis.call('SADD', KEYS[2], ARGV[6])
 		if paused == '1' then
 			removeRecurringDue(ARGV[12], KEYS[3], ARGV[11], dueMember)

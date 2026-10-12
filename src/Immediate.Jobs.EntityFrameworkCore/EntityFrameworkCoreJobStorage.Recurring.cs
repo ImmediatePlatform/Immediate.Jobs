@@ -250,7 +250,7 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 			.ExecuteUpdateAsync(setters => setters
 				.SetProperty(entity => entity.JobName, schedule.JobName)
 				.SetProperty(entity => entity.QueueName, schedule.QueueName)
-				.SetProperty(entity => entity.CancellationReason, schedule.CancellationReason)
+				.SetProperty(entity => entity.CancellationReason, entity => schedule.CancellationReason ?? entity.CancellationReason)
 				.SetProperty(entity => entity.Cron, schedule.Cron)
 				.SetProperty(entity => entity.TimeZone, schedule.TimeZone)
 				.SetProperty(entity => entity.IsCodeDefined, schedule.IsCodeDefined)
