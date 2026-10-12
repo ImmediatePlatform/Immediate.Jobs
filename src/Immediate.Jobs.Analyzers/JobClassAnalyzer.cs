@@ -192,7 +192,7 @@ public sealed class JobClassAnalyzer : DiagnosticAnalyzer
 			);
 		}
 
-		if (arguments.GetValidEnumValue("MisfireHandlingMode", "EnqueueOne") is not { })
+		if (arguments.GetValidEnumValue("OverlapPolicy", "Skip") is not { })
 		{
 			ReportInvalidConfigurationDiagnostic(
 				context,
@@ -201,8 +201,7 @@ public sealed class JobClassAnalyzer : DiagnosticAnalyzer
 			);
 		}
 
-		if (arguments.GetArgumentValue("MisfireHandlingMode") is { } misfireHandlingMode
-			&& misfireHandlingMode.GetEnumValue() is null)
+		if (arguments.GetValidEnumValue("MisfireHandlingMode", "EnqueueOne") is not { })
 		{
 			ReportInvalidConfigurationDiagnostic(
 				context,
