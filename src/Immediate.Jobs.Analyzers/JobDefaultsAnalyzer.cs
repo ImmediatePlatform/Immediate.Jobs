@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.Diagnostics;
+using Microsoft.CodeAnalysis.Operations;
 
 namespace Immediate.Jobs.Analyzers;
 
@@ -14,7 +15,7 @@ public sealed class JobDefaultsAnalyzer : DiagnosticAnalyzer
 		category: "ImmediateJobs",
 		defaultSeverity: DiagnosticSeverity.Error,
 		isEnabledByDefault: true,
-		customTags: [WellKnownDiagnosticTags.NotConfigurable, WellKnownDiagnosticTags.CompilationEnd]);
+		customTags: [WellKnownDiagnosticTags.NotConfigurable]);
 
 	public override ImmutableArray<DiagnosticDescriptor> SupportedDiagnostics { get; } = ImmutableArray.Create([InvalidJobDefaults]);
 
@@ -24,15 +25,26 @@ public sealed class JobDefaultsAnalyzer : DiagnosticAnalyzer
 
 		context.ConfigureGeneratedCodeAnalysis(GeneratedCodeAnalysisFlags.None);
 		context.EnableConcurrentExecution();
-		context.RegisterCompilationAction(AnalyzeDefaults);
+
+		context.RegisterOperationAction(AnalyzeDefaults, OperationKind.Attribute);
 	}
 
-	private static void AnalyzeDefaults(CompilationAnalysisContext context)
+	private static void AnalyzeDefaults(OperationAnalysisContext context)
 	{
-		foreach (var attribute in context.Compilation.Assembly.GetAttributes().Where(attribute => attribute.AttributeClass.IsJobDefaultsAttribute))
-		{
-			foreach (var error in attribute.NamedArguments.GetJobDefaultsErrors())
-				context.ReportDiagnostic(Diagnostic.Create(InvalidJobDefaults, attribute.Location, error));
-		}
+		context.CancellationToken.ThrowIfCancellationRequested();
+
+		if (context.Operation is not IAttributeOperation { Operation: IObjectCreationOperation { Type.IsJobDefaultsAttribute: true } })
+			return;
+
+		var syntax = context.Operation.Syntax;
+		var attribute = context.Compilation.Assembly.GetAttributes().FirstOrDefault(attribute =>
+			attribute.ApplicationSyntaxReference is { } reference
+			&& reference.SyntaxTree == syntax.SyntaxTree
+			&& reference.Span == syntax.Span);
+		if (attribute is null)
+			return;
+
+		foreach (var error in attribute.NamedArguments.GetJobDefaultsErrors())
+			context.ReportDiagnostic(Diagnostic.Create(InvalidJobDefaults, syntax.GetLocation(), error));
 	}
 }

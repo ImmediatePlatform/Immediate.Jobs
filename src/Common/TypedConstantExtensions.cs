@@ -135,13 +135,13 @@ internal static class TypedConstantExtensions
 
 	extension(TypedConstant? constant)
 	{
-		public string? GetTags()
+		public string? GetTags(string defaultTags = "\"default\"")
 		{
 			if (constant is not { IsNull: false, Kind: TypedConstantKind.Array, Values: var values } av)
-				return "\"default\"";
+				return defaultTags;
 
 			if (values is [])
-				return "\"default\"";
+				return defaultTags;
 
 			if (values.Any(tag => string.IsNullOrWhiteSpace(tag.Value as string)))
 				return null;

@@ -32,7 +32,7 @@ internal static class AttributeDataExtensions
 			foreach (var argument in attribute.NamedArguments)
 			{
 				if (string.Equals(argument.Key, "Tags", StringComparison.Ordinal)
-					&& (argument.Value.IsNull || argument.Value is { Kind: TypedConstantKind.Array, Values.Length: 0 }))
+					&& ((TypedConstant?)argument.Value).GetTags(defaultTags: string.Empty) is "")
 					continue;
 
 				arguments[argument.Key] = argument.Value;

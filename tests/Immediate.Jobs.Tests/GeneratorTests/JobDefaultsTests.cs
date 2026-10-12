@@ -8,6 +8,7 @@ public sealed class JobDefaultsTests
 	[InlineData("", "\"assembly\"", "America/New_York", 5, "00:02:00")]
 	[InlineData("Tags = new string[0]", "\"assembly\"", "America/New_York", 5, "00:02:00")]
 	[InlineData("Tags = null", "\"assembly\"", "America/New_York", 5, "00:02:00")]
+	[InlineData("Tags = new[] { \"default\" }", "\"default\"", "America/New_York", 5, "00:02:00")]
 	[InlineData("Tags = new[] { \"job\" }, TimeZone = \"UTC\", MaxAttempts = 2, Timeout = \"00:00:30\"", "\"job\"", "UTC", 2, "00:00:30")]
 	[InlineData("TimeZone = null, Timeout = null", "\"assembly\"", "UTC", 5, null)]
 	public void JobSettingsOverrideAssemblyDefaults(string settings, string tags, string timeZone, int attempts, string? timeout)
