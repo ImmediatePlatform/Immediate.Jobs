@@ -35,6 +35,18 @@ function mountJobDetail(props: InstanceType<typeof JobDetail>['$props']) {
 }
 
 describe('dashboard components', () => {
+	it('shows why a job was canceled and offers no retry action', () => {
+		const job = { ...completedJob, state: 'Cancelled' as const, cancellationReason: 'Job definition removed.' };
+		const table = mount(JobTable, { props: { rows: [job] } });
+		expect(table.text()).toContain('Job definition removed.');
+		expect(table.find('button[aria-label="Retry SendGreeting"]').exists()).toBe(false);
+		const detail = mountJobDetail({ job });
+		expect(detail.text()).toContain('Cancellation reason');
+		expect(detail.text()).toContain('Job definition removed.');
+		table.unmount();
+		detail.unmount();
+	});
+
 	it('renders persisted definition metadata and job links', async () => {
 		const router = createRouter({ history: createMemoryHistory(), routes });
 		const wrapper = mount(DefinitionTable, { props: { definitions: [storedDefinition] }, global: { plugins: [router] } });

@@ -190,14 +190,16 @@ public sealed class JobMonitor(
 			.FirstOrDefault(candidate => string.Equals(candidate.Name, name, StringComparison.Ordinal))
 			?? throw new KeyNotFoundException($"Recurring schedule '{name}' is not available.");
 
-		var definition = await GetStoredDefinitionAsync(schedule.JobName, cancellationToken);
+		var statuses = await GetSnapshotAsync(cancellationToken);
+		if (statuses.Recurring.Any(status => string.Equals(status.Name, schedule.Name, StringComparison.Ordinal) && status.CancellationReason is not null))
+			throw new ImmediateJobException("Canceled recurring schedules cannot be triggered. Remove the schedule and create it again.");
 
 		var now = timeProvider.GetUtcNow();
 		await storage.EnqueueAsync(
 			new()
 			{
 				JobHandle = JobHandle.FromString(idGenerator.CreateId(IdKind.Job)),
-				JobName = definition.Name,
+				JobName = schedule.JobName,
 				Payload = "{}",
 				State = JobState.Pending,
 				DueAt = now,

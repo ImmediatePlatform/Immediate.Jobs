@@ -67,7 +67,10 @@ function retryLabel(job: JobRecord): string {
 							</button>
 							<span v-else class="text-muted">—</span>
 						</td>
-						<td><StateBadge :state="job.state" /></td>
+						<td>
+							<StateBadge :state="job.state" />
+							<p v-if="job.cancellationReason" class="mt-1 text-xs text-muted">{{ job.cancellationReason }}</p>
+						</td>
 						<td class="numeric">{{ job.attempt }}</td>
 						<td>{{ formatDate(job.dueAt) }}</td>
 						<td>{{ formatDate(job.completedAt) }}</td>

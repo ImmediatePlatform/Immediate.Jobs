@@ -204,6 +204,10 @@ function retryButtonLabel(job: JobRecord, pending: boolean): string {
 			</div>
 
 			<dl class="detail-list">
+				<div v-if="job.cancellationReason">
+					<dt>Cancellation reason</dt>
+					<dd>{{ job.cancellationReason }}</dd>
+				</div>
 				<div>
 					<dt>Invocation</dt>
 					<dd><code>{{ job.jobHandle }}</code></dd>

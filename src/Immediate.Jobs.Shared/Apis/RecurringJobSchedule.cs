@@ -90,6 +90,7 @@ public sealed record RecurringJobSchedule
 	{
 		Name = Name,
 		IsPaused = IsPaused,
+		CancellationReason = CancellationReason,
 		NextRunAt = NextRunAt,
 		LastRunAt = LastRunAt,
 	};
@@ -121,6 +122,7 @@ public sealed record RecurringJobSchedule
 			TimeZone = definition.TimeZone,
 			IsCodeDefined = definition.IsCodeDefined,
 			IsPaused = status.IsPaused,
+			CancellationReason = status.CancellationReason,
 			NextRunAt = status.NextRunAt,
 			LastRunAt = status.LastRunAt,
 		};

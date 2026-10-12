@@ -121,6 +121,7 @@ internal sealed partial class LinqToDBJobStorage<T>
 			{
 				Name = schedule.Name,
 				IsPaused = schedule.IsPaused,
+				CancellationReason = schedule.CancellationReason,
 				NextRunAt = schedule.NextRunAt,
 				LastRunAt = schedule.LastRunAt,
 			})],

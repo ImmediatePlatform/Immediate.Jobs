@@ -106,7 +106,8 @@ public sealed class DashboardPackageTests
 		var token = TestContext.Current.CancellationToken;
 		var clock = new FakeTimeProvider(DateTimeOffset.UnixEpoch);
 		await using var storage = new InMemoryJobStorage(clock);
-		await storage.EnqueueAsync(new()
+		storage.LoadPersistedJobState(
+		[new JobRecord
 		{
 			JobHandle = JobHandle.FromString("definition-dashboard-job"),
 			JobName = "limited-acquisition",
@@ -115,7 +116,7 @@ public sealed class DashboardPackageTests
 			State = JobState.Pending,
 			CreatedAt = clock.GetUtcNow(),
 			DueAt = clock.GetUtcNow(),
-		}, token);
+		}], [], [], []);
 		await storage.AcquireDueJobsAsync(new()
 		{
 			WorkerId = "dashboard-worker",
@@ -226,7 +227,8 @@ public sealed class DashboardPackageTests
 		var remoteStatus = (await monitor.GetDefinitionsAsync(token)).Jobs.Single(definition => string.Equals(definition.Name, "remote-email", StringComparison.OrdinalIgnoreCase));
 		Assert.NotNull(remoteStatus);
 		Assert.Equal(1, remoteStatus.AcquisitionLimits.SlidingWindowMax);
-		await storage.EnqueueAsync(new()
+		storage.LoadPersistedJobState(
+		[new JobRecord
 		{
 			JobHandle = JobHandle.FromString("remote-definition-active"),
 			JobName = remoteStatus.Name,
@@ -235,7 +237,7 @@ public sealed class DashboardPackageTests
 			State = JobState.Pending,
 			CreatedAt = clock.GetUtcNow(),
 			DueAt = clock.GetUtcNow(),
-		}, token);
+		}], [], [], []);
 		Assert.Single(await storage.AcquireDueJobsAsync(new()
 		{
 			WorkerId = "remote-worker",

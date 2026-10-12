@@ -82,3 +82,8 @@ uses one catalog read and one Lua evaluation for the complete status collection;
 cost still grows with definitions, history, and leases. In-memory groups active leases once.
 Single-server monitoring reads the committed durable authority and adds its process-local
 heartbeats without collecting another full snapshot.
+
+Jobs canceled because their definition was removed remain in history with their cancellation reason.
+Retained dynamic schedules show **Cancelled**, the removal reason, and no next run. Their Trigger
+and Resume actions are disabled; stale action requests are rejected by the server. Explicitly remove
+and recreate a schedule through its existing scheduler API after restoring its definition to start it again.

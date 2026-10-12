@@ -19,6 +19,7 @@ export type ContinuationTrigger = 'Success' | 'Failure' | 'Complete';
 export type IsoDateTime = string;
 
 export interface JobRecord {
+	cancellationReason: string | null;
 	queueName?: string | null;
 	jobHandle: string;
 	jobName: string;
@@ -56,6 +57,7 @@ export function canCancelJob(job: Pick<JobRecord, 'state'>): boolean {
 }
 
 export interface RecurringJobSchedule {
+	cancellationReason: string | null;
 	name: string;
 	jobName: string;
 	cron: string;
@@ -250,8 +252,8 @@ export interface HistoryPoint {
 	queued: number;
 }
 
-export type RecurringJobDefinition = Omit<RecurringJobSchedule, 'isPaused' | 'nextRunAt' | 'lastRunAt'>;
-export type RecurringJobStatus = Pick<RecurringJobSchedule, 'name' | 'isPaused' | 'nextRunAt' | 'lastRunAt'>;
+export type RecurringJobDefinition = Omit<RecurringJobSchedule, 'isPaused' | 'cancellationReason' | 'nextRunAt' | 'lastRunAt'>;
+export type RecurringJobStatus = Pick<RecurringJobSchedule, 'name' | 'isPaused' | 'cancellationReason' | 'nextRunAt' | 'lastRunAt'>;
 
 export interface JobMonitoringDefinitions {
 	jobs: JobDefinitionRecord[];

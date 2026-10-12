@@ -1,6 +1,7 @@
 import type { BatchGraph, BatchStatus, JobAcquisitionState, JobDefinitionStatus, JobRecord } from '@/contracts';
 
 export const completedJob: JobRecord = {
+	cancellationReason: null,
 	jobHandle: '86bf8c31-d8e6-415b-8e92-45587a09fc52',
 	batchHandle: 'batch-42',
 	jobName: 'SendGreeting',

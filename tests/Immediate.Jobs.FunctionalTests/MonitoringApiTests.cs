@@ -23,7 +23,7 @@ public sealed class MonitoringApiTests
 	}
 
 	[Fact]
-	public async Task ManualRecurringTriggerReadsConfigurationWithoutCollectingASnapshot()
+	public async Task ManualRecurringTriggerChecksConfigurationAndCancellationStatus()
 	{
 		var token = TestContext.Current.CancellationToken;
 		var clock = new FakeTimeProvider(DateTimeOffset.UnixEpoch);
@@ -44,8 +44,37 @@ public sealed class MonitoringApiTests
 		var job = Assert.Single(await storage.QueryJobsAsync(new(), token));
 		Assert.Equal("Remote", job.JobName);
 		Assert.Equal("current", job.QueueName);
-		Assert.Equal(0, storage.Snapshots);
+		Assert.Equal(1, storage.Snapshots);
 		Assert.Equal(1, storage.DefinitionReads);
+	}
+
+	[Fact]
+	public async Task CanceledRecurringScheduleCannotBeTriggeredEvenAfterItsDefinitionReturns()
+	{
+		var token = TestContext.Current.CancellationToken;
+		var clock = new FakeTimeProvider(DateTimeOffset.UnixEpoch);
+		using var storage = new MonitoringStorage(clock);
+		var registration = new JobDefinitionRegistration { Definitions = [new() { Name = "Remote" }] };
+		await storage.MergeJobDefinitionsListAsync(registration, token);
+		await storage.UpsertRecurringAsync(new()
+		{
+			Name = "schedule",
+			JobName = "Remote",
+			Cron = "* * * * *",
+			TimeZone = "UTC",
+			IsCodeDefined = false,
+			NextRunAt = clock.GetUtcNow(),
+		}, token);
+		await storage.MergeJobDefinitionsListAsync(new() { Definitions = [] }, token);
+		await storage.MergeJobDefinitionsListAsync(registration, token);
+		var monitor = new JobMonitor(storage, clock, new FixedIdGenerator());
+		var status = Assert.Single((await monitor.GetSnapshotAsync(token)).Recurring);
+		Assert.True(status.IsPaused);
+		Assert.Equal(JobDefinitionReconciliation.RemovalCancellationReason, status.CancellationReason);
+		Assert.Single((await monitor.GetDefinitionsAsync(token)).Recurring);
+		await Assert.ThrowsAsync<ImmediateJobException>(() => monitor.TriggerRecurringAsync("schedule", token).AsTask());
+		await Assert.ThrowsAsync<ImmediateJobException>(() => monitor.ResumeRecurringAsync("schedule", token).AsTask());
+		Assert.Empty(await storage.QueryJobsAsync(new(), token));
 	}
 
 	private sealed class FixedIdGenerator : IIdGenerator
