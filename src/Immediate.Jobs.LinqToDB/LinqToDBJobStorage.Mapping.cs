@@ -82,7 +82,7 @@ internal sealed partial class LinqToDBJobStorage<T>
 			ParentKind = parentKind,
 			ParentId = parentId,
 			Trigger = edge.Trigger,
-			Delay = edge.Delay.Ticks,
+			Delay = TimeSpanSerializer.Serialize(edge.Delay),
 		};
 	}
 
@@ -172,7 +172,7 @@ internal sealed partial class LinqToDBJobStorage<T>
 			ChildJobHandle = JobHandle.FromString(edge.ChildJobHandle),
 			ParentJobHandle = edge.ParentKind == ContinuationParentKind.Job ? JobHandle.FromString(edge.ParentId) : null,
 			ParentBatchHandle = edge.ParentKind == ContinuationParentKind.Batch ? BatchHandle.FromString(edge.ParentId) : null,
-			Delay = TimeSpan.FromTicks(edge.Delay),
+			Delay = TimeSpanSerializer.Deserialize(edge.Delay),
 			Trigger = edge.Trigger,
 		};
 }

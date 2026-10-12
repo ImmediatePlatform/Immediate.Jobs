@@ -43,6 +43,11 @@ them for monitoring and preventing ordinary resume or future materialization. Te
 history and definitions outside the server tag scope are preserved. Each removal is logged with the
 number of canceled invocations and schedules.
 
+Persisted durations, including continuation delays and server timeouts in snapshots, use
+ISO8601 strings (for example, `PT5S` or `PT1.0000001S`). Job attribute duration settings
+accept both ISO8601 durations and invariant `TimeSpan` strings. UTC timestamps and
+numeric rate-limit calculations retain their existing representations.
+
 Definition names are case-insensitive identities and retain their readable spelling. In-memory
 and single-server use `OrdinalIgnoreCase`; SQL Server inherits database collation; PostgreSQL uses
 a nondeterministic ICU collation (`und-u-ks-level2`); SQLite uses `NOCASE` (ASCII-only database
@@ -53,9 +58,9 @@ and storage rejects invalid manually supplied names before modifying the catalog
 
 Relational providers store definition configuration in individual columns in
 `immediate_job_definition_metadata`; the name key is the only persisted definition name.
-`TimeoutTicks`, `BackoffBaseTicks`, `SlidingWindowPeriodTicks`, and `FixedWindowPeriodTicks`
-store exact .NET ticks (100 nanoseconds); window maxima use integer columns, and policy enums
-use small integers. Tags occupy a single JSON array column (`Tags`): PostgreSQL uses `jsonb`,
+`Timeout`, `BackoffBase`, `SlidingWindowPeriod`, and `FixedWindowPeriod`
+store ISO8601 duration strings with exact 100-nanosecond precision; window maxima use integer
+columns, and policy enums use small integers. Tags occupy a single JSON array column (`Tags`): PostgreSQL uses `jsonb`,
 SQL Server uses `nvarchar(max)`, and SQLite uses `text`. Redis continues storing serialized definition records.
 
 Code-defined schedules without catalogue metadata belong to the `default` scope. A server without

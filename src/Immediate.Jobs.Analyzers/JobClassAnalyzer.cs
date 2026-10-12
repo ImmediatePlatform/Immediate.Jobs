@@ -1,5 +1,4 @@
 using System.Collections.Immutable;
-using System.Globalization;
 using Meziantou.Framework.Scheduling;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.Diagnostics;
@@ -222,7 +221,7 @@ public sealed class JobClassAnalyzer : DiagnosticAnalyzer
 
 		if (arguments.GetStringValue("Timeout") is { } timeout)
 		{
-			if (!TimeSpan.TryParse(timeout, CultureInfo.InvariantCulture, out var timeoutValue))
+			if (!TimeSpanSerializer.TryParse(timeout, out var timeoutValue))
 			{
 				ReportInvalidConfigurationDiagnostic(
 					context,
@@ -244,7 +243,7 @@ public sealed class JobClassAnalyzer : DiagnosticAnalyzer
 		{
 			var backoffBase = arguments.GetStringValue("BackoffBase") ?? "00:00:05";
 
-			if (!TimeSpan.TryParse(backoffBase, CultureInfo.InvariantCulture, out var backoffBaseValue))
+			if (!TimeSpanSerializer.TryParse(backoffBase, out var backoffBaseValue))
 			{
 				ReportInvalidConfigurationDiagnostic(
 					context,

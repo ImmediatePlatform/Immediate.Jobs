@@ -76,7 +76,7 @@ internal sealed partial class LinqToDBJobStorage<T>
 				ChildJobHandle = job.Id,
 				ParentKind = ContinuationParentKind.Job,
 				ParentId = current.Id,
-				Delay = addition.Delay.Ticks,
+				Delay = TimeSpanSerializer.Serialize(addition.Delay),
 				Trigger = addition.Trigger,
 			}, cancellationToken);
 
@@ -89,7 +89,7 @@ internal sealed partial class LinqToDBJobStorage<T>
 					ChildJobHandle = waiter.Id,
 					ParentKind = ContinuationParentKind.Job,
 					ParentId = job.Id,
-					Delay = 0,
+					Delay = TimeSpanSerializer.Serialize(TimeSpan.Zero),
 					Trigger = ContinuationTrigger.Success,
 				}, cancellationToken);
 				var waiterStamp = waiter.ConcurrencyStamp;
@@ -185,7 +185,7 @@ internal sealed partial class LinqToDBJobStorage<T>
 							child.Id,
 							cancellationToken
 						);
-						var delayedDueAt = now + TimeSpan.FromTicks(delay.Ticks);
+						var delayedDueAt = now + delay;
 						if (child.DueAt < delayedDueAt)
 							child.DueAt = delayedDueAt;
 						child.State = child.DueAt <= now ? JobState.Pending : JobState.Scheduled;
@@ -211,7 +211,7 @@ internal sealed partial class LinqToDBJobStorage<T>
 			.ToListAsync(cancellationToken);
 		return delays.Count == 0
 			? TimeSpan.Zero
-			: TimeSpan.FromTicks(delays.Max());
+			: delays.Max(TimeSpanSerializer.Deserialize);
 	}
 
 	private async Task<bool> ShouldSkipSettledContinuationAsync(
@@ -373,7 +373,7 @@ internal sealed partial class LinqToDBJobStorage<T>
 					}
 
 					edge.ParentOutcome = GetParentOutcome(parentSucceeded, parentFailed);
-					var delayedDueAt = now + TimeSpan.FromTicks(edge.Delay);
+					var delayedDueAt = now + TimeSpanSerializer.Deserialize(edge.Delay);
 					if (job.DueAt < delayedDueAt)
 						job.DueAt = delayedDueAt;
 

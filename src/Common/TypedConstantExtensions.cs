@@ -41,7 +41,7 @@ internal static class TypedConstantExtensions
 				return period is null;
 
 			return maximum > 0
-				&& TimeSpan.TryParse(period, CultureInfo.InvariantCulture, out var value)
+				&& TimeSpanSerializer.TryParse(period, out var value)
 				&& value > TimeSpan.Zero;
 		}
 

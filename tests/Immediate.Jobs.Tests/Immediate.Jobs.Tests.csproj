@@ -9,6 +9,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+	<Compile Include="../../src/Common/TimeSpanSerializer.cs" Link="Common/TimeSpanSerializer.cs" />
     <Using Include="Xunit" />
   </ItemGroup>
 

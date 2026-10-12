@@ -52,6 +52,8 @@ public sealed class DefinitionAcquisitionTests
 		await using var harness = CreateHarness();
 		await harness.DrainAsync(TestContext.Current.CancellationToken);
 		var definition = (await harness.Storage.GetJobDefinitionsAsync(TestContext.Current.CancellationToken)).Single(static definition => string.Equals(definition.Name, "limited-acquisition", StringComparison.Ordinal));
+		Assert.Equal(TimeSpan.FromMinutes(2), definition.Timeout);
+		Assert.Equal(TimeSpan.FromSeconds(5) + TimeSpan.FromTicks(1), definition.BackoffBase);
 		Assert.Equal(1, definition.SlidingWindowMax);
 		Assert.Equal(TimeSpan.FromSeconds(1) + TimeSpan.FromTicks(3), definition.SlidingWindowPeriod);
 		Assert.Equal(2, definition.FixedWindowMax);
@@ -138,8 +140,8 @@ public sealed class DefinitionAcquisitionTests
 	});
 }
 
-[Handler, Job(Name = "limited-acquisition", SlidingWindowMax = 1, SlidingWindowPeriod = "00:00:01.0000003",
-	FixedWindowMax = 2, FixedWindowPeriod = "00:01:00", MaxConcurrency = 2)]
+[Handler, Job(Name = "limited-acquisition", SlidingWindowMax = 1, SlidingWindowPeriod = "PT1.0000003S",
+	FixedWindowMax = 2, FixedWindowPeriod = "PT1M", Timeout = "PT2M", BackoffBase = "PT5.0000001S", MaxConcurrency = 2)]
 public static partial class LimitedAcquisitionJob
 {
 	private static ValueTask HandleAsync(EmptyJobRequest _, CancellationToken __) => ValueTask.CompletedTask;

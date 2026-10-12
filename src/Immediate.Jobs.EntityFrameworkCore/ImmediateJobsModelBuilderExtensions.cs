@@ -65,6 +65,10 @@ public static class ImmediateJobsModelBuilderExtensions
 		definitions.Property(definition => definition.OverlapPolicy).HasConversion<short>();
 		definitions.Property(definition => definition.MisfireHandlingMode).HasConversion<short>();
 		definitions.Property(definition => definition.Backoff).HasConversion<short>();
+		definitions.Property(definition => definition.Timeout).HasMaxLength(32);
+		definitions.Property(definition => definition.BackoffBase).HasMaxLength(32);
+		definitions.Property(definition => definition.SlidingWindowPeriod).HasMaxLength(32);
+		definitions.Property(definition => definition.FixedWindowPeriod).HasMaxLength(32);
 		var tags = definitions.Property(definition => definition.Tags).IsRequired();
 		if (isPostgreSql)
 			tags.HasColumnType("jsonb");
@@ -356,7 +360,7 @@ internal sealed class ImmediateJobContinuationEntity
 	public string ChildJobHandle { get; set; } = null!;
 	public ContinuationParentKind ParentKind { get; set; }
 	public string ParentId { get; set; } = null!;
-	public long Delay { get; set; }
+	public string Delay { get; set; } = null!;
 	public ContinuationTrigger Trigger { get; set; }
 	public ContinuationParentOutcome ParentOutcome { get; set; }
 }
@@ -394,16 +398,16 @@ internal sealed class ImmediateJobDefinitionMetadataEntity
 	public string? Cron { get; set; }
 	public string TimeZone { get; set; } = null!;
 	public int MaxAttempts { get; set; }
-	public long? TimeoutTicks { get; set; }
+	public string? Timeout { get; set; }
 	public int MaxConcurrency { get; set; }
 	public OverlapPolicy OverlapPolicy { get; set; }
 	public MisfireHandlingMode MisfireHandlingMode { get; set; }
 	public BackoffStrategy Backoff { get; set; }
-	public long BackoffBaseTicks { get; set; }
+	public string BackoffBase { get; set; } = null!;
 	public int SlidingWindowMax { get; set; }
-	public long? SlidingWindowPeriodTicks { get; set; }
+	public string? SlidingWindowPeriod { get; set; }
 	public int FixedWindowMax { get; set; }
-	public long? FixedWindowPeriodTicks { get; set; }
+	public string? FixedWindowPeriod { get; set; }
 	public string Tags { get; set; } = null!;
 }
 

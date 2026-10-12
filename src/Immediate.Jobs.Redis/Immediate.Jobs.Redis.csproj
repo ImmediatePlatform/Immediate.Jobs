@@ -21,6 +21,8 @@
   </ItemGroup>
 
   <ItemGroup>
+	<Compile Include="../Common/TimeSpanSerializer.cs" Link="Common/TimeSpanSerializer.cs" />
+	<Compile Include="../Common/TimeSpanJsonConverter.cs" Link="Common/TimeSpanJsonConverter.cs" />
 	<Compile Update="RedisJobStorage.*.cs" DependentUpon="RedisJobStorage.cs" />
   </ItemGroup>
 

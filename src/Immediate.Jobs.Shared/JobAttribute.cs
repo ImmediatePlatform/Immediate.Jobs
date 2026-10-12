@@ -56,7 +56,7 @@ public sealed class JobAttribute : Attribute
 	public int MaxAttempts { get; init; } = 3;
 
 	/// <summary>
-	/// 	A <see cref="TimeSpan"/> formatted execution timeout.
+	/// 	An ISO8601 duration or <see cref="TimeSpan"/> formatted execution timeout.
 	/// </summary>
 	/// <remarks>
 	/// 	When omitted, inherits the assembly default. An explicit null disables the inherited timeout.
@@ -80,7 +80,7 @@ public sealed class JobAttribute : Attribute
 	public int SlidingWindowMax { get; init; }
 
 	/// <summary>
-	/// 	A positive TimeSpan-formatted sliding period, paired with SlidingWindowMax.
+	/// 	A positive ISO8601 duration or TimeSpan-formatted sliding period, paired with SlidingWindowMax.
 	/// </summary>
 	public string? SlidingWindowPeriod { get; init; }
 
@@ -90,7 +90,7 @@ public sealed class JobAttribute : Attribute
 	public int FixedWindowMax { get; init; }
 
 	/// <summary>
-	/// 	A positive TimeSpan-formatted fixed period, paired with FixedWindowMax.
+	/// 	A positive ISO8601 duration or TimeSpan-formatted fixed period, paired with FixedWindowMax.
 	/// </summary>
 	public string? FixedWindowPeriod { get; init; }
 
@@ -119,7 +119,7 @@ public sealed class JobAttribute : Attribute
 	public BackoffStrategy Backoff { get; init; } = BackoffStrategy.ExponentialJitter;
 
 	/// <summary>
-	/// 	A <see cref="TimeSpan"/> formatted retry base delay.
+	/// 	An ISO8601 duration or <see cref="TimeSpan"/> formatted retry base delay.
 	/// </summary>
 	/// <value>
 	/// 	The formatted retry base delay.

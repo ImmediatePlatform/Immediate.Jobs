@@ -31,16 +31,16 @@ public sealed partial class ImmediateJobsGenerator
 			CronLiteral = job.Cron?.AsCSharpLiteral(),
 			TimeZoneLiteral = job.TimeZone.AsCSharpLiteral(),
 			MaxAttempts = job.MaxAttempts.ToString(CultureInfo.InvariantCulture),
-			TimeoutLiteral = job.Timeout?.AsCSharpLiteral(),
+			TimeoutLiteral = DurationLiteral(job.Timeout),
 			MaxConcurrency = job.MaxConcurrency.ToString(CultureInfo.InvariantCulture),
 			SlidingWindowMax = job.SlidingWindowMax.ToString(CultureInfo.InvariantCulture),
-			SlidingWindowPeriodLiteral = job.SlidingWindowPeriod?.AsCSharpLiteral(),
+			SlidingWindowPeriodLiteral = DurationLiteral(job.SlidingWindowPeriod),
 			FixedWindowMax = job.FixedWindowMax.ToString(CultureInfo.InvariantCulture),
-			FixedWindowPeriodLiteral = job.FixedWindowPeriod?.AsCSharpLiteral(),
+			FixedWindowPeriodLiteral = DurationLiteral(job.FixedWindowPeriod),
 			job.OverlapPolicy,
 			job.MisfireHandlingMode,
 			job.Backoff,
-			BackoffBaseLiteral = job.BackoffBase.AsCSharpLiteral(),
+			BackoffBaseLiteral = DurationLiteral(job.BackoffBase),
 			job.Contexts,
 			job.Json,
 			Version = ThisAssembly.InformationalVersion,
@@ -101,5 +101,15 @@ public sealed partial class ImmediateJobsGenerator
 
 		using var reader = new StreamReader(stream);
 		return Template.Parse(reader.ReadToEnd());
+	}
+
+	private static string? DurationLiteral(string? value)
+	{
+		if (value is null)
+			return null;
+
+		return TimeSpanSerializer.TryParse(value, out var duration)
+			? duration.ToString("c", CultureInfo.InvariantCulture).AsCSharpLiteral()
+			: null;
 	}
 }

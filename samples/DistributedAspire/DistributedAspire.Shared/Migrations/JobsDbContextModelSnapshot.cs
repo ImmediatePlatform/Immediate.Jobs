@@ -159,9 +159,10 @@ namespace Immediate.Jobs.DistributedAspire.Shared.Migrations
                         .HasMaxLength(256)
                         .HasColumnType("character varying(256)");
 
-                    b.Property<long>("Delay")
+                    b.Property<string>("Delay")
+                        .IsRequired()
                         .HasMaxLength(32)
-                        .HasColumnType("bigint");
+                        .HasColumnType("character varying(32)");
 
                     b.Property<short>("ParentOutcome")
                         .HasColumnType("smallint");
@@ -229,12 +230,21 @@ namespace Immediate.Jobs.DistributedAspire.Shared.Migrations
                     b.Property<short>("Backoff")
                         .HasColumnType("smallint");
 
-                    b.Property<long>("BackoffBaseTicks")
-                        .HasColumnType("bigint");
+                    b.Property<string>("BackoffBase")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
 
                     b.Property<string>("Cron")
                         .HasMaxLength(128)
                         .HasColumnType("character varying(128)");
+
+                    b.Property<int>("FixedWindowMax")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("FixedWindowPeriod")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
 
                     b.Property<int>("MaxAttempts")
                         .HasColumnType("integer");
@@ -259,6 +269,13 @@ namespace Immediate.Jobs.DistributedAspire.Shared.Migrations
                     b.Property<int>("QueuePriority")
                         .HasColumnType("integer");
 
+                    b.Property<int>("SlidingWindowMax")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("SlidingWindowPeriod")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
                     b.Property<string>("Tags")
                         .IsRequired()
                         .HasColumnType("jsonb");
@@ -268,20 +285,9 @@ namespace Immediate.Jobs.DistributedAspire.Shared.Migrations
                         .HasMaxLength(128)
                         .HasColumnType("character varying(128)");
 
-                    b.Property<long?>("TimeoutTicks")
-                        .HasColumnType("bigint");
-
-                    b.Property<int>("SlidingWindowMax")
-                        .HasColumnType("integer");
-
-                    b.Property<long?>("SlidingWindowPeriodTicks")
-                        .HasColumnType("bigint");
-
-                    b.Property<int>("FixedWindowMax")
-                        .HasColumnType("integer");
-
-                    b.Property<long?>("FixedWindowPeriodTicks")
-                        .HasColumnType("bigint");
+                    b.Property<string>("Timeout")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
 
                     b.HasKey("Name");
 

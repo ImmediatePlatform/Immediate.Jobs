@@ -205,7 +205,7 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 					ChildJobHandle = waiter.Id,
 					ParentKind = ContinuationParentKind.Job,
 					ParentId = job.Id,
-					Delay = 0,
+					Delay = TimeSpanSerializer.Serialize(TimeSpan.Zero),
 					Trigger = ContinuationTrigger.Success,
 				});
 				waiter.RemainingDependencies++;

@@ -73,7 +73,7 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 				ChildJobHandle = job.Id,
 				ParentKind = ContinuationParentKind.Job,
 				ParentId = current.Id,
-				Delay = addition.Delay.Ticks,
+				Delay = TimeSpanSerializer.Serialize(addition.Delay),
 				Trigger = addition.Trigger,
 			});
 
@@ -86,7 +86,7 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 					ChildJobHandle = waiter.Id,
 					ParentKind = ContinuationParentKind.Job,
 					ParentId = job.Id,
-					Delay = 0,
+					Delay = TimeSpanSerializer.Serialize(TimeSpan.Zero),
 					Trigger = ContinuationTrigger.Success,
 				});
 				waiter.RemainingDependencies++;
@@ -196,7 +196,7 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 			.ToListAsync(cancellationToken);
 		return delays.Count == 0
 			? TimeSpan.Zero
-			: TimeSpan.FromTicks(delays.Max());
+			: delays.Max(TimeSpanSerializer.Deserialize);
 	}
 
 	private static async Task<bool> ShouldSkipSettledContinuationAsync(
@@ -346,7 +346,7 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 
 					edge.ParentOutcome = GetParentOutcome(parentSucceeded, parentFailed);
 
-					var delayedDueAt = now + TimeSpan.FromTicks(edge.Delay);
+					var delayedDueAt = now + TimeSpanSerializer.Deserialize(edge.Delay);
 					if (job.DueAt < delayedDueAt)
 						job.DueAt = delayedDueAt;
 

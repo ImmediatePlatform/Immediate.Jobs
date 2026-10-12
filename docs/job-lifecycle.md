@@ -91,7 +91,8 @@ and prevents future occurrence creation.
      FixedWindowMax = 1000, FixedWindowPeriod = "01:00:00", MaxConcurrency = 5)]
 ```
 
-Period strings use the same invariant `TimeSpan` parsing as existing timeout and backoff settings.
+Period, timeout, and backoff strings accept ISO8601 durations (for example, `PT1M`)
+and invariant `TimeSpan` formats (for example, `00:01:00`).
 Both maximum and period must be positive, or both omitted. Zero concurrency disables that limit.
 `MaxConcurrency` is shared across all workers for a definition; queue concurrency remains per node.
 

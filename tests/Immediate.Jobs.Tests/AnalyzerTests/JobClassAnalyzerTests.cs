@@ -32,7 +32,7 @@ public sealed class JobClassAnalyzerTests
 			using System.Threading.Tasks;
 			using Immediate.Handlers.Shared;
 			using Immediate.Jobs.Shared;
-			
+
 			namespace Dummy;
 
 			[Handler, Job(
@@ -59,6 +59,40 @@ public sealed class JobClassAnalyzerTests
 		).RunAsync(TestContext.Current.CancellationToken);
 
 	[Fact]
+	public async Task Iso8601ConfigurationShouldNotTrigger() =>
+		await AnalyzerTestHelpers.CreateAnalyzerTest<JobClassAnalyzer>(
+			"""
+			using System.Threading;
+			using System.Threading.Tasks;
+			using Immediate.Handlers.Shared;
+			using Immediate.Jobs.Shared;
+
+			namespace Dummy;
+
+			[Handler, Job(
+				MaxAttempts = 3,
+				MaxConcurrency = 1,
+				SlidingWindowMax = 10,
+				SlidingWindowPeriod = "PT1.0000003S",
+				FixedWindowMax = 100,
+				FixedWindowPeriod = "PT1M",
+				Backoff = BackoffStrategy.Fixed,
+				BackoffBase = "PT5S",
+				OverlapPolicy = OverlapPolicy.Skip,
+				MisfireHandlingMode = MisfireHandlingMode.EnqueueAll,
+				Timeout = "PT1M"
+
+			)]
+			public sealed partial class GetUsersQuery
+			{
+				public record Query;
+
+				private async ValueTask Handle(Query _, CancellationToken token) { }
+			}
+			"""
+		).RunAsync(TestContext.Current.CancellationToken);
+
+	[Fact]
 	public async Task InvalidConfigurationShouldTriggerRepeatedly() =>
 		await AnalyzerTestHelpers.CreateAnalyzerTest<JobClassAnalyzer>(
 			"""
@@ -66,7 +100,7 @@ public sealed class JobClassAnalyzerTests
 			using System.Threading.Tasks;
 			using Immediate.Handlers.Shared;
 			using Immediate.Jobs.Shared;
-			
+
 			namespace Dummy;
 
 			[Handler, {|IJOB0005:{|IJOB0005:{|IJOB0005:{|IJOB0005:{|IJOB0005:{|IJOB0005:{|IJOB0005:Job(
@@ -95,7 +129,7 @@ public sealed class JobClassAnalyzerTests
 			using System.Threading.Tasks;
 			using Immediate.Handlers.Shared;
 			using Immediate.Jobs.Shared;
-			
+
 			namespace Dummy;
 
 			[Handler, {|IJOB0005:{|IJOB0005:Job(
@@ -120,6 +154,9 @@ public sealed class JobClassAnalyzerTests
 	[InlineData("FixedWindowMax = 1, FixedWindowPeriod = \"-00:01:00\"")]
 	[InlineData("FixedWindowMax = 0, FixedWindowPeriod = \"00:01:00\"")]
 	[InlineData("FixedWindowMax = 1")]
+	[InlineData("SlidingWindowMax = 1, SlidingWindowPeriod = \"PT0S\"")]
+	[InlineData("FixedWindowMax = 1, FixedWindowPeriod = \"-PT1M\"")]
+	[InlineData("FixedWindowMax = 1, FixedWindowPeriod = \"P10675200D\"")]
 	public async Task InvalidAcquisitionWindowsReportConfigurationDiagnostic(string configuration) =>
 		await AnalyzerTestHelpers.CreateAnalyzerTest<JobClassAnalyzer>(
 			$$"""
@@ -144,7 +181,7 @@ public sealed class JobClassAnalyzerTests
 			using System.Threading.Tasks;
 			using Immediate.Handlers.Shared;
 			using Immediate.Jobs.Shared;
-			
+
 			namespace Dummy;
 
 			[Handler, Job(
@@ -166,7 +203,7 @@ public sealed class JobClassAnalyzerTests
 			using System.Threading.Tasks;
 			using Immediate.Handlers.Shared;
 			using Immediate.Jobs.Shared;
-			
+
 			namespace Dummy;
 
 			[Handler, Job(
@@ -190,7 +227,7 @@ public sealed class JobClassAnalyzerTests
 			using System.Threading.Tasks;
 			using Immediate.Handlers.Shared;
 			using Immediate.Jobs.Shared;
-			
+
 			namespace Dummy;
 
 			[Handler, {|IJOB0007:{|IJOB0007:Job(
