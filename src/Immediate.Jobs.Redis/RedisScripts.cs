@@ -154,7 +154,7 @@ internal static class RedisScripts
 	internal const string DefinitionStates = DefinitionFunctions +
 		"""
 		local results = {}
-		for position = 4, #ARGV, 8 do
+		for position = 4, #ARGV, 7 do
 			results[#results + 1] = definitionState(ARGV[1], ARGV[position], readLimits(ARGV, position + 1), tonumber(ARGV[2]), ARGV[3], true)
 		end
 		return results

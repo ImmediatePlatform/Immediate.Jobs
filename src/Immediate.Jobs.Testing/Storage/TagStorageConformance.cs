@@ -43,7 +43,7 @@ internal static class TagStorageConformance
 		await storage.MergeJobDefinitionsListAsync(Registration(aliases.Select(definition => definition with { Tags = ["email"] }).ToList(), "email"), token);
 		await storage.MergeJobDefinitionsListAsync(Registration([]), token);
 		ConformanceAssert.Equal(3, (await storage.GetJobDefinitionsAsync(token)).Count, CaseNameCase, "default cleanup must preserve retagged definitions despite name casing");
-		_ = await ConformanceAssert.ThrowsAsync<ArgumentException>(() => storage.MergeJobDefinitionsListAsync(Registration([Definition("Invoice"), Definition("invoice")]), token),
+		await ConformanceAssert.ThrowsAsync<ArgumentException>(() => storage.MergeJobDefinitionsListAsync(Registration([Definition("Invoice"), Definition("invoice")]), token),
 			CaseNameCase, "one catalogue cannot contain duplicate names that differ only by case");
 		await storage.MergeJobDefinitionsListAsync(Registration([], "email"), token);
 		ConformanceAssert.Equal(0, (await storage.GetJobDefinitionsAsync(token)).Count, CaseNameCase, "the matching tag scope must remove aliases as one identity");

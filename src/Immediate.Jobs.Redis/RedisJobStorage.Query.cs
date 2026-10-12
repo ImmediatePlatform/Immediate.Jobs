@@ -32,7 +32,7 @@ internal sealed partial class RedisJobStorage
 		if (definitions.Count == 0)
 			return [];
 		var now = _timeProvider.GetUtcNow();
-		var arguments = new List<RedisValue> { _root, Score(now), Ticks(now) };
+		var arguments = new List<RedisValue> { _root, Score(now), Timestamp(now) };
 		foreach (var definition in definitions)
 		{
 			arguments.Add(definition.Name.ToUpperInvariant());
@@ -41,20 +41,7 @@ internal sealed partial class RedisJobStorage
 
 		var results = (RedisResult[])(await Database.ScriptEvaluateAsync(RedisScripts.DefinitionStates, [LeasesKey], [.. arguments]).WaitAsync(cancellationToken))!;
 		return [.. definitions.Select((definition, index) =>
-		{
-			var result = (RedisResult[])results[index]!;
-			var next = (string)result[1]!;
-			var active = (int)(long)result[3];
-			return new JobAcquisitionState
-			{
-				JobName = definition.Name,
-				IsPaused = (long)result[2] == 1,
-				ActiveCount = active,
-				IsConcurrencyLimited = definition.MaxConcurrency > 0 && active >= definition.MaxConcurrency,
-				AcquisitionStatus = (JobAcquisitionStatus)(long)result[0],
-				NextEligibleAt = next.Length == 0 ? null : new DateTimeOffset(long.Parse(next, System.Globalization.CultureInfo.InvariantCulture), TimeSpan.Zero),
-			};
-		})];
+			ToAcquisitionState(definition.Name, definition.AcquisitionLimits, (RedisResult[])results[index]!))];
 	}
 
 	/// <inheritdoc />
@@ -72,7 +59,7 @@ internal sealed partial class RedisJobStorage
 			.ToList();
 		var recurringTask = ReadAllRecurringAsync(cancellationToken);
 		var serversTask = ReadLiveServersAsync(cancellationToken);
-		_ = await Task.WhenAll(countTasks).WaitAsync(cancellationToken);
+		await Task.WhenAll(countTasks).WaitAsync(cancellationToken);
 		var recurring = await recurringTask;
 		var servers = await serversTask;
 		var counts = states
@@ -274,7 +261,7 @@ internal sealed partial class RedisJobStorage
 			exclude: Exclude.Stop
 		).WaitAsync(cancellationToken);
 		if (stale.Length != 0)
-			_ = await Database.SortedSetRemoveAsync(ServersKey, stale).WaitAsync(cancellationToken);
+			await Database.SortedSetRemoveAsync(ServersKey, stale).WaitAsync(cancellationToken);
 		var ids = await Database.SortedSetRangeByScoreAsync(
 			ServersKey,
 			start: Score(now)
@@ -282,7 +269,7 @@ internal sealed partial class RedisJobStorage
 		var tasks = ids
 			.Select(id => Database.HashGetAsync(ServerKey((string)id!), ["last", "active", "max", "expires", "details"]))
 			.ToList();
-		_ = await Task.WhenAll(tasks).WaitAsync(cancellationToken);
+		await Task.WhenAll(tasks).WaitAsync(cancellationToken);
 		return
 		[
 			.. tasks

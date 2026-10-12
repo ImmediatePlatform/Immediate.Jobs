@@ -74,9 +74,13 @@ internal sealed partial class LinqToDBJobStorage<T>
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 		await using var scope = contextScope.GetScope(out var connection);
+		return await ReadJobDefinitionsAsync(connection, cancellationToken);
+	}
+
+	private async Task<IReadOnlyList<JobDefinitionRecord>> ReadJobDefinitionsAsync(DataConnection connection, CancellationToken cancellationToken)
+	{
 		var definitions = await Definitions(connection).ToListAsync(cancellationToken);
-		return [.. definitions.Select(static item => ToRecord(item))
-			.OrderBy(static definition => definition.Name, StringComparer.OrdinalIgnoreCase)];
+		return [.. definitions.Select(ToRecord).OrderBy(static definition => definition.Name, StringComparer.OrdinalIgnoreCase)];
 	}
 
 	private static void ValidateRegistration(JobDefinitionRegistration registration)

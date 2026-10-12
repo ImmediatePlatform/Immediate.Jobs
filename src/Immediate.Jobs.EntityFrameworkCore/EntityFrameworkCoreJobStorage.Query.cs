@@ -26,15 +26,15 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 				TimeZone = schedule.TimeZone,
 				IsCodeDefined = schedule.IsCodeDefined,
 			}).ToListAsync(cancellationToken);
-		return new() { Jobs = await GetJobDefinitionsAsync(cancellationToken), Recurring = recurring };
+		return new() { Jobs = await ReadJobDefinitionsAsync(context, cancellationToken), Recurring = recurring };
 	}
 
 	private async ValueTask<IReadOnlyList<JobAcquisitionState>> ReadDefinitionStatusesAsync(CancellationToken cancellationToken)
 	{
-		var definitions = await GetJobDefinitionsAsync(cancellationToken);
+		await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+		var definitions = await ReadJobDefinitionsAsync(context, cancellationToken);
 		if (definitions.Count == 0)
 			return [];
-		await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 		var now = _timeProvider.GetUtcNow();
 		var states = (await context.Set<ImmediateJobDefinitionEntity>().AsNoTracking().ToListAsync(cancellationToken))
 			.ToDictionary(static state => state.JobName, StringComparer.OrdinalIgnoreCase);

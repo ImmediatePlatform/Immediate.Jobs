@@ -168,9 +168,9 @@ public sealed class DefinitionAcquisitionTests
 		await harness.DrainAsync(TestContext.Current.CancellationToken);
 		await using var scope = harness.Services.CreateAsyncScope();
 		var scheduler = scope.ServiceProvider.GetRequiredService<LimitedAcquisitionJob.Scheduler>();
-		_ = await scheduler.EnqueueAsync(new(), token);
+		await scheduler.EnqueueAsync(new(), token);
 		var definition = (await harness.Storage.GetJobDefinitionsAsync(TestContext.Current.CancellationToken)).Single(static definition => string.Equals(definition.Name, "limited-acquisition", StringComparison.Ordinal));
-		_ = await harness.Storage.AcquireDueJobsAsync(new()
+		await harness.Storage.AcquireDueJobsAsync(new()
 		{
 			WorkerId = "monitor-worker",
 			Lease = TimeSpan.FromSeconds(30),

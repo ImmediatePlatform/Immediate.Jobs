@@ -499,22 +499,22 @@ internal static class RecurringStorageConformance
 		var codeDefined = Schedule("exceptions-code-defined", now.AddHours(1), isCodeDefined: true);
 		await storage.UpsertRecurringAsync(codeDefined, cancellationToken);
 
-		_ = await ConformanceAssert.ThrowsAsync<KeyNotFoundException>(
+		await ConformanceAssert.ThrowsAsync<KeyNotFoundException>(
 			() => storage.PauseRecurringAsync("exceptions-missing", cancellationToken),
 			ExceptionsName,
 			"pausing a missing schedule must throw KeyNotFoundException"
 		);
-		_ = await ConformanceAssert.ThrowsAsync<KeyNotFoundException>(
+		await ConformanceAssert.ThrowsAsync<KeyNotFoundException>(
 			() => storage.ResumeRecurringAsync("exceptions-missing", cancellationToken),
 			ExceptionsName,
 			"resuming a missing schedule must throw KeyNotFoundException"
 		);
-		_ = await ConformanceAssert.ThrowsAsync<KeyNotFoundException>(
+		await ConformanceAssert.ThrowsAsync<KeyNotFoundException>(
 			() => storage.RemoveRecurringAsync("exceptions-missing", cancellationToken),
 			ExceptionsName,
 			"removing a missing schedule must throw KeyNotFoundException"
 		);
-		_ = await ConformanceAssert.ThrowsAsync<ImmediateJobException>(
+		await ConformanceAssert.ThrowsAsync<ImmediateJobException>(
 			() => storage.RemoveRecurringAsync(codeDefined.Name, cancellationToken),
 			ExceptionsName,
 			"removing a code-defined schedule must throw ImmediateJobException"

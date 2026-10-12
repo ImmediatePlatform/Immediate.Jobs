@@ -21,8 +21,12 @@ public interface IJobMonitor
 	/// <summary>
 	/// 	Gets stored job and recurring configuration without live acquisition state.
 	/// </summary>
-	/// <param name="cancellationToken">A token that can cancel the read.</param>
-	/// <returns>All persisted monitoring definitions.</returns>
+	/// <param name="cancellationToken">
+	/// 	A token that can cancel the read.
+	/// </param>
+	/// <returns>
+	/// 	All persisted monitoring definitions.
+	/// </returns>
 	ValueTask<JobMonitoringDefinitions> GetDefinitionsAsync(CancellationToken cancellationToken = default);
 
 	/// <summary>

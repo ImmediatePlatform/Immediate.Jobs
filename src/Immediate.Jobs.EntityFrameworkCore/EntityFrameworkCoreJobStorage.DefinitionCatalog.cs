@@ -100,12 +100,16 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 		GetJobDefinitionsAsyncCalled();
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
-		return await ReadWithStrategyAsync(async (context, token) =>
-		{
-			var definitions = await context.Set<ImmediateJobDefinitionMetadataEntity>().AsNoTracking().ToListAsync(token);
-			return (IReadOnlyList<JobDefinitionRecord>)[.. definitions.Select(ToRecord)
-				.OrderBy(static definition => definition.Name, StringComparer.OrdinalIgnoreCase)];
-		}, cancellationToken);
+		return await ReadWithStrategyAsync(ReadJobDefinitionsAsync, cancellationToken);
+	}
+
+	private static async Task<IReadOnlyList<JobDefinitionRecord>> ReadJobDefinitionsAsync(TContext context, CancellationToken cancellationToken)
+	{
+		var definitions = await context.Set<ImmediateJobDefinitionMetadataEntity>()
+			.AsNoTracking()
+			.ToListAsync(cancellationToken);
+
+		return [.. definitions.Select(ToRecord).OrderBy(static definition => definition.Name, StringComparer.OrdinalIgnoreCase)];
 	}
 
 	private async Task EnsureDefinitionCatalogAsync(CancellationToken cancellationToken)

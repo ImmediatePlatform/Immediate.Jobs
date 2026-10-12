@@ -52,7 +52,7 @@ internal static class DefinitionCatalogStorageConformance
 			NextRunAt = clock.GetUtcNow().AddMinutes(1),
 		};
 		await storage.UpsertRecurringAsync(schedule, token);
-		var persistedSchedule = (await MonitoringTestQueries.ReadSchedulesAsync(storage, token)).Single();
+		var persistedSchedule = (await MonitoringTestQueries.GetSchedulesAsync(storage, token)).Single();
 		ConformanceAssert.Equal(schedule with { JobName = definition.Name, QueueName = definition.QueueName }, persistedSchedule,
 			SubmissionCase, "dynamic schedules must use the persisted definition without a caller-supplied queue");
 

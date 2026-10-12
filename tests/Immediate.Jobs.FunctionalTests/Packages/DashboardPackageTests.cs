@@ -24,11 +24,11 @@ public sealed class DashboardPackageTests
 		await using var storage = new InMemoryJobStorage(clock);
 		var builder = WebApplication.CreateBuilder(new WebApplicationOptions { EnvironmentName = Environments.Development });
 		builder.WebHost.UseTestServer();
-		_ = builder.Services.AddImmediateJobsCore().DisableWorkers().ConfigureStorage(options => _ = options.UseInMemory()).AddImmediateJobsDashboard();
-		_ = LimitedAcquisitionJob.AddJob(builder.Services);
+		builder.Services.AddImmediateJobsCore().DisableWorkers().ConfigureStorage(options => options.UseInMemory()).AddImmediateJobsDashboard();
+		LimitedAcquisitionJob.AddJob(builder.Services);
 		ConfigureDashboardTestServices(builder.Services, storage, clock);
 		await using var app = builder.Build();
-		_ = app.MapImmediateJobsDashboard("/operations/background-work");
+		app.MapImmediateJobsDashboard("/operations/background-work");
 		await app.StartAsync(token);
 		await app.Services.GetRequiredService<JobSchedulingService>().DrainAsync(token);
 		using var client = app.GetTestClient();
@@ -51,7 +51,7 @@ public sealed class DashboardPackageTests
 			Queues = [new() { QueueName = definition.QueueName, Capacity = 1, JobCapacities = new Dictionary<string, int>(StringComparer.Ordinal) { [definition.Name] = 2 } }],
 			JobLimits = new Dictionary<string, JobAcquisitionLimits>(StringComparer.Ordinal) { [definition.Name] = definition.AcquisitionLimits },
 		};
-		_ = Assert.Single(await storage.AcquireDueJobsAsync(request, token));
+		Assert.Single(await storage.AcquireDueJobsAsync(request, token));
 		var pendingHandle = JobHandle.FromString("definition-action-pending");
 		await storage.EnqueueAsync(new()
 		{
@@ -71,7 +71,7 @@ public sealed class DashboardPackageTests
 			);
 			Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
 			using var statusResponse = await client.GetAsync(new Uri("/operations/background-work/api/overview", UriKind.Relative), token);
-			_ = statusResponse.EnsureSuccessStatusCode();
+			statusResponse.EnsureSuccessStatusCode();
 			using var document = JsonDocument.Parse(await statusResponse.Content.ReadAsStringAsync(token));
 			var acquisition = Assert.Single(document.RootElement.GetProperty("definitionStatuses").EnumerateArray());
 			Assert.Equal(string.Equals(action, "pause", StringComparison.Ordinal), acquisition.GetProperty("isPaused").GetBoolean());
@@ -110,12 +110,13 @@ public sealed class DashboardPackageTests
 		{
 			JobHandle = JobHandle.FromString("definition-dashboard-job"),
 			JobName = "limited-acquisition",
+			QueueName = "default",
 			Payload = "{}",
 			State = JobState.Pending,
 			CreatedAt = clock.GetUtcNow(),
 			DueAt = clock.GetUtcNow(),
 		}, token);
-		_ = await storage.AcquireDueJobsAsync(new()
+		await storage.AcquireDueJobsAsync(new()
 		{
 			WorkerId = "dashboard-worker",
 			Lease = TimeSpan.FromSeconds(30),
@@ -126,12 +127,12 @@ public sealed class DashboardPackageTests
 		await storage.PauseJobAsync("limited-acquisition", token);
 		var builder = WebApplication.CreateBuilder(new WebApplicationOptions { EnvironmentName = Environments.Development });
 		builder.WebHost.UseTestServer();
-		_ = builder.Services.AddImmediateJobsCore().DisableWorkers().ConfigureStorage(options => _ = options.UseInMemory()).AddImmediateJobsDashboard();
-		_ = LimitedAcquisitionJob.AddJob(builder.Services);
+		builder.Services.AddImmediateJobsCore().DisableWorkers().ConfigureStorage(options => options.UseInMemory()).AddImmediateJobsDashboard();
+		LimitedAcquisitionJob.AddJob(builder.Services);
 		builder.Services.Replace(ServiceDescriptor.Singleton<JobDefinition>(provider => LimitedAcquisitionJob.CreateJobDefinition(provider) with { MaxConcurrency = 1 }));
 		ConfigureDashboardTestServices(builder.Services, storage, clock);
 		await using var app = builder.Build();
-		_ = app.MapImmediateJobsDashboard();
+		app.MapImmediateJobsDashboard();
 		await app.StartAsync(token);
 		await app.Services.GetRequiredService<JobSchedulingService>().DrainAsync(token);
 		using var client = app.GetTestClient();
@@ -139,7 +140,7 @@ public sealed class DashboardPackageTests
 		foreach (var route in routes)
 		{
 			using var response = await client.GetAsync(new Uri(route, UriKind.Relative), token);
-			_ = response.EnsureSuccessStatusCode();
+			response.EnsureSuccessStatusCode();
 			using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync(token));
 			if (route.EndsWith("definitions", StringComparison.Ordinal))
 			{
@@ -235,7 +236,7 @@ public sealed class DashboardPackageTests
 			CreatedAt = clock.GetUtcNow(),
 			DueAt = clock.GetUtcNow(),
 		}, token);
-		_ = Assert.Single(await storage.AcquireDueJobsAsync(new()
+		Assert.Single(await storage.AcquireDueJobsAsync(new()
 		{
 			WorkerId = "remote-worker",
 			Lease = TimeSpan.FromMinutes(5),

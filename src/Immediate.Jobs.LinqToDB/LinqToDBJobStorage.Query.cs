@@ -28,15 +28,15 @@ internal sealed partial class LinqToDBJobStorage<T>
 				TimeZone = schedule.TimeZone,
 				IsCodeDefined = schedule.IsCodeDefined,
 			}).ToListAsync(cancellationToken);
-		return new() { Jobs = await GetJobDefinitionsAsync(cancellationToken), Recurring = recurring };
+		return new() { Jobs = await ReadJobDefinitionsAsync(connection, cancellationToken), Recurring = recurring };
 	}
 
 	private async ValueTask<IReadOnlyList<JobAcquisitionState>> ReadDefinitionStatusesAsync(CancellationToken cancellationToken)
 	{
-		var definitions = await GetJobDefinitionsAsync(cancellationToken);
+		await using var scope = contextScope.GetScope(out var connection);
+		var definitions = await ReadJobDefinitionsAsync(connection, cancellationToken);
 		if (definitions.Count == 0)
 			return [];
-		await using var scope = contextScope.GetScope(out var connection);
 		var now = timeProvider.GetUtcNow();
 		var states = (await DefinitionStates(connection).ToListAsync(cancellationToken))
 			.ToDictionary(static state => state.JobName, StringComparer.OrdinalIgnoreCase);

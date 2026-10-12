@@ -67,7 +67,9 @@ public sealed record RecurringJobSchedule
 	/// <summary>
 	/// 	Returns this schedule's configuration without live progress.
 	/// </summary>
-	/// <returns>The recurring configuration.</returns>
+	/// <returns>
+	/// 	The recurring configuration.
+	/// </returns>
 	public RecurringJobDefinition ToDefinition() => new()
 	{
 		Name = Name,
@@ -81,7 +83,9 @@ public sealed record RecurringJobSchedule
 	/// <summary>
 	/// 	Returns this schedule's live progress without configuration.
 	/// </summary>
-	/// <returns>The recurring status.</returns>
+	/// <returns>
+	/// 	The recurring status.
+	/// </returns>
 	public RecurringJobStatus ToStatus() => new()
 	{
 		Name = Name,
@@ -93,9 +97,15 @@ public sealed record RecurringJobSchedule
 	/// <summary>
 	/// 	Combines recurring configuration and live progress for persistence.
 	/// </summary>
-	/// <param name="definition">The schedule configuration.</param>
-	/// <param name="status">The matching live status.</param>
-	/// <returns>The complete persisted schedule.</returns>
+	/// <param name="definition">
+	/// 	The schedule configuration.
+	/// </param>
+	/// <param name="status">
+	/// 	The matching live status.
+	/// </param>
+	/// <returns>
+	/// 	The complete persisted schedule.
+	/// </returns>
 	public static RecurringJobSchedule FromDefinition(RecurringJobDefinition definition, RecurringJobStatus status)
 	{
 		ArgumentNullException.ThrowIfNull(definition);
