@@ -315,7 +315,7 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 		await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
 		if (!await ReserveDefinitionAsync(context, candidate.JobName, request, now, cancellationToken))
 		{
-			_ = await context.SaveChangesAsync(cancellationToken);
+			await context.SaveChangesAsync(cancellationToken);
 			await transaction.CommitAsync(cancellationToken);
 			return null;
 		}
@@ -342,7 +342,7 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 				);
 			if (group is null)
 			{
-				_ = context.Add(new ImmediateFairQueueGroupEntity
+				context.Add(new ImmediateFairQueueGroupEntity
 				{
 					QueueName = queueName,
 					GroupId = groupId,
@@ -377,7 +377,7 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 
 		try
 		{
-			_ = await context.SaveChangesAsync(cancellationToken);
+			await context.SaveChangesAsync(cancellationToken);
 			await RefreshAcquiredDefinitionAsync(context, candidate.JobName, request, now, cancellationToken);
 			await transaction.CommitAsync(cancellationToken);
 			return ToRecord(entity, candidate.QueueName);
@@ -495,8 +495,8 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 			if (cursor is null)
 				return;
 
-			_ = context.Remove(cursor);
-			_ = await context.SaveChangesAsync(cancellationToken);
+			context.Remove(cursor);
+			await context.SaveChangesAsync(cancellationToken);
 		}
 
 		catch (Exception exception) when (

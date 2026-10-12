@@ -7,9 +7,6 @@ namespace Immediate.Jobs.Generators;
 
 public sealed partial class ImmediateJobsGenerator
 {
-	private static bool ValidWindow(int maximum, string? period) => maximum >= 0 &&
-		(maximum == 0 ? period is null : period is not null && TimeSpan.TryParse(period, CultureInfo.InvariantCulture, out var value) && value > TimeSpan.Zero);
-
 	private static JobModel? TransformJob(
 		GeneratorAttributeSyntaxContext context,
 		CancellationToken cancellationToken
@@ -77,7 +74,7 @@ public sealed partial class ImmediateJobsGenerator
 		var slidingWindowPeriod = arguments.GetStringValue("SlidingWindowPeriod");
 		var fixedWindowMax = arguments.GetIntValue("FixedWindowMax", 0);
 		var fixedWindowPeriod = arguments.GetStringValue("FixedWindowPeriod");
-		if (!ValidWindow(slidingWindowMax, slidingWindowPeriod) || !ValidWindow(fixedWindowMax, fixedWindowPeriod))
+		if (!arguments.IsValidAcquisitionWindow("SlidingWindow") || !arguments.IsValidAcquisitionWindow("FixedWindow"))
 			return null;
 
 		if (arguments.GetValidEnumValue("Backoff", "ExponentialJitter") is not { } backoff)

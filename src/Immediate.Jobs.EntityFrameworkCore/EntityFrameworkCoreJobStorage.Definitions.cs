@@ -51,8 +51,8 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 			await using var transaction = await context.Database.BeginTransactionAsync(token);
 			var definition = await LockDefinitionAsync(context, jobName, token);
 			definition.IsPaused = paused;
-			_ = await EvaluateDefinitionAsync(context, definition, limits, _timeProvider.GetUtcNow(), additionalActive: 0, token);
-			_ = await context.SaveChangesAsync(token);
+			await EvaluateDefinitionAsync(context, definition, limits, _timeProvider.GetUtcNow(), additionalActive: 0, token);
+			await context.SaveChangesAsync(token);
 			await transaction.CommitAsync(token);
 		}, cancellationToken);
 	}
@@ -62,10 +62,10 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 		await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 		if (await context.Set<ImmediateJobDefinitionEntity>().AnyAsync(item => item.JobName == jobName, cancellationToken))
 			return;
-		_ = context.Add(new ImmediateJobDefinitionEntity { JobName = jobName, ConcurrencyStamp = Guid.NewGuid() });
+		context.Add(new ImmediateJobDefinitionEntity { JobName = jobName, ConcurrencyStamp = Guid.NewGuid() });
 		try
 		{
-			_ = await context.SaveChangesAsync(cancellationToken);
+			await context.SaveChangesAsync(cancellationToken);
 		}
 
 		catch (DbUpdateException)
@@ -81,7 +81,7 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 		// Take the same row's write lock before reading counters or active leases. Pause uses this lock too.
 		// Generate the stamp locally: EF Core 8's SQLite provider cannot translate Guid.NewGuid().
 		var stamp = Guid.NewGuid();
-		_ = await context.Set<ImmediateJobDefinitionEntity>().Where(item => item.JobName == jobName)
+		await context.Set<ImmediateJobDefinitionEntity>().Where(item => item.JobName == jobName)
 			.ExecuteUpdateAsync(update => update.SetProperty(item => item.ConcurrencyStamp, stamp), cancellationToken);
 		return await context.Set<ImmediateJobDefinitionEntity>().SingleAsync(item => item.JobName == jobName, cancellationToken);
 	}
@@ -111,9 +111,9 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 			return false;
 		if (limits.SlidingWindowPeriod is { } period)
 		{
-			_ = await context.Set<ImmediateJobAcquisitionEntity>()
+			await context.Set<ImmediateJobAcquisitionEntity>()
 				.Where(item => item.JobName == jobName && item.AcquiredAt <= now - period).ExecuteDeleteAsync(cancellationToken);
-			_ = context.Add(new ImmediateJobAcquisitionEntity { Id = Guid.NewGuid(), JobName = jobName, AcquiredAt = now });
+			context.Add(new ImmediateJobAcquisitionEntity { Id = Guid.NewGuid(), JobName = jobName, AcquiredAt = now });
 		}
 
 		if (limits.FixedWindowStart(now) is { } start)
@@ -159,8 +159,8 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 	private static async Task RefreshAcquiredDefinitionAsync(TContext context, string jobName, JobAcquisitionRequest? request, DateTimeOffset now, CancellationToken cancellationToken)
 	{
 		var definition = await context.Set<ImmediateJobDefinitionEntity>().SingleAsync(item => item.JobName == jobName, cancellationToken);
-		_ = await EvaluateDefinitionAsync(context, definition, request?.LimitsFor(jobName) ?? new(), now, additionalActive: 0, cancellationToken);
-		_ = await context.SaveChangesAsync(cancellationToken);
+		await EvaluateDefinitionAsync(context, definition, request?.LimitsFor(jobName) ?? new(), now, additionalActive: 0, cancellationToken);
+		await context.SaveChangesAsync(cancellationToken);
 	}
 
 	[LoggerMessage(

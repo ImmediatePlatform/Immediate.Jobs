@@ -33,6 +33,18 @@ internal static class TypedConstantExtensions
 				_ => defaultValue,
 			};
 
+		public bool IsValidAcquisitionWindow(string name)
+		{
+			var maximum = arguments.GetIntValue(name + "Max", 0);
+			var period = arguments.GetStringValue(name + "Period");
+			if (maximum == 0)
+				return period is null;
+
+			return maximum > 0
+				&& TimeSpan.TryParse(period, CultureInfo.InvariantCulture, out var value)
+				&& value > TimeSpan.Zero;
+		}
+
 		public string? GetStringValue(string name) =>
 			arguments.GetArgumentValue(name)?.GetStringValue();
 

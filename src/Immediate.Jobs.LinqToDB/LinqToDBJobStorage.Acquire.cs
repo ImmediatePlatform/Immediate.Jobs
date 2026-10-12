@@ -141,7 +141,7 @@ internal sealed partial class LinqToDBJobStorage<T>
 			await EnsureDefinitionAsync(candidate.JobName, cancellationToken);
 			await using var scope = contextScope.GetScope(out var connection);
 
-			_ = await connection.BeginTransactionAsync(cancellationToken);
+			await connection.BeginTransactionAsync(cancellationToken);
 			try
 			{
 				if (!await ReserveDefinitionAsync(connection, candidate.JobName, request, now, cancellationToken))

@@ -67,7 +67,7 @@ public sealed class DefinitionAcquisitionTests
 		await using var harness = CreateHarness(services =>
 		{
 			services.RemoveAll<JobDefinition>();
-			_ = services.AddSingleton<JobDefinition>(provider => LimitedAcquisitionJob.CreateJobDefinition(provider));
+			services.AddSingleton<JobDefinition>(provider => LimitedAcquisitionJob.CreateJobDefinition(provider));
 		});
 		await harness.DrainAsync(token);
 		await using var scope = harness.Services.CreateAsyncScope();
@@ -85,7 +85,7 @@ public sealed class DefinitionAcquisitionTests
 		await harness.Storage.MergeJobDefinitionsListAsync(new() { Definitions = [definition] }, token);
 		var first = await scheduler.EnqueueAsync(new(), token);
 		Assert.Equal(definition.QueueName, (await harness.GetJobAsync(first, token)).QueueName);
-		_ = await scheduler.EnqueueAsync(new(), token);
+		await scheduler.EnqueueAsync(new(), token);
 		var acquired = await harness.Storage.AcquireDueJobsAsync(new()
 		{
 			WorkerId = "monitor-worker",
@@ -129,11 +129,11 @@ public sealed class DefinitionAcquisitionTests
 
 	private static JobTestHarness CreateHarness(Action<IServiceCollection>? configure = null) => new(services =>
 	{
-		_ = services.AddSingleton(new ExecutionState());
-		_ = services.AddSingleton(new ContextProbe());
-		_ = services.AddScoped<PropagationScopeState>();
-		_ = services.AddImmediateJobsFunctionalTestsHandlers();
-		_ = services.AddImmediateJobsFunctionalTestsJobs();
+		services.AddSingleton(new ExecutionState());
+		services.AddSingleton(new ContextProbe());
+		services.AddScoped<PropagationScopeState>();
+		services.AddImmediateJobsFunctionalTestsHandlers();
+		services.AddImmediateJobsFunctionalTestsJobs();
 		configure?.Invoke(services);
 	});
 }

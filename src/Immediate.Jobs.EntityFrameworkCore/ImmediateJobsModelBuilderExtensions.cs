@@ -77,27 +77,27 @@ public static class ImmediateJobsModelBuilderExtensions
 
 	private static void ConfigureDefinitions(EntityTypeBuilder<ImmediateJobDefinitionEntity> entity, string? schema)
 	{
-		_ = entity.ToTable("immediate_job_definitions", schema);
-		_ = entity.HasKey(item => item.JobName);
-		_ = entity.Property(item => item.JobName).HasMaxLength(256);
-		_ = entity.Property(item => item.AcquisitionStatus).HasConversion<short>();
-		_ = entity.Property(item => item.ConcurrencyStamp).IsConcurrencyToken();
-		_ = entity.Property(item => item.NextEligibleAt).HasConversion(
+		entity.ToTable("immediate_job_definitions", schema);
+		entity.HasKey(item => item.JobName);
+		entity.Property(item => item.JobName).HasMaxLength(256);
+		entity.Property(item => item.AcquisitionStatus).HasConversion<short>();
+		entity.Property(item => item.ConcurrencyStamp).IsConcurrencyToken();
+		entity.Property(item => item.NextEligibleAt).HasConversion(
 			value => value.HasValue ? value.Value.UtcTicks : (long?)null,
 			value => value.HasValue ? new DateTimeOffset(value.Value, TimeSpan.Zero) : null);
-		_ = entity.Property(item => item.FixedWindowStart).HasConversion(
+		entity.Property(item => item.FixedWindowStart).HasConversion(
 			value => value.HasValue ? value.Value.UtcTicks : (long?)null,
 			value => value.HasValue ? new DateTimeOffset(value.Value, TimeSpan.Zero) : null);
 	}
 
 	private static void ConfigureAcquisitions(EntityTypeBuilder<ImmediateJobAcquisitionEntity> entity, string? schema)
 	{
-		_ = entity.ToTable("immediate_job_acquisitions", schema);
-		_ = entity.HasKey(item => item.Id);
-		_ = entity.Property(item => item.JobName).HasMaxLength(256);
-		_ = entity.Property(item => item.AcquiredAt).HasConversion(
+		entity.ToTable("immediate_job_acquisitions", schema);
+		entity.HasKey(item => item.Id);
+		entity.Property(item => item.JobName).HasMaxLength(256);
+		entity.Property(item => item.AcquiredAt).HasConversion(
 			value => value.UtcTicks, value => new DateTimeOffset(value, TimeSpan.Zero));
-		_ = entity.HasIndex(item => new { item.JobName, item.AcquiredAt });
+		entity.HasIndex(item => new { item.JobName, item.AcquiredAt });
 	}
 
 	private static void ConfigureExecutions(EntityTypeBuilder<ImmediateJobExecutionEntity> entity, string? schema)
@@ -191,7 +191,7 @@ public static class ImmediateJobsModelBuilderExtensions
 			.WithMany()
 			.HasForeignKey(job => job.BatchHandle)
 			.OnDelete(DeleteBehavior.Cascade);
-		_ = entity.HasIndex(job => new { job.JobName, job.State, job.LeaseExpiresAt });
+		entity.HasIndex(job => new { job.JobName, job.State, job.LeaseExpiresAt });
 		_ = entity.HasIndex(job => job.RecurringKey).IsUnique();
 		_ = entity.HasIndex(job => job.BatchHandle);
 		_ = entity.HasIndex(job => new { job.State, job.DueAt });

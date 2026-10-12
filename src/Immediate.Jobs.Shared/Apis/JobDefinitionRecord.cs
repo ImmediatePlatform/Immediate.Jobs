@@ -56,18 +56,22 @@ public sealed record JobDefinitionRecord
 	/// 	Maximum acquisitions in the preceding sliding period. Zero disables this limit.
 	/// </summary>
 	public int SlidingWindowMax { get; init; }
+
 	/// <summary>
 	/// 	The sliding acquisition period, or null when disabled.
 	/// </summary>
 	public TimeSpan? SlidingWindowPeriod { get; init; }
+
 	/// <summary>
 	/// 	Maximum acquisitions in each aligned fixed period. Zero disables this limit.
 	/// </summary>
 	public int FixedWindowMax { get; init; }
+
 	/// <summary>
 	/// 	The fixed acquisition period, or null when disabled.
 	/// </summary>
 	public TimeSpan? FixedWindowPeriod { get; init; }
+
 	/// <summary>
 	/// 	The parsed limits passed to storage for direct acquisition queries.
 	/// </summary>

@@ -111,7 +111,7 @@ public sealed class BatchesAndContinuationsTests
 		_ = scheduler.Enqueue(new("grouped"), batch, groupId: "tenant-a");
 		_ = scheduler.Enqueue(new("blank"), batch, groupId: "  ");
 		_ = scheduler.Schedule(new("absolute"), batch, harness.TimeProvider.GetUtcNow(), groupId: "tenant-b");
-		_ = await batch.CommitAsync(cancellationToken);
+		await batch.CommitAsync(cancellationToken);
 
 		var jobs = (await harness.QueryJobsAsync(cancellationToken: cancellationToken))
 			.ToDictionary(static job => job.Payload, StringComparer.Ordinal);
@@ -140,7 +140,7 @@ public sealed class BatchesAndContinuationsTests
 			new("join"),
 			[fanA, fanB]
 		);
-		_ = await batch.CommitAsync(cancellationToken);
+		await batch.CommitAsync(cancellationToken);
 
 		Assert.Equal(JobState.Pending, (await harness.GetJobAsync(root.JobHandle, cancellationToken)).State);
 		Assert.Equal(JobState.AwaitingContinuation, (await harness.GetJobAsync(chain.JobHandle, cancellationToken)).State);
@@ -252,7 +252,7 @@ public sealed class BatchesAndContinuationsTests
 			parent,
 			ContinuationTrigger.Complete
 		);
-		_ = await batch.CommitAsync(cancellationToken);
+		await batch.CommitAsync(cancellationToken);
 
 		await harness.DrainAsync(cancellationToken);
 
@@ -340,7 +340,7 @@ public sealed class BatchesAndContinuationsTests
 		var standalone = await scheduler.EnqueueAsync(new("standalone"), cancellationToken);
 		await using var batch = batches.Begin();
 		var batched = scheduler.Enqueue(new("batched"), batch);
-		_ = await batch.CommitAsync(cancellationToken);
+		await batch.CommitAsync(cancellationToken);
 
 		var expectedCount = (await harness.QueryJobsAsync(cancellationToken: cancellationToken)).Count;
 
@@ -512,7 +512,7 @@ public sealed class BatchesAndContinuationsTests
 		var scheduler = scope.ServiceProvider.GetRequiredService<ExecutionBufferProbeJob.Scheduler>();
 		var workflowScheduler = scope.ServiceProvider.GetRequiredService<BatchWorkflowJob.Scheduler>();
 
-		_ = await scheduler.EnqueueAsync(new(64), cancellationToken);
+		await scheduler.EnqueueAsync(new(64), cancellationToken);
 		await harness.DrainAsync(cancellationToken);
 
 		var jobs = await harness.QueryJobsAsync(cancellationToken: cancellationToken);

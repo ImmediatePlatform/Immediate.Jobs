@@ -46,7 +46,7 @@ internal sealed partial class SingleServerJobStorage
 			if (!await DurableStorage.TryTriggerAsync(jobHandle, expectedJobName, dueAt, cancellationToken))
 				return false;
 
-			_ = await PrimaryStorage.TryTriggerAsync(jobHandle, expectedJobName, dueAt, cancellationToken);
+			await PrimaryStorage.TryTriggerAsync(jobHandle, expectedJobName, dueAt, cancellationToken);
 			return true;
 		}
 		finally
@@ -68,7 +68,7 @@ internal sealed partial class SingleServerJobStorage
 			if (!await JobGraphStorage.TryTriggerBatchAsync(batchHandle, cancellationToken))
 				return false;
 
-			_ = await PrimaryStorage.TryTriggerBatchAsync(batchHandle, cancellationToken);
+			await PrimaryStorage.TryTriggerBatchAsync(batchHandle, cancellationToken);
 			return true;
 		}
 		finally

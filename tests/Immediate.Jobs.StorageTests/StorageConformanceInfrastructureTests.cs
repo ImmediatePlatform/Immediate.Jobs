@@ -115,7 +115,7 @@ public sealed class StorageConformanceInfrastructureTests
 		using var cancellationSource = new CancellationTokenSource();
 		await cancellationSource.CancelAsync();
 
-		_ = await Assert.ThrowsAnyAsync<OperationCanceledException>(
+		await Assert.ThrowsAnyAsync<OperationCanceledException>(
 			() => testCase.RunAsync(services, cancellationSource.Token).AsTask()
 		);
 	}

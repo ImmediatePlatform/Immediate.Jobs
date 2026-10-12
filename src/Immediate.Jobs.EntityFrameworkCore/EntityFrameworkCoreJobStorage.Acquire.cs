@@ -179,13 +179,13 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 		await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
 		if (!await ReserveDefinitionAsync(context, candidate.JobName, request, now, cancellationToken))
 		{
-			_ = await context.SaveChangesAsync(cancellationToken);
+			await context.SaveChangesAsync(cancellationToken);
 			await transaction.CommitAsync(cancellationToken);
 			return null;
 		}
 
 		var entity = Copy(candidate);
-		_ = context.Attach(entity);
+		context.Attach(entity);
 		await PrepareAcquisitionExecutionsAsync(context, candidate, workerId, now, cancellationToken);
 		entity.State = JobState.Active;
 		entity.WorkerId = workerId;
@@ -209,7 +209,7 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 
 		try
 		{
-			_ = await context.SaveChangesAsync(cancellationToken);
+			await context.SaveChangesAsync(cancellationToken);
 			await RefreshAcquiredDefinitionAsync(context, candidate.JobName, request, now, cancellationToken);
 			await transaction.CommitAsync(cancellationToken);
 			return ToRecord(entity, candidate.QueueName);

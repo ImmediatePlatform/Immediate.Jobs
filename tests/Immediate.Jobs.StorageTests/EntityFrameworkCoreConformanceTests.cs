@@ -100,7 +100,7 @@ public sealed class EntityFrameworkCoreSQLiteConformanceTests
 			Queues = [new() { QueueName = "default", Capacity = 1, JobCapacities = new Dictionary<string, int>(StringComparer.Ordinal) { ["idle-job"] = 1 } }],
 		};
 		Assert.Empty(await storage.AcquireDueJobsAsync(request, token));
-		_ = await storage.GetJobAcquisitionStateAsync("idle-job", new(), token);
+		await storage.GetJobAcquisitionStateAsync("idle-job", new(), token);
 		Assert.Empty(await context.Set<ImmediateJobDefinitionEntity>().ToListAsync(token));
 		await storage.PauseJobAsync("idle-job", token);
 		var before = Assert.Single(await context.Set<ImmediateJobDefinitionEntity>().ToListAsync(token));

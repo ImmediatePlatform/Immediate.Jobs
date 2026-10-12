@@ -78,14 +78,17 @@ public sealed class JobAttribute : Attribute
 	/// 	Maximum acquisitions in the preceding sliding period. Zero disables this limit.
 	/// </summary>
 	public int SlidingWindowMax { get; init; }
+
 	/// <summary>
 	/// 	A positive TimeSpan-formatted sliding period, paired with SlidingWindowMax.
 	/// </summary>
 	public string? SlidingWindowPeriod { get; init; }
+
 	/// <summary>
 	/// 	Maximum acquisitions in each UTC-aligned fixed period. Zero disables this limit.
 	/// </summary>
 	public int FixedWindowMax { get; init; }
+
 	/// <summary>
 	/// 	A positive TimeSpan-formatted fixed period, paired with FixedWindowMax.
 	/// </summary>

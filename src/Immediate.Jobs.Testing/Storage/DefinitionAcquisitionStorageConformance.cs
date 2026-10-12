@@ -28,6 +28,7 @@ internal static class DefinitionAcquisitionStorageConformance
 	{
 		JobHandle = JobHandle.FromString(id),
 		JobName = name,
+		QueueName = "default",
 		Payload = "{}",
 		State = JobState.Pending,
 		DueAt = now,

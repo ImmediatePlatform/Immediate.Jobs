@@ -9,18 +9,22 @@ public sealed record JobAcquisitionLimits
 	/// 	Maximum acquisitions in the preceding sliding period. Zero disables the limit.
 	/// </summary>
 	public int SlidingWindowMax { get; init; }
+
 	/// <summary>
 	/// 	The sliding period, or <see langword="null"/> when disabled.
 	/// </summary>
 	public TimeSpan? SlidingWindowPeriod { get; init; }
+
 	/// <summary>
 	/// 	Maximum acquisitions in each UTC-aligned fixed period. Zero disables the limit.
 	/// </summary>
 	public int FixedWindowMax { get; init; }
+
 	/// <summary>
 	/// 	The fixed period, or <see langword="null"/> when disabled.
 	/// </summary>
 	public TimeSpan? FixedWindowPeriod { get; init; }
+
 	/// <summary>
 	/// 	Maximum unexpired active execution leases. Zero disables the limit.
 	/// </summary>

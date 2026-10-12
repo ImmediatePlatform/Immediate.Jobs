@@ -21,6 +21,7 @@ internal sealed partial class LinqToDBJobStorage<T>
 		await TaskScheduler.Yield();
 		await UpdateDefinitionAsync(jobName, new(), paused: true, cancellationToken);
 	}
+
 	/// <inheritdoc />
 	public async ValueTask ResumeJobAsync(string jobName, JobAcquisitionLimits limits, CancellationToken cancellationToken = default)
 	{
@@ -29,6 +30,7 @@ internal sealed partial class LinqToDBJobStorage<T>
 		await TaskScheduler.Yield();
 		await UpdateDefinitionAsync(jobName, limits, paused: false, cancellationToken);
 	}
+
 	/// <inheritdoc />
 	public async ValueTask<JobAcquisitionState> GetJobAcquisitionStateAsync(string jobName, JobAcquisitionLimits limits, CancellationToken cancellationToken = default)
 	{
@@ -48,10 +50,10 @@ internal sealed partial class LinqToDBJobStorage<T>
 		limits.Validate();
 		await EnsureDefinitionAsync(jobName, cancellationToken);
 		await using var scope = contextScope.GetScope(out var connection);
-		_ = await connection.BeginTransactionAsync(cancellationToken);
+		await connection.BeginTransactionAsync(cancellationToken);
 		var definition = await LockDefinitionAsync(connection, jobName, cancellationToken);
 		definition.IsPaused = paused;
-		_ = await EvaluateDefinitionAsync(connection, definition, limits, timeProvider.GetUtcNow(), cancellationToken);
+		await EvaluateDefinitionAsync(connection, definition, limits, timeProvider.GetUtcNow(), cancellationToken);
 		await SaveDefinitionAsync(connection, definition, cancellationToken);
 		await connection.CommitTransactionAsync(cancellationToken);
 	}
@@ -63,7 +65,7 @@ internal sealed partial class LinqToDBJobStorage<T>
 			return;
 		try
 		{
-			_ = await InsertAsync(connection, new ImmediateJobDefinitionEntity { JobName = jobName, ConcurrencyStamp = Guid.NewGuid() }, cancellationToken);
+			await InsertAsync(connection, new ImmediateJobDefinitionEntity { JobName = jobName, ConcurrencyStamp = Guid.NewGuid() }, cancellationToken);
 		}
 
 		catch (DbException)
@@ -76,7 +78,7 @@ internal sealed partial class LinqToDBJobStorage<T>
 	private async Task<ImmediateJobDefinitionEntity> LockDefinitionAsync(DataConnection connection, string jobName, CancellationToken cancellationToken)
 	{
 		// Serialize acquisition and pause on the definition before querying capacity.
-		_ = await DefinitionStates(connection).Where(item => item.JobName == jobName)
+		await DefinitionStates(connection).Where(item => item.JobName == jobName)
 			.Set(item => item.ConcurrencyStamp, Guid.NewGuid()).UpdateAsync(cancellationToken);
 		return await DefinitionStates(connection).SingleAsync(item => item.JobName == jobName, cancellationToken);
 	}
@@ -102,7 +104,7 @@ internal sealed partial class LinqToDBJobStorage<T>
 
 	private async Task SaveDefinitionAsync(DataConnection connection, ImmediateJobDefinitionEntity definition, CancellationToken cancellationToken)
 	{
-		_ = await DefinitionStates(connection).Where(item => item.JobName == definition.JobName)
+		await DefinitionStates(connection).Where(item => item.JobName == definition.JobName)
 			.Set(item => item.IsPaused, definition.IsPaused)
 			.Set(item => item.AcquisitionStatus, definition.AcquisitionStatus)
 			.Set(item => item.NextEligibleAt, definition.NextEligibleAt)
@@ -125,8 +127,8 @@ internal sealed partial class LinqToDBJobStorage<T>
 		if (limits.SlidingWindowPeriod is { } period)
 		{
 			var cutoff = (now - period).UtcTicks;
-			_ = await Acquisitions(connection).Where(item => item.JobName == jobName && item.AcquiredAt <= cutoff).DeleteAsync(cancellationToken);
-			_ = await InsertAsync(connection, new ImmediateJobAcquisitionEntity { Id = Guid.NewGuid(), JobName = jobName, AcquiredAt = now.UtcTicks }, cancellationToken);
+			await Acquisitions(connection).Where(item => item.JobName == jobName && item.AcquiredAt <= cutoff).DeleteAsync(cancellationToken);
+			await InsertAsync(connection, new ImmediateJobAcquisitionEntity { Id = Guid.NewGuid(), JobName = jobName, AcquiredAt = now.UtcTicks }, cancellationToken);
 		}
 
 		if (limits.FixedWindowStart(now) is { } start)
@@ -147,7 +149,7 @@ internal sealed partial class LinqToDBJobStorage<T>
 	private async Task RefreshAcquiredDefinitionAsync(DataConnection connection, string jobName, JobAcquisitionRequest? request, DateTimeOffset now, CancellationToken cancellationToken)
 	{
 		var definition = await DefinitionStates(connection).SingleAsync(item => item.JobName == jobName, cancellationToken);
-		_ = await EvaluateDefinitionAsync(connection, definition, request?.LimitsFor(jobName) ?? new(), now, cancellationToken);
+		await EvaluateDefinitionAsync(connection, definition, request?.LimitsFor(jobName) ?? new(), now, cancellationToken);
 		await SaveDefinitionAsync(connection, definition, cancellationToken);
 	}
 

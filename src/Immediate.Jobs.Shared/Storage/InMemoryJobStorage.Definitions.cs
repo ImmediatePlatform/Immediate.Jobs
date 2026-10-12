@@ -49,7 +49,7 @@ public sealed partial class InMemoryJobStorage
 		{
 			var definition = GetAcquisitionDefinition(jobName);
 			definition.State = definition.State with { IsPaused = false };
-			_ = EvaluateAcquisition(jobName, limits, timeProvider.GetUtcNow());
+			EvaluateAcquisition(jobName, limits, timeProvider.GetUtcNow());
 		}
 	}
 
@@ -97,7 +97,7 @@ public sealed partial class InMemoryJobStorage
 		var definition = GetAcquisitionDefinition(jobName);
 		if (limits.SlidingWindowPeriod is { } period)
 		{
-			_ = definition.Acquisitions.RemoveAll(acquired => acquired <= now - period);
+			definition.Acquisitions.RemoveAll(acquired => acquired <= now - period);
 			definition.Acquisitions.Add(now);
 		}
 
@@ -112,7 +112,7 @@ public sealed partial class InMemoryJobStorage
 			definition.FixedWindowCount++;
 		}
 
-		_ = EvaluateAcquisition(jobName, limits, now);
+		EvaluateAcquisition(jobName, limits, now);
 	}
 
 	private sealed class DefinitionAcquisition

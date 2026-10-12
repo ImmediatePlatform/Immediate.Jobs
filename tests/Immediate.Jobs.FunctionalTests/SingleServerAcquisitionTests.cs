@@ -15,9 +15,9 @@ public sealed class SingleServerAcquisitionTests
 		var clock = new FakeTimeProvider(DateTimeOffset.UnixEpoch);
 		using var durable = new DelayedEnqueueStorage(clock);
 		var services = new ServiceCollection();
-		_ = services.AddLogging();
-		_ = services.AddSingleton<TimeProvider>(clock);
-		_ = services.AddImmediateJobsCore().ConfigureStorage(options => _ = options.UseSingleServer(_ => durable));
+		services.AddLogging();
+		services.AddSingleton<TimeProvider>(clock);
+		services.AddImmediateJobsCore().ConfigureStorage(options => options.UseSingleServer(_ => durable));
 		await using var provider = services.BuildServiceProvider();
 		var storage = provider.GetRequiredService<IJobStorage>();
 		await storage.InitializeAsync(token);
@@ -25,6 +25,7 @@ public sealed class SingleServerAcquisitionTests
 		{
 			JobHandle = JobHandle.FromString("enqueue-race"),
 			JobName = "enqueue-race",
+			QueueName = "default",
 			Payload = "{}",
 			State = JobState.Pending,
 			CreatedAt = clock.GetUtcNow(),

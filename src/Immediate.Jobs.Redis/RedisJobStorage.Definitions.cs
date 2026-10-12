@@ -13,7 +13,7 @@ internal sealed partial class RedisJobStorage
 		PauseJobAsyncCalled(jobName);
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
-		_ = await Database.ScriptEvaluateAsync(
+		await Database.ScriptEvaluateAsync(
 			"redis.call('HSET', KEYS[1], 'paused', '1', 'status', '1', 'next', ''); return 1",
 			[_root + "definitions:state:" + jobName.ToUpperInvariant()], []).WaitAsync(cancellationToken);
 	}
@@ -24,7 +24,7 @@ internal sealed partial class RedisJobStorage
 		ResumeJobAsyncCalled(jobName);
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
-		_ = await EvaluateDefinitionAsync(jobName, limits, resume: true, cancellationToken);
+		await EvaluateDefinitionAsync(jobName, limits, resume: true, cancellationToken);
 	}
 
 	/// <inheritdoc />

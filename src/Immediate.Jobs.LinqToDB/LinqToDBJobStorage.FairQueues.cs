@@ -269,7 +269,7 @@ internal sealed partial class LinqToDBJobStorage<T>
 		await EnsureDefinitionAsync(candidate.JobName, cancellationToken);
 		await using var scope = contextScope.GetScope(out var connection);
 
-		_ = await connection.BeginTransactionAsync(cancellationToken);
+		await connection.BeginTransactionAsync(cancellationToken);
 		Guid? observedCursorStamp = null;
 		var cursorWasMissing = false;
 		try
@@ -318,7 +318,7 @@ internal sealed partial class LinqToDBJobStorage<T>
 				if (cursor is null)
 				{
 					cursorWasMissing = true;
-					_ = await InsertAsync(connection, new ImmediateFairQueueGroupEntity
+					await InsertAsync(connection, new ImmediateFairQueueGroupEntity
 					{
 						QueueName = queueName,
 						GroupId = groupId,
