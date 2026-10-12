@@ -17,6 +17,7 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 		await TaskScheduler.Yield();
 		// Validate before taking a write lock or creating the catalogue sentinel.
 		JobDefinitionReconciliation.Create(registration, [], []);
+		var reports = new List<(string Name, int Jobs, int Schedules)>();
 		await RetryConcurrencyAsync(async token =>
 		{
 			await EnsureDefinitionCatalogAsync(token);
@@ -33,8 +34,34 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 			var changes = JobDefinitionReconciliation.Create(registration,
 				definitions.Values.Select(ToRecord).ToList(),
 				schedules.Values.Select(ToDefinitionSchedule).ToList());
+			reports.Clear();
+			var removed = changes.RemovedDefinitionNames.ToHashSet(StringComparer.OrdinalIgnoreCase);
+			var jobQuery = context.Set<ImmediateJobEntity>().Where(job => job.State != JobState.Succeeded
+				&& job.State != JobState.Failed && job.State != JobState.Cancelled && job.State != JobState.Skipped);
+			if (!context.Database.ProviderName!.Contains("Sqlite", StringComparison.Ordinal))
+				jobQuery = jobQuery.Where(job => removed.Contains(job.JobName));
+			var jobs = removed.Count == 0 ? [] : (await jobQuery.ToListAsync(token)).Where(job => removed.Contains(job.JobName)).ToList();
+			var cancelledSchedules = schedules.Values.Where(schedule => !schedule.IsCodeDefined
+				&& removed.Contains(schedule.JobName) && schedule.CancellationReason is null).ToList();
+			var now = _timeProvider.GetUtcNow();
+			foreach (var job in jobs)
+				await MarkCancelledAsync(context, job, now, JobDefinitionReconciliation.RemovalCancellationReason, token);
+			foreach (var job in jobs)
+				await PropagateTerminalAsync(context, job, now, token);
+			foreach (var schedule in cancelledSchedules)
+			{
+				schedule.CancellationReason = JobDefinitionReconciliation.RemovalCancellationReason;
+				schedule.IsPaused = true;
+				schedule.ConcurrencyStamp = Guid.NewGuid();
+			}
+
 			foreach (var name in changes.RemovedDefinitionNames)
+			{
 				context.Remove(definitions[name]);
+				reports.Add((name, jobs.Count(job => string.Equals(job.JobName, name, StringComparison.OrdinalIgnoreCase)),
+					cancelledSchedules.Count(schedule => string.Equals(schedule.JobName, name, StringComparison.OrdinalIgnoreCase))));
+			}
+
 			foreach (var definition in changes.Definitions)
 			{
 				var entity = ToEntity(definition);
@@ -57,6 +84,8 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 			await context.SaveChangesAsync(token);
 			await transaction.CommitAsync(token);
 		}, cancellationToken);
+		foreach (var report in reports)
+			DefinitionRemoved(report.Name, report.Jobs, report.Schedules);
 	}
 
 	/// <inheritdoc />
@@ -96,6 +125,7 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 		Name = entity.Name,
 		JobName = entity.JobName,
 		QueueName = entity.QueueName,
+		CancellationReason = entity.CancellationReason,
 		Cron = entity.Cron,
 		TimeZone = entity.TimeZone,
 		IsCodeDefined = entity.IsCodeDefined,
@@ -139,6 +169,14 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 		BackoffBase = TimeSpan.FromTicks(entity.BackoffBaseTicks),
 		Tags = JsonSerializer.Deserialize(entity.Tags, EntityFrameworkCoreJsonSerializerContext.Default.StringArray) ?? [],
 	};
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.DefinitionRemoved,
+		EventName = "Immediate.Jobs.EntityFrameworkCore.DefinitionRemoved",
+		Level = LogLevel.Warning,
+		Message = "Job definition '{JobName}' removed; canceled {JobCount} invocations and {ScheduleCount} recurring schedules."
+	)]
+	private partial void DefinitionRemoved(string jobName, int jobCount, int scheduleCount);
 
 	[LoggerMessage(
 		EventId = LibraryEventIds.MergeJobDefinitionsListAsyncCalled,

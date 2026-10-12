@@ -357,6 +357,12 @@ internal sealed partial class LinqToDBJobStorage<T>
 			throw new ImmediateJobException("Only a non-terminal job can be cancelled.");
 
 		var now = timeProvider.GetUtcNow();
+		await MarkCancelledAsync(connection, job, now, reason: null, cancellationToken);
+		await PropagateTerminalAsync(connection, job, now, terminalGroups, cancellationToken);
+	}
+
+	private async Task MarkCancelledAsync(DataConnection connection, ImmediateJobEntity job, DateTimeOffset now, string? reason, CancellationToken cancellationToken)
+	{
 		if (job.State == JobState.Active)
 		{
 			_ = await GetOrMaterializeExecutionAsync(connection, job, cancellationToken)
@@ -365,11 +371,12 @@ internal sealed partial class LinqToDBJobStorage<T>
 				.Where(execution => execution.JobHandle == job.Id && execution.Attempt == job.Attempt)
 				.Set(execution => execution.State, JobExecutionState.Cancelled)
 				.Set(execution => execution.CompletedAt, now)
-				.Set(execution => execution.Error, (string?)null)
+				.Set(execution => execution.Error, reason)
 				.UpdateAsync(cancellationToken);
 		}
 
 		var oldStamp = job.ConcurrencyStamp;
+		job.CancellationReason = reason;
 		job.State = JobState.Cancelled;
 		job.CompletedAt = now;
 		job.WorkerId = null;
@@ -377,7 +384,6 @@ internal sealed partial class LinqToDBJobStorage<T>
 		job.ConcurrencyStamp = Guid.NewGuid();
 		if (!await UpdateJobAsync(connection, job, oldStamp, cancellationToken))
 			throw new LostRaceException();
-		await PropagateTerminalAsync(connection, job, now, terminalGroups, cancellationToken);
 	}
 
 	private async Task RetryCoreAsync(DataConnection connection, JobHandle jobHandle, CancellationToken cancellationToken)

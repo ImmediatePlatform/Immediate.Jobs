@@ -275,6 +275,7 @@ internal sealed class ImmediateJobBatchEntity
 
 internal sealed class ImmediateJobEntity
 {
+	public string? CancellationReason { get; set; }
 	public string Id { get; set; } = null!;
 	public string QueueName { get; set; } = JobQueueDefinition.DefaultName;
 	public string JobName { get; set; } = null!;
@@ -336,6 +337,7 @@ internal sealed class ImmediateJobContinuationEntity
 
 internal sealed class ImmediateRecurringJobEntity
 {
+	public string? CancellationReason { get; set; }
 	public string Name { get; set; } = null!;
 	public string JobName { get; set; } = null!;
 	public string QueueName { get; set; } = null!;

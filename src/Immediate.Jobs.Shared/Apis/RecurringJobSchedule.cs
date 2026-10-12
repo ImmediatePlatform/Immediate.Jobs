@@ -6,6 +6,11 @@ namespace Immediate.Jobs.Shared.Apis;
 public sealed record RecurringJobSchedule
 {
 	/// <summary>
+	/// 	The reason this record was canceled, or <see langword="null"/> when no reason was recorded.
+	/// </summary>
+	public string? CancellationReason { get; init; }
+
+	/// <summary>
 	/// 	Unique schedule identity.
 	/// </summary>
 	public required string Name { get; init; }

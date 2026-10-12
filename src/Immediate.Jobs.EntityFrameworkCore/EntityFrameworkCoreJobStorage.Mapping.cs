@@ -11,6 +11,7 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 		{
 			Id = job.JobHandle.Value,
 			QueueName = job.QueueName,
+			CancellationReason = job.CancellationReason,
 			JobName = job.JobName,
 			GroupId = job.GroupId,
 			Payload = job.Payload,
@@ -91,6 +92,7 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 		{
 			Id = job.Id,
 			QueueName = job.QueueName,
+			CancellationReason = job.CancellationReason,
 			JobName = job.JobName,
 			GroupId = job.GroupId,
 			Payload = job.Payload,
@@ -120,6 +122,7 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 		{
 			JobHandle = JobHandle.FromString(job.Id),
 			QueueName = job.QueueName,
+			CancellationReason = job.CancellationReason,
 			JobName = job.JobName,
 			GroupId = job.GroupId,
 			Payload = job.Payload,
@@ -176,6 +179,7 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 			Name = schedule.Name,
 			JobName = schedule.JobName,
 			QueueName = schedule.QueueName,
+			CancellationReason = schedule.CancellationReason,
 			Cron = schedule.Cron,
 			TimeZone = schedule.TimeZone,
 			IsCodeDefined = schedule.IsCodeDefined,

@@ -10,6 +10,11 @@ namespace Immediate.Jobs.Shared.Storage;
 public sealed record JobDefinitionReconciliation
 {
 	/// <summary>
+	/// 	The cancellation reason recorded when a job's persisted definition is removed.
+	/// </summary>
+	public const string RemovalCancellationReason = "Job definition removed.";
+
+	/// <summary>
 	/// 	The definitions to insert or replace.
 	/// </summary>
 	public required IReadOnlyList<JobDefinitionRecord> Definitions { get; init; }
@@ -106,6 +111,7 @@ public sealed record JobDefinitionReconciliation
 				schedules.Add(schedule with
 				{
 					IsPaused = current.IsPaused,
+					CancellationReason = current.CancellationReason ?? schedule.CancellationReason,
 					LastRunAt = current.LastRunAt,
 					NextRunAt = string.Equals(current.Cron, schedule.Cron, StringComparison.Ordinal)
 						&& string.Equals(current.TimeZone, schedule.TimeZone, StringComparison.Ordinal)

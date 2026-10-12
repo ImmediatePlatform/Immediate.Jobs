@@ -74,7 +74,12 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 
-		await MutateRecurringAsync(name, schedule => schedule.IsPaused = false, cancellationToken);
+		await MutateRecurringAsync(name, schedule =>
+		{
+			if (schedule.CancellationReason is not null)
+				throw new ImmediateJobException("Canceled recurring schedules cannot be resumed.");
+			schedule.IsPaused = false;
+		}, cancellationToken);
 	}
 
 	/// <inheritdoc />
@@ -100,6 +105,7 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 				Name = schedule.Name,
 				JobName = schedule.JobName,
 				QueueName = schedule.QueueName,
+				CancellationReason = schedule.CancellationReason,
 				Cron = schedule.Cron,
 				TimeZone = schedule.TimeZone,
 				IsCodeDefined = schedule.IsCodeDefined,
@@ -244,6 +250,7 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 			.ExecuteUpdateAsync(setters => setters
 				.SetProperty(entity => entity.JobName, schedule.JobName)
 				.SetProperty(entity => entity.QueueName, schedule.QueueName)
+				.SetProperty(entity => entity.CancellationReason, entity => schedule.CancellationReason ?? entity.CancellationReason)
 				.SetProperty(entity => entity.Cron, schedule.Cron)
 				.SetProperty(entity => entity.TimeZone, schedule.TimeZone)
 				.SetProperty(entity => entity.IsCodeDefined, schedule.IsCodeDefined)

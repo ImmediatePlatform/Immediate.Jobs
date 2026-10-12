@@ -23,7 +23,12 @@ public sealed partial class InMemoryJobStorage
 					throw new ImmediateJobException("Code-defined recurring schedules cannot be replaced by dynamic schedules."),
 
 				{ } =>
-					schedule with { IsPaused = current.IsPaused, LastRunAt = current.LastRunAt },
+					schedule with
+					{
+						IsPaused = current.IsPaused || (schedule.CancellationReason ?? current.CancellationReason) is not null,
+						LastRunAt = current.LastRunAt,
+						CancellationReason = schedule.CancellationReason ?? current.CancellationReason,
+					},
 
 				_ => schedule,
 			};
@@ -132,6 +137,9 @@ public sealed partial class InMemoryJobStorage
 		{
 			if (!_recurring.TryGetValue(name, out var schedule))
 				throw new KeyNotFoundException($"Recurring schedule '{name}' was not found.");
+
+			if (!isPaused && schedule.CancellationReason is not null)
+				throw new ImmediateJobException("Canceled recurring schedules cannot be resumed.");
 
 			_recurring[name] = schedule with { IsPaused = isPaused };
 		}

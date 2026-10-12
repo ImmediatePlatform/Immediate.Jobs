@@ -20,6 +20,7 @@ internal sealed partial class RedisJobStorage
 		"executionTraceId",
 		"executionSpanId",
 		"executionStartedAt",
+		"cancellationReason",
 	];
 
 	private async ValueTask<JobRecord?> ReadJobAsync(JobHandle id, CancellationToken cancellationToken)
@@ -35,6 +36,7 @@ internal sealed partial class RedisJobStorage
 		return job with
 		{
 			State = (JobState)ParseInt32(values[1]),
+			CancellationReason = values[11].IsNull ? job.CancellationReason : NullIfEmpty(values[11]),
 			DueAt = FromTicks(values[2]),
 			Attempt = ParseInt32(values[3]),
 			WorkerId = NullIfEmpty(values[4]),
