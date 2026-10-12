@@ -38,7 +38,7 @@ internal static class AttributeDataExtensions
 				arguments[argument.Key] = argument.Value;
 			}
 
-			return [.. arguments];
+			return arguments.ToImmutableArray();
 		}
 
 		public string GetJobName(string className) =>

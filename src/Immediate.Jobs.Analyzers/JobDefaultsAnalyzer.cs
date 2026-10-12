@@ -16,7 +16,7 @@ public sealed class JobDefaultsAnalyzer : DiagnosticAnalyzer
 		isEnabledByDefault: true,
 		customTags: [WellKnownDiagnosticTags.NotConfigurable, WellKnownDiagnosticTags.CompilationEnd]);
 
-	public override ImmutableArray<DiagnosticDescriptor> SupportedDiagnostics => [InvalidJobDefaults];
+	public override ImmutableArray<DiagnosticDescriptor> SupportedDiagnostics { get; } = ImmutableArray.Create([InvalidJobDefaults]);
 
 	public override void Initialize(AnalysisContext context)
 	{
