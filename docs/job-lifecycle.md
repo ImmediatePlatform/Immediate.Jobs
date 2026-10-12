@@ -34,9 +34,14 @@ whose lease has expired (they are reclaimed first).
 
 ## Attempts, retries, and timeouts
 
+`MaxAttempts` and `Timeout` come from explicit `[Job]` settings, then `[assembly: JobDefaults(...)]`.
+If neither supplies them, jobs allow three total attempts and have no timeout. An explicit
+`Timeout = null` on a job disables its inherited timeout.
+
 - **Claiming** sets `Active`, increments `Attempt`, assigns the worker and a lease of
   `ImmediateJobsOptions.LeaseDuration`, and opens an execution row.
-- **Timeout** comes from `[Job(Timeout = "hh:mm:ss")]`; the handler's token is cancelled when it
+- **Timeout** is a positive, invariant-culture `TimeSpan` string in either attribute, for example
+  `Timeout = "00:02:00"`; the handler's token is cancelled when it
   elapses. That fails the attempt only if the handler throws; a handler that ignores the token and
   returns completes the job.
 - **Failure** calls `FailAsync` with a `nextRetryAt` while `Attempt < MaxAttempts`, which moves the job

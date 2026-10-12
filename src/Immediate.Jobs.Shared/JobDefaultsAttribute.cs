@@ -5,12 +5,18 @@ namespace Immediate.Jobs.Shared;
 /// <summary>
 /// 	Supplies defaults for generated jobs declared in this assembly. Explicit job settings override these values.
 /// </summary>
+/// <remarks>
+/// 	Only explicitly supplied settings become assembly defaults. Unspecified settings use the built-in job defaults.
+/// </remarks>
 [AttributeUsage(AttributeTargets.Assembly, AllowMultiple = false)]
 public sealed class JobDefaultsAttribute : Attribute
 {
 	/// <summary>
-	/// 	The tags inherited by jobs that omit a tag list or supply a null or empty list.
+	/// 	The routing tags inherited by jobs that omit a tag list.
 	/// </summary>
+	/// <remarks>
+	/// 	Null or empty lists use the default tag. Explicit job tag lists, including null or empty lists, override these tags.
+	/// </remarks>
 	[NotNull]
 	public string[]? Tags { get; init => field = [.. JobTags.Normalize(value)]; }
 

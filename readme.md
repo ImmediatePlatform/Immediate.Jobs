@@ -52,7 +52,7 @@ public sealed class SignupService(SendWelcomeEmail.Scheduler welcomeEmail)
 Register the generated handlers and jobs methods in `Program.cs`, in that order. For an assembly named `MyApp`, these
 are `AddMyAppHandlers()` and `AddMyAppJobs()`.
 
-## Routing jobs with tags
+## Assembly defaults
 
 Set defaults for jobs in an assembly with:
 
@@ -64,16 +64,35 @@ Set defaults for jobs in an assembly with:
     Timeout = "00:02:00")]
 ```
 
-Explicit `[Job]` settings override assembly defaults. Omitted, null, or empty job tag lists inherit
-assembly tags; without assembly tags, jobs use `default`. An explicit nonempty list replaces the
-assembly list. Setting `Timeout = null` on a job disables its inherited timeout, and
-`TimeZone = null` uses UTC. Defaults apply only to jobs declared in that assembly.
+Only explicitly supplied assembly settings become defaults. If neither `[JobDefaults]` nor `[Job]`
+specifies a setting, the generated job uses:
+
+| Setting | Built-in default |
+| --- | --- |
+| `Tags` | `["default"]` |
+| `TimeZone` | `"UTC"` |
+| `MaxAttempts` | `3`, including the first attempt |
+| `Timeout` | No timeout |
+
+Explicit `[Job]` settings override assembly defaults, including null values and empty lists. Omit
+`Tags` to inherit assembly tags. Setting `Tags = null` or `Tags = new string[0]` on a job uses
+`["default"]`; an explicit nonempty list replaces the assembly list. Setting `Timeout = null`
+disables its inherited timeout, and `TimeZone = null` uses UTC. Defaults apply only to jobs declared
+in that assembly; they do not configure server tags or `[Handler]` registration tags.
+
+`MaxAttempts` must be at least one, and a non-null `Timeout` must be a positive, invariant-culture
+`TimeSpan` string. Use a nonblank time-zone identifier supported by the server's
+`TimeZoneInfo.FindSystemTimeZoneById`. Invalid assembly defaults produce `IJOB0017` at the attribute,
+even without any jobs, and prevent job generation even when a job overrides the invalid setting.
+
+## Routing jobs with tags
 
 Configure job tags with `[Job(Tags = new[] { "email", "default" })]` and server tags through
 `ConfigureWorkers(options => options.Tags = ["email", "default"])`. A server manages definitions
 and acquires invocations only when the effective job and server lists intersect.
 
-Omitted, null, and empty lists become `["default"]`. Explicit nonempty lists replace that fallback:
+Omitted job tag lists inherit assembly defaults; null or empty job lists, and omitted, null, or empty
+server lists, become `["default"]`. Explicit nonempty lists replace that fallback:
 a server with `["email"]` does not process default-only jobs, while `["email", "default"]` processes
 both. Tags match with `OrdinalIgnoreCase`; case variants are deduplicated while retaining the first
 spelling. Null/blank entries are rejected. `default` is an ordinary tag, not a wildcard. `[Handler]` registration tags are separate.

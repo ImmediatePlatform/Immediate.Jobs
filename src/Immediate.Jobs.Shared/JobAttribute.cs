@@ -9,8 +9,11 @@ namespace Immediate.Jobs.Shared;
 public sealed class JobAttribute : Attribute
 {
 	/// <summary>
-	/// 	The job routing tags. Omitted, null, or empty lists inherit assembly defaults, or use the default tag.
+	/// 	The job routing tags. An omitted list inherits assembly defaults, or uses the default tag.
 	/// </summary>
+	/// <remarks>
+	/// 	An explicit null or empty list uses the default tag, overriding any assembly tags.
+	/// </remarks>
 	[System.Diagnostics.CodeAnalysis.NotNull]
 	public string[]? Tags { get; init => field = [.. JobTags.Normalize(value)]; } = [JobTags.Default];
 
@@ -34,16 +37,19 @@ public sealed class JobAttribute : Attribute
 	public string? Cron { get; init; }
 
 	/// <summary>
-	/// 	An IANA time-zone identifier. Defaults to UTC.
+	/// 	A time-zone identifier. When omitted, inherits the assembly default, or uses UTC.
 	/// </summary>
 	/// <value>
-	/// 	The IANA time-zone identifier, or <see langword="null"/> to use UTC.
+	/// 	The time-zone identifier, or <see langword="null"/> to use UTC.
 	/// </value>
 	public string? TimeZone { get; init; }
 
 	/// <summary>
 	/// 	Total execution attempts, including the first attempt.
 	/// </summary>
+	/// <remarks>
+	/// 	When omitted, inherits the assembly default, or allows three total attempts.
+	/// </remarks>
 	/// <value>
 	/// 	The total number of permitted execution attempts.
 	/// </value>
@@ -52,6 +58,9 @@ public sealed class JobAttribute : Attribute
 	/// <summary>
 	/// 	A <see cref="TimeSpan"/> formatted execution timeout.
 	/// </summary>
+	/// <remarks>
+	/// 	When omitted, inherits the assembly default. An explicit null disables the inherited timeout.
+	/// </remarks>
 	/// <value>
 	/// 	The formatted execution timeout, or <see langword="null"/> for no timeout.
 	/// </value>
