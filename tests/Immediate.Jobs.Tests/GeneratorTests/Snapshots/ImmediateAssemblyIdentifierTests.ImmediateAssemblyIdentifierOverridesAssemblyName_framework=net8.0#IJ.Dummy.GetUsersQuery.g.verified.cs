@@ -52,6 +52,7 @@ partial class GetUsersQuery
 		new()
 		{
 			Name = "get-users-query",
+			Tags = ["default"],
 			Queue = new global::Immediate.Jobs.Shared.Internals.JobQueueDefinition
 			{
 				Name = "default",

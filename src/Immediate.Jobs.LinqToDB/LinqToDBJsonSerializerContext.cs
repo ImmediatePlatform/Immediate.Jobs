@@ -4,4 +4,5 @@ using Immediate.Jobs.Shared.Apis;
 namespace Immediate.Jobs.LinqToDB;
 
 [JsonSerializable(typeof(JobServerSnapshot))]
+[JsonSerializable(typeof(string[]))]
 internal sealed partial class LinqToDBJsonSerializerContext : JsonSerializerContext;

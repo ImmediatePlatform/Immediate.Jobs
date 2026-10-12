@@ -208,6 +208,10 @@ namespace Immediate.Jobs.DistributedAspire.Shared.Migrations
                     b.Property<int>("QueuePriority")
                         .HasColumnType("integer");
 
+                    b.Property<string>("Tags")
+                        .IsRequired()
+                        .HasColumnType("jsonb");
+
                     b.Property<string>("TimeZone")
                         .IsRequired()
                         .HasMaxLength(128)

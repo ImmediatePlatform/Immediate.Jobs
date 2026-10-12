@@ -66,6 +66,11 @@ public sealed record JobDefinitionRecord
 	public BackoffStrategy Backoff { get; init; } = BackoffStrategy.ExponentialJitter;
 
 	/// <summary>
+	/// 	The effective job tags. Omitted or empty lists use the default tag.
+	/// </summary>
+	public IReadOnlyList<string> Tags { get; init => field = JobTags.Normalize(value); } = [JobTags.Default];
+
+	/// <summary>
 	/// 	The retry base delay.
 	/// </summary>
 	public TimeSpan BackoffBase { get; init; } = TimeSpan.FromSeconds(5);

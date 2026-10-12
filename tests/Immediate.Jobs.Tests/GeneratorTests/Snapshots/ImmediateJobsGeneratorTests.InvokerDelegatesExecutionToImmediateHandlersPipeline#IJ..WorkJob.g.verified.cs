@@ -61,6 +61,7 @@ partial class WorkJob
 		new()
 		{
 			Name = "work",
+			Tags = ["default"],
 			Queue = new global::Immediate.Jobs.Shared.Internals.JobQueueDefinition
 			{
 				Name = "default",

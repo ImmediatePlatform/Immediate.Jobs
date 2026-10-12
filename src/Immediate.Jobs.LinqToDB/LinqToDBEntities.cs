@@ -235,4 +235,8 @@ internal sealed class ImmediateJobDefinitionMetadataEntity
 	public BackoffStrategy Backoff { get; set; }
 	[Column(DataType = DataType.Int64)]
 	public long BackoffBaseTicks { get; set; }
+	[Column(DataType = DataType.Text, CanBeNull = false)]
+	[Column(Configuration = ProviderName.SqlServer, DbType = "nvarchar(max)", CanBeNull = false)]
+	[Column(Configuration = ProviderName.PostgreSQL, DataType = DataType.BinaryJson, CanBeNull = false)]
+	public string Tags { get; set; } = null!;
 }

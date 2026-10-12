@@ -30,6 +30,7 @@ internal static class DefinitionCatalogStorageConformance
 	{
 		var definition = Definition("Configured") with
 		{
+			Tags = [JobTags.Default, "configuration"],
 			QueueName = "priority",
 			QueuePriority = 9,
 			QueueConcurrency = 2,
@@ -48,11 +49,20 @@ internal static class DefinitionCatalogStorageConformance
 			Definitions = [definition],
 			RecurringSchedules = [Schedule(definition, timeProvider.GetUtcNow())],
 		}, token);
-		ConformanceAssert.Equal(definition, (await storage.GetJobDefinitionsAsync(token)).Single(), ConfigurationCase,
+		var stored = (await storage.GetJobDefinitionsAsync(token)).Single();
+		ConformanceAssert.SequenceEqual(definition.Tags, stored.Tags, ConfigurationCase, "tag arrays must round trip independently of scalar configuration");
+		ConformanceAssert.Equal(Values(definition), Values(stored), ConfigurationCase,
 			"all configuration fields, nullable values, enums, and duration ticks must round trip");
 		await storage.MergeJobDefinitionsListAsync(Registration([Definition("CONFIGURED")]), token);
-		ConformanceAssert.Equal(Definition("Configured"), (await storage.GetJobDefinitionsAsync(token)).Single(), ConfigurationCase,
+		stored = (await storage.GetJobDefinitionsAsync(token)).Single();
+		ConformanceAssert.SequenceEqual([JobTags.Default], stored.Tags, ConfigurationCase, "an update must replace the stored tag array");
+		ConformanceAssert.Equal(Values(Definition("Configured")), Values(stored), ConfigurationCase,
 			"an alias update must replace every field, clear nullable values, and preserve the stored name");
+
+		static object Values(JobDefinitionRecord value) =>
+			(value.Name, value.QueueName, value.QueuePriority, value.QueueConcurrency, value.Cron, value.TimeZone,
+				value.MaxAttempts, value.Timeout, value.MaxConcurrency, value.OverlapPolicy, value.MisfireHandlingMode,
+				value.Backoff, value.BackoffBase);
 	}
 
 	private static async ValueTask ReconcilesCaseInsensitiveNamesAsync(IJobStorage storage, FakeTimeProvider timeProvider, CancellationToken token)

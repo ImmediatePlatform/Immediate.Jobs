@@ -71,6 +71,7 @@ partial class PlainJob
 		new()
 		{
 			Name = "plain",
+			Tags = ["default"],
 			Queue = new global::Immediate.Jobs.Shared.Internals.JobQueueDefinition
 			{
 				Name = "default",

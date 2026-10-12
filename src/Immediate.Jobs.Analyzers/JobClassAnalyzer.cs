@@ -156,8 +156,16 @@ public sealed class JobClassAnalyzer : DiagnosticAnalyzer
 
 		var arguments = jobAttribute.NamedArguments;
 
-		var maxAttempts = arguments.GetIntValue("MaxAttempts", 3);
-		if (maxAttempts < 1)
+		if (arguments.GetArgumentValue("Tags").GetTags() is null)
+		{
+			ReportInvalidConfigurationDiagnostic(
+				context,
+				jobAttribute,
+				"`Tags` must not contain null, empty, or whitespace entries"
+			);
+		}
+
+		if (arguments.GetIntValue("MaxAttempts", 3) < 1)
 		{
 			ReportInvalidConfigurationDiagnostic(
 				context,
@@ -166,8 +174,7 @@ public sealed class JobClassAnalyzer : DiagnosticAnalyzer
 			);
 		}
 
-		var maxConcurrency = arguments.GetIntValue("MaxConcurrency", 0);
-		if (maxConcurrency < 0)
+		if (arguments.GetIntValue("MaxConcurrency", 0) < 0)
 		{
 			ReportInvalidConfigurationDiagnostic(
 				context,
@@ -176,12 +183,7 @@ public sealed class JobClassAnalyzer : DiagnosticAnalyzer
 			);
 		}
 
-		var backoff = arguments.GetArgumentValue("Backoff") switch
-		{
-			{ } av => av.GetEnumValue()?.Name,
-			_ => "ExponentialJitter",
-		};
-		if (backoff is not { })
+		if (arguments.GetValidEnumValue("Backoff", "ExponentialJitter") is not { })
 		{
 			ReportInvalidConfigurationDiagnostic(
 				context,
@@ -190,12 +192,7 @@ public sealed class JobClassAnalyzer : DiagnosticAnalyzer
 			);
 		}
 
-		var overlapPolicy = arguments.GetArgumentValue("OverlapPolicy") switch
-		{
-			{ } av => av.GetEnumValue()?.Name,
-			_ => "Skip",
-		};
-		if (overlapPolicy is not { })
+		if (arguments.GetValidEnumValue("OverlapPolicy", "Skip") is not { })
 		{
 			ReportInvalidConfigurationDiagnostic(
 				context,
@@ -204,12 +201,7 @@ public sealed class JobClassAnalyzer : DiagnosticAnalyzer
 			);
 		}
 
-		var misfireHandlingMode = arguments.GetArgumentValue("MisfireHandlingMode") switch
-		{
-			{ } av => av.GetEnumValue()?.Name,
-			_ => "EnqueueOne",
-		};
-		if (misfireHandlingMode is not { })
+		if (arguments.GetValidEnumValue("MisfireHandlingMode", "EnqueueOne") is not { })
 		{
 			ReportInvalidConfigurationDiagnostic(
 				context,
@@ -218,8 +210,7 @@ public sealed class JobClassAnalyzer : DiagnosticAnalyzer
 			);
 		}
 
-		var timeout = arguments.GetStringValue("Timeout");
-		if (timeout is { })
+		if (arguments.GetStringValue("Timeout") is { } timeout)
 		{
 			if (!TimeSpan.TryParse(timeout, CultureInfo.InvariantCulture, out var timeoutValue))
 			{
@@ -240,9 +231,9 @@ public sealed class JobClassAnalyzer : DiagnosticAnalyzer
 			}
 		}
 
-		var backoffBase = arguments.GetStringValue("BackoffBase") ?? "00:00:05";
-		if (backoffBase is { })
 		{
+			var backoffBase = arguments.GetStringValue("BackoffBase") ?? "00:00:05";
+
 			if (!TimeSpan.TryParse(backoffBase, CultureInfo.InvariantCulture, out var backoffBaseValue))
 			{
 				ReportInvalidConfigurationDiagnostic(

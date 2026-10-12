@@ -33,6 +33,8 @@ internal sealed partial class RedisJobStorage
 				RecurringDueMember(schedule.NextRunAt, schedule.Name),
 				schedule.Cron,
 				schedule.TimeZone,
+				schedule.JobName.ToUpperInvariant(),
+				_root,
 			],
 			cancellationToken
 		);
@@ -50,7 +52,7 @@ internal sealed partial class RedisJobStorage
 		var result = await EvaluateInt64Async(
 			RedisScripts.RemoveRecurring,
 			[RecurringKey(name), RecurringNamesKey, RecurringDueKey],
-			[name],
+			[name, _root],
 			cancellationToken
 		);
 		if (result == 0)
@@ -83,6 +85,7 @@ internal sealed partial class RedisJobStorage
 	public async ValueTask<IReadOnlyList<RecurringJobSchedule>> GetDueRecurringAsync(
 		DateTimeOffset now,
 		int batchSize,
+		IReadOnlyList<string> jobNames,
 		CancellationToken cancellationToken = default
 	)
 	{
@@ -90,11 +93,13 @@ internal sealed partial class RedisJobStorage
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 
-		var values = await Database.SortedSetRangeByScoreAsync(
-			RecurringDueKey,
-			stop: Score(now),
-			take: batchSize
-		).WaitAsync(cancellationToken);
+		if (jobNames.Count == 0)
+			return [];
+		var arguments = new List<RedisValue> { _root, Score(now), batchSize };
+		arguments.AddRange(jobNames.Select(static name => (RedisValue)name.ToUpperInvariant()));
+		var result = await Database.ScriptEvaluateAsync(RedisScripts.GetDueRecurringForJobs, [RecurringDueKey], [.. arguments]).WaitAsync(cancellationToken);
+		RedisValue[] values = [.. ((RedisResult[])result!).Select(static item => (RedisValue)(string)item!)];
+
 		var members = values.Select(static value => (string)value!).ToList();
 		var names = members.Select(static member => member[20..]).Distinct(StringComparer.Ordinal).ToList();
 		var schedules = await ReadRecurringAsync(
@@ -114,6 +119,10 @@ internal sealed partial class RedisJobStorage
 				stale.Add(member);
 				continue;
 			}
+
+			if (schedule.IsPaused || schedule.NextRunAt > now
+				|| !jobNames.Contains(schedule.JobName, StringComparer.OrdinalIgnoreCase))
+				continue;
 
 			if (added.Add(name))
 				due.Add(schedule);
@@ -180,7 +189,7 @@ internal sealed partial class RedisJobStorage
 		var result = await EvaluateInt64Async(
 			RedisScripts.SetRecurringPaused,
 			[RecurringKey(name), RecurringDueKey],
-			[isPaused ? 1 : 0],
+			[isPaused ? 1 : 0, _root],
 			cancellationToken
 		);
 		if (result == 0)

@@ -48,16 +48,12 @@ internal sealed partial class SingleServerJobStorage
 	}
 
 	/// <inheritdoc />
-	public async ValueTask<IReadOnlyList<RecurringJobSchedule>> GetDueRecurringAsync(
-		DateTimeOffset now,
-		int batchSize,
-		CancellationToken cancellationToken = default
-	)
+	public async ValueTask<IReadOnlyList<RecurringJobSchedule>> GetDueRecurringAsync(DateTimeOffset now, int batchSize, IReadOnlyList<string> jobNames, CancellationToken cancellationToken = default)
 	{
 		SingleServerGetDueRecurringAsyncCalled(now, batchSize);
 		await TaskScheduler.Yield();
 		await EnsureInitializedAsync(cancellationToken);
-		return await PrimaryStorage.GetDueRecurringAsync(now, batchSize, cancellationToken);
+		return await PrimaryStorage.GetDueRecurringAsync(now, batchSize, jobNames, cancellationToken);
 	}
 
 	/// <inheritdoc />

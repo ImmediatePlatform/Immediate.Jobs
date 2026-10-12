@@ -49,6 +49,7 @@ partial class NullablePayloadJob
 		new()
 		{
 			Name = "nullable-payload",
+			Tags = ["default"],
 			Queue = new global::Immediate.Jobs.Shared.Internals.JobQueueDefinition
 			{
 				Name = "default",

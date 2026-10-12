@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Immediate.Jobs.Shared.Apis;
 using Immediate.Jobs.Shared.Storage;
 using Microsoft.EntityFrameworkCore;
@@ -118,6 +119,7 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 		MisfireHandlingMode = definition.MisfireHandlingMode,
 		Backoff = definition.Backoff,
 		BackoffBaseTicks = definition.BackoffBase.Ticks,
+		Tags = JsonSerializer.Serialize([.. definition.Tags], EntityFrameworkCoreJsonSerializerContext.Default.StringArray),
 	};
 
 	private static JobDefinitionRecord ToRecord(ImmediateJobDefinitionMetadataEntity entity) => new()
@@ -135,6 +137,7 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 		MisfireHandlingMode = entity.MisfireHandlingMode,
 		Backoff = entity.Backoff,
 		BackoffBase = TimeSpan.FromTicks(entity.BackoffBaseTicks),
+		Tags = JsonSerializer.Deserialize(entity.Tags, EntityFrameworkCoreJsonSerializerContext.Default.StringArray) ?? [],
 	};
 
 	[LoggerMessage(

@@ -61,6 +61,7 @@ partial class StructJob
 		new()
 		{
 			Name = "struct",
+			Tags = ["default"],
 			Queue = new global::Immediate.Jobs.Shared.Internals.JobQueueDefinition
 			{
 				Name = "default",

@@ -49,6 +49,7 @@ partial class PropertyBackedPayloadJob
 		new()
 		{
 			Name = "property-backed-payload",
+			Tags = ["default"],
 			Queue = new global::Immediate.Jobs.Shared.Internals.JobQueueDefinition
 			{
 				Name = "default",

@@ -108,6 +108,7 @@ partial class ContextualJob
 		new()
 		{
 			Name = "contextual",
+			Tags = ["default"],
 			Queue = new global::Immediate.Jobs.Shared.Internals.JobQueueDefinition
 			{
 				Name = "default",

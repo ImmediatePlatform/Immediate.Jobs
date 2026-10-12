@@ -5,7 +5,7 @@
 Two interfaces in `src/Immediate.Jobs.Shared/Storage`:
 
 - **`IJobStorage`**: queueing, acquisition (including fair-queue policies), leases, completion and
-  failure, definition catalogues, recurring schedules, wait-for-trigger updates and triggers, queries, monitoring snapshots,
+  failure, scoped definition catalogues, recurring schedules, wait-for-trigger updates and triggers, queries, monitoring snapshots,
   heartbeats, purging. Every provider implements all of it.
 - **`IJobGraphStorage : IJobStorage`**: batches, continuations, dynamic additions from running jobs,
   batch triggers, batch reads and purging, plus the two single-server recovery reads
@@ -33,8 +33,10 @@ monitoring snapshots and health-check data.
 ## Definition reconciliation
 
 `MergeJobDefinitionsListAsync(JobDefinitionRegistration)` receives the complete local definition list,
-and all code-defined schedules. It inserts or updates supplied definitions and removes stored
-definitions absent from that list. An empty list clears the catalogue.
+all code-defined schedules, and normalized server tags. It upserts supplied matching definitions and
+removes stored matching definitions absent from that managed list. Scope is evaluated from the old
+stored tags before updates, so retagging a definition outside the old server's scope removes its stale
+entry. Definitions outside the scope remain untouched. Empty supplied lists clear only that scope.
 Definition deletion never cascades to invocations, running leases, or execution history.
 
 Definition names are case-insensitive identities and retain their readable spelling. In-memory
@@ -48,26 +50,38 @@ and storage rejects invalid manually supplied names before modifying the catalog
 Relational providers store definition configuration in individual columns in
 `immediate_job_definition_metadata`; the name key is the only persisted definition name.
 `TimeoutTicks` and `BackoffBaseTicks` store exact .NET ticks (100 nanoseconds), and policy enums
-use small integers. Redis continues storing serialized definition records.
+use small integers. Tags occupy a single JSON array column (`Tags`): PostgreSQL uses `jsonb`,
+SQL Server uses `nvarchar(max)`, and SQLite uses `text`. Redis continues storing serialized definition records.
+
+Code-defined schedules without catalogue metadata belong to the `default` scope. A server without
+`default` leaves those schedules alone unless it supplies a matching definition.
 
 Concurrent startup snapshots commit atomically. In-memory uses its gate; EF Core takes an early write
 lock on a singleton catalogue row. LinqToDB uses a serializable transaction and merges supplied
 records directly into each table on SQL Server and PostgreSQL 15 or later. Matched updates preserve
-canonical names and recurring progress using target values. SQL Server removes obsolete rows in the
+canonical names and recurring progress using target values. SQL Server removes obsolete definitions in the
 merge; PostgreSQL uses a separate set-based delete in the same transaction because PostgreSQL 15 has
-no WHEN NOT MATCHED BY SOURCE clause. Only SQLite reads a snapshot for client-side reconciliation; it uses transactional upserts and deletes because
+no WHEN NOT MATCHED BY SOURCE clause. A set-based delete reconciles code-defined schedules against
+stored tags before metadata updates can change their scope. Database JSON queries compare tags
+case-insensitively. Runtime normalization and matching use `OrdinalIgnoreCase`. Only SQLite reads a snapshot for client-side reconciliation; it uses
+transactional upserts and deletes because
 it does not support SQL `MERGE`. Serialization conflicts retry the complete LinqToDB snapshot.
 Redis compares a version and applies metadata and
 schedule changes in one Lua script, recomputing after a competing startup. Single-server delegates
 metadata reads and reconciliation to durable storage, then refreshes the primary's code-defined
 schedules. Pause and unchanged schedule progress survive startup.
 
-Each application's list is authoritative for the catalogue. Concurrent applications with inconsistent
-lists can remove or replace each other's definitions; the last successful reconciliation wins.
+Each server's list must be authoritative within its tag scope. Servers with overlapping tags and
+inconsistent lists can remove or replace each other's definitions: the last successful reconciliation
+wins. No per-server ownership or deployment-version arbitration is provided.
 
-Custom providers must implement the catalogue operations. Relational users must add the definition metadata table
-through their normal schema update process; EF Core also requires the singleton catalogue table. The
-bootstrap helpers do not upgrade existing production databases.
+`GetJobDefinitionsAsync` returns the complete persisted catalogue in ordinal, case-insensitive name
+order, independently of server tags.
+
+Custom providers must implement the catalogue operations and the eligible-name overload of
+`GetDueRecurringAsync`. Relational users must add the definition metadata table through their normal
+schema update process; EF Core also requires the singleton catalogue table. The bootstrap helpers do
+not upgrade existing production databases.
 
 ## Providers
 
@@ -114,15 +128,20 @@ may build keys from the root):
 | `due:{queue}` | sorted set | Due-ordered members `dueTicks\|createdTicks\|id`. Stale members are removed lazily. |
 | `leases` | sorted set | Active job ids by lease expiry. |
 | `executions:index:{id}` / `executions:data:{id}` | sorted set / hash | Execution history. |
-| `recurring:*` | various | Schedules, due index, names, materialization de-duplication. |
-| `server:{worker}` / `servers` | hash / sorted set | Scheduler heartbeats. |
+| `recurring:*` | various | Schedules, global and per-job due indexes, names, materialization de-duplication. |
+| `server:{worker}` / `servers` | hash / sorted set | Heartbeats, including normalized tags. |
 | `definition-metadata` | hash | All definition metadata keyed by stable job name. |
-| `definition-catalog-version` | string | Version used to atomically reconcile a complete catalogue. |
+| `definition-catalog-version` | string | Version used to atomically reconcile a complete scoped catalogue. |
 | `fair:*` | various | Fair-queue indexes, active counts, and cursors; see [fair queues](fair-queues.md). |
 
 The payload lives only inside `record`. Lua must not re-encode it with `cjson` (key order and escaping
 would change), so `UpdatePayloadAsync` rewrites the record in C# and swaps it with a compare-and-set
 script.
+
+Server heartbeats persist their effective tags in the serialized server snapshot. Single-server
+storage writes heartbeats to its durable replica as well as its in-memory store, so dashboards
+reading that database can see the server's tags. Storage normalizes empty tag lists to `default`
+and removes case-insensitive duplicates before writing a heartbeat.
 
 ## Adding or changing a storage member
 

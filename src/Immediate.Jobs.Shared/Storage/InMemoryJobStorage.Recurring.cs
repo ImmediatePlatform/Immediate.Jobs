@@ -72,6 +72,7 @@ public sealed partial class InMemoryJobStorage
 	public async ValueTask<IReadOnlyList<RecurringJobSchedule>> GetDueRecurringAsync(
 		DateTimeOffset now,
 		int batchSize,
+		IReadOnlyList<string> jobNames,
 		CancellationToken cancellationToken = default
 	)
 	{
@@ -83,7 +84,7 @@ public sealed partial class InMemoryJobStorage
 		{
 			return
 			[
-				.. _recurring.Values.Where(x => !x.IsPaused && x.NextRunAt <= now).OrderBy(x => x.NextRunAt).Take(batchSize),
+				.. _recurring.Values.Where(x => !x.IsPaused && x.NextRunAt <= now && jobNames.Contains(x.JobName, StringComparer.OrdinalIgnoreCase)).OrderBy(x => x.NextRunAt).Take(batchSize),
 			];
 		}
 	}

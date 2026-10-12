@@ -65,6 +65,7 @@ partial class CleanupSessionsJob
 		new()
 		{
 			Name = "cleanup-sessions",
+			Tags = ["default"],
 			Queue = new global::Immediate.Jobs.Shared.Internals.JobQueueDefinition
 			{
 				Name = "default",

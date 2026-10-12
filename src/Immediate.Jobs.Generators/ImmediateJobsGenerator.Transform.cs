@@ -66,28 +66,13 @@ public sealed partial class ImmediateJobsGenerator
 		if (maxConcurrency < 0)
 			return null;
 
-		var backoff = arguments.GetArgumentValue("Backoff") switch
-		{
-			{ } av => av.GetEnumValue()?.Name,
-			_ => "ExponentialJitter",
-		};
-		if (backoff is not { })
+		if (arguments.GetValidEnumValue("Backoff", "ExponentialJitter") is not { } backoff)
 			return null;
 
-		var overlapPolicy = arguments.GetArgumentValue("OverlapPolicy") switch
-		{
-			{ } av => av.GetEnumValue()?.Name,
-			_ => "Skip",
-		};
-		if (overlapPolicy is not { })
+		if (arguments.GetValidEnumValue("OverlapPolicy", "Skip") is not { } overlapPolicy)
 			return null;
 
-		var misfireHandlingMode = arguments.GetArgumentValue("MisfireHandlingMode") switch
-		{
-			{ } av => av.GetEnumValue()?.Name,
-			_ => "EnqueueOne",
-		};
-		if (misfireHandlingMode is not { })
+		if (arguments.GetValidEnumValue("MisfireHandlingMode", "EnqueueOne") is not { } misfireHandlingMode)
 			return null;
 
 		var timeout = arguments.GetStringValue("Timeout");
@@ -121,7 +106,9 @@ public sealed partial class ImmediateJobsGenerator
 		if (hasPayload && !PayloadValidation.CanSerializeToJson(parameterType, reportError: null))
 			return null;
 
-		var tags = handlerAttribute?.NamedArguments.GetStringArray("Tags");
+		if (arguments.GetArgumentValue("Tags").GetTags() is not { } jobTags)
+			return null;
+
 		var extractors = attributes.GetContextExtractors().ToList();
 
 		if (extractors.Any(e => !PayloadValidation.CanSerializeToJson(e.ContextType, reportError: null)))
@@ -163,7 +150,8 @@ public sealed partial class ImmediateJobsGenerator
 			MisfireHandlingMode = misfireHandlingMode,
 			Backoff = backoff,
 			BackoffBase = backoffBase,
-			Tags = tags,
+			HandlerTags = handlerAttribute?.NamedArguments.GetStringArray("Tags"),
+			JobTags = jobTags,
 			Contexts = contexts,
 			Json = jsonMetadataEmitter,
 		};

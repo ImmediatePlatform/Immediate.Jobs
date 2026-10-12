@@ -18,14 +18,23 @@ internal sealed partial class SingleServerJobStorage
 			await DurableStorage.MergeJobDefinitionsListAsync(registration, cancellationToken);
 			// Refresh the entire durable catalogue of schedules, from durable storage.
 			var snapshot = await DurableStorage.GetMonitoringSnapshotAsync(cancellationToken);
+			var definitions = await DurableStorage.GetJobDefinitionsAsync(cancellationToken);
+			var names = definitions.Select(static definition => definition.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+			var primaryDefinitions = await PrimaryStorage.GetJobDefinitionsAsync(cancellationToken);
+			var tags = definitions.Concat(primaryDefinitions).SelectMany(static definition => definition.Tags)
+				.Append(JobTags.Default).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 			await PrimaryStorage.MergeJobDefinitionsListAsync(
 				new()
 				{
-					Definitions = await DurableStorage.GetJobDefinitionsAsync(cancellationToken),
-					RecurringSchedules = snapshot.Recurring.Where(static schedule => schedule.IsCodeDefined).ToList(),
+					Definitions = definitions,
+					ServerTags = tags,
+					RecurringSchedules = snapshot.Recurring.Where(schedule => schedule.IsCodeDefined && names.Contains(schedule.JobName)).ToList(),
 				},
 				cancellationToken
 			);
+			// Code-defined schedules without metadata still belong in the primary's monitoring snapshot.
+			foreach (var schedule in snapshot.Recurring.Where(schedule => schedule.IsCodeDefined && !names.Contains(schedule.JobName)))
+				await PrimaryStorage.UpsertRecurringAsync(schedule, cancellationToken);
 		}
 		finally
 		{

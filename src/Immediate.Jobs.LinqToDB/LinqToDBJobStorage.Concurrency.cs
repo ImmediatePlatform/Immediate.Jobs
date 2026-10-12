@@ -122,9 +122,11 @@ internal sealed partial class LinqToDBJobStorage<T>
 				await connection.BeginTransactionAsync(cancellationToken);
 			else
 				await connection.BeginTransactionAsync(isolationLevel, cancellationToken);
+			var committing = false;
 			try
 			{
 				await operation(connection);
+				committing = true;
 				await connection.CommitTransactionAsync(cancellationToken);
 				return;
 			}
@@ -149,8 +151,8 @@ internal sealed partial class LinqToDBJobStorage<T>
 				&& ++concurrencyAttempt < maxAttempts
 			)
 			{
-				// A failed serializable commit may already have completed the underlying transaction.
-				if (connection.Transaction?.Connection is not null)
+				// A failed commit can complete the transaction; let scope disposal clean it up.
+				if (!committing && connection.Transaction?.Connection is not null)
 					await connection.RollbackTransactionAsync(cancellationToken);
 				// Serializable catalogues can deadlock or fail validation; retry the entire snapshot.
 				await DelayConcurrencyRetryAsync(cancellationToken);
@@ -178,7 +180,7 @@ internal sealed partial class LinqToDBJobStorage<T>
 			}
 			catch
 			{
-				if (connection.Transaction?.Connection is not null)
+				if (!committing && connection.Transaction?.Connection is not null)
 					await connection.RollbackTransactionAsync(cancellationToken);
 				throw;
 			}

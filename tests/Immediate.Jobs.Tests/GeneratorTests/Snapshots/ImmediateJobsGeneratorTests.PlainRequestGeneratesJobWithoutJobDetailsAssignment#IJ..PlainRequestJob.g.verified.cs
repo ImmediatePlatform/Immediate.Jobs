@@ -49,6 +49,7 @@ partial class PlainRequestJob
 		new()
 		{
 			Name = "plain-request",
+			Tags = ["default"],
 			Queue = new global::Immediate.Jobs.Shared.Internals.JobQueueDefinition
 			{
 				Name = "default",

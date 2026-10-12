@@ -98,6 +98,7 @@ partial class ClockJob
 		new()
 		{
 			Name = "clock",
+			Tags = ["default"],
 			Queue = new global::Immediate.Jobs.Shared.Internals.JobQueueDefinition
 			{
 				Name = "default",

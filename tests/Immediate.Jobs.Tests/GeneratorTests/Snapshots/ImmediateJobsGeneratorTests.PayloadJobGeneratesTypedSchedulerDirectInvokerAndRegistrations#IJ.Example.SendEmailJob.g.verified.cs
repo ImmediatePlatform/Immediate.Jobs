@@ -64,6 +64,7 @@ partial class SendEmailJob
 		new()
 		{
 			Name = "send-email",
+			Tags = ["default"],
 			Queue = new global::Immediate.Jobs.Shared.Internals.JobQueueDefinition
 			{
 				Name = "default",

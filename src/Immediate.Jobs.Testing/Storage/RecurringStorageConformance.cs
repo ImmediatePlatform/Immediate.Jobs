@@ -62,7 +62,7 @@ internal static class RecurringStorageConformance
 		ConformanceAssert.True(persisted.IsPaused, LifecycleName, "PauseRecurringAsync must persist the paused state");
 		ConformanceAssert.Equal(
 			0,
-			(await storage.GetDueRecurringAsync(now.AddDays(1), 10, cancellationToken)).Count,
+			(await storage.GetDueRecurringAsync(now.AddDays(1), 10, [updated.JobName], cancellationToken)).Count,
 			LifecycleName,
 			"a paused schedule must not be returned by a due scan"
 		);
@@ -199,14 +199,14 @@ internal static class RecurringStorageConformance
 		foreach (var schedule in new[] { future, second, paused, first })
 			await storage.UpsertRecurringAsync(schedule, cancellationToken);
 
-		var firstPage = await storage.GetDueRecurringAsync(now, 1, cancellationToken);
+		var firstPage = await storage.GetDueRecurringAsync(now, 1, [JobName], cancellationToken);
 		ConformanceAssert.SequenceEqual(
 			[first.Name],
 			firstPage.Select(static schedule => schedule.Name),
 			DueScanName,
 			"a due scan must order by next occurrence and honor its batch size"
 		);
-		var allDue = await storage.GetDueRecurringAsync(now, 10, cancellationToken);
+		var allDue = await storage.GetDueRecurringAsync(now, 10, [JobName], cancellationToken);
 		ConformanceAssert.SequenceEqual(
 			[first.Name, second.Name],
 			allDue.Select(static schedule => schedule.Name),

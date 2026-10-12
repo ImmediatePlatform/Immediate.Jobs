@@ -22,6 +22,7 @@ public sealed partial class ImmediateJobsGenerator
 			job.HasPayload,
 			job.HasJobDetails,
 			JobNameLiteral = job.Name.AsCSharpLiteral(),
+			job.JobTags,
 			QueueNameLiteral = job.QueueName.AsCSharpLiteral(),
 			QueuePriority = job.QueuePriority.ToString(CultureInfo.InvariantCulture),
 			QueueConcurrency = job.QueueConcurrency.ToString(CultureInfo.InvariantCulture),
@@ -72,7 +73,7 @@ public sealed partial class ImmediateJobsGenerator
 				})
 				.ToList(),
 
-			JobsByTag = jobs.GroupBy(job => job.Tags, StringComparer.Ordinal),
+			JobsByTag = jobs.GroupBy(job => job.HandlerTags, StringComparer.Ordinal),
 
 			Version = ThisAssembly.InformationalVersion,
 		};

@@ -49,6 +49,7 @@ partial class CollectionJob
 		new()
 		{
 			Name = "collection",
+			Tags = ["default"],
 			Queue = new global::Immediate.Jobs.Shared.Internals.JobQueueDefinition
 			{
 				Name = "default",

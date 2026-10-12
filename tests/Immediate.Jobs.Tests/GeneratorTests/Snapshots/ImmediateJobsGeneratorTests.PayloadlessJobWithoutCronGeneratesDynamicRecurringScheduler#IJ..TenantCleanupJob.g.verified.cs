@@ -71,6 +71,7 @@ partial class TenantCleanupJob
 		new()
 		{
 			Name = "tenant-cleanup",
+			Tags = ["default"],
 			Queue = new global::Immediate.Jobs.Shared.Internals.JobQueueDefinition
 			{
 				Name = "default",

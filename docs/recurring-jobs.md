@@ -18,15 +18,23 @@ A `RecurringJobSchedule` has a unique `Name`, the `JobName` it materializes, a `
   time (`IJOB0007`).
 
 At startup `JobSchedulingService.InitializeAsync` submits all definitions and their code-defined schedules
-through `MergeJobDefinitionsListAsync`. Storage atomically reconciles the catalogue, removing code-defined schedules when a definition disappears or loses its cron expression. It preserves
-dynamic schedules. Unchanged cron/time zone retains the next occurrence; updates
+through `MergeJobDefinitionsListAsync`. Storage atomically reconciles the server's tag scope, removing
+scoped code-defined schedules when a definition disappears or loses its cron expression. It preserves
+other scopes and dynamic schedules. Unchanged cron/time zone retains the next occurrence; updates
 preserve the pause state and last occurrence.
 
 ## Materialization
 
-Each polling iteration calls `GetDueRecurringAsync(now, AcquisitionBatchSize)` and, per schedule,
+Redis maintains a due index per normalized job name. Filtered polling reads at most the batch size
+from each eligible job index, merges those candidates by due time, and applies the global batch
+limit. Unrelated tag scopes do not add work to that Redis script. Upsert, pause/resume, removal,
+catalogue reconciliation, and materialization update both the global and per-job indexes atomically.
+
+Each polling iteration calls `GetDueRecurringAsync(now, AcquisitionBatchSize, eligibleJobNames)` and, per schedule,
 `MaterializeRecurringScheduleAsync`. One failing schedule is logged and skipped; it never blocks
-others or acquisition.
+others or acquisition. Providers filter eligible job names before applying the batch limit, so
+unrelated schedules cannot starve this server's due work. Every due scan requires the eligible job-name
+list; an empty list returns no schedules.
 
 1. **Misfires.** If several occurrences were missed (for example while the app was down),
    `MisfireHandlingMode` decides what happens, and the count is logged:

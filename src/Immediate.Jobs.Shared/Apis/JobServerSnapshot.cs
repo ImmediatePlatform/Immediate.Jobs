@@ -26,6 +26,11 @@ public sealed record JobServerSnapshot
 	public required int MaxWorkers { get; init; }
 
 	/// <summary>
+	/// 	The effective server tags, explicitly included in the persisted heartbeat.
+	/// </summary>
+	public required IReadOnlyList<string> Tags { get; init; }
+
+	/// <summary>
 	/// 	How long this scheduler may be silent before it is considered dead.
 	/// </summary>
 	public TimeSpan ServerTimeout { get; init; } = TimeSpan.FromMinutes(2);
