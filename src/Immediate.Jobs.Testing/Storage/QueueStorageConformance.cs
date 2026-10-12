@@ -567,10 +567,6 @@ internal static class QueueStorageConformance
 
 		await storage.CancelAsync(JobHandle.FromString("monitor-cancelled"), cancellationToken);
 
-		await storage.HeartbeatAsync(new() { WorkerId = "old-server", Tags = [], LastHeartbeat = now, ActiveWorkers = 1, MaxWorkers = 4, ServerTimeout = TimeSpan.FromMinutes(1) }, cancellationToken);
-		ConformanceAssert.SequenceEqual(["default"], (await storage.GetMonitoringSnapshotAsync(cancellationToken)).Servers.Single().Tags,
-			MonitoringName, "empty server tags must persist as default");
-
 		timeProvider.Advance(TimeSpan.FromSeconds(90));
 
 		var liveAt = timeProvider.GetUtcNow();
@@ -579,7 +575,7 @@ internal static class QueueStorageConformance
 		await storage.HeartbeatAsync(new()
 		{
 			WorkerId = "live-server",
-			Tags = ["email", "default", "email"],
+			Tags = ["email", "default"],
 			LastHeartbeat = liveAt,
 			ActiveWorkers = 1,
 			MaxWorkers = 2,

@@ -183,8 +183,7 @@ public sealed class JobClassAnalyzer : DiagnosticAnalyzer
 			);
 		}
 
-		if (arguments.GetArgumentValue("Backoff") is { } backoff
-			&& backoff.GetEnumValue() is null)
+		if (arguments.GetValidEnumValue("Backoff", "ExponentialJitter") is not { })
 		{
 			ReportInvalidConfigurationDiagnostic(
 				context,
@@ -193,8 +192,7 @@ public sealed class JobClassAnalyzer : DiagnosticAnalyzer
 			);
 		}
 
-		if (arguments.GetArgumentValue("OverlapPolicy") is { } overlapPolicy
-			&& overlapPolicy.GetEnumValue() is null)
+		if (arguments.GetValidEnumValue("MisfireHandlingMode", "EnqueueOne") is not { })
 		{
 			ReportInvalidConfigurationDiagnostic(
 				context,

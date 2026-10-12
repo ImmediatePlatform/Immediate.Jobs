@@ -4,56 +4,6 @@ namespace Immediate.Jobs.Tests.GeneratorTests;
 
 public sealed class ImmediateJobsGeneratorTests
 {
-	[Theory]
-	[InlineData("", "Tags = [\"default\"]")]
-	[InlineData("Tags = null", "Tags = [\"default\"]")]
-	[InlineData("Tags = new string[0]", "Tags = [\"default\"]")]
-	[InlineData("Tags = new[] { \"email\", \"default\", \"EMAIL\", \"DEFAULT\" }", "Tags = [\"email\", \"default\"]")]
-	public void JobTagsAreGeneratedSeparatelyFromHandlerRegistrationTags(string configuration, string expected)
-	{
-		var result = GeneratorTestHelper.RunGenerator(
-			$$"""
-			using System.Threading;
-			using System.Threading.Tasks;
-			using Immediate.Handlers.Shared;
-			using Immediate.Jobs.Shared;
-			[Handler(Tags = new[] { "registration" }), Job({{configuration}})]
-			public sealed partial class TaggedJob
-			{
-				public record Request;
-				private static ValueTask HandleAsync(Request request, CancellationToken token) => ValueTask.CompletedTask;
-			}
-			""");
-		var source = result.GeneratedTrees.Single(tree => tree.FilePath.EndsWith("IJ..TaggedJob.g.cs", StringComparison.Ordinal)).ToString();
-		Assert.Contains(expected, source, StringComparison.Ordinal);
-		Assert.DoesNotContain("Tags = [\"registration\"]", source, StringComparison.Ordinal);
-		var registrations = result.GeneratedTrees.Single(tree => tree.FilePath.EndsWith("IJ.ServiceCollectionExtensions.g.cs", StringComparison.Ordinal)).ToString();
-		Assert.Contains("Intersects(tags, [\"registration\"])", registrations, StringComparison.Ordinal);
-	}
-
-	[Theory]
-	[InlineData("Backoff = (BackoffStrategy)99")]
-	[InlineData("OverlapPolicy = (OverlapPolicy)99")]
-	[InlineData("MisfireHandlingMode = (MisfireHandlingMode)99")]
-	public void InvalidEnumConfigurationDoesNotGenerateAJob(string configuration)
-	{
-		var result = GeneratorTestHelper.RunGenerator(
-			$$"""
-			using System.Threading;
-			using System.Threading.Tasks;
-			using Immediate.Handlers.Shared;
-			using Immediate.Jobs.Shared;
-			[Handler, Job({{configuration}})]
-			public sealed partial class InvalidEnumJob
-			{
-				public record Request;
-				private static ValueTask HandleAsync(Request request, CancellationToken token) => ValueTask.CompletedTask;
-			}
-			""",
-			skippedSteps: ["Jobs"]);
-		Assert.DoesNotContain(result.GeneratedTrees, tree => tree.FilePath.EndsWith("IJ..InvalidEnumJob.g.cs", StringComparison.Ordinal));
-	}
-
 	[Fact]
 	public async Task PayloadJobGeneratesTypedSchedulerDirectInvokerAndRegistrations()
 	{

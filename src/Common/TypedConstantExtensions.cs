@@ -19,8 +19,19 @@ internal static class TypedConstantExtensions
 			return null;
 		}
 
-		public IFieldSymbol? GetEnumValue(string name) =>
-			arguments.GetArgumentValue(name)?.GetEnumValue();
+		public string? GetValidEnumValue(string name) =>
+			arguments.GetArgumentValue(name) switch
+			{
+				{ } value => value.GetEnumValue()?.Name,
+				_ => null,
+			};
+
+		public string? GetValidEnumValue(string name, string defaultValue) =>
+			arguments.GetArgumentValue(name) switch
+			{
+				{ } value => value.GetEnumValue()?.Name,
+				_ => defaultValue,
+			};
 
 		public string? GetStringValue(string name) =>
 			arguments.GetArgumentValue(name)?.GetStringValue();
@@ -93,7 +104,7 @@ internal static class TypedConstantExtensions
 	{
 		public string? GetTags()
 		{
-			if (constant is not { IsNull: false, Kind: TypedConstantKind.Array, Values: var values })
+			if (constant is not { IsNull: false, Kind: TypedConstantKind.Array, Values: var values } av)
 				return "\"default\"";
 
 			if (values is [])
@@ -102,10 +113,7 @@ internal static class TypedConstantExtensions
 			if (values.Any(tag => string.IsNullOrWhiteSpace(tag.Value as string)))
 				return null;
 
-			return string.Join(", ", values
-				.Select(static tag => (string)tag.Value!)
-				.Distinct(StringComparer.OrdinalIgnoreCase)
-				.Select(static tag => Microsoft.CodeAnalysis.CSharp.SymbolDisplay.FormatLiteral(tag, quote: true)));
+			return av.GetStringArray();
 		}
 	}
 }

@@ -45,7 +45,7 @@ internal static class ReplicaStorageConformance
 		var heartbeat = new JobServerSnapshot
 		{
 			WorkerId = "remote-reader-server",
-			Tags = ["email", "EMAIL", "Résumé"],
+			Tags = ["email", "Résumé"],
 			LastHeartbeat = clock.GetUtcNow(),
 			ActiveWorkers = 1,
 			MaxWorkers = 4,

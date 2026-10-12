@@ -106,7 +106,6 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>(
 		HeartbeatAsyncCalled(server.WorkerId);
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
-		server = server with { Tags = JobTags.Normalize(server.Tags) };
 
 		await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 		_ = await context.Set<ImmediateJobServerEntity>()

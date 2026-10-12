@@ -27,10 +27,15 @@ public static class JobTags
 	/// </exception>
 	public static IReadOnlyList<string> Normalize(IEnumerable<string>? tags)
 	{
-		var normalized = (tags ?? []).Distinct(StringComparer.OrdinalIgnoreCase).DefaultIfEmpty(Default).ToList();
+		var normalized = (tags ?? [])
+			.Distinct(StringComparer.OrdinalIgnoreCase)
+			.DefaultIfEmpty(Default)
+			.ToList();
+
 		foreach (var tag in normalized)
 			ArgumentException.ThrowIfNullOrWhiteSpace(tag, nameof(tags));
-		return normalized.AsReadOnly();
+
+		return normalized;
 	}
 
 	/// <summary>

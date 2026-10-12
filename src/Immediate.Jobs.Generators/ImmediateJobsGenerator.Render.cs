@@ -73,7 +73,7 @@ public sealed partial class ImmediateJobsGenerator
 				})
 				.ToList(),
 
-			JobsByTag = jobs.GroupBy(job => job.Tags, StringComparer.Ordinal),
+			JobsByTag = jobs.GroupBy(job => job.HandlerTags, StringComparer.Ordinal),
 
 			Version = ThisAssembly.InformationalVersion,
 		};
