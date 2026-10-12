@@ -36,6 +36,17 @@ For each `[Job]` class (see `Templates/Job.sbntxt`), nested in the user's partia
 - **`PayloadJsonContext`**: hand-emitted System.Text.Json metadata for the payload and context
   types, so serialization never uses reflection.
 
+`[assembly: JobDefaults(...)]` supplies defaults for `Tags`, `TimeZone`, `MaxAttempts`, and `Timeout`
+for jobs declared in that assembly. The generator merges explicitly supplied assembly arguments
+with each job's explicit arguments, then applies built-in defaults to unspecified settings. Job
+arguments always take precedence: null or empty job tags use `["default"]`, a null timeout disables
+the inherited timeout, and a null time zone uses UTC. The generated `JobDefinition` contains the
+effective settings that startup persists. See [assembly defaults](../readme.md#assembly-defaults).
+
+`JobDefaultsAnalyzer` validates each assembly attribute through `OperationKind.Attribute`, reporting
+`IJOB0017` even when the assembly has no jobs. Invalid defaults prevent the generator from emitting
+jobs for that assembly, including jobs that override the invalid setting.
+
 `ServiceCollectionExtensions.sbntxt` emits one `Add{Assembly}Jobs()` method per assembly that calls
 `AddImmediateJobsCore()` and registers every job. It returns `IImmediateJobsBuilder`, the fluent
 configuration surface (`ConfigureStorage`, `ConfigureWorkers`, `UseFairQueues`, `AddHealthCheck`, …).

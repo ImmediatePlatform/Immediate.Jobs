@@ -13,6 +13,7 @@ public sealed partial class ImmediateJobsGenerator
 	{
 		var cancellationToken = context.CancellationToken;
 		cancellationToken.ThrowIfCancellationRequested();
+
 		var model = new
 		{
 			job.Namespace,

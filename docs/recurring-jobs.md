@@ -7,7 +7,8 @@ A `RecurringJobSchedule` has a unique `Name`, the `JobName` it materializes, a `
 
 - **Code-defined.** `[Job(Cron = "...", TimeZone = "...")]` on a payloadless job (`IJOB0006` rejects
   parameters). The schedule name is the job name. Its scheduler implements `IRecurringJobTrigger`
-  (`TriggerNowAsync`).
+  (`TriggerNowAsync`). An omitted `TimeZone` inherits the assembly default, or uses UTC if none is
+  supplied. Explicit `TimeZone = null` uses UTC even when the assembly supplies a default.
 - **Dynamic.** Payloadless jobs without a `Cron` get `IRecurringJobScheduler`:
   `AddOrUpdateRecurringAsync(name, cron, timeZone)` and `RemoveRecurringAsync(name)`, implemented by
   `JobScheduler<TPayload>.AddOrUpdateRecurringCoreAsync` / `RemoveRecurringCoreAsync`.

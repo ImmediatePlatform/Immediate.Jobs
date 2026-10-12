@@ -141,11 +141,12 @@ public sealed class JobClassAnalyzer : DiagnosticAnalyzer
 				JobNameInvalid,
 				context.Symbol.Locations.FirstOrDefault(),
 				context.Symbol.Name,
-				explicitName is null
-					? $"a name cannot be derived from the class name `{context.Symbol.Name}`; rename the class or set `Name`"
-					: !name.HasNameContent()
-						? "`Name` must contain at least one letter or digit"
-						: "`Name` must not have leading or trailing whitespace"
+				(explicitName is null, !name.HasNameContent()) switch
+				{
+					(true, _) => $"a name cannot be derived from the class name `{context.Symbol.Name}`; rename the class or set `Name`",
+					(false, true) => "`Name` must contain at least one letter or digit",
+					_ => "`Name` must not have leading or trailing whitespace",
+				}
 			)
 		);
 	}

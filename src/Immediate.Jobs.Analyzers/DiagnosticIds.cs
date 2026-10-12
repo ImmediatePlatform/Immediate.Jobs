@@ -18,4 +18,5 @@ internal static class DiagnosticIds
 	public const string IJOB0014JobContextIsNotSerializable = "IJOB0014";
 	public const string IJOB0015DetachedJobCannotBeAddedToBatch = "IJOB0015";
 	public const string IJOB0016UnusedQueueDefinition = "IJOB0016";
+	public const string IJOB0017JobDefaultsInvalid = "IJOB0017";
 }

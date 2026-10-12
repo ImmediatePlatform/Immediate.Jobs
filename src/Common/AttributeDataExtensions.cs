@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Globalization;
 using Microsoft.CodeAnalysis;
 
 namespace Immediate.Jobs;
@@ -29,5 +30,29 @@ internal static class AttributeDataExtensions
 			attribute.NamedArguments.GetStringValue("Name") ?? className.AsQueueName();
 
 		public Location? Location => attribute.ApplicationSyntaxReference?.GetSyntax().GetLocation();
+
+		public IEnumerable<string> GetJobDefaultsErrors()
+		{
+			var arguments = attribute.NamedArguments;
+
+			if (arguments.GetArgumentValue("Tags").GetTags() is null)
+				yield return "Tags must not contain null, empty, or whitespace entries.";
+
+			if (arguments.GetIntValue("MaxAttempts", 3) < 1)
+				yield return "MaxAttempts must be at least one.";
+
+			if (arguments.GetStringValue("Timeout") is { } timeout
+				&& (!TimeSpan.TryParse(timeout, CultureInfo.InvariantCulture, out var duration) || duration <= TimeSpan.Zero))
+			{
+				yield return "Timeout must be a positive TimeSpan.";
+			}
+
+			if (arguments.GetStringValue("TimeZone") is { } timeZone
+				&& timeZone.IsWhiteSpace())
+			{
+				yield return "Time Zone is invalid.";
+			}
+		}
+
 	}
 }

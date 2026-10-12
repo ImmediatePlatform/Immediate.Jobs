@@ -3,6 +3,29 @@ namespace Immediate.Jobs.Tests.GeneratorTests;
 public sealed class InvalidJobsTests
 {
 	[Fact]
+	public void InvalidAssemblyDefaultsPreventGenerationEvenWhenJobOverridesThem()
+	{
+		var result = GeneratorTestHelper.RunGenerator(
+			"""
+			using System.Threading;
+			using System.Threading.Tasks;
+			using Immediate.Handlers.Shared;
+			using Immediate.Jobs.Shared;
+			[assembly: JobDefaults(MaxAttempts = 0)]
+
+			[Handler, Job(MaxAttempts = 2)]
+			public sealed partial class WorkJob
+			{
+				private static ValueTask HandleAsync(EmptyJobRequest request, CancellationToken cancellationToken) => ValueTask.CompletedTask;
+			}
+			""",
+			skippedSteps: ["Jobs"]
+		);
+
+		Assert.DoesNotContain(result.GeneratedTrees, tree => tree.FilePath.EndsWith("IJ..WorkJob.g.cs", StringComparison.Ordinal));
+	}
+
+	[Fact]
 	public async Task MissingHandlerAttributeShouldError()
 	{
 		var result = GeneratorTestHelper.RunGenerator(
