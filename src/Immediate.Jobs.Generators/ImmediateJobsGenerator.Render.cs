@@ -22,7 +22,7 @@ public sealed partial class ImmediateJobsGenerator
 			job.HasPayload,
 			job.HasJobDetails,
 			JobNameLiteral = job.Name.AsCSharpLiteral(),
-			job.Tags,
+			job.JobTags,
 			QueueNameLiteral = job.QueueName.AsCSharpLiteral(),
 			QueuePriority = job.QueuePriority.ToString(CultureInfo.InvariantCulture),
 			QueueConcurrency = job.QueueConcurrency.ToString(CultureInfo.InvariantCulture),

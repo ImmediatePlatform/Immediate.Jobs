@@ -137,7 +137,7 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 		MisfireHandlingMode = entity.MisfireHandlingMode,
 		Backoff = entity.Backoff,
 		BackoffBase = TimeSpan.FromTicks(entity.BackoffBaseTicks),
-		Tags = JsonSerializer.Deserialize(entity.Tags, EntityFrameworkCoreJsonSerializerContext.Default.StringArray),
+		Tags = JsonSerializer.Deserialize(entity.Tags, EntityFrameworkCoreJsonSerializerContext.Default.StringArray) ?? [],
 	};
 
 	[LoggerMessage(

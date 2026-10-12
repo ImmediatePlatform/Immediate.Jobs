@@ -61,6 +61,7 @@ internal sealed partial class SingleServerJobStorage(
 		SingleServerHeartbeatAsyncCalled(server.WorkerId, server.ActiveWorkers, server.MaxWorkers);
 		await TaskScheduler.Yield();
 		await EnsureInitializedAsync(cancellationToken);
+		await DurableStorage.HeartbeatAsync(server, cancellationToken);
 		await PrimaryStorage.HeartbeatAsync(server, cancellationToken);
 	}
 

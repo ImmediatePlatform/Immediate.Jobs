@@ -66,25 +66,25 @@ public sealed partial class ImmediateJobsGenerator
 		if (maxConcurrency < 0)
 			return null;
 
-		var backoff = arguments.GetEnumValue("Backoff") switch
+		var backoff = arguments.GetArgumentValue("Backoff") switch
 		{
-			{ } ev => ev?.Name,
+			{ } value => value.GetEnumValue()?.Name,
 			_ => "ExponentialJitter",
 		};
 		if (backoff is not { })
 			return null;
 
-		var overlapPolicy = arguments.GetEnumValue("OverlapPolicy") switch
+		var overlapPolicy = arguments.GetArgumentValue("OverlapPolicy") switch
 		{
-			{ } ev => ev?.Name,
+			{ } value => value.GetEnumValue()?.Name,
 			_ => "Skip",
 		};
 		if (overlapPolicy is not { })
 			return null;
 
-		var misfireHandlingMode = arguments.GetEnumValue("MisfireHandlingMode") switch
+		var misfireHandlingMode = arguments.GetArgumentValue("MisfireHandlingMode") switch
 		{
-			{ } ev => ev?.Name,
+			{ } value => value.GetEnumValue()?.Name,
 			_ => "EnqueueOne",
 		};
 		if (misfireHandlingMode is not { })
@@ -121,7 +121,8 @@ public sealed partial class ImmediateJobsGenerator
 		if (hasPayload && !PayloadValidation.CanSerializeToJson(parameterType, reportError: null))
 			return null;
 
-		if (arguments.GetArgumentValue("Tags").GetTags() is not { } tags)
+		var tags = handlerAttribute?.NamedArguments.GetStringArray("Tags");
+		if (arguments.GetArgumentValue("Tags").GetTags() is not { } jobTags)
 			return null;
 
 		var extractors = attributes.GetContextExtractors().ToList();
@@ -166,6 +167,7 @@ public sealed partial class ImmediateJobsGenerator
 			Backoff = backoff,
 			BackoffBase = backoffBase,
 			Tags = tags,
+			JobTags = jobTags,
 			Contexts = contexts,
 			Json = jsonMetadataEmitter,
 		};

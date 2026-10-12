@@ -26,7 +26,7 @@ public sealed record JobServerSnapshot
 	public required int MaxWorkers { get; init; }
 
 	/// <summary>
-	/// 	The effective server tags. Omitted or empty lists use the default tag.
+	/// 	The effective server tags, explicitly included in the persisted heartbeat.
 	/// </summary>
 	public required IReadOnlyList<string> Tags { get; init; }
 

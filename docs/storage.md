@@ -138,6 +138,11 @@ The payload lives only inside `record`. Lua must not re-encode it with `cjson` (
 would change), so `UpdatePayloadAsync` rewrites the record in C# and swaps it with a compare-and-set
 script.
 
+Server heartbeats persist their effective tags in the serialized server snapshot. Single-server
+storage writes heartbeats to its durable replica as well as its in-memory store, so dashboards
+reading that database can see the server's tags. Storage normalizes empty tag lists to `default`
+and removes case-insensitive duplicates before writing a heartbeat.
+
 ## Adding or changing a storage member
 
 1. Add the member to `IJobStorage` or `IJobGraphStorage`, with XML docs stating its exceptions.

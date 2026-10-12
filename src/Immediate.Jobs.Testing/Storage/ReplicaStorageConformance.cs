@@ -3,6 +3,9 @@ using Immediate.Jobs.Shared.Apis;
 using Immediate.Jobs.Shared.Storage;
 using Immediate.Jobs.Testing.Storage;
 using Microsoft.Extensions.Time.Testing;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 #pragma warning disable IDE0130
 namespace Immediate.Jobs.Testing;
@@ -15,11 +18,13 @@ internal static class ReplicaStorageConformance
 	private const string ContentionName = "Replica.Acquisition.ClaimsEachInvocationVersionOnceUnderContention";
 	private const string StaleName = "Replica.Leases.ReclaimsExpiredExecutionAndFencesStaleOwner";
 	private const string FieldsName = "Replica.Projection.PreservesRecurringAndGraphRecoveryFields";
+	private const string HeartbeatName = "Replica.Monitoring.PersistsSingleServerHeartbeatsForRemoteReaders";
 	private const string QueueName = "conformance-replica";
 	private const string JobName = "conformance-replica-job";
 
 	internal static IReadOnlyList<JobStorageConformanceTestCase> Cases { get; } =
 	[
+		new(HeartbeatName, StorageCapabilities.Graph, PersistsSingleServerHeartbeatsAsync),
 		new(ExactDueName, StorageCapabilities.Graph, ClaimsExactlyRequestedDueJobsAsync),
 		new(DuplicateName, StorageCapabilities.Graph, IgnoresDuplicateAndMissingIdsAsync),
 		new(ProjectionName, StorageCapabilities.Graph, PersistsProjectionAndHistoryAsync),
@@ -27,6 +32,37 @@ internal static class ReplicaStorageConformance
 		new(StaleName, StorageCapabilities.Graph, ReclaimsAndFencesStaleOwnerAsync),
 		new(FieldsName, StorageCapabilities.Graph, PreservesRecoveryFieldsAsync),
 	];
+
+	private static async ValueTask PersistsSingleServerHeartbeatsAsync(IJobStorage storage, FakeTimeProvider clock, CancellationToken token)
+	{
+		var services = new ServiceCollection();
+		services.AddSingleton(typeof(ILogger<>), typeof(NullLogger<>));
+		services.AddSingleton<TimeProvider>(clock);
+		services.AddImmediateJobsCore().ConfigureStorage(builder => builder.UseSingleServer(_ => storage));
+		await using var provider = services.BuildServiceProvider();
+		var writer = provider.GetRequiredService<IJobStorage>();
+		await writer.InitializeAsync(token);
+		var heartbeat = new JobServerSnapshot
+		{
+			WorkerId = "remote-reader-server",
+			Tags = ["email", "EMAIL", "Résumé"],
+			LastHeartbeat = clock.GetUtcNow(),
+			ActiveWorkers = 1,
+			MaxWorkers = 4,
+		};
+		await writer.HeartbeatAsync(heartbeat, token);
+		var remote = (await storage.GetMonitoringSnapshotAsync(token)).Servers.Single();
+		ConformanceAssert.SequenceEqual(["email", "Résumé"], remote.Tags, HeartbeatName,
+			"an independent durable reader must see the single-server heartbeat's effective tags");
+		clock.Advance(TimeSpan.FromSeconds(1));
+		await writer.HeartbeatAsync(heartbeat with { Tags = ["billing"], LastHeartbeat = clock.GetUtcNow(), ActiveWorkers = 2 }, token);
+		remote = (await storage.GetMonitoringSnapshotAsync(token)).Servers.Single();
+		ConformanceAssert.SequenceEqual(["billing"], remote.Tags, HeartbeatName,
+			"updating a heartbeat must replace its persisted tags");
+		ConformanceAssert.Equal(2, remote.ActiveWorkers, HeartbeatName, "heartbeat updates must preserve the current worker state");
+		ConformanceAssert.SequenceEqual(remote.Tags, (await writer.GetMonitoringSnapshotAsync(token)).Servers.Single().Tags, HeartbeatName,
+			"the local and durable monitoring snapshots must report the same tags");
+	}
 
 	private static async ValueTask ClaimsExactlyRequestedDueJobsAsync(
 		IJobStorage storage,

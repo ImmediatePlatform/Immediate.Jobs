@@ -27,6 +27,31 @@ public sealed class ImmediateJobsGeneratorTests
 		var source = result.GeneratedTrees.Single(tree => tree.FilePath.EndsWith("IJ..TaggedJob.g.cs", StringComparison.Ordinal)).ToString();
 		Assert.Contains(expected, source, StringComparison.Ordinal);
 		Assert.DoesNotContain("Tags = [\"registration\"]", source, StringComparison.Ordinal);
+		var registrations = result.GeneratedTrees.Single(tree => tree.FilePath.EndsWith("IJ.ServiceCollectionExtensions.g.cs", StringComparison.Ordinal)).ToString();
+		Assert.Contains("Intersects(tags, [\"registration\"])", registrations, StringComparison.Ordinal);
+	}
+
+	[Theory]
+	[InlineData("Backoff = (BackoffStrategy)99")]
+	[InlineData("OverlapPolicy = (OverlapPolicy)99")]
+	[InlineData("MisfireHandlingMode = (MisfireHandlingMode)99")]
+	public void InvalidEnumConfigurationDoesNotGenerateAJob(string configuration)
+	{
+		var result = GeneratorTestHelper.RunGenerator(
+			$$"""
+			using System.Threading;
+			using System.Threading.Tasks;
+			using Immediate.Handlers.Shared;
+			using Immediate.Jobs.Shared;
+			[Handler, Job({{configuration}})]
+			public sealed partial class InvalidEnumJob
+			{
+				public record Request;
+				private static ValueTask HandleAsync(Request request, CancellationToken token) => ValueTask.CompletedTask;
+			}
+			""",
+			skippedSteps: ["Jobs"]);
+		Assert.DoesNotContain(result.GeneratedTrees, tree => tree.FilePath.EndsWith("IJ..InvalidEnumJob.g.cs", StringComparison.Ordinal));
 	}
 
 	[Fact]

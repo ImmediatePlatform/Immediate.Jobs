@@ -93,16 +93,19 @@ internal static class TypedConstantExtensions
 	{
 		public string? GetTags()
 		{
-			if (constant is not { IsNull: false, Kind: TypedConstantKind.Array, Values: var values } av)
-				return "default";
+			if (constant is not { IsNull: false, Kind: TypedConstantKind.Array, Values: var values })
+				return "\"default\"";
 
 			if (values is [])
-				return "default";
+				return "\"default\"";
 
 			if (values.Any(tag => string.IsNullOrWhiteSpace(tag.Value as string)))
 				return null;
 
-			return av.GetStringValue();
+			return string.Join(", ", values
+				.Select(static tag => (string)tag.Value!)
+				.Distinct(StringComparer.OrdinalIgnoreCase)
+				.Select(static tag => Microsoft.CodeAnalysis.CSharp.SymbolDisplay.FormatLiteral(tag, quote: true)));
 		}
 	}
 }

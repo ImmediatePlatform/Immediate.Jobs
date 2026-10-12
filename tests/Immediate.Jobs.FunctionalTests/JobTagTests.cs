@@ -60,6 +60,24 @@ public sealed class JobTagTests
 		}
 	}
 
+	[Theory]
+	[InlineData(null)]
+	[InlineData("")]
+	[InlineData(" ")]
+	public async Task InvalidRuntimeServerTagsAreRejected(string? tag)
+	{
+		var services = new ServiceCollection();
+		services.AddLogging();
+		services.AddImmediateJobsCore()
+			.ConfigureWorkers(options => options.Tags = [tag!])
+			.ConfigureStorage(builder => builder.UseInMemory());
+		await using var provider = services.BuildServiceProvider();
+		if (tag is null)
+			Assert.Throws<Immediate.Validations.Shared.ValidationException>(() => provider.GetRequiredService<JobSchedulingService>());
+		else
+			Assert.Throws<ArgumentException>(() => provider.GetRequiredService<JobSchedulingService>());
+	}
+
 	[Fact]
 	public async Task RecurringMaterializationAndRestartRespectTheSameScope()
 	{

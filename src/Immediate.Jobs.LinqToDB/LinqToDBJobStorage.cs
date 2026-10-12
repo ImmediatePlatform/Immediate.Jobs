@@ -112,6 +112,7 @@ internal sealed partial class LinqToDBJobStorage<T>(
 		HeartbeatAsyncCalled(server.WorkerId);
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
+		server = server with { Tags = JobTags.Normalize(server.Tags) };
 
 		await using var scope = contextScope.GetScope(out var connection);
 

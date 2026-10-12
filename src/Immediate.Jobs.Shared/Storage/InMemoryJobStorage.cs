@@ -109,6 +109,7 @@ public sealed partial class InMemoryJobStorage(
 		HeartbeatAsyncCalled(server.WorkerId);
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
+		server = server with { Tags = JobTags.Normalize(server.Tags) };
 
 		lock (_gate)
 		{

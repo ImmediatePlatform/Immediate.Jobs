@@ -193,8 +193,8 @@ public sealed class JobClassAnalyzer : DiagnosticAnalyzer
 			);
 		}
 
-		if (arguments.GetArgumentValue("OverlapPolicy") is { } overlapPolicty
-			&& overlapPolicty.GetEnumValue() is null)
+		if (arguments.GetArgumentValue("OverlapPolicy") is { } overlapPolicy
+			&& overlapPolicy.GetEnumValue() is null)
 		{
 			ReportInvalidConfigurationDiagnostic(
 				context,

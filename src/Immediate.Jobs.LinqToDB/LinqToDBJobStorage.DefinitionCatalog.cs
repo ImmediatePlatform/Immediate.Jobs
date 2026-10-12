@@ -231,7 +231,7 @@ internal sealed partial class LinqToDBJobStorage<T>
 		MisfireHandlingMode = entity.MisfireHandlingMode,
 		Backoff = entity.Backoff,
 		BackoffBase = TimeSpan.FromTicks(entity.BackoffBaseTicks),
-		Tags = JsonSerializer.Deserialize(entity.Tags, LinqToDBJsonSerializerContext.Default.StringArray),
+		Tags = JsonSerializer.Deserialize(entity.Tags, LinqToDBJsonSerializerContext.Default.StringArray) ?? [],
 	};
 
 	[LoggerMessage(
