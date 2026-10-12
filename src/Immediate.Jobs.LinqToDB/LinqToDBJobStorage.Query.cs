@@ -46,7 +46,7 @@ internal sealed partial class LinqToDBJobStorage<T>
 			.ToListAsync(cancellationToken)).ToDictionary(static group => group.Name, static group => group.Count, StringComparer.OrdinalIgnoreCase);
 		var periods = definitions.Where(static definition => definition.SlidingWindowPeriod is not null)
 			.Select(static definition => definition.SlidingWindowPeriod!.Value).ToList();
-		var cutoff = (now - (periods.Count == 0 ? TimeSpan.Zero : periods.Max())).UtcTicks;
+		var cutoff = now - (periods.Count == 0 ? TimeSpan.Zero : periods.Max());
 		var acquisitions = periods.Count == 0 ? [] : await Acquisitions(connection)
 			.Where(acquisition => acquisition.AcquiredAt > cutoff)
 			.OrderBy(acquisition => acquisition.AcquiredAt).ToListAsync(cancellationToken);
@@ -57,8 +57,8 @@ internal sealed partial class LinqToDBJobStorage<T>
 			var limits = definition.AcquisitionLimits;
 			return JobAcquisitionEvaluator.Evaluate(definition.Name, state?.IsPaused ?? false, limits, now,
 				limits.SlidingWindowPeriod is { } period
-					? byName[definition.Name].Where(acquisition => acquisition.AcquiredAt > (now - period).UtcTicks).Select(static acquisition => new DateTimeOffset(acquisition.AcquiredAt, TimeSpan.Zero)).ToList() : [],
-				state?.FixedWindowStart is { } windowTicks ? new DateTimeOffset(windowTicks, TimeSpan.Zero) : null, state?.FixedWindowCount ?? 0, active.GetValueOrDefault(definition.Name));
+					? byName[definition.Name].Where(acquisition => acquisition.AcquiredAt > now - period).Select(static acquisition => acquisition.AcquiredAt).ToList() : [],
+				state?.FixedWindowStart, state?.FixedWindowCount ?? 0, active.GetValueOrDefault(definition.Name));
 		})];
 	}
 
