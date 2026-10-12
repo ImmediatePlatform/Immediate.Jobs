@@ -222,12 +222,6 @@ public sealed class StorageCapabilityTests
 		public ValueTask<IReadOnlyList<RecurringJobSchedule>> GetDueRecurringAsync(DateTimeOffset now, int batchSize, IReadOnlyList<string> jobNames, CancellationToken cancellationToken = default) =>
 			_inner.GetDueRecurringAsync(now, batchSize, jobNames, cancellationToken);
 
-		public ValueTask<IReadOnlyList<RecurringJobSchedule>> GetDueRecurringAsync(
-			DateTimeOffset now,
-			int batchSize,
-			CancellationToken cancellationToken = default
-		) => _inner.GetDueRecurringAsync(now, batchSize, cancellationToken);
-
 		public ValueTask<bool> MaterializeRecurringAsync(
 			RecurringJobSchedule schedule,
 			JobRecord job,

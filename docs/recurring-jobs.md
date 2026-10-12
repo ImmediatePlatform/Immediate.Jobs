@@ -33,7 +33,8 @@ catalogue reconciliation, and materialization update both the global and per-job
 Each polling iteration calls `GetDueRecurringAsync(now, AcquisitionBatchSize, eligibleJobNames)` and, per schedule,
 `MaterializeRecurringScheduleAsync`. One failing schedule is logged and skipped; it never blocks
 others or acquisition. Providers filter eligible job names before applying the batch limit, so
-unrelated schedules cannot starve this server's due work.
+unrelated schedules cannot starve this server's due work. Every due scan requires the eligible job-name
+list; an empty list returns no schedules.
 
 1. **Misfires.** If several occurrences were missed (for example while the app was down),
    `MisfireHandlingMode` decides what happens, and the count is logged:

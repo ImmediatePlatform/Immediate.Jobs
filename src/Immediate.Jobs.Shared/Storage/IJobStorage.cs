@@ -506,27 +506,6 @@ public interface IJobStorage : IAsyncDisposable
 	ValueTask ResumeRecurringAsync(string name, CancellationToken cancellationToken = default);
 
 	/// <summary>
-	/// 	Returns schedules ready to materialize.
-	/// </summary>
-	/// <param name="now">
-	/// 	The current UTC time used to determine which schedules are due.
-	/// </param>
-	/// <param name="batchSize">
-	/// 	The maximum number of schedules to return.
-	/// </param>
-	/// <param name="cancellationToken">
-	/// 	A token that can cancel the storage operation.
-	/// </param>
-	/// <returns>
-	/// 	The recurring schedules that are ready to materialize.
-	/// </returns>
-	ValueTask<IReadOnlyList<RecurringJobSchedule>> GetDueRecurringAsync(
-		DateTimeOffset now,
-		int batchSize,
-		CancellationToken cancellationToken = default
-	);
-
-	/// <summary>
 	/// 	Returns due schedules for eligible job names, applying the filter before the batch limit.
 	/// </summary>
 	/// <param name="now">

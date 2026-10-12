@@ -69,15 +69,11 @@ public sealed partial class InMemoryJobStorage
 	}
 
 	/// <inheritdoc />
-	public ValueTask<IReadOnlyList<RecurringJobSchedule>> GetDueRecurringAsync(DateTimeOffset now, int batchSize, CancellationToken cancellationToken = default) =>
-		GetDueRecurringCoreAsync(now, batchSize, jobNames: null, cancellationToken);
-
-	/// <inheritdoc />
-	public ValueTask<IReadOnlyList<RecurringJobSchedule>> GetDueRecurringAsync(DateTimeOffset now, int batchSize, IReadOnlyList<string> jobNames, CancellationToken cancellationToken = default) =>
-		GetDueRecurringCoreAsync(now, batchSize, jobNames, cancellationToken);
-
-	private async ValueTask<IReadOnlyList<RecurringJobSchedule>> GetDueRecurringCoreAsync(
-		DateTimeOffset now, int batchSize, IReadOnlyList<string>? jobNames, CancellationToken cancellationToken
+	public async ValueTask<IReadOnlyList<RecurringJobSchedule>> GetDueRecurringAsync(
+		DateTimeOffset now,
+		int batchSize,
+		IReadOnlyList<string> jobNames,
+		CancellationToken cancellationToken = default
 	)
 	{
 		GetDueRecurringAsyncCalled(batchSize);
@@ -88,7 +84,7 @@ public sealed partial class InMemoryJobStorage
 		{
 			return
 			[
-				.. _recurring.Values.Where(x => !x.IsPaused && x.NextRunAt <= now && (jobNames == null || jobNames.Contains(x.JobName, StringComparer.OrdinalIgnoreCase))).OrderBy(x => x.NextRunAt).Take(batchSize),
+				.. _recurring.Values.Where(x => !x.IsPaused && x.NextRunAt <= now && jobNames.Contains(x.JobName, StringComparer.OrdinalIgnoreCase)).OrderBy(x => x.NextRunAt).Take(batchSize),
 			];
 		}
 	}

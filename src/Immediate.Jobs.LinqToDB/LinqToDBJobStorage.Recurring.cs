@@ -100,15 +100,11 @@ internal sealed partial class LinqToDBJobStorage<T>
 	}
 
 	/// <inheritdoc />
-	public ValueTask<IReadOnlyList<RecurringJobSchedule>> GetDueRecurringAsync(DateTimeOffset now, int batchSize, CancellationToken cancellationToken = default) =>
-		GetDueRecurringCoreAsync(now, batchSize, jobNames: null, cancellationToken);
-
-	/// <inheritdoc />
-	public ValueTask<IReadOnlyList<RecurringJobSchedule>> GetDueRecurringAsync(DateTimeOffset now, int batchSize, IReadOnlyList<string> jobNames, CancellationToken cancellationToken = default) =>
-		GetDueRecurringCoreAsync(now, batchSize, jobNames, cancellationToken);
-
-	private async ValueTask<IReadOnlyList<RecurringJobSchedule>> GetDueRecurringCoreAsync(
-		DateTimeOffset now, int batchSize, IReadOnlyList<string>? jobNames, CancellationToken cancellationToken
+	public async ValueTask<IReadOnlyList<RecurringJobSchedule>> GetDueRecurringAsync(
+		DateTimeOffset now,
+		int batchSize,
+		IReadOnlyList<string> jobNames,
+		CancellationToken cancellationToken = default
 	)
 	{
 		GetDueRecurringAsyncCalled(batchSize);
@@ -118,7 +114,7 @@ internal sealed partial class LinqToDBJobStorage<T>
 		await using var scope = contextScope.GetScope(out var connection);
 
 		var schedules = await Recurring(connection)
-			.Where(schedule => !schedule.IsPaused && schedule.NextRunAt <= now && (jobNames == null || jobNames.Contains(schedule.JobName)))
+			.Where(schedule => !schedule.IsPaused && schedule.NextRunAt <= now && jobNames.Contains(schedule.JobName))
 			.OrderBy(schedule => schedule.NextRunAt)
 			.Take(batchSize)
 			.ToListAsync(cancellationToken);
