@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Globalization;
 using Microsoft.CodeAnalysis;
 
 namespace Immediate.Jobs;
@@ -22,25 +23,6 @@ internal static class AttributeDataExtensions
 
 	extension(AttributeData attribute)
 	{
-		public ImmutableArray<KeyValuePair<string, TypedConstant>> GetJobArguments(INamedTypeSymbol job)
-		{
-			var defaults = job.ContainingAssembly.GetAttributes().FirstOrDefault(attribute => attribute.AttributeClass.IsJobDefaultsAttribute);
-			if (defaults is null)
-				return attribute.NamedArguments;
-
-			var arguments = defaults.NamedArguments.ToDictionary(static argument => argument.Key, static argument => argument.Value, StringComparer.Ordinal);
-			foreach (var argument in attribute.NamedArguments)
-			{
-				if (string.Equals(argument.Key, "Tags", StringComparison.Ordinal)
-					&& ((TypedConstant?)argument.Value).GetTags(defaultTags: string.Empty) is "")
-					continue;
-
-				arguments[argument.Key] = argument.Value;
-			}
-
-			return arguments.ToImmutableArray();
-		}
-
 		public string GetJobName(string className) =>
 			attribute.NamedArguments.GetStringValue("Name") ?? className.AsJobName();
 
@@ -48,5 +30,29 @@ internal static class AttributeDataExtensions
 			attribute.NamedArguments.GetStringValue("Name") ?? className.AsQueueName();
 
 		public Location? Location => attribute.ApplicationSyntaxReference?.GetSyntax().GetLocation();
+
+		public IEnumerable<string> GetJobDefaultsErrors()
+		{
+			var arguments = attribute.NamedArguments;
+
+			if (arguments.GetArgumentValue("Tags").GetTags() is null)
+				yield return "Tags must not contain null, empty, or whitespace entries.";
+
+			if (arguments.GetIntValue("MaxAttempts", 3) < 1)
+				yield return "MaxAttempts must be at least one.";
+
+			if (arguments.GetStringValue("Timeout") is { } timeout
+				&& (!TimeSpan.TryParse(timeout, CultureInfo.InvariantCulture, out var duration) || duration <= TimeSpan.Zero))
+			{
+				yield return "Timeout must be a positive TimeSpan.";
+			}
+
+			if (arguments.GetStringValue("TimeZone") is { } timeZone
+				&& timeZone.IsWhiteSpace())
+			{
+				yield return "Time Zone is invalid.";
+			}
+		}
+
 	}
 }

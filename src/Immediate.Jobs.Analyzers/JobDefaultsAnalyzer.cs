@@ -8,14 +8,16 @@ namespace Immediate.Jobs.Analyzers;
 [DiagnosticAnalyzer(LanguageNames.CSharp)]
 public sealed class JobDefaultsAnalyzer : DiagnosticAnalyzer
 {
-	public static readonly DiagnosticDescriptor InvalidJobDefaults = new(
-		id: DiagnosticIds.IJOB0017JobDefaultsInvalid,
-		title: "Job Defaults Invalid",
-		messageFormat: "Invalid job defaults: {0}",
-		category: "ImmediateJobs",
-		defaultSeverity: DiagnosticSeverity.Error,
-		isEnabledByDefault: true,
-		customTags: [WellKnownDiagnosticTags.NotConfigurable]);
+	public static readonly DiagnosticDescriptor InvalidJobDefaults =
+		new(
+			id: DiagnosticIds.IJOB0017JobDefaultsInvalid,
+			title: "Job Defaults Invalid",
+			messageFormat: "Invalid job defaults: {0}",
+			category: "ImmediateJobs",
+			defaultSeverity: DiagnosticSeverity.Error,
+			isEnabledByDefault: true,
+			customTags: [WellKnownDiagnosticTags.NotConfigurable]
+		);
 
 	public override ImmutableArray<DiagnosticDescriptor> SupportedDiagnostics { get; } = ImmutableArray.Create([InvalidJobDefaults]);
 
@@ -37,14 +39,19 @@ public sealed class JobDefaultsAnalyzer : DiagnosticAnalyzer
 			return;
 
 		var syntax = context.Operation.Syntax;
-		var attribute = context.Compilation.Assembly.GetAttributes().FirstOrDefault(attribute =>
-			attribute.ApplicationSyntaxReference is { } reference
-			&& reference.SyntaxTree == syntax.SyntaxTree
-			&& reference.Span == syntax.Span);
+
+		var attribute = context.Compilation.Assembly.GetAttributes()
+			.FirstOrDefault(
+				attribute =>
+					attribute.ApplicationSyntaxReference is { } reference
+					&& reference.SyntaxTree == syntax.SyntaxTree
+					&& reference.Span == syntax.Span
+			);
+
 		if (attribute is null)
 			return;
 
-		foreach (var error in attribute.NamedArguments.GetJobDefaultsErrors())
+		foreach (var error in attribute.GetJobDefaultsErrors())
 			context.ReportDiagnostic(Diagnostic.Create(InvalidJobDefaults, syntax.GetLocation(), error));
 	}
 }

@@ -12,7 +12,7 @@ public sealed class JobDefaultsAttribute : Attribute
 	/// 	The tags inherited by jobs that omit a tag list or supply a null or empty list.
 	/// </summary>
 	[NotNull]
-	public string[]? Tags { get; init => field = [.. JobTags.Normalize(value)]; } = [JobTags.Default];
+	public string[]? Tags { get; init => field = [.. JobTags.Normalize(value)]; }
 
 	/// <summary>
 	/// 	The default time-zone identifier. A null value uses UTC.
@@ -22,7 +22,7 @@ public sealed class JobDefaultsAttribute : Attribute
 	/// <summary>
 	/// 	The default total execution attempts, including the first attempt.
 	/// </summary>
-	public int MaxAttempts { get; init; } = 3;
+	public int MaxAttempts { get; init; }
 
 	/// <summary>
 	/// 	The default execution timeout as a TimeSpan string, or null for no timeout.

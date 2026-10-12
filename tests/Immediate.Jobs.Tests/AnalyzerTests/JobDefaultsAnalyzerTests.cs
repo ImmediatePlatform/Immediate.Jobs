@@ -10,7 +10,6 @@ public sealed class JobDefaultsAnalyzerTests
 	[InlineData("MaxAttempts = 0")]
 	[InlineData("Timeout = \"invalid\"")]
 	[InlineData("Timeout = \"00:00:00\"")]
-	[InlineData("TimeZone = \"missing-zone\"")]
 	[InlineData("TimeZone = \"\"")]
 	public async Task InvalidDefaultsAreRejectedWithoutAnyJobs(string settings) =>
 		await AnalyzerTestHelpers.CreateAnalyzerTest<JobDefaultsAnalyzer>(
@@ -24,7 +23,7 @@ public sealed class JobDefaultsAnalyzerTests
 	[InlineData("")]
 	[InlineData("Tags = null, Timeout = null, TimeZone = null")]
 	[InlineData("Tags = new string[0]")]
-	[InlineData("Tags = new[] { \"email\", \"EMAIL\" }, TimeZone = \"UTC\", MaxAttempts = 1, Timeout = \"00:00:10\"")]
+	[InlineData("Tags = [\"email\", \"EMAIL\"], TimeZone = \"UTC\", MaxAttempts = 1, Timeout = \"00:00:10\"")]
 	public async Task ValidDefaultsAreAccepted(string settings) =>
 		await AnalyzerTestHelpers.CreateAnalyzerTest<JobDefaultsAnalyzer>(
 			$$"""

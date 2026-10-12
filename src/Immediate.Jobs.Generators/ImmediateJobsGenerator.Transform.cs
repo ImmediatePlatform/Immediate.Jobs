@@ -23,6 +23,10 @@ public sealed partial class ImmediateJobsGenerator
 		if (attributes.HandlerAttribute is not { } handlerAttribute)
 			return null;
 
+		var defaults = symbol.ContainingAssembly.GetAttributes().FirstOrDefault(attribute => attribute.AttributeClass.IsJobDefaultsAttribute);
+		if (defaults is { } && defaults.GetJobDefaultsErrors().Any())
+			return null;
+
 		var @namespace = symbol.ContainingNamespace.ToDisplayString().NullIf("<global namespace>");
 
 		var parameterType = handleMethod.Parameters[0].Type;
@@ -34,11 +38,7 @@ public sealed partial class ImmediateJobsGenerator
 		if (!jobName.HasNameContent() || jobName.HasLeadingOrTrailingWhitespace())
 			return null;
 
-		var defaults = symbol.ContainingAssembly.GetAttributes().FirstOrDefault(attribute => attribute.AttributeClass.IsJobDefaultsAttribute);
-		if (defaults is not null && defaults.NamedArguments.GetJobDefaultsErrors().Any())
-			return null;
-
-		var arguments = attribute.GetJobArguments(symbol);
+		var arguments = attribute.GetJobArguments(defaults);
 
 		var cron = arguments.GetStringValue("Cron");
 		var timeZone = arguments.GetStringValue("TimeZone") ?? "UTC";
@@ -213,6 +213,27 @@ file static class Extensions
 				default:
 					break;
 			}
+		}
+	}
+
+	extension(AttributeData attribute)
+	{
+		public ImmutableArray<KeyValuePair<string, TypedConstant>> GetJobArguments(AttributeData? defaults)
+		{
+			if (defaults is null)
+				return attribute.NamedArguments;
+
+			var arguments = defaults.NamedArguments
+				.ToDictionary(
+					argument => argument.Key,
+					argument => argument.Value,
+					StringComparer.Ordinal
+				);
+
+			foreach (var argument in attribute.NamedArguments)
+				arguments[argument.Key] = argument.Value;
+
+			return arguments.ToImmutableArray();
 		}
 	}
 }

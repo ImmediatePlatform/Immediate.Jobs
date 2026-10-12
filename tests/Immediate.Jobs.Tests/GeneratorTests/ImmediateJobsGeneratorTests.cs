@@ -445,4 +445,70 @@ public sealed class ImmediateJobsGeneratorTests
 
 		_ = await Utility.VerifyIgnoreImmediateHandlers(result);
 	}
+
+	[Fact]
+	public async Task JobSettingsUseAssemblyDefaults()
+	{
+		var result = GeneratorTestHelper.RunGenerator(
+			"""
+			using Immediate.Jobs.Shared;
+			using Immediate.Handlers.Shared;
+			using System.Threading;
+			using System.Threading.Tasks;
+
+			[assembly: JobDefaults(Tags = new[] { "assembly" }, TimeZone = "America/New_York", MaxAttempts = 5, Timeout = "00:02:00")]
+
+			[Handler, Job]
+			public sealed partial class WorkJob
+			{
+				private static ValueTask HandleAsync(EmptyJobRequest request, CancellationToken cancellationToken) => ValueTask.CompletedTask;
+			}
+			"""
+		);
+
+		Assert.Equal(
+			[
+				"Immediate.Handlers.Generators/Immediate.Handlers.Generators.ImmediateHandlersGenerator/IH..WorkJob.g.cs",
+				"Immediate.Handlers.Generators/Immediate.Handlers.Generators.ImmediateHandlersGenerator/IH.ServiceCollectionExtensions.g.cs",
+				"Immediate.Jobs.Generators/Immediate.Jobs.Generators.ImmediateJobsGenerator/IJ..WorkJob.g.cs",
+				"Immediate.Jobs.Generators/Immediate.Jobs.Generators.ImmediateJobsGenerator/IJ.ServiceCollectionExtensions.g.cs",
+			],
+			result.GeneratedTrees.Select(tree => tree.FilePath.Replace('\\', '/'))
+		);
+
+		await Utility.VerifyIgnoreImmediateHandlers(result);
+	}
+
+	[Fact]
+	public async Task JobSettingsOverrideAssemblyDefaults()
+	{
+		var result = GeneratorTestHelper.RunGenerator(
+			"""
+			using Immediate.Jobs.Shared;
+			using Immediate.Handlers.Shared;
+			using System.Threading;
+			using System.Threading.Tasks;
+
+			[assembly: JobDefaults(Tags = new[] { "assembly" }, TimeZone = "America/New_York", MaxAttempts = 5, Timeout = "00:02:00")]
+
+			[Handler, Job(Tags = ["my-assembly"], TimeZone = "UTC", MaxAttempts = 4, Timeout = "00:05:00")]
+			public sealed partial class WorkJob
+			{
+				private static ValueTask HandleAsync(EmptyJobRequest request, CancellationToken cancellationToken) => ValueTask.CompletedTask;
+			}
+			"""
+		);
+
+		Assert.Equal(
+			[
+				"Immediate.Handlers.Generators/Immediate.Handlers.Generators.ImmediateHandlersGenerator/IH..WorkJob.g.cs",
+				"Immediate.Handlers.Generators/Immediate.Handlers.Generators.ImmediateHandlersGenerator/IH.ServiceCollectionExtensions.g.cs",
+				"Immediate.Jobs.Generators/Immediate.Jobs.Generators.ImmediateJobsGenerator/IJ..WorkJob.g.cs",
+				"Immediate.Jobs.Generators/Immediate.Jobs.Generators.ImmediateJobsGenerator/IJ.ServiceCollectionExtensions.g.cs",
+			],
+			result.GeneratedTrees.Select(tree => tree.FilePath.Replace('\\', '/'))
+		);
+
+		await Utility.VerifyIgnoreImmediateHandlers(result);
+	}
 }

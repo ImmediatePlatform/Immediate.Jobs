@@ -1,5 +1,4 @@
 using System.Collections.Immutable;
-using System.Globalization;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 
@@ -9,38 +8,6 @@ internal static class TypedConstantExtensions
 {
 	extension(ImmutableArray<KeyValuePair<string, TypedConstant>> arguments)
 	{
-		public IEnumerable<string> GetJobDefaultsErrors()
-		{
-			if (arguments.GetArgumentValue("Tags").GetTags() is null)
-				yield return "Tags must not contain null, empty, or whitespace entries.";
-
-			if (arguments.GetIntValue("MaxAttempts", 3) < 1)
-				yield return "MaxAttempts must be at least one.";
-
-			if (arguments.GetStringValue("Timeout") is { } timeout
-				&& (!TimeSpan.TryParse(timeout, CultureInfo.InvariantCulture, out var duration) || duration <= TimeSpan.Zero))
-				yield return "Timeout must be a positive TimeSpan.";
-
-			if (arguments.GetStringValue("TimeZone") is { } timeZone)
-			{
-				try
-				{
-					TimeZoneInfo.FindSystemTimeZoneById(timeZone);
-				}
-				catch (TimeZoneNotFoundException)
-				{
-					timeZone = string.Empty;
-				}
-				catch (InvalidTimeZoneException)
-				{
-					timeZone = string.Empty;
-				}
-
-				if (timeZone.Length == 0)
-					yield return "TimeZone must identify a valid time zone.";
-			}
-		}
-
 		public TypedConstant? GetArgumentValue(string name)
 		{
 			foreach (var argument in arguments)
@@ -135,13 +102,13 @@ internal static class TypedConstantExtensions
 
 	extension(TypedConstant? constant)
 	{
-		public string? GetTags(string defaultTags = "\"default\"")
+		public string? GetTags()
 		{
 			if (constant is not { IsNull: false, Kind: TypedConstantKind.Array, Values: var values } av)
-				return defaultTags;
+				return "\"default\"";
 
 			if (values is [])
-				return defaultTags;
+				return "\"default\"";
 
 			if (values.Any(tag => string.IsNullOrWhiteSpace(tag.Value as string)))
 				return null;
