@@ -11,6 +11,7 @@ internal sealed partial class LinqToDBJobStorage<T>
 		{
 			Id = job.JobHandle.Value,
 			QueueName = job.QueueName,
+			CancellationReason = job.CancellationReason,
 			JobName = job.JobName,
 			Payload = job.Payload,
 			Context = job.Context,
@@ -91,6 +92,7 @@ internal sealed partial class LinqToDBJobStorage<T>
 		{
 			JobHandle = JobHandle.FromString(job.Id),
 			QueueName = job.QueueName,
+			CancellationReason = job.CancellationReason,
 			JobName = job.JobName,
 			Payload = job.Payload,
 			Context = job.Context,
@@ -120,6 +122,7 @@ internal sealed partial class LinqToDBJobStorage<T>
 			Name = schedule.Name,
 			JobName = schedule.JobName,
 			QueueName = schedule.QueueName,
+			CancellationReason = schedule.CancellationReason,
 			Cron = schedule.Cron,
 			TimeZone = schedule.TimeZone,
 			IsCodeDefined = schedule.IsCodeDefined,
@@ -135,6 +138,7 @@ internal sealed partial class LinqToDBJobStorage<T>
 			Name = schedule.Name,
 			JobName = schedule.JobName,
 			QueueName = schedule.QueueName,
+			CancellationReason = schedule.CancellationReason,
 			Cron = schedule.Cron,
 			TimeZone = schedule.TimeZone,
 			IsCodeDefined = schedule.IsCodeDefined,

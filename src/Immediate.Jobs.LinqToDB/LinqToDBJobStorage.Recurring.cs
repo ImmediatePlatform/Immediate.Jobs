@@ -196,8 +196,11 @@ internal sealed partial class LinqToDBJobStorage<T>
 
 		await using var scope = contextScope.GetScope(out var connection);
 
+		if (!paused && await Recurring(connection).AnyAsync(schedule => schedule.Name == name && schedule.CancellationReason != null, cancellationToken))
+			throw new ImmediateJobException("Canceled recurring schedules cannot be resumed.");
+
 		var updated = await Recurring(connection)
-			.Where(schedule => schedule.Name == name)
+			.Where(schedule => schedule.Name == name && (paused || schedule.CancellationReason == null))
 			.Set(schedule => schedule.IsPaused, paused)
 			.Set(schedule => schedule.ConcurrencyStamp, Guid.NewGuid())
 			.UpdateAsync(cancellationToken);
@@ -245,6 +248,7 @@ internal sealed partial class LinqToDBJobStorage<T>
 			.Set(entity => entity.Cron, schedule.Cron)
 			.Set(entity => entity.TimeZone, schedule.TimeZone)
 			.Set(entity => entity.IsCodeDefined, schedule.IsCodeDefined)
+			.Set(entity => entity.CancellationReason, schedule.CancellationReason)
 			.Set(entity => entity.IsPaused, schedule.IsPaused)
 			.Set(entity => entity.NextRunAt, schedule.NextRunAt)
 			.Set(entity => entity.LastRunAt, schedule.LastRunAt)

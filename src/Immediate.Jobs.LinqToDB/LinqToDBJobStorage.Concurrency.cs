@@ -232,6 +232,7 @@ internal sealed partial class LinqToDBJobStorage<T>
 			.Set(entity => entity.Attempt, job.Attempt)
 			.Set(entity => entity.WorkerId, job.WorkerId)
 			.Set(entity => entity.LeaseExpiresAt, job.LeaseExpiresAt)
+			.Set(entity => entity.CancellationReason, job.CancellationReason)
 			.Set(entity => entity.LastError, job.LastError)
 			.Set(entity => entity.CompletedAt, job.CompletedAt)
 			.Set(entity => entity.RecurringKey, job.RecurringKey)

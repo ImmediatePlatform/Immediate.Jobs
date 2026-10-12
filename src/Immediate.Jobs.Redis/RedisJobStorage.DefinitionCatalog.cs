@@ -2,6 +2,7 @@ using System.Text.Json;
 using Immediate.Jobs.Shared.Apis;
 using Immediate.Jobs.Shared.Storage;
 using Microsoft.Extensions.Logging;
+using StackExchange.Redis;
 
 namespace Immediate.Jobs.Redis;
 
@@ -44,12 +45,21 @@ internal sealed partial class RedisJobStorage
 					Paused = schedule.IsPaused ? "1" : "0",
 				}).ToList(),
 			};
-			var result = await EvaluateInt64Async(RedisScripts.MergeDefinitionCatalog,
+			var now = _timeProvider.GetUtcNow();
+			var result = await Database.ScriptEvaluateAsync(RedisScripts.MergeDefinitionCatalog,
 				[DefinitionMetadataKey, DefinitionCatalogVersionKey, RecurringNamesKey, RecurringDueKey],
-				[version.IsNull ? "0" : version, _root, JsonSerializer.Serialize(payload, RedisJsonSerializerContext.Default.RedisDefinitionCatalogChanges)],
-				cancellationToken);
-			if (result == 1)
+				[version.IsNull ? "0" : version, _root, JsonSerializer.Serialize(payload, RedisJsonSerializerContext.Default.RedisDefinitionCatalogChanges),
+					Ticks(now), Score(now), JobDefinitionReconciliation.RemovalCancellationReason]).WaitAsync(cancellationToken);
+			if (!result.IsNull)
+			{
+				foreach (var report in (RedisResult[])result!)
+				{
+					var values = (RedisResult[])report!;
+					DefinitionRemoved((string)values[0]!, (int)(long)values[1], (int)(long)values[2]);
+				}
+
 				return;
+			}
 			// A competing startup committed. Recompute the entire scoped change from its new snapshot.
 		}
 	}
@@ -64,6 +74,14 @@ internal sealed partial class RedisJobStorage
 		return [.. metadata.Select(static entry => JsonSerializer.Deserialize((string)entry.Value!, RedisJsonSerializerContext.Default.JobDefinitionRecord)!)
 			.OrderBy(static definition => definition.Name, StringComparer.OrdinalIgnoreCase)];
 	}
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.DefinitionRemoved,
+		EventName = "Immediate.Jobs.Redis.DefinitionRemoved",
+		Level = LogLevel.Warning,
+		Message = "Job definition '{JobName}' removed; canceled {JobCount} invocations and {ScheduleCount} recurring schedules."
+	)]
+	private partial void DefinitionRemoved(string jobName, int jobCount, int scheduleCount);
 
 	[LoggerMessage(
 		EventId = LibraryEventIds.MergeJobDefinitionsListAsyncCalled,

@@ -37,7 +37,11 @@ all code-defined schedules, and normalized server tags. It upserts supplied matc
 removes stored matching definitions absent from that managed list. Scope is evaluated from the old
 stored tags before updates, so retagging a definition outside the old server's scope removes its stale
 entry. Definitions outside the scope remain untouched. Empty supplied lists clear only that scope.
-Definition deletion never cascades to invocations, running leases, or execution history.
+Definition removal cancels nonterminal invocations and fences their workers, while retaining their
+records with a cancellation reason until purged. It also cancels dynamic recurring schedules, retaining
+them for monitoring and preventing ordinary resume or future materialization. Terminal invocation
+history and definitions outside the server tag scope are preserved. Each removal is logged with the
+number of canceled invocations and schedules.
 
 Definition names are case-insensitive identities and retain their readable spelling. In-memory
 and single-server use `OrdinalIgnoreCase`; SQL Server inherits database collation; PostgreSQL uses

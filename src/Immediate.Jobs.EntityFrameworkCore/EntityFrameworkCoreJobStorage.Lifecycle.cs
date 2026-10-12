@@ -266,20 +266,7 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 		if (IsTerminal(job.State))
 			throw new ImmediateJobException("Only a non-terminal job can be cancelled.");
 
-		if (job.State == JobState.Active)
-		{
-			var execution = await GetOrMaterializeExecutionAsync(context, job, cancellationToken)
-				?? throw new ImmediateJobException($"Active job '{job.Id}' has no execution ordinal.");
-			execution.State = JobExecutionState.Cancelled;
-			execution.CompletedAt = now;
-			execution.Error = null;
-		}
-
-		job.State = JobState.Cancelled;
-		job.CompletedAt = now;
-		job.WorkerId = null;
-		job.LeaseExpiresAt = null;
-		job.ConcurrencyStamp = Guid.NewGuid();
+		await MarkCancelledAsync(context, job, now, reason: null, cancellationToken);
 		await PropagateTerminalAsync(context, job, now, cancellationToken);
 
 		var terminalGroups = GetTerminalFairQueueGroups(context);
@@ -289,6 +276,25 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 		{
 			await TryRemoveFairQueueCursorAsync(queueName, groupId, CancellationToken.None);
 		}
+	}
+
+	private static async Task MarkCancelledAsync(TContext context, ImmediateJobEntity job, DateTimeOffset now, string? reason, CancellationToken cancellationToken)
+	{
+		if (job.State == JobState.Active)
+		{
+			var execution = await GetOrMaterializeExecutionAsync(context, job, cancellationToken)
+				?? throw new ImmediateJobException($"Active job '{job.Id}' has no execution ordinal.");
+			execution.State = JobExecutionState.Cancelled;
+			execution.CompletedAt = now;
+			execution.Error = reason;
+		}
+
+		job.CancellationReason = reason;
+		job.State = JobState.Cancelled;
+		job.CompletedAt = now;
+		job.WorkerId = null;
+		job.LeaseExpiresAt = null;
+		job.ConcurrencyStamp = Guid.NewGuid();
 	}
 
 	private async Task RetryCoreAsync(JobHandle jobHandle, CancellationToken cancellationToken)

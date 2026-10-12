@@ -97,4 +97,5 @@ internal static class LibraryEventIds
 	public const int InMemoryGetJobDefinitionsAsyncCalled = 11095;
 	public const int SingleServerMergeJobDefinitionsListAsyncCalled = 11096;
 	public const int SingleServerGetJobDefinitionsAsyncCalled = 11097;
+	public const int InMemoryDefinitionRemoved = 11110;
 }

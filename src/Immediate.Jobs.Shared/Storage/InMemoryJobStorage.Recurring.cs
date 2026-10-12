@@ -133,6 +133,9 @@ public sealed partial class InMemoryJobStorage
 			if (!_recurring.TryGetValue(name, out var schedule))
 				throw new KeyNotFoundException($"Recurring schedule '{name}' was not found.");
 
+			if (!isPaused && schedule.CancellationReason is not null)
+				throw new ImmediateJobException("Canceled recurring schedules cannot be resumed.");
+
 			_recurring[name] = schedule with { IsPaused = isPaused };
 		}
 

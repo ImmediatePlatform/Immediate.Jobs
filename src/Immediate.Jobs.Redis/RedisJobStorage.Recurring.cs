@@ -7,7 +7,7 @@ namespace Immediate.Jobs.Redis;
 
 internal sealed partial class RedisJobStorage
 {
-	private static readonly RedisValue[] RecurringMutableFields = ["record", "paused", "next", "last"];
+	private static readonly RedisValue[] RecurringMutableFields = ["record", "paused", "next", "last", "cancellationReason"];
 
 	/// <inheritdoc />
 	public async ValueTask UpsertRecurringAsync(
@@ -192,6 +192,8 @@ internal sealed partial class RedisJobStorage
 			[isPaused ? 1 : 0, _root],
 			cancellationToken
 		);
+		if (result == -1)
+			throw new ImmediateJobException("Canceled recurring schedules cannot be resumed.");
 		if (result == 0)
 			throw new KeyNotFoundException($"Recurring schedule '{name}' was not found.");
 	}
@@ -232,6 +234,7 @@ internal sealed partial class RedisJobStorage
 		return schedule with
 		{
 			IsPaused = values[1] == "1",
+			CancellationReason = values[4].IsNull ? schedule.CancellationReason : NullIfEmpty(values[4]),
 			NextRunAt = FromTicks(values[2]),
 			LastRunAt = FromNullableTicks(values[3]),
 		};

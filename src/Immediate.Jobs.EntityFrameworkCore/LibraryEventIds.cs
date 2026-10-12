@@ -46,4 +46,5 @@ internal static class LibraryEventIds
 	public const int TryTriggerBatchAsyncCalled = 11542;
 	public const int MergeJobDefinitionsListAsyncCalled = 11543;
 	public const int GetJobDefinitionsAsyncCalled = 11544;
+	public const int DefinitionRemoved = 11560;
 }

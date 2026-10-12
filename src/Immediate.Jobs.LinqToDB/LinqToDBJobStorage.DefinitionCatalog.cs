@@ -19,11 +19,15 @@ internal sealed partial class LinqToDBJobStorage<T>
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 		ValidateRegistration(registration);
+		var reports = new List<(string Name, int Jobs, int Schedules)>();
+		var terminalGroups = new HashSet<(string QueueName, string GroupId)>();
 		await RetryConcurrencyAsync(async connection =>
 		{
+			reports.Clear();
+			terminalGroups.Clear();
 			if (connection.DataProvider.Name.Contains("SQLite", StringComparison.OrdinalIgnoreCase))
 			{
-				await MergeSQLiteDefinitionsAsync(connection, registration, cancellationToken);
+				await MergeSQLiteDefinitionsAsync(connection, registration, reports, terminalGroups, cancellationToken);
 				return;
 			}
 
@@ -34,6 +38,9 @@ internal sealed partial class LinqToDBJobStorage<T>
 			var serverTags = registration.ServerTags.ToList().AsQueryable(connection);
 			var scheduledNames = schedules.Select(static schedule => schedule.JobName).ToList();
 			var includesDefault = registration.ServerTags.Contains(JobTags.Default, StringComparer.OrdinalIgnoreCase);
+			var removed = await Definitions(connection).Where(definition => serverTags.Any(tag => HasTag(definition.Tags, tag))
+				&& !definition.Name.In(names)).Select(static definition => definition.Name).ToListAsync(cancellationToken);
+			await CancelRemovedDefinitionsAsync(connection, removed, reports, terminalGroups, cancellationToken);
 			// Evaluate schedule ownership before metadata changes can move or remove its tag scope.
 			await Recurring(connection).Where(schedule => schedule.IsCodeDefined
 				&& !schedule.JobName.In(scheduledNames) && !schedule.Name.In(scheduledNames)
@@ -45,6 +52,9 @@ internal sealed partial class LinqToDBJobStorage<T>
 			await MergeDefinitionMetadataAsync(connection, definitions, serverTags, cancellationToken);
 			await MergeRecurringDefinitionsAsync(connection, schedules, cancellationToken);
 		}, cancellationToken, isolationLevel: IsolationLevel.Serializable);
+		await CleanupFairQueueGroupsAsync(terminalGroups);
+		foreach (var report in reports)
+			DefinitionRemoved(report.Name, report.Jobs, report.Schedules);
 	}
 
 	/// <inheritdoc />
@@ -92,6 +102,8 @@ internal sealed partial class LinqToDBJobStorage<T>
 	private async Task MergeSQLiteDefinitionsAsync(
 		DataConnection connection,
 		JobDefinitionRegistration registration,
+		List<(string Name, int Jobs, int Schedules)> reports,
+		ISet<(string QueueName, string GroupId)> terminalGroups,
 		CancellationToken cancellationToken
 	)
 	{
@@ -101,6 +113,7 @@ internal sealed partial class LinqToDBJobStorage<T>
 		var changes = JobDefinitionReconciliation.Create(registration,
 			definitions.Select(ToRecord).ToList(),
 			schedules.Select(ToRecord).ToList());
+		await CancelRemovedDefinitionsAsync(connection, changes.RemovedDefinitionNames, reports, terminalGroups, cancellationToken);
 		await Definitions(connection).Where(item => item.Name.In(changes.RemovedDefinitionNames)).DeleteAsync(cancellationToken);
 		foreach (var definition in changes.Definitions)
 			await connection.InsertOrReplaceAsync(ToEntity(definition), schemaName: _schema, token: cancellationToken);
@@ -108,6 +121,39 @@ internal sealed partial class LinqToDBJobStorage<T>
 		await Recurring(connection).Where(item => item.Name.In(changes.RemovedScheduleNames)).DeleteAsync(cancellationToken);
 		foreach (var schedule in changes.Schedules)
 			await connection.InsertOrReplaceAsync(ToEntity(schedule), schemaName: _schema, token: cancellationToken);
+	}
+
+	private async Task CancelRemovedDefinitionsAsync(DataConnection connection, IReadOnlyList<string> names,
+		List<(string Name, int Jobs, int Schedules)> reports, ISet<(string QueueName, string GroupId)> terminalGroups,
+		CancellationToken cancellationToken)
+	{
+		if (names.Count == 0)
+			return;
+
+		var removed = names.ToHashSet(StringComparer.OrdinalIgnoreCase);
+		var query = Jobs(connection).Where(job => job.State != JobState.Succeeded && job.State != JobState.Failed
+			&& job.State != JobState.Cancelled && job.State != JobState.Skipped);
+		var schedulesQuery = Recurring(connection).Where(schedule => !schedule.IsCodeDefined && schedule.CancellationReason == null);
+		if (!connection.DataProvider.Name.Contains("SQLite", StringComparison.OrdinalIgnoreCase))
+		{
+			query = query.Where(job => job.JobName.In(names));
+			schedulesQuery = schedulesQuery.Where(schedule => schedule.JobName.In(names));
+		}
+
+		var jobs = (await query.ToListAsync(cancellationToken)).Where(job => removed.Contains(job.JobName)).ToList();
+		var schedules = (await schedulesQuery.ToListAsync(cancellationToken)).Where(schedule => removed.Contains(schedule.JobName)).ToList();
+		var now = timeProvider.GetUtcNow();
+		foreach (var job in jobs)
+			await MarkCancelledAsync(connection, job, now, JobDefinitionReconciliation.RemovalCancellationReason, cancellationToken);
+		foreach (var job in jobs)
+			await PropagateTerminalAsync(connection, job, now, terminalGroups, cancellationToken);
+		foreach (var schedule in schedules)
+			await Recurring(connection).Where(item => item.Name == schedule.Name)
+				.Set(item => item.CancellationReason, JobDefinitionReconciliation.RemovalCancellationReason)
+				.Set(item => item.IsPaused, value: true).Set(item => item.ConcurrencyStamp, Guid.NewGuid()).UpdateAsync(cancellationToken);
+		foreach (var name in names)
+			reports.Add((name, jobs.Count(job => string.Equals(job.JobName, name, StringComparison.OrdinalIgnoreCase)),
+				schedules.Count(schedule => string.Equals(schedule.JobName, name, StringComparison.OrdinalIgnoreCase))));
 	}
 
 	private async Task MergeDefinitionMetadataAsync(
@@ -164,6 +210,7 @@ internal sealed partial class LinqToDBJobStorage<T>
 				Name = definition.Name,
 				JobName = definition.Name,
 				QueueName = schedule.QueueName,
+				CancellationReason = schedule.CancellationReason,
 				Cron = schedule.Cron,
 				TimeZone = schedule.TimeZone,
 				IsCodeDefined = true,
@@ -233,6 +280,14 @@ internal sealed partial class LinqToDBJobStorage<T>
 		BackoffBase = TimeSpan.FromTicks(entity.BackoffBaseTicks),
 		Tags = JsonSerializer.Deserialize(entity.Tags, LinqToDBJsonSerializerContext.Default.StringArray) ?? [],
 	};
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.DefinitionRemoved,
+		EventName = "Immediate.Jobs.LinqToDB.DefinitionRemoved",
+		Level = LogLevel.Warning,
+		Message = "Job definition '{JobName}' removed; canceled {JobCount} invocations and {ScheduleCount} recurring schedules."
+	)]
+	private partial void DefinitionRemoved(string jobName, int jobCount, int scheduleCount);
 
 	[LoggerMessage(
 		EventId = LibraryEventIds.MergeJobDefinitionsListAsyncCalled,

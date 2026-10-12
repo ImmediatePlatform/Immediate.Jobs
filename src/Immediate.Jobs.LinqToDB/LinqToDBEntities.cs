@@ -51,6 +51,8 @@ internal sealed class ImmediateJobBatchEntity
 [Table(Name = "immediate_jobs")]
 internal sealed class ImmediateJobEntity
 {
+	[Column(Length = 512, CanBeNull = true)]
+	public string? CancellationReason { get; set; }
 	[PrimaryKey, Column(Length = 256, CanBeNull = false)]
 	public string Id { get; set; } = null!;
 	[Column(Length = 256, CanBeNull = false)]
@@ -163,6 +165,8 @@ internal sealed class ImmediateJobContinuationEntity
 [Table(Name = "immediate_recurring_jobs")]
 internal sealed class ImmediateRecurringJobEntity
 {
+	[Column(Length = 512, CanBeNull = true)]
+	public string? CancellationReason { get; set; }
 	[PrimaryKey, Column(Length = 256, CanBeNull = false)]
 	public string Name { get; set; } = null!;
 	[Column(Length = 256, CanBeNull = false)]

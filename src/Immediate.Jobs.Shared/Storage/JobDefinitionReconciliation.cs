@@ -10,6 +10,11 @@ namespace Immediate.Jobs.Shared.Storage;
 public sealed record JobDefinitionReconciliation
 {
 	/// <summary>
+	/// 	The cancellation reason recorded when a job's persisted definition is removed.
+	/// </summary>
+	public const string RemovalCancellationReason = "Job definition removed.";
+
+	/// <summary>
 	/// 	The definitions to insert or replace.
 	/// </summary>
 	public required IReadOnlyList<JobDefinitionRecord> Definitions { get; init; }

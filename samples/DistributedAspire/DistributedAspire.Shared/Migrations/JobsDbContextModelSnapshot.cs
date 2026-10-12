@@ -238,6 +238,9 @@ namespace Immediate.Jobs.DistributedAspire.Shared.Migrations
                         .HasMaxLength(256)
                         .HasColumnType("character varying(256)");
 
+                    b.Property<string>("CancellationReason")
+                        .HasColumnType("text");
+
                     b.Property<long?>("CompletedAt")
                         .HasColumnType("bigint");
 
@@ -414,6 +417,9 @@ namespace Immediate.Jobs.DistributedAspire.Shared.Migrations
                     b.Property<string>("Name")
                         .HasMaxLength(256)
                         .HasColumnType("character varying(256)");
+
+                    b.Property<string>("CancellationReason")
+                        .HasColumnType("text");
 
                     b.Property<Guid>("ConcurrencyStamp")
                         .IsConcurrencyToken()

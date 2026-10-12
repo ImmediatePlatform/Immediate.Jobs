@@ -34,7 +34,8 @@ public interface IJobStorage : IAsyncDisposable
 	/// </returns>
 	/// <remarks>
 	/// 	Matching definitions are inserted or updated; matching stored definitions omitted from the managed list
-	/// 	are removed. Unrelated definitions, dynamic schedules, and invocation history are preserved.
+	/// 	are removed. Removing a definition cancels its nonterminal invocations and dynamic recurring schedules, retaining
+	/// 	their records and cancellation reasons. Unrelated definitions and terminal invocation history are preserved.
 	/// 	Each server's list must be authoritative for its scope. Repeated calls are idempotent.
 	/// </remarks>
 	ValueTask MergeJobDefinitionsListAsync(JobDefinitionRegistration registration, CancellationToken cancellationToken = default);

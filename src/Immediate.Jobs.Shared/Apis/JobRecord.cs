@@ -9,6 +9,11 @@ namespace Immediate.Jobs.Shared.Apis;
 public sealed record JobRecord
 {
 	/// <summary>
+	/// 	The reason this record was canceled, or <see langword="null"/> when no reason was recorded.
+	/// </summary>
+	public string? CancellationReason { get; init; }
+
+	/// <summary>
 	/// 	The stable persisted queue name.
 	/// </summary>
 	public string QueueName { get; init; } = JobQueueDefinition.DefaultName;

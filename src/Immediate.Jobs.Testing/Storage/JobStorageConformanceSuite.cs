@@ -42,6 +42,8 @@ public static class JobStorageConformanceSuite
 			.Concat(AddOptionalCases(capabilities, StorageCapabilities.Queue, RecurringStorageConformance.Cases))
 			.Concat(AddOptionalCases(capabilities, StorageCapabilities.Graph, GraphStorageConformance.Cases))
 			.Concat(DefinitionCatalogStorageConformance.Cases)
+			.Concat(AddOptionalCases(capabilities, StorageCapabilities.Queue, DefinitionRemovalStorageConformance.QueueCases))
+			.Concat(AddOptionalCases(capabilities, StorageCapabilities.Graph, DefinitionRemovalStorageConformance.GraphCases))
 			.Concat(TagStorageConformance.Cases)
 			.Concat(FairQueueStorageConformance.Cases)
 			.Concat(AddOptionalCases(capabilities, StorageCapabilities.Queue, TriggerStorageConformance.Cases))

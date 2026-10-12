@@ -435,39 +435,46 @@ internal static class RedisScripts
 		return 1
 		""";
 
-	internal const string Cancel =
-		FairQueueFunctions +
+	private const string CancelFunctions = FairQueueFunctions +
 		"""
-		if redis.call('EXISTS', KEYS[1]) == 0 then return 0 end
-		local values = redis.call('HMGET', KEYS[1], 'state', 'queue', 'dueMember', 'attempt',
-			'worker', 'executionStartedAt', 'executionTraceId', 'executionSpanId', 'group')
-		local state = values[1]
-		if state == '5' or state == '6' or state == '7' or state == '8' then return -1 end
-		local attempt = tonumber(values[4] or '0')
-		if state == '4' and attempt > 0 then
-			local field = tostring(attempt) .. ':'
-			if redis.call('HEXISTS', KEYS[4], field .. 'state') == 0 then
-				redis.call('ZADD', KEYS[3], attempt, attempt)
-				redis.call('HSET', KEYS[4],
-					field .. 'worker', values[5] or '', field .. 'acquired', '',
-					field .. 'started', values[6] or '', field .. 'trace', values[7] or '',
-					field .. 'span', values[8] or '', field .. 'synthetic', '1')
+		local function cancelJob(root, id, completedAt, completedScore, reason)
+			if redis.call('EXISTS', root .. 'job:' .. id) == 0 then return 0 end
+			local values = redis.call('HMGET', root .. 'job:' .. id, 'state', 'queue', 'dueMember', 'attempt',
+				'worker', 'executionStartedAt', 'executionTraceId', 'executionSpanId', 'group')
+			local state = values[1]
+			if state == '5' or state == '6' or state == '7' or state == '8' then return -1 end
+			local attempt = tonumber(values[4] or '0')
+			if state == '4' and attempt > 0 then
+				local field = tostring(attempt) .. ':'
+				if redis.call('HEXISTS', root .. 'executions:data:' .. id, field .. 'state') == 0 then
+					redis.call('ZADD', root .. 'executions:index:' .. id, attempt, attempt)
+					redis.call('HSET', root .. 'executions:data:' .. id,
+						field .. 'worker', values[5] or '', field .. 'acquired', '',
+						field .. 'started', values[6] or '', field .. 'trace', values[7] or '',
+						field .. 'span', values[8] or '', field .. 'synthetic', '1')
+				end
+				redis.call('HSET', root .. 'executions:data:' .. id,
+					field .. 'state', '3', field .. 'completed', completedAt, field .. 'error', reason)
 			end
-			redis.call('HSET', KEYS[4],
-				field .. 'state', '3', field .. 'completed', ARGV[2], field .. 'error', '')
+			redis.call('HSET', root .. 'job:' .. id,
+				'state', '7', 'worker', '', 'lease', '', 'error', '', 'completed', completedAt, 'cancellationReason', reason)
+			redis.call('SREM', root .. 'state:' .. state, id)
+			redis.call('SADD', root .. 'state:7', id)
+			redis.call('ZREM', root .. 'leases', id)
+			if values[3] then redis.call('ZREM', root .. 'due:' .. values[2], values[3]) end
+			redis.call('ZADD', root .. 'completed:7', completedScore, id)
+			local group = values[9] or ''
+			if state == '4' then changeActive(root, values[2], group, -1) end
+			if values[3] then unindexDue(root, values[2], group, values[3]) end
+			removeClearedCursor(root, values[2], group)
+			return 1
 		end
-		redis.call('HSET', KEYS[1],
-			'state', '7', 'worker', '', 'lease', '', 'error', '', 'completed', ARGV[2])
-		redis.call('SREM', ARGV[4] .. 'state:' .. state, ARGV[1])
-		redis.call('SADD', ARGV[4] .. 'state:7', ARGV[1])
-		redis.call('ZREM', KEYS[2], ARGV[1])
-		if values[3] then redis.call('ZREM', ARGV[4] .. 'due:' .. values[2], values[3]) end
-		redis.call('ZADD', ARGV[4] .. 'completed:7', ARGV[3], ARGV[1])
-		local group = values[9] or ''
-		if state == '4' then changeActive(ARGV[4], values[2], group, -1) end
-		if values[3] then unindexDue(ARGV[4], values[2], group, values[3]) end
-		removeClearedCursor(ARGV[4], values[2], group)
-		return 1
+
+		""";
+
+	internal const string Cancel = CancelFunctions +
+		"""
+		return cancelJob(ARGV[4], ARGV[1], ARGV[2], ARGV[3], '')
 		""";
 
 	internal const string Retry =
@@ -565,11 +572,30 @@ internal static class RedisScripts
 		""";
 
 	internal const string MergeDefinitionCatalog =
-		RecurringDueFunctions +
+		CancelFunctions + RecurringDueFunctions +
 		"""
-		if (redis.call('GET', KEYS[2]) or '0') ~= ARGV[1] then return 0 end
+		if (redis.call('GET', KEYS[2]) or '0') ~= ARGV[1] then return false end
 		local changes = cjson.decode(ARGV[3])
-		for _, name in ipairs(changes.RemovedDefinitions) do redis.call('HDEL', KEYS[1], name) end
+		local reports = {}
+		for _, name in ipairs(changes.RemovedDefinitions) do
+			local jobCount, scheduleCount = 0, 0
+			for _, id in ipairs(redis.call('ZRANGE', ARGV[2] .. 'jobs', 0, -1)) do
+				if redis.call('HGET', ARGV[2] .. 'job:' .. id, 'jobName') == name then
+					if cancelJob(ARGV[2], id, ARGV[4], tonumber(ARGV[5]), ARGV[6]) == 1 then jobCount = jobCount + 1 end
+				end
+			end
+			for _, scheduleName in ipairs(redis.call('SMEMBERS', KEYS[3])) do
+				local key = ARGV[2] .. 'recurring:' .. scheduleName
+				local values = redis.call('HMGET', key, 'jobName', 'code', 'cancellationReason', 'dueMember')
+				if values[1] == name and values[2] ~= '1' and (not values[3] or values[3] == '') then
+					redis.call('HSET', key, 'paused', '1', 'cancellationReason', ARGV[6])
+					removeRecurringDue(ARGV[2], KEYS[4], name, values[4])
+					scheduleCount = scheduleCount + 1
+				end
+			end
+			reports[#reports + 1] = { name, jobCount, scheduleCount }
+			redis.call('HDEL', KEYS[1], name)
+		end
 		for _, definition in ipairs(changes.Definitions) do
 			redis.call('HSET', KEYS[1], definition.Name, definition.Metadata)
 		end
@@ -602,7 +628,7 @@ internal static class RedisScripts
 			if paused ~= '1' then addRecurringDue(ARGV[2], KEYS[4], schedule.JobName, dueScore, dueMember) end
 		end
 		redis.call('INCR', KEYS[2])
-		return 1
+		return reports
 		""";
 
 	internal const string GetDueRecurringForJobs =
@@ -652,7 +678,8 @@ internal static class RedisScripts
 		redis.call('HSET', KEYS[1],
 			'record', ARGV[1], 'code', ARGV[2], 'paused', paused,
 			'next', next, 'last', last, 'dueScore', dueScore, 'dueMember', dueMember,
-			'cron', ARGV[9], 'timeZone', ARGV[10], 'jobName', ARGV[11])
+			'cron', ARGV[9], 'timeZone', ARGV[10], 'jobName', ARGV[11],
+			'cancellationReason', cjson.decode(ARGV[1]).CancellationReason ~= cjson.null and cjson.decode(ARGV[1]).CancellationReason or '')
 		redis.call('SADD', KEYS[2], ARGV[6])
 		if paused == '1' then
 			removeRecurringDue(ARGV[12], KEYS[3], ARGV[11], dueMember)
@@ -677,6 +704,7 @@ internal static class RedisScripts
 	internal const string SetRecurringPaused =
 		RecurringDueFunctions +
 		"""
+		if ARGV[1] == '0' and (redis.call('HGET', KEYS[1], 'cancellationReason') or '') ~= '' then return -1 end
 		if redis.call('EXISTS', KEYS[1]) == 0 then return 0 end
 		redis.call('HSET', KEYS[1], 'paused', ARGV[1])
 		local due = redis.call('HMGET', KEYS[1], 'dueScore', 'dueMember', 'jobName')

@@ -6,6 +6,11 @@ namespace Immediate.Jobs.Shared.Apis;
 public sealed record BatchMemberStatus
 {
 	/// <summary>
+	/// 	The recorded cancellation reason, if any.
+	/// </summary>
+	public string? CancellationReason { get; init; }
+
+	/// <summary>
 	/// 	The invocation identifier.
 	/// </summary>
 	public required JobHandle JobHandle { get; init; }

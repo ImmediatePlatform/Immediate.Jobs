@@ -206,6 +206,7 @@ internal sealed partial class RedisJobStorage
 				JobHandle = job.JobHandle,
 				JobName = job.JobName,
 				QueueName = job.QueueName,
+				CancellationReason = job.CancellationReason,
 				State = job.State,
 				Attempt = job.Attempt,
 				MaxAttempts = 0,

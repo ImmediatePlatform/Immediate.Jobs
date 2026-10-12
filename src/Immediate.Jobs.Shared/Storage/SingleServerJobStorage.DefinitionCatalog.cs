@@ -32,6 +32,8 @@ internal sealed partial class SingleServerJobStorage
 				},
 				cancellationToken
 			);
+			foreach (var schedule in snapshot.Recurring.Where(static schedule => !schedule.IsCodeDefined))
+				await PrimaryStorage.UpsertRecurringAsync(schedule, cancellationToken);
 			// Code-defined schedules without metadata still belong in the primary's monitoring snapshot.
 			foreach (var schedule in snapshot.Recurring.Where(schedule => schedule.IsCodeDefined && !names.Contains(schedule.JobName)))
 				await PrimaryStorage.UpsertRecurringAsync(schedule, cancellationToken);
