@@ -49,7 +49,7 @@ internal sealed partial class RedisJobStorage
 			var result = await Database.ScriptEvaluateAsync(RedisScripts.MergeDefinitionCatalog,
 				[DefinitionMetadataKey, DefinitionCatalogVersionKey, RecurringNamesKey, RecurringDueKey],
 				[version.IsNull ? "0" : version, _root, JsonSerializer.Serialize(payload, RedisJsonSerializerContext.Default.RedisDefinitionCatalogChanges),
-					Ticks(now), Score(now), JobDefinitionReconciliation.RemovalCancellationReason]).WaitAsync(cancellationToken);
+					Timestamp(now), Score(now), JobDefinitionReconciliation.RemovalCancellationReason]).WaitAsync(cancellationToken);
 			if (!result.IsNull)
 			{
 				foreach (var report in (RedisResult[])result!)

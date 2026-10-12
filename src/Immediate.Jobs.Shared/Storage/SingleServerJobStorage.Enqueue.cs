@@ -15,7 +15,6 @@ internal sealed partial class SingleServerJobStorage
 
 		try
 		{
-			job = PrimaryStorage.ResolveQueue(job);
 
 			await DurableStorage.EnqueueAsync(job, cancellationToken);
 			await PrimaryStorage.EnqueueAsync(job, cancellationToken);
@@ -40,7 +39,6 @@ internal sealed partial class SingleServerJobStorage
 
 		try
 		{
-			job = PrimaryStorage.ResolveQueue(job);
 
 			await JobGraphStorage.EnqueueContinuationAsync(job, edges, cancellationToken);
 			await PrimaryStorage.EnqueueContinuationAsync(job, edges, cancellationToken);
@@ -66,7 +64,6 @@ internal sealed partial class SingleServerJobStorage
 
 		try
 		{
-			jobs = jobs.Select(PrimaryStorage.ResolveQueue).ToList();
 
 			await JobGraphStorage.EnqueueBatchAsync(batch, jobs, edges, cancellationToken);
 			await PrimaryStorage.EnqueueBatchAsync(batch, jobs, edges, cancellationToken);
@@ -93,7 +90,6 @@ internal sealed partial class SingleServerJobStorage
 
 		try
 		{
-			job = PrimaryStorage.ResolveQueue(job);
 
 			await JobGraphStorage.AddBatchJobAsync(currentJobHandle, executionNumber, job, options, cancellationToken);
 			await PrimaryStorage.AddBatchJobAsync(currentJobHandle, executionNumber, job, options, cancellationToken);

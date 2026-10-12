@@ -43,8 +43,8 @@ If neither supplies them, jobs allow three total attempts and have no timeout. A
 
 - **Claiming** sets `Active`, increments `Attempt`, assigns the worker and a lease of
   `ImmediateJobsOptions.LeaseDuration`, and opens an execution row.
-- **Timeout** is a positive, invariant-culture `TimeSpan` string in either attribute, for example
-  `Timeout = "00:02:00"`; the handler's token is cancelled when it
+- **Timeout** is a positive ISO8601 duration or invariant-culture `TimeSpan` string in either attribute,
+  for example `Timeout = "PT2M"` or `Timeout = "00:02:00"`; the handler's token is cancelled when it
   elapses. That fails the attempt only if the handler throws; a handler that ignores the token and
   returns completes the job.
 - **Failure** calls `FailAsync` with a `nextRetryAt` while `Attempt < MaxAttempts`, which moves the job

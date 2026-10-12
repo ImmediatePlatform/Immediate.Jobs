@@ -456,7 +456,7 @@ public sealed class ImmediateJobsGeneratorTests
 			using System.Threading;
 			using System.Threading.Tasks;
 
-			[assembly: JobDefaults(Tags = new[] { "assembly" }, TimeZone = "America/New_York", MaxAttempts = 5, Timeout = "00:02:00")]
+			[assembly: JobDefaults(Tags = new[] { "assembly" }, TimeZone = "America/New_York", MaxAttempts = 5, Timeout = "PT2M")]
 
 			[Handler, Job]
 			public sealed partial class WorkJob

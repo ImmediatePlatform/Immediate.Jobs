@@ -44,7 +44,6 @@ internal sealed partial class SingleServerJobStorage
 
 		try
 		{
-
 			await JobGraphStorage
 				.CompleteWithContinuationsAsync(jobHandle, executionNumber, workerId, additions, cancellationToken);
 

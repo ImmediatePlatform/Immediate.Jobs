@@ -21,16 +21,16 @@ public sealed class SingleServerAcquisitionTests
 		await using var provider = services.BuildServiceProvider();
 		var storage = provider.GetRequiredService<IJobStorage>();
 		await storage.InitializeAsync(token);
-		var job = new JobRecord
+		var job = new JobSubmission
 		{
 			JobHandle = JobHandle.FromString("enqueue-race"),
 			JobName = "enqueue-race",
-			QueueName = "default",
 			Payload = "{}",
 			State = JobState.Pending,
 			CreatedAt = clock.GetUtcNow(),
 			DueAt = clock.GetUtcNow(),
 		};
+		await storage.MergeJobDefinitionsListAsync(new() { Definitions = [new() { Name = job.JobName }] }, token);
 		var enqueue = storage.EnqueueAsync(job, token).AsTask();
 		await durable.EnqueueCommitted.Task.WaitAsync(token);
 		var acquire = storage.AcquireDueJobsAsync(new()
@@ -38,7 +38,7 @@ public sealed class SingleServerAcquisitionTests
 			WorkerId = "worker",
 			Lease = TimeSpan.FromMinutes(1),
 			BatchSize = 1,
-			Queues = [new() { QueueName = job.QueueName, Capacity = 1, JobCapacities = new Dictionary<string, int>(StringComparer.Ordinal) { [job.JobName] = 1 } }],
+			Queues = [new() { QueueName = "default", Capacity = 1, JobCapacities = new Dictionary<string, int>(StringComparer.Ordinal) { [job.JobName] = 1 } }],
 		}, token).AsTask();
 
 		try
@@ -64,7 +64,7 @@ public sealed class SingleServerAcquisitionTests
 		public TaskCompletionSource ReleaseEnqueue { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 		public TaskCompletionSource AcquisitionEntered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-		public override async ValueTask EnqueueAsync(JobRecord job, CancellationToken cancellationToken = default)
+		public override async ValueTask EnqueueAsync(JobSubmission job, CancellationToken cancellationToken = default)
 		{
 			await base.EnqueueAsync(job, cancellationToken);
 			EnqueueCommitted.SetResult();

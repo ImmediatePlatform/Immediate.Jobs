@@ -1,5 +1,4 @@
 using System.Collections.Immutable;
-using System.Globalization;
 using Microsoft.CodeAnalysis;
 
 namespace Immediate.Jobs;
@@ -42,9 +41,9 @@ internal static class AttributeDataExtensions
 				yield return "MaxAttempts must be at least one.";
 
 			if (arguments.GetStringValue("Timeout") is { } timeout
-				&& (!TimeSpan.TryParse(timeout, CultureInfo.InvariantCulture, out var duration) || duration <= TimeSpan.Zero))
+				&& (!TimeSpanSerializer.TryParse(timeout, out var duration) || duration <= TimeSpan.Zero))
 			{
-				yield return "Timeout must be a positive TimeSpan.";
+				yield return "Timeout must be a positive TimeSpan or ISO8601 duration.";
 			}
 
 			if (arguments.GetStringValue("TimeZone") is { } timeZone

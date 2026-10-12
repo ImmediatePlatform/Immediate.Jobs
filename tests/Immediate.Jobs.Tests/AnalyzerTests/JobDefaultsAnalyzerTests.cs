@@ -23,6 +23,7 @@ public sealed class JobDefaultsAnalyzerTests
 	[InlineData("")]
 	[InlineData("Tags = null, Timeout = null, TimeZone = null")]
 	[InlineData("Tags = new string[0]")]
+	[InlineData("Timeout = \"PT10S\"")]
 	[InlineData("Tags = [\"email\", \"EMAIL\"], TimeZone = \"UTC\", MaxAttempts = 1, Timeout = \"00:00:10\"")]
 	public async Task ValidDefaultsAreAccepted(string settings) =>
 		await AnalyzerTestHelpers.CreateAnalyzerTest<JobDefaultsAnalyzer>(

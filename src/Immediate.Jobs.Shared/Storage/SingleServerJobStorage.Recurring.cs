@@ -15,12 +15,6 @@ internal sealed partial class SingleServerJobStorage
 
 		try
 		{
-			if (schedule.QueueName.Length == 0)
-			{
-				var definition = PrimaryStorage.GetJobDefinition(schedule.JobName);
-				schedule = schedule with { JobName = definition.Name, QueueName = definition.QueueName };
-			}
-
 			await DurableStorage.UpsertRecurringAsync(schedule, cancellationToken);
 			await PrimaryStorage.UpsertRecurringAsync(schedule, cancellationToken);
 		}
