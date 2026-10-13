@@ -16,6 +16,9 @@ internal sealed partial class LinqToDBJobStorage<T>
 		CancellationToken cancellationToken
 	)
 	{
+		var jobs = await CreateRecordsAsync(connection, [.. additions.Select(static addition => addition.Job)], cancellationToken);
+		var records = jobs.ToDictionary(static job => job.JobHandle);
+
 		var ids = new HashSet<string>(StringComparer.Ordinal);
 		var trackedAdditions = 0;
 		foreach (var addition in additions)
@@ -60,15 +63,9 @@ internal sealed partial class LinqToDBJobStorage<T>
 				throw new LostRaceException();
 		}
 
-		await ResetReturningGroupCursorsAsync(
-			connection,
-			[.. additions.Select(static addition => addition.Job)],
-			cancellationToken
-		);
-
 		foreach (var addition in additions)
 		{
-			var job = ToEntity(addition.Job with
+			var job = ToEntity(records[addition.Job.JobHandle] with
 			{
 				State = JobState.AwaitingContinuation,
 				RemainingDependencies = 1,
@@ -126,7 +123,7 @@ internal sealed partial class LinqToDBJobStorage<T>
 		DataConnection connection,
 		ImmediateJobEntity terminalJob,
 		DateTimeOffset now,
-		ISet<(string QueueName, string GroupId)> terminalGroups,
+		ISet<string> terminalGroups,
 		CancellationToken cancellationToken
 	)
 	{

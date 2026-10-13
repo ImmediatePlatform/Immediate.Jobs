@@ -32,11 +32,13 @@ public static class JobTelemetry
 		Meter.CreateObservableGauge("workers.active", () => Interlocked.Read(ref ActiveWorkers));
 	}
 
-	internal static void Enqueued(string jobName, string queueName)
+	internal static void Enqueued(string jobName, string? queueName = null)
 	{
 		TagList tags = default;
 		tags.Add("job.name", jobName);
-		tags.Add("job.queue", queueName);
+		if (queueName is not null)
+			tags.Add("job.queue", queueName);
+
 		EnqueuedCounter.Add(1, tags);
 	}
 
@@ -46,7 +48,7 @@ public static class JobTelemetry
 	internal static void ExecutionStarted() => Interlocked.Increment(ref ActiveWorkers);
 	internal static void ExecutionFinished() => Interlocked.Decrement(ref ActiveWorkers);
 
-	internal static void Succeeded(string jobName, string queueName, TimeSpan duration)
+	internal static void Succeeded(string jobName, string? queueName, TimeSpan duration)
 	{
 		TagList tags = default;
 		tags.Add("job.name", jobName);
@@ -56,7 +58,7 @@ public static class JobTelemetry
 		DurationHistogram.Record(duration.TotalSeconds, tags);
 	}
 
-	internal static void Failed(string jobName, string queueName, TimeSpan duration)
+	internal static void Failed(string jobName, string? queueName, TimeSpan duration)
 	{
 		TagList tags = default;
 		tags.Add("job.name", jobName);
@@ -66,7 +68,7 @@ public static class JobTelemetry
 		DurationHistogram.Record(duration.TotalSeconds, tags);
 	}
 
-	internal static void Retried(string jobName, string queueName)
+	internal static void Retried(string jobName, string? queueName)
 	{
 		TagList tags = default;
 		tags.Add("job.name", jobName);

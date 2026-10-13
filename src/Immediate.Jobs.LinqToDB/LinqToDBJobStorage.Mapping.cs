@@ -10,7 +10,6 @@ internal sealed partial class LinqToDBJobStorage<T>
 		new()
 		{
 			Id = job.JobHandle.Value,
-			QueueName = job.QueueName,
 			CancellationReason = job.CancellationReason,
 			JobName = job.JobName,
 			Payload = job.Payload,
@@ -87,11 +86,11 @@ internal sealed partial class LinqToDBJobStorage<T>
 		};
 	}
 
-	private static JobRecord ToRecord(ImmediateJobEntity job) =>
+	private static JobRecord ToRecord(ImmediateJobEntity job, string? queueName = null) =>
 		new()
 		{
 			JobHandle = JobHandle.FromString(job.Id),
-			QueueName = job.QueueName,
+			QueueName = queueName,
 			CancellationReason = job.CancellationReason,
 			JobName = job.JobName,
 			Payload = job.Payload,
@@ -121,7 +120,6 @@ internal sealed partial class LinqToDBJobStorage<T>
 		{
 			Name = schedule.Name,
 			JobName = schedule.JobName,
-			QueueName = schedule.QueueName,
 			CancellationReason = schedule.CancellationReason,
 			Cron = schedule.Cron,
 			TimeZone = schedule.TimeZone,
@@ -132,12 +130,12 @@ internal sealed partial class LinqToDBJobStorage<T>
 			ConcurrencyStamp = Guid.NewGuid(),
 		};
 
-	private static RecurringJobSchedule ToRecord(ImmediateRecurringJobEntity schedule) =>
+	private static RecurringJobSchedule ToRecord(ImmediateRecurringJobEntity schedule, string? queueName = null) =>
 		new()
 		{
 			Name = schedule.Name,
+			QueueName = queueName,
 			JobName = schedule.JobName,
-			QueueName = schedule.QueueName,
 			CancellationReason = schedule.CancellationReason,
 			Cron = schedule.Cron,
 			TimeZone = schedule.TimeZone,
@@ -146,6 +144,10 @@ internal sealed partial class LinqToDBJobStorage<T>
 			NextRunAt = schedule.NextRunAt,
 			LastRunAt = schedule.LastRunAt,
 		};
+
+	private static JobRecord ToRecord(JobQueryRow job) => ToRecord(job, job.QueueName);
+
+	private static RecurringJobSchedule ToRecord(RecurringQueryRow schedule) => ToRecord(schedule, schedule.QueueName);
 
 	private static BatchStatus ToStatus(ImmediateJobBatchEntity batch) =>
 		new()

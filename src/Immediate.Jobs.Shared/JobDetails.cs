@@ -38,9 +38,9 @@ public sealed record JobDetails
 	public string JobName { get; }
 
 	/// <summary>
-	/// 	The persisted queue name.
+	/// 	The queue name, or <see langword="null"/> when it is unavailable.
 	/// </summary>
-	public string QueueName { get; }
+	public string? QueueName { get; }
 
 	/// <summary>
 	/// 	The current execution-attempt number.

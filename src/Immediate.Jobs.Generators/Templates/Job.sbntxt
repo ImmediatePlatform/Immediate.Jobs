@@ -24,7 +24,6 @@ partial class {{ class_name }}
 		timeProvider,
 		idGenerator,
 		{{ job_name_literal }},
-		{{ queue_name_literal }},
 		static options => new PayloadJsonContext(options).Payload
 	)
 		{{~ if !has_payload ~}}

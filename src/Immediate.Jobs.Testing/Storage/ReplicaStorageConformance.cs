@@ -70,6 +70,14 @@ internal static class ReplicaStorageConformance
 		CancellationToken cancellationToken
 	)
 	{
+		await storage.MergeJobDefinitionsListAsync(new()
+		{
+			Definitions =
+			[
+				new() { Name = JobName, QueueName = QueueName },
+			],
+		}, cancellationToken);
+
 		var replica = Replica(storage, ExactDueName);
 		var now = timeProvider.GetUtcNow();
 		var requestedPending = Job("exact-pending", now);
@@ -131,6 +139,14 @@ internal static class ReplicaStorageConformance
 		CancellationToken cancellationToken
 	)
 	{
+		await storage.MergeJobDefinitionsListAsync(new()
+		{
+			Definitions =
+			[
+				new() { Name = JobName, QueueName = QueueName },
+			],
+		}, cancellationToken);
+
 		var replica = Replica(storage, DuplicateName);
 		var now = timeProvider.GetUtcNow();
 		var job = Job("duplicate-request", now);
@@ -162,6 +178,14 @@ internal static class ReplicaStorageConformance
 		CancellationToken cancellationToken
 	)
 	{
+		await storage.MergeJobDefinitionsListAsync(new()
+		{
+			Definitions =
+			[
+				new() { Name = JobName, QueueName = QueueName },
+			],
+		}, cancellationToken);
+
 		var replica = Replica(storage, ProjectionName);
 		var now = timeProvider.GetUtcNow();
 		var lease = TimeSpan.FromMinutes(3);
@@ -229,6 +253,14 @@ internal static class ReplicaStorageConformance
 		CancellationToken cancellationToken
 	)
 	{
+		await storage.MergeJobDefinitionsListAsync(new()
+		{
+			Definitions =
+			[
+				new() { Name = JobName, QueueName = QueueName },
+			],
+		}, cancellationToken);
+
 		var replica = Replica(storage, ContentionName);
 		var now = timeProvider.GetUtcNow();
 		var job = Job("contention-exact", now);
@@ -262,6 +294,14 @@ internal static class ReplicaStorageConformance
 		CancellationToken cancellationToken
 	)
 	{
+		await storage.MergeJobDefinitionsListAsync(new()
+		{
+			Definitions =
+			[
+				new() { Name = JobName, QueueName = QueueName },
+			],
+		}, cancellationToken);
+
 		var replica = Replica(storage, StaleName);
 		var clock = timeProvider;
 		var now = clock.GetUtcNow();
@@ -327,6 +367,14 @@ internal static class ReplicaStorageConformance
 		CancellationToken cancellationToken
 	)
 	{
+		await storage.MergeJobDefinitionsListAsync(new()
+		{
+			Definitions =
+			[
+				new() { Name = JobName, QueueName = QueueName },
+			],
+		}, cancellationToken);
+
 		var replica = Replica(storage, FieldsName);
 		var now = timeProvider.GetUtcNow();
 		var job = Job("fields-exact", now) with
@@ -386,10 +434,10 @@ internal static class ReplicaStorageConformance
 				nextRetryAt: null,
 				cancellationToken
 			);
-			job = await GetJobAsync(storage, job.JobHandle, FieldsName, cancellationToken);
-			ConformanceAssert.Equal(JobState.Pending, job.State, FieldsName, "a complete-trigger edge must release the recovery record");
-			ConformanceAssert.Equal(0, job.RemainingDependencies, FieldsName, "the released record must have no remaining dependencies");
-			ConformanceAssert.Equal(1, job.FailedDependencies, FieldsName, "the released record must retain its failed dependency count");
+			var released = await GetJobAsync(storage, job.JobHandle, FieldsName, cancellationToken);
+			ConformanceAssert.Equal(JobState.Pending, released.State, FieldsName, "a complete-trigger edge must release the recovery record");
+			ConformanceAssert.Equal(0, released.RemainingDependencies, FieldsName, "the released record must have no remaining dependencies");
+			ConformanceAssert.Equal(1, released.FailedDependencies, FieldsName, "the released record must retain its failed dependency count");
 		}
 		else
 		{
@@ -414,13 +462,13 @@ internal static class ReplicaStorageConformance
 		ConformanceAssert.Equal(job.TraceState, active.TraceState, FieldsName, "replica acquisition must preserve trace state");
 		ConformanceAssert.Equal(job.BatchHandle, active.BatchHandle, FieldsName, "replica acquisition must preserve graph batch identity");
 		ConformanceAssert.Equal(
-			job.RemainingDependencies,
+			0,
 			active.RemainingDependencies,
 			FieldsName,
 			"replica acquisition must preserve remaining dependency count"
 		);
 		ConformanceAssert.Equal(
-			job.FailedDependencies,
+			storage is IJobGraphStorage ? 1 : 0,
 			active.FailedDependencies,
 			FieldsName,
 			"replica acquisition must preserve failed dependency count"
@@ -434,10 +482,9 @@ internal static class ReplicaStorageConformance
 			"a storage running single-server replica cases must implement IJobGraphStorage"
 		);
 
-	private static JobRecord Job(string id, DateTimeOffset now) =>
+	private static JobSubmission Job(string id, DateTimeOffset now) =>
 		new()
 		{
-			QueueName = QueueName,
 			JobHandle = JobHandle.FromString(id),
 			JobName = JobName,
 			Payload = "{\"source\":\"replica-conformance\"}",
@@ -470,7 +517,7 @@ internal static class ReplicaStorageConformance
 	) => GetJobAsync(storage, id.Value, caseName, cancellationToken);
 
 	private static void AssertAcquired(
-		JobRecord expected,
+		JobSubmission expected,
 		JobRecord actual,
 		string workerId,
 		DateTimeOffset leaseExpiresAt,
@@ -478,7 +525,7 @@ internal static class ReplicaStorageConformance
 	)
 	{
 		ConformanceAssert.Equal(expected.JobHandle, actual.JobHandle, caseName, "exact acquisition must preserve the requested id");
-		ConformanceAssert.Equal(expected.QueueName, actual.QueueName, caseName, "exact acquisition must preserve the queue");
+		ConformanceAssert.Equal(QueueName, actual.QueueName, caseName, "exact acquisition must preserve the queue");
 		ConformanceAssert.Equal(expected.JobName, actual.JobName, caseName, "exact acquisition must preserve the job name");
 		ConformanceAssert.Equal(expected.Payload, actual.Payload, caseName, "exact acquisition must preserve the payload");
 		ConformanceAssert.Equal(expected.Context, actual.Context, caseName, "exact acquisition must preserve ambient context");

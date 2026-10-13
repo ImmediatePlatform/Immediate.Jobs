@@ -6,6 +6,7 @@ namespace Immediate.Jobs.Testing.Storage;
 
 internal static class DefinitionCatalogStorageConformance
 {
+	private const string SubmissionCase = "Definitions.Submission.UsesCurrentDefinition";
 	private const string RecurringCase = "Definitions.Recurring.PreservesProgressAndInvocations";
 	private const string ConcurrentCase = "Definitions.Catalogue.SerializesConcurrentCompleteLists";
 	private const string InvalidCase = "Definitions.Catalogue.RejectsInvalidSnapshotsWithoutPartialChanges";
@@ -14,12 +15,81 @@ internal static class DefinitionCatalogStorageConformance
 
 	internal static IReadOnlyList<JobStorageConformanceTestCase> Cases { get; } =
 	[
+		new(SubmissionCase, StorageCapabilities.Queue, UsesCurrentDefinitionAsync),
 		new(RecurringCase, StorageCapabilities.Queue, PreservesRecurringAsync),
 		new(ConcurrentCase, StorageCapabilities.Queue, ReconcilesConcurrentlyAsync),
 		new(InvalidCase, StorageCapabilities.Queue, RejectsInvalidAsync),
 		new(CaseNameCase, StorageCapabilities.Queue, ReconcilesCaseInsensitiveNamesAsync),
 		new(ConfigurationCase, StorageCapabilities.Queue, RoundTripsConfigurationAsync),
 	];
+
+	private static async ValueTask UsesCurrentDefinitionAsync(IJobStorage storage, FakeTimeProvider clock, CancellationToken token)
+	{
+		var definition = Definition("Résumé") with { QueueName = "priority" };
+		await storage.MergeJobDefinitionsListAsync(Registration([definition]), token);
+		var job = new JobSubmission
+		{
+			JobHandle = JobHandle.FromString("resolved-job"),
+			JobName = "RÉSUMÉ",
+			Payload = "{\"value\":\"routing\"}",
+			GroupId = "tenant",
+			State = JobState.Pending,
+			DueAt = clock.GetUtcNow(),
+			CreatedAt = clock.GetUtcNow(),
+		};
+		await storage.EnqueueAsync(job, token);
+		var persisted = (await storage.QueryJobsAsync(new() { JobHandle = job.JobHandle }, token)).Single();
+		ConformanceAssert.Equal(new JobRecord { JobHandle = job.JobHandle, JobName = definition.Name, QueueName = definition.QueueName, Payload = job.Payload, GroupId = job.GroupId, State = job.State, DueAt = job.DueAt, CreatedAt = job.CreatedAt }, persisted,
+			SubmissionCase, "reads must expose the canonical name and current queue while preserving invocation data");
+
+		var schedule = new RecurringJobSchedule
+		{
+			Name = "dynamic-routing",
+			JobName = "RÉSUMÉ",
+			Cron = "* * * * *",
+			TimeZone = "UTC",
+			IsCodeDefined = false,
+			NextRunAt = clock.GetUtcNow().AddMinutes(1),
+		};
+		await storage.UpsertRecurringAsync(schedule, token);
+		var persistedSchedule = (await storage.GetMonitoringSnapshotAsync(token)).Recurring.Single();
+		ConformanceAssert.Equal(schedule with { JobName = definition.Name, QueueName = definition.QueueName }, persistedSchedule,
+			SubmissionCase, "dynamic schedules must use the persisted definition without a caller-supplied queue");
+
+		await storage.MergeJobDefinitionsListAsync(Registration([definition with { QueueName = "PRIORITY" }]), token);
+		ConformanceAssert.Equal("PRIORITY", (await storage.QueryJobsAsync(new() { JobHandle = job.JobHandle }, token)).Single().QueueName,
+			SubmissionCase, "case-only queue changes must update persisted routing even on case-insensitive databases");
+		await storage.MergeJobDefinitionsListAsync(Registration([definition with { QueueName = "changed" }]), token);
+		await storage.EnqueueAsync(job with { JobHandle = JobHandle.FromString("changed-queue"), State = JobState.WaitingForTrigger }, token);
+		ConformanceAssert.Equal("changed", (await storage.QueryJobsAsync(new() { State = JobState.WaitingForTrigger }, token)).Single().QueueName,
+			SubmissionCase, "later submissions must use the updated definition");
+		var acquired = await storage.AcquireDueJobsAsync(new()
+		{
+			WorkerId = "routing-worker",
+			Lease = TimeSpan.FromMinutes(1),
+			BatchSize = 1,
+			Queues = [new() { QueueName = "changed", Capacity = 1, JobCapacities = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase) { [definition.Name] = 1 } }],
+		}, token);
+		ConformanceAssert.Equal(job.JobHandle, acquired.Single().JobHandle, SubmissionCase,
+			"existing invocations must follow the current definition queue");
+
+		await storage.MergeJobDefinitionsListAsync(Registration([]), token);
+		ConformanceAssert.Null((await storage.QueryJobsAsync(new() { JobHandle = job.JobHandle }, token)).Single().QueueName,
+			SubmissionCase, "retained invocations without a definition must have no queue");
+		var status = ConformanceAssert.NotNull(await storage.GetJobStatusAsync(job.JobHandle, token),
+			SubmissionCase, "the retained invocation must have a status");
+		ConformanceAssert.Null(status.QueueName,
+			SubmissionCase, "monitoring must retain jobs without inventing a queue");
+		ConformanceAssert.Null((await storage.GetMonitoringSnapshotAsync(token)).Recurring.Single().QueueName,
+			SubmissionCase, "retained schedules without a definition must have no queue");
+
+		await ConformanceAssert.ThrowsAsync<KeyNotFoundException>(
+			() => storage.EnqueueAsync(job with { JobHandle = JobHandle.FromString("missing-definition") }, token),
+			SubmissionCase, "missing definitions must reject submission");
+
+		ConformanceAssert.Equal(2, (await storage.QueryJobsAsync(new(), token)).Count, SubmissionCase, "a rejected submission must not write an invocation");
+		ConformanceAssert.Equal(1, (await storage.GetMonitoringSnapshotAsync(token)).Recurring.Count, SubmissionCase, "definition removal retains the existing schedule");
+	}
 
 	private static JobDefinitionRecord Definition(string name) => new() { Name = name };
 
@@ -102,8 +172,8 @@ internal static class DefinitionCatalogStorageConformance
 		var ordinary = Definition("ordinary-cron") with { Cron = "* * * * *" };
 		var schedule = Schedule(ordinary, now);
 		await storage.MergeJobDefinitionsListAsync(new() { Definitions = [ordinary], RecurringSchedules = [schedule] }, token);
-		var legacy = Schedule(Definition("legacy") with { Cron = "* * * * *" }, now);
-		await storage.UpsertRecurringAsync(legacy, token);
+		var unregistered = Schedule(Definition("unregistered") with { Cron = "* * * * *" }, now);
+		await storage.UpsertRecurringAsync(unregistered, token);
 		var dynamic = Schedule(ordinary, now) with { Name = "dynamic", IsCodeDefined = false };
 		await storage.UpsertRecurringAsync(dynamic, token);
 		var invocation = new JobRecord
@@ -122,8 +192,8 @@ internal static class DefinitionCatalogStorageConformance
 		var alias = ordinary with { Name = "ORDINARY-CRON" };
 		await storage.MergeJobDefinitionsListAsync(new() { Definitions = [alias], RecurringSchedules = [Schedule(alias, now.AddHours(1))] }, token);
 		var persisted = (await storage.GetMonitoringSnapshotAsync(token)).Recurring.Single(item => string.Equals(item.Name, ordinary.Name, StringComparison.Ordinal));
-		ConformanceAssert.False((await storage.GetMonitoringSnapshotAsync(token)).Recurring.Any(item => string.Equals(item.Name, legacy.Name, StringComparison.Ordinal)),
-			RecurringCase, "startup must clean up obsolete legacy code schedules without metadata");
+		ConformanceAssert.False((await storage.GetMonitoringSnapshotAsync(token)).Recurring.Any(item => string.Equals(item.Name, unregistered.Name, StringComparison.Ordinal)),
+			RecurringCase, "startup must clean up obsolete unregistered code schedules without metadata");
 		ConformanceAssert.True(persisted.IsPaused, RecurringCase, "startup must preserve schedule pause state");
 		ConformanceAssert.Equal(now.AddMinutes(1), persisted.NextRunAt, RecurringCase, "unchanged cron must retain progress");
 		ConformanceAssert.Equal<DateTimeOffset?>(now, persisted.LastRunAt, RecurringCase, "startup must retain the last occurrence");

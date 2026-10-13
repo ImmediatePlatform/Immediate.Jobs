@@ -1,5 +1,5 @@
 using System.Diagnostics.CodeAnalysis;
-using Immediate.Jobs.Shared.Internals;
+using System.Text.Json.Serialization;
 
 namespace Immediate.Jobs.Shared.Apis;
 
@@ -14,9 +14,10 @@ public sealed record JobRecord
 	public string? CancellationReason { get; init; }
 
 	/// <summary>
-	/// 	The stable persisted queue name.
+	/// 	The current queue name, or <see langword="null"/> when the job definition is missing.
 	/// </summary>
-	public string QueueName { get; init; } = JobQueueDefinition.DefaultName;
+	[JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+	public string? QueueName { get; init; }
 
 	/// <summary>
 	/// 	The unique opaque invocation identifier.

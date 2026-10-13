@@ -21,9 +21,9 @@ internal sealed partial class RedisJobStorage
 
 		var result = await EvaluateInt64Async(
 			RedisScripts.UpsertRecurring,
-			[RecurringKey(schedule.Name), RecurringNamesKey, RecurringDueKey],
+			[RecurringKey(schedule.Name), RecurringNamesKey, RecurringDueKey, DefinitionMetadataKey],
 			[
-				JsonSerializer.Serialize(schedule, RedisJsonSerializerContext.Default.RecurringJobSchedule),
+				JsonSerializer.Serialize(schedule with { QueueName = null }, RedisJsonSerializerContext.Default.RecurringJobSchedule),
 				schedule.IsCodeDefined ? 1 : 0,
 				schedule.IsPaused ? 1 : 0,
 				Ticks(schedule.NextRunAt),
@@ -38,6 +38,8 @@ internal sealed partial class RedisJobStorage
 			],
 			cancellationToken
 		);
+		if (result == -2)
+			throw new KeyNotFoundException($"Job definition '{schedule.JobName}' was not found.");
 		if (result < 0)
 			throw new ImmediateJobException("Code-defined recurring schedules cannot be replaced by dynamic schedules.");
 	}
@@ -167,7 +169,7 @@ internal sealed partial class RedisJobStorage
 				JobKey(job.JobHandle),
 				AllJobsKey,
 				StateKey(job.State),
-				DueKey(job.QueueName),
+				DueKey(job.JobName),
 				RecurringDueKey,
 				CompletedKey(job.State),
 			],
@@ -213,12 +215,17 @@ internal sealed partial class RedisJobStorage
 		CancellationToken cancellationToken
 	)
 	{
-		var tasks = names.Select(name => ReadRecurringAsync(name, cancellationToken).AsTask()).ToList();
+		var tasks = names.Select(name => ReadRecurringDataAsync(name, cancellationToken).AsTask()).ToList();
 		var schedules = await Task.WhenAll(tasks).WaitAsync(cancellationToken);
-		return [.. schedules.OfType<RecurringJobSchedule>().OrderBy(schedule => schedule.NextRunAt).ThenBy(schedule => schedule.Name, StringComparer.Ordinal)];
+		var records = schedules.OfType<RecurringJobSchedule>().ToList();
+		var queues = await ReadDefinitionQueuesAsync(records.Select(static schedule => schedule.JobName), cancellationToken);
+		return [.. records
+			.Select(schedule => schedule with { QueueName = queues[schedule.JobName] })
+			.OrderBy(schedule => schedule.NextRunAt)
+			.ThenBy(schedule => schedule.Name, StringComparer.Ordinal)];
 	}
 
-	private async ValueTask<RecurringJobSchedule?> ReadRecurringAsync(
+	private async ValueTask<RecurringJobSchedule?> ReadRecurringDataAsync(
 		string name,
 		CancellationToken cancellationToken
 	)
@@ -250,7 +257,7 @@ internal sealed partial class RedisJobStorage
 		Ticks(schedule.NextRunAt),
 		job.RecurringKey ?? "",
 		job.JobHandle.Value,
-		JsonSerializer.Serialize(job, RedisJsonSerializerContext.Default.JobRecord),
+		JsonSerializer.Serialize(job with { QueueName = null }, RedisJsonSerializerContext.Default.JobRecord),
 		(int)job.State,
 		Ticks(job.DueAt),
 		Score(job.DueAt),
@@ -262,7 +269,6 @@ internal sealed partial class RedisJobStorage
 		job.ExecutionTraceId ?? "",
 		job.ExecutionSpanId ?? "",
 		NullableTicks(job.ExecutionStartedAt),
-		job.QueueName,
 		job.JobName.ToUpperInvariant(),
 		Score(job.CreatedAt),
 		Ticks(nextRunAt),

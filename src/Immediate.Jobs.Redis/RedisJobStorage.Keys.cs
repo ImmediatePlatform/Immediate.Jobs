@@ -1,5 +1,4 @@
 using System.Globalization;
-using Immediate.Jobs.Shared.Apis;
 using StackExchange.Redis;
 
 namespace Immediate.Jobs.Redis;
@@ -28,7 +27,7 @@ internal sealed partial class RedisJobStorage
 
 	private RedisKey ExecutionDataKey(JobHandle id) => _root + "executions:data:" + id.Value;
 
-	private RedisKey DueKey(string queue) => _root + "due:" + queue;
+	private RedisKey DueKey(string jobName) => _root + "due:" + jobName.ToUpperInvariant();
 
 	private RedisKey StateKey(JobState state) => string.Create(CultureInfo.InvariantCulture, $"{_root}state:{(int)state}");
 
@@ -42,7 +41,7 @@ internal sealed partial class RedisJobStorage
 
 	private static string Ticks(DateTimeOffset value) => value.UtcTicks.ToString("D19", CultureInfo.InvariantCulture);
 
-	private static string DueMember(JobRecord job) => $"{Ticks(job.DueAt)}|{Ticks(job.CreatedAt)}|{job.JobHandle.Value}";
+	private static string DueMember(DateTimeOffset dueAt, DateTimeOffset createdAt, JobHandle handle) => $"{Ticks(dueAt)}|{Ticks(createdAt)}|{handle.Value}";
 
 	private static string NullableTicks(DateTimeOffset? value) => value is { } actual ? Ticks(actual) : "";
 }

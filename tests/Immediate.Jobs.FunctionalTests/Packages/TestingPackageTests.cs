@@ -15,6 +15,8 @@ public sealed class TestingPackageTests
 	public async Task CapturingStorageRecordsTypedCallsWithoutInterruptingStorage()
 	{
 		await using var harness = new JobTestHarness();
+		await harness.DrainAsync(TestContext.Current.CancellationToken);
+		await harness.Storage.MergeJobDefinitionsListAsync(new() { Definitions = [new() { Name = "test-job" }] }, TestContext.Current.CancellationToken);
 		Assert.Same(harness.Storage, harness.Services.GetRequiredService<CapturingJobStorage>());
 		var scheduler = new TestScheduler(
 			harness.Storage,
@@ -34,6 +36,7 @@ public sealed class TestingPackageTests
 		Assert.Equal(id, capture.JobHandle);
 		Assert.Equal("tenant-a", capture.GroupId);
 		Assert.Equal(capture, harness.Storage.FindJob(id));
+		Assert.Equal("default", capture.QueueName);
 		Assert.Equal(capture, await harness.GetJobAsync(id, TestContext.Current.CancellationToken));
 
 		await scheduler.CancelAsync(id, TestContext.Current.CancellationToken);
@@ -45,6 +48,8 @@ public sealed class TestingPackageTests
 	{
 		var cancellationToken = TestContext.Current.CancellationToken;
 		await using var harness = new JobTestHarness();
+		await harness.DrainAsync(TestContext.Current.CancellationToken);
+		await harness.Storage.MergeJobDefinitionsListAsync(new() { Definitions = [new() { Name = "test-job" }] }, TestContext.Current.CancellationToken);
 		var scheduler = new TestScheduler(
 			harness.Storage,
 			harness.Services.GetRequiredService<IJobSerializer>(),
@@ -92,6 +97,7 @@ public sealed class TestingPackageTests
 			});
 			_ = services.AddSingleton<ILogger<JobSchedulingService>>(logger);
 		});
+		await harness.DrainAsync(TestContext.Current.CancellationToken);
 		var scheduler = new TestScheduler(
 			harness.Storage,
 			harness.Services.GetRequiredService<IJobSerializer>(),
@@ -135,6 +141,7 @@ public sealed class TestingPackageTests
 			_ = services.AddSingleton(counter);
 			_ = services.AddSingleton(definition);
 		});
+		await harness.DrainAsync(TestContext.Current.CancellationToken);
 		var scheduler = new TestScheduler(
 			harness.Storage,
 			harness.Services.GetRequiredService<IJobSerializer>(),
@@ -157,7 +164,10 @@ public sealed class TestingPackageTests
 	{
 		var cancellationToken = TestContext.Current.CancellationToken;
 		await using var harness = new JobTestHarness();
+		await harness.DrainAsync(TestContext.Current.CancellationToken);
 		var graphStorage = Assert.IsAssignableFrom<IJobGraphStorage>(harness.Storage);
+		await graphStorage.MergeJobDefinitionsListAsync(new() { Definitions = [new() { Name = "raw-job" }] }, cancellationToken);
+
 		var parent = CreateRawJob("parent");
 		var child = CreateRawJob("child") with
 		{
@@ -204,7 +214,7 @@ public sealed class TestingPackageTests
 		public int Count { get; set; }
 	}
 
-	private static JobRecord CreateRawJob(string id) =>
+	private static JobSubmission CreateRawJob(string id) =>
 		new()
 		{
 			JobHandle = JobHandle.FromString(id),
@@ -227,7 +237,6 @@ public sealed class TestingPackageTests
 			timeProvider,
 			idGenerator,
 			"test-job",
-			JobQueueDefinition.DefaultName,
 			static options => new TestingJsonContext(options).TestPayload
 		);
 

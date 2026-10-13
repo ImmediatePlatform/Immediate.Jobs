@@ -42,6 +42,11 @@ internal static class RecurringStorageConformance
 		CancellationToken cancellationToken
 	)
 	{
+		await storage.MergeJobDefinitionsListAsync(new()
+		{
+			Definitions = [new() { Name = JobName, QueueName = QueueName }],
+		}, cancellationToken);
+
 		var now = timeProvider.GetUtcNow();
 		var original = Schedule("dynamic-lifecycle", now, isCodeDefined: false);
 		await storage.UpsertRecurringAsync(original, cancellationToken);
@@ -130,7 +135,7 @@ internal static class RecurringStorageConformance
 				Definitions = supplied.Select(static schedule => new JobDefinitionRecord
 				{
 					Name = schedule.JobName,
-					QueueName = schedule.QueueName,
+					QueueName = schedule.QueueName ?? "default",
 					Cron = schedule.Cron,
 					TimeZone = schedule.TimeZone,
 				}).ToList(),
@@ -164,7 +169,7 @@ internal static class RecurringStorageConformance
 		);
 		var dynamic = schedules.Single(schedule => string.Equals(schedule.Name, "merge-dynamic", StringComparison.Ordinal));
 		AssertSchedule(
-			Schedule("merge-dynamic", persistedAt.AddHours(3), isCodeDefined: false),
+			Schedule("merge-dynamic", persistedAt.AddHours(3), isCodeDefined: false) with { QueueName = null },
 			dynamic,
 			MergeDefinitionsName,
 			"merge must leave existing dynamic schedules untouched"
@@ -191,6 +196,11 @@ internal static class RecurringStorageConformance
 		CancellationToken cancellationToken
 	)
 	{
+		await storage.MergeJobDefinitionsListAsync(new()
+		{
+			Definitions = [new() { Name = JobName, QueueName = QueueName }],
+		}, cancellationToken);
+
 		var now = timeProvider.GetUtcNow();
 		var first = Schedule("due-first", now.AddMinutes(-2), isCodeDefined: false);
 		var second = Schedule("due-second", now.AddMinutes(-1), isCodeDefined: false);
@@ -248,12 +258,22 @@ internal static class RecurringStorageConformance
 	)
 	{
 		var now = timeProvider.GetUtcNow();
-		var parent = Occurrence("materialize-terminal-parent", Schedule("unused-parent", now, isCodeDefined: true), JobState.Succeeded, now) with
+		await storage.MergeJobDefinitionsListAsync(new()
 		{
-			RecurringKey = null,
-			CompletedAt = now,
+			Definitions = [new() { Name = JobName, QueueName = QueueName }],
+		}, cancellationToken);
+		var parent = new JobSubmission
+		{
+			JobHandle = JobHandle.FromString("materialize-terminal-parent"),
+			JobName = JobName,
+			Payload = "{}",
+			State = JobState.Pending,
+			DueAt = now,
+			CreatedAt = now,
 		};
 		await storage.EnqueueAsync(parent, cancellationToken);
+		var acquiredParent = (await storage.AcquireDueJobsAsync(Acquisition("terminal-parent-worker", TimeSpan.FromMinutes(1)), cancellationToken)).Single();
+		await storage.CompleteAsync(parent.JobHandle, acquiredParent.Attempt, "terminal-parent-worker", cancellationToken);
 
 		var schedule = Schedule("materialize-terminal-child", now, isCodeDefined: true);
 		var child = Occurrence("materialize-terminal-child", schedule, JobState.AwaitingContinuation, now) with
@@ -428,6 +448,11 @@ internal static class RecurringStorageConformance
 		CancellationToken cancellationToken
 	)
 	{
+		await storage.MergeJobDefinitionsListAsync(new()
+		{
+			Definitions = [new() { Name = JobName, QueueName = QueueName }],
+		}, cancellationToken);
+
 		var now = timeProvider.GetUtcNow();
 		var schedule = Schedule("materialize-purge", now, isCodeDefined: true);
 		var original = Occurrence("materialize-purge-original", schedule, JobState.Pending, now);

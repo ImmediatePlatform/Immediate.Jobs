@@ -127,11 +127,11 @@ internal static class TagStorageConformance
 		var other = Definition("email-cron", "email") with { Cron = "* * * * *" };
 		var schedule = Schedule(ordinary, now);
 		await storage.MergeJobDefinitionsListAsync(new() { Definitions = [ordinary], RecurringSchedules = [schedule] }, token);
-		var legacy = Schedule(Definition("legacy") with { Cron = "* * * * *" }, now);
-		await storage.UpsertRecurringAsync(legacy, token);
+		var unregistered = Schedule(Definition("unregistered") with { Cron = "* * * * *" }, now);
+		await storage.UpsertRecurringAsync(unregistered, token);
 		await storage.MergeJobDefinitionsListAsync(new() { Definitions = [other], ServerTags = ["email"], RecurringSchedules = [Schedule(other, now)] }, token);
-		ConformanceAssert.True((await storage.GetMonitoringSnapshotAsync(token)).Recurring.Any(item => string.Equals(item.Name, legacy.Name, StringComparison.Ordinal)),
-			RecurringCase, "a server without default must preserve legacy code schedules without metadata");
+		ConformanceAssert.True((await storage.GetMonitoringSnapshotAsync(token)).Recurring.Any(item => string.Equals(item.Name, unregistered.Name, StringComparison.Ordinal)),
+			RecurringCase, "a server without default must preserve unregistered code schedules without metadata");
 		var dynamic = Schedule(ordinary, now) with { Name = "dynamic", IsCodeDefined = false };
 		await storage.UpsertRecurringAsync(dynamic, token);
 		var invocation = new JobRecord
@@ -149,8 +149,8 @@ internal static class TagStorageConformance
 		await storage.PauseRecurringAsync(ordinary.Name, token);
 		await storage.MergeJobDefinitionsListAsync(new() { Definitions = [ordinary], ServerTags = ["DEFAULT"], RecurringSchedules = [Schedule(ordinary, now.AddHours(1))] }, token);
 		var persisted = (await storage.GetMonitoringSnapshotAsync(token)).Recurring.Single(item => string.Equals(item.Name, ordinary.Name, StringComparison.Ordinal));
-		ConformanceAssert.False((await storage.GetMonitoringSnapshotAsync(token)).Recurring.Any(item => string.Equals(item.Name, legacy.Name, StringComparison.Ordinal)),
-			RecurringCase, "a default server must clean up obsolete legacy code schedules without metadata");
+		ConformanceAssert.False((await storage.GetMonitoringSnapshotAsync(token)).Recurring.Any(item => string.Equals(item.Name, unregistered.Name, StringComparison.Ordinal)),
+			RecurringCase, "a default server must clean up obsolete unregistered code schedules without metadata");
 		ConformanceAssert.True(persisted.IsPaused, RecurringCase, "startup must preserve schedule pause state");
 		ConformanceAssert.Equal(now.AddMinutes(1), persisted.NextRunAt, RecurringCase, "unchanged cron must retain progress");
 		ConformanceAssert.Equal<DateTimeOffset?>(now, persisted.LastRunAt, RecurringCase, "startup must retain the last occurrence");
@@ -183,6 +183,10 @@ internal static class TagStorageConformance
 	{
 		var now = timeProvider.GetUtcNow();
 		var ignored = Definition("ignored") with { Cron = "* * * * *" };
+		await storage.MergeJobDefinitionsListAsync(Registration([
+			ignored with { Cron = null }, Definition("eligible"), Definition("moved"), Definition("other-eligible"),
+		]), token);
+
 		for (var index = 0; index < 4; index++)
 			await storage.UpsertRecurringAsync(Schedule(ignored, now.AddMinutes(-2)) with { Name = FormattableString.Invariant($"ignored-{index}"), IsCodeDefined = false }, token);
 		var eligible = Definition("eligible") with { Cron = "* * * * *" };

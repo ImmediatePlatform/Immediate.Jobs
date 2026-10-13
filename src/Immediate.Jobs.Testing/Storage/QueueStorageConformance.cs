@@ -73,10 +73,17 @@ internal static class QueueStorageConformance
 		CancellationToken cancellationToken
 	)
 	{
+		await storage.MergeJobDefinitionsListAsync(new()
+		{
+			Definitions =
+			[
+				new() { Name = "RoundTrip.Job", QueueName = "queue-roundtrip" },
+			],
+		}, cancellationToken);
+
 		var original = CreateJob(
 			"roundtrip-id:opaque/1",
 			timeProvider.GetUtcNow(),
-			"queue-roundtrip",
 			"RoundTrip.Job"
 		) with
 		{
@@ -85,8 +92,6 @@ internal static class QueueStorageConformance
 			GroupId = "group-alpha",
 			State = JobState.Scheduled,
 			DueAt = timeProvider.GetUtcNow().AddMinutes(5),
-			Attempt = 3,
-			LastError = "prior error",
 			RecurringKey = "schedule:638000000000000000",
 			TraceParent = "00-11111111111111111111111111111111-2222222222222222-01",
 			TraceState = "vendor=value",
@@ -101,7 +106,7 @@ internal static class QueueStorageConformance
 			original.JobHandle.Value
 		);
 
-		AssertRecordEqual(original, queried, RoundTripName);
+		AssertSubmissionEqual(original, queried, RoundTripName);
 
 		await ConformanceAssert.ThrowsAnyAsync(
 			() => storage.EnqueueAsync(original with { Payload = "{\"replacement\":true}" }, cancellationToken),
@@ -111,7 +116,7 @@ internal static class QueueStorageConformance
 		);
 
 		var unchanged = (await storage.QueryJobsAsync(new() { JobHandle = original.JobHandle }, cancellationToken)).Single();
-		AssertRecordEqual(original, unchanged, RoundTripName);
+		AssertSubmissionEqual(original, unchanged, RoundTripName);
 	}
 
 	private static async ValueTask ExcludesFutureAndParkedAsync(
@@ -120,6 +125,14 @@ internal static class QueueStorageConformance
 		CancellationToken cancellationToken
 	)
 	{
+		await storage.MergeJobDefinitionsListAsync(new()
+		{
+			Definitions =
+			[
+				new() { Name = "conformance-job" },
+			],
+		}, cancellationToken);
+
 		var now = timeProvider.GetUtcNow();
 
 		await storage.EnqueueAsync(CreateJob("due", now), cancellationToken);
@@ -153,12 +166,22 @@ internal static class QueueStorageConformance
 		CancellationToken cancellationToken
 	)
 	{
+		await storage.MergeJobDefinitionsListAsync(new()
+		{
+			Definitions =
+			[
+				new() { Name = "low-job", QueueName = "low" },
+				new() { Name = "limited-job", QueueName = "high" },
+				new() { Name = "other-job", QueueName = "high" },
+			],
+		}, cancellationToken);
+
 		var now = timeProvider.GetUtcNow();
 
-		await storage.EnqueueAsync(CreateJob("low-first", now, "low", "low-job"), cancellationToken);
-		await storage.EnqueueAsync(CreateJob("high-a-first", now.AddMilliseconds(1), "high", "limited-job") with { DueAt = now }, cancellationToken);
-		await storage.EnqueueAsync(CreateJob("high-a-second", now.AddMilliseconds(2), "high", "limited-job") with { DueAt = now }, cancellationToken);
-		await storage.EnqueueAsync(CreateJob("high-b", now.AddMilliseconds(3), "high", "other-job") with { DueAt = now }, cancellationToken);
+		await storage.EnqueueAsync(CreateJob("low-first", now, "low-job"), cancellationToken);
+		await storage.EnqueueAsync(CreateJob("high-a-first", now.AddMilliseconds(1), "limited-job") with { DueAt = now }, cancellationToken);
+		await storage.EnqueueAsync(CreateJob("high-a-second", now.AddMilliseconds(2), "limited-job") with { DueAt = now }, cancellationToken);
+		await storage.EnqueueAsync(CreateJob("high-b", now.AddMilliseconds(3), "other-job") with { DueAt = now }, cancellationToken);
 
 		var acquired = await storage.AcquireDueJobsAsync(
 			CreateRequest(
@@ -191,6 +214,14 @@ internal static class QueueStorageConformance
 		CancellationToken cancellationToken
 	)
 	{
+		await storage.MergeJobDefinitionsListAsync(new()
+		{
+			Definitions =
+			[
+				new() { Name = "conformance-job" },
+			],
+		}, cancellationToken);
+
 		const int JobCount = 20;
 
 		var now = timeProvider.GetUtcNow();
@@ -226,6 +257,14 @@ internal static class QueueStorageConformance
 		CancellationToken cancellationToken
 	)
 	{
+		await storage.MergeJobDefinitionsListAsync(new()
+		{
+			Definitions =
+			[
+				new() { Name = "conformance-job" },
+			],
+		}, cancellationToken);
+
 		await storage.EnqueueAsync(CreateJob("leased", timeProvider.GetUtcNow()), cancellationToken);
 
 		var first = (await storage.AcquireDueJobsAsync(CreateRequest("owner-a", 1), cancellationToken)).Single();
@@ -308,6 +347,14 @@ internal static class QueueStorageConformance
 		CancellationToken cancellationToken
 	)
 	{
+		await storage.MergeJobDefinitionsListAsync(new()
+		{
+			Definitions =
+			[
+				new() { Name = "conformance-job" },
+			],
+		}, cancellationToken);
+
 		var now = timeProvider.GetUtcNow();
 
 		await storage.EnqueueAsync(CreateJob("completed", now), cancellationToken);
@@ -339,6 +386,14 @@ internal static class QueueStorageConformance
 		CancellationToken cancellationToken
 	)
 	{
+		await storage.MergeJobDefinitionsListAsync(new()
+		{
+			Definitions =
+			[
+				new() { Name = "conformance-job" },
+			],
+		}, cancellationToken);
+
 		await storage.EnqueueAsync(CreateJob("retryable", timeProvider.GetUtcNow()), cancellationToken);
 
 		var first = (await storage.AcquireDueJobsAsync(CreateRequest("failure-worker", 1), cancellationToken)).Single();
@@ -416,6 +471,14 @@ internal static class QueueStorageConformance
 		CancellationToken cancellationToken
 	)
 	{
+		await storage.MergeJobDefinitionsListAsync(new()
+		{
+			Definitions =
+			[
+				new() { Name = "conformance-job" },
+			],
+		}, cancellationToken);
+
 		var jobHandle = JobHandle.FromString("pending-invalid");
 
 		await storage.EnqueueAsync(CreateJob("pending-invalid", timeProvider.GetUtcNow()), cancellationToken);
@@ -460,12 +523,22 @@ internal static class QueueStorageConformance
 		CancellationToken cancellationToken
 	)
 	{
+		await storage.MergeJobDefinitionsListAsync(new()
+		{
+			Definitions =
+			[
+				new() { Name = "Email.Receipt", QueueName = "priority" },
+				new() { Name = "Email.Other", QueueName = "priority" },
+				new() { Name = "Cleanup.Job", QueueName = "ordinary" },
+			],
+		}, cancellationToken);
+
 		var created = timeProvider.GetUtcNow();
 
-		await storage.EnqueueAsync(CreateJob("page-c", created, "priority", "Email.Receipt") with { State = JobState.Scheduled, DueAt = created.AddHours(1) }, cancellationToken);
-		await storage.EnqueueAsync(CreateJob("page-a", created, "priority", "Email.Receipt") with { State = JobState.Scheduled, DueAt = created.AddHours(1) }, cancellationToken);
-		await storage.EnqueueAsync(CreateJob("page-b", created, "priority", "Email.Other") with { State = JobState.Scheduled, DueAt = created.AddHours(1) }, cancellationToken);
-		await storage.EnqueueAsync(CreateJob("newer", created.AddMinutes(1), "ordinary", "Cleanup.Job"), cancellationToken);
+		await storage.EnqueueAsync(CreateJob("page-c", created, "Email.Receipt") with { State = JobState.Scheduled, DueAt = created.AddHours(1) }, cancellationToken);
+		await storage.EnqueueAsync(CreateJob("page-a", created, "Email.Receipt") with { State = JobState.Scheduled, DueAt = created.AddHours(1) }, cancellationToken);
+		await storage.EnqueueAsync(CreateJob("page-b", created, "Email.Other") with { State = JobState.Scheduled, DueAt = created.AddHours(1) }, cancellationToken);
+		await storage.EnqueueAsync(CreateJob("newer", created.AddMinutes(1), "Cleanup.Job"), cancellationToken);
 
 		var exact = await storage.QueryJobsAsync(new() { JobHandle = JobHandle.FromString("page-a") }, cancellationToken);
 
@@ -538,15 +611,15 @@ internal static class QueueStorageConformance
 		ConformanceAssert.Equal(0, status.DependsOn.Count, QueryName, "ordinary queue jobs must report no incoming graph edges");
 
 		await storage.CancelAsync(JobHandle.FromString("page-a"), cancellationToken);
-		var waiting = CreateJob("noncompleted-waiting", created, "priority", "Email.Receipt") with
+		var waiting = CreateJob("noncompleted-waiting", created, "Email.Receipt") with
 		{
 			State = JobState.WaitingForTrigger,
 		};
 		await storage.EnqueueAsync(waiting, cancellationToken);
-		await storage.EnqueueAsync(CreateJob("noncompleted-active", created, "priority", "Email.Receipt"), cancellationToken);
+		await storage.EnqueueAsync(CreateJob("noncompleted-active", created, "Email.Receipt"), cancellationToken);
 		_ = await storage.AcquireDueJobsAsync(
 			CreateRequest("query-worker", 1, ("priority", 1, CreateCapacities(("Email.Receipt", 1)))), cancellationToken);
-		await storage.EnqueueAsync(CreateJob("noncompleted-pending", created, "priority", "Email.Receipt"), cancellationToken);
+		await storage.EnqueueAsync(CreateJob("noncompleted-pending", created, "Email.Receipt"), cancellationToken);
 		var noncompleted = await storage.QueryNonCompletedJobsAsync("Email.Receipt", cancellationToken);
 		ConformanceAssert.SequenceEqual(
 			["noncompleted-active", "noncompleted-pending", "noncompleted-waiting", "page-c"],
@@ -560,6 +633,14 @@ internal static class QueueStorageConformance
 		CancellationToken cancellationToken
 	)
 	{
+		await storage.MergeJobDefinitionsListAsync(new()
+		{
+			Definitions =
+			[
+				new() { Name = "conformance-job" },
+			],
+		}, cancellationToken);
+
 		var now = timeProvider.GetUtcNow();
 		await storage.EnqueueAsync(CreateJob("monitor-pending", now), cancellationToken);
 		await storage.EnqueueAsync(CreateJob("monitor-scheduled", now) with { State = JobState.Scheduled, DueAt = now.AddHours(1) }, cancellationToken);
@@ -619,6 +700,14 @@ internal static class QueueStorageConformance
 		CancellationToken cancellationToken
 	)
 	{
+		await storage.MergeJobDefinitionsListAsync(new()
+		{
+			Definitions =
+			[
+				new() { Name = "conformance-job" },
+			],
+		}, cancellationToken);
+
 		await EnqueueAcquireAndComplete(storage, "delete-me", "maintenance-worker", timeProvider.GetUtcNow(), cancellationToken);
 
 		await storage.DeleteAsync(JobHandle.FromString("delete-me"), cancellationToken);
@@ -714,16 +803,14 @@ internal static class QueueStorageConformance
 		await storage.CompleteAsync(active.JobHandle, active.Attempt, workerId, cancellationToken);
 	}
 
-	private static JobRecord CreateJob(
+	private static JobSubmission CreateJob(
 		string id,
 		DateTimeOffset createdAt,
-		string queueName = "default",
 		string jobName = "conformance-job"
 	) =>
 		new()
 		{
 			JobHandle = JobHandle.FromString(id),
-			QueueName = queueName,
 			JobName = jobName,
 			Payload = "{}",
 			State = JobState.Pending,
@@ -750,12 +837,12 @@ internal static class QueueStorageConformance
 		params (string JobName, int Capacity)[] capacities
 	) => capacities.ToDictionary(static item => item.JobName, static item => item.Capacity, StringComparer.Ordinal);
 
-	private static void AssertRecordEqual(JobRecord expected, JobRecord actual, string caseName)
+	private static void AssertSubmissionEqual(JobSubmission expected, JobRecord actual, string caseName)
 	{
-		var invariant = "all provider-neutral JobRecord fields must round-trip without rewriting";
+		var invariant = "submission fields must round-trip and execution history must start empty";
 		var context = expected.JobHandle.Value;
 
-		ConformanceAssert.Equal(expected.QueueName, actual.QueueName, caseName, invariant, context);
+		ConformanceAssert.Equal("queue-roundtrip", actual.QueueName, caseName, invariant, context);
 		ConformanceAssert.Equal(expected.JobHandle, actual.JobHandle, caseName, invariant, context);
 		ConformanceAssert.Equal(expected.JobName, actual.JobName, caseName, invariant, context);
 		ConformanceAssert.Equal(expected.Payload, actual.Payload, caseName, invariant, context);
@@ -764,19 +851,19 @@ internal static class QueueStorageConformance
 		ConformanceAssert.Equal(expected.State, actual.State, caseName, invariant, context);
 		ConformanceAssert.Equal(expected.DueAt, actual.DueAt, caseName, invariant, context);
 		ConformanceAssert.Equal(expected.CreatedAt, actual.CreatedAt, caseName, invariant, context);
-		ConformanceAssert.Equal(expected.Attempt, actual.Attempt, caseName, invariant, context);
-		ConformanceAssert.Equal(expected.WorkerId, actual.WorkerId, caseName, invariant, context);
-		ConformanceAssert.Equal(expected.LeaseExpiresAt, actual.LeaseExpiresAt, caseName, invariant, context);
-		ConformanceAssert.Equal(expected.LastError, actual.LastError, caseName, invariant, context);
-		ConformanceAssert.Equal(expected.CompletedAt, actual.CompletedAt, caseName, invariant, context);
+		ConformanceAssert.Equal(0, actual.Attempt, caseName, invariant, context);
+		ConformanceAssert.Null(actual.WorkerId, caseName, invariant, context);
+		ConformanceAssert.Null(actual.LeaseExpiresAt, caseName, invariant, context);
+		ConformanceAssert.Null(actual.LastError, caseName, invariant, context);
+		ConformanceAssert.Null(actual.CompletedAt, caseName, invariant, context);
 		ConformanceAssert.Equal(expected.RecurringKey, actual.RecurringKey, caseName, invariant, context);
 		ConformanceAssert.Equal(expected.TraceParent, actual.TraceParent, caseName, invariant, context);
 		ConformanceAssert.Equal(expected.TraceState, actual.TraceState, caseName, invariant, context);
-		ConformanceAssert.Equal(expected.ExecutionTraceId, actual.ExecutionTraceId, caseName, invariant, context);
-		ConformanceAssert.Equal(expected.ExecutionSpanId, actual.ExecutionSpanId, caseName, invariant, context);
-		ConformanceAssert.Equal(expected.ExecutionStartedAt, actual.ExecutionStartedAt, caseName, invariant, context);
+		ConformanceAssert.Null(actual.ExecutionTraceId, caseName, invariant, context);
+		ConformanceAssert.Null(actual.ExecutionSpanId, caseName, invariant, context);
+		ConformanceAssert.Null(actual.ExecutionStartedAt, caseName, invariant, context);
 		ConformanceAssert.Equal(expected.BatchHandle, actual.BatchHandle, caseName, invariant, context);
 		ConformanceAssert.Equal(expected.RemainingDependencies, actual.RemainingDependencies, caseName, invariant, context);
-		ConformanceAssert.Equal(expected.FailedDependencies, actual.FailedDependencies, caseName, invariant, context);
+		ConformanceAssert.Equal(0, actual.FailedDependencies, caseName, invariant, context);
 	}
 }

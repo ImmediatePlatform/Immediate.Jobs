@@ -40,7 +40,7 @@ internal sealed partial class LinqToDBJobStorage<T>
 
 				await using var scope = contextScope.GetScope(out var readConnection);
 
-				var candidates = await Jobs(readConnection)
+				var candidates = await JobsWithDefinitions(readConnection)
 					.Where(job => job.QueueName == queue.QueueName && eligibleNames.Contains(job.JobName) &&
 						(((job.State == JobState.Scheduled || job.State == JobState.Pending) && job.DueAt <= now)
 							|| (job.State == JobState.Active && job.LeaseExpiresAt <= now)))
@@ -89,7 +89,7 @@ internal sealed partial class LinqToDBJobStorage<T>
 
 		await using var scope = contextScope.GetScope(out var connection);
 
-		var candidates = await Jobs(connection)
+		var candidates = await JobsWithDefinitions(connection)
 			.Where(job => job.Id.In(jobHandles.Select(static job => job.Value)) &&
 				(((job.State == JobState.Scheduled || job.State == JobState.Pending) && job.DueAt <= now)
 					|| (job.State == JobState.Active && job.LeaseExpiresAt <= now)))
@@ -113,7 +113,7 @@ internal sealed partial class LinqToDBJobStorage<T>
 
 		await using var scope = contextScope.GetScope(out var connection);
 
-		var updated = await Jobs(connection)
+		var updated = await JobsWithDefinitions(connection)
 			.Where(job => job.Id == jobHandle.Value && job.Attempt == executionNumber && job.State == JobState.Active && job.WorkerId == workerId)
 			.Set(job => job.LeaseExpiresAt, timeProvider.GetUtcNow() + lease)
 			.Set(job => job.ConcurrencyStamp, Guid.NewGuid())
@@ -123,7 +123,7 @@ internal sealed partial class LinqToDBJobStorage<T>
 	}
 
 	private async ValueTask<IReadOnlyList<JobRecord>> AcquireCandidatesAsync(
-		List<ImmediateJobEntity> candidates,
+		List<JobQueryRow> candidates,
 		string workerId,
 		TimeSpan lease,
 		DateTimeOffset now,

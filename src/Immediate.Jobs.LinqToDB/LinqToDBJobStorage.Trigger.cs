@@ -40,7 +40,7 @@ internal sealed partial class LinqToDBJobStorage<T>
 		await TaskScheduler.Yield();
 
 		var triggered = false;
-		var terminalGroups = new HashSet<(string QueueName, string GroupId)>();
+		var terminalGroups = new HashSet<string>(StringComparer.Ordinal);
 		await RetryConcurrencyAsync(
 			async connection => triggered = await TryTriggerCoreAsync(
 				connection,
@@ -64,7 +64,7 @@ internal sealed partial class LinqToDBJobStorage<T>
 		await TaskScheduler.Yield();
 
 		var triggered = false;
-		var terminalGroups = new HashSet<(string QueueName, string GroupId)>();
+		var terminalGroups = new HashSet<string>(StringComparer.Ordinal);
 		await RetryConcurrencyAsync(
 			async connection => triggered = await TryTriggerBatchCoreAsync(
 				connection,
@@ -102,7 +102,7 @@ internal sealed partial class LinqToDBJobStorage<T>
 		JobHandle jobHandle,
 		string expectedJobName,
 		DateTimeOffset dueAt,
-		ISet<(string QueueName, string GroupId)> terminalGroups,
+		ISet<string> terminalGroups,
 		CancellationToken cancellationToken
 	)
 	{
@@ -142,7 +142,7 @@ internal sealed partial class LinqToDBJobStorage<T>
 		ImmediateJobEntity job,
 		DateTimeOffset dueAt,
 		DateTimeOffset now,
-		ISet<(string QueueName, string GroupId)> terminalGroups,
+		ISet<string> terminalGroups,
 		CancellationToken cancellationToken
 	)
 	{
@@ -177,7 +177,7 @@ internal sealed partial class LinqToDBJobStorage<T>
 	private async Task<bool> TryTriggerBatchCoreAsync(
 		DataConnection connection,
 		BatchHandle batchHandle,
-		ISet<(string QueueName, string GroupId)> terminalGroups,
+		ISet<string> terminalGroups,
 		CancellationToken cancellationToken
 	)
 	{

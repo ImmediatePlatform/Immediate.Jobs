@@ -19,7 +19,6 @@ partial class WorkJob
 		timeProvider,
 		idGenerator,
 		"work",
-		"critical-queue",
 		static options => new PayloadJsonContext(options).Payload
 	)
 		, global::Immediate.Jobs.Shared.Interfaces.IRecurringJobScheduler

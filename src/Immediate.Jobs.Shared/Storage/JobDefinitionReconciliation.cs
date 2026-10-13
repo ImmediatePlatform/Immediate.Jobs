@@ -100,7 +100,6 @@ public sealed record JobDefinitionReconciliation
 				|| !string.Equals(schedule.Name, definition.Name, StringComparison.OrdinalIgnoreCase)
 				|| !string.Equals(schedule.Cron, definition.Cron, StringComparison.Ordinal)
 				|| !string.Equals(schedule.TimeZone, definition.TimeZone, StringComparison.Ordinal)
-				|| !string.Equals(schedule.QueueName, definition.QueueName, StringComparison.Ordinal)
 				|| !scheduleNames.Add(schedule.Name))
 				throw new ArgumentException("Code-defined schedules must match their supplied job definitions.", nameof(registration));
 			if (!desired.TryGetValue(schedule.JobName, out var managedDefinition))

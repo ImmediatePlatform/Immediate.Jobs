@@ -8,7 +8,7 @@ namespace Immediate.Jobs.Redis;
 internal sealed partial class RedisJobStorage
 {
 	/// <inheritdoc />
-	public async ValueTask EnqueueAsync(JobRecord job, CancellationToken cancellationToken = default)
+	public async ValueTask EnqueueAsync(JobSubmission job, CancellationToken cancellationToken = default)
 	{
 		EnqueueAsyncCalled(job.JobHandle);
 		cancellationToken.ThrowIfCancellationRequested();
@@ -17,41 +17,42 @@ internal sealed partial class RedisJobStorage
 		ValidateQueueJob(job);
 		var result = await EvaluateInt64Async(
 			RedisScripts.Enqueue,
-			[JobKey(job.JobHandle), AllJobsKey, StateKey(job.State), DueKey(job.QueueName)],
+			[JobKey(job.JobHandle), AllJobsKey, StateKey(job.State), DefinitionMetadataKey],
 			CreateEnqueueArguments(job),
 			cancellationToken
 		);
+		if (result < 0)
+			throw new KeyNotFoundException($"Job definition '{job.JobName}' was not found.");
 		if (result == 0)
 			throw new ImmediateJobException($"Job '{job.JobHandle}' already exists.");
 	}
 
-	private RedisValue[] CreateEnqueueArguments(JobRecord job) =>
+	private RedisValue[] CreateEnqueueArguments(JobSubmission job) =>
 	[
-		JsonSerializer.Serialize(job, RedisJsonSerializerContext.Default.JobRecord),
+		JsonSerializer.Serialize(job, RedisJsonSerializerContext.Default.JobSubmission),
 		(int)job.State,
 		Ticks(job.DueAt),
-		job.Attempt,
-		job.WorkerId ?? "",
-		NullableTicks(job.LeaseExpiresAt),
-		job.LastError ?? "",
-		NullableTicks(job.CompletedAt),
-		job.ExecutionTraceId ?? "",
-		job.ExecutionSpanId ?? "",
-		NullableTicks(job.ExecutionStartedAt),
-		job.QueueName,
+		0,
+		"",
+		"",
+		"",
+		"",
+		"",
+		"",
+		"",
 		job.JobName.ToUpperInvariant(),
 		Score(job.CreatedAt),
 		job.JobHandle.Value,
 		Score(job.DueAt),
 		Ticks(job.CreatedAt),
-		DueMember(job),
+		DueMember(job.DueAt, job.CreatedAt, job.JobHandle),
 		job.GroupId ?? "",
 		_root,
 	];
 
-	private static void ValidateQueueJob(JobRecord job)
+	private static void ValidateQueueJob(JobSubmission job)
 	{
-		if (job.BatchHandle is not null || job.RemainingDependencies != 0 || job.FailedDependencies != 0)
+		if (job.BatchHandle is not null || job.RemainingDependencies != 0)
 		{
 			throw new NotSupportedException(
 				"Batches & continuations require a graph-capable storage provider (a SQL database)."

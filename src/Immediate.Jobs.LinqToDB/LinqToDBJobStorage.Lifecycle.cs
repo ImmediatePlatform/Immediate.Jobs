@@ -83,7 +83,7 @@ internal sealed partial class LinqToDBJobStorage<T>
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 
-		var terminalGroups = new HashSet<(string QueueName, string GroupId)>();
+		var terminalGroups = new HashSet<string>(StringComparer.Ordinal);
 		await RetryConcurrencyAsync(
 			connection => CancelBatchCoreAsync(
 				connection,
@@ -141,7 +141,7 @@ internal sealed partial class LinqToDBJobStorage<T>
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 
-		var terminalGroups = new HashSet<(string QueueName, string GroupId)>();
+		var terminalGroups = new HashSet<string>(StringComparer.Ordinal);
 		await RetryConcurrencyAsync(
 			connection => CancelCoreAsync(connection, jobHandle, terminalGroups, cancellationToken),
 			cancellationToken
@@ -292,7 +292,7 @@ internal sealed partial class LinqToDBJobStorage<T>
 	private async Task CancelBatchCoreAsync(
 		DataConnection connection,
 		BatchHandle batchHandle,
-		ISet<(string QueueName, string GroupId)> terminalGroups,
+		ISet<string> terminalGroups,
 		CancellationToken cancellationToken
 	)
 	{
@@ -347,7 +347,7 @@ internal sealed partial class LinqToDBJobStorage<T>
 	private async Task CancelCoreAsync(
 		DataConnection connection,
 		JobHandle jobHandle,
-		ISet<(string QueueName, string GroupId)> terminalGroups,
+		ISet<string> terminalGroups,
 		CancellationToken cancellationToken
 	)
 	{

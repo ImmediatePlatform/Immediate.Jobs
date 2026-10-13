@@ -20,7 +20,7 @@ internal sealed partial class LinqToDBJobStorage<T>
 		await TaskScheduler.Yield();
 		ValidateRegistration(registration);
 		var reports = new List<(string Name, int Jobs, int Schedules)>();
-		var terminalGroups = new HashSet<(string QueueName, string GroupId)>();
+		var terminalGroups = new HashSet<string>(StringComparer.Ordinal);
 		await RetryConcurrencyAsync(async connection =>
 		{
 			reports.Clear();
@@ -28,6 +28,8 @@ internal sealed partial class LinqToDBJobStorage<T>
 			if (connection.DataProvider.Name.Contains("SQLite", StringComparison.OrdinalIgnoreCase))
 			{
 				await MergeSQLiteDefinitionsAsync(connection, registration, reports, terminalGroups, cancellationToken);
+				await RemoveEmptyFairQueueGroupsAsync(connection, cancellationToken);
+
 				return;
 			}
 
@@ -51,11 +53,18 @@ internal sealed partial class LinqToDBJobStorage<T>
 				.DeleteAsync(cancellationToken);
 			await MergeDefinitionMetadataAsync(connection, definitions, serverTags, cancellationToken);
 			await MergeRecurringDefinitionsAsync(connection, schedules, cancellationToken);
+			await RemoveEmptyFairQueueGroupsAsync(connection, cancellationToken);
 		}, cancellationToken, isolationLevel: IsolationLevel.Serializable);
 		await CleanupFairQueueGroupsAsync(terminalGroups);
 		foreach (var report in reports)
 			DefinitionRemoved(report.Name, report.Jobs, report.Schedules);
 	}
+
+	private Task<int> RemoveEmptyFairQueueGroupsAsync(DataConnection connection, CancellationToken token) =>
+		FairQueueGroups(connection).Where(group => !JobsWithDefinitions(connection).Any(job =>
+			job.QueueName == group.QueueName && job.GroupId == group.GroupId
+			&& (job.State == JobState.Pending || job.State == JobState.Scheduled || job.State == JobState.Active)))
+			.DeleteAsync(token);
 
 	/// <inheritdoc />
 	public async ValueTask<IReadOnlyList<JobDefinitionRecord>> GetJobDefinitionsAsync(CancellationToken cancellationToken = default)
@@ -90,7 +99,6 @@ internal sealed partial class LinqToDBJobStorage<T>
 				|| !string.Equals(schedule.Name, definition.Name, StringComparison.OrdinalIgnoreCase)
 				|| !string.Equals(schedule.Cron, definition.Cron, StringComparison.Ordinal)
 				|| !string.Equals(schedule.TimeZone, definition.TimeZone, StringComparison.Ordinal)
-				|| !string.Equals(schedule.QueueName, definition.QueueName, StringComparison.Ordinal)
 				|| !names.Add(schedule.Name))
 				throw new ArgumentException("Code-defined schedules must match their supplied job definitions.", nameof(registration));
 		}
@@ -103,7 +111,7 @@ internal sealed partial class LinqToDBJobStorage<T>
 		DataConnection connection,
 		JobDefinitionRegistration registration,
 		List<(string Name, int Jobs, int Schedules)> reports,
-		ISet<(string QueueName, string GroupId)> terminalGroups,
+		ISet<string> terminalGroups,
 		CancellationToken cancellationToken
 	)
 	{
@@ -112,7 +120,7 @@ internal sealed partial class LinqToDBJobStorage<T>
 		var schedules = await Recurring(connection).ToListAsync(cancellationToken);
 		var changes = JobDefinitionReconciliation.Create(registration,
 			definitions.Select(ToRecord).ToList(),
-			schedules.Select(ToRecord).ToList());
+			schedules.Select(static schedule => ToRecord(schedule)).ToList());
 		await CancelRemovedDefinitionsAsync(connection, changes.RemovedDefinitionNames, reports, terminalGroups, cancellationToken);
 		await Definitions(connection).Where(item => item.Name.In(changes.RemovedDefinitionNames)).DeleteAsync(cancellationToken);
 		foreach (var definition in changes.Definitions)
@@ -124,7 +132,7 @@ internal sealed partial class LinqToDBJobStorage<T>
 	}
 
 	private async Task CancelRemovedDefinitionsAsync(DataConnection connection, IReadOnlyList<string> names,
-		List<(string Name, int Jobs, int Schedules)> reports, ISet<(string QueueName, string GroupId)> terminalGroups,
+		List<(string Name, int Jobs, int Schedules)> reports, ISet<string> terminalGroups,
 		CancellationToken cancellationToken)
 	{
 		if (names.Count == 0)
@@ -209,7 +217,6 @@ internal sealed partial class LinqToDBJobStorage<T>
 			{
 				Name = definition.Name,
 				JobName = definition.Name,
-				QueueName = schedule.QueueName,
 				CancellationReason = schedule.CancellationReason,
 				Cron = schedule.Cron,
 				TimeZone = schedule.TimeZone,
@@ -225,7 +232,6 @@ internal sealed partial class LinqToDBJobStorage<T>
 			.UpdateWhenMatched(static (dst, src) => new ImmediateRecurringJobEntity
 			{
 				JobName = src.JobName,
-				QueueName = src.QueueName,
 				Cron = src.Cron,
 				TimeZone = src.TimeZone,
 				IsCodeDefined = true,
@@ -243,6 +249,7 @@ internal sealed partial class LinqToDBJobStorage<T>
 
 	[Sql.Expression(ProviderName.SqlServer, "({0} COLLATE Latin1_General_100_BIN2 = {1} COLLATE Latin1_General_100_BIN2 AND DATALENGTH({0}) = DATALENGTH({1}))", ServerSideOnly = true, IsPredicate = true)]
 	[Sql.Expression(ProviderName.PostgreSQL, "{0} = {1}", ServerSideOnly = true, IsPredicate = true)]
+	[Sql.Expression(ProviderName.SQLite, "{0} COLLATE BINARY = {1} COLLATE BINARY", ServerSideOnly = true, IsPredicate = true)]
 	private static bool EqualsOrdinal(string left, string right) => throw new InvalidOperationException("This function must be translated to SQL.");
 
 	private static ImmediateJobDefinitionMetadataEntity ToEntity(JobDefinitionRecord definition) => new()

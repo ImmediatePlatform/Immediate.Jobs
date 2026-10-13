@@ -1,3 +1,4 @@
+using System.Data;
 using Immediate.Jobs.Shared.Apis;
 using LinqToDB;
 using LinqToDB.Async;
@@ -10,31 +11,23 @@ internal sealed partial class LinqToDBJobStorage<T>
 	where T : DataConnection
 {
 	/// <inheritdoc />
-	public async ValueTask EnqueueAsync(JobRecord job, CancellationToken cancellationToken = default)
+	public async ValueTask EnqueueAsync(JobSubmission job, CancellationToken cancellationToken = default)
 	{
 		EnqueueAsyncCalled(job.JobHandle);
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 
-		await using var scope = contextScope.GetScope(out var connection);
+		await RetryConcurrencyAsync(async connection =>
+		{
+			var persisted = (await CreateRecordsAsync(connection, [job], cancellationToken))[0];
 
-		_ = await connection.BeginTransactionAsync(cancellationToken);
-		try
-		{
-			await ResetReturningGroupCursorsAsync(connection, [job], cancellationToken);
-			_ = await InsertAsync(connection, ToEntity(job), cancellationToken);
-			await connection.CommitTransactionAsync(cancellationToken);
-		}
-		catch
-		{
-			await connection.RollbackTransactionAsync(cancellationToken);
-			throw;
-		}
+			await InsertAsync(connection, ToEntity(persisted), cancellationToken);
+		}, cancellationToken, isolationLevel: IsolationLevel.Serializable);
 	}
 
 	/// <inheritdoc />
 	public async ValueTask EnqueueContinuationAsync(
-		JobRecord job,
+		JobSubmission job,
 		IReadOnlyList<JobContinuationEdge> edges,
 		CancellationToken cancellationToken = default
 	)
@@ -49,7 +42,7 @@ internal sealed partial class LinqToDBJobStorage<T>
 	/// <inheritdoc />
 	public async ValueTask EnqueueBatchAsync(
 		BatchRecord batch,
-		IReadOnlyList<JobRecord> jobs,
+		IReadOnlyList<JobSubmission> jobs,
 		IReadOnlyList<JobContinuationEdge> edges,
 		CancellationToken cancellationToken = default
 	)
@@ -65,7 +58,7 @@ internal sealed partial class LinqToDBJobStorage<T>
 	public async ValueTask AddBatchJobAsync(
 		JobHandle currentJobHandle,
 		int executionNumber,
-		JobRecord job,
+		JobSubmission job,
 		ContinuationOptions options,
 		CancellationToken cancellationToken = default
 	)
@@ -76,24 +69,26 @@ internal sealed partial class LinqToDBJobStorage<T>
 
 		await RetryConcurrencyAsync(
 			connection => AddBatchJobCoreAsync(connection, currentJobHandle, executionNumber, job, options, cancellationToken),
-			cancellationToken
+			cancellationToken,
+			isolationLevel: IsolationLevel.Serializable
 		);
 	}
 
 	private ValueTask ExecuteGraphInsertAsync(
 		BatchRecord? batch,
-		IReadOnlyList<JobRecord> jobs,
+		IReadOnlyList<JobSubmission> jobs,
 		IReadOnlyList<JobContinuationEdge> edges,
 		CancellationToken cancellationToken
 	) => RetryConcurrencyAsync(
 		connection => InsertGraphCoreAsync(connection, batch, jobs, edges, cancellationToken),
-		cancellationToken
+		cancellationToken,
+		isolationLevel: IsolationLevel.Serializable
 	);
 
 	private async Task InsertGraphCoreAsync(
 		DataConnection connection,
 		BatchRecord? batch,
-		IReadOnlyList<JobRecord> jobs,
+		IReadOnlyList<JobSubmission> jobs,
 		IReadOnlyList<JobContinuationEdge> edges,
 		CancellationToken cancellationToken
 	)
@@ -111,8 +106,10 @@ internal sealed partial class LinqToDBJobStorage<T>
 			throw new ImmediateJobException("Duplicate continuation edges are not allowed.");
 		ThrowIfCyclic(jobHandles, edgeEntities);
 
-		var jobEntities = jobs.Select(ToEntity).ToDictionary(static job => job.Id, StringComparer.Ordinal);
-		await ResetReturningGroupCursorsAsync(connection, jobs, cancellationToken);
+		var records = await CreateRecordsAsync(connection, jobs, cancellationToken);
+
+		var jobEntities = records.Select(ToEntity).ToDictionary(static job => job.Id, StringComparer.Ordinal);
+
 		await EvaluateInitialDependenciesAsync(
 			connection,
 			jobEntities,
@@ -153,7 +150,7 @@ internal sealed partial class LinqToDBJobStorage<T>
 			_ = await InsertAsync(connection, edge, cancellationToken);
 	}
 
-	private static void ValidateDynamicJob(JobRecord job, string description)
+	private static void ValidateDynamicJob(JobSubmission job, string description)
 	{
 		if (job.State is not (JobState.Pending or JobState.Scheduled))
 			throw new ImmediateJobException($"{description} '{job.JobHandle}' has invalid state '{job.State}'.");
@@ -163,7 +160,7 @@ internal sealed partial class LinqToDBJobStorage<T>
 		DataConnection connection,
 		JobHandle currentJobHandle,
 		int executionNumber,
-		JobRecord record,
+		JobSubmission record,
 		ContinuationOptions options,
 		CancellationToken cancellationToken
 	)
@@ -178,8 +175,9 @@ internal sealed partial class LinqToDBJobStorage<T>
 			throw new ImmediateJobException("The new job must belong to the current job's batch.");
 		var batch = await Batches(connection)
 			.SingleAsync(item => item.Id == batchHandle && item.State == BatchState.Executing, cancellationToken);
-		await ResetReturningGroupCursorsAsync(connection, [record], cancellationToken);
-		var job = ToEntity(record);
+		var persisted = (await CreateRecordsAsync(connection, [record], cancellationToken))[0];
+
+		var job = ToEntity(persisted);
 		_ = await InsertAsync(connection, job, cancellationToken);
 		var batchStamp = batch.ConcurrencyStamp;
 		batch.TotalJobs++;
@@ -207,6 +205,48 @@ internal sealed partial class LinqToDBJobStorage<T>
 			if (!await UpdateJobAsync(connection, waiter, waiterStamp, cancellationToken))
 				throw new LostRaceException();
 		}
+	}
+
+	private async Task<Dictionary<string, string>> GetDefinitionNamesAsync(
+		DataConnection connection,
+		List<string> names,
+		CancellationToken cancellationToken
+	)
+	{
+		if (names.Count == 0)
+			return [with(StringComparer.OrdinalIgnoreCase)];
+
+		IQueryable<ImmediateJobDefinitionMetadataEntity> query = Definitions(connection);
+		// SQLite's NOCASE collation only handles ASCII; compare Unicode aliases in the client.
+		if (!connection.DataProvider.Name.Contains("SQLite", StringComparison.OrdinalIgnoreCase))
+			query = query.Where(definition => names.Contains(definition.Name));
+
+		var definitions = await query
+			.Select(definition => definition.Name)
+			.ToListAsync(cancellationToken);
+
+		return definitions.ToDictionary(
+			static name => name,
+			static name => name,
+			StringComparer.OrdinalIgnoreCase
+		);
+	}
+
+	private async Task<IReadOnlyList<JobRecord>> CreateRecordsAsync(
+		DataConnection connection,
+		IReadOnlyList<JobSubmission> submissions,
+		CancellationToken cancellationToken
+	)
+	{
+		var names = submissions.Select(static job => job.JobName).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+		var definitions = await GetDefinitionNamesAsync(connection, names, cancellationToken);
+		return submissions.Select(job =>
+		{
+			if (!definitions.TryGetValue(job.JobName, out var definition))
+				throw new KeyNotFoundException($"Job definition '{job.JobName}' was not found.");
+
+			return job.CreateRecord(definition);
+		}).ToList();
 	}
 
 	[LoggerMessage(

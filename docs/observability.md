@@ -30,7 +30,8 @@ Meter `Immediate.Jobs` (`Internals/JobTelemetry.cs`):
 
 | Instrument | Type |
 | --- | --- |
-| `jobs.enqueued`, `jobs.succeeded`, `jobs.failed`, `jobs.retried` | counters, tagged `job.name` and `job.queue` |
+| `jobs.enqueued` | counter, tagged `job.name` |
+| `jobs.succeeded`, `jobs.failed`, `jobs.retried` | counters, tagged `job.name` and `job.queue` |
 | `job.duration` | histogram, seconds |
 | `acquisition.count`, `workers.active` | observable gauges |
 

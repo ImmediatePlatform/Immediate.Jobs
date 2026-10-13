@@ -9,7 +9,7 @@ namespace Immediate.Jobs.Testing;
 /// </summary>
 /// <remarks>
 ///	    Capturing does not alter storage behavior: every operation is forwarded to an <see cref="InMemoryJobStorage"/>
-///     after its input has been recorded.
+///     and captures the resulting persisted records.
 /// </remarks>
 [SuppressMessage("Usage", "CA1816:Dispose methods should call SuppressFinalize", Justification = "Class is only used for testing; shouldn't need to worry about this.")]
 [SuppressMessage("Design", "CA1063:Implement IDisposable Correctly", Justification = "Class is only used for testing; shouldn't need to worry about this.")]
@@ -134,7 +134,12 @@ public class CapturingJobStorage(TimeProvider timeProvider) :
 		IReadOnlyList<BatchRecord> batches,
 		IReadOnlyList<JobContinuationEdge> edges,
 		IReadOnlyList<RecurringJobSchedule> recurringSchedules
-	) => _inner.LoadPersistedJobState(jobs, batches, edges, recurringSchedules);
+	)
+	{
+		_inner.LoadPersistedJobState(jobs, batches, edges, recurringSchedules);
+		lock (_gate)
+			_jobs.AddRange(jobs);
+	}
 
 	/// <inheritdoc />
 	public virtual async ValueTask InitializeAsync(CancellationToken cancellationToken = default) => await _inner.InitializeAsync(cancellationToken);
@@ -164,63 +169,78 @@ public class CapturingJobStorage(TimeProvider timeProvider) :
 		_inner.GetDueRecurringAsync(now, batchSize, jobNames, cancellationToken);
 
 	/// <inheritdoc />
-	public virtual async ValueTask EnqueueAsync(JobRecord job, CancellationToken cancellationToken = default)
+	public virtual async ValueTask EnqueueAsync(JobSubmission job, CancellationToken cancellationToken = default)
 	{
-		Capture(job);
+		ArgumentNullException.ThrowIfNull(job);
+
 		await _inner.EnqueueAsync(job, cancellationToken);
+		Capture(await GetSubmittedRecordAsync(job.JobHandle, cancellationToken));
 	}
 
 	/// <inheritdoc />
-	public virtual async ValueTask EnqueueContinuationAsync(JobRecord job, IReadOnlyList<JobContinuationEdge> edges, CancellationToken cancellationToken = default)
+	public virtual async ValueTask EnqueueContinuationAsync(JobSubmission job, IReadOnlyList<JobContinuationEdge> edges, CancellationToken cancellationToken = default)
 	{
-		var edgeSnapshot = edges.ToList();
-		lock (_gate)
-		{
-			_jobs.Add(job);
-			_continuations.Add(new(job, edgeSnapshot));
-		}
+		ArgumentNullException.ThrowIfNull(job);
 
 		await _inner.EnqueueContinuationAsync(job, edges, cancellationToken);
+		var record = await GetSubmittedRecordAsync(job.JobHandle, cancellationToken);
+		lock (_gate)
+		{
+			_jobs.Add(record);
+			_continuations.Add(new(record, edges.ToList()));
+		}
 	}
 
 	/// <inheritdoc />
-	public virtual async ValueTask EnqueueBatchAsync(BatchRecord batch, IReadOnlyList<JobRecord> jobs, IReadOnlyList<JobContinuationEdge> edges, CancellationToken cancellationToken = default)
+	public virtual async ValueTask EnqueueBatchAsync(BatchRecord batch, IReadOnlyList<JobSubmission> jobs, IReadOnlyList<JobContinuationEdge> edges, CancellationToken cancellationToken = default)
 	{
-		var jobSnapshot = jobs.ToList();
-		var edgeSnapshot = edges.ToList();
-		lock (_gate)
-		{
-			_jobs.AddRange(jobSnapshot);
-			_batches.Add(new(batch, jobSnapshot, edgeSnapshot));
-		}
+		ArgumentNullException.ThrowIfNull(jobs);
 
 		await _inner.EnqueueBatchAsync(batch, jobs, edges, cancellationToken);
+		var records = new List<JobRecord>(jobs.Count);
+		foreach (var job in jobs)
+			records.Add(await GetSubmittedRecordAsync(job.JobHandle, cancellationToken));
+
+		lock (_gate)
+		{
+			_jobs.AddRange(records);
+			_batches.Add(new(batch, records, edges.ToList()));
+		}
 	}
 
 	/// <inheritdoc />
-	public virtual async ValueTask AddBatchJobAsync(JobHandle currentJobHandle, int executionNumber, JobRecord job, ContinuationOptions options, CancellationToken cancellationToken = default)
+	public virtual async ValueTask AddBatchJobAsync(JobHandle currentJobHandle, int executionNumber, JobSubmission job, ContinuationOptions options, CancellationToken cancellationToken = default)
 	{
-		lock (_gate)
-		{
-			_jobs.Add(job);
-			_batchJobs.Add(new(currentJobHandle, executionNumber, job, options));
-		}
+		ArgumentNullException.ThrowIfNull(job);
 
 		await _inner.AddBatchJobAsync(currentJobHandle, executionNumber, job, options, cancellationToken);
+		var record = await GetSubmittedRecordAsync(job.JobHandle, cancellationToken);
+		lock (_gate)
+		{
+			_jobs.Add(record);
+			_batchJobs.Add(new(currentJobHandle, executionNumber, record, options));
+		}
 	}
 
 	/// <inheritdoc />
 	public virtual async ValueTask CompleteWithContinuationsAsync(JobHandle jobHandle, int executionNumber, string workerId, IReadOnlyList<JobContinuationAddition> additions, CancellationToken cancellationToken = default)
 	{
-		var snapshot = additions.ToList();
-		lock (_gate)
-		{
-			_jobs.AddRange(snapshot.Select(static addition => addition.Job));
-			_dynamicContinuations.Add(new(jobHandle, executionNumber, workerId, snapshot));
-		}
+		ArgumentNullException.ThrowIfNull(additions);
 
 		await _inner.CompleteWithContinuationsAsync(jobHandle, executionNumber, workerId, additions, cancellationToken);
+		var records = new List<JobRecord>(additions.Count);
+		foreach (var addition in additions)
+			records.Add(await GetSubmittedRecordAsync(addition.Job.JobHandle, cancellationToken));
+
+		lock (_gate)
+		{
+			_jobs.AddRange(records);
+			_dynamicContinuations.Add(new(jobHandle, executionNumber, workerId, additions.ToList()));
+		}
 	}
+
+	private async ValueTask<JobRecord> GetSubmittedRecordAsync(JobHandle handle, CancellationToken token) =>
+		(await _inner.QueryJobsAsync(new() { JobHandle = handle }, token)).Single();
 
 	/// <inheritdoc />
 	public virtual async ValueTask UpsertRecurringAsync(RecurringJobSchedule schedule, CancellationToken cancellationToken = default)

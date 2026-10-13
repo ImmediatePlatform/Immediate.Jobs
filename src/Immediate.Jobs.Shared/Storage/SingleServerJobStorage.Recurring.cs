@@ -13,6 +13,7 @@ internal sealed partial class SingleServerJobStorage
 		SingleServerUpsertRecurringAsyncCalled(schedule.Name);
 		await TaskScheduler.Yield();
 		await EnsureInitializedAsync(cancellationToken);
+
 		await DurableStorage.UpsertRecurringAsync(schedule, cancellationToken);
 		await PrimaryStorage.UpsertRecurringAsync(schedule, cancellationToken);
 	}

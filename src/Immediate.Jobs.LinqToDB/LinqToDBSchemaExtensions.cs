@@ -170,7 +170,7 @@ public static class LinqToDBSchemaExtensions
 			var prefix = schema is null ? string.Empty : $"\"{schema}\".";
 
 			await connection.ExecuteAsync($$"""
-				ALTER TABLE {{prefix}}"immediate_jobs" ALTER COLUMN "QueueName" SET DEFAULT 'default';
+
 				ALTER TABLE {{prefix}}"immediate_job_executions" ALTER COLUMN "IsSynthetic" SET DEFAULT FALSE;
 				DO $constraints$
 				BEGIN
@@ -209,10 +209,6 @@ public static class LinqToDBSchemaExtensions
 			await connection.ExecuteAsync($$"""
 				IF NOT EXISTS (SELECT 1 FROM sys.default_constraints dc
 					JOIN sys.columns c ON c.default_object_id = dc.object_id
-					WHERE dc.parent_object_id = OBJECT_ID(N'{{qualifiedJobs}}') AND c.name = N'QueueName')
-					ALTER TABLE {{qualifiedJobs}} ADD DEFAULT N'default' FOR [QueueName];
-				IF NOT EXISTS (SELECT 1 FROM sys.default_constraints dc
-					JOIN sys.columns c ON c.default_object_id = dc.object_id
 					WHERE dc.parent_object_id = OBJECT_ID(N'{{qualifiedExecutions}}') AND c.name = N'IsSynthetic')
 					ALTER TABLE {{qualifiedExecutions}} ADD DEFAULT 0 FOR [IsSynthetic];
 				IF NOT EXISTS (SELECT 1 FROM sys.foreign_keys WHERE name = N'FK_immediate_jobs_immediate_job_batches_BatchHandle'
@@ -249,8 +245,8 @@ public static class LinqToDBSchemaExtensions
 			("IX_immediate_jobs_BatchHandle", "immediate_jobs", "BatchHandle", false),
 			("IX_immediate_jobs_State_DueAt", "immediate_jobs", "State, DueAt", false),
 			("IX_immediate_jobs_State_CreatedAt", "immediate_jobs", "State, CreatedAt", false),
-			("IX_immediate_jobs_QueueName_State_DueAt_CreatedAt", "immediate_jobs", "QueueName, State, DueAt, CreatedAt", false),
-			("IX_immediate_jobs_QueueName_State_GroupId", "immediate_jobs", "QueueName, State, GroupId", false),
+			("IX_immediate_jobs_JobName_State_DueAt_CreatedAt", "immediate_jobs", "JobName, State, DueAt, CreatedAt", false),
+			("IX_immediate_jobs_JobName_State_GroupId", "immediate_jobs", "JobName, State, GroupId", false),
 			("IX_immediate_job_continuations_ParentKind_ParentId", "immediate_job_continuations", "ParentKind, ParentId", false),
 			("IX_immediate_recurring_jobs_IsPaused_NextRunAt", "immediate_recurring_jobs", "IsPaused, NextRunAt", false),
 			("IX_immediate_job_servers_ExpiresAt", "immediate_job_servers", "ExpiresAt", false),

@@ -42,7 +42,7 @@ internal sealed partial class LinqToDBJobStorage<T>
 
 				await using var scope = contextScope.GetScope(out var readConnection);
 
-				var eligibleQuery = Jobs(readConnection)
+				var eligibleQuery = JobsWithDefinitions(readConnection)
 					.Where(job => job.QueueName == queue.QueueName && eligibleNames.Contains(job.JobName) &&
 						(((job.State == JobState.Scheduled || job.State == JobState.Pending) && job.DueAt <= now)
 							|| (job.State == JobState.Active && job.LeaseExpiresAt <= now)));
@@ -93,7 +93,7 @@ internal sealed partial class LinqToDBJobStorage<T>
 					break;
 				}
 
-				var activeQuery = Jobs(readConnection)
+				var activeQuery = JobsWithDefinitions(readConnection)
 					.Where(job => job.QueueName == queue.QueueName
 						&& job.State == JobState.Active
 						&& job.LeaseExpiresAt > now);
@@ -159,6 +159,7 @@ internal sealed partial class LinqToDBJobStorage<T>
 				var claimedJob = request.FairQueues.GroupRoundRobin
 					? await AcquireFairCandidateAsync(
 						selected,
+						queue.QueueName,
 						request.WorkerId,
 						request.Lease,
 						now,
@@ -211,7 +212,7 @@ internal sealed partial class LinqToDBJobStorage<T>
 
 			await using var scope = contextScope.GetScope(out var readConnection);
 
-			var candidates = await Jobs(readConnection)
+			var candidates = await JobsWithDefinitions(readConnection)
 				.Where(job => job.QueueName == queueName && eligibleNames.Contains(job.JobName) &&
 					(((job.State == JobState.Scheduled || job.State == JobState.Pending) && job.DueAt <= now)
 						|| (job.State == JobState.Active && job.LeaseExpiresAt <= now)))
@@ -223,7 +224,7 @@ internal sealed partial class LinqToDBJobStorage<T>
 			if (candidates.Count == 0)
 				break;
 
-			var selected = new List<ImmediateJobEntity>(candidates.Count);
+			var selected = new List<JobQueryRow>(candidates.Count);
 			var selectionCapacities = new Dictionary<string, int>(jobCapacities, StringComparer.Ordinal);
 			foreach (var candidate in candidates)
 			{
@@ -255,7 +256,8 @@ internal sealed partial class LinqToDBJobStorage<T>
 	}
 
 	private async ValueTask<JobRecord?> AcquireFairCandidateAsync(
-		ImmediateJobEntity candidate,
+		JobQueryRow candidate,
+		string queueName,
 		string workerId,
 		TimeSpan lease,
 		DateTimeOffset now,
@@ -302,7 +304,7 @@ internal sealed partial class LinqToDBJobStorage<T>
 			{
 				var cursor = await FairQueueGroups(connection)
 					.SingleOrDefaultAsync(
-						group => group.QueueName == candidate.QueueName && group.GroupId == groupId,
+						group => group.QueueName == queueName && group.GroupId == groupId,
 						cancellationToken
 					);
 				if (cursor is null)
@@ -310,7 +312,7 @@ internal sealed partial class LinqToDBJobStorage<T>
 					cursorWasMissing = true;
 					_ = await InsertAsync(connection, new ImmediateFairQueueGroupEntity
 					{
-						QueueName = candidate.QueueName,
+						QueueName = queueName,
 						GroupId = groupId,
 						LastServedSequence = nextSequence,
 						ConcurrencyStamp = Guid.NewGuid(),
@@ -360,7 +362,7 @@ internal sealed partial class LinqToDBJobStorage<T>
 			}
 
 			if (await FairQueueCursorChangedAsync(
-				candidate.QueueName,
+				queueName,
 				candidate.GroupId,
 				observedCursorStamp,
 				cursorWasMissing,
@@ -413,86 +415,42 @@ internal sealed partial class LinqToDBJobStorage<T>
 			&& (double)inflight / totalInflight > policy.ConcurrencyShareThreshold;
 	}
 
-	private async Task ResetReturningGroupCursorsAsync(
-		DataConnection connection,
-		IReadOnlyCollection<JobRecord> jobs,
-		CancellationToken cancellationToken
-	)
-	{
-		var groups = jobs
-			.Where(static job => job.GroupId is not null)
-			.Select(static job => (job.QueueName, job.GroupId))
-			.Distinct()
-			.ToList();
-		foreach (var (queueName, groupId) in groups)
-		{
-			var hasLiveJobs = await Jobs(connection)
-				.AnyAsync(
-					job => job.QueueName == queueName
-						&& job.GroupId == groupId
-						&& (job.State == JobState.Pending
-							|| job.State == JobState.Scheduled
-							|| job.State == JobState.Active),
-					cancellationToken
-				);
-			if (hasLiveJobs)
-				continue;
-
-			_ = await FairQueueGroups(connection)
-				.Where(group => group.QueueName == queueName && group.GroupId == groupId)
-				.DeleteAsync(cancellationToken);
-		}
-	}
-
 	private sealed record FairQueueCandidateState(
 		string JobHandle,
 		int Inflight,
 		long LastServedSequence
 	);
 
-	private async Task CleanupFairQueueGroupsAsync(
-		IEnumerable<(string QueueName, string GroupId)> groups
-	)
+	private async Task CleanupFairQueueGroupsAsync(IEnumerable<string> groups)
 	{
-		foreach (var (queueName, groupId) in groups.Distinct())
+		var groupIds = groups.Distinct(StringComparer.Ordinal).ToList();
+		if (groupIds.Count == 0)
+			return;
+
+		try
 		{
-			try
-			{
-				await using var scope = contextScope.GetScope(out var connection);
-
-				if (await Jobs(connection)
-					.AnyAsync(
-						item => item.QueueName == queueName
-							&& item.GroupId == groupId
-							&& (item.State == JobState.Pending
-								|| item.State == JobState.Scheduled
-								|| item.State == JobState.Active),
-						CancellationToken.None
-					))
-				{
-					continue;
-				}
-
-				_ = await FairQueueGroups(connection)
-					.Where(group => group.QueueName == queueName && group.GroupId == groupId)
-					.DeleteAsync(CancellationToken.None);
-			}
+			await using var scope = contextScope.GetScope(out var connection);
+			await FairQueueGroups(connection)
+				.Where(group => groupIds.Contains(group.GroupId)
+					&& !JobsWithDefinitions(connection).Any(job => job.QueueName == group.QueueName
+						&& job.GroupId == group.GroupId
+						&& (job.State == JobState.Pending
+							|| job.State == JobState.Scheduled
+							|| job.State == JobState.Active)))
+				.DeleteAsync(CancellationToken.None);
+		}
 #pragma warning disable CA1031 // Cleanup cannot make an already committed job transition appear to fail.
-			catch (Exception)
+		catch (Exception)
 #pragma warning restore CA1031
-			{
-				// Cleanup is best-effort metadata maintenance and must not invalidate a committed transition.
-			}
+		{
+			// Cleanup is best-effort metadata maintenance and must not invalidate a committed transition.
 		}
 	}
 
-	private static void AddFairQueueGroup(
-		ISet<(string QueueName, string GroupId)> groups,
-		ImmediateJobEntity job
-	)
+	private static void AddFairQueueGroup(ISet<string> groups, ImmediateJobEntity job)
 	{
 		if (job.GroupId is { } groupId)
-			_ = groups.Add((job.QueueName, groupId));
+			groups.Add(groupId);
 	}
 
 	private async Task<bool> UpdateFairQueueGroupAsync(

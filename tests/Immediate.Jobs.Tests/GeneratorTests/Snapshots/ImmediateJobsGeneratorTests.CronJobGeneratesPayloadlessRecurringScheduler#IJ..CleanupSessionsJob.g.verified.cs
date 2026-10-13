@@ -18,7 +18,6 @@ partial class CleanupSessionsJob
 		timeProvider,
 		idGenerator,
 		"cleanup-sessions",
-		"default",
 		static options => new PayloadJsonContext(options).Payload
 	)
 		, global::Immediate.Jobs.Shared.Interfaces.IRecurringJobTrigger

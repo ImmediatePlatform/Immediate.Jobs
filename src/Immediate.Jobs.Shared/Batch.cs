@@ -22,7 +22,7 @@ public sealed class Batch : IAsyncDisposable
 		Disposed,
 	}
 
-	private readonly List<JobRecord> _jobs = [];
+	private readonly List<JobSubmission> _jobs = [];
 	private readonly HashSet<JobHandle> _rootJobs = [];
 	private readonly List<JobContinuationEdge> _edges = [];
 	private readonly IJobGraphStorage _storage;
@@ -56,7 +56,7 @@ public sealed class Batch : IAsyncDisposable
 	/// </summary>
 	public BatchHandle BatchHandle { get; }
 
-	internal BatchJobHandle Add(JobRecord record)
+	internal BatchJobHandle Add(JobSubmission record)
 	{
 		EnsureOpenCore();
 
@@ -66,7 +66,7 @@ public sealed class Batch : IAsyncDisposable
 		return new BatchJobHandle(batch: this, record.JobHandle);
 	}
 
-	internal BatchJobHandle Add(JobRecord record, IReadOnlyList<BatchJobHandle> parents, ContinuationTrigger on, TimeSpan delay)
+	internal BatchJobHandle Add(JobSubmission record, IReadOnlyList<BatchJobHandle> parents, ContinuationTrigger on, TimeSpan delay)
 	{
 		EnsureOpenCore();
 

@@ -23,7 +23,7 @@ internal sealed partial class RedisJobStorage
 		"cancellationReason",
 	];
 
-	private async ValueTask<JobRecord?> ReadJobAsync(JobHandle id, CancellationToken cancellationToken)
+	private async ValueTask<JobRecord?> ReadJobDataAsync(JobHandle id, CancellationToken cancellationToken)
 	{
 		var values = await Database.HashGetAsync(JobKey(id), JobMutableFields)
 			.WaitAsync(cancellationToken);
@@ -47,6 +47,42 @@ internal sealed partial class RedisJobStorage
 			ExecutionSpanId = NullIfEmpty(values[9]),
 			ExecutionStartedAt = FromNullableTicks(values[10]),
 		};
+	}
+
+	private async ValueTask<JobRecord?> ReadJobAsync(JobHandle id, CancellationToken cancellationToken)
+	{
+		var jobs = await ReadJobsAsync([id.Value], cancellationToken);
+		return jobs.Count == 0 ? null : jobs[0];
+	}
+
+	private async Task<Dictionary<string, string?>> ReadDefinitionQueuesAsync(
+		IEnumerable<string> jobNames,
+		CancellationToken cancellationToken
+	)
+	{
+		var names = jobNames.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+		if (names.Count == 0)
+			return [with(StringComparer.OrdinalIgnoreCase)];
+
+		RedisValue[] keys = [.. names.Select(static name => (RedisValue)name.ToUpperInvariant())];
+		var metadata = await Database.HashGetAsync(DefinitionMetadataKey, keys).WaitAsync(cancellationToken);
+		var queues = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
+		for (var index = 0; index < names.Count; index++)
+		{
+			if (metadata[index].IsNull)
+			{
+				queues[names[index]] = null;
+				continue;
+			}
+
+			var definition = JsonSerializer.Deserialize(
+				(string)metadata[index]!,
+				RedisJsonSerializerContext.Default.JobDefinitionRecord
+			) ?? throw new ImmediateJobException($"Job definition '{names[index]}' contains invalid data.");
+			queues[names[index]] = definition.QueueName;
+		}
+
+		return queues;
 	}
 
 	private static DateTimeOffset FromTicks(RedisValue value) =>

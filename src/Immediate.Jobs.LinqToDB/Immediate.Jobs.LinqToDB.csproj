@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup Label="Nuget">
 	<IsPackable>true</IsPackable>
@@ -36,6 +36,10 @@
 
   <ItemGroup>
 	<InternalsVisibleTo Include="Immediate.Jobs.StorageTests" />
+  </ItemGroup>
+
+  <ItemGroup>
+	<Compile Include="../Immediate.Jobs.Shared/JobSubmissionExtensions.cs" Link="Internals/JobSubmissionExtensions.cs" />
   </ItemGroup>
 
 </Project>

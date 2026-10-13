@@ -13,6 +13,7 @@ public sealed class WaitForTriggerTests
 		var cancellationToken = TestContext.Current.CancellationToken;
 		var state = new BatchWorkflowState();
 		await using var harness = CreateHarness(state);
+		await harness.DrainAsync(TestContext.Current.CancellationToken);
 		await using var scope = harness.Services.CreateAsyncScope();
 		var scheduler = scope.ServiceProvider.GetRequiredService<BatchWorkflowJob.Scheduler>();
 
@@ -34,6 +35,7 @@ public sealed class WaitForTriggerTests
 	{
 		var cancellationToken = TestContext.Current.CancellationToken;
 		await using var harness = CreateHarness();
+		await harness.DrainAsync(TestContext.Current.CancellationToken);
 		await using var scope = harness.Services.CreateAsyncScope();
 		var scheduler = scope.ServiceProvider.GetRequiredService<BatchWorkflowJob.Scheduler>();
 		var handle = await scheduler.WaitForTriggerAsync(new BatchWorkflowJob.Payload("once"), cancellationToken);
@@ -48,6 +50,7 @@ public sealed class WaitForTriggerTests
 	{
 		var cancellationToken = TestContext.Current.CancellationToken;
 		await using var harness = CreateHarness();
+		await harness.DrainAsync(TestContext.Current.CancellationToken);
 		await using var scope = harness.Services.CreateAsyncScope();
 		var scheduler = scope.ServiceProvider.GetRequiredService<BatchWorkflowJob.Scheduler>();
 		var handle = await scheduler.WaitForTriggerAsync(new BatchWorkflowJob.Payload("delayed"), cancellationToken);
@@ -68,6 +71,7 @@ public sealed class WaitForTriggerTests
 		var cancellationToken = TestContext.Current.CancellationToken;
 		var state = new BatchWorkflowState();
 		await using var harness = CreateHarness(state);
+		await harness.DrainAsync(TestContext.Current.CancellationToken);
 		await using var scope = harness.Services.CreateAsyncScope();
 		var scheduler = scope.ServiceProvider.GetRequiredService<BatchWorkflowJob.Scheduler>();
 
@@ -90,6 +94,7 @@ public sealed class WaitForTriggerTests
 		var cancellationToken = TestContext.Current.CancellationToken;
 		var state = new BatchWorkflowState();
 		await using var harness = CreateHarness(state);
+		await harness.DrainAsync(TestContext.Current.CancellationToken);
 		await using var scope = harness.Services.CreateAsyncScope();
 		var batches = scope.ServiceProvider.GetRequiredService<BatchScheduler>();
 		var scheduler = scope.ServiceProvider.GetRequiredService<BatchWorkflowJob.Scheduler>();

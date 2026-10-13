@@ -36,7 +36,7 @@ implementation):
 
 A group's cursor is removed once it has no pending, scheduled, or active jobs left, so a returning
 group starts without cursor debt. Providers do this on terminal transitions (complete, terminal
-failure, cancel); EF Core and LinqToDB also reset a stale cursor when a returning group enqueues.
+failure, cancel).
 
 ## Providers
 
@@ -45,24 +45,23 @@ failure, cancel); EF Core and LinqToDB also reset a stale cursor when a returnin
 | In-memory | Selection, claim, and cursor update under the storage lock. |
 | Single-server | The in-memory primary decides; the durable store only mirrors the claimed ids, so its cursor table stays empty. |
 | EF Core / LinqToDB (distributed) | Claim one slot at a time so each slot sees the previous cursor update. Cursors are rows in `immediate_fair_queue_groups`, updated in the claim transaction; clean-up runs after commit. Concurrent nodes may tie on a sequence; job ownership is still protected by the job's concurrency stamp. |
-| Redis | All state lives next to the queue's due set and is maintained by the existing Lua scripts (below). |
+| Redis | Lua scripts maintain job-name indexes and queue-level cursors (below). |
 
 ### Redis state
 
 | Key (under the storage prefix) | Type | Contents |
 | --- | --- | --- |
-| `fair:due:{queue length}:{queue}:{group}` | sorted set | Due members of one group, same score and member as `due:{queue}`. |
-| `fair:ungrouped:{queue}` | sorted set | Due members without a group. |
-| `fair:groups:{queue}` | set | Groups that currently have due members. |
-| `fair:active:{queue}` | hash | Active job count per group (`''` for ungrouped). |
+| `fair:due:{job name length}:{job name}:{group}` | sorted set | Due members of one group, same score and member as `due:{job name}`. |
+| `fair:ungrouped:{job name}` | sorted set | Due members without a group. |
+| `fair:groups:{job name}` | set | Groups that currently have due members. |
+| `fair:active:{job name}` | hash | Active job count per group (`''` for ungrouped). |
 | `fair:cursor:{queue}` | hash | Last-served sequence per group. |
 
 - **Shared helpers.** `RedisScripts.FairQueueFunctions` is a Lua prelude prepended to every script
   that touches this state.
-- **Index maintenance.** Every script that adds a job to `due:{queue}` (enqueue, lease reclaim,
+- **Index maintenance.** Every script that adds a job to `due:{job name}` (enqueue, lease reclaim,
   fail-with-retry, `RetryAsync`, recurring materialization, trigger) also indexes it. Claims,
   cancellation, and `RetryAsync` remove the old member, and stale members are cleaned lazily during
   selection.
 - **Active counts.** Claims increment them; complete, fail, cancel, and lease reclaim decrement them.
-  Because reclaim runs first in the acquisition script, the counts equal the non-expired in-flight
-  jobs.
+  Acquisition uses `active:job:{job name}` lease-expiry indexes to count only unexpired leases.

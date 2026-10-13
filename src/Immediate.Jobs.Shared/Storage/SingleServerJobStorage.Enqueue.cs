@@ -6,18 +6,19 @@ namespace Immediate.Jobs.Shared.Storage;
 internal sealed partial class SingleServerJobStorage
 {
 	/// <inheritdoc />
-	public async ValueTask EnqueueAsync(JobRecord job, CancellationToken cancellationToken = default)
+	public async ValueTask EnqueueAsync(JobSubmission job, CancellationToken cancellationToken = default)
 	{
 		SingleServerEnqueueAsyncCalled(job.JobHandle);
 		await TaskScheduler.Yield();
 		await EnsureInitializedAsync(cancellationToken);
+
 		await DurableStorage.EnqueueAsync(job, cancellationToken);
 		await PrimaryStorage.EnqueueAsync(job, cancellationToken);
 	}
 
 	/// <inheritdoc />
 	public async ValueTask EnqueueContinuationAsync(
-		JobRecord job,
+		JobSubmission job,
 		IReadOnlyList<JobContinuationEdge> edges,
 		CancellationToken cancellationToken = default
 	)
@@ -25,6 +26,7 @@ internal sealed partial class SingleServerJobStorage
 		SingleServerEnqueueContinuationAsyncCalled(job.JobHandle, edges.Count);
 		await TaskScheduler.Yield();
 		await EnsureInitializedAsync(cancellationToken);
+
 		await JobGraphStorage.EnqueueContinuationAsync(job, edges, cancellationToken);
 		await PrimaryStorage.EnqueueContinuationAsync(job, edges, cancellationToken);
 	}
@@ -32,7 +34,7 @@ internal sealed partial class SingleServerJobStorage
 	/// <inheritdoc />
 	public async ValueTask EnqueueBatchAsync(
 		BatchRecord batch,
-		IReadOnlyList<JobRecord> jobs,
+		IReadOnlyList<JobSubmission> jobs,
 		IReadOnlyList<JobContinuationEdge> edges,
 		CancellationToken cancellationToken = default
 	)
@@ -40,6 +42,7 @@ internal sealed partial class SingleServerJobStorage
 		SingleServerEnqueueBatchAsyncCalled(batch.BatchHandle, jobs.Count, edges.Count);
 		await TaskScheduler.Yield();
 		await EnsureInitializedAsync(cancellationToken);
+
 		await JobGraphStorage.EnqueueBatchAsync(batch, jobs, edges, cancellationToken);
 		await PrimaryStorage.EnqueueBatchAsync(batch, jobs, edges, cancellationToken);
 	}
@@ -48,7 +51,7 @@ internal sealed partial class SingleServerJobStorage
 	public async ValueTask AddBatchJobAsync(
 		JobHandle currentJobHandle,
 		int executionNumber,
-		JobRecord job,
+		JobSubmission job,
 		ContinuationOptions options,
 		CancellationToken cancellationToken = default
 	)
@@ -56,6 +59,7 @@ internal sealed partial class SingleServerJobStorage
 		SingleServerAddBatchJobAsyncCalled(currentJobHandle, executionNumber, job.JobHandle);
 		await TaskScheduler.Yield();
 		await EnsureInitializedAsync(cancellationToken);
+
 		await JobGraphStorage.AddBatchJobAsync(currentJobHandle, executionNumber, job, options, cancellationToken);
 		await PrimaryStorage.AddBatchJobAsync(currentJobHandle, executionNumber, job, options, cancellationToken);
 	}

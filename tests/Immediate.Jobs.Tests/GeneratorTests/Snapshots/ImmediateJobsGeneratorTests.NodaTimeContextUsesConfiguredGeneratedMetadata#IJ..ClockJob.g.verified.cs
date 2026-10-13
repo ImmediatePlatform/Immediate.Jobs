@@ -19,7 +19,6 @@ partial class ClockJob
 		timeProvider,
 		idGenerator,
 		"clock",
-		"default",
 		static options => new PayloadJsonContext(options).Payload
 	)
 		, global::Immediate.Jobs.Shared.Interfaces.IRecurringJobScheduler

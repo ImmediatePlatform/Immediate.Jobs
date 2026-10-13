@@ -40,7 +40,7 @@ public sealed partial class InMemoryJobStorage
 			{
 				UpdateBatchAfterTerminal(job.BatchHandle, JobState.Cancelled, now);
 				ProcessTerminalJob(job.JobHandle);
-				RemoveFairQueueCursorWhenBacklogClears(job.QueueName, job.GroupId);
+				RemoveFairQueueCursorWhenBacklogClears(GetQueueName(job.JobName), job.GroupId);
 			}
 
 			foreach (var schedule in schedules)
@@ -54,10 +54,14 @@ public sealed partial class InMemoryJobStorage
 
 			foreach (var definition in changes.Definitions)
 				_jobDefinitions[definition.Name] = definition;
+
+			foreach (var (queue, group) in _fairQueueLastServed.Keys.ToList())
+				RemoveFairQueueCursorWhenBacklogClears(queue, group);
+
 			foreach (var name in changes.RemovedScheduleNames)
 				_recurring.Remove(name);
 			foreach (var schedule in changes.Schedules)
-				_recurring[schedule.Name] = schedule;
+				_recurring[schedule.Name] = schedule with { QueueName = null };
 		}
 	}
 
@@ -70,6 +74,14 @@ public sealed partial class InMemoryJobStorage
 		lock (_gate)
 			return [.. _jobDefinitions.Values.OrderBy(static definition => definition.Name, StringComparer.OrdinalIgnoreCase)];
 	}
+
+	private string? GetQueueName(string jobName) =>
+		_jobDefinitions.TryGetValue(jobName, out var definition) ? definition.QueueName : null;
+
+	private JobRecord ReadRecord(JobRecord job) => job with { QueueName = GetQueueName(job.JobName) };
+
+	private RecurringJobSchedule ReadRecord(RecurringJobSchedule schedule) =>
+		schedule with { QueueName = GetQueueName(schedule.JobName) };
 
 	[LoggerMessage(
 		EventId = LibraryEventIds.InMemoryDefinitionRemoved,

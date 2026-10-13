@@ -19,7 +19,9 @@ From `Directory.Build.props` and `.editorconfig`:
 ## Code patterns
 
 - **Readability.** Insert blank lines between logical groups of statements to make code easier for
-  human readers to follow.
+  human readers to follow. Split chained operations across lines when that makes them easier to read;
+  use guard clauses and inline straightforward assignments. Name values for their domain role, such as
+  `HandlerTags` and `JobTags`.
 - **Async entry points.** Public async methods yield first with `await TaskScheduler.Yield()` (an
   internal helper that resumes on the thread pool, whatever the caller's synchronization context).
   Storage methods also log their "…Called" message and call
@@ -31,8 +33,16 @@ From `Directory.Build.props` and `.editorconfig`:
 - **Time.** Always come from an injected `TimeProvider`, so tests can use `FakeTimeProvider`.
 - **Options.** Classes use Immediate.Validations (`[Validate]` with attribute rules) rather than
   hand-written validation.
-- **Shared logic** in `JobScheduler<TPayload>` goes through private `…CoreAsync` helpers, so the
-  public overload sets stay one-liners.
+- **Shared logic.** Reuse existing helpers before writing another implementation. Extract repeated
+  rules into a helper that expresses their meaning; analyzer and generator validation should agree,
+  including the distinction between omitted settings and invalid explicit values. Scheduler overloads
+  delegate to private `…CoreAsync` helpers.
+- **Responsibilities.** Establish invariants at the owning configuration or model boundary, and let
+  downstream code rely on them. Storage persists supplied snapshots without repeating normalization.
+  Resolve storage-owned metadata inside storage rather than fetching it in callers.
+- **Simplicity.** Add APIs, wrappers, allocations, defensive checks, and storage calls only when the
+  contract requires them. An `IReadOnlyList<T>` return type alone does not require `AsReadOnly()`.
+  Use `_ =` only when the compiler or analyzer requires an explicit discard.
 - **Generated code** in the Scriban templates uses `global::`-qualified names throughout.
 
 ## Documentation comments
@@ -78,7 +88,14 @@ A new diagnostic needs:
 - the descriptor in its analyzer;
 - tests in `tests/Immediate.Jobs.Tests/AnalyzerTests`.
 
-## Storage tests
+## Tests
+
+- Follow the existing test organization and assertion style. Put invalid generator cases in
+  `InvalidJobsTests`, verify the expected generated files, and use the established snapshot helpers.
+- Test the contract at the layer responsible for it. Tests should not require downstream code to
+  repeat validation or normalization owned by another layer.
+
+### Storage tests
 
 - Add storage tests only as conformance tests under `src/Immediate.Jobs.Testing/Storage` (see
   [testing](testing.md)). A storage test must never be specific to a particular combination of

@@ -131,7 +131,6 @@ public sealed class JobMonitor(
 			{
 				JobHandle = JobHandle.FromString(idGenerator.CreateId(IdKind.Job)),
 				JobName = schedule.JobName,
-				QueueName = schedule.QueueName,
 				Payload = "{}",
 				State = JobState.Pending,
 				DueAt = now,

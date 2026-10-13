@@ -3,9 +3,12 @@
 ## Records
 
 A job is a `JobRecord` (`Apis/JobRecord.cs`): an opaque string `JobHandle`, the stable `JobName`,
-`QueueName`, optional `GroupId`, a JSON `Payload`, an optional context envelope, `State`, `DueAt`,
+optional `GroupId`, a JSON `Payload`, an optional context envelope, `State`, `DueAt`,
 `CreatedAt`, the current `Attempt`, lease fields (`WorkerId`, `LeaseExpiresAt`), the trace parent
 captured at enqueue, and graph fields (`BatchHandle`, `RemainingDependencies`, `FailedDependencies`).
+
+Read results include the job's current queue, or null when its definition is missing. Queue changes
+apply to existing jobs; execution context retains the queue used to acquire the current attempt.
 
 Every attempt also gets a `JobExecutionRecord` row (execution history), whose state is `Active`,
 `Succeeded`, `Failed`, `Cancelled`, or `Interrupted` (the lease expired before an outcome was

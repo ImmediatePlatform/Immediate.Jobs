@@ -210,7 +210,7 @@ function retryButtonLabel(job: JobRecord, pending: boolean): string {
 				</div>
 				<div>
 					<dt>Queue</dt>
-					<dd><code>{{ job.queueName }}</code></dd>
+					<dd><code>{{ job.queueName ?? 'Unavailable' }}</code></dd>
 				</div>
 				<div v-if="job.groupId !== null">
 					<dt>Group</dt>

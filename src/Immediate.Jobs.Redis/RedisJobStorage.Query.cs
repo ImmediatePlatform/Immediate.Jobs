@@ -251,7 +251,17 @@ internal sealed partial class RedisJobStorage
 		CancellationToken cancellationToken
 	)
 	{
-		var tasks = ids.Select(id => ReadJobAsync(new() { Value = id }, cancellationToken).AsTask()).ToList();
+		var records = await ReadJobsDataAsync(ids, cancellationToken);
+		var queues = await ReadDefinitionQueuesAsync(records.Select(static job => job.JobName), cancellationToken);
+		return [.. records.Select(job => job with { QueueName = queues[job.JobName] })];
+	}
+
+	private async Task<IReadOnlyList<JobRecord>> ReadJobsDataAsync(
+		IReadOnlyList<string> ids,
+		CancellationToken cancellationToken
+	)
+	{
+		var tasks = ids.Select(id => ReadJobDataAsync(new() { Value = id }, cancellationToken).AsTask()).ToList();
 		var jobs = await Task.WhenAll(tasks).WaitAsync(cancellationToken);
 		return [.. jobs.OfType<JobRecord>()];
 	}

@@ -19,6 +19,7 @@ public sealed class ContextPropagationTests
 		var cancellationToken = TestContext.Current.CancellationToken;
 		var probe = new ContextProbe();
 		await using var harness = CreateHarness(probe);
+		await harness.DrainAsync(TestContext.Current.CancellationToken);
 
 		JobHandle id;
 		await using (var scope = harness.Services.CreateAsyncScope())
@@ -65,6 +66,7 @@ public sealed class ContextPropagationTests
 	{
 		var cancellationToken = TestContext.Current.CancellationToken;
 		await using var harness = CreateHarness(new());
+		await harness.DrainAsync(TestContext.Current.CancellationToken);
 		await using var scope = harness.Services.CreateAsyncScope();
 		var scheduler = scope.ServiceProvider.GetRequiredService<CaptureFailureJob.Scheduler>();
 
@@ -81,6 +83,7 @@ public sealed class ContextPropagationTests
 	{
 		var cancellationToken = TestContext.Current.CancellationToken;
 		await using var harness = CreateHarness(new());
+		await harness.DrainAsync(TestContext.Current.CancellationToken);
 		JobHandle id;
 		await using (var scope = harness.Services.CreateAsyncScope())
 		{
@@ -103,6 +106,7 @@ public sealed class ContextPropagationTests
 	{
 		var cancellationToken = TestContext.Current.CancellationToken;
 		await using var harness = CreateHarness(new());
+		await harness.DrainAsync(TestContext.Current.CancellationToken);
 		await using var scope = harness.Services.CreateAsyncScope();
 		var scheduler = scope.ServiceProvider.GetRequiredService<DuplicateContextKeyJob.Scheduler>();
 
@@ -120,6 +124,7 @@ public sealed class ContextPropagationTests
 		var cancellationToken = TestContext.Current.CancellationToken;
 		var probe = new ContextProbe();
 		await using var harness = CreateHarness(probe, captureLogs: true);
+		await harness.DrainAsync(TestContext.Current.CancellationToken);
 		var record = CreateContextRecord(
 			harness,
 			"{\"removed-extractor\":{\"value\":\"legacy\"}}"
@@ -138,12 +143,12 @@ public sealed class ContextPropagationTests
 		var cancellationToken = TestContext.Current.CancellationToken;
 		var probe = new ContextProbe();
 		await using var harness = CreateHarness(probe, captureLogs: true);
+		await harness.DrainAsync(TestContext.Current.CancellationToken);
 		var now = harness.TimeProvider.GetUtcNow();
-		var record = new JobRecord
+		var record = new JobSubmission
 		{
 			JobHandle = JobHandle.FromString(Guid.NewGuid().ToString("N")),
 			JobName = "record-message",
-			QueueName = "messages",
 			Payload = "{\"message\":\"orphan\"}",
 			State = JobState.Pending,
 			DueAt = now,
@@ -164,6 +169,7 @@ public sealed class ContextPropagationTests
 		var cancellationToken = TestContext.Current.CancellationToken;
 		var probe = new ContextProbe();
 		await using var harness = CreateHarness(probe);
+		await harness.DrainAsync(TestContext.Current.CancellationToken);
 		var record = CreateContextRecord(
 			harness,
 			"{\"tenant\":{\"tenantId\":\"legacy-tenant\"},\"correlation\":{\"correlationId\":\"legacy-correlation\"}}"
@@ -182,6 +188,7 @@ public sealed class ContextPropagationTests
 		var cancellationToken = TestContext.Current.CancellationToken;
 		var probe = new ContextProbe();
 		await using var harness = CreateHarness(probe);
+		await harness.DrainAsync(TestContext.Current.CancellationToken);
 
 		await harness.DrainAsync(cancellationToken);
 		await harness.AdvanceTimeAndDrainAsync(TimeSpan.FromSeconds(1), cancellationToken);
@@ -201,6 +208,7 @@ public sealed class ContextPropagationTests
 	{
 		var cancellationToken = TestContext.Current.CancellationToken;
 		await using var harness = CreateHarness(new());
+		await harness.DrainAsync(TestContext.Current.CancellationToken);
 		await using var scope = harness.Services.CreateAsyncScope();
 		var scheduler = scope.ServiceProvider.GetRequiredService<CaptureFailureJob.Scheduler>();
 
@@ -242,6 +250,7 @@ public sealed class ContextPropagationTests
 			_ = services.AddImmediateJobsFunctionalTestsHandlers();
 			_ = services.AddImmediateJobsFunctionalTestsJobs().UseIdGenerator<TestIdGenerator>();
 		});
+		await harness.DrainAsync(TestContext.Current.CancellationToken);
 
 		_ = Assert.IsType<TestIdGenerator>(harness.Services.GetRequiredService<IIdGenerator>());
 		await using var scope = harness.Services.CreateAsyncScope();
@@ -296,6 +305,7 @@ public sealed class ContextPropagationTests
 	{
 		var cancellationToken = TestContext.Current.CancellationToken;
 		await using var harness = CreateHarness(new());
+		await harness.DrainAsync(TestContext.Current.CancellationToken);
 
 		_ = Assert.Throws<InvalidOperationException>(
 			harness.Services.GetRequiredService<ContextRoundTripJob.Scheduler>
@@ -323,7 +333,7 @@ public sealed class ContextPropagationTests
 		_ = services.AddImmediateJobsFunctionalTestsJobs();
 	});
 
-	private static JobRecord CreateContextRecord(JobTestHarness harness, [StringSyntax("json")] string context) =>
+	private static JobSubmission CreateContextRecord(JobTestHarness harness, [StringSyntax("json")] string context) =>
 		new()
 		{
 			JobHandle = JobHandle.FromString(Guid.NewGuid().ToString("N")),

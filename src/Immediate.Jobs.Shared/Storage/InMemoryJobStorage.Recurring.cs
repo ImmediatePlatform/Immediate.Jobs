@@ -15,6 +15,13 @@ public sealed partial class InMemoryJobStorage
 
 		lock (_gate)
 		{
+			if (_jobDefinitions.TryGetValue(schedule.JobName, out var definition))
+			{
+				schedule = schedule with { JobName = definition.Name };
+			}
+
+			schedule = schedule with { QueueName = null };
+
 			ref var current = ref CollectionsMarshal.GetValueRefOrAddDefault(_recurring, schedule.Name, out _);
 
 			current = current switch
@@ -89,7 +96,7 @@ public sealed partial class InMemoryJobStorage
 		{
 			return
 			[
-				.. _recurring.Values.Where(x => !x.IsPaused && x.NextRunAt <= now && jobNames.Contains(x.JobName, StringComparer.OrdinalIgnoreCase)).OrderBy(x => x.NextRunAt).Take(batchSize),
+				.. _recurring.Values.Where(x => !x.IsPaused && x.NextRunAt <= now && jobNames.Contains(x.JobName, StringComparer.OrdinalIgnoreCase)).OrderBy(x => x.NextRunAt).Take(batchSize).Select(ReadRecord),
 			];
 		}
 	}
@@ -115,7 +122,7 @@ public sealed partial class InMemoryJobStorage
 			var inserted = job.RecurringKey is null || _recurringKeys.Add(job.RecurringKey);
 			if (inserted)
 			{
-				_jobs[job.JobHandle] = job;
+				_jobs[job.JobHandle] = job with { QueueName = null };
 
 				if (dependencies is { })
 				{

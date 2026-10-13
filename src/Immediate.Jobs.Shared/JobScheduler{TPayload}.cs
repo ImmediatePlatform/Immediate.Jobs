@@ -28,9 +28,6 @@ namespace Immediate.Jobs.Shared;
 /// <param name="jobName">
 /// 	The stable generated job name.
 /// </param>
-/// <param name="queueName">
-/// 	The queue used for new invocations.
-/// </param>
 /// <param name="payloadTypeInfoFactory">
 /// 	The factory that supplies JSON metadata for the payload type.
 /// </param>
@@ -40,7 +37,6 @@ public abstract class JobScheduler<TPayload>(
 	TimeProvider timeProvider,
 	IIdGenerator idGenerator,
 	string jobName,
-	string queueName,
 	Func<System.Text.Json.JsonSerializerOptions, JsonTypeInfo<TPayload>> payloadTypeInfoFactory
 ) : IJobScheduler<TPayload>
 {
@@ -75,11 +71,6 @@ public abstract class JobScheduler<TPayload>(
 	/// 	The stable generated name.
 	/// </summary>
 	public string JobName { get; } = jobName;
-
-	/// <summary>
-	/// 	The stable queue used for new invocations.
-	/// </summary>
-	public string QueueName { get; } = queueName;
 
 	/// <summary>
 	/// 	Captures the context envelope persisted with a new invocation.
@@ -792,7 +783,7 @@ public abstract class JobScheduler<TPayload>(
 			});
 
 		await graphStorage.EnqueueContinuationAsync(waiting, [.. edges], cancellationToken);
-		JobTelemetry.Enqueued(JobName, QueueName);
+		JobTelemetry.Enqueued(waiting.JobName);
 		return waiting.JobHandle;
 	}
 
@@ -806,7 +797,7 @@ public abstract class JobScheduler<TPayload>(
 		var record = CreateRecord(payload, JobState.WaitingForTrigger, runAt: now, now, groupId);
 
 		await Storage.EnqueueAsync(record, cancellationToken);
-		JobTelemetry.Enqueued(JobName, QueueName);
+		JobTelemetry.Enqueued(record.JobName);
 		return record.JobHandle;
 	}
 
@@ -820,7 +811,7 @@ public abstract class JobScheduler<TPayload>(
 		var record = CreateRecord(payload, JobState.WaitingForTrigger, runAt: now, now, groupId);
 
 		await Storage.EnqueueAsync(record, cancellationToken);
-		JobTelemetry.Enqueued(JobName, QueueName);
+		JobTelemetry.Enqueued(record.JobName);
 		return record.JobHandle;
 	}
 
@@ -864,7 +855,7 @@ public abstract class JobScheduler<TPayload>(
 		var record = CreateRecord(payload, state, runAt, now, groupId);
 
 		await Storage.EnqueueAsync(record, cancellationToken);
-		JobTelemetry.Enqueued(JobName, QueueName);
+		JobTelemetry.Enqueued(record.JobName);
 		return record.JobHandle;
 	}
 
@@ -985,7 +976,7 @@ public abstract class JobScheduler<TPayload>(
 		var record = CreateRecord(payload, state, runAt, now, groupId) with { BatchHandle = currentJob.BatchHandle };
 
 		await graphStorage.AddBatchJobAsync(currentJob.JobHandle, currentJob.Attempt, record, options, cancellationToken);
-		JobTelemetry.Enqueued(JobName, QueueName);
+		JobTelemetry.Enqueued(record.JobName);
 		return record.JobHandle;
 	}
 
@@ -1022,25 +1013,23 @@ public abstract class JobScheduler<TPayload>(
 			}
 		);
 
-		JobTelemetry.Enqueued(JobName, QueueName);
 		return record.JobHandle;
 	}
 
-	private JobRecord CreateRecord(TPayload payload, JobState state, DateTimeOffset runAt, DateTimeOffset now, string? groupId = null)
+	private JobSubmission CreateRecord(TPayload payload, JobState state, DateTimeOffset runAt, DateTimeOffset now, string? groupId = null)
 	{
 		return CreateRecord(Serializer.Serialize(payload, payloadTypeInfoFactory), state, runAt, now, groupId);
 	}
 
-	private JobRecord CreateRecord(string payload, JobState state, DateTimeOffset runAt, DateTimeOffset now, string? groupId)
+	private JobSubmission CreateRecord(string payload, JobState state, DateTimeOffset runAt, DateTimeOffset now, string? groupId)
 	{
 		var (traceParent, traceState) = Activity.Current;
 		var context = CaptureContext();
 
-		return new JobRecord
+		return new JobSubmission
 		{
 			JobHandle = JobHandle.FromString(idGenerator.CreateId(IdKind.Job)),
 			JobName = JobName,
-			QueueName = QueueName,
 			GroupId = NormalizeGroupId(groupId),
 			Payload = payload,
 			State = state,
@@ -1098,7 +1087,6 @@ public abstract class JobScheduler<TPayload>(
 					Name = name,
 					JobName = JobName,
 					Cron = cron,
-					QueueName = QueueName,
 					TimeZone = timeZone,
 					IsCodeDefined = false,
 					NextRunAt = next,

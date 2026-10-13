@@ -69,6 +69,7 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 				var claimedJob = fairQueues.GroupRoundRobin
 					? await AcquireFairCandidateAsync(
 						selection.Job,
+						queue.QueueName,
 						request.WorkerId,
 						request.Lease,
 						now,
@@ -108,7 +109,7 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 		CancellationToken cancellationToken
 	)
 	{
-		var eligibleQuery = readContext.Set<ImmediateJobEntity>()
+		var eligibleQuery = JobsWithDefinitions(readContext)
 			.AsNoTracking()
 			.Where(job => job.QueueName == queueName && eligibleNames.Contains(job.JobName) &&
 				(((job.State == JobState.Scheduled || job.State == JobState.Pending) && job.DueAt <= now)
@@ -135,7 +136,7 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 		if (groupedHeads.Count == 0)
 			return null;
 
-		var activeQuery = readContext.Set<ImmediateJobEntity>()
+		var activeQuery = JobsWithDefinitions(readContext)
 			.AsNoTracking()
 			.Where(job => job.QueueName == queueName
 				&& job.State == JobState.Active
@@ -225,7 +226,7 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 				break;
 
 			var candidates = await ReadWithStrategyAsync(
-				(readContext, operationCancellationToken) => readContext.Set<ImmediateJobEntity>()
+				(readContext, operationCancellationToken) => JobsWithDefinitions(readContext)
 					.AsNoTracking()
 					.Where(job => job.QueueName == queueName && eligibleNames.Contains(job.JobName) &&
 						(((job.State == JobState.Scheduled || job.State == JobState.Pending) && job.DueAt <= now)
@@ -240,7 +241,7 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 			if (candidates.Count == 0)
 				break;
 
-			var selected = new List<ImmediateJobEntity>(candidates.Count);
+			var selected = new List<JobQueryRow>(candidates.Count);
 			var selectionCapacities = new Dictionary<string, int>(jobCapacities, StringComparer.Ordinal);
 			foreach (var candidate in candidates)
 			{
@@ -272,7 +273,8 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 	}
 
 	private async ValueTask<JobRecord?> AcquireFairCandidateAsync(
-		ImmediateJobEntity candidate,
+		JobQueryRow candidate,
+		string queueName,
 		string workerId,
 		TimeSpan lease,
 		DateTimeOffset now,
@@ -285,6 +287,7 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 		return await strategy.ExecuteAsync(
 			operationCancellationToken => AcquireFairCandidateCoreAsync(
 				candidate,
+				queueName,
 				workerId,
 				lease,
 				now,
@@ -296,7 +299,8 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 	}
 
 	private async Task<JobRecord?> AcquireFairCandidateCoreAsync(
-		ImmediateJobEntity candidate,
+		JobQueryRow candidate,
+		string queueName,
 		string workerId,
 		TimeSpan lease,
 		DateTimeOffset now,
@@ -323,14 +327,14 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 		{
 			var group = await context.Set<ImmediateFairQueueGroupEntity>()
 				.SingleOrDefaultAsync(
-					item => item.QueueName == candidate.QueueName && item.GroupId == groupId,
+					item => item.QueueName == queueName && item.GroupId == groupId,
 					cancellationToken
 				);
 			if (group is null)
 			{
 				_ = context.Add(new ImmediateFairQueueGroupEntity
 				{
-					QueueName = candidate.QueueName,
+					QueueName = queueName,
 					GroupId = groupId,
 					LastServedSequence = nextSequence,
 					ConcurrencyStamp = Guid.NewGuid(),
@@ -363,7 +367,7 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 		{
 			_ = await context.SaveChangesAsync(cancellationToken);
 			await transaction.CommitAsync(cancellationToken);
-			return ToRecord(entity);
+			return ToRecord(entity, candidate.QueueName);
 		}
 		catch (DbUpdateConcurrencyException)
 		{
@@ -384,7 +388,7 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 	}
 
 	private async ValueTask<bool> FairQueueCursorAdvancedAsync(
-		ImmediateJobEntity candidate,
+		JobQueryRow candidate,
 		long nextSequence,
 		CancellationToken cancellationToken
 	)
@@ -427,7 +431,7 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 	}
 
 	private sealed record FairQueueSelection(
-		ImmediateJobEntity Job,
+		JobQueryRow Job,
 		long NextSequence
 	);
 
@@ -437,15 +441,21 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 		long LastServedSequence
 	);
 
-	private static (string QueueName, string GroupId)[] GetTerminalFairQueueGroups(TContext context) =>
-		[
-			.. context.ChangeTracker
-				.Entries<ImmediateJobEntity>()
-				.Select(static entry => entry.Entity)
-				.Where(static job => job.GroupId is not null && IsTerminal(job.State))
-				.Select(static job => (job.QueueName, GroupId: job.GroupId!))
-				.Distinct(),
-		];
+	private static (string QueueName, string GroupId)[] GetTerminalFairQueueGroups(TContext context)
+	{
+		var groups = context.ChangeTracker.Entries<ImmediateJobEntity>()
+			.Where(entry => entry.Entity.GroupId is not null && IsTerminal(entry.Entity.State))
+			.Select(entry => entry.Entity.GroupId)
+			.Distinct(StringComparer.Ordinal)
+			.ToList();
+		if (groups.Count == 0)
+			return [];
+
+		return [.. context.Set<ImmediateFairQueueGroupEntity>()
+			.Where(group => groups.Contains(group.GroupId))
+			.AsEnumerable()
+			.Select(group => (group.QueueName, group.GroupId))];
+	}
 
 	private async ValueTask TryRemoveFairQueueCursorAsync(
 		string queueName,
@@ -486,7 +496,7 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 		string queueName,
 		string groupId,
 		CancellationToken cancellationToken
-	) => context.Set<ImmediateJobEntity>().AnyAsync(
+	) => JobsWithDefinitions(context).AnyAsync(
 		job => job.QueueName == queueName
 			&& job.GroupId == groupId
 			&& (job.State == JobState.Pending

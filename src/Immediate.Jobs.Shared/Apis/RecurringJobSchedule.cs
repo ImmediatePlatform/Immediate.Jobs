@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace Immediate.Jobs.Shared.Apis;
 
 /// <summary>
@@ -21,9 +23,10 @@ public sealed record RecurringJobSchedule
 	public required string JobName { get; init; }
 
 	/// <summary>
-	/// 	The persisted queue name.
+	/// 	The current queue name, or <see langword="null"/> when the job definition is missing.
 	/// </summary>
-	public required string QueueName { get; init; }
+	[JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+	public string? QueueName { get; init; }
 
 	/// <summary>
 	/// 	A five- or six-field cron expression.

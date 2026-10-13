@@ -7,7 +7,40 @@ namespace Immediate.Jobs.Shared.Storage;
 public sealed partial class InMemoryJobStorage
 {
 	/// <inheritdoc />
-	public async ValueTask EnqueueAsync(JobRecord job, CancellationToken cancellationToken = default)
+	public async ValueTask EnqueueAsync(JobSubmission job, CancellationToken cancellationToken = default)
+	{
+		EnqueueAsyncCalled(job.JobHandle);
+		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
+		lock (_gate)
+		{
+			var record = CreateRecord(job);
+			if (!_jobs.TryAdd(record.JobHandle, record))
+				throw new ImmediateJobException($"Job '{record.JobHandle}' already exists.");
+		}
+	}
+
+	/// <inheritdoc />
+	public async ValueTask EnqueueContinuationAsync(JobSubmission job, IReadOnlyList<JobContinuationEdge> edges, CancellationToken cancellationToken = default)
+	{
+		EnqueueContinuationAsyncCalled(job.JobHandle, edges.Count);
+		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
+		lock (_gate)
+			RestoreContinuationCore(CreateRecord(job), edges);
+	}
+
+	/// <inheritdoc />
+	public async ValueTask EnqueueBatchAsync(BatchRecord batch, IReadOnlyList<JobSubmission> jobs, IReadOnlyList<JobContinuationEdge> edges, CancellationToken cancellationToken = default)
+	{
+		EnqueueBatchAsyncCalled(batch.BatchHandle, jobs.Count, edges.Count);
+		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
+		lock (_gate)
+			RestoreBatchCore(batch, jobs.Select(CreateRecord).ToList(), edges);
+	}
+
+	internal async ValueTask RestoreJobAsync(JobRecord job, CancellationToken cancellationToken = default)
 	{
 		EnqueueAsyncCalled(job.JobHandle);
 		cancellationToken.ThrowIfCancellationRequested();
@@ -15,13 +48,12 @@ public sealed partial class InMemoryJobStorage
 
 		lock (_gate)
 		{
-			if (!_jobs.TryAdd(job.JobHandle, job))
+			if (!_jobs.TryAdd(job.JobHandle, job with { QueueName = null }))
 				throw new ImmediateJobException($"Job '{job.JobHandle}' already exists.");
 		}
 	}
 
-	/// <inheritdoc />
-	public async ValueTask EnqueueContinuationAsync(
+	internal async ValueTask RestoreContinuationAsync(
 		JobRecord job,
 		IReadOnlyList<JobContinuationEdge> edges,
 		CancellationToken cancellationToken = default
@@ -32,23 +64,25 @@ public sealed partial class InMemoryJobStorage
 		await TaskScheduler.Yield();
 
 		lock (_gate)
-		{
-			ValidateNewJob(job);
-			ValidateEdges([job], edges, batchHandle: null);
-
-			var restoreExistingState = HasTerminalParent(edges) &&
-				(job.State is not (JobState.AwaitingContinuation or JobState.WaitingForTrigger) || job.RemainingDependencies < edges.Count);
-			_jobs.Add(job.JobHandle, restoreExistingState ? job : NormalizeWaitingJob(job, edges.Count));
-			_edges.AddRange(edges);
-			if (restoreExistingState)
-				MarkTerminalParentEdgesSettled(edges);
-			else
-				EvaluateAlreadyTerminalParents(edges);
-		}
+			RestoreContinuationCore(job, edges);
 	}
 
-	/// <inheritdoc />
-	public async ValueTask EnqueueBatchAsync(
+	private void RestoreContinuationCore(JobRecord job, IReadOnlyList<JobContinuationEdge> edges)
+	{
+		ValidateNewJob(job);
+		ValidateEdges([job], edges, batchHandle: null);
+
+		var restoreExistingState = HasTerminalParent(edges) &&
+			(job.State is not (JobState.AwaitingContinuation or JobState.WaitingForTrigger) || job.RemainingDependencies < edges.Count);
+		_jobs.Add(job.JobHandle, restoreExistingState ? job with { QueueName = null } : NormalizeWaitingJob(job, edges.Count));
+		_edges.AddRange(edges);
+		if (restoreExistingState)
+			MarkTerminalParentEdgesSettled(edges);
+		else
+			EvaluateAlreadyTerminalParents(edges);
+	}
+
+	internal async ValueTask RestoreBatchAsync(
 		BatchRecord batch,
 		IReadOnlyList<JobRecord> jobs,
 		IReadOnlyList<JobContinuationEdge> edges,
@@ -60,41 +94,44 @@ public sealed partial class InMemoryJobStorage
 		await TaskScheduler.Yield();
 
 		lock (_gate)
+			RestoreBatchCore(batch, jobs, edges);
+	}
+
+	private void RestoreBatchCore(BatchRecord batch, IReadOnlyList<JobRecord> jobs, IReadOnlyList<JobContinuationEdge> edges)
+	{
+		ValidateBatch(batch, jobs, edges);
+
+		var restoreExistingState = IsRecoveredBatch(batch, jobs, edges);
+		_batches.Add(batch.BatchHandle, batch);
+
+		var incomingCounts = edges
+			.GroupBy(static edge => edge.ChildJobHandle)
+			.ToDictionary(static group => group.Key, static group => group.Count());
+
+		foreach (var job in jobs)
 		{
-			ValidateBatch(batch, jobs, edges);
-
-			var restoreExistingState = IsRecoveredBatch(batch, jobs, edges);
-			_batches.Add(batch.BatchHandle, batch);
-
-			var incomingCounts = edges
-				.GroupBy(static edge => edge.ChildJobHandle)
-				.ToDictionary(static group => group.Key, static group => group.Count());
-
-			foreach (var job in jobs)
-			{
-				_jobs.Add(
-					job.JobHandle,
-					restoreExistingState
-						? job
-						: incomingCounts.TryGetValue(job.JobHandle, out var dependencyCount)
-						? NormalizeWaitingJob(job, dependencyCount)
-						: job with { BatchHandle = batch.BatchHandle, RemainingDependencies = 0, FailedDependencies = 0 }
-				);
-			}
-
-			_edges.AddRange(edges);
-			if (restoreExistingState)
-				MarkTerminalParentEdgesSettled(edges);
-			else
-				EvaluateAlreadyTerminalParents(edges);
+			_jobs.Add(
+				job.JobHandle,
+				restoreExistingState
+					? job with { QueueName = null }
+					: incomingCounts.TryGetValue(job.JobHandle, out var dependencyCount)
+					? NormalizeWaitingJob(job, dependencyCount)
+					: job with { BatchHandle = batch.BatchHandle, RemainingDependencies = 0, FailedDependencies = 0 }
+			);
 		}
+
+		_edges.AddRange(edges);
+		if (restoreExistingState)
+			MarkTerminalParentEdgesSettled(edges);
+		else
+			EvaluateAlreadyTerminalParents(edges);
 	}
 
 	/// <inheritdoc />
 	public async ValueTask AddBatchJobAsync(
 		JobHandle currentJobHandle,
 		int executionNumber,
-		JobRecord job,
+		JobSubmission job,
 		ContinuationOptions options,
 		CancellationToken cancellationToken = default
 	)
@@ -121,21 +158,37 @@ public sealed partial class InMemoryJobStorage
 				throw new ImmediateJobException("AddToBatchAsync(JobDetails, ...) cannot create detached work.");
 			if (options is not (ContinuationOptions.BesideContinuations or ContinuationOptions.BeforeContinuations))
 				throw new ArgumentOutOfRangeException(nameof(options));
-			ValidateNewJob(job);
-			if (job.BatchHandle != current.BatchHandle)
-				throw new ImmediateJobException("The new job must belong to the current job's batch.");
-			if (job.State is not (JobState.Pending or JobState.Scheduled))
-				throw new ImmediateJobException($"Concurrent batch member '{job.JobHandle}' has invalid state '{job.State}'.");
+			var persisted = CreateRecord(job);
+
+			ValidateNewJob(persisted);
+			if (persisted.BatchHandle != current.BatchHandle)
+				throw new ImmediateJobException("The new persisted must belong to the current persisted's batch.");
+			if (persisted.State is not (JobState.Pending or JobState.Scheduled))
+				throw new ImmediateJobException($"Concurrent batch member '{persisted.JobHandle}' has invalid state '{persisted.State}'.");
 
 			var existingWaiters = options == ContinuationOptions.BeforeContinuations
 				? GetUnsettledWaiters(currentJobHandle)
 				: [];
 			ValidateSplice(existingWaiters, options == ContinuationOptions.BeforeContinuations ? 1 : 0);
 			IncrementBatchMembers(current.BatchHandle, 1);
-			_jobs.Add(job.JobHandle, job with { RemainingDependencies = 0 });
+			_jobs.Add(persisted.JobHandle, persisted with { RemainingDependencies = 0 });
 			if (options == ContinuationOptions.BeforeContinuations)
-				SpliceBeforeWaiters(job.JobHandle, existingWaiters);
+				SpliceBeforeWaiters(persisted.JobHandle, existingWaiters);
 		}
+	}
+
+	private JobRecord CreateRecord(JobSubmission job)
+	{
+		var definition = GetJobDefinition(job.JobName);
+		return job.CreateRecord(definition.Name);
+	}
+
+	internal JobDefinitionRecord GetJobDefinition(string name)
+	{
+		lock (_gate)
+			return _jobDefinitions.TryGetValue(name, out var definition)
+				? definition
+				: throw new KeyNotFoundException($"Job definition '{name}' was not found.");
 	}
 
 	private void ValidateNewJob(JobRecord job)

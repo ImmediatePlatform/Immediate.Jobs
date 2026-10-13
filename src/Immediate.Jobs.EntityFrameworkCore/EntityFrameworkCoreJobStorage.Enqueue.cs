@@ -1,4 +1,5 @@
 using Immediate.Jobs.Shared.Apis;
+using System.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
@@ -8,13 +9,13 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 	where TContext : DbContext
 {
 	/// <inheritdoc />
-	public async ValueTask EnqueueAsync(JobRecord job, CancellationToken cancellationToken = default)
+	public async ValueTask EnqueueAsync(JobSubmission job, CancellationToken cancellationToken = default)
 	{
 		EnqueueAsyncCalled(job.JobHandle);
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 
-		await ExecuteWithStrategyAsync(
+		await RetryConcurrencyAsync(
 			operationCancellationToken => EnqueueCoreAsync(job, operationCancellationToken),
 			cancellationToken
 		);
@@ -22,7 +23,7 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 
 	/// <inheritdoc />
 	public async ValueTask EnqueueContinuationAsync(
-		JobRecord job,
+		JobSubmission job,
 		IReadOnlyList<JobContinuationEdge> edges,
 		CancellationToken cancellationToken = default
 	)
@@ -37,7 +38,7 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 	/// <inheritdoc />
 	public async ValueTask EnqueueBatchAsync(
 		BatchRecord batch,
-		IReadOnlyList<JobRecord> jobs,
+		IReadOnlyList<JobSubmission> jobs,
 		IReadOnlyList<JobContinuationEdge> edges,
 		CancellationToken cancellationToken = default
 	)
@@ -53,7 +54,7 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 	public async ValueTask AddBatchJobAsync(
 		JobHandle currentJobHandle,
 		int executionNumber,
-		JobRecord job,
+		JobSubmission job,
 		ContinuationOptions options,
 		CancellationToken cancellationToken = default
 	)
@@ -74,37 +75,22 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 		);
 	}
 
-	private async Task EnqueueCoreAsync(JobRecord job, CancellationToken cancellationToken)
+	private async Task EnqueueCoreAsync(JobSubmission job, CancellationToken cancellationToken)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
 
 		await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
-		await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
+		await using var transaction = await context.Database.BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken);
+		var persisted = (await CreateRecordsAsync(context, [job], cancellationToken))[0];
 
-		if (job.GroupId is { } groupId && !await HasLiveGroupJobsAsync(
-			context,
-			job.QueueName,
-			groupId,
-			cancellationToken
-		))
-		{
-			var cursor = await context.Set<ImmediateFairQueueGroupEntity>()
-				.SingleOrDefaultAsync(
-					group => group.QueueName == job.QueueName && group.GroupId == groupId,
-					cancellationToken
-				);
-			if (cursor is not null)
-				_ = context.Remove(cursor);
-		}
-
-		_ = context.Set<ImmediateJobEntity>().Add(ToEntity(job));
+		_ = context.Set<ImmediateJobEntity>().Add(ToEntity(persisted));
 		_ = await context.SaveChangesAsync(cancellationToken);
 		await transaction.CommitAsync(cancellationToken);
 	}
 
 	private ValueTask ExecuteGraphInsertAsync(
 		BatchRecord? batch,
-		IReadOnlyList<JobRecord> jobs,
+		IReadOnlyList<JobSubmission> jobs,
 		IReadOnlyList<JobContinuationEdge> edges,
 		CancellationToken cancellationToken
 	) => RetryConcurrencyAsync(
@@ -114,7 +100,7 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 
 	private async Task InsertGraphCoreAsync(
 		BatchRecord? batch,
-		IReadOnlyList<JobRecord> jobs,
+		IReadOnlyList<JobSubmission> jobs,
 		IReadOnlyList<JobContinuationEdge> edges,
 		CancellationToken cancellationToken
 	)
@@ -133,8 +119,10 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 		ThrowIfCyclic(jobHandles, edgeEntities);
 
 		await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
-		await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
-		var jobEntities = jobs.Select(ToEntity).ToDictionary(static job => job.Id, StringComparer.Ordinal);
+		await using var transaction = await context.Database.BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken);
+		var records = await CreateRecordsAsync(context, jobs, cancellationToken);
+
+		var jobEntities = records.Select(ToEntity).ToDictionary(static job => job.Id, StringComparer.Ordinal);
 		await EvaluateInitialDependenciesAsync(
 			context,
 			jobEntities,
@@ -179,13 +167,13 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 	private async Task AddBatchJobCoreAsync(
 		JobHandle currentJobHandle,
 		int executionNumber,
-		JobRecord record,
+		JobSubmission record,
 		ContinuationOptions options,
 		CancellationToken cancellationToken
 	)
 	{
 		await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
-		await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
+		await using var transaction = await context.Database.BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken);
 		var current = await context.Set<ImmediateJobEntity>()
 			.SingleOrDefaultAsync(job => job.Id == currentJobHandle.Value && job.Attempt == executionNumber && job.State == JobState.Active, cancellationToken)
 			?? throw new ImmediateJobException($"The current active job '{currentJobHandle}' was not found.");
@@ -200,7 +188,8 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 
 		var batch = await context.Set<ImmediateJobBatchEntity>()
 			.SingleAsync(item => item.Id == batchHandle && item.State == BatchState.Executing, cancellationToken);
-		var job = ToEntity(record);
+		var persisted = (await CreateRecordsAsync(context, [record], cancellationToken))[0];
+		var job = ToEntity(persisted);
 		_ = context.Add(job);
 		batch.TotalJobs++;
 		batch.PendingCount++;
@@ -226,6 +215,48 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 
 		_ = await context.SaveChangesAsync(cancellationToken);
 		await transaction.CommitAsync(cancellationToken);
+	}
+
+	private static async Task<Dictionary<string, string>> GetDefinitionNamesAsync(
+		TContext context,
+		List<string> names,
+		CancellationToken cancellationToken
+	)
+	{
+		if (names.Count == 0)
+			return [with(StringComparer.OrdinalIgnoreCase)];
+
+		var query = context.Set<ImmediateJobDefinitionMetadataEntity>().AsNoTracking();
+		// SQLite's NOCASE collation only handles ASCII; compare Unicode aliases in the client.
+		if (context.Database.ProviderName?.Contains("Sqlite", StringComparison.Ordinal) != true)
+			query = query.Where(definition => names.Contains(definition.Name));
+
+		var definitions = await query
+			.Select(definition => definition.Name)
+			.ToListAsync(cancellationToken);
+
+		return definitions.ToDictionary(
+			static name => name,
+			static name => name,
+			StringComparer.OrdinalIgnoreCase
+		);
+	}
+
+	private static async Task<IReadOnlyList<JobRecord>> CreateRecordsAsync(
+		TContext context,
+		IReadOnlyList<JobSubmission> submissions,
+		CancellationToken cancellationToken
+	)
+	{
+		var names = submissions.Select(static job => job.JobName).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+		var definitions = await GetDefinitionNamesAsync(context, names, cancellationToken);
+		return submissions.Select(job =>
+		{
+			if (!definitions.TryGetValue(job.JobName, out var definition))
+				throw new KeyNotFoundException($"Job definition '{job.JobName}' was not found.");
+
+			return job.CreateRecord(definition);
+		}).ToList();
 	}
 
 	[LoggerMessage(

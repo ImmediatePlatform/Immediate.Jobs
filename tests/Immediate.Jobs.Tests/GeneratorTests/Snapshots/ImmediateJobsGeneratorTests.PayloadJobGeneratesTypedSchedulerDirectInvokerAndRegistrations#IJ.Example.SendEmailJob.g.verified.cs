@@ -21,7 +21,6 @@ partial class SendEmailJob
 		timeProvider,
 		idGenerator,
 		"send-email",
-		"default",
 		static options => new PayloadJsonContext(options).Payload
 	)
 	{

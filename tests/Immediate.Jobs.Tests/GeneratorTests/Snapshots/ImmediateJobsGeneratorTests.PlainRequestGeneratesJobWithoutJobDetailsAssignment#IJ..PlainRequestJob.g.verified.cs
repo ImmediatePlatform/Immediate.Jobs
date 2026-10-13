@@ -18,7 +18,6 @@ partial class PlainRequestJob
 		timeProvider,
 		idGenerator,
 		"plain-request",
-		"default",
 		static options => new PayloadJsonContext(options).Payload
 	)
 	{

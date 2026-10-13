@@ -19,6 +19,9 @@
 - **Don't test framework or library behaviour**, and don't add a test that duplicates one in another
   project.
 
+Call `await harness.DrainAsync(cancellationToken)` once to initialize a fresh harness before
+scheduling jobs.
+
 ## The conformance suite
 
 `src/Immediate.Jobs.Testing/Storage` ships in the `Immediate.Jobs.Testing` package, so custom

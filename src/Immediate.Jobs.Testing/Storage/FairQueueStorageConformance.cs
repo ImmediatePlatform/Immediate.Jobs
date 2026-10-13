@@ -43,6 +43,19 @@ internal static class FairQueueStorageConformance
 		CancellationToken cancellationToken
 	)
 	{
+		const string ExistingJobName = "fair-existing-groups";
+		const string ReturningJobName = "fair-returning-group";
+
+		await storage.MergeJobDefinitionsListAsync(new()
+		{
+			Definitions =
+			[
+				new() { Name = "fair-job" },
+				new() { Name = ExistingJobName },
+				new() { Name = ReturningJobName },
+			],
+		}, cancellationToken);
+
 		var clock = timeProvider;
 		await EnqueueAsync(storage, clock, "rotation-a-1", 0, "group-a", cancellationToken);
 		await EnqueueAsync(storage, clock, "rotation-a-2", 1, "group-a", cancellationToken);
@@ -56,7 +69,6 @@ internal static class FairQueueStorageConformance
 		ConformanceAssert.Equal("rotation-b-1", second.JobHandle.Value, RotationName,
 			"a newly arrived group must advance ahead of previously served backlog");
 
-		const string ExistingJobName = "fair-existing-groups";
 		await EnqueueAsync(storage, clock, "existing-a-1", 3, "existing-a", cancellationToken, ExistingJobName);
 		await EnqueueAsync(storage, clock, "existing-a-2", 4, "existing-a", cancellationToken, ExistingJobName);
 		await EnqueueAsync(storage, clock, "existing-b-1", 5, "existing-b", cancellationToken, ExistingJobName);
@@ -84,7 +96,6 @@ internal static class FairQueueStorageConformance
 			"capacity-one acquisitions must rotate across existing grouped backlogs"
 		);
 
-		const string ReturningJobName = "fair-returning-group";
 		await EnqueueAsync(storage, clock, "returning-a-1", 6, "returning-a", cancellationToken, ReturningJobName);
 		await EnqueueAsync(storage, clock, "returning-a-2", 7, "returning-a", cancellationToken, ReturningJobName);
 		await EnqueueAsync(storage, clock, "returning-b-1", 8, "returning-b", cancellationToken, ReturningJobName);
@@ -129,6 +140,14 @@ internal static class FairQueueStorageConformance
 		CancellationToken cancellationToken
 	)
 	{
+		await storage.MergeJobDefinitionsListAsync(new()
+		{
+			Definitions =
+			[
+				new() { Name = "fair-job" },
+			],
+		}, cancellationToken);
+
 		var clock = timeProvider;
 		await EnqueueAsync(storage, clock, "interleave-a-1", 0, "group-a", cancellationToken);
 		await EnqueueAsync(storage, clock, "interleave-a-2", 1, "group-a", cancellationToken);
@@ -151,6 +170,14 @@ internal static class FairQueueStorageConformance
 		CancellationToken cancellationToken
 	)
 	{
+		await storage.MergeJobDefinitionsListAsync(new()
+		{
+			Definitions =
+			[
+				new() { Name = "fair-job" },
+			],
+		}, cancellationToken);
+
 		var clock = timeProvider;
 		await EnqueueAsync(storage, clock, "noisy-active-1", 0, "noisy", cancellationToken);
 		await EnqueueAsync(storage, clock, "noisy-active-2", 1, "noisy", cancellationToken);
@@ -180,6 +207,15 @@ internal static class FairQueueStorageConformance
 		CancellationToken cancellationToken
 	)
 	{
+		await storage.MergeJobDefinitionsListAsync(new()
+		{
+			Definitions =
+			[
+				new() { Name = "fair-job" },
+				new() { Name = "expired-setup" },
+			],
+		}, cancellationToken);
+
 		var clock = timeProvider;
 		await EnqueueAsync(storage, clock, "expired-1", 0, "formerly-noisy", cancellationToken, "expired-setup");
 		await EnqueueAsync(storage, clock, "expired-2", 1, "formerly-noisy", cancellationToken, "expired-setup");
@@ -211,6 +247,21 @@ internal static class FairQueueStorageConformance
 		CancellationToken cancellationToken
 	)
 	{
+		const string UngroupedJobName = "fair-ungrouped";
+		const string NoRoundRobinJobName = "fair-no-round-robin";
+
+		await storage.MergeJobDefinitionsListAsync(new()
+		{
+			Definitions =
+			[
+				new() { Name = "fair-job" },
+				new() { Name = UngroupedJobName },
+				new() { Name = NoRoundRobinJobName },
+				new() { Name = "limited" },
+				new() { Name = "other" },
+			],
+		}, cancellationToken);
+
 		var clock = timeProvider;
 		await EnqueueAsync(storage, clock, "ordinary-a-1", 0, "group-a", cancellationToken);
 		await EnqueueAsync(storage, clock, "ordinary-a-2", 1, "group-a", cancellationToken);
@@ -228,7 +279,6 @@ internal static class FairQueueStorageConformance
 			comparer: StringComparer.Ordinal
 		);
 
-		const string UngroupedJobName = "fair-ungrouped";
 		await EnqueueAsync(storage, clock, "ungrouped-newer", 5, groupId: null, cancellationToken, UngroupedJobName);
 		await EnqueueAsync(storage, clock, "ungrouped-oldest", 3, groupId: null, cancellationToken, UngroupedJobName);
 		await EnqueueAsync(storage, clock, "ungrouped-middle", 4, groupId: null, cancellationToken, UngroupedJobName);
@@ -243,7 +293,6 @@ internal static class FairQueueStorageConformance
 			"enabling fair queues must preserve due order for ungrouped jobs"
 		);
 
-		const string NoRoundRobinJobName = "fair-no-round-robin";
 		await EnqueueAsync(storage, clock, "no-rr-a-1", 6, "no-rr-a", cancellationToken, NoRoundRobinJobName);
 		await EnqueueAsync(storage, clock, "no-rr-a-2", 7, "no-rr-a", cancellationToken, NoRoundRobinJobName);
 		await EnqueueAsync(storage, clock, "no-rr-b-1", 8, "no-rr-b", cancellationToken, NoRoundRobinJobName);
@@ -314,6 +363,14 @@ internal static class FairQueueStorageConformance
 		CancellationToken cancellationToken
 	)
 	{
+		await storage.MergeJobDefinitionsListAsync(new()
+		{
+			Definitions =
+			[
+				new() { Name = "fair-job" },
+			],
+		}, cancellationToken);
+
 		var clock = timeProvider;
 		for (var index = 0; index < 12; index++)
 		{
@@ -352,6 +409,14 @@ internal static class FairQueueStorageConformance
 		CancellationToken cancellationToken
 	)
 	{
+		await storage.MergeJobDefinitionsListAsync(new()
+		{
+			Definitions =
+			[
+				new() { Name = "fair-job" },
+			],
+		}, cancellationToken);
+
 		var clock = timeProvider;
 		await EnqueueAsync(storage, clock, "retry-transient", 0, "retry-a", cancellationToken);
 		await EnqueueAsync(storage, clock, "retry-terminal", 1, "retry-b", cancellationToken);
@@ -386,6 +451,14 @@ internal static class FairQueueStorageConformance
 		CancellationToken cancellationToken
 	)
 	{
+		await storage.MergeJobDefinitionsListAsync(new()
+		{
+			Definitions =
+			[
+				new() { Name = "fair-job" },
+			],
+		}, cancellationToken);
+
 		var clock = timeProvider;
 		await EnqueueAsync(storage, clock, "cancel-b-1", 0, "cancel-b", cancellationToken);
 		await EnqueueAsync(storage, clock, "cancel-a-1", 1, "cancel-a", cancellationToken);
@@ -467,14 +540,6 @@ internal static class FairQueueStorageConformance
 		return jobs[0];
 	}
 
-	private static string DefaultQueueName { get; } = new JobRecord
-	{
-		JobHandle = JobHandle.FromString("default-queue-probe"),
-		JobName = "default-queue-probe",
-		Payload = "{}",
-		State = JobState.Pending,
-		DueAt = DateTimeOffset.UnixEpoch,
-		CreatedAt = DateTimeOffset.UnixEpoch,
-	}.QueueName;
+	private const string DefaultQueueName = "default";
 }
 #pragma warning restore IDE0130

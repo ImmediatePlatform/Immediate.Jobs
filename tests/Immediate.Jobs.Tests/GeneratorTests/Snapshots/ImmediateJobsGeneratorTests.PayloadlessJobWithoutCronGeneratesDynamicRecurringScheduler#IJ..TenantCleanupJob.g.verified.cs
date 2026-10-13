@@ -18,7 +18,6 @@ partial class TenantCleanupJob
 		timeProvider,
 		idGenerator,
 		"tenant-cleanup",
-		"default",
 		static options => new PayloadJsonContext(options).Payload
 	)
 		, global::Immediate.Jobs.Shared.Interfaces.IRecurringJobScheduler
