@@ -80,7 +80,7 @@ internal static class DefinitionCatalogStorageConformance
 			SubmissionCase, "the retained invocation must have a status");
 		ConformanceAssert.Null(status.QueueName,
 			SubmissionCase, "monitoring must retain jobs without inventing a queue");
-		ConformanceAssert.Null((await storage.GetMonitoringSnapshotAsync(token)).Recurring.Single().QueueName,
+		ConformanceAssert.Null((await MonitoringTestQueries.GetSchedulesAsync(storage, token)).Single().QueueName,
 			SubmissionCase, "retained schedules without a definition must have no queue");
 
 		await ConformanceAssert.ThrowsAsync<KeyNotFoundException>(
