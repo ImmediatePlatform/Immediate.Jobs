@@ -361,6 +361,7 @@ internal static class RedisScripts
 		redis.call('HSET', KEYS[1], 'lease', ARGV[3])
 		redis.call('ZADD', KEYS[2], ARGV[4], ARGV[5])
 		redis.call('ZADD', ARGV[6] .. 'active:job:' .. redis.call('HGET', KEYS[1], 'jobName'), ARGV[4], ARGV[5])
+		redis.call('ZADD', ARGV[6] .. 'definitions:leases:' .. redis.call('HGET', KEYS[1], 'jobName'), ARGV[4], ARGV[5])
 		return 1
 		""";
 
@@ -683,7 +684,7 @@ internal static class RedisScripts
 				local key = ARGV[1] .. 'recurring:due:job:' .. jobName
 				local members = redis.call('ZRANGEBYSCORE', key, '-inf', ARGV[2], 'LIMIT', 0, limit)
 				for _, member in ipairs(members) do
-					local name = string.sub(member, 21)
+					local name = string.match(member, '^[^|]+|(.+)$')
 					local scheduleKey = ARGV[1] .. 'recurring:' .. name
 					local current = redis.call('HMGET', scheduleKey, 'paused', 'dueMember', 'jobName')
 					if current[1] ~= '1' and current[2] == member and current[3] == jobName and not seen[member] then
