@@ -262,9 +262,9 @@ internal sealed partial class SingleServerJobStorage
 			}
 
 			var snapshot = await DurableStorage.GetMonitoringSnapshotAsync(cancellationToken);
-			var definitions = await DurableStorage.GetMonitoringDefinitionsAsync(cancellationToken);
+			var monitoringDefinitions = await DurableStorage.GetMonitoringDefinitionsAsync(cancellationToken);
 			var statuses = snapshot.Recurring.ToDictionary(static status => status.Name, StringComparer.Ordinal);
-			foreach (var definition in definitions.Recurring)
+			foreach (var definition in monitoringDefinitions.Recurring)
 				if (statuses.TryGetValue(definition.Name, out var status))
 					await PrimaryStorage.UpsertRecurringAsync(RecurringJobSchedule.FromDefinition(definition, status), cancellationToken);
 

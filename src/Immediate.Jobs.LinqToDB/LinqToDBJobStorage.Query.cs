@@ -18,7 +18,7 @@ internal sealed partial class LinqToDBJobStorage<T>
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 		await using var scope = contextScope.GetScope(out var connection);
-		var recurring = await Recurring(connection).OrderBy(schedule => schedule.Name)
+		var recurring = await RecurringWithDefinitions(connection).OrderBy(schedule => schedule.Name)
 			.Select(schedule => new RecurringJobDefinition
 			{
 				Name = schedule.Name,

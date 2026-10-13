@@ -16,7 +16,7 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 		await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
-		var recurring = await context.Set<ImmediateRecurringJobEntity>().AsNoTracking().OrderBy(schedule => schedule.Name)
+		var recurring = await RecurringWithDefinitions(context).AsNoTracking().OrderBy(schedule => schedule.Name)
 			.Select(schedule => new RecurringJobDefinition
 			{
 				Name = schedule.Name,
