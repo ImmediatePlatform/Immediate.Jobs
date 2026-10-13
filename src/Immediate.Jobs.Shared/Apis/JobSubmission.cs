@@ -8,6 +8,37 @@ namespace Immediate.Jobs.Shared.Apis;
 public sealed record JobSubmission
 {
 	/// <summary>
+	/// 	Creates a job record from the submitted invocation data.
+	/// </summary>
+	/// <param name="canonicalJobName">
+	/// 	The job name as spelled in the persisted definition.
+	/// </param>
+	/// <returns>
+	/// 	A job record with the canonical job name and the submitted invocation data.
+	/// </returns>
+	public JobRecord ToJobRecord(string canonicalJobName)
+	{
+		ArgumentNullException.ThrowIfNull(canonicalJobName);
+
+		return new()
+		{
+			JobHandle = JobHandle,
+			JobName = canonicalJobName,
+			Payload = Payload,
+			Context = Context,
+			GroupId = GroupId,
+			State = State,
+			DueAt = DueAt,
+			CreatedAt = CreatedAt,
+			RecurringKey = RecurringKey,
+			TraceParent = TraceParent,
+			TraceState = TraceState,
+			BatchHandle = BatchHandle,
+			RemainingDependencies = RemainingDependencies,
+		};
+	}
+
+	/// <summary>
 	/// 	The unique opaque invocation identifier.
 	/// </summary>
 	public required JobHandle JobHandle { get; init; }

@@ -38,8 +38,4 @@
 	<InternalsVisibleTo Include="Immediate.Jobs.StorageTests" />
   </ItemGroup>
 
-  <ItemGroup>
-	<Compile Include="../Immediate.Jobs.Shared/JobSubmissionExtensions.cs" Link="Internals/JobSubmissionExtensions.cs" />
-  </ItemGroup>
-
 </Project>

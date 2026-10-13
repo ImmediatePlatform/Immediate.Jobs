@@ -180,7 +180,7 @@ public sealed partial class InMemoryJobStorage
 	private JobRecord CreateRecord(JobSubmission job)
 	{
 		var definition = GetJobDefinition(job.JobName);
-		return job.CreateRecord(definition.Name);
+		return job.ToJobRecord(definition.Name);
 	}
 
 	internal JobDefinitionRecord GetJobDefinition(string name)

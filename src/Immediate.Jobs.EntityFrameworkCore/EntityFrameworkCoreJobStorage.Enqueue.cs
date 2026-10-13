@@ -255,7 +255,7 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 			if (!definitions.TryGetValue(job.JobName, out var definition))
 				throw new KeyNotFoundException($"Job definition '{job.JobName}' was not found.");
 
-			return job.CreateRecord(definition);
+			return job.ToJobRecord(definition);
 		}).ToList();
 	}
 
