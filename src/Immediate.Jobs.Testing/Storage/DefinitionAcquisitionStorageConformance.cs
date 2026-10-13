@@ -24,11 +24,10 @@ internal static class DefinitionAcquisitionStorageConformance
 		new("Definitions.Recurring.MaterializesDuringExecutionPause", StorageCapabilities.Queue, RecurringAsync),
 	];
 
-	private static JobRecord Job(string id, DateTimeOffset now, string name = Name, string? group = null) => new()
+	private static JobSubmission Job(string id, DateTimeOffset now, string name = Name, string? group = null) => new()
 	{
 		JobHandle = JobHandle.FromString(id),
 		JobName = name,
-		QueueName = "default",
 		Payload = "{}",
 		State = JobState.Pending,
 		DueAt = now,
@@ -51,8 +50,13 @@ internal static class DefinitionAcquisitionStorageConformance
 
 	private static async ValueTask MonitoringAsync(IJobStorage storage, FakeTimeProvider clock, CancellationToken token)
 	{
-		await storage.SubmitAsync(Job("one", clock.GetUtcNow()), token);
-		await storage.SubmitAsync(Job("two", clock.GetUtcNow()), token);
+		await storage.MergeJobDefinitionsListAsync(new()
+		{
+			Definitions = [new() { Name = Name }, new() { Name = "other-job" }],
+		}, token);
+
+		await storage.EnqueueAsync(Job("one", clock.GetUtcNow()), token);
+		await storage.EnqueueAsync(Job("two", clock.GetUtcNow()), token);
 		Equal(2, (await storage.AcquireDueJobsAsync(Request(new()), token)).Count, "both jobs acquire without a concurrency limit");
 		var state = await storage.GetJobAcquisitionStateAsync(Name, new(), token);
 		Equal(2, state.ActiveCount, "unbounded definitions still expose actual active leases");
@@ -71,13 +75,18 @@ internal static class DefinitionAcquisitionStorageConformance
 
 	private static async ValueTask PauseAsync(IJobStorage storage, FakeTimeProvider clock, CancellationToken token)
 	{
-		await storage.SubmitAsync(Job("running", clock.GetUtcNow()), token);
+		await storage.MergeJobDefinitionsListAsync(new()
+		{
+			Definitions = [new() { Name = Name }, new() { Name = "other-job" }],
+		}, token);
+
+		await storage.EnqueueAsync(Job("running", clock.GetUtcNow()), token);
 		var active = (await storage.AcquireDueJobsAsync(Request(new()), token)).Single();
-		await storage.SubmitAsync(Job("pending", clock.GetUtcNow()), token);
+		await storage.EnqueueAsync(Job("pending", clock.GetUtcNow()), token);
 		await storage.PauseJobAsync(Name, token);
 		await storage.PauseJobAsync(Name, token);
-		await storage.SubmitAsync(Job("new", clock.GetUtcNow()), token);
-		await storage.SubmitAsync(Job("other", clock.GetUtcNow(), "other-job"), token);
+		await storage.EnqueueAsync(Job("new", clock.GetUtcNow()), token);
+		await storage.EnqueueAsync(Job("other", clock.GetUtcNow(), "other-job"), token);
 		var state = await storage.GetJobAcquisitionStateAsync(Name, new(), token);
 		Equal(expected: true, state.IsPaused, "pause is persisted by job name");
 		Equal(JobAcquisitionStatus.Paused, state.AcquisitionStatus, "paused definitions report their restriction");
@@ -90,10 +99,15 @@ internal static class DefinitionAcquisitionStorageConformance
 
 	private static async ValueTask SlidingAsync(IJobStorage storage, FakeTimeProvider clock, CancellationToken token)
 	{
+		await storage.MergeJobDefinitionsListAsync(new()
+		{
+			Definitions = [new() { Name = Name }, new() { Name = "other-job" }],
+		}, token);
+
 		var limits = new JobAcquisitionLimits { SlidingWindowMax = 1, SlidingWindowPeriod = TimeSpan.FromSeconds(1) + TimeSpan.FromMilliseconds(3) };
 		var now = clock.GetUtcNow();
-		await storage.SubmitAsync(Job("one", now), token);
-		await storage.SubmitAsync(Job("two", now), token);
+		await storage.EnqueueAsync(Job("one", now), token);
+		await storage.EnqueueAsync(Job("two", now), token);
 		var active = (await storage.AcquireDueJobsAsync(Request(limits), token)).Single();
 		await storage.CompleteAsync(active.JobHandle, active.Attempt, "worker", token);
 		await storage.DeleteAsync(active.JobHandle, token);
@@ -108,14 +122,19 @@ internal static class DefinitionAcquisitionStorageConformance
 
 	private static async ValueTask RollingAsync(IJobStorage storage, FakeTimeProvider clock, CancellationToken token)
 	{
+		await storage.MergeJobDefinitionsListAsync(new()
+		{
+			Definitions = [new() { Name = Name }, new() { Name = "other-job" }],
+		}, token);
+
 		var limits = new JobAcquisitionLimits { SlidingWindowMax = 2, SlidingWindowPeriod = TimeSpan.FromSeconds(10) };
-		await storage.SubmitAsync(Job("one", clock.GetUtcNow()), token);
+		await storage.EnqueueAsync(Job("one", clock.GetUtcNow()), token);
 		Equal(1, (await storage.AcquireDueJobsAsync(Request(limits), token)).Count, "first acquisition reserves one sliding slot");
 		clock.Advance(TimeSpan.FromSeconds(5));
-		await storage.SubmitAsync(Job("two", clock.GetUtcNow()), token);
+		await storage.EnqueueAsync(Job("two", clock.GetUtcNow()), token);
 		Equal(1, (await storage.AcquireDueJobsAsync(Request(limits), token)).Count, "a later acquisition occupies a separate slot");
-		await storage.SubmitAsync(Job("three", clock.GetUtcNow()), token);
-		await storage.SubmitAsync(Job("four", clock.GetUtcNow()), token);
+		await storage.EnqueueAsync(Job("three", clock.GetUtcNow()), token);
+		await storage.EnqueueAsync(Job("four", clock.GetUtcNow()), token);
 		Equal(0, (await storage.AcquireDueJobsAsync(Request(limits), token)).Count, "the rolling window is full");
 		clock.Advance(TimeSpan.FromSeconds(5));
 		Equal(1, (await storage.AcquireDueJobsAsync(Request(limits), token)).Count, "only the first acquisition expires after ten seconds");
@@ -126,13 +145,18 @@ internal static class DefinitionAcquisitionStorageConformance
 
 	private static async ValueTask FixedAsync(IJobStorage storage, FakeTimeProvider clock, CancellationToken token)
 	{
+		await storage.MergeJobDefinitionsListAsync(new()
+		{
+			Definitions = [new() { Name = Name }, new() { Name = "other-job" }],
+		}, token);
+
 		var period = TimeSpan.FromMinutes(1);
 		var now = clock.GetUtcNow();
 		var boundary = new DateTimeOffset(now.UtcTicks - now.UtcTicks % period.Ticks, TimeSpan.Zero) + period;
 		clock.Advance(boundary - now - TimeSpan.FromMilliseconds(1));
 		var limits = new JobAcquisitionLimits { FixedWindowMax = 1, FixedWindowPeriod = period };
-		await storage.SubmitAsync(Job("one", clock.GetUtcNow()), token);
-		await storage.SubmitAsync(Job("two", clock.GetUtcNow()), token);
+		await storage.EnqueueAsync(Job("one", clock.GetUtcNow()), token);
+		await storage.EnqueueAsync(Job("two", clock.GetUtcNow()), token);
 		Equal(1, (await storage.AcquireDueJobsAsync(Request(limits), token)).Count, "one acquisition is permitted in the old fixed window");
 		Equal(boundary, (await storage.GetJobAcquisitionStateAsync(Name, limits, token)).NextEligibleAt, "fixed windows align to UTC boundaries");
 		clock.Advance(TimeSpan.FromMilliseconds(1));
@@ -141,10 +165,15 @@ internal static class DefinitionAcquisitionStorageConformance
 
 	private static async ValueTask CombinedAsync(IJobStorage storage, FakeTimeProvider clock, CancellationToken token)
 	{
+		await storage.MergeJobDefinitionsListAsync(new()
+		{
+			Definitions = [new() { Name = Name }, new() { Name = "other-job" }],
+		}, token);
+
 		var limits = new JobAcquisitionLimits { SlidingWindowMax = 1, SlidingWindowPeriod = TimeSpan.FromMinutes(2), FixedWindowMax = 1, FixedWindowPeriod = TimeSpan.FromMinutes(1) };
 		var now = clock.GetUtcNow();
-		await storage.SubmitAsync(Job("one", now), token);
-		await storage.SubmitAsync(Job("two", now), token);
+		await storage.EnqueueAsync(Job("one", now), token);
+		await storage.EnqueueAsync(Job("two", now), token);
 		Equal(1, (await storage.AcquireDueJobsAsync(Request(limits), token)).Count, "all configured limits apply to one acquisition");
 		await storage.PauseJobAsync(Name, token);
 		Equal(JobAcquisitionStatus.Paused, (await storage.GetJobAcquisitionStateAsync(Name, limits, token)).AcquisitionStatus, "pause takes precedence over exhausted limits");
@@ -156,9 +185,14 @@ internal static class DefinitionAcquisitionStorageConformance
 
 	private static async ValueTask ConcurrencyAsync(IJobStorage storage, FakeTimeProvider clock, CancellationToken token)
 	{
+		await storage.MergeJobDefinitionsListAsync(new()
+		{
+			Definitions = [new() { Name = Name }, new() { Name = "other-job" }],
+		}, token);
+
 		var limits = new JobAcquisitionLimits { MaxConcurrency = 1 };
-		await storage.SubmitAsync(Job("one", clock.GetUtcNow()), token);
-		await storage.SubmitAsync(Job("two", clock.GetUtcNow()), token);
+		await storage.EnqueueAsync(Job("one", clock.GetUtcNow()), token);
+		await storage.EnqueueAsync(Job("two", clock.GetUtcNow()), token);
 		var first = (await storage.AcquireDueJobsAsync(Request(limits, "first"), token)).Single();
 		Equal(0, (await storage.AcquireDueJobsAsync(Request(limits, "second"), token)).Count, "workers share the definition's concurrency capacity");
 		Equal(JobAcquisitionStatus.ConcurrencyLimited, (await storage.GetJobAcquisitionStateAsync(Name, limits, token)).AcquisitionStatus, "active leases report concurrency restriction");
@@ -171,9 +205,14 @@ internal static class DefinitionAcquisitionStorageConformance
 
 	private static async ValueTask RenewAsync(IJobStorage storage, FakeTimeProvider clock, CancellationToken token)
 	{
+		await storage.MergeJobDefinitionsListAsync(new()
+		{
+			Definitions = [new() { Name = Name }, new() { Name = "other-job" }],
+		}, token);
+
 		var limits = new JobAcquisitionLimits { MaxConcurrency = 1 };
-		await storage.SubmitAsync(Job("one", clock.GetUtcNow()), token);
-		await storage.SubmitAsync(Job("two", clock.GetUtcNow()), token);
+		await storage.EnqueueAsync(Job("one", clock.GetUtcNow()), token);
+		await storage.EnqueueAsync(Job("two", clock.GetUtcNow()), token);
 		var first = (await storage.AcquireDueJobsAsync(Request(limits), token)).Single();
 		await storage.RenewLeaseAsync(first.JobHandle, first.Attempt, "worker", TimeSpan.FromMinutes(2), token);
 		clock.Advance(TimeSpan.FromSeconds(31));
@@ -184,19 +223,29 @@ internal static class DefinitionAcquisitionStorageConformance
 
 	private static async ValueTask ContentionAsync(IJobStorage storage, FakeTimeProvider clock, CancellationToken token)
 	{
+		await storage.MergeJobDefinitionsListAsync(new()
+		{
+			Definitions = [new() { Name = Name }, new() { Name = "other-job" }],
+		}, token);
+
 		var limits = new JobAcquisitionLimits { MaxConcurrency = 3, SlidingWindowMax = 3, SlidingWindowPeriod = TimeSpan.FromMinutes(1) };
 		for (var index = 0; index < 12; index++)
-			await storage.SubmitAsync(Job(index.ToString(CultureInfo.InvariantCulture), clock.GetUtcNow()), token);
+			await storage.EnqueueAsync(Job(index.ToString(CultureInfo.InvariantCulture), clock.GetUtcNow()), token);
 		var results = await Task.WhenAll(Enumerable.Range(0, 6).Select(index => storage.AcquireDueJobsAsync(Request(limits, index.ToString(CultureInfo.InvariantCulture)), token).AsTask()));
 		Equal(3, results.Sum(static jobs => jobs.Count), "contending workers cannot independently reserve the same rate or concurrency capacity");
 	}
 
 	private static async ValueTask FairAsync(IJobStorage storage, FakeTimeProvider clock, CancellationToken token)
 	{
+		await storage.MergeJobDefinitionsListAsync(new()
+		{
+			Definitions = [new() { Name = Name }, new() { Name = "other-job" }],
+		}, token);
+
 		var limits = new JobAcquisitionLimits { SlidingWindowMax = 1, SlidingWindowPeriod = TimeSpan.FromMinutes(1) };
-		await storage.SubmitAsync(Job("one", clock.GetUtcNow(), group: "shared"), token);
-		await storage.SubmitAsync(Job("two", clock.GetUtcNow(), group: "shared"), token);
-		await storage.SubmitAsync(Job("other", clock.GetUtcNow().AddMilliseconds(1), "other-job", "shared") with { DueAt = clock.GetUtcNow() }, token);
+		await storage.EnqueueAsync(Job("one", clock.GetUtcNow(), group: "shared"), token);
+		await storage.EnqueueAsync(Job("two", clock.GetUtcNow(), group: "shared"), token);
+		await storage.EnqueueAsync(Job("other", clock.GetUtcNow().AddMilliseconds(1), "other-job", "shared") with { DueAt = clock.GetUtcNow() }, token);
 		var acquired = await storage.AcquireDueJobsAsync(Request(limits, fair: true), token);
 		Equal(2, acquired.Count, "fair acquisition skips limited work without starving an eligible definition in the same group");
 		Equal(1, acquired.Count(static job => string.Equals(job.JobName, Name, StringComparison.Ordinal)), "fair queues enforce definition limits within a batch");
@@ -204,12 +253,19 @@ internal static class DefinitionAcquisitionStorageConformance
 
 	private static async ValueTask RetryAsync(IJobStorage storage, FakeTimeProvider clock, CancellationToken token)
 	{
+		await storage.MergeJobDefinitionsListAsync(new()
+		{
+			Definitions = [new() { Name = Name }, new() { Name = "other-job" }],
+		}, token);
+
 		var limits = new JobAcquisitionLimits { SlidingWindowMax = 1, SlidingWindowPeriod = TimeSpan.FromSeconds(1) };
-		await storage.SubmitAsync(Job("retry", clock.GetUtcNow()), token);
+		await storage.EnqueueAsync(Job("retry", clock.GetUtcNow()), token);
 		var first = (await storage.AcquireDueJobsAsync(Request(limits), token)).Single();
 		await storage.FailAsync(first.JobHandle, first.Attempt, "worker", "retry", clock.GetUtcNow(), token);
 		Equal(0, (await storage.AcquireDueJobsAsync(Request(limits), token)).Count, "blocked retry acquisitions consume no execution attempts");
-		Equal(1, (await storage.GetJobStatusAsync(first.JobHandle, token))!.Attempt, "a rate-limited retry retains its attempt count");
+		var status = ConformanceAssert.NotNull(await storage.GetJobStatusAsync(first.JobHandle, token),
+			"Definitions.Retries.CountSuccessfulAcquisitionsOnly", "the rate-limited invocation must have a status");
+		Equal(1, status.Attempt, "a rate-limited retry retains its attempt count");
 		clock.Advance(TimeSpan.FromSeconds(1));
 		var retry = (await storage.AcquireDueJobsAsync(Request(limits), token)).Single();
 		Equal(2, retry.Attempt, "a successful retry acquisition creates a new attempt");
@@ -218,12 +274,26 @@ internal static class DefinitionAcquisitionStorageConformance
 
 	private static async ValueTask RecurringAsync(IJobStorage storage, FakeTimeProvider clock, CancellationToken token)
 	{
+		await storage.MergeJobDefinitionsListAsync(new()
+		{
+			Definitions = [new() { Name = Name }, new() { Name = "other-job" }],
+		}, token);
+
 		var now = clock.GetUtcNow();
 		var schedule = new RecurringJobSchedule { Name = "schedule", JobName = Name, QueueName = "default", Cron = "* * * * *", TimeZone = "UTC", NextRunAt = now, IsCodeDefined = false };
 		await storage.UpsertRecurringAsync(schedule, token);
 		await storage.PauseJobAsync(Name, token);
 		var due = (await storage.GetDueRecurringAsync(now, 10, [Name], token)).Single();
-		Equal(expected: true, await storage.MaterializeRecurringAsync(due, Job("occurrence", now) with { RecurringKey = "schedule:one" }, now.AddMinutes(1), cancellationToken: token), "execution pause permits recurring job creation");
+		Equal(expected: true, await storage.MaterializeRecurringAsync(due, new()
+		{
+			JobHandle = JobHandle.FromString("occurrence"),
+			JobName = Name,
+			Payload = "{}",
+			State = JobState.Pending,
+			DueAt = now,
+			CreatedAt = now,
+			RecurringKey = "schedule:one",
+		}, now.AddMinutes(1), cancellationToken: token), "execution pause permits recurring job creation");
 		Equal(0, (await storage.AcquireDueJobsAsync(Request(new()), token)).Count, "the materialized occurrence remains paused");
 		await storage.ResumeJobAsync(Name, new(), token);
 		Equal(1, (await storage.AcquireDueJobsAsync(Request(new()), token)).Count, "resume releases the created occurrence");
