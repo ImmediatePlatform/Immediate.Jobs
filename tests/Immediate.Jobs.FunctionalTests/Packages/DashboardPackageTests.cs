@@ -106,17 +106,19 @@ public sealed class DashboardPackageTests
 		var token = TestContext.Current.CancellationToken;
 		var clock = new FakeTimeProvider(DateTimeOffset.UnixEpoch);
 		await using var storage = new InMemoryJobStorage(clock);
-		storage.LoadPersistedJobState(
-		[new JobRecord
+		await storage.MergeJobDefinitionsListAsync(new()
+		{
+			Definitions = [new() { Name = "limited-acquisition", MaxConcurrency = 1 }],
+		}, token);
+		await storage.EnqueueAsync(new()
 		{
 			JobHandle = JobHandle.FromString("definition-dashboard-job"),
 			JobName = "limited-acquisition",
-			QueueName = "default",
 			Payload = "{}",
 			State = JobState.Pending,
 			CreatedAt = clock.GetUtcNow(),
 			DueAt = clock.GetUtcNow(),
-		}], [], [], []);
+		}, token);
 		await storage.AcquireDueJobsAsync(new()
 		{
 			WorkerId = "dashboard-worker",
