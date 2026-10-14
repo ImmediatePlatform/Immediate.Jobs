@@ -29,5 +29,4 @@ public sealed record JobAcquisitionRequest
 	/// 	Fair queue policy for this acquisition, or <see langword="null"/> when fairness is disabled.
 	/// </summary>
 	public FairQueuePolicy? FairQueues { get; init; }
-
 }

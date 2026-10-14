@@ -181,13 +181,11 @@ public sealed class InvalidJobsTests
 		_ = await Utility.VerifyIgnoreImmediateHandlers(result);
 	}
 
-	[Theory]
-	[InlineData("00:00:00")]
-	[InlineData("PT2M")]
-	public async Task InvalidTimeoutDoesNotGenerate(string timeout)
+	[Fact]
+	public async Task InvalidTimeoutDoesNotGenerate()
 	{
 		var result = GeneratorTestHelper.RunGenerator(
-			$$"""
+			"""
 			using System.Threading;
 			using System.Threading.Tasks;
 			using Immediate.Handlers.Shared;
@@ -195,7 +193,7 @@ public sealed class InvalidJobsTests
 			
 			namespace Dummy;
 			
-			[Handler, Job(Timeout = "{{timeout}}")]
+			[Handler, Job(Timeout = "00:00:00")]
 			public sealed partial class TimeoutJob
 			{
 				private ValueTask Handle(

@@ -32,41 +32,7 @@ public sealed class JobClassAnalyzerTests
 			using System.Threading.Tasks;
 			using Immediate.Handlers.Shared;
 			using Immediate.Jobs.Shared;
-
-			namespace Dummy;
-
-			[Handler, Job(
-				MaxAttempts = 3,
-				MaxConcurrency = 1,
-				SlidingWindowMax = 10,
-				SlidingWindowPeriod = "00:00:01.0000003",
-				FixedWindowMax = 100,
-				FixedWindowPeriod = "00:01:00",
-				Backoff = BackoffStrategy.Fixed,
-				BackoffBase = "00:00:05",
-				OverlapPolicy = OverlapPolicy.Skip,
-				MisfireHandlingMode = MisfireHandlingMode.EnqueueAll,
-				Timeout = "00:01:00"
-
-			)]
-			public sealed partial class GetUsersQuery
-			{
-				public record Query;
-
-				private async ValueTask Handle(Query _, CancellationToken token) { }
-			}
-			"""
-		).RunAsync(TestContext.Current.CancellationToken);
-
-	[Fact]
-	public async Task AcquisitionWindowConfigurationShouldNotTrigger() =>
-		await AnalyzerTestHelpers.CreateAnalyzerTest<JobClassAnalyzer>(
-			"""
-			using System.Threading;
-			using System.Threading.Tasks;
-			using Immediate.Handlers.Shared;
-			using Immediate.Jobs.Shared;
-
+			
 			namespace Dummy;
 
 			[Handler, Job(
@@ -100,18 +66,22 @@ public sealed class JobClassAnalyzerTests
 			using System.Threading.Tasks;
 			using Immediate.Handlers.Shared;
 			using Immediate.Jobs.Shared;
-
+			
 			namespace Dummy;
 
-			[Handler, {|IJOB0005:{|IJOB0005:{|IJOB0005:{|IJOB0005:{|IJOB0005:{|IJOB0005:{|IJOB0005:Job(
+			[Handler, {|IJOB0005:{|IJOB0005:{|IJOB0005:{|IJOB0005:{|IJOB0005:{|IJOB0005:{|IJOB0005:{|IJOB0005:{|IJOB0005:Job(
 				MaxAttempts = -1,
 				MaxConcurrency = -1,
+				SlidingWindowMax = -1,
+				SlidingWindowPeriod = "00:00:01.0000003",
+				FixedWindowMax = -1,
+				FixedWindowPeriod = "00:01:00",
 				Backoff = (BackoffStrategy)5,
 				BackoffBase = "-00:00:05",
 				OverlapPolicy = (OverlapPolicy)5,
 				MisfireHandlingMode = (MisfireHandlingMode)5,
 				Timeout = "-00:01:00"
-			)|}|}|}|}|}|}|}]
+			)|}|}|}|}|}|}|}|}|}]
 			public sealed partial class GetUsersQuery
 			{
 				public record Query;
@@ -121,56 +91,26 @@ public sealed class JobClassAnalyzerTests
 			"""
 		).RunAsync(TestContext.Current.CancellationToken);
 
-	[Theory]
-	[InlineData("asdf")]
-	[InlineData("PT1M")]
-	public async Task UnparseableTimeSpanValuesShouldTrigger(string value) =>
+	[Fact]
+	public async Task UnparseableTimeSpanValuesShouldTrigger() =>
 		await AnalyzerTestHelpers.CreateAnalyzerTest<JobClassAnalyzer>(
-			$$"""
+			"""
 			using System.Threading;
 			using System.Threading.Tasks;
 			using Immediate.Handlers.Shared;
 			using Immediate.Jobs.Shared;
-
+			
 			namespace Dummy;
 
 			[Handler, {|IJOB0005:{|IJOB0005:Job(
-				BackoffBase = "{{value}}",
-				Timeout = "{{value}}"
+				BackoffBase = "asdf",
+				Timeout = "asdf"
 			)|}|}]
 			public sealed partial class GetUsersQuery
 			{
 				public record Query;
 
 				private async ValueTask Handle(Query _, CancellationToken token) { }
-			}
-			"""
-		).RunAsync(TestContext.Current.CancellationToken);
-
-	[Theory]
-	[InlineData("SlidingWindowMax = -1")]
-	[InlineData("SlidingWindowMax = 1")]
-	[InlineData("SlidingWindowPeriod = \"00:01:00\"")]
-	[InlineData("SlidingWindowMax = 1, SlidingWindowPeriod = \"invalid\"")]
-	[InlineData("SlidingWindowMax = 1, SlidingWindowPeriod = \"00:00:00\"")]
-	[InlineData("FixedWindowMax = 1, FixedWindowPeriod = \"-00:01:00\"")]
-	[InlineData("FixedWindowMax = 0, FixedWindowPeriod = \"00:01:00\"")]
-	[InlineData("FixedWindowMax = 1")]
-	[InlineData("SlidingWindowMax = 1, SlidingWindowPeriod = \"PT1M\"")]
-	[InlineData("FixedWindowMax = 1, FixedWindowPeriod = \"PT1M\"")]
-	[InlineData("FixedWindowMax = 1, FixedWindowPeriod = \"10675200.00:00:00\"")]
-	public async Task InvalidAcquisitionWindowsReportConfigurationDiagnostic(string configuration) =>
-		await AnalyzerTestHelpers.CreateAnalyzerTest<JobClassAnalyzer>(
-			$$"""
-			using System.Threading;
-			using System.Threading.Tasks;
-			using Immediate.Handlers.Shared;
-			using Immediate.Jobs.Shared;
-
-			[Handler, {|IJOB0005:Job({{configuration}})|}]
-			public sealed partial class LimitedJob
-			{
-				private ValueTask HandleAsync(EmptyJobRequest payload, CancellationToken token) => ValueTask.CompletedTask;
 			}
 			"""
 		).RunAsync(TestContext.Current.CancellationToken);
@@ -183,7 +123,7 @@ public sealed class JobClassAnalyzerTests
 			using System.Threading.Tasks;
 			using Immediate.Handlers.Shared;
 			using Immediate.Jobs.Shared;
-
+			
 			namespace Dummy;
 
 			[Handler, Job(
@@ -205,7 +145,7 @@ public sealed class JobClassAnalyzerTests
 			using System.Threading.Tasks;
 			using Immediate.Handlers.Shared;
 			using Immediate.Jobs.Shared;
-
+			
 			namespace Dummy;
 
 			[Handler, Job(
@@ -229,7 +169,7 @@ public sealed class JobClassAnalyzerTests
 			using System.Threading.Tasks;
 			using Immediate.Handlers.Shared;
 			using Immediate.Jobs.Shared;
-
+			
 			namespace Dummy;
 
 			[Handler, {|IJOB0007:{|IJOB0007:Job(

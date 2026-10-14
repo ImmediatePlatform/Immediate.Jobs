@@ -36,16 +36,21 @@ internal static class TypedConstantExtensions
 
 		public AcquisitionWindow? GetValidAcquisitionWindow(string windowName)
 		{
-			var maximum = arguments.GetIntValue(windowName + "Max", 0);
-			var period = arguments.GetStringValue(windowName + "Period");
-			if (maximum == 0)
-				return period is null ? new AcquisitionWindow(Max: 0, Period: null) : null;
+			return (
+				arguments.GetIntValue(windowName + "Max"),
+				arguments.GetStringValue(windowName + "Period")
+			) switch
+			{
+				(null, null) => new(Max: null, Period: null),
 
-			return maximum > 0
-				&& TimeSpan.TryParse(period, CultureInfo.InvariantCulture, out var value)
-				&& value > TimeSpan.Zero
-					? new AcquisitionWindow(maximum, value)
-					: null;
+				({ } maximum, { } periodStr)
+					when maximum > 0
+					&& TimeSpan.TryParse(periodStr, CultureInfo.InvariantCulture, out var period)
+					&& period > TimeSpan.Zero =>
+					new(maximum, period),
+
+				_ => null,
+			};
 		}
 
 		public string? GetStringValue(string name) =>
