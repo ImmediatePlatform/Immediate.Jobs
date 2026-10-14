@@ -33,7 +33,7 @@ builder.Services.AddSqliteSampleJobs()
 	.ConfigureStorage(o => o
 		.UseEntityFrameworkCore<JobsDbContext>()
 		.UseSingleServer())
-	.ConfigureWorkers(o => o.WorkerCount = 4)
+	.ConfigureWorkers(o => o.WorkerCount = 64)
 	.AddHealthCheck()
 	.AddImmediateJobsDashboard();
 
@@ -88,6 +88,36 @@ app.MapPost("/retry-demo", async (
 	return Results.Accepted($"/jobs/invocations/{jobHandle.Value}", new { jobHandle = jobHandle.Value });
 })
 	.WithSummary("Enqueues a job that succeeds on its third attempt");
+
+app.MapPost("/concurrency/max-active", async (
+	MaxActiveDemoJob.Scheduler scheduler,
+	CancellationToken cancellationToken
+) =>
+{
+	var jobHandle = await scheduler.TriggerNowAsync(cancellationToken);
+	return Results.Accepted($"/jobs/invocations/{jobHandle.Value}", new { jobHandle = jobHandle.Value });
+})
+	.WithSummary("Enqueues a 30-second job with at most two active invocations");
+
+app.MapPost("/concurrency/fixed-window", async (
+	FixedWindowDemoJob.Scheduler scheduler,
+	CancellationToken cancellationToken
+) =>
+{
+	var jobHandle = await scheduler.TriggerNowAsync(cancellationToken);
+	return Results.Accepted($"/jobs/invocations/{jobHandle.Value}", new { jobHandle = jobHandle.Value });
+})
+	.WithSummary("Enqueues a 30-second job limited to three acquisitions per fixed minute");
+
+app.MapPost("/concurrency/sliding-window", async (
+	SlidingWindowDemoJob.Scheduler scheduler,
+	CancellationToken cancellationToken
+) =>
+{
+	var jobHandle = await scheduler.TriggerNowAsync(cancellationToken);
+	return Results.Accepted($"/jobs/invocations/{jobHandle.Value}", new { jobHandle = jobHandle.Value });
+})
+	.WithSummary("Enqueues a 30-second job limited to three acquisitions per sliding minute");
 
 app.MapPost("/fair-queue-demo", async (
 	FairQueueDemoJob.Scheduler scheduler,

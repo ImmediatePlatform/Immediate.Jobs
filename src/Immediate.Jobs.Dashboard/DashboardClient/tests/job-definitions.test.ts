@@ -65,21 +65,20 @@ describe('job definition monitoring', () => {
 	it('shows the known pause even when definition configuration cannot be loaded', async () => {
 		vi.mocked(getDefinitions).mockRejectedValue(new ApiError('Definition service unavailable', 400));
 		const { wrapper } = await mountView(true);
-		expect(wrapper.get('.inspector-content > div > .state-badge').text()).toBe('Paused');
-		expect(wrapper.get('.definition-details').text()).toContain('Acquisition is paused');
+		expect(wrapper.get('.inspector-header .state-badge').text()).toBe('Paused');
 		expect(wrapper.get('.definition-details').text()).toContain('Definition service unavailable');
 	});
 
 	it('combines current definition configuration and live status in job details', async () => {
 		const { wrapper, queryClient } = await mountView(true);
-		expect(wrapper.get('.inspector-content > div > .state-badge').text()).toBe('Paused');
-		expect(wrapper.get('.definition-details').text()).toContain('SendGreeting');
-		expect(wrapper.get('.definition-details').text()).toContain('Acquisition is paused');
+		expect(wrapper.get('.inspector-header .state-badge').text()).toBe('Paused');
+		expect(wrapper.get('.definition-details').text()).toContain('Max active: 2 / 2');
+		expect(wrapper.get('.definition-details').text()).toContain('Paused');
 		expect(getDefinitions).toHaveBeenCalledTimes(1);
 		applyDashboardState(queryClient, { jobs: [job], batches: [], snapshot: { ...snapshot, definitionStatuses: [{ ...pausedDefinition.acquisition, isPaused: false, acquisitionStatus: 'Ready' }] } });
 		await flushPromises();
-		expect(wrapper.get('.inspector-content > div > .state-badge').text()).toBe('Pending');
-		expect(wrapper.get('.definition-details').text()).not.toContain('Acquisition is paused');
+		expect(wrapper.get('.inspector-header .state-badge').text()).toBe('Pending');
+		expect(wrapper.get('.definition-details').text()).toContain('Ready');
 		expect(getDefinitions).toHaveBeenCalledTimes(1);
 		applyDashboardState(queryClient, { jobs: [{ ...job, state: 'Cancelled', cancellationReason: 'Job definition removed.' }], batches: [], snapshot: { ...snapshot, definitionStatuses: [] } });
 		await flushPromises();

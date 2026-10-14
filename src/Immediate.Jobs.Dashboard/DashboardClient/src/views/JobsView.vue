@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
-import { useRoute, useRouter } from 'vue-router';
+import { useRouter } from 'vue-router';
 import { useRouteQuery } from '@vueuse/router';
 import { refDebounced } from '@vueuse/core';
 import { ChevronLeft, ChevronRight, Search } from '@lucide/vue';
@@ -14,7 +14,6 @@ import { errorText } from '@/notifications';
 import { useJobsQuery, useOverviewQuery } from '@/query';
 import { useJobMutations } from '@/use-dashboard-mutations';
 
-const route = useRoute();
 const router = useRouter();
 const searchQuery = useRouteQuery<string>('search', '');
 const queueQuery = useRouteQuery<string>('queue', '');
@@ -55,14 +54,6 @@ watch(pageQuery, (value) => {
 		pageQuery.value = String(page.value);
 	}
 }, { immediate: true });
-
-function openJob(job: JobRecord): void {
-	void router.push({
-		name: 'job-detail',
-		params: { jobHandle: job.jobHandle },
-		query: route.query,
-	});
-}
 
 function openBatch(batchHandle: string): void {
 	void router.push({ name: 'batch-detail', params: { batchHandle } });
@@ -119,7 +110,6 @@ async function confirmCancel(): Promise<void> {
 				:rows="jobsQuery.data.value?.items ?? []"
 				:definition-statuses="overviewQuery.data.value?.definitionStatuses ?? []"
 				:busy-job-id="jobMutations.busyJobHandle.value"
-				@select="openJob"
 				@open-batch="openBatch"
 				@cancel="cancelCandidate = $event"
 				@retry="(job) => jobMutations.retryJob(job.jobHandle)"

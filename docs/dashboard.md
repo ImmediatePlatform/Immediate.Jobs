@@ -53,6 +53,8 @@ live status and pause/resume actions. The Servers page displays effective server
   state. Details include the current definition below the payload, including queue, tags, scheduling,
   retries, timeout, acquisition status, and configured limits. The same information is available
   when inspecting an invocation within a batch. Queue information belongs to this definition block.
+  The header contains the invocation ID, lifecycle status, and job actions. Job-name and view links
+  are anchors that support opening details in a new tab.
 - **Contracts.** `src/contracts.ts` mirrors the server JSON. When an enum gains or renames a member,
   update `jobStates`/`batchStates` there, `isBatchState` in `src/api.ts`, any component that switches
   on states (`JobStateSummary.vue`, `WorkflowGraph.vue`, the batch cancel buttons), and the

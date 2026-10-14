@@ -35,10 +35,15 @@ function mountJobDetail(props: InstanceType<typeof JobDetail>['$props']) {
 	return mount(JobDetail, { props, global: { plugins: [router] } });
 }
 
+function mountJobTable(options: { props: InstanceType<typeof JobTable>['$props'] }) {
+	const router = createRouter({ history: createMemoryHistory(), routes });
+	return mount(JobTable, { ...options, global: { plugins: [router] } });
+}
+
 describe('dashboard components', () => {
 	it('shows why a job was canceled and offers no retry action', () => {
 		const job = { ...completedJob, state: 'Cancelled' as const, cancellationReason: 'Job definition removed.' };
-		const table = mount(JobTable, { props: { rows: [job] } });
+		const table = mountJobTable( { props: { rows: [job] } });
 		expect(table.text()).toContain('Job definition removed.');
 		expect(table.find('button[aria-label="Retry SendGreeting"]').exists()).toBe(false);
 		const detail = mountJobDetail({ job });
@@ -97,7 +102,7 @@ describe('dashboard components', () => {
 
 	it('shows pending jobs as paused without masking running, scheduled, or finished jobs', async () => {
 		const pending = { ...completedJob, jobHandle: 'pending', state: 'Pending' as const };
-		const table = mount(JobTable, {
+		const table = mountJobTable( {
 			props: {
 				rows: [pending, { ...completedJob, jobHandle: 'active', state: 'Active' }, { ...completedJob, jobHandle: 'scheduled', state: 'Scheduled' }, completedJob],
 				definitionStatuses: [{ ...pausedDefinition.acquisition, jobName: 'sendgreeting' }],
@@ -120,31 +125,34 @@ describe('dashboard components', () => {
 		});
 		await flushPromises();
 		expect(detail.get('.inspector-content > .detail-list').text()).not.toContain('Queue');
-		expect(detail.get('.inspector-content > div > .state-badge').text()).toBe('Paused');
-		const definition = detail.get('section[aria-label="Job definition"]');
-		expect(definition.text()).toContain('Acquisition is paused for this definition.');
-		expect(definition.text()).toContain('SendGreeting');
+		expect(detail.get('.inspector-header .state-badge').text()).toBe('Paused');
+		const definition = detail.get('section[aria-label="Definition"]');
+		expect(definition.text()).toContain('Paused');
+		expect(definition.get('h3').text()).toBe('Definition');
+		expect(definition.findAll('dt').map(item => item.text())).not.toContain('Name');
+		expect(detail.get('.inspector-header').text()).toContain(completedJob.jobHandle);
+		expect(detail.get('.inspector-header button').text()).toContain('Cancel job');
+		expect(detail.get('.inspector-content > .detail-list').text()).not.toContain('Invocation');
 		expect(definition.text()).toContain('default');
 		expect(definition.text()).not.toContain('old-queue');
 		expect(definition.text()).toContain('Max active: 2 / 2');
 		expect(definition.text()).toContain('Fixed window: 100 per 01:00:00');
 		expect(definition.text()).toContain('Sliding window: 10 per 00:01:00');
 		const sections = detail.findAll('.code-section').map(section => section.get('h3').text());
-		expect(sections.indexOf('Job definition')).toBe(sections.indexOf('Payload') + 1);
+		expect(sections.indexOf('Definition')).toBe(sections.indexOf('Payload') + 1);
 		await detail.setProps({ job: { ...completedJob, state: 'Active' } });
-		expect(detail.get('.inspector-content > div > .state-badge').text()).toBe('Active');
-		expect(definition.text()).toContain('Acquisition is paused');
+		expect(detail.get('.inspector-header .state-badge').text()).toBe('Active');
+		expect(definition.text()).toContain('Paused');
 		await detail.setProps({ job: { ...completedJob, state: 'Pending' }, acquisition: { ...pausedDefinition.acquisition, isPaused: false, acquisitionStatus: 'Ready' } });
-		expect(detail.get('.inspector-content > div > .state-badge').text()).toBe('Pending');
-		expect(definition.text()).not.toContain('Acquisition is paused');
+		expect(detail.get('.inspector-header .state-badge').text()).toBe('Pending');
+		expect(definition.text()).toContain('Ready');
 		detail.unmount();
 	});
 
 	it('distinguishes loading, failed, and unavailable definition information', async () => {
 		const detail = mountJobDetail({ job: { ...completedJob, state: 'Pending' }, definitionLoading: true, acquisition: pausedDefinition.acquisition });
 		expect(detail.get('.definition-details').text()).toContain('Loading job definition');
-		expect(detail.get('.definition-details').text()).toContain('Acquisition is paused');
-		expect(detail.get('.inspector-content > div > .state-badge').text()).toBe('Paused');
+		expect(detail.get('.inspector-header .state-badge').text()).toBe('Paused');
 		await detail.setProps({ definitionLoading: false, definitionError: 'Connection failed.' });
 		expect(detail.get('.definition-details').text()).toContain('Connection failed.');
 		await detail.setProps({ definitionError: undefined });
@@ -199,7 +207,7 @@ describe('dashboard components', () => {
 	it('renders job rows, retained executions, and complete payload/context details', async () => {
 		const attemptTraceId = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
 		const attemptSpanId = 'bbbbbbbbbbbbbbbb';
-		const table = mount(JobTable, { props: { rows: [completedJob] } });
+		const table = mountJobTable( { props: { rows: [completedJob] } });
 		expect(table.text()).toContain('SendGreeting');
 		expect(table.text()).toContain('Succeeded');
 		expect(table.text()).toContain('batch-42');
@@ -410,7 +418,7 @@ describe('dashboard components', () => {
 			completedAt: null,
 		};
 		const firstRun = { ...scheduled, jobHandle: 'scheduled-first-run', jobName: 'first-run', attempt: 0 };
-		const table = mount(JobTable, { props: { rows: [scheduled, firstRun] } });
+		const table = mountJobTable( { props: { rows: [scheduled, firstRun] } });
 
 		expect(table.find('button[aria-label="Run first-run now"]').exists()).toBe(true);
 		const runNow = table.get('button[aria-label="Run retry-test now"]');
@@ -430,7 +438,7 @@ describe('dashboard components', () => {
 
 	it('shows skipped branches', () => {
 		const skipped = { ...completedJob, jobHandle: 'skipped', state: 'Skipped' as const };
-		const table = mount(JobTable, { props: { rows: [skipped] } });
+		const table = mountJobTable( { props: { rows: [skipped] } });
 
 		expect(table.text()).toContain('Skipped');
 	});
@@ -457,7 +465,7 @@ describe('dashboard components', () => {
 		{ groupId: null, rendersGroup: false },
 		{ groupId: '', rendersGroup: true },
 	])('renders job table groups according to the nullable contract for $groupId', ({ groupId, rendersGroup }) => {
-		const table = mount(JobTable, {
+		const table = mountJobTable( {
 			props: {
 				rows: [{ ...completedJob, groupId }],
 			},
@@ -468,14 +476,23 @@ describe('dashboard components', () => {
 		expect(groupCell.find('.text-muted').exists()).toBe(!rendersGroup);
 	});
 
-	it('keeps one table row per job and emits navigation without inserting details', async () => {
-		const wrapper = mount(JobTable, { props: { rows: [completedJob] } });
-
-		await wrapper.get('button[aria-label="View SendGreeting"]').trigger('click');
-
+	it('uses native job links that preserve filters and allow opening a new tab', async () => {
+		const router = createRouter({ history: createMemoryHistory(), routes });
+		await router.push('/invocations?search=greeting&state=Succeeded');
+		const wrapper = mount(JobTable, { props: { rows: [completedJob] }, global: { plugins: [router] } });
+		const name = wrapper.get('td:first-child a');
+		const view = wrapper.get('a[aria-label="View SendGreeting"]');
+		const target = `/invocations/${completedJob.jobHandle}?search=greeting&state=Succeeded`;
+		expect(name.attributes('href')).toBe(target);
+		expect(view.attributes('href')).toBe(target);
+		await name.trigger('click', { ctrlKey: true });
+		await view.trigger('auxclick', { button: 1 });
+		expect(router.currentRoute.value.name).toBe('jobs');
+		await view.trigger('click');
+		await flushPromises();
+		expect(router.currentRoute.value.fullPath).toBe(target);
 		expect(wrapper.findAll('tbody tr')).toHaveLength(1);
 		expect(wrapper.find('.job-detail-row').exists()).toBe(false);
-		expect(wrapper.emitted('select')?.[0]).toEqual([completedJob]);
 	});
 
 	it('renders a slot per worker and lists only busy workers', () => {

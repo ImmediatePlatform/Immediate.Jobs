@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue';
+import { RouterLink, useRoute } from 'vue-router';
 import { Ban, Eye, Layers3, RotateCcw } from '@lucide/vue';
 
 import FeedbackState from '@/components/FeedbackState.vue';
@@ -16,12 +17,13 @@ const props = withDefaults(defineProps<{
 	definitionStatuses: () => [],
 });
 
+const route = useRoute();
+
 const pausedDefinitions = computed(() => new Set(props.definitionStatuses
 	.filter(definition => definition.isPaused)
 	.map(definition => definition.jobName.toUpperCase())));
 
 const emit = defineEmits<{
-	select: [job: JobRecord];
 	openBatch: [batchHandle: string];
 	cancel: [job: JobRecord];
 	retry: [job: JobRecord];
@@ -53,14 +55,13 @@ function retryLabel(job: JobRecord): string {
 				<tbody>
 					<tr v-for="job in rows" :key="job.jobHandle" :data-job-id="job.jobHandle">
 						<td>
-							<button
+							<RouterLink
 								class="table-link max-w-72 truncate"
-								type="button"
+								:to="{ name: 'job-detail', params: { jobHandle: job.jobHandle }, query: route.query }"
 								:title="job.jobName"
-								@click="emit('select', job)"
 							>
 								{{ job.jobName }}
-							</button>
+							</RouterLink>
 						</td>
 						<td><code>{{ job.queueName ?? 'Unavailable' }}</code></td>
 						<td>
@@ -83,14 +84,13 @@ function retryLabel(job: JobRecord): string {
 						<td>{{ formatDate(job.completedAt) }}</td>
 						<td>
 							<div class="row-actions">
-								<button
+								<RouterLink
 									class="icon-button"
-									type="button"
+									:to="{ name: 'job-detail', params: { jobHandle: job.jobHandle }, query: route.query }"
 									:aria-label="`View ${job.jobName}`"
-									@click="emit('select', job)"
 								>
 									<Eye :size="15" aria-hidden="true" />
-								</button>
+								</RouterLink>
 								<button
 									v-if="canRetryJob(job)"
 									class="icon-button"

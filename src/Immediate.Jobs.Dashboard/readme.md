@@ -69,7 +69,8 @@ The dashboard includes:
 
 Job search and filters are paged on the server in groups of 50. Pending jobs show “Paused” while
 acquisition for their definition is paused. Job details include current definition configuration below
-the payload, with its queue and pause status. Batch members link back to their workflow.
+the payload, with its queue and pause status. The header shows the job name, invocation ID, status,
+and actions. Job links support opening details in a new tab. Batch members link back to their workflow.
 
 Definitions can be filtered live by name, queue, or tag. Their Concurrency column lists only
 configured active-job and fixed/sliding window limits; unbounded definitions show “No limit” once.

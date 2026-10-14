@@ -911,7 +911,8 @@ tbody tr:hover {
 
 .inspector-header {
 	display: flex;
-	align-items: flex-start;
+	flex-wrap: wrap;
+	align-items: center;
 	justify-content: space-between;
 	gap: 12px;
 	border-bottom: 1px solid var(--border);
@@ -919,7 +920,7 @@ tbody tr:hover {
 }
 
 .inspector-header h2 {
-	margin: 3px 0 0;
+	margin: 0;
 	font-size: 14px;
 	font-weight: 680;
 }
@@ -1829,10 +1830,31 @@ tbody tr:hover {
 	gap: 3px;
 }
 
-.definition-pause-note {
+
+.job-heading {
 	display: flex;
+	flex: 1 1 420px;
 	flex-wrap: wrap;
 	align-items: center;
+	min-width: 0;
 	gap: 8px;
-	margin: 0 0 10px;
+}
+
+.job-invocation {
+	color: var(--text-subtle);
+	font-size: 11px;
+	overflow-wrap: anywhere;
+}
+
+.job-header-actions {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	margin-left: auto;
+}
+
+.definition-details {
+	margin-inline: -16px;
+	border-top: 1px solid var(--border);
+	padding: 16px 16px 0;
 }
