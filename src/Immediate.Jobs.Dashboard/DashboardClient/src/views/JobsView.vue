@@ -11,7 +11,7 @@ import JobTable from '@/components/JobTable.vue';
 import PageHeader from '@/components/PageHeader.vue';
 import { jobStates, type JobFilters, type JobRecord, type JobState } from '@/contracts';
 import { errorText } from '@/notifications';
-import { useJobsQuery } from '@/query';
+import { useJobsQuery, useOverviewQuery } from '@/query';
 import { useJobMutations } from '@/use-dashboard-mutations';
 
 const route = useRoute();
@@ -39,6 +39,7 @@ const filters = computed<JobFilters>(() => ({
 }));
 
 const jobsQuery = useJobsQuery(filters);
+const overviewQuery = useOverviewQuery();
 const jobMutations = useJobMutations();
 
 watch([searchQuery, queueQuery, stateQuery], () => {
@@ -116,6 +117,7 @@ async function confirmCancel(): Promise<void> {
 		<div v-else>
 			<JobTable
 				:rows="jobsQuery.data.value?.items ?? []"
+				:definition-statuses="overviewQuery.data.value?.definitionStatuses ?? []"
 				:busy-job-id="jobMutations.busyJobHandle.value"
 				@select="openJob"
 				@open-batch="openBatch"

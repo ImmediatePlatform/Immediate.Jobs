@@ -17,7 +17,7 @@ vi.mock('@/api', async importOriginal => ({
 
 it('keeps canceled schedules visible with the reason and disables execution actions', async () => {
 	vi.mocked(getDefinitions).mockResolvedValue({ jobs: [], recurring: [{
-		name: 'removed', jobName: 'Remote', queueName: 'default', cron: '* * * * *', timeZone: 'UTC', isCodeDefined: false,
+		name: 'removed', jobName: 'Remote', cron: '* * * * *', timeZone: 'UTC', isCodeDefined: false,
 	}] });
 	vi.mocked(getOverview).mockResolvedValue({
 		capturedAt: '2026-07-21T12:00:00Z', counts: {}, servers: [], definitionStatuses: [],

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { ArrowLeft, Ban, Trash2 } from '@lucide/vue';
+import { ArrowLeft, Ban } from '@lucide/vue';
 
 import ConfirmDialog from '@/components/ConfirmDialog.vue';
 import FeedbackState from '@/components/FeedbackState.vue';
@@ -12,13 +12,13 @@ import WorkflowGraph from '@/components/WorkflowGraph.vue';
 import type { JobRecord } from '@/contracts';
 import { formatDate } from '@/format';
 import { errorText } from '@/notifications';
-import { useBatchGraphQuery, useBatchQuery, useJobQuery, useJobTelemetryLinksQuery } from '@/query';
+import { useBatchGraphQuery, useBatchQuery, useJobDefinitionQuery, useJobQuery, useJobTelemetryLinksQuery } from '@/query';
 import { useBatchMutations, useJobMutations } from '@/use-dashboard-mutations';
 import { useBatchStream } from '@/use-dashboard-stream';
 
 const route = useRoute();
 const router = useRouter();
-const pendingAction = ref<'cancel' | 'delete'>();
+const confirmCancellation = ref(false);
 const jobCancelCandidate = ref<JobRecord>();
 const graphJobDetail = ref<HTMLElement>();
 
@@ -36,6 +36,7 @@ const jobQuery = useJobQuery(selectedJobHandle);
 const telemetryLinksQuery = useJobTelemetryLinksQuery(selectedJobHandle);
 const batchMutations = useBatchMutations();
 const jobMutations = useJobMutations();
+const definitionQuery = useJobDefinitionQuery(() => jobQuery.data.value?.jobName);
 useBatchStream(batchHandle);
 
 watch([selectedJobHandle, () => jobQuery.isPending.value], ([jobHandle, isPending]) => {
@@ -80,18 +81,13 @@ function closeGraphJob(): void {
 	}
 }
 
-async function confirmAction(): Promise<void> {
-	if (!pendingAction.value || !batchHandle.value) {
+async function confirmCancel(): Promise<void> {
+	if (!batchHandle.value) {
 		return;
 	}
 	try {
-		if (pendingAction.value === 'cancel') {
-			await batchMutations.cancelBatch(batchHandle.value);
-			pendingAction.value = undefined;
-		} else {
-			await batchMutations.deleteBatch(batchHandle.value);
-			backToBatches();
-		}
+		await batchMutations.cancelBatch(batchHandle.value);
+		confirmCancellation.value = false;
 	} catch {
 		// The mutation displays the API error and leaves the confirmation open.
 	}
@@ -147,21 +143,11 @@ async function confirmJobCancel(): Promise<void> {
 							v-if="batchQuery.data.value.state === 'Executing' || batchQuery.data.value.state === 'WaitingForTrigger'"
 							class="button button-secondary danger-text"
 							type="button"
-							:disabled="batchMutations.mutating.value"
-							@click="pendingAction = 'cancel'"
+							:disabled="batchMutations.cancelling.value"
+							@click="confirmCancellation = true"
 						>
 							<Ban :size="14" aria-hidden="true" />
 							Cancel batch
-						</button>
-						<button
-							v-else
-							class="button button-secondary danger-text"
-							type="button"
-							:disabled="batchMutations.mutating.value"
-							@click="pendingAction = 'delete'"
-						>
-							<Trash2 :size="14" aria-hidden="true" />
-							Delete batch
 						</button>
 					</div>
 				</div>
@@ -196,6 +182,10 @@ async function confirmJobCancel(): Promise<void> {
 						<JobDetail
 							v-else-if="jobQuery.data.value"
 							:job="jobQuery.data.value"
+							:definition="definitionQuery.data.value"
+							:acquisition="definitionQuery.acquisition.value"
+							:definition-loading="definitionQuery.isPending.value"
+							:definition-error="definitionQuery.error.value ? errorText(definitionQuery.error.value) : undefined"
 							:show-batch-link="false"
 							:telemetry-links="telemetryLinksQuery.data.value ?? []"
 							:pending="jobMutations.busyJobHandle.value === selectedJobHandle"
@@ -209,15 +199,13 @@ async function confirmJobCancel(): Promise<void> {
 		</template>
 
 		<ConfirmDialog
-			:open="Boolean(pendingAction)"
-			:title="pendingAction === 'cancel' ? 'Cancel batch?' : 'Delete settled batch?'"
-			:description="pendingAction === 'cancel'
-				? 'All non-terminal members will be cancelled. Work already running may finish its current attempt.'
-				: 'This permanently removes the batch header, members, and dependency graph.'"
-			:confirm-label="pendingAction === 'cancel' ? 'Cancel batch' : 'Delete batch'"
-			:pending="batchMutations.mutating.value"
-			@cancel="pendingAction = undefined"
-			@confirm="confirmAction"
+			:open="confirmCancellation"
+			title="Cancel batch?"
+			description="All non-terminal members will be cancelled. Work already running may finish its current attempt."
+			confirm-label="Cancel batch"
+			:pending="batchMutations.cancelling.value"
+			@cancel="confirmCancellation = false"
+			@confirm="confirmCancel"
 		/>
 
 		<ConfirmDialog

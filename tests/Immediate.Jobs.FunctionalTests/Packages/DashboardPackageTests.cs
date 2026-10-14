@@ -668,7 +668,6 @@ public sealed class DashboardPackageTests
 	[InlineData("POST", "/jobs/api/recurring/missing/pause")]
 	[InlineData("POST", "/jobs/api/recurring/missing/resume")]
 	[InlineData("POST", "/jobs/api/batches/missing/cancel")]
-	[InlineData("DELETE", "/jobs/api/batches/missing")]
 	[InlineData("POST", "/jobs/api/jobs/missing/retry")]
 	[InlineData("POST", "/jobs/api/jobs/missing/cancel")]
 	public async Task InMemoryDashboardReturnsNotFoundForMissingMutationTargets(string method, string path)

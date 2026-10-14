@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Ban, Eye, Trash2 } from '@lucide/vue';
+import { Ban, Eye } from '@lucide/vue';
 
 import FeedbackState from '@/components/FeedbackState.vue';
 import StateBadge from '@/components/StateBadge.vue';
@@ -8,8 +8,8 @@ import { formatDate } from '@/format';
 
 withDefaults(defineProps<{
 	rows: BatchStatus[];
-	selectedId?: string;
-	busyBatchHandle?: string;
+	selectedId?: string | undefined;
+	busyBatchHandle?: string | undefined;
 }>(), {
 	selectedId: undefined,
 	busyBatchHandle: undefined,
@@ -18,7 +18,6 @@ withDefaults(defineProps<{
 const emit = defineEmits<{
 	select: [batch: BatchStatus];
 	cancel: [batch: BatchStatus];
-	delete: [batch: BatchStatus];
 }>();
 
 function width(value: number, total: number): string {
@@ -74,16 +73,6 @@ function width(value: number, total: number): string {
 									@click="emit('cancel', batch)"
 								>
 									<Ban :size="15" aria-hidden="true" />
-								</button>
-								<button
-									v-else
-									class="icon-button danger"
-									type="button"
-									:disabled="busyBatchHandle === batch.batchHandle"
-									:aria-label="`Delete batch ${batch.batchHandle}`"
-									@click="emit('delete', batch)"
-								>
-									<Trash2 :size="15" aria-hidden="true" />
 								</button>
 							</div>
 						</td>

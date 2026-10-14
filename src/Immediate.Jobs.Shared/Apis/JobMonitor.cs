@@ -109,26 +109,6 @@ public sealed class JobMonitor(
 	}
 
 	/// <summary>
-	/// 	Deletes a terminal batch and its retained graph.
-	/// </summary>
-	/// <param name="batchHandle">
-	/// 	The batch identifier.
-	/// </param>
-	/// <param name="cancellationToken">
-	/// 	A token that can cancel the operation.
-	/// </param>
-	public async ValueTask DeleteBatchAsync(BatchHandle batchHandle, CancellationToken cancellationToken = default)
-	{
-		await TaskScheduler.Yield();
-		ArgumentNullException.ThrowIfNull(batchHandle);
-
-		if (storage is not IJobGraphStorage graphStorage)
-			throw new KeyNotFoundException($"Batch '{batchHandle}' is not available.");
-
-		await graphStorage.DeleteBatchAsync(batchHandle, cancellationToken);
-	}
-
-	/// <summary>
 	/// 	Pauses a recurring schedule.
 	/// </summary>
 	/// <param name="name">

@@ -13,16 +13,11 @@ import { errorText } from '@/notifications';
 import { useBatchesQuery } from '@/query';
 import { useBatchMutations } from '@/use-dashboard-mutations';
 
-interface BatchAction {
-	type: 'cancel' | 'delete';
-	batch: BatchStatus;
-}
-
 const route = useRoute();
 const router = useRouter();
 const searchQuery = useRouteQuery<string>('search', '');
 const stateQuery = useRouteQuery<string>('state', '');
-const pendingAction = ref<BatchAction>();
+const cancelCandidate = ref<BatchStatus>();
 
 const selectedState = computed<BatchState | ''>(() => {
 	return batchStates.includes(stateQuery.value as BatchState) ? stateQuery.value as BatchState : '';
@@ -47,18 +42,13 @@ function openBatch(batch: BatchStatus): void {
 	void router.push({ name: 'batch-detail', params: { batchHandle: batch.batchHandle }, query: route.query });
 }
 
-async function confirmAction(): Promise<void> {
-	if (!pendingAction.value) {
+async function confirmCancel(): Promise<void> {
+	if (!cancelCandidate.value) {
 		return;
 	}
-	const action = pendingAction.value;
 	try {
-		if (action.type === 'cancel') {
-			await batchMutations.cancelBatch(action.batch.batchHandle);
-		} else {
-			await batchMutations.deleteBatch(action.batch.batchHandle);
-		}
-		pendingAction.value = undefined;
+		await batchMutations.cancelBatch(cancelCandidate.value.batchHandle);
+		cancelCandidate.value = undefined;
 	} catch {
 		// The mutation displays the API error and leaves the confirmation open.
 	}
@@ -98,22 +88,19 @@ async function confirmAction(): Promise<void> {
 		<BatchTable
 			v-else
 			:rows="filteredBatches"
-			:busy-batch-id="batchMutations.busyBatchHandle.value"
+			:busy-batch-handle="batchMutations.busyBatchHandle.value"
 			@select="openBatch"
-			@cancel="pendingAction = { type: 'cancel', batch: $event }"
-			@delete="pendingAction = { type: 'delete', batch: $event }"
+			@cancel="cancelCandidate = $event"
 		/>
 
 		<ConfirmDialog
-			:open="Boolean(pendingAction)"
-			:title="pendingAction?.type === 'cancel' ? 'Cancel executing batch?' : 'Delete settled batch?'"
-			:description="pendingAction?.type === 'cancel'
-				? 'All non-terminal members will be cancelled. Work already running may finish its current attempt.'
-				: 'This permanently removes the batch header, members, and dependency graph.'"
-			:confirm-label="pendingAction?.type === 'cancel' ? 'Cancel batch' : 'Delete batch'"
-			:pending="batchMutations.mutating.value"
-			@cancel="pendingAction = undefined"
-			@confirm="confirmAction"
+			:open="Boolean(cancelCandidate)"
+			title="Cancel batch?"
+			description="All non-terminal members will be cancelled. Work already running may finish its current attempt."
+			confirm-label="Cancel batch"
+			:pending="batchMutations.cancelling.value"
+			@cancel="cancelCandidate = undefined"
+			@confirm="confirmCancel"
 		/>
 	</section>
 </template>

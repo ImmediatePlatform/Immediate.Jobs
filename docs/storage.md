@@ -28,7 +28,8 @@ monitoring snapshots and health-check data.
 - **Records round-trip** without rewriting provider-neutral fields; the conformance suite checks this.
 - **Graph state** follows [batches and continuations](batches-and-continuations.md): `WaitingForTrigger`
   is preserved through settlement and dynamic additions, and `BatchState.WaitingForTrigger` is
-  non-terminal.
+  non-terminal. Batches support cancellation, but their headers, members, and execution history
+  are removed only by the regular retention purge; there is no explicit batch-delete operation.
 
 ## Definition reconciliation
 

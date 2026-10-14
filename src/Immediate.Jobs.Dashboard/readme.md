@@ -62,19 +62,24 @@ The dashboard includes:
 - job details and retained execution attempts;
 - recurring schedule actions;
 - definition pause/resume actions, active counts, and acquisition limits shared across workers;
-- retry, cancellation, and batch cancellation or deletion;
+- job retry and cancellation, and batch cancellation;
 - batch progress and a live dependency-graph viewer;
 - live updates over Server-Sent Events; and
 - application-defined links to traces and logs.
 
-Job search and filters are paged on the server in groups of 50. Batch members link back to their workflow.
+Job search and filters are paged on the server in groups of 50. Pending jobs show “Paused” while
+acquisition for their definition is paused. Job details include current definition configuration below
+the payload, with its queue and pause status. Batch members link back to their workflow.
+
+Definitions can be filtered live by name, queue, or tag. Their Concurrency column lists only
+configured active-job and fixed/sliding window limits; unbounded definitions show “No limit” once.
 
 ## Monitoring refresh
 
 `GET api/overview` and SSE share the live snapshot: counts, servers, job acquisition states and
 recurring pause/progress. `GET api/definitions` provides job and recurring configuration separately.
 The client shares the snapshot across pages and retains metadata for five minutes, polling it on
-that interval only while a Definitions or Recurring view is active. Disconnected live status polls
+that interval while definitions, recurring schedules, or job definition details are in use. Disconnected live status polls
 every five seconds. Metadata is not included in every SSE update.
 
 ## Identifier fields
@@ -139,8 +144,8 @@ builder.Services.AddMyAppJobs()
 ```
 
 Each execution attempt creates a distinct `Activity` linked to the enqueue context. Every acquired execution is
-retained with its outcome, worker, timing, trace and span identifiers, and full failure text until its owning job or
-batch is deleted.
+retained with its outcome, worker, timing, trace and span identifiers, and full failure text until purged.
+Batches can be canceled, but are only removed by the regular retention purge.
 
 The job-detail timeline is newest first. Job-level callbacks receive `Execution = null`, which is useful for links that
 search by the stable job ID across all retries. Execution-level callbacks receive the exact retained attempt, including

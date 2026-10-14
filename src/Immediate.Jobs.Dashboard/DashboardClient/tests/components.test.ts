@@ -6,6 +6,7 @@ import { createMemoryHistory, createRouter } from 'vue-router';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { getJobExecutions, getJobExecutionTelemetryLinks } from '@/api';
+import AcquisitionLimits from '@/components/AcquisitionLimits.vue';
 import BatchTable from '@/components/BatchTable.vue';
 import DefinitionTable from '@/components/DefinitionTable.vue';
 import HistoryChart from '@/components/HistoryChart.vue';
@@ -83,13 +84,84 @@ describe('dashboard components', () => {
 		await router.isReady();
 		const rows = wrapper.findAll('tbody tr');
 		expect(rows[0]?.text()).toContain('Paused');
-		expect(rows[0]?.text()).toContain('2 / 2 active');
+		expect(rows[0]?.text()).toContain('Max active: 2 / 2');
 		expect(rows[0]?.text()).toContain('At capacity');
-		expect(rows[0]?.text()).toContain('10 / 00:01:00');
-		expect(rows[1]?.text()).toContain('3 active · no limit');
+		expect(rows[0]?.text()).toContain('Sliding window: 10 per 00:01:00');
+		expect(rows[0]?.text()).toContain('Fixed window: 100 per 01:00:00');
+		expect(rows[0]?.text()).not.toContain('No limit');
+		expect(rows[1]?.findAll('.acquisition-limits span').map(span => span.text())).toEqual(['No limit']);
 		expect(rows[1]?.text()).not.toContain('At capacity');
 		expect(rows[1]?.text()).toContain('Ready');
 		expect(rows[0]?.get('a').attributes('href')).toBe('/invocations?search=SendGreeting&queue=default');
+	});
+
+	it('shows pending jobs as paused without masking running, scheduled, or finished jobs', async () => {
+		const pending = { ...completedJob, jobHandle: 'pending', state: 'Pending' as const };
+		const table = mount(JobTable, {
+			props: {
+				rows: [pending, { ...completedJob, jobHandle: 'active', state: 'Active' }, { ...completedJob, jobHandle: 'scheduled', state: 'Scheduled' }, completedJob],
+				definitionStatuses: [{ ...pausedDefinition.acquisition, jobName: 'sendgreeting' }],
+			},
+		});
+		expect(table.findAll('.state-badge').map(badge => badge.text())).toEqual(['Paused', 'Active', 'Scheduled', 'Succeeded']);
+		await table.get('button[aria-label="Cancel SendGreeting"]').trigger('click');
+		expect(table.emitted('cancel')?.[0]).toEqual([pending]);
+		expect(pending.state).toBe('Pending');
+		await table.setProps({ definitionStatuses: [{ ...pausedDefinition.acquisition, isPaused: false }] });
+		expect(table.findAll('.state-badge')[0]?.text()).toBe('Pending');
+		table.unmount();
+	});
+
+	it('shows current definition information below the payload and keeps queue out of invocation metadata', async () => {
+		const detail = mountJobDetail({
+			job: { ...completedJob, state: 'Pending', queueName: 'old-queue' },
+			definition: pausedDefinition,
+			acquisition: pausedDefinition.acquisition,
+		});
+		await flushPromises();
+		expect(detail.get('.inspector-content > .detail-list').text()).not.toContain('Queue');
+		expect(detail.get('.inspector-content > div > .state-badge').text()).toBe('Paused');
+		const definition = detail.get('section[aria-label="Job definition"]');
+		expect(definition.text()).toContain('Acquisition is paused for this definition.');
+		expect(definition.text()).toContain('SendGreeting');
+		expect(definition.text()).toContain('default');
+		expect(definition.text()).not.toContain('old-queue');
+		expect(definition.text()).toContain('Max active: 2 / 2');
+		expect(definition.text()).toContain('Fixed window: 100 per 01:00:00');
+		expect(definition.text()).toContain('Sliding window: 10 per 00:01:00');
+		const sections = detail.findAll('.code-section').map(section => section.get('h3').text());
+		expect(sections.indexOf('Job definition')).toBe(sections.indexOf('Payload') + 1);
+		await detail.setProps({ job: { ...completedJob, state: 'Active' } });
+		expect(detail.get('.inspector-content > div > .state-badge').text()).toBe('Active');
+		expect(definition.text()).toContain('Acquisition is paused');
+		await detail.setProps({ job: { ...completedJob, state: 'Pending' }, acquisition: { ...pausedDefinition.acquisition, isPaused: false, acquisitionStatus: 'Ready' } });
+		expect(detail.get('.inspector-content > div > .state-badge').text()).toBe('Pending');
+		expect(definition.text()).not.toContain('Acquisition is paused');
+		detail.unmount();
+	});
+
+	it('distinguishes loading, failed, and unavailable definition information', async () => {
+		const detail = mountJobDetail({ job: { ...completedJob, state: 'Pending' }, definitionLoading: true, acquisition: pausedDefinition.acquisition });
+		expect(detail.get('.definition-details').text()).toContain('Loading job definition');
+		expect(detail.get('.definition-details').text()).toContain('Acquisition is paused');
+		expect(detail.get('.inspector-content > div > .state-badge').text()).toBe('Paused');
+		await detail.setProps({ definitionLoading: false, definitionError: 'Connection failed.' });
+		expect(detail.get('.definition-details').text()).toContain('Connection failed.');
+		await detail.setProps({ definitionError: undefined });
+		expect(detail.get('.definition-details').text()).toContain('Definition information is unavailable.');
+		expect(detail.get('.definition-details').find('dl').exists()).toBe(false);
+		detail.unmount();
+	});
+
+	it.each([
+		[{ maxConcurrency: 0, fixedWindowMax: 10, fixedWindowPeriod: '00:10:00', slidingWindowMax: 0, slidingWindowPeriod: null }, 'Fixed window: 10 per 00:10:00'],
+		[{ maxConcurrency: 0, fixedWindowMax: 0, fixedWindowPeriod: null, slidingWindowMax: 10, slidingWindowPeriod: '00:10:00' }, 'Sliding window: 10 per 00:10:00'],
+		[{ maxConcurrency: 10, fixedWindowMax: 0, fixedWindowPeriod: null, slidingWindowMax: 0, slidingWindowPeriod: null }, 'Max active: 10'],
+	])('shows only the configured limits and does not invent usage when status is unavailable', (limits, text) => {
+		const wrapper = mount(AcquisitionLimits, { props: { limits } });
+		expect(wrapper.findAll('span').map(span => span.text())).toEqual([text]);
+		expect(wrapper.text()).not.toContain('No limit');
+		wrapper.unmount();
 	});
 
 	it('groups job state counts by lifecycle stage and links to filtered jobs', async () => {
@@ -442,16 +514,16 @@ describe('dashboard components', () => {
 		const busyRows = wrapper.findAll('.server-workers li');
 
 		expect(slots).toHaveLength(32);
-		expect(slots[0].attributes('aria-label')).toBe('Worker #0: idle');
-		expect(slots[3].classes()).toContain('busy');
-		expect(slots[3].attributes('href')).toBe('/invocations/redis:jobs:opaque');
+		expect(slots[0]?.attributes('aria-label')).toBe('Worker #0: idle');
+		expect(slots[3]?.classes()).toContain('busy');
+		expect(slots[3]?.attributes('href')).toBe('/invocations/redis:jobs:opaque');
 		expect(wrapper.findAll('.server-slot.busy')).toHaveLength(2);
 
 		expect(busyRows).toHaveLength(2);
-		expect(busyRows[0].text()).toContain('#3');
-		expect(busyRows[0].text()).toContain('Attempt 2');
-		expect(busyRows[0].get('a').attributes('href')).toBe('/invocations/redis:jobs:opaque');
-		expect(busyRows[1].text()).toContain('#17');
+		expect(busyRows[0]?.text()).toContain('#3');
+		expect(busyRows[0]?.text()).toContain('Attempt 2');
+		expect(busyRows[0]?.get('a').attributes('href')).toBe('/invocations/redis:jobs:opaque');
+		expect(busyRows[1]?.text()).toContain('#17');
 		expect(wrapper.text()).not.toContain('All workers idle');
 
 		const idleWrapper = mount(ServerCard, {
@@ -468,6 +540,13 @@ describe('dashboard components', () => {
 		expect(wrapper.text()).toContain('8 / 10');
 		expect(wrapper.find('[data-state="succeeded"]').attributes('style')).toContain('width: 60%');
 		expect(wrapper.find('button[aria-label="Cancel batch campaign-batch"]').exists()).toBe(true);
+	});
+
+	it.each(['Succeeded', 'Failed', 'Cancelled'] as const)('retains %s batches for viewing without cancellation or deletion actions', (state) => {
+		const wrapper = mount(BatchTable, { props: { rows: [{ ...executingBatch, state, remaining: 0 }] } });
+		expect(wrapper.find('button[aria-label="View batch campaign-batch"]').exists()).toBe(true);
+		expect(wrapper.find('button[aria-label^="Cancel batch"]').exists()).toBe(false);
+		expect(wrapper.find('button[aria-label^="Delete batch"]').exists()).toBe(false);
 	});
 
 	it('renders accessible exact chart values', () => {
@@ -498,7 +577,7 @@ describe('dashboard components', () => {
 		expect(wrapper.findAll('.workflow-join')).toHaveLength(1);
 		const longNodeWidth = Number(wrapper.find('[data-job-id="smoke"] rect').attributes('width'));
 		expect(longNodeWidth).toBeGreaterThan(170);
-		const paths = wrapper.findAll('.workflow-edge').map((edge) => edge.attributes('d'));
+		const paths = wrapper.findAll('.workflow-edge').map((edge) => (edge.attributes('d') ?? ''));
 		expect(paths[2]).not.toBe(paths[3]);
 		expect(scrollTo).toHaveBeenCalled();
 	});
@@ -535,7 +614,7 @@ describe('dashboard components', () => {
 		};
 		const wrapper = mount(WorkflowGraph, { props: { graph } });
 		const nodeY = (jobHandle: string): number => {
-			const transform = wrapper.get(`[data-job-id="${jobHandle}"]`).attributes('transform');
+			const transform = wrapper.get(`[data-job-id="${jobHandle}"]`).attributes('transform') ?? '';
 			return Number(/translate\([^ ]+ ([^)]+)\)/.exec(transform)?.[1]);
 		};
 
@@ -549,7 +628,7 @@ describe('dashboard components', () => {
 		const clientWidth = wrapper.get('[data-job-id="client"] rect').attributes('width');
 		const servicesWidth = wrapper.get('[data-job-id="services"] rect').attributes('width');
 		expect(clientWidth).toBe(servicesWidth);
-		const edgePaths = wrapper.findAll('.workflow-edge').map((edge) => edge.attributes('d'));
+		const edgePaths = wrapper.findAll('.workflow-edge').map((edge) => (edge.attributes('d') ?? ''));
 		expect(edgePaths.some((path) => /\bQ\b.*\bV\b.*\bQ\b/.test(path))).toBe(true);
 		for (const path of edgePaths) {
 			expect(path).not.toContain('C');
@@ -558,12 +637,12 @@ describe('dashboard components', () => {
 		expect(wrapper.findAll('.workflow-fork')).toHaveLength(3);
 		const approvedBranches = wrapper.findAll(
 			'.workflow-edge[data-parent-job-id="approved"]',
-		).map((edge) => edge.attributes('d').match(/^M [^ ]+ [^ ]+/)?.[0]);
+		).map((edge) => (edge.attributes('d') ?? '').match(/^M [^ ]+ [^ ]+/)?.[0]);
 		expect(new Set(approvedBranches).size).toBe(1);
 
 		const candidateInputs = wrapper.findAll(
 			'.workflow-edge[data-child-job-id="candidate"]',
-		).map((edge) => edge.attributes('d').match(/\bQ ([^ ]+)/)?.[1]);
+		).map((edge) => (edge.attributes('d') ?? '').match(/\bQ ([^ ]+)/)?.[1]);
 		expect(new Set(candidateInputs).size).toBe(1);
 	});
 
@@ -631,7 +710,7 @@ describe('dashboard components', () => {
 		expect(wrapper.get('.workflow-node.more').text()).toContain('5 more process-item');
 		expect(wrapper.get('.workflow-group-chip').text()).toContain('process-item · 25 jobs');
 		const nodeY = (selector: string): number =>
-			Number(/translate\([^ ]+ ([^)]+)\)/.exec(wrapper.get(selector).attributes('transform'))?.[1]);
+			Number(/translate\([^ ]+ ([^)]+)\)/.exec(wrapper.get(selector).attributes('transform') ?? '')?.[1]);
 		expect(nodeY('.workflow-node.more')).toBeGreaterThan(nodeY('[data-job-id="item-19"]'));
 
 		await wrapper.get('.workflow-node.more').trigger('keydown', { key: 'Enter' });

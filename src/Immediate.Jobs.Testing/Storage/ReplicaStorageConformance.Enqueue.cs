@@ -276,10 +276,6 @@ internal static partial class ReplicaStorageConformance
 			storage.TryTriggerBatchAsync(batchHandle, cancellationToken);
 
 		/// <inheritdoc />
-		public ValueTask DeleteBatchAsync(BatchHandle batchHandle, CancellationToken cancellationToken = default) =>
-			storage.DeleteBatchAsync(batchHandle, cancellationToken);
-
-		/// <inheritdoc />
 		public ValueTask PurgeBatchesAsync(TimeSpan batchSucceededRetention, TimeSpan batchFailedRetention, CancellationToken cancellationToken = default) =>
 			storage.PurgeBatchesAsync(batchSucceededRetention, batchFailedRetention, cancellationToken);
 

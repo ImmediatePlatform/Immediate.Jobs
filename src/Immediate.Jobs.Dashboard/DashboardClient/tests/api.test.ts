@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { ApiError, cancelJob, getDefinitions, getJobs, request, setDefinitionPaused } from '@/api';
+import { cancelJob, getDefinitions, getJobs, request, setDefinitionPaused } from '@/api';
 
 describe('dashboard API client', () => {
 	it.each([true, false])('sets definition pause to %s through an encoded POST route', async (paused) => {
@@ -48,7 +48,7 @@ describe('dashboard API client', () => {
 			title: 'Conflict', detail: 'The job is not failed.', status: 409,
 		}), { status: 409, headers: { 'content-type': 'application/problem+json' } }));
 		await expect(request('jobs/job-1/retry', { method: 'POST' })).rejects.toEqual(
-			expect.objectContaining<ApiError>({ status: 409, message: 'The job is not failed.' }),
+			expect.objectContaining({ status: 409, message: 'The job is not failed.' }),
 		);
 	});
 });

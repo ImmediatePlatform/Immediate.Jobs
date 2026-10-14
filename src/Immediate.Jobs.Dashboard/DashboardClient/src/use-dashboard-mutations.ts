@@ -4,7 +4,6 @@ import { useMutation, useQueryClient } from '@tanstack/vue-query';
 import {
 	cancelBatch,
 	cancelJob,
-	deleteBatch,
 	retryJob,
 	setDefinitionPaused,
 	setRecurringPaused,
@@ -61,27 +60,16 @@ export function useBatchMutations() {
 		},
 		onError: (reason) => notify(errorText(reason), 'error'),
 	});
-	const deleteMutation = useMutation({
-		mutationFn: deleteBatch,
-		onSuccess: async (_, batchHandle) => {
-			notify('Batch deleted.');
-			queryClient.removeQueries({ queryKey: queryKeys.batch(batchHandle) });
-			queryClient.removeQueries({ queryKey: queryKeys.batchGraph(batchHandle) });
-			await refreshDashboardQueries(queryClient);
-		},
-		onError: (reason) => notify(errorText(reason), 'error'),
-	});
 
 	return {
 		cancelBatch: cancelMutation.mutateAsync,
-		deleteBatch: deleteMutation.mutateAsync,
 		busyBatchHandle: computed(() => {
 			if (cancelMutation.isPending.value) {
 				return cancelMutation.variables.value;
 			}
-			return deleteMutation.isPending.value ? deleteMutation.variables.value : undefined;
+			return undefined;
 		}),
-		mutating: computed(() => cancelMutation.isPending.value || deleteMutation.isPending.value),
+		cancelling: cancelMutation.isPending,
 	};
 }
 

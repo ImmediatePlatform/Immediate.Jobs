@@ -8,7 +8,7 @@ import { notifications } from '@/notifications';
 import { queryKeys } from '@/query';
 import { routes } from '@/router';
 import DefinitionsView from '@/views/DefinitionsView.vue';
-import { pausedDefinition } from './fixtures';
+import { pausedDefinition, storedDefinition } from './fixtures';
 
 vi.mock('@/api', async importOriginal => ({
 	...await importOriginal<typeof import('@/api')>(),
@@ -81,6 +81,31 @@ describe('definition actions', () => {
 		expect(setDefinitionPausedMock).toHaveBeenCalledWith(pausedDefinition.name, true);
 		expect(wrapper.text()).toContain('Paused');
 		expect(notifications.value.at(-1)?.message).toBe('Definition paused.');
+		wrapper.unmount();
+		queryClient.clear();
+	});
+
+	it('filters definitions immediately by name, queue, and tags without refetching', async () => {
+		const invoice = { ...storedDefinition, name: 'Invoice', queueName: 'Finance', tags: ['Billing'] };
+		getDefinitionsMock.mockResolvedValue({ jobs: [pausedDefinition, invoice], recurring: [] });
+		getOverviewMock.mockResolvedValue({ ...snapshot(), definitionStatuses: [pausedDefinition.acquisition, { ...invoice.acquisition, jobName: invoice.name }] });
+		const { wrapper, queryClient } = await mountView();
+		const search = wrapper.get('input[type="search"]');
+		expect(wrapper.findAll('tbody tr')).toHaveLength(2);
+		for (const term of ['invoice', ' FINANCE ', 'billing']) {
+			await search.setValue(term);
+			expect(wrapper.findAll('tbody tr')).toHaveLength(1);
+			expect(wrapper.get('tbody tr').text()).toContain('Invoice');
+			expect(wrapper.get('.page-meta').text()).toBe('1 of 2 shown');
+		}
+		await search.setValue('missing');
+		expect(wrapper.text()).toContain('No matching definitions');
+		expect(wrapper.find('tbody tr').exists()).toBe(false);
+		await search.setValue('');
+		expect(wrapper.findAll('tbody tr')).toHaveLength(2);
+		expect(wrapper.get('.page-meta').text()).toBe('2 stored');
+		expect(getDefinitionsMock).toHaveBeenCalledTimes(1);
+		expect(getOverviewMock).toHaveBeenCalledTimes(1);
 		wrapper.unmount();
 		queryClient.clear();
 	});

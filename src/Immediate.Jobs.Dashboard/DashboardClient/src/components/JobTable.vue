@@ -1,17 +1,24 @@
 <script setup lang="ts">
+import { computed } from 'vue';
 import { Ban, Eye, Layers3, RotateCcw } from '@lucide/vue';
 
 import FeedbackState from '@/components/FeedbackState.vue';
 import StateBadge from '@/components/StateBadge.vue';
-import { canCancelJob, canRetryJob, type JobRecord } from '@/contracts';
-import { formatDate } from '@/format';
+import { canCancelJob, canRetryJob, type JobAcquisitionState, type JobRecord } from '@/contracts';
+import { formatDate, formatJobState } from '@/format';
 
-withDefaults(defineProps<{
+const props = withDefaults(defineProps<{
 	rows: JobRecord[];
-	busyJobHandle?: string;
+	definitionStatuses?: JobAcquisitionState[];
+	busyJobHandle?: string | undefined;
 }>(), {
 	busyJobHandle: undefined,
+	definitionStatuses: () => [],
 });
+
+const pausedDefinitions = computed(() => new Set(props.definitionStatuses
+	.filter(definition => definition.isPaused)
+	.map(definition => definition.jobName.toUpperCase())));
 
 const emit = defineEmits<{
 	select: [job: JobRecord];
@@ -68,7 +75,7 @@ function retryLabel(job: JobRecord): string {
 							<span v-else class="text-muted">—</span>
 						</td>
 						<td>
-							<StateBadge :state="job.state" />
+							<StateBadge :state="formatJobState(job.state, pausedDefinitions.has(job.jobName.toUpperCase()))" />
 							<p v-if="job.cancellationReason" class="mt-1 text-xs text-muted">{{ job.cancellationReason }}</p>
 						</td>
 						<td class="numeric">{{ job.attempt }}</td>

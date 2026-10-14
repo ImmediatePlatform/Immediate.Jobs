@@ -23,6 +23,7 @@ import type {
 	DashboardJobPage,
 	DashboardState,
 	JobFilters,
+	JobDefinitionRecord,
 	JobDefinitionStatus,
 	JobMonitoringDefinitions,
 	JobMonitoringSnapshot,
@@ -92,6 +93,26 @@ export function useDefinitionStatusesQuery() {
 			}));
 		}),
 		error: computed(() => definitions.error.value ?? snapshot.error.value),
+		isPending: definitions.isPending,
+	};
+}
+
+export function useJobDefinitionQuery(jobName: MaybeRefOrGetter<string | undefined>) {
+	const definitions = useDefinitionsQuery();
+	const snapshot = useOverviewQuery();
+	const name = computed(() => toValue(jobName)?.toUpperCase());
+	const acquisition = computed(() => snapshot.data.value?.definitionStatuses.find(status =>
+		status.jobName.toUpperCase() === name.value));
+
+	return {
+		data: computed<JobDefinitionRecord | undefined>(() => {
+			if (snapshot.data.value && !acquisition.value) {
+				return undefined;
+			}
+			return definitions.data.value?.jobs.find(definition => definition.name.toUpperCase() === name.value);
+		}),
+		acquisition,
+		error: definitions.error,
 		isPending: definitions.isPending,
 	};
 }

@@ -59,7 +59,7 @@ are also exposed through the `IJobMonitor` interface:
 - `GetDefinitionsAsync` for all stored job and recurring configuration, without acquisition evaluation;
 - live job acquisition and recurring pause/progress in `GetSnapshotAsync`, bulk-evaluated by storage;
 - paged job, execution, and batch queries, plus batch members and graphs;
-- cancel, retry, and delete for jobs and batches;
+- cancellation and retry for jobs, and cancellation for batches;
 - `PauseDefinitionAsync` and `ResumeDefinitionAsync` for stored job definitions, preserving configured limits;
 - pause, resume, and trigger for recurring schedules.
 

@@ -48,8 +48,8 @@ ordering between parent completion and child insertion never matters.
 
 A batch is `Executing` until `PendingCount` reaches zero, then becomes `Failed` if any member failed,
 else `Cancelled` if any was cancelled, else `Succeeded`. A terminal batch settles edges whose parent
-is the batch. `CancelBatchAsync` cancels every non-terminal member; `DeleteBatchAsync` only accepts
-terminal batches.
+is the batch. `CancelBatchAsync` cancels every non-terminal member. Batch headers, members, execution
+history, and dependency graphs remain available until the regular retention purge removes them.
 
 ## Building graphs
 

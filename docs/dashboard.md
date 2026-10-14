@@ -21,6 +21,8 @@
   These routes inherit the dashboard's access policy.
 - **Mutations.** `DashboardApiEndpointOperations` wraps them: `KeyNotFoundException` becomes 404 and
   `ImmediateJobException` becomes 409, so storage must keep that exception convention.
+- **Batch lifecycle.** Batches can be canceled, but cannot be deleted explicitly. Retention purging
+  removes terminal batches and their retained members, executions, and dependency graphs.
 - **Live updates.** `GET events` and `GET batches/{batchHandle}/stream` are server-sent event streams
   polling at `UpdateInterval` (default 2 seconds).
 - **JSON.** `DashboardJsonSerializerContext` uses camelCase properties and **string enums**, so
@@ -39,11 +41,18 @@ live status and pause/resume actions. The Servers page displays effective server
 `DashboardClient/` is Vue 3, vue-router, `@tanstack/vue-query`, Vite, and Vitest.
 
 - **Definitions view.** `/definitions` shows one row per stored definition with queue, acquisition
-  status, active count and concurrency limit, sliding/fixed windows, and next eligible time. A paused
-  definition still displays its active jobs and an independent at-capacity indicator. Rows link to
-  filtered jobs, and server-sent snapshots keep the table current.
+  status, concurrency limits, and next eligible time. Live search filters names, queues, and tags
+  without a server request. One Concurrency column lists only configured limits: maximum active
+  jobs with current usage, and fixed/sliding rates with their periods. Unbounded definitions show
+  “No limit” once. A paused definition still displays its active jobs and an independent at-capacity
+  indicator. Rows link to filtered jobs, and server-sent snapshots keep the table current.
   Each row exposes Pause or Resume based on its explicit pause state, including rate-limited or
   concurrency-limited definitions. Actions show pending/error feedback and refresh dashboard queries.
+- **Job details.** Pending jobs display “Paused” while their definition is paused; active, scheduled,
+  and terminal jobs retain their lifecycle labels. State filters and counts use the stored lifecycle
+  state. Details include the current definition below the payload, including queue, tags, scheduling,
+  retries, timeout, acquisition status, and configured limits. The same information is available
+  when inspecting an invocation within a batch. Queue information belongs to this definition block.
 - **Contracts.** `src/contracts.ts` mirrors the server JSON. When an enum gains or renames a member,
   update `jobStates`/`batchStates` there, `isBatchState` in `src/api.ts`, any component that switches
   on states (`JobStateSummary.vue`, `WorkflowGraph.vue`, the batch cancel buttons), and the
@@ -68,8 +77,8 @@ share one request. SSE updates that same cache and cancel an older in-flight sna
 While live, the snapshot stays fresh across route navigation; on disconnect, active observers poll
 every five seconds. Definition controls invalidate only live status.
 
-Definition metadata is loaded when a Definitions or Recurring view needs it, cached for five
-minutes, and polled every five minutes while the view is active. It survives route traversal and
+Definition metadata is loaded by the Definitions and Recurring views and when inspecting job
+definition information, cached for five minutes, and polled every five minutes while in use. It survives route traversal and
 is never overwritten or refreshed by each SSE event. Metadata changes with the same identity can
 therefore take up to five minutes to appear. New metadata is obtained after that refresh; removed
 identities are hidden once absent from live status. The Definitions page cannot offer controls

@@ -214,20 +214,6 @@ public interface IJobGraphStorage : IJobStorage
 	ValueTask<bool> TryTriggerBatchAsync(BatchHandle batchHandle, CancellationToken cancellationToken = default);
 
 	/// <summary>
-	/// 	Deletes a terminal batch, all of its members, and all related edges.
-	/// </summary>
-	/// <param name="batchHandle">
-	/// 	The terminal batch identifier.
-	/// </param>
-	/// <param name="cancellationToken">
-	/// 	A token that can cancel the storage operation.
-	/// </param>
-	/// <returns>
-	/// 	A value task that represents the asynchronous deletion.
-	/// </returns>
-	ValueTask DeleteBatchAsync(BatchHandle batchHandle, CancellationToken cancellationToken = default);
-
-	/// <summary>
 	/// 	Deletes terminal batch history older than the supplied retention periods.
 	/// </summary>
 	/// <param name="batchSucceededRetention">

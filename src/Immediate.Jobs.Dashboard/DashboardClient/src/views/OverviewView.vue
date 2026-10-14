@@ -97,6 +97,7 @@ async function confirmCancel(): Promise<void> {
 			</div>
 			<JobTable
 				:rows="recentJobsQuery.data.value ?? []"
+				:definition-statuses="snapshot?.definitionStatuses ?? []"
 				:busy-job-id="jobMutations.busyJobHandle.value"
 				@select="openJob"
 				@open-batch="openBatch"
