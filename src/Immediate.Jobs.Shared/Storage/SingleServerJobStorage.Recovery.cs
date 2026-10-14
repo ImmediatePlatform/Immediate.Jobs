@@ -35,12 +35,19 @@ internal sealed partial class SingleServerJobStorage
 		{
 			await DurableStorage.InitializeAsync(cancellationToken);
 			await PrimaryStorage.InitializeAsync(cancellationToken);
-			var definitions = await DurableStorage.GetJobDefinitionsAsync(cancellationToken);
+			var monitoringDefinitions = await DurableStorage.GetMonitoringDefinitionsAsync(cancellationToken);
+			var snapshot = await DurableStorage.GetMonitoringSnapshotAsync(cancellationToken);
+			var definitions = monitoringDefinitions.Jobs;
+			var statuses = snapshot.Recurring.ToDictionary(static status => status.Name, StringComparer.Ordinal);
+			var schedules = monitoringDefinitions.Recurring.Where(definition => statuses.ContainsKey(definition.Name))
+				.Select(definition => RecurringJobSchedule.FromDefinition(definition, statuses[definition.Name])).ToList();
+			var names = definitions.Select(static definition => definition.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
 			await PrimaryStorage.MergeJobDefinitionsListAsync(new()
 			{
 				Definitions = definitions,
 				ServerTags = definitions.SelectMany(static definition => definition.Tags).Append(JobTags.Default)
 					.Distinct(StringComparer.OrdinalIgnoreCase).ToList(),
+				RecurringSchedules = schedules.Where(schedule => schedule.IsCodeDefined && names.Contains(schedule.JobName)).ToList(),
 			}, cancellationToken);
 
 			var recoveredJobs = new List<JobRecord>();
@@ -261,12 +268,8 @@ internal sealed partial class SingleServerJobStorage
 				}
 			}
 
-			var snapshot = await DurableStorage.GetMonitoringSnapshotAsync(cancellationToken);
-			var monitoringDefinitions = await DurableStorage.GetMonitoringDefinitionsAsync(cancellationToken);
-			var statuses = snapshot.Recurring.ToDictionary(static status => status.Name, StringComparer.Ordinal);
-			foreach (var definition in monitoringDefinitions.Recurring)
-				if (statuses.TryGetValue(definition.Name, out var status))
-					await PrimaryStorage.UpsertRecurringAsync(RecurringJobSchedule.FromDefinition(definition, status), cancellationToken);
+			foreach (var schedule in schedules.Where(schedule => !schedule.IsCodeDefined || !names.Contains(schedule.JobName)))
+				await PrimaryStorage.UpsertRecurringAsync(schedule, cancellationToken);
 
 			_initializationTask.SetResult();
 			_initialized = true;

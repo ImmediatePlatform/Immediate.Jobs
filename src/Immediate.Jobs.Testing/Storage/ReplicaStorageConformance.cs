@@ -19,11 +19,13 @@ internal static partial class ReplicaStorageConformance
 	private const string StaleName = "Replica.Leases.ReclaimsExpiredExecutionAndFencesStaleOwner";
 	private const string FieldsName = "Replica.Projection.PreservesRecurringAndGraphRecoveryFields";
 	private const string HeartbeatName = "Replica.Monitoring.PersistsSingleServerHeartbeatsForRemoteReaders";
+	private const string RecurringRecoveryName = "Replica.Recovery.RestoresCronDefinitionsWithTheirSchedules";
 	private const string QueueName = "conformance-replica";
 	private const string JobName = "conformance-replica-job";
 
 	internal static IReadOnlyList<JobStorageConformanceTestCase> Cases { get; } =
 	[
+		new(RecurringRecoveryName, StorageCapabilities.Graph, RestoresCronDefinitionsAsync),
 		new(HeartbeatName, StorageCapabilities.Graph, PersistsSingleServerHeartbeatsAsync),
 		new(EnqueueRaceName, StorageCapabilities.Graph, AcquisitionWaitsUntilEnqueueHasUpdatedBothStoresAsync),
 		new(ExactDueName, StorageCapabilities.Graph, ClaimsExactlyRequestedDueJobsAsync),
@@ -33,6 +35,51 @@ internal static partial class ReplicaStorageConformance
 		new(StaleName, StorageCapabilities.Graph, ReclaimsAndFencesStaleOwnerAsync),
 		new(FieldsName, StorageCapabilities.Graph, PreservesRecoveryFieldsAsync),
 	];
+
+	private static async ValueTask RestoresCronDefinitionsAsync(IJobStorage storage, FakeTimeProvider clock, CancellationToken token)
+	{
+		var now = clock.GetUtcNow();
+		var definition = new JobDefinitionRecord { Name = JobName, QueueName = QueueName, Cron = "* * * * *" };
+		var schedule = new RecurringJobSchedule
+		{
+			Name = JobName,
+			JobName = JobName,
+			Cron = "* * * * *",
+			TimeZone = "UTC",
+			IsCodeDefined = true,
+			IsPaused = true,
+			LastRunAt = now.AddMinutes(-2),
+			NextRunAt = now.AddMinutes(-1),
+		};
+		var registration = new JobDefinitionRegistration { Definitions = [definition], RecurringSchedules = [schedule] };
+		await storage.MergeJobDefinitionsListAsync(registration, token);
+		await storage.UpsertRecurringAsync(schedule with { Name = "recovery-dynamic", IsCodeDefined = false, IsPaused = false }, token);
+		var job = Job("recovery-pending", now);
+		await storage.EnqueueAsync(job, token);
+
+		var services = new ServiceCollection();
+		services.AddSingleton(typeof(ILogger<>), typeof(NullLogger<>));
+		services.AddSingleton<TimeProvider>(clock);
+		services.AddImmediateJobsCore().ConfigureStorage(builder => builder.UseSingleServer(_ => storage));
+		await using var provider = services.BuildServiceProvider();
+		var writer = provider.GetRequiredService<IJobStorage>();
+		await writer.InitializeAsync(token);
+
+		ConformanceAssert.Equal(JobState.Pending, (await GetJobAsync(writer, job.JobHandle, RecurringRecoveryName, token)).State,
+			RecurringRecoveryName, "startup must recover queued jobs alongside their cron definition");
+		var due = await writer.GetDueRecurringAsync(now, 10, [JobName], token);
+		ConformanceAssert.Equal("recovery-dynamic", due.Single().Name, RecurringRecoveryName,
+			"startup must restore dynamic schedules while preserving the code-defined schedule's pause");
+		await writer.ResumeRecurringAsync(JobName, token);
+		await writer.MergeJobDefinitionsListAsync(registration, token);
+		due = await writer.GetDueRecurringAsync(now, 10, [JobName], token);
+		ConformanceAssert.Equal(2, due.Count, RecurringRecoveryName, "both schedules must remain available after startup reconciliation");
+		var recovered = due.Single(item => item.IsCodeDefined);
+		ConformanceAssert.Equal(schedule.LastRunAt, recovered.LastRunAt, RecurringRecoveryName,
+			"startup must preserve the code-defined schedule's last run");
+		ConformanceAssert.Equal(schedule.NextRunAt, recovered.NextRunAt, RecurringRecoveryName,
+			"startup must preserve the code-defined schedule's next occurrence");
+	}
 
 	private static async ValueTask PersistsSingleServerHeartbeatsAsync(IJobStorage storage, FakeTimeProvider clock, CancellationToken token)
 	{
