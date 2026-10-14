@@ -13,6 +13,13 @@ namespace Immediate.Jobs.EntityFrameworkCore;
 /// </summary>
 public static class ImmediateJobsModelBuilderExtensions
 {
+	private enum DatabaseEngine
+	{
+		SqlServer,
+		PostgreSql,
+		Sqlite,
+	}
+
 	/// <summary>
 	/// 	Configures the entities required by the Immediate.Jobs EF Core storage provider.
 	/// </summary>
@@ -31,6 +38,8 @@ public static class ImmediateJobsModelBuilderExtensions
 	public static ModelBuilder AddImmediateJobs(this ModelBuilder modelBuilder, string? schema = null, string? definitionNameCollation = null)
 	{
 		ArgumentNullException.ThrowIfNull(modelBuilder);
+		var databaseEngine = GetDatabaseEngine(modelBuilder);
+
 		ConfigureDefinitions(modelBuilder.Entity<ImmediateJobDefinitionEntity>(), schema);
 		ConfigureAcquisitions(modelBuilder.Entity<ImmediateJobAcquisitionEntity>(), schema);
 		ConfigureBatches(modelBuilder.Entity<ImmediateJobBatchEntity>(), schema);
@@ -43,11 +52,15 @@ public static class ImmediateJobsModelBuilderExtensions
 		var definitions = modelBuilder.Entity<ImmediateJobDefinitionMetadataEntity>();
 		definitions.ToTable("immediate_job_definition_metadata", schema);
 		definitions.HasKey(definition => definition.Name);
-		var isPostgreSql = modelBuilder.Model.FindAnnotation("Npgsql:ValueGenerationStrategy") is not null;
 		var postgresCollation = schema is null ? "immediate_jobs_case_insensitive" : schema + "_jobs_ci";
-		definitionNameCollation ??= isPostgreSql ? postgresCollation
-			: modelBuilder.Model.FindAnnotation("SqlServer:ValueGenerationStrategy") is not null ? null : "NOCASE";
-		if (isPostgreSql && string.Equals(definitionNameCollation, postgresCollation, StringComparison.Ordinal))
+		definitionNameCollation ??= databaseEngine switch
+		{
+			DatabaseEngine.PostgreSql => postgresCollation,
+			DatabaseEngine.SqlServer => null,
+			DatabaseEngine.Sqlite => "NOCASE",
+			_ => null,
+		};
+		if (databaseEngine == DatabaseEngine.PostgreSql && string.Equals(definitionNameCollation, postgresCollation, StringComparison.Ordinal))
 		{
 			// Npgsql's public collation metadata is stored as this annotation (EF Core 8, 10, and 11).
 			modelBuilder.HasAnnotation("Npgsql:CollationDefinition:" + postgresCollation, "und-u-ks-level2,und-u-ks-level2,icu,False");
@@ -71,23 +84,33 @@ public static class ImmediateJobsModelBuilderExtensions
 		definitions.Property(definition => definition.SlidingWindowPeriod).HasMaxLength(32);
 		definitions.Property(definition => definition.FixedWindowPeriod).HasMaxLength(32);
 		var tags = definitions.Property(definition => definition.Tags).IsRequired();
-		if (isPostgreSql)
+		if (databaseEngine == DatabaseEngine.PostgreSql)
 			tags.HasColumnType("jsonb");
 		var catalogue = modelBuilder.Entity<ImmediateJobDefinitionCatalogEntity>();
 		catalogue.ToTable("immediate_job_definition_catalog", schema);
 		catalogue.HasKey(item => item.Id);
 		catalogue.Property(item => item.Id).ValueGeneratedNever();
-		ConfigureTimestamps(modelBuilder, isPostgreSql);
+		ConfigureTimestamps(modelBuilder, databaseEngine);
 		return modelBuilder;
 	}
 
-	private static void ConfigureTimestamps(ModelBuilder modelBuilder, bool isPostgreSql)
+	private static DatabaseEngine GetDatabaseEngine(ModelBuilder modelBuilder)
 	{
-		var isSqlServer = modelBuilder.Model.FindAnnotation("SqlServer:ValueGenerationStrategy") is not null;
-		if (isSqlServer)
+		if (modelBuilder.Model.FindAnnotation("Npgsql:ValueGenerationStrategy") is not null)
+			return DatabaseEngine.PostgreSql;
+
+		if (modelBuilder.Model.FindAnnotation("SqlServer:ValueGenerationStrategy") is not null)
+			return DatabaseEngine.SqlServer;
+
+		return DatabaseEngine.Sqlite;
+	}
+
+	private static void ConfigureTimestamps(ModelBuilder modelBuilder, DatabaseEngine databaseEngine)
+	{
+		if (databaseEngine == DatabaseEngine.SqlServer)
 			return;
 
-		ValueConverter converter = isPostgreSql
+		ValueConverter converter = databaseEngine == DatabaseEngine.PostgreSql
 			? new ValueConverter<DateTimeOffset, DateTimeOffset>(value => value.ToUniversalTime(), value => value)
 			: new ValueConverter<DateTimeOffset, string>(
 				value => value.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture),
