@@ -186,26 +186,27 @@ internal sealed partial class LinqToDBJobStorage<T>
 
 		await using var scope = contextScope.GetScope(out var connection);
 		// This is an advisory read. The definition row is locked and rechecked when claiming a job.
-		var query =
-			from metadata in Definitions(connection)
-			join definition in DefinitionStates(connection) on metadata.Name equals definition.JobName into states
-			from definition in states.DefaultIfEmpty()
-			select new { Metadata = metadata, State = definition };
+		IQueryable<ImmediateJobDefinitionMetadataEntity> query = Definitions(connection);
 		if (!connection.DataProvider.Name.Contains("SQLite", StringComparison.OrdinalIgnoreCase))
-			query = query.Where(item => candidates.Contains(item.Metadata.Name));
+			query = query.Where(item => candidates.Contains(item.Name));
 
-		var stored = await query.ToListAsync(cancellationToken);
+		var metadata = (await query.ToListAsync(cancellationToken))
+			.Where(item => capacities.TryGetValue(item.Name, out var capacity) && capacity > 0).ToList();
+		if (metadata.Count == 0)
+			return [];
+
+		var canonicalNames = metadata.Select(static item => item.Name).ToList();
+		// Resolve names before reading counters: metadata and counter columns may have different collations.
+		var definitions = await DefinitionStates(connection).Where(item => canonicalNames.Contains(item.JobName))
+			.ToDictionaryAsync(static item => item.JobName, StringComparer.Ordinal, cancellationToken);
 		var names = new List<string>();
 		var now = timeProvider.GetUtcNow();
-		foreach (var item in stored)
+		foreach (var item in metadata)
 		{
-			if (!capacities.TryGetValue(item.Metadata.Name, out var capacity) || capacity <= 0)
-				continue;
-
-			var definition = item.State ?? new() { JobName = item.Metadata.Name };
-			var state = await EvaluateDefinitionAsync(connection, definition, ToRecord(item.Metadata).AcquisitionLimits, now, cancellationToken);
+			var definition = definitions.GetValueOrDefault(item.Name) ?? new() { JobName = item.Name };
+			var state = await EvaluateDefinitionAsync(connection, definition, ToRecord(item).AcquisitionLimits, now, cancellationToken);
 			if (state.AcquisitionStatus == JobAcquisitionStatus.Ready)
-				names.Add(item.Metadata.Name);
+				names.Add(item.Name);
 		}
 
 		return names;

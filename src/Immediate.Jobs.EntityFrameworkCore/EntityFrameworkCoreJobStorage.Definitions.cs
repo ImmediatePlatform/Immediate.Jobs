@@ -164,26 +164,27 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 		return await ReadWithStrategyAsync(async (context, token) =>
 		{
 			// This is an advisory read. The definition row is locked and rechecked when claiming a job.
-			var query =
-				from metadata in context.Set<ImmediateJobDefinitionMetadataEntity>().AsNoTracking()
-				join definition in context.Set<ImmediateJobDefinitionEntity>().AsNoTracking() on metadata.Name equals definition.JobName into states
-				from definition in states.DefaultIfEmpty()
-				select new { Metadata = metadata, State = definition };
+			var query = context.Set<ImmediateJobDefinitionMetadataEntity>().AsNoTracking();
 			if (context.Database.ProviderName?.Contains("Sqlite", StringComparison.Ordinal) != true)
-				query = query.Where(item => candidates.Contains(item.Metadata.Name));
+				query = query.Where(item => candidates.Contains(item.Name));
 
-			var stored = await query.ToListAsync(token);
+			var metadata = (await query.ToListAsync(token))
+				.Where(item => capacities.TryGetValue(item.Name, out var capacity) && capacity > 0).ToList();
+			if (metadata.Count == 0)
+				return [];
+
+			var canonicalNames = metadata.Select(static item => item.Name).ToList();
+			// Resolve names before reading counters: metadata and counter columns may have different collations.
+			var definitions = await context.Set<ImmediateJobDefinitionEntity>().AsNoTracking()
+				.Where(item => canonicalNames.Contains(item.JobName)).ToDictionaryAsync(static item => item.JobName, StringComparer.Ordinal, token);
 			var names = new List<string>();
 			var now = _timeProvider.GetUtcNow();
-			foreach (var item in stored)
+			foreach (var item in metadata)
 			{
-				if (!capacities.TryGetValue(item.Metadata.Name, out var capacity) || capacity <= 0)
-					continue;
-
-				var definition = item.State ?? new() { JobName = item.Metadata.Name };
-				var state = await EvaluateDefinitionAsync(context, definition, ToRecord(item.Metadata).AcquisitionLimits, now, additionalActive: 0, token);
+				var definition = definitions.GetValueOrDefault(item.Name) ?? new() { JobName = item.Name };
+				var state = await EvaluateDefinitionAsync(context, definition, ToRecord(item).AcquisitionLimits, now, additionalActive: 0, token);
 				if (state.AcquisitionStatus == JobAcquisitionStatus.Ready)
-					names.Add(item.Metadata.Name);
+					names.Add(item.Name);
 			}
 
 			return names;
