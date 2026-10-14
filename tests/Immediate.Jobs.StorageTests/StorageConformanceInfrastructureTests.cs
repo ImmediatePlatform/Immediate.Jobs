@@ -26,6 +26,7 @@ public sealed class StorageConformanceInfrastructureTests
 		Assert.Contains(graphCases, testCase => testCase.RequiredCapabilities == StorageCapabilities.Graph);
 		Assert.DoesNotContain(graphCases, testCase => testCase.Name.StartsWith("Replica.", StringComparison.Ordinal));
 		Assert.Contains(replicaCases, testCase => testCase.Name.StartsWith("Replica.", StringComparison.Ordinal));
+		Assert.Contains(replicaCases, testCase => string.Equals(testCase.Name, "Replica.Acquisition.WaitsUntilEnqueueHasUpdatedBothStores", StringComparison.Ordinal));
 	}
 
 	[Theory]
