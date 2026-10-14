@@ -164,6 +164,10 @@ internal static partial class ReplicaStorageConformance
 			storage.FailAsync(jobHandle, executionNumber, workerId, error, nextRetryAt, cancellationToken);
 
 		/// <inheritdoc />
+		public ValueTask<JobMonitoringDefinitions> GetMonitoringDefinitionsAsync(CancellationToken cancellationToken = default) =>
+			storage.GetMonitoringDefinitionsAsync(cancellationToken);
+
+		/// <inheritdoc />
 		public ValueTask<JobMonitoringSnapshot> GetMonitoringSnapshotAsync(CancellationToken cancellationToken = default) =>
 			storage.GetMonitoringSnapshotAsync(cancellationToken);
 
