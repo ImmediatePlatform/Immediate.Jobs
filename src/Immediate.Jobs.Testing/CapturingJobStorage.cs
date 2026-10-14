@@ -172,10 +172,10 @@ public class CapturingJobStorage(TimeProvider timeProvider) :
 	public virtual ValueTask PauseJobAsync(string jobName, CancellationToken cancellationToken = default) => _inner.PauseJobAsync(jobName, cancellationToken);
 
 	/// <inheritdoc />
-	public virtual ValueTask ResumeJobAsync(string jobName, JobAcquisitionLimits limits, CancellationToken cancellationToken = default) => _inner.ResumeJobAsync(jobName, limits, cancellationToken);
+	public virtual ValueTask ResumeJobAsync(string jobName, CancellationToken cancellationToken = default) => _inner.ResumeJobAsync(jobName, cancellationToken);
 
 	/// <inheritdoc />
-	public virtual ValueTask<JobAcquisitionState> GetJobAcquisitionStateAsync(string jobName, JobAcquisitionLimits limits, CancellationToken cancellationToken = default) => _inner.GetJobAcquisitionStateAsync(jobName, limits, cancellationToken);
+	public virtual ValueTask<JobAcquisitionState> GetJobAcquisitionStateAsync(string jobName, CancellationToken cancellationToken = default) => _inner.GetJobAcquisitionStateAsync(jobName, cancellationToken);
 
 	/// <inheritdoc />
 	public virtual async ValueTask EnqueueAsync(JobSubmission job, CancellationToken cancellationToken = default)

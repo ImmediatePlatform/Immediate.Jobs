@@ -30,19 +30,4 @@ public sealed record JobAcquisitionRequest
 	/// </summary>
 	public FairQueuePolicy? FairQueues { get; init; }
 
-	/// <summary>
-	/// 	Parsed, definition-wide limits keyed by job name. Missing names have no rate limits.
-	/// </summary>
-	public IReadOnlyDictionary<string, JobAcquisitionLimits> JobLimits { get; init; } = new Dictionary<string, JobAcquisitionLimits>(StringComparer.OrdinalIgnoreCase);
-
-	/// <summary>
-	/// 	Returns the acquisition limits for a stable job definition name.
-	/// </summary>
-	/// <param name="jobName">
-	/// 	The stable job definition name.
-	/// </param>
-	/// <returns>
-	/// 	The configured limits, or an unbounded configuration when the name is absent.
-	/// </returns>
-	public JobAcquisitionLimits LimitsFor(string jobName) => JobLimits.GetValueOrDefault(jobName) ?? new();
 }

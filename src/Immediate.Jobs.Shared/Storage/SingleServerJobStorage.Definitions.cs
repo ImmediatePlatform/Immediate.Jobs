@@ -15,23 +15,23 @@ internal sealed partial class SingleServerJobStorage
 	}
 
 	/// <inheritdoc />
-	public async ValueTask ResumeJobAsync(string jobName, JobAcquisitionLimits limits, CancellationToken cancellationToken = default)
+	public async ValueTask ResumeJobAsync(string jobName, CancellationToken cancellationToken = default)
 	{
 		SingleServerResumeJobAsyncCalled(jobName);
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 		await EnsureInitializedAsync(cancellationToken);
-		await DurableStorage.ResumeJobAsync(jobName, limits, cancellationToken);
+		await DurableStorage.ResumeJobAsync(jobName, cancellationToken);
 	}
 
 	/// <inheritdoc />
-	public async ValueTask<JobAcquisitionState> GetJobAcquisitionStateAsync(string jobName, JobAcquisitionLimits limits, CancellationToken cancellationToken = default)
+	public async ValueTask<JobAcquisitionState> GetJobAcquisitionStateAsync(string jobName, CancellationToken cancellationToken = default)
 	{
 		SingleServerGetJobAcquisitionStateAsyncCalled(jobName);
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 		await EnsureInitializedAsync(cancellationToken);
-		return await DurableStorage.GetJobAcquisitionStateAsync(jobName, limits, cancellationToken);
+		return await DurableStorage.GetJobAcquisitionStateAsync(jobName, cancellationToken);
 	}
 
 	[LoggerMessage(

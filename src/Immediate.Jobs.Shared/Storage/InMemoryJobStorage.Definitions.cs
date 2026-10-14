@@ -1,5 +1,4 @@
 using Immediate.Jobs.Shared.Apis;
-using Immediate.Validations.Shared;
 using Microsoft.Extensions.Logging;
 
 namespace Immediate.Jobs.Shared.Storage;
@@ -34,36 +33,44 @@ public sealed partial class InMemoryJobStorage
 		await TaskScheduler.Yield();
 		lock (_gate)
 		{
+			jobName = GetStoredDefinition(jobName).Name;
 			var definition = GetAcquisitionDefinition(jobName);
 			definition.State = definition.State with { IsPaused = true, AcquisitionStatus = JobAcquisitionStatus.Paused, NextEligibleAt = null };
 		}
 	}
 
 	/// <inheritdoc />
-	public async ValueTask ResumeJobAsync(string jobName, JobAcquisitionLimits limits, CancellationToken cancellationToken = default)
+	public async ValueTask ResumeJobAsync(string jobName, CancellationToken cancellationToken = default)
 	{
 		InMemoryResumeJobAsyncCalled(jobName);
 		cancellationToken.ThrowIfCancellationRequested();
-		ValidationException.ThrowIfInvalid(limits);
 		await TaskScheduler.Yield();
 		lock (_gate)
 		{
-			var definition = GetAcquisitionDefinition(jobName);
-			definition.State = definition.State with { IsPaused = false };
-			EvaluateAcquisition(jobName, limits, timeProvider.GetUtcNow());
+			var definition = GetStoredDefinition(jobName);
+			var acquisition = GetAcquisitionDefinition(definition.Name);
+			acquisition.State = acquisition.State with { IsPaused = false };
+			EvaluateAcquisition(definition.Name, definition.AcquisitionLimits, timeProvider.GetUtcNow());
 		}
 	}
 
 	/// <inheritdoc />
-	public async ValueTask<JobAcquisitionState> GetJobAcquisitionStateAsync(string jobName, JobAcquisitionLimits limits, CancellationToken cancellationToken = default)
+	public async ValueTask<JobAcquisitionState> GetJobAcquisitionStateAsync(string jobName, CancellationToken cancellationToken = default)
 	{
 		InMemoryGetJobAcquisitionStateAsyncCalled(jobName);
 		cancellationToken.ThrowIfCancellationRequested();
-		ValidationException.ThrowIfInvalid(limits);
 		await TaskScheduler.Yield();
 		lock (_gate)
-			return EvaluateAcquisition(jobName, limits, timeProvider.GetUtcNow(), includeActiveCount: true);
+		{
+			var definition = GetStoredDefinition(jobName);
+			return EvaluateAcquisition(definition.Name, definition.AcquisitionLimits, timeProvider.GetUtcNow(), includeActiveCount: true);
+		}
 	}
+
+	private JobDefinitionRecord GetStoredDefinition(string jobName) =>
+		_jobDefinitions.TryGetValue(jobName, out var definition)
+			? definition
+			: throw new KeyNotFoundException($"Job definition '{jobName}' was not found.");
 
 	private DefinitionAcquisition GetAcquisitionDefinition(string jobName)
 	{
@@ -89,12 +96,12 @@ public sealed partial class InMemoryJobStorage
 		return definition.State;
 	}
 
-	private bool CanAcquire(string jobName, JobAcquisitionRequest request, DateTimeOffset now) =>
-		EvaluateAcquisition(jobName, request.LimitsFor(jobName), now).AcquisitionStatus == JobAcquisitionStatus.Ready;
+	private bool CanAcquire(string jobName, DateTimeOffset now) =>
+		EvaluateAcquisition(jobName, GetStoredDefinition(jobName).AcquisitionLimits, now).AcquisitionStatus == JobAcquisitionStatus.Ready;
 
-	private void RecordAcquisition(string jobName, JobAcquisitionRequest request, DateTimeOffset now)
+	private void RecordAcquisition(string jobName, DateTimeOffset now)
 	{
-		var limits = request.LimitsFor(jobName);
+		var limits = GetStoredDefinition(jobName).AcquisitionLimits;
 		var definition = GetAcquisitionDefinition(jobName);
 		if (limits.SlidingWindowPeriod is { } period)
 		{

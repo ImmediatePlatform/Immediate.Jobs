@@ -1,5 +1,4 @@
 using Immediate.Jobs.Shared.Apis;
-using Immediate.Validations.Shared;
 
 namespace Immediate.Jobs.Shared.Storage;
 
@@ -22,16 +21,16 @@ public interface IJobStorage : IAsyncDisposable
 	/// <returns>
 	/// 	The asynchronous pause operation.
 	/// </returns>
+	/// <exception cref="KeyNotFoundException">
+	/// 	The job definition does not exist.
+	/// </exception>
 	ValueTask PauseJobAsync(string jobName, CancellationToken cancellationToken = default);
 
 	/// <summary>
-	/// 	Clears a definition's pause and reevaluates its limits without resetting counters.
+	/// 	Clears a definition's pause and reevaluates its persisted limits without resetting counters.
 	/// </summary>
 	/// <param name="jobName">
 	/// 	The stable definition name.
-	/// </param>
-	/// <param name="limits">
-	/// 	The definition's parsed limits.
 	/// </param>
 	/// <param name="cancellationToken">
 	/// 	The operation cancellation token.
@@ -39,19 +38,16 @@ public interface IJobStorage : IAsyncDisposable
 	/// <returns>
 	/// 	The asynchronous resume operation.
 	/// </returns>
-	/// <exception cref="ValidationException">
-	/// 	The supplied acquisition limits are invalid.
+	/// <exception cref="KeyNotFoundException">
+	/// 	The job definition does not exist.
 	/// </exception>
-	ValueTask ResumeJobAsync(string jobName, JobAcquisitionLimits limits, CancellationToken cancellationToken = default);
+	ValueTask ResumeJobAsync(string jobName, CancellationToken cancellationToken = default);
 
 	/// <summary>
-	/// 	Evaluates the current acquisition status and active unexpired leases for a definition.
+	/// 	Evaluates the current acquisition status and active unexpired leases using a definition's persisted limits.
 	/// </summary>
 	/// <param name="jobName">
 	/// 	The stable definition name.
-	/// </param>
-	/// <param name="limits">
-	/// 	The definition's parsed limits.
 	/// </param>
 	/// <param name="cancellationToken">
 	/// 	The operation cancellation token.
@@ -59,10 +55,10 @@ public interface IJobStorage : IAsyncDisposable
 	/// <returns>
 	/// 	The current definition acquisition state.
 	/// </returns>
-	/// <exception cref="ValidationException">
-	/// 	The supplied acquisition limits are invalid.
+	/// <exception cref="KeyNotFoundException">
+	/// 	The job definition does not exist.
 	/// </exception>
-	ValueTask<JobAcquisitionState> GetJobAcquisitionStateAsync(string jobName, JobAcquisitionLimits limits, CancellationToken cancellationToken = default);
+	ValueTask<JobAcquisitionState> GetJobAcquisitionStateAsync(string jobName, CancellationToken cancellationToken = default);
 
 	/// <summary>
 	/// 	Initializes provider storage.
@@ -203,9 +199,6 @@ public interface IJobStorage : IAsyncDisposable
 	/// <returns>
 	/// 	The invocations acquired for the worker.
 	/// </returns>
-	/// <exception cref="ValidationException">
-	/// 	The request contains invalid acquisition limits.
-	/// </exception>
 	/// <remarks>
 	/// 	When <see cref="JobAcquisitionRequest.FairQueues"/> is set, implementations must order grouped work by
 	/// 	the supplied fair-queue policy.

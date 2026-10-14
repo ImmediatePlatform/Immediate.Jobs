@@ -77,8 +77,8 @@ public sealed class StorageCapabilityTests
 		private readonly InMemoryJobStorage _inner = new(timeProvider);
 
 		public ValueTask PauseJobAsync(string jobName, CancellationToken cancellationToken = default) => _inner.PauseJobAsync(jobName, cancellationToken);
-		public ValueTask ResumeJobAsync(string jobName, JobAcquisitionLimits limits, CancellationToken cancellationToken = default) => _inner.ResumeJobAsync(jobName, limits, cancellationToken);
-		public ValueTask<JobAcquisitionState> GetJobAcquisitionStateAsync(string jobName, JobAcquisitionLimits limits, CancellationToken cancellationToken = default) => _inner.GetJobAcquisitionStateAsync(jobName, limits, cancellationToken);
+		public ValueTask ResumeJobAsync(string jobName, CancellationToken cancellationToken = default) => _inner.ResumeJobAsync(jobName, cancellationToken);
+		public ValueTask<JobAcquisitionState> GetJobAcquisitionStateAsync(string jobName, CancellationToken cancellationToken = default) => _inner.GetJobAcquisitionStateAsync(jobName, cancellationToken);
 
 		public int EnqueueCalls { get; private set; }
 

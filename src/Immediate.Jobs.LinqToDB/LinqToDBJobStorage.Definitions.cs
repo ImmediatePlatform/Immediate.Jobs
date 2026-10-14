@@ -1,7 +1,6 @@
 using Microsoft.Extensions.Logging;
 using System.Data.Common;
 using Immediate.Jobs.Shared.Storage;
-using Immediate.Validations.Shared;
 using LinqToDB;
 using LinqToDB.Async;
 using LinqToDB.Data;
@@ -20,41 +19,62 @@ internal sealed partial class LinqToDBJobStorage<T>
 		PauseJobAsyncCalled(jobName);
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
-		await UpdateDefinitionAsync(jobName, new(), paused: true, cancellationToken);
+		await UpdateDefinitionAsync(jobName, paused: true, cancellationToken);
 	}
 
 	/// <inheritdoc />
-	public async ValueTask ResumeJobAsync(string jobName, JobAcquisitionLimits limits, CancellationToken cancellationToken = default)
+	public async ValueTask ResumeJobAsync(string jobName, CancellationToken cancellationToken = default)
 	{
 		ResumeJobAsyncCalled(jobName);
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
-		await UpdateDefinitionAsync(jobName, limits, paused: false, cancellationToken);
+		await UpdateDefinitionAsync(jobName, paused: false, cancellationToken);
 	}
 
 	/// <inheritdoc />
-	public async ValueTask<JobAcquisitionState> GetJobAcquisitionStateAsync(string jobName, JobAcquisitionLimits limits, CancellationToken cancellationToken = default)
+	public async ValueTask<JobAcquisitionState> GetJobAcquisitionStateAsync(string jobName, CancellationToken cancellationToken = default)
 	{
 		GetJobAcquisitionStateAsyncCalled(jobName);
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
-		ValidationException.ThrowIfInvalid(limits);
 		await using var scope = contextScope.GetScope(out var connection);
-		var definition = await DefinitionStates(connection).SingleOrDefaultAsync(item => item.JobName == jobName, cancellationToken)
-			?? new() { JobName = jobName };
-		return await EvaluateDefinitionAsync(connection, definition, limits, timeProvider.GetUtcNow(), cancellationToken, includeActiveCount: true);
+		var metadata = await GetStoredDefinitionAsync(connection, jobName, cancellationToken);
+		var definition = await DefinitionStates(connection).SingleOrDefaultAsync(item => item.JobName == metadata.Name, cancellationToken)
+			?? new() { JobName = metadata.Name };
+		return await EvaluateDefinitionAsync(connection, definition, ToRecord(metadata).AcquisitionLimits, timeProvider.GetUtcNow(), cancellationToken, includeActiveCount: true);
 	}
 
-	private async ValueTask UpdateDefinitionAsync(string jobName, JobAcquisitionLimits limits, bool paused, CancellationToken cancellationToken)
+	private async Task<ImmediateJobDefinitionMetadataEntity> GetStoredDefinitionAsync(DataConnection connection, string jobName, CancellationToken cancellationToken)
+	{
+		IQueryable<ImmediateJobDefinitionMetadataEntity> query = Definitions(connection);
+		// SQLite's NOCASE collation only handles ASCII; compare Unicode aliases in the client.
+		if (!connection.DataProvider.Name.Contains("SQLite", StringComparison.OrdinalIgnoreCase))
+			query = query.Where(definition => definition.Name == jobName);
+
+		var definitions = await query.ToListAsync(cancellationToken);
+		return definitions.SingleOrDefault(definition => string.Equals(definition.Name, jobName, StringComparison.OrdinalIgnoreCase))
+			?? throw new KeyNotFoundException($"Job definition '{jobName}' was not found.");
+	}
+
+	private async ValueTask UpdateDefinitionAsync(string jobName, bool paused, CancellationToken cancellationToken)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
-		ValidationException.ThrowIfInvalid(limits);
-		await EnsureDefinitionAsync(jobName, cancellationToken);
 		await using var scope = contextScope.GetScope(out var connection);
+		var metadata = await GetStoredDefinitionAsync(connection, jobName, cancellationToken);
+		await EnsureDefinitionAsync(metadata.Name, cancellationToken);
 		await connection.BeginTransactionAsync(cancellationToken);
-		var definition = await LockDefinitionAsync(connection, jobName, cancellationToken);
+		var definition = await LockDefinitionAsync(connection, metadata.Name, cancellationToken);
 		definition.IsPaused = paused;
-		await EvaluateDefinitionAsync(connection, definition, limits, timeProvider.GetUtcNow(), cancellationToken);
+		if (paused)
+		{
+			definition.AcquisitionStatus = JobAcquisitionStatus.Paused;
+			definition.NextEligibleAt = null;
+		}
+		else
+		{
+			await EvaluateDefinitionAsync(connection, definition, ToRecord(metadata).AcquisitionLimits, timeProvider.GetUtcNow(), cancellationToken);
+		}
+
 		await SaveDefinitionAsync(connection, definition, cancellationToken);
 		await connection.CommitTransactionAsync(cancellationToken);
 	}
@@ -114,15 +134,19 @@ internal sealed partial class LinqToDBJobStorage<T>
 			.UpdateAsync(cancellationToken);
 	}
 
-	private async ValueTask<bool> ReserveDefinitionAsync(DataConnection connection, string jobName, JobAcquisitionRequest? request, DateTimeOffset now, CancellationToken cancellationToken)
+	private async ValueTask<JobAcquisitionLimits?> ReserveDefinitionAsync(DataConnection connection, string jobName, DateTimeOffset now, CancellationToken cancellationToken)
 	{
-		var limits = request?.LimitsFor(jobName) ?? new();
 		var definition = await LockDefinitionAsync(connection, jobName, cancellationToken);
+		var metadata = await Definitions(connection).SingleOrDefaultAsync(item => item.Name == jobName, cancellationToken);
+		if (metadata is null)
+			return null;
+
+		var limits = ToRecord(metadata).AcquisitionLimits;
 		var state = await EvaluateDefinitionAsync(connection, definition, limits, now, cancellationToken);
 		if (state.AcquisitionStatus != JobAcquisitionStatus.Ready)
 		{
 			await SaveDefinitionAsync(connection, definition, cancellationToken);
-			return false;
+			return null;
 		}
 
 		if (limits.SlidingWindowPeriod is { } period)
@@ -144,17 +168,17 @@ internal sealed partial class LinqToDBJobStorage<T>
 		}
 
 		await SaveDefinitionAsync(connection, definition, cancellationToken);
-		return true;
+		return limits;
 	}
 
-	private async Task RefreshAcquiredDefinitionAsync(DataConnection connection, string jobName, JobAcquisitionRequest? request, DateTimeOffset now, CancellationToken cancellationToken)
+	private async Task RefreshAcquiredDefinitionAsync(DataConnection connection, string jobName, JobAcquisitionLimits limits, DateTimeOffset now, CancellationToken cancellationToken)
 	{
 		var definition = await DefinitionStates(connection).SingleAsync(item => item.JobName == jobName, cancellationToken);
-		await EvaluateDefinitionAsync(connection, definition, request?.LimitsFor(jobName) ?? new(), now, cancellationToken);
+		await EvaluateDefinitionAsync(connection, definition, limits, now, cancellationToken);
 		await SaveDefinitionAsync(connection, definition, cancellationToken);
 	}
 
-	private async ValueTask<List<string>> FilterAcquisitionNamesAsync(Dictionary<string, int> capacities, JobAcquisitionRequest request, CancellationToken cancellationToken)
+	private async ValueTask<List<string>> FilterAcquisitionNamesAsync(Dictionary<string, int> capacities, CancellationToken cancellationToken)
 	{
 		var candidates = capacities.Where(static pair => pair.Value > 0).Select(static pair => pair.Key).ToList();
 		if (candidates.Count == 0)
@@ -162,16 +186,26 @@ internal sealed partial class LinqToDBJobStorage<T>
 
 		await using var scope = contextScope.GetScope(out var connection);
 		// This is an advisory read. The definition row is locked and rechecked when claiming a job.
-		var stored = await DefinitionStates(connection).Where(item => candidates.Contains(item.JobName)).ToListAsync(cancellationToken);
-		var definitions = stored.ToDictionary(static item => item.JobName, StringComparer.Ordinal);
+		var query =
+			from metadata in Definitions(connection)
+			join definition in DefinitionStates(connection) on metadata.Name equals definition.JobName into states
+			from definition in states.DefaultIfEmpty()
+			select new { Metadata = metadata, State = definition };
+		if (!connection.DataProvider.Name.Contains("SQLite", StringComparison.OrdinalIgnoreCase))
+			query = query.Where(item => candidates.Contains(item.Metadata.Name));
+
+		var stored = await query.ToListAsync(cancellationToken);
 		var names = new List<string>();
 		var now = timeProvider.GetUtcNow();
-		foreach (var name in candidates)
+		foreach (var item in stored)
 		{
-			var definition = definitions.GetValueOrDefault(name) ?? new() { JobName = name };
-			var state = await EvaluateDefinitionAsync(connection, definition, request.LimitsFor(name), now, cancellationToken);
+			if (!capacities.TryGetValue(item.Metadata.Name, out var capacity) || capacity <= 0)
+				continue;
+
+			var definition = item.State ?? new() { JobName = item.Metadata.Name };
+			var state = await EvaluateDefinitionAsync(connection, definition, ToRecord(item.Metadata).AcquisitionLimits, now, cancellationToken);
 			if (state.AcquisitionStatus == JobAcquisitionStatus.Ready)
-				names.Add(name);
+				names.Add(item.Metadata.Name);
 		}
 
 		return names;

@@ -1,5 +1,4 @@
 using Immediate.Jobs.Shared.Apis;
-using Immediate.Validations.Shared;
 using Microsoft.Extensions.Logging;
 
 namespace Immediate.Jobs.Shared.Storage;
@@ -36,8 +35,6 @@ public sealed partial class InMemoryJobStorage
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 
-		foreach (var limits in request.JobLimits.Values)
-			ValidationException.ThrowIfInvalid(limits);
 		lock (_gate)
 		{
 			var now = timeProvider.GetUtcNow();
@@ -133,7 +130,7 @@ public sealed partial class InMemoryJobStorage
 		{
 			if (queueCapacity == 0)
 				break;
-			if (jobCapacities[candidate.JobName] <= 0 || !CanAcquire(candidate.JobName, request, now))
+			if (jobCapacities[candidate.JobName] <= 0 || !CanAcquire(candidate.JobName, now))
 				continue;
 
 			acquired.Add(Acquire(candidate, request, now));
@@ -171,7 +168,7 @@ public sealed partial class InMemoryJobStorage
 					jobCapacities.TryGetValue(job.JobName, out var capacity) &&
 					capacity > 0 &&
 					job.State is JobState.Pending or JobState.Scheduled &&
-					job.DueAt <= now && CanAcquire(job.JobName, request, now))
+					job.DueAt <= now && CanAcquire(job.JobName, now))
 				.ToList();
 			if (eligible.Count == 0)
 				break;
@@ -276,7 +273,7 @@ public sealed partial class InMemoryJobStorage
 		_jobs[job.JobHandle] = job;
 		CreateExecution(job, now);
 		MarkBatchStarted(job.BatchHandle, now);
-		RecordAcquisition(job.JobName, request, now);
+		RecordAcquisition(job.JobName, now);
 		return ReadRecord(job);
 	}
 

@@ -1,6 +1,6 @@
+using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using Immediate.Jobs.Shared.Storage;
-using Immediate.Validations.Shared;
 using StackExchange.Redis;
 
 namespace Immediate.Jobs.Redis;
@@ -13,52 +13,68 @@ internal sealed partial class RedisJobStorage
 		PauseJobAsyncCalled(jobName);
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
-		await Database.ScriptEvaluateAsync(
-			"redis.call('HSET', KEYS[1], 'paused', '1', 'status', '1', 'slidingOldest', '', 'fixedNext', ''); return 1",
-			[_root + "definitions:state:" + jobName.ToUpperInvariant()], []).WaitAsync(cancellationToken);
+		var name = jobName.ToUpperInvariant();
+		var result = await Database.ScriptEvaluateAsync(
+			"if redis.call('HEXISTS', KEYS[1], ARGV[1]) == 0 then return 0 end; redis.call('HSET', KEYS[2], 'paused', '1', 'status', '1', 'slidingOldest', '', 'fixedNext', ''); return 1",
+			[DefinitionMetadataKey, _root + "definitions:state:" + name], [name]).WaitAsync(cancellationToken);
+		if ((long)result == 0)
+			throw new KeyNotFoundException($"Job definition '{jobName}' was not found.");
 	}
 
 	/// <inheritdoc />
-	public async ValueTask ResumeJobAsync(string jobName, JobAcquisitionLimits limits, CancellationToken cancellationToken = default)
+	public async ValueTask ResumeJobAsync(string jobName, CancellationToken cancellationToken = default)
 	{
 		ResumeJobAsyncCalled(jobName);
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
-		await EvaluateDefinitionAsync(jobName, limits, resume: true, cancellationToken);
+		await EvaluateDefinitionAsync(jobName, resume: true, cancellationToken);
 	}
 
 	/// <inheritdoc />
-	public async ValueTask<JobAcquisitionState> GetJobAcquisitionStateAsync(string jobName, JobAcquisitionLimits limits, CancellationToken cancellationToken = default)
+	public async ValueTask<JobAcquisitionState> GetJobAcquisitionStateAsync(string jobName, CancellationToken cancellationToken = default)
 	{
 		GetJobAcquisitionStateAsyncCalled(jobName);
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
-		return await EvaluateDefinitionAsync(jobName, limits, resume: false, cancellationToken);
+		return await EvaluateDefinitionAsync(jobName, resume: false, cancellationToken);
 	}
 
-	private async ValueTask<JobAcquisitionState> EvaluateDefinitionAsync(string jobName, JobAcquisitionLimits limits, bool resume, CancellationToken cancellationToken)
+	private async ValueTask<JobAcquisitionState> EvaluateDefinitionAsync(string jobName, bool resume, CancellationToken cancellationToken)
 	{
-		cancellationToken.ThrowIfCancellationRequested();
-		ValidationException.ThrowIfInvalid(limits);
-		var now = _timeProvider.GetUtcNow();
-		var values = new List<RedisValue> { _root, jobName.ToUpperInvariant(), Score(now), Timestamp(now), resume ? 1 : 0 };
-		AddDefinitionLimits(values, limits, now);
-		var result = (RedisResult[])(await Database.ScriptEvaluateAsync(RedisScripts.DefinitionState, [LeasesKey], [.. values]).WaitAsync(cancellationToken))!;
-		var slidingOldest = FromNullableTimestamp((string)result[1]!);
-		var fixedNext = FromNullableTimestamp((string)result[2]!);
-		var next = slidingOldest + limits.SlidingWindowPeriod;
-		if (fixedNext is { } boundary && (next is null || boundary > next))
-			next = boundary;
-
-		return new()
+		var name = jobName.ToUpperInvariant();
+		while (true)
 		{
-			JobName = jobName,
-			IsPaused = (long)result[3] == 1,
-			ActiveCount = (int)(long)result[4],
-			IsConcurrencyLimited = limits.MaxConcurrency > 0 && (long)result[4] >= limits.MaxConcurrency,
-			AcquisitionStatus = (JobAcquisitionStatus)(long)result[0],
-			NextEligibleAt = next,
-		};
+			cancellationToken.ThrowIfCancellationRequested();
+			var metadata = await Database.HashGetAsync(DefinitionMetadataKey, name).WaitAsync(cancellationToken);
+			if (metadata.IsNull)
+				throw new KeyNotFoundException($"Job definition '{jobName}' was not found.");
+			var definition = JsonSerializer.Deserialize(metadata.ToString(), RedisJsonSerializerContext.Default.JobDefinitionRecord)
+				?? throw new ImmediateJobException($"Job definition '{jobName}' contains invalid data.");
+			var limits = definition.AcquisitionLimits;
+			var now = _timeProvider.GetUtcNow();
+			var values = new List<RedisValue> { _root, name, Score(now), Timestamp(now), resume ? 1 : 0, metadata };
+			AddDefinitionLimits(values, limits, now);
+			var response = await Database.ScriptEvaluateAsync(RedisScripts.DefinitionState, [DefinitionMetadataKey], [.. values]).WaitAsync(cancellationToken);
+			// Re-read if the definition changed before the script could evaluate its limits.
+			if ((RedisResult[]?)response is not { } result)
+				continue;
+
+			var slidingOldest = FromNullableTimestamp((string?)result[1]);
+			var fixedNext = FromNullableTimestamp((string?)result[2]);
+			var next = slidingOldest + limits.SlidingWindowPeriod;
+			if (fixedNext is { } boundary && (next is null || boundary > next))
+				next = boundary;
+
+			return new()
+			{
+				JobName = definition.Name,
+				IsPaused = (long)result[3] == 1,
+				ActiveCount = (int)(long)result[4],
+				IsConcurrencyLimited = limits.MaxConcurrency > 0 && (long)result[4] >= limits.MaxConcurrency,
+				AcquisitionStatus = (JobAcquisitionStatus)(long)result[0],
+				NextEligibleAt = next,
+			};
+		}
 	}
 
 	private static void AddDefinitionLimits(List<RedisValue> values, JobAcquisitionLimits limits, DateTimeOffset now)

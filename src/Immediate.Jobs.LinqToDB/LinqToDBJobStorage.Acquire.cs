@@ -1,6 +1,5 @@
 using Immediate.Jobs.Shared.Apis;
 using Immediate.Jobs.Shared.Storage;
-using Immediate.Validations.Shared;
 using LinqToDB;
 using LinqToDB.Async;
 using LinqToDB.Data;
@@ -21,9 +20,6 @@ internal sealed partial class LinqToDBJobStorage<T>
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 
-		foreach (var limits in request.JobLimits.Values)
-			ValidationException.ThrowIfInvalid(limits);
-
 		if (request.FairQueues is not null)
 			return await AcquireDueJobsFairAsync(request, cancellationToken);
 
@@ -38,7 +34,7 @@ internal sealed partial class LinqToDBJobStorage<T>
 			var jobCapacities = queue.JobCapacities.ToDictionary(static pair => pair.Key, static pair => pair.Value, StringComparer.OrdinalIgnoreCase);
 			while (queueCapacity > 0)
 			{
-				var eligibleNames = await FilterAcquisitionNamesAsync(jobCapacities, request, cancellationToken);
+				var eligibleNames = await FilterAcquisitionNamesAsync(jobCapacities, cancellationToken);
 				if (eligibleNames.Count == 0)
 					break;
 
@@ -58,8 +54,7 @@ internal sealed partial class LinqToDBJobStorage<T>
 
 				var selectionCapacities = new Dictionary<string, int>(jobCapacities, StringComparer.OrdinalIgnoreCase);
 				var selected = candidates.Where(candidate => selectionCapacities[candidate.JobName]-- > 0).ToList();
-				var claimed = await AcquireCandidatesAsync(selected, request.WorkerId, request.Lease, now, cancellationToken,
-				request);
+				var claimed = await AcquireCandidatesAsync(selected, request.WorkerId, request.Lease, now, cancellationToken);
 				foreach (var job in claimed)
 				{
 					jobCapacities[job.JobName]--;
@@ -132,8 +127,7 @@ internal sealed partial class LinqToDBJobStorage<T>
 		string workerId,
 		TimeSpan lease,
 		DateTimeOffset now,
-		CancellationToken cancellationToken,
-		JobAcquisitionRequest? request = null
+		CancellationToken cancellationToken
 	)
 	{
 		var acquired = new List<JobRecord>(candidates.Count);
@@ -145,7 +139,7 @@ internal sealed partial class LinqToDBJobStorage<T>
 			await connection.BeginTransactionAsync(cancellationToken);
 			try
 			{
-				if (!await ReserveDefinitionAsync(connection, candidate.JobName, request, now, cancellationToken))
+				if (await ReserveDefinitionAsync(connection, candidate.JobName, now, cancellationToken) is not { } limits)
 				{
 					await connection.CommitTransactionAsync(cancellationToken);
 					continue;
@@ -183,7 +177,7 @@ internal sealed partial class LinqToDBJobStorage<T>
 					}
 				}
 
-				await RefreshAcquiredDefinitionAsync(connection, candidate.JobName, request, now, cancellationToken);
+				await RefreshAcquiredDefinitionAsync(connection, candidate.JobName, limits, now, cancellationToken);
 				await connection.CommitTransactionAsync(cancellationToken);
 				acquired.Add(ToRecord(candidate));
 			}

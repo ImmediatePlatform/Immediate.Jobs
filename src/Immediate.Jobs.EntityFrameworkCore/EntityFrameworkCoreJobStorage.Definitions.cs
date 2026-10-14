@@ -1,6 +1,5 @@
 using Microsoft.Extensions.Logging;
 using Immediate.Jobs.Shared.Storage;
-using Immediate.Validations.Shared;
 using Microsoft.EntityFrameworkCore;
 
 namespace Immediate.Jobs.EntityFrameworkCore;
@@ -14,45 +13,66 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 		PauseJobAsyncCalled(jobName);
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
-		await UpdateDefinitionAsync(jobName, new(), paused: true, cancellationToken);
+		await UpdateDefinitionAsync(jobName, paused: true, cancellationToken);
 	}
 
 	/// <inheritdoc />
-	public async ValueTask ResumeJobAsync(string jobName, JobAcquisitionLimits limits, CancellationToken cancellationToken = default)
+	public async ValueTask ResumeJobAsync(string jobName, CancellationToken cancellationToken = default)
 	{
 		ResumeJobAsyncCalled(jobName);
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
-		await UpdateDefinitionAsync(jobName, limits, paused: false, cancellationToken);
+		await UpdateDefinitionAsync(jobName, paused: false, cancellationToken);
 	}
 
 	/// <inheritdoc />
-	public async ValueTask<JobAcquisitionState> GetJobAcquisitionStateAsync(string jobName, JobAcquisitionLimits limits, CancellationToken cancellationToken = default)
+	public async ValueTask<JobAcquisitionState> GetJobAcquisitionStateAsync(string jobName, CancellationToken cancellationToken = default)
 	{
 		GetJobAcquisitionStateAsyncCalled(jobName);
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
-		ValidationException.ThrowIfInvalid(limits);
 		return await ReadWithStrategyAsync(async (context, token) =>
 		{
+			var metadata = await GetStoredDefinitionAsync(context, jobName, token);
 			var definition = await context.Set<ImmediateJobDefinitionEntity>().AsNoTracking()
-				.SingleOrDefaultAsync(item => item.JobName == jobName, token) ?? new() { JobName = jobName };
-			return await EvaluateDefinitionAsync(context, definition, limits, _timeProvider.GetUtcNow(), additionalActive: 0, token, includeActiveCount: true);
+				.SingleOrDefaultAsync(item => item.JobName == metadata.Name, token) ?? new() { JobName = metadata.Name };
+			return await EvaluateDefinitionAsync(context, definition, ToRecord(metadata).AcquisitionLimits, _timeProvider.GetUtcNow(), additionalActive: 0, token, includeActiveCount: true);
 		}, cancellationToken);
 	}
 
-	private async ValueTask UpdateDefinitionAsync(string jobName, JobAcquisitionLimits limits, bool paused, CancellationToken cancellationToken)
+	private static async Task<ImmediateJobDefinitionMetadataEntity> GetStoredDefinitionAsync(TContext context, string jobName, CancellationToken cancellationToken)
+	{
+		var query = context.Set<ImmediateJobDefinitionMetadataEntity>().AsNoTracking();
+		// SQLite's NOCASE collation only handles ASCII; compare Unicode aliases in the client.
+		if (context.Database.ProviderName?.Contains("Sqlite", StringComparison.Ordinal) != true)
+			query = query.Where(definition => definition.Name == jobName);
+
+		var definitions = await query.ToListAsync(cancellationToken);
+		return definitions.SingleOrDefault(definition => string.Equals(definition.Name, jobName, StringComparison.OrdinalIgnoreCase))
+			?? throw new KeyNotFoundException($"Job definition '{jobName}' was not found.");
+	}
+
+	private async ValueTask UpdateDefinitionAsync(string jobName, bool paused, CancellationToken cancellationToken)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
-		ValidationException.ThrowIfInvalid(limits);
-		await EnsureDefinitionAsync(jobName, cancellationToken);
 		await ExecuteWithStrategyAsync(async token =>
 		{
 			await using var context = await contextFactory.CreateDbContextAsync(token);
+			var metadata = await GetStoredDefinitionAsync(context, jobName, token);
+			await EnsureDefinitionAsync(metadata.Name, token);
 			await using var transaction = await context.Database.BeginTransactionAsync(token);
-			var definition = await LockDefinitionAsync(context, jobName, token);
+			var definition = await LockDefinitionAsync(context, metadata.Name, token);
 			definition.IsPaused = paused;
-			await EvaluateDefinitionAsync(context, definition, limits, _timeProvider.GetUtcNow(), additionalActive: 0, token);
+			if (paused)
+			{
+				definition.AcquisitionStatus = JobAcquisitionStatus.Paused;
+				definition.NextEligibleAt = null;
+			}
+			else
+			{
+				await EvaluateDefinitionAsync(context, definition, ToRecord(metadata).AcquisitionLimits, _timeProvider.GetUtcNow(), additionalActive: 0, token);
+			}
+
 			await context.SaveChangesAsync(token);
 			await transaction.CommitAsync(token);
 		}, cancellationToken);
@@ -103,13 +123,17 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 		return state;
 	}
 
-	private static async ValueTask<bool> ReserveDefinitionAsync(TContext context, string jobName, JobAcquisitionRequest? request, DateTimeOffset now, CancellationToken cancellationToken)
+	private static async ValueTask<JobAcquisitionLimits?> ReserveDefinitionAsync(TContext context, string jobName, DateTimeOffset now, CancellationToken cancellationToken)
 	{
-		var limits = request?.LimitsFor(jobName) ?? new();
 		var definition = await LockDefinitionAsync(context, jobName, cancellationToken);
+		var metadata = await context.Set<ImmediateJobDefinitionMetadataEntity>().AsNoTracking().SingleOrDefaultAsync(item => item.Name == jobName, cancellationToken);
+		if (metadata is null)
+			return null;
+
+		var limits = ToRecord(metadata).AcquisitionLimits;
 		var state = await EvaluateDefinitionAsync(context, definition, limits, now, additionalActive: 0, cancellationToken);
 		if (state.AcquisitionStatus != JobAcquisitionStatus.Ready)
-			return false;
+			return null;
 		if (limits.SlidingWindowPeriod is { } period)
 		{
 			await context.Set<ImmediateJobAcquisitionEntity>()
@@ -128,10 +152,10 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 			definition.FixedWindowCount++;
 		}
 
-		return true;
+		return limits;
 	}
 
-	private async ValueTask<List<string>> FilterAcquisitionNamesAsync(Dictionary<string, int> capacities, JobAcquisitionRequest request, CancellationToken cancellationToken)
+	private async ValueTask<List<string>> FilterAcquisitionNamesAsync(Dictionary<string, int> capacities, CancellationToken cancellationToken)
 	{
 		var candidates = capacities.Where(static pair => pair.Value > 0).Select(static pair => pair.Key).ToList();
 		if (candidates.Count == 0)
@@ -140,27 +164,36 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 		return await ReadWithStrategyAsync(async (context, token) =>
 		{
 			// This is an advisory read. The definition row is locked and rechecked when claiming a job.
-			var stored = await context.Set<ImmediateJobDefinitionEntity>().AsNoTracking()
-				.Where(item => candidates.Contains(item.JobName)).ToListAsync(token);
-			var definitions = stored.ToDictionary(static item => item.JobName, StringComparer.Ordinal);
+			var query =
+				from metadata in context.Set<ImmediateJobDefinitionMetadataEntity>().AsNoTracking()
+				join definition in context.Set<ImmediateJobDefinitionEntity>().AsNoTracking() on metadata.Name equals definition.JobName into states
+				from definition in states.DefaultIfEmpty()
+				select new { Metadata = metadata, State = definition };
+			if (context.Database.ProviderName?.Contains("Sqlite", StringComparison.Ordinal) != true)
+				query = query.Where(item => candidates.Contains(item.Metadata.Name));
+
+			var stored = await query.ToListAsync(token);
 			var names = new List<string>();
 			var now = _timeProvider.GetUtcNow();
-			foreach (var name in candidates)
+			foreach (var item in stored)
 			{
-				var definition = definitions.GetValueOrDefault(name) ?? new() { JobName = name };
-				var state = await EvaluateDefinitionAsync(context, definition, request.LimitsFor(name), now, additionalActive: 0, token);
+				if (!capacities.TryGetValue(item.Metadata.Name, out var capacity) || capacity <= 0)
+					continue;
+
+				var definition = item.State ?? new() { JobName = item.Metadata.Name };
+				var state = await EvaluateDefinitionAsync(context, definition, ToRecord(item.Metadata).AcquisitionLimits, now, additionalActive: 0, token);
 				if (state.AcquisitionStatus == JobAcquisitionStatus.Ready)
-					names.Add(name);
+					names.Add(item.Metadata.Name);
 			}
 
 			return names;
 		}, cancellationToken);
 	}
 
-	private static async Task RefreshAcquiredDefinitionAsync(TContext context, string jobName, JobAcquisitionRequest? request, DateTimeOffset now, CancellationToken cancellationToken)
+	private static async Task RefreshAcquiredDefinitionAsync(TContext context, string jobName, JobAcquisitionLimits limits, DateTimeOffset now, CancellationToken cancellationToken)
 	{
 		var definition = await context.Set<ImmediateJobDefinitionEntity>().SingleAsync(item => item.JobName == jobName, cancellationToken);
-		await EvaluateDefinitionAsync(context, definition, request?.LimitsFor(jobName) ?? new(), now, additionalActive: 0, cancellationToken);
+		await EvaluateDefinitionAsync(context, definition, limits, now, additionalActive: 0, cancellationToken);
 		await context.SaveChangesAsync(cancellationToken);
 	}
 

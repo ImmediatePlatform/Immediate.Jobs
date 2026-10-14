@@ -1,4 +1,6 @@
 using Immediate.Handlers.Shared;
+using Immediate.Jobs.Shared.Apis;
+using Immediate.Jobs.Shared.Interfaces;
 using Immediate.Jobs.Shared.Internals;
 using Immediate.Jobs.Shared.Storage;
 using Immediate.Jobs.Testing;
@@ -9,6 +11,27 @@ namespace Immediate.Jobs.FunctionalTests;
 
 public sealed class DefinitionAcquisitionTests
 {
+	[Fact]
+	public async Task SchedulerControlsDoNotReadTheDefinitionCatalog()
+	{
+		var token = TestContext.Current.CancellationToken;
+		await using var harness = CreateHarness();
+		await using var storage = new DefinitionCatalogTrackingStorage(harness.TimeProvider);
+		var scheduler = new LimitedAcquisitionJob.Scheduler(
+			storage,
+			harness.Services.GetRequiredService<IJobSerializer>(),
+			harness.TimeProvider,
+			harness.Services.GetRequiredService<IIdGenerator>()
+		);
+		await storage.MergeJobDefinitionsListAsync(new() { Definitions = [new() { Name = scheduler.JobName }] }, token);
+
+		await scheduler.PauseJobAsync(token);
+		Assert.True((await scheduler.GetAcquisitionStateAsync(token)).IsPaused);
+		await scheduler.ResumeJobAsync(token);
+		Assert.False((await scheduler.GetAcquisitionStateAsync(token)).IsPaused);
+		Assert.Equal(0, storage.CatalogReads);
+	}
+
 	[Fact]
 	public async Task GeneratedSchedulerPausesDefinitionAndPreservesRateLimitsAcrossResumeAndRestart()
 	{
@@ -63,7 +86,7 @@ public sealed class DefinitionAcquisitionTests
 	}
 
 	[Fact]
-	public async Task SchedulerReadsCurrentStoredDefinitionForLimitsAndConcurrency()
+	public async Task SchedulerControlsUseCurrentPersistedLimitsAndConcurrency()
 	{
 		var token = TestContext.Current.CancellationToken;
 		await using var harness = CreateHarness(services =>
@@ -94,7 +117,6 @@ public sealed class DefinitionAcquisitionTests
 			Lease = TimeSpan.FromSeconds(30),
 			BatchSize = 2,
 			Queues = [new() { QueueName = definition.QueueName, Capacity = 2, JobCapacities = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase) { [definition.Name] = 2 } }],
-			JobLimits = new Dictionary<string, JobAcquisitionLimits>(StringComparer.OrdinalIgnoreCase) { [definition.Name] = definition.AcquisitionLimits },
 		}, token);
 		Assert.Equal(2, acquired.Count);
 		await scheduler.PauseJobAsync(token);
@@ -104,7 +126,7 @@ public sealed class DefinitionAcquisitionTests
 		Assert.Equal(2, state.ActiveCount);
 		Assert.False(state.IsConcurrencyLimited);
 
-		// The same scheduler must read metadata again after the stored limits change.
+		// Controls use the new persisted limits without recreating the scheduler.
 		definition = definition with { MaxConcurrency = 1, SlidingWindowMax = 2 };
 		await harness.Storage.MergeJobDefinitionsListAsync(new() { Definitions = [definition] }, token);
 		await scheduler.PauseJobAsync(token);
@@ -126,7 +148,7 @@ public sealed class DefinitionAcquisitionTests
 		await Assert.ThrowsAsync<KeyNotFoundException>(async () => await scheduler.PauseJobAsync(token));
 		await Assert.ThrowsAsync<KeyNotFoundException>(async () => await scheduler.ResumeJobAsync(token));
 		await Assert.ThrowsAsync<KeyNotFoundException>(async () => await scheduler.GetAcquisitionStateAsync(token));
-		Assert.False((await harness.Storage.GetJobAcquisitionStateAsync(scheduler.JobName, new(), token)).IsPaused);
+		await Assert.ThrowsAsync<KeyNotFoundException>(async () => await harness.Storage.GetJobAcquisitionStateAsync(scheduler.JobName, token));
 	}
 
 	private static JobTestHarness CreateHarness(Action<IServiceCollection>? configure = null) => new(services =>
@@ -138,6 +160,17 @@ public sealed class DefinitionAcquisitionTests
 		services.AddImmediateJobsFunctionalTestsJobs();
 		configure?.Invoke(services);
 	});
+
+	private sealed class DefinitionCatalogTrackingStorage(TimeProvider timeProvider) : CapturingJobStorage(timeProvider)
+	{
+		public int CatalogReads { get; private set; }
+
+		public override ValueTask<IReadOnlyList<JobDefinitionRecord>> GetJobDefinitionsAsync(CancellationToken cancellationToken = default)
+		{
+			CatalogReads++;
+			return base.GetJobDefinitionsAsync(cancellationToken);
+		}
+	}
 }
 
 [Handler, Job(Name = "limited-acquisition", SlidingWindowMax = 1, SlidingWindowPeriod = "00:00:01.0000003",

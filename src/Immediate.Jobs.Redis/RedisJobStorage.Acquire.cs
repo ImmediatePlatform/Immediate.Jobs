@@ -1,6 +1,6 @@
+using System.Text.Json;
 using Immediate.Jobs.Shared.Apis;
 using Immediate.Jobs.Shared.Storage;
-using Immediate.Validations.Shared;
 using Microsoft.Extensions.Logging;
 using StackExchange.Redis;
 
@@ -18,63 +18,86 @@ internal sealed partial class RedisJobStorage
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 
-		foreach (var limits in request.JobLimits.Values)
-			ValidationException.ThrowIfInvalid(limits);
-
-		var keys = new List<RedisKey>(4 + request.Queues.Count)
-		{
+		RedisKey[] keys =
+		[
 			LeasesKey,
 			StateKey(JobState.Active),
 			StateKey(JobState.Pending),
 			StateKey(JobState.Scheduled),
-		};
-		var now = _timeProvider.GetUtcNow();
-		var leaseExpiresAt = now + request.Lease;
-		var values = new List<RedisValue>
+			DefinitionMetadataKey,
+		];
+		var names = request.Queues.SelectMany(static queue => queue.JobCapacities.Keys)
+			.Select(static name => name.ToUpperInvariant()).Distinct(StringComparer.Ordinal).ToList();
+		if (names.Count == 0)
+			return [];
+
+		RedisValue[] definitionKeys = [.. names.Select(static name => (RedisValue)name)];
+		while (true)
 		{
-			Score(now),
-			Score(leaseExpiresAt),
-			Timestamp(leaseExpiresAt),
-			request.WorkerId,
-			request.BatchSize,
-			request.Queues.Count,
-			_root,
-			Timestamp(now),
-			request.FairQueues is null ? 0 : 1,
-			request.FairQueues?.ConcurrencyShareThreshold ?? 0,
-			request.FairQueues?.MinInflightForNoisy ?? 0,
-			request.FairQueues?.GroupRoundRobin == true ? 1 : 0,
-		};
-		foreach (var queue in request.Queues)
-		{
-			values.Add(queue.QueueName);
-			values.Add(Math.Max(0, queue.Capacity));
-			values.Add(queue.JobCapacities.Count);
-			foreach (var capacity in queue.JobCapacities)
+			cancellationToken.ThrowIfCancellationRequested();
+			var metadata = await Database.HashGetAsync(DefinitionMetadataKey, definitionKeys).WaitAsync(cancellationToken);
+			var definitions = new Dictionary<string, (RedisValue Metadata, JobDefinitionRecord Definition)>(StringComparer.Ordinal);
+			for (var index = 0; index < names.Count; index++)
 			{
-				values.Add(capacity.Key.ToUpperInvariant());
-				values.Add(Math.Max(0, capacity.Value));
-				AddDefinitionLimits(values, request.LimitsFor(capacity.Key), now);
+				if (metadata[index].IsNull)
+					continue;
+
+				var definition = JsonSerializer.Deserialize(metadata[index].ToString(), RedisJsonSerializerContext.Default.JobDefinitionRecord)
+					?? throw new ImmediateJobException($"Job definition '{names[index]}' contains invalid data.");
+				definitions.Add(names[index], (metadata[index], definition));
 			}
-		}
 
-		var result = await Database.ScriptEvaluateAsync(
-			RedisScripts.Acquire,
-			[.. keys],
-			[.. values]
-		).WaitAsync(cancellationToken);
-		var valuesReturned = (RedisResult[])result!;
-		var ids = new List<string>(valuesReturned.Length / 2);
-		var queues = new Dictionary<string, string>(StringComparer.Ordinal);
-		for (var index = 0; index < valuesReturned.Length; index += 2)
-		{
-			var id = (string)valuesReturned[index]!;
-			ids.Add(id);
-			queues[id] = (string)valuesReturned[index + 1]!;
-		}
+			var now = _timeProvider.GetUtcNow();
+			var leaseExpiresAt = now + request.Lease;
+			var values = new List<RedisValue>
+			{
+				Score(now),
+				Score(leaseExpiresAt),
+				Timestamp(leaseExpiresAt),
+				request.WorkerId,
+				request.BatchSize,
+				request.Queues.Count,
+				_root,
+				Timestamp(now),
+				request.FairQueues is null ? 0 : 1,
+				request.FairQueues?.ConcurrencyShareThreshold ?? 0,
+				request.FairQueues?.MinInflightForNoisy ?? 0,
+				request.FairQueues?.GroupRoundRobin == true ? 1 : 0,
+			};
+			foreach (var queue in request.Queues)
+			{
+				var capacities = queue.JobCapacities.Where(pair => definitions.ContainsKey(pair.Key.ToUpperInvariant())).ToList();
+				values.Add(queue.QueueName);
+				values.Add(Math.Max(0, queue.Capacity));
+				values.Add(capacities.Count);
+				foreach (var capacity in capacities)
+				{
+					var name = capacity.Key.ToUpperInvariant();
+					var (snapshot, definition) = definitions[name];
+					values.Add(name);
+					values.Add(Math.Max(0, capacity.Value));
+					values.Add(snapshot);
+					AddDefinitionLimits(values, definition.AcquisitionLimits, now);
+				}
+			}
 
-		var jobs = await ReadJobsDataAsync(ids, cancellationToken);
-		return [.. jobs.Select(job => job with { QueueName = queues[job.JobHandle.Value] })];
+			var result = await Database.ScriptEvaluateAsync(RedisScripts.Acquire, keys, [.. values]).WaitAsync(cancellationToken);
+			// Retry if a definition changed after its limits were read.
+			if ((RedisResult[]?)result is not { } valuesReturned)
+				continue;
+
+			var ids = new List<string>(valuesReturned.Length / 2);
+			var queues = new Dictionary<string, string>(StringComparer.Ordinal);
+			for (var index = 0; index < valuesReturned.Length; index += 2)
+			{
+				var id = (string)valuesReturned[index]!;
+				ids.Add(id);
+				queues[id] = (string)valuesReturned[index + 1]!;
+			}
+
+			var jobs = await ReadJobsDataAsync(ids, cancellationToken);
+			return [.. jobs.Select(job => job with { QueueName = queues[job.JobHandle.Value] })];
+		}
 	}
 
 	/// <inheritdoc />

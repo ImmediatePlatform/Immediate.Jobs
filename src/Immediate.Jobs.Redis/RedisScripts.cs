@@ -155,8 +155,9 @@ internal static class RedisScripts
 		"""
 		local root = ARGV[1]
 		local name = ARGV[2]
+		if redis.call('HGET', KEYS[1], name) ~= ARGV[6] then return nil end
 		if ARGV[5] == '1' then redis.call('HSET', root .. 'definitions:state:' .. name, 'paused', '0') end
-		return definitionState(root, name, readLimits(ARGV, 6), tonumber(ARGV[3]), ARGV[4], true)
+		return definitionState(root, name, readLimits(ARGV, 7), tonumber(ARGV[3]), ARGV[4], true)
 		""";
 
 	internal const string Acquire =
@@ -194,12 +195,13 @@ internal static class RedisScripts
 			position = position + 3
 			for jobIndex = 1, jobCount do
 				local name, capacity = ARGV[position], tonumber(ARGV[position + 1])
+				if redis.call('HGET', KEYS[5], name) ~= ARGV[position + 2] then return nil end
 				if queueForJob(root, name) == queue.name then
 					queue.jobs[name] = capacity
-					queue.jobLimits[name] = readLimits(ARGV, position + 2)
+					queue.jobLimits[name] = readLimits(ARGV, position + 3)
 					eligible[name] = true
 				end
-				position = position + 8
+				position = position + 9
 			end
 			queues[index] = queue
 		end

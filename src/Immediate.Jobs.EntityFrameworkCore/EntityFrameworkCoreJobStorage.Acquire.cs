@@ -1,7 +1,6 @@
 using System.Data.Common;
 using Immediate.Jobs.Shared.Apis;
 using Immediate.Jobs.Shared.Storage;
-using Immediate.Validations.Shared;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
@@ -20,9 +19,6 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 
-		foreach (var limits in request.JobLimits.Values)
-			ValidationException.ThrowIfInvalid(limits);
-
 		if (request.FairQueues is not null)
 			return await AcquireDueJobsFairAsync(request, cancellationToken);
 
@@ -37,7 +33,7 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 			var jobCapacities = queue.JobCapacities.ToDictionary(static pair => pair.Key, static pair => pair.Value, StringComparer.OrdinalIgnoreCase);
 			while (queueCapacity > 0)
 			{
-				var eligibleNames = await FilterAcquisitionNamesAsync(jobCapacities, request, cancellationToken);
+				var eligibleNames = await FilterAcquisitionNamesAsync(jobCapacities, cancellationToken);
 				if (eligibleNames.Count == 0)
 					break;
 
@@ -72,8 +68,7 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 					request.WorkerId,
 					request.Lease,
 					now,
-					cancellationToken,
-					request
+					cancellationToken
 				);
 				foreach (var job in claimed)
 				{
@@ -145,8 +140,7 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 		string workerId,
 		TimeSpan lease,
 		DateTimeOffset now,
-		CancellationToken cancellationToken,
-		JobAcquisitionRequest? request = null
+		CancellationToken cancellationToken
 	)
 	{
 		var acquired = new List<JobRecord>(candidates.Count);
@@ -157,7 +151,7 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 			await using var strategyContext = await contextFactory.CreateDbContextAsync(cancellationToken);
 			var strategy = strategyContext.Database.CreateExecutionStrategy();
 			var record = await strategy.ExecuteAsync(
-				operationCancellationToken => AcquireCandidateCoreAsync(candidate, workerId, lease, now, request, operationCancellationToken),
+				operationCancellationToken => AcquireCandidateCoreAsync(candidate, workerId, lease, now, operationCancellationToken),
 				cancellationToken
 			);
 			if (record is not null)
@@ -172,13 +166,12 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 		string workerId,
 		TimeSpan lease,
 		DateTimeOffset now,
-		JobAcquisitionRequest? request,
 		CancellationToken cancellationToken
 	)
 	{
 		await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 		await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
-		if (!await ReserveDefinitionAsync(context, candidate.JobName, request, now, cancellationToken))
+		if (await ReserveDefinitionAsync(context, candidate.JobName, now, cancellationToken) is not { } limits)
 		{
 			await context.SaveChangesAsync(cancellationToken);
 			await transaction.CommitAsync(cancellationToken);
@@ -211,7 +204,7 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 		try
 		{
 			await context.SaveChangesAsync(cancellationToken);
-			await RefreshAcquiredDefinitionAsync(context, candidate.JobName, request, now, cancellationToken);
+			await RefreshAcquiredDefinitionAsync(context, candidate.JobName, limits, now, cancellationToken);
 			await transaction.CommitAsync(cancellationToken);
 			return ToRecord(entity, candidate.QueueName);
 		}

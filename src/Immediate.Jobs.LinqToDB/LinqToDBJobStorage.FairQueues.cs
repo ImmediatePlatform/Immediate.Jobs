@@ -33,7 +33,7 @@ internal sealed partial class LinqToDBJobStorage<T>
 			);
 			while (queueCapacity > 0)
 			{
-				var eligibleNames = await FilterAcquisitionNamesAsync(jobCapacities, request!, cancellationToken);
+				var eligibleNames = await FilterAcquisitionNamesAsync(jobCapacities, cancellationToken);
 				if (eligibleNames.Count == 0)
 					break;
 
@@ -52,8 +52,7 @@ internal sealed partial class LinqToDBJobStorage<T>
 						request.WorkerId,
 						request.Lease,
 						now,
-						cancellationToken,
-						request
+						cancellationToken
 					);
 					queueCapacity -= fastPath.Count;
 					acquired.AddRange(fastPath);
@@ -84,8 +83,7 @@ internal sealed partial class LinqToDBJobStorage<T>
 						request.WorkerId,
 						request.Lease,
 						now,
-						cancellationToken,
-						request
+						cancellationToken
 					);
 					queueCapacity -= fastPath.Count;
 					acquired.AddRange(fastPath);
@@ -163,16 +161,14 @@ internal sealed partial class LinqToDBJobStorage<T>
 						request.Lease,
 						now,
 						nextSequence,
-						cancellationToken,
-						request
+						cancellationToken
 					)
 					: GetFirstOrDefault(await AcquireCandidatesAsync(
 							[selected],
 							request.WorkerId,
 							request.Lease,
 							now,
-							cancellationToken,
-							request
+							cancellationToken
 						));
 				if (claimedJob is null)
 				{
@@ -198,14 +194,13 @@ internal sealed partial class LinqToDBJobStorage<T>
 		string workerId,
 		TimeSpan lease,
 		DateTimeOffset now,
-		CancellationToken cancellationToken,
-		JobAcquisitionRequest? request = null
+		CancellationToken cancellationToken
 	)
 	{
 		var acquired = new List<JobRecord>(queueCapacity);
 		while (queueCapacity > 0)
 		{
-			var eligibleNames = await FilterAcquisitionNamesAsync(jobCapacities, request!, cancellationToken);
+			var eligibleNames = await FilterAcquisitionNamesAsync(jobCapacities, cancellationToken);
 			if (eligibleNames.Count == 0)
 				break;
 
@@ -238,8 +233,7 @@ internal sealed partial class LinqToDBJobStorage<T>
 				workerId,
 				lease,
 				now,
-				cancellationToken,
-				request
+				cancellationToken
 			);
 			foreach (var job in claimed)
 			{
@@ -262,8 +256,7 @@ internal sealed partial class LinqToDBJobStorage<T>
 		TimeSpan lease,
 		DateTimeOffset now,
 		long nextSequence,
-		CancellationToken cancellationToken,
-		JobAcquisitionRequest? request = null
+		CancellationToken cancellationToken
 	)
 	{
 		await EnsureDefinitionAsync(candidate.JobName, cancellationToken);
@@ -274,7 +267,7 @@ internal sealed partial class LinqToDBJobStorage<T>
 		var cursorWasMissing = false;
 		try
 		{
-			if (!await ReserveDefinitionAsync(connection, candidate.JobName, request, now, cancellationToken))
+			if (await ReserveDefinitionAsync(connection, candidate.JobName, now, cancellationToken) is not { } limits)
 			{
 				await connection.CommitTransactionAsync(cancellationToken);
 				return null;
@@ -345,7 +338,7 @@ internal sealed partial class LinqToDBJobStorage<T>
 				}
 			}
 
-			await RefreshAcquiredDefinitionAsync(connection, candidate.JobName, request, now, cancellationToken);
+			await RefreshAcquiredDefinitionAsync(connection, candidate.JobName, limits, now, cancellationToken);
 			await connection.CommitTransactionAsync(cancellationToken);
 			return ToRecord(candidate);
 		}

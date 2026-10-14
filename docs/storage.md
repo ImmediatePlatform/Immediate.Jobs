@@ -143,13 +143,14 @@ prior data are provided; users recreate their storage when its schema no longer 
 
 ### Definition acquisition controls
 
-`JobAcquisitionRequest.JobLimits` carries the parsed attribute limits keyed by job name. Definition metadata persists configured limits for monitoring and management on other servers.
+Storage reads acquisition limits from persisted definition metadata for acquisition, monitoring,
+and pause/resume controls. Acquisition requests carry worker identity, leases, queue capacities,
+and optional fair-queue policy.
 `JobAcquisitionLimits` uses Immediate.Validations to validate nonnegative maxima, positive periods,
 and paired window settings. `JobAcquisitionLimits.Validate(limits)` returns validation results;
-acquisition and definition-control operations reject invalid limits with `ValidationException`
-before changing storage state.
+attribute settings are validated by the analyzer and generator.
 
-Acquisition requests carry the worker's parsed limits; operational counters are stored separately. `immediate_job_definitions` stores `IsPaused`, `AcquisitionStatus`,
+Operational counters are stored separately. `immediate_job_definitions` stores `IsPaused`, `AcquisitionStatus`,
 `NextEligibleAt`, and fixed-window start/count. Sliding windows use independent acquisition rows
 indexed by job name and timestamp; deleting or purging invocation history must not erase rate capacity.
 Definition timestamps and sliding acquisition timestamps use the same native temporal columns
@@ -163,15 +164,16 @@ inside one Lua script, caching each definition status for the invocation and ref
 All enabled limits must pass, including fair-queue paths. Failed claims roll back reservations.
 
 `PauseJobAsync` prevents acquisition while allowing enqueue, trigger release, and recurring
-materialization. `ResumeJobAsync` clears only the pause and reevaluates limits. Both are idempotent.
-`GetJobAcquisitionStateAsync` reevaluates current eligibility using the supplied parsed limits; stored
+materialization. `ResumeJobAsync` clears only the pause and reevaluates persisted limits without
+changing definition configuration or resetting counters. Both are idempotent and require an existing
+definition. `GetJobAcquisitionStateAsync` reevaluates current eligibility using persisted limits; stored
 status is a snapshot and must never be the sole authority for acquisition. Pause takes precedence over
 rate and concurrency restrictions. Time-based `NextEligibleAt` is the latest blocking window boundary;
 it is absent if pause or concurrency also blocks work. `ActiveCount` counts active, unexpired leases
 even for definitions without a concurrency limit. `IsConcurrencyLimited` reports exhausted concurrency
 independently of the primary restriction, including while paused.
 
-The shared `JobAcquisitionEvaluator`, `JobAcquisitionRequest.LimitsFor`, and
+The shared `JobAcquisitionEvaluator` and
 `JobAcquisitionLimits.FixedWindowStart` are public provider helpers. Custom providers have the same
 access as built-in providers; `Immediate.Jobs.Shared` grants no friend-assembly access.
 

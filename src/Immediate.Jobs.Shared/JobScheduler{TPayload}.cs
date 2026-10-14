@@ -55,8 +55,7 @@ public abstract class JobScheduler<TPayload>(
 	public async ValueTask PauseJobAsync(CancellationToken cancellationToken = default)
 	{
 		await TaskScheduler.Yield();
-		var definition = await GetStoredDefinitionAsync(cancellationToken);
-		await Storage.PauseJobAsync(definition.Name, cancellationToken);
+		await Storage.PauseJobAsync(JobName, cancellationToken);
 	}
 
 	/// <summary>
@@ -71,8 +70,7 @@ public abstract class JobScheduler<TPayload>(
 	public async ValueTask ResumeJobAsync(CancellationToken cancellationToken = default)
 	{
 		await TaskScheduler.Yield();
-		var definition = await GetStoredDefinitionAsync(cancellationToken);
-		await Storage.ResumeJobAsync(definition.Name, definition.AcquisitionLimits, cancellationToken);
+		await Storage.ResumeJobAsync(JobName, cancellationToken);
 	}
 
 	/// <summary>
@@ -87,8 +85,7 @@ public abstract class JobScheduler<TPayload>(
 	public async ValueTask<JobAcquisitionState> GetAcquisitionStateAsync(CancellationToken cancellationToken = default)
 	{
 		await TaskScheduler.Yield();
-		var definition = await GetStoredDefinitionAsync(cancellationToken);
-		return await Storage.GetJobAcquisitionStateAsync(definition.Name, definition.AcquisitionLimits, cancellationToken);
+		return await Storage.GetJobAcquisitionStateAsync(JobName, cancellationToken);
 	}
 
 	/// <summary>
@@ -119,11 +116,6 @@ public abstract class JobScheduler<TPayload>(
 	/// 	The stable generated name.
 	/// </summary>
 	public string JobName { get; } = jobName;
-
-	private async ValueTask<JobDefinitionRecord> GetStoredDefinitionAsync(CancellationToken cancellationToken) =>
-		(await Storage.GetJobDefinitionsAsync(cancellationToken))
-			.FirstOrDefault(definition => string.Equals(definition.Name, JobName, StringComparison.OrdinalIgnoreCase))
-			?? throw new KeyNotFoundException($"Job definition '{JobName}' was not found.");
 
 	/// <summary>
 	/// 	Captures the context envelope persisted with a new invocation.
