@@ -12,7 +12,7 @@ namespace Immediate.Jobs.FunctionalTests;
 public sealed class DefinitionAcquisitionTests
 {
 	[Fact]
-	public async Task SchedulerControlsDoNotReadTheDefinitionCatalog()
+	public async Task SchedulerAndMonitorControlsDoNotReadTheDefinitionCatalog()
 	{
 		var token = TestContext.Current.CancellationToken;
 		await using var harness = CreateHarness();
@@ -28,6 +28,11 @@ public sealed class DefinitionAcquisitionTests
 		await scheduler.PauseJobAsync(token);
 		Assert.True((await scheduler.GetAcquisitionStateAsync(token)).IsPaused);
 		await scheduler.ResumeJobAsync(token);
+		Assert.False((await scheduler.GetAcquisitionStateAsync(token)).IsPaused);
+		var monitor = new JobMonitor(storage, harness.TimeProvider, harness.Services.GetRequiredService<IIdGenerator>());
+		await monitor.PauseDefinitionAsync(scheduler.JobName.ToUpperInvariant(), token);
+		Assert.True((await scheduler.GetAcquisitionStateAsync(token)).IsPaused);
+		await monitor.ResumeDefinitionAsync(scheduler.JobName.ToUpperInvariant(), token);
 		Assert.False((await scheduler.GetAcquisitionStateAsync(token)).IsPaused);
 		Assert.Equal(0, storage.CatalogReads);
 	}
@@ -176,7 +181,6 @@ public sealed class DefinitionAcquisitionTests
 			Lease = TimeSpan.FromSeconds(30),
 			BatchSize = 1,
 			Queues = [new() { QueueName = definition.QueueName, Capacity = 1, JobCapacities = new Dictionary<string, int>(StringComparer.Ordinal) { [definition.Name] = 1 } }],
-			JobLimits = new Dictionary<string, JobAcquisitionLimits>(StringComparer.Ordinal) { [definition.Name] = definition.AcquisitionLimits },
 		}, token);
 		await scheduler.PauseJobAsync(token);
 		await harness.Services.GetRequiredService<JobSchedulingService>().DrainAsync(token);

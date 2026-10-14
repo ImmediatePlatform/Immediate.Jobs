@@ -49,7 +49,6 @@ internal static class MonitoringStorageConformance
 			BatchSize = 2,
 			Lease = TimeSpan.FromSeconds(1),
 			Queues = [new() { QueueName = "default", Capacity = 2, JobCapacities = definitions.ToDictionary(static definition => definition.Name, static _ => 1, StringComparer.OrdinalIgnoreCase) }],
-			JobLimits = definitions.ToDictionary(static definition => definition.Name, static definition => definition.AcquisitionLimits, StringComparer.OrdinalIgnoreCase),
 		}, token);
 		ConformanceAssert.Equal(2, acquired.Count, BulkCase, "the two eligible definitions acquire independently");
 		await storage.PauseJobAsync("Other", token);
@@ -60,7 +59,7 @@ internal static class MonitoringStorageConformance
 			ConformanceAssert.Equal(3, snapshot.DefinitionStatuses.Count, BulkCase, "idle and restricted definitions remain visible");
 			foreach (var definition in definitions)
 			{
-				var expected = await storage.GetJobAcquisitionStateAsync(definition.Name, definition.AcquisitionLimits, token);
+				var expected = await storage.GetJobAcquisitionStateAsync(definition.Name, token);
 				var actual = snapshot.DefinitionStatuses.Single(state => string.Equals(state.JobName, definition.Name, StringComparison.OrdinalIgnoreCase));
 				ConformanceAssert.Equal(expected, actual, BulkCase, "bulk evaluation matches exact window and lease boundaries");
 			}

@@ -49,7 +49,6 @@ public sealed class DashboardPackageTests
 			Lease = TimeSpan.FromSeconds(30),
 			BatchSize = 1,
 			Queues = [new() { QueueName = definition.QueueName, Capacity = 1, JobCapacities = new Dictionary<string, int>(StringComparer.Ordinal) { [definition.Name] = 2 } }],
-			JobLimits = new Dictionary<string, JobAcquisitionLimits>(StringComparer.Ordinal) { [definition.Name] = definition.AcquisitionLimits },
 		};
 		Assert.Single(await storage.AcquireDueJobsAsync(request, token));
 		var pendingHandle = JobHandle.FromString("definition-action-pending");
@@ -94,7 +93,7 @@ public sealed class DashboardPackageTests
 			Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
 		}
 
-		Assert.False((await storage.GetJobAcquisitionStateAsync("missing-definition", new(), token)).IsPaused);
+		await Assert.ThrowsAsync<KeyNotFoundException>(async () => await storage.GetJobAcquisitionStateAsync("missing-definition", token));
 		Assert.Empty(await storage.AcquireDueJobsAsync(request, token));
 		clock.Advance(TimeSpan.FromSeconds(2));
 		Assert.Equal(pendingHandle, Assert.Single(await storage.AcquireDueJobsAsync(request, token)).JobHandle);
@@ -125,7 +124,6 @@ public sealed class DashboardPackageTests
 			Lease = TimeSpan.FromSeconds(30),
 			BatchSize = 1,
 			Queues = [new() { QueueName = "default", Capacity = 1, JobCapacities = new Dictionary<string, int>(StringComparer.Ordinal) { ["limited-acquisition"] = 1 } }],
-			JobLimits = new Dictionary<string, JobAcquisitionLimits>(StringComparer.Ordinal) { ["limited-acquisition"] = new() { MaxConcurrency = 1 } },
 		}, token);
 		await storage.PauseJobAsync("limited-acquisition", token);
 		var builder = WebApplication.CreateBuilder(new WebApplicationOptions { EnvironmentName = Environments.Development });
@@ -246,7 +244,6 @@ public sealed class DashboardPackageTests
 			Lease = TimeSpan.FromMinutes(5),
 			BatchSize = 1,
 			Queues = [new() { QueueName = remoteStatus.QueueName, Capacity = 1, JobCapacities = new Dictionary<string, int>(StringComparer.Ordinal) { [remoteStatus.Name] = 1 } }],
-			JobLimits = new Dictionary<string, JobAcquisitionLimits>(StringComparer.Ordinal) { [remoteStatus.Name] = remoteStatus.AcquisitionLimits },
 		}, token));
 		foreach (var action in new[] { "pause", "resume" })
 		{

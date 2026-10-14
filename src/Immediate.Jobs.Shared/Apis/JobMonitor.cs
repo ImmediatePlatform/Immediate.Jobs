@@ -41,8 +41,8 @@ public sealed class JobMonitor(
 	{
 		await TaskScheduler.Yield();
 		cancellationToken.ThrowIfCancellationRequested();
-		var definition = await GetStoredDefinitionAsync(jobName, cancellationToken);
-		await storage.PauseJobAsync(definition.Name, cancellationToken);
+		ArgumentException.ThrowIfNullOrWhiteSpace(jobName);
+		await storage.PauseJobAsync(jobName, cancellationToken);
 	}
 
 	/// <inheritdoc />
@@ -50,16 +50,8 @@ public sealed class JobMonitor(
 	{
 		await TaskScheduler.Yield();
 		cancellationToken.ThrowIfCancellationRequested();
-		var definition = await GetStoredDefinitionAsync(jobName, cancellationToken);
-		await storage.ResumeJobAsync(definition.Name, definition.AcquisitionLimits, cancellationToken);
-	}
-
-	private async ValueTask<JobDefinitionRecord> GetStoredDefinitionAsync(string jobName, CancellationToken cancellationToken)
-	{
 		ArgumentException.ThrowIfNullOrWhiteSpace(jobName);
-		return (await storage.GetJobDefinitionsAsync(cancellationToken))
-			.FirstOrDefault(definition => string.Equals(definition.Name, jobName, StringComparison.OrdinalIgnoreCase))
-			?? throw new KeyNotFoundException($"Job definition '{jobName}' is not stored.");
+		await storage.ResumeJobAsync(jobName, cancellationToken);
 	}
 
 	/// <summary>

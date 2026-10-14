@@ -86,7 +86,7 @@ public sealed class MonitoringApiTests
 	{
 		public int Snapshots { get; private set; }
 		public int DefinitionReads { get; private set; }
-		public override ValueTask<JobAcquisitionState> GetJobAcquisitionStateAsync(string jobName, JobAcquisitionLimits limits, CancellationToken cancellationToken = default) =>
+		public override ValueTask<JobAcquisitionState> GetJobAcquisitionStateAsync(string jobName, CancellationToken cancellationToken = default) =>
 			throw new InvalidOperationException("Monitoring must not request individual acquisition states.");
 		public override ValueTask<JobMonitoringSnapshot> GetMonitoringSnapshotAsync(CancellationToken cancellationToken = default)
 		{
