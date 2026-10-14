@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Data;
+using System.Globalization;
 using Immediate.Jobs.Shared.Apis;
 using Immediate.Jobs.Shared.Storage;
 using Microsoft.EntityFrameworkCore;
@@ -148,16 +149,16 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 		Cron = definition.Cron,
 		TimeZone = definition.TimeZone,
 		MaxAttempts = definition.MaxAttempts,
-		Timeout = definition.Timeout is { } timeout ? TimeSpanSerializer.Serialize(timeout) : null,
+		Timeout = definition.Timeout?.ToString(),
 		MaxConcurrency = definition.MaxConcurrency,
 		OverlapPolicy = definition.OverlapPolicy,
 		MisfireHandlingMode = definition.MisfireHandlingMode,
 		Backoff = definition.Backoff,
-		BackoffBase = TimeSpanSerializer.Serialize(definition.BackoffBase),
+		BackoffBase = definition.BackoffBase.ToString(),
 		SlidingWindowMax = definition.SlidingWindowMax,
-		SlidingWindowPeriod = definition.SlidingWindowPeriod is { } slidingWindowPeriod ? TimeSpanSerializer.Serialize(slidingWindowPeriod) : null,
+		SlidingWindowPeriod = definition.SlidingWindowPeriod?.ToString(),
 		FixedWindowMax = definition.FixedWindowMax,
-		FixedWindowPeriod = definition.FixedWindowPeriod is { } fixedWindowPeriod ? TimeSpanSerializer.Serialize(fixedWindowPeriod) : null,
+		FixedWindowPeriod = definition.FixedWindowPeriod?.ToString(),
 		Tags = JsonSerializer.Serialize([.. definition.Tags], EntityFrameworkCoreJsonSerializerContext.Default.StringArray),
 	};
 
@@ -170,16 +171,16 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 		Cron = entity.Cron,
 		TimeZone = entity.TimeZone,
 		MaxAttempts = entity.MaxAttempts,
-		Timeout = entity.Timeout is { } timeout ? TimeSpanSerializer.Deserialize(timeout) : null,
+		Timeout = entity.Timeout is { } timeout ? TimeSpan.Parse(timeout, CultureInfo.InvariantCulture) : null,
 		MaxConcurrency = entity.MaxConcurrency,
 		OverlapPolicy = entity.OverlapPolicy,
 		MisfireHandlingMode = entity.MisfireHandlingMode,
 		Backoff = entity.Backoff,
-		BackoffBase = TimeSpanSerializer.Deserialize(entity.BackoffBase),
+		BackoffBase = TimeSpan.Parse(entity.BackoffBase, CultureInfo.InvariantCulture),
 		SlidingWindowMax = entity.SlidingWindowMax,
-		SlidingWindowPeriod = entity.SlidingWindowPeriod is { } slidingPeriod ? TimeSpanSerializer.Deserialize(slidingPeriod) : null,
+		SlidingWindowPeriod = entity.SlidingWindowPeriod is { } slidingPeriod ? TimeSpan.Parse(slidingPeriod, CultureInfo.InvariantCulture) : null,
 		FixedWindowMax = entity.FixedWindowMax,
-		FixedWindowPeriod = entity.FixedWindowPeriod is { } fixedPeriod ? TimeSpanSerializer.Deserialize(fixedPeriod) : null,
+		FixedWindowPeriod = entity.FixedWindowPeriod is { } fixedPeriod ? TimeSpan.Parse(fixedPeriod, CultureInfo.InvariantCulture) : null,
 		Tags = JsonSerializer.Deserialize(entity.Tags, EntityFrameworkCoreJsonSerializerContext.Default.StringArray) ?? [],
 	};
 

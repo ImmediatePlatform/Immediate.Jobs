@@ -21,7 +21,6 @@
   </ItemGroup>
 
   <ItemGroup>
-	<Compile Include="../Common/TimeSpanSerializer.cs" Link="Common/TimeSpanSerializer.cs" />
 	<Compile Update="LinqToDBJobStorage.*.cs" DependentUpon="LinqToDBJobStorage.cs" />
   </ItemGroup>
 

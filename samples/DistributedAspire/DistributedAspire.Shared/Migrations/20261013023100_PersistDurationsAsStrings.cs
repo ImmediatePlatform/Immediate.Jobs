@@ -7,7 +7,7 @@ namespace Immediate.Jobs.DistributedAspire.Shared.Migrations;
 
 /// <inheritdoc />
 [SuppressMessage("Design", "CA1062:Validate arguments of public methods")]
-public sealed partial class PersistDurationsAsIso8601 : Migration
+public sealed partial class PersistDurationsAsStrings : Migration
 {
 	/// <inheritdoc />
 	protected override void Up(MigrationBuilder migrationBuilder)

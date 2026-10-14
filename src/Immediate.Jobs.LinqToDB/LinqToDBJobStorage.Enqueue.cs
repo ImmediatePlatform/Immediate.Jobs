@@ -196,7 +196,7 @@ internal sealed partial class LinqToDBJobStorage<T>
 				ChildJobHandle = waiter.Id,
 				ParentKind = ContinuationParentKind.Job,
 				ParentId = job.Id,
-				Delay = TimeSpanSerializer.Serialize(TimeSpan.Zero),
+				Delay = TimeSpan.Zero.ToString(),
 				Trigger = ContinuationTrigger.Success,
 			}, cancellationToken);
 			var waiterStamp = waiter.ConcurrencyStamp;

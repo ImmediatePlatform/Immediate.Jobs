@@ -12,8 +12,8 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Immediate.Jobs.DistributedAspire.Shared.Migrations
 {
     [DbContext(typeof(JobsDbContext))]
-    [Migration("20261013023100_PersistDurationsAsIso8601")]
-    partial class PersistDurationsAsIso8601
+    [Migration("20261013023100_PersistDurationsAsStrings")]
+    partial class PersistDurationsAsStrings
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)

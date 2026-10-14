@@ -86,11 +86,11 @@ public sealed partial class ImmediateJobsGenerator
 			return null;
 
 		var timeout = arguments.GetStringValue("Timeout");
-		if (timeout is { } && (!TimeSpanSerializer.TryParse(timeout, out var timeoutValue) || timeoutValue <= TimeSpan.Zero))
+		if (timeout is { } && (!TimeSpan.TryParse(timeout, CultureInfo.InvariantCulture, out var timeoutValue) || timeoutValue <= TimeSpan.Zero))
 			return null;
 
 		var backoffBase = arguments.GetStringValue("BackoffBase") ?? "00:00:05";
-		if (!TimeSpanSerializer.TryParse(backoffBase, out var backoffValue) || backoffValue <= TimeSpan.Zero)
+		if (!TimeSpan.TryParse(backoffBase, CultureInfo.InvariantCulture, out var backoffValue) || backoffValue <= TimeSpan.Zero)
 			return null;
 
 		if (

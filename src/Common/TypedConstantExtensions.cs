@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Globalization;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 
@@ -41,7 +42,7 @@ internal static class TypedConstantExtensions
 				return period is null ? new AcquisitionWindow(Max: 0, Period: null) : null;
 
 			return maximum > 0
-				&& TimeSpanSerializer.TryParse(period, out var value)
+				&& TimeSpan.TryParse(period, CultureInfo.InvariantCulture, out var value)
 				&& value > TimeSpan.Zero
 					? new AcquisitionWindow(maximum, value)
 					: null;

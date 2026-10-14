@@ -43,10 +43,10 @@ them for monitoring and preventing ordinary resume or future materialization. Te
 history and definitions outside the server tag scope are preserved. Each removal is logged with the
 number of canceled invocations and schedules.
 
-Durations stored in relational columns, including continuation delays, use ISO8601 strings
-(for example, `PT5S` or `PT1.0000001S`). JSON properties use the built-in `System.Text.Json`
-`TimeSpan` format (for example, `"00:00:05"`). Job attribute duration settings accept both
-ISO8601 durations and invariant `TimeSpan` strings.
+Durations stored in relational columns, including continuation delays, use `TimeSpan.ToString()`
+(for example, `00:00:05` or `00:00:01.0000001`). Reads parse these strings using invariant culture.
+JSON properties use the built-in `System.Text.Json` `TimeSpan` format. Job attribute duration
+settings accept invariant `TimeSpan` strings.
 
 SQL Server timestamps use `datetimeoffset`; PostgreSQL uses `timestamp with time zone`
 and returns UTC instants. SQLite and Redis persist readable ISO8601 timestamps. Native
@@ -64,7 +64,7 @@ and storage rejects invalid manually supplied names before modifying the catalog
 Relational providers store definition configuration in individual columns in
 `immediate_job_definition_metadata`; the name key is the only persisted definition name.
 `Timeout`, `BackoffBase`, `SlidingWindowPeriod`, and `FixedWindowPeriod`
-store ISO8601 duration strings with exact 100-nanosecond precision; window maxima use integer
+store `TimeSpan` strings with exact 100-nanosecond precision; window maxima use integer
 columns, and policy enums use small integers. Tags occupy a single JSON array column (`Tags`): PostgreSQL uses `jsonb`,
 SQL Server uses `nvarchar(max)`, and SQLite uses `text`. Redis continues storing serialized definition records.
 

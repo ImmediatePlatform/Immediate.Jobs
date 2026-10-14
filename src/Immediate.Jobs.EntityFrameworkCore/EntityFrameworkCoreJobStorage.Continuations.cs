@@ -1,3 +1,4 @@
+using System.Globalization;
 using Immediate.Jobs.Shared.Apis;
 using Immediate.Jobs.Shared.Storage;
 using Microsoft.EntityFrameworkCore;
@@ -73,7 +74,7 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 				ChildJobHandle = job.Id,
 				ParentKind = ContinuationParentKind.Job,
 				ParentId = current.Id,
-				Delay = TimeSpanSerializer.Serialize(addition.Delay),
+				Delay = addition.Delay.ToString(),
 				Trigger = addition.Trigger,
 			});
 
@@ -86,7 +87,7 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 					ChildJobHandle = waiter.Id,
 					ParentKind = ContinuationParentKind.Job,
 					ParentId = job.Id,
-					Delay = TimeSpanSerializer.Serialize(TimeSpan.Zero),
+					Delay = TimeSpan.Zero.ToString(),
 					Trigger = ContinuationTrigger.Success,
 				});
 				waiter.RemainingDependencies++;
@@ -196,7 +197,7 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 			.ToListAsync(cancellationToken);
 		return delays.Count == 0
 			? TimeSpan.Zero
-			: delays.Max(TimeSpanSerializer.Deserialize);
+			: delays.Max(static delay => TimeSpan.Parse(delay, CultureInfo.InvariantCulture));
 	}
 
 	private static async Task<bool> ShouldSkipSettledContinuationAsync(
@@ -346,7 +347,7 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 
 					edge.ParentOutcome = GetParentOutcome(parentSucceeded, parentFailed);
 
-					var delayedDueAt = now + TimeSpanSerializer.Deserialize(edge.Delay);
+					var delayedDueAt = now + TimeSpan.Parse(edge.Delay, CultureInfo.InvariantCulture);
 					if (job.DueAt < delayedDueAt)
 						job.DueAt = delayedDueAt;
 

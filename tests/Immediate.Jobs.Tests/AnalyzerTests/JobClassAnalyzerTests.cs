@@ -59,7 +59,7 @@ public sealed class JobClassAnalyzerTests
 		).RunAsync(TestContext.Current.CancellationToken);
 
 	[Fact]
-	public async Task Iso8601ConfigurationShouldNotTrigger() =>
+	public async Task AcquisitionWindowConfigurationShouldNotTrigger() =>
 		await AnalyzerTestHelpers.CreateAnalyzerTest<JobClassAnalyzer>(
 			"""
 			using System.Threading;
@@ -73,14 +73,14 @@ public sealed class JobClassAnalyzerTests
 				MaxAttempts = 3,
 				MaxConcurrency = 1,
 				SlidingWindowMax = 10,
-				SlidingWindowPeriod = "PT1.0000003S",
+				SlidingWindowPeriod = "00:00:01.0000003",
 				FixedWindowMax = 100,
-				FixedWindowPeriod = "PT1M",
+				FixedWindowPeriod = "00:01:00",
 				Backoff = BackoffStrategy.Fixed,
-				BackoffBase = "PT5S",
+				BackoffBase = "00:00:05",
 				OverlapPolicy = OverlapPolicy.Skip,
 				MisfireHandlingMode = MisfireHandlingMode.EnqueueAll,
-				Timeout = "PT1M"
+				Timeout = "00:01:00"
 
 			)]
 			public sealed partial class GetUsersQuery
@@ -121,10 +121,12 @@ public sealed class JobClassAnalyzerTests
 			"""
 		).RunAsync(TestContext.Current.CancellationToken);
 
-	[Fact]
-	public async Task UnparseableTimeSpanValuesShouldTrigger() =>
+	[Theory]
+	[InlineData("asdf")]
+	[InlineData("PT1M")]
+	public async Task UnparseableTimeSpanValuesShouldTrigger(string value) =>
 		await AnalyzerTestHelpers.CreateAnalyzerTest<JobClassAnalyzer>(
-			"""
+			$$"""
 			using System.Threading;
 			using System.Threading.Tasks;
 			using Immediate.Handlers.Shared;
@@ -133,8 +135,8 @@ public sealed class JobClassAnalyzerTests
 			namespace Dummy;
 
 			[Handler, {|IJOB0005:{|IJOB0005:Job(
-				BackoffBase = "asdf",
-				Timeout = "asdf"
+				BackoffBase = "{{value}}",
+				Timeout = "{{value}}"
 			)|}|}]
 			public sealed partial class GetUsersQuery
 			{
@@ -154,9 +156,9 @@ public sealed class JobClassAnalyzerTests
 	[InlineData("FixedWindowMax = 1, FixedWindowPeriod = \"-00:01:00\"")]
 	[InlineData("FixedWindowMax = 0, FixedWindowPeriod = \"00:01:00\"")]
 	[InlineData("FixedWindowMax = 1")]
-	[InlineData("SlidingWindowMax = 1, SlidingWindowPeriod = \"PT0S\"")]
-	[InlineData("FixedWindowMax = 1, FixedWindowPeriod = \"-PT1M\"")]
-	[InlineData("FixedWindowMax = 1, FixedWindowPeriod = \"P10675200D\"")]
+	[InlineData("SlidingWindowMax = 1, SlidingWindowPeriod = \"PT1M\"")]
+	[InlineData("FixedWindowMax = 1, FixedWindowPeriod = \"PT1M\"")]
+	[InlineData("FixedWindowMax = 1, FixedWindowPeriod = \"10675200.00:00:00\"")]
 	public async Task InvalidAcquisitionWindowsReportConfigurationDiagnostic(string configuration) =>
 		await AnalyzerTestHelpers.CreateAnalyzerTest<JobClassAnalyzer>(
 			$$"""

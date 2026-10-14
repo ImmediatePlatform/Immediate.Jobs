@@ -1,3 +1,4 @@
+using System.Globalization;
 using Immediate.Jobs.Shared.Apis;
 using Immediate.Jobs.Shared.Storage;
 using LinqToDB;
@@ -76,7 +77,7 @@ internal sealed partial class LinqToDBJobStorage<T>
 				ChildJobHandle = job.Id,
 				ParentKind = ContinuationParentKind.Job,
 				ParentId = current.Id,
-				Delay = TimeSpanSerializer.Serialize(addition.Delay),
+				Delay = addition.Delay.ToString(),
 				Trigger = addition.Trigger,
 			}, cancellationToken);
 
@@ -89,7 +90,7 @@ internal sealed partial class LinqToDBJobStorage<T>
 					ChildJobHandle = waiter.Id,
 					ParentKind = ContinuationParentKind.Job,
 					ParentId = job.Id,
-					Delay = TimeSpanSerializer.Serialize(TimeSpan.Zero),
+					Delay = TimeSpan.Zero.ToString(),
 					Trigger = ContinuationTrigger.Success,
 				}, cancellationToken);
 				var waiterStamp = waiter.ConcurrencyStamp;
@@ -211,7 +212,7 @@ internal sealed partial class LinqToDBJobStorage<T>
 			.ToListAsync(cancellationToken);
 		return delays.Count == 0
 			? TimeSpan.Zero
-			: delays.Max(TimeSpanSerializer.Deserialize);
+			: delays.Max(static delay => TimeSpan.Parse(delay, CultureInfo.InvariantCulture));
 	}
 
 	private async Task<bool> ShouldSkipSettledContinuationAsync(
@@ -373,7 +374,7 @@ internal sealed partial class LinqToDBJobStorage<T>
 					}
 
 					edge.ParentOutcome = GetParentOutcome(parentSucceeded, parentFailed);
-					var delayedDueAt = now + TimeSpanSerializer.Deserialize(edge.Delay);
+					var delayedDueAt = now + TimeSpan.Parse(edge.Delay, CultureInfo.InvariantCulture);
 					if (job.DueAt < delayedDueAt)
 						job.DueAt = delayedDueAt;
 

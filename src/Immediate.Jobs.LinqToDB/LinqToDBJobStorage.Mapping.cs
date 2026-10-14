@@ -1,3 +1,4 @@
+using System.Globalization;
 using Immediate.Jobs.Shared.Apis;
 using LinqToDB.Data;
 
@@ -82,7 +83,7 @@ internal sealed partial class LinqToDBJobStorage<T>
 			ParentKind = parentKind,
 			ParentId = parentId,
 			Trigger = edge.Trigger,
-			Delay = TimeSpanSerializer.Serialize(edge.Delay),
+			Delay = edge.Delay.ToString(),
 		};
 	}
 
@@ -172,7 +173,7 @@ internal sealed partial class LinqToDBJobStorage<T>
 			ChildJobHandle = JobHandle.FromString(edge.ChildJobHandle),
 			ParentJobHandle = edge.ParentKind == ContinuationParentKind.Job ? JobHandle.FromString(edge.ParentId) : null,
 			ParentBatchHandle = edge.ParentKind == ContinuationParentKind.Batch ? BatchHandle.FromString(edge.ParentId) : null,
-			Delay = TimeSpanSerializer.Deserialize(edge.Delay),
+			Delay = TimeSpan.Parse(edge.Delay, CultureInfo.InvariantCulture),
 			Trigger = edge.Trigger,
 		};
 }

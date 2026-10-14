@@ -31,7 +31,7 @@ public sealed partial class ImmediateJobsGenerator
 			CronLiteral = job.Cron?.AsCSharpLiteral(),
 			TimeZoneLiteral = job.TimeZone.AsCSharpLiteral(),
 			MaxAttempts = job.MaxAttempts.ToString(CultureInfo.InvariantCulture),
-			TimeoutLiteral = DurationLiteral(job.Timeout),
+			TimeoutLiteral = job.Timeout?.AsCSharpLiteral(),
 			MaxConcurrency = job.MaxConcurrency.ToString(CultureInfo.InvariantCulture),
 			SlidingWindowMax = job.SlidingWindow.Max.ToString(CultureInfo.InvariantCulture),
 			SlidingWindowPeriodLiteral = DurationLiteral(job.SlidingWindow.Period),
@@ -40,7 +40,7 @@ public sealed partial class ImmediateJobsGenerator
 			job.OverlapPolicy,
 			job.MisfireHandlingMode,
 			job.Backoff,
-			BackoffBaseLiteral = DurationLiteral(job.BackoffBase),
+			BackoffBaseLiteral = job.BackoffBase.AsCSharpLiteral(),
 			job.Contexts,
 			job.Json,
 			Version = ThisAssembly.InformationalVersion,
@@ -103,17 +103,7 @@ public sealed partial class ImmediateJobsGenerator
 		return Template.Parse(reader.ReadToEnd());
 	}
 
-	private static string? DurationLiteral(string? value)
-	{
-		if (value is null)
-			return null;
-
-		return TimeSpanSerializer.TryParse(value, out var duration)
-			? duration.ToString("c", CultureInfo.InvariantCulture).AsCSharpLiteral()
-			: null;
-	}
-
 	private static string? DurationLiteral(TimeSpan? value) => value is { } duration
-		? duration.ToString("c", CultureInfo.InvariantCulture).AsCSharpLiteral()
+		? duration.ToString().AsCSharpLiteral()
 		: null;
 }

@@ -31,7 +31,7 @@ public sealed class JobDefaultsAttribute : Attribute
 	public int MaxAttempts { get; init; }
 
 	/// <summary>
-	/// 	The default execution timeout as a TimeSpan string or ISO8601 duration, or null for no timeout.
+	/// 	The default execution timeout as a <see cref="TimeSpan"/> string, or null for no timeout.
 	/// </summary>
 	public string? Timeout { get; init; }
 }
