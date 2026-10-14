@@ -70,11 +70,10 @@ public sealed partial class ImmediateJobsGenerator
 		if (maxConcurrency < 0)
 			return null;
 
-		var slidingWindowMax = arguments.GetIntValue("SlidingWindowMax", 0);
-		var slidingWindowPeriod = arguments.GetStringValue("SlidingWindowPeriod");
-		var fixedWindowMax = arguments.GetIntValue("FixedWindowMax", 0);
-		var fixedWindowPeriod = arguments.GetStringValue("FixedWindowPeriod");
-		if (!arguments.IsValidAcquisitionWindow("SlidingWindow") || !arguments.IsValidAcquisitionWindow("FixedWindow"))
+		if (arguments.GetValidAcquisitionWindow("SlidingWindow") is not { } slidingWindow)
+			return null;
+
+		if (arguments.GetValidAcquisitionWindow("FixedWindow") is not { } fixedWindow)
 			return null;
 
 		if (arguments.GetValidEnumValue("Backoff", "ExponentialJitter") is not { } backoff)
@@ -157,10 +156,8 @@ public sealed partial class ImmediateJobsGenerator
 			MaxAttempts = maxAttempts,
 			Timeout = timeout,
 			MaxConcurrency = maxConcurrency,
-			SlidingWindowMax = slidingWindowMax,
-			SlidingWindowPeriod = slidingWindowPeriod,
-			FixedWindowMax = fixedWindowMax,
-			FixedWindowPeriod = fixedWindowPeriod,
+			SlidingWindow = slidingWindow,
+			FixedWindow = fixedWindow,
 			OverlapPolicy = overlapPolicy,
 			MisfireHandlingMode = misfireHandlingMode,
 			Backoff = backoff,

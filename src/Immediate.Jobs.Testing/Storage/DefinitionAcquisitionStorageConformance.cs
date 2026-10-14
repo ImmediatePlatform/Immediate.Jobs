@@ -1,6 +1,7 @@
 using System.Globalization;
 using Immediate.Jobs.Shared.Apis;
 using Immediate.Jobs.Shared.Storage;
+using Immediate.Validations.Shared;
 using Microsoft.Extensions.Time.Testing;
 
 namespace Immediate.Jobs.Testing.Storage;
@@ -10,6 +11,7 @@ internal static class DefinitionAcquisitionStorageConformance
 	private const string Name = "limited-job";
 	internal static IReadOnlyList<JobStorageConformanceTestCase> Cases { get; } =
 	[
+		new("Definitions.Limits.RejectsInvalidSettingsWithoutChangingState", StorageCapabilities.Queue, InvalidLimitsAsync),
 		new("Definitions.Pause.BlocksPendingAndNewJobsOnly", StorageCapabilities.Queue, PauseAsync),
 		new("Definitions.SlidingWindow.EnforcesExactBoundaryAndRetainsHistoryAfterDeletion", StorageCapabilities.Queue, SlidingAsync),
 		new("Definitions.SlidingWindow.ReleasesOnlyExpiredAcquisitions", StorageCapabilities.Queue, RollingAsync),
@@ -47,6 +49,48 @@ internal static class DefinitionAcquisitionStorageConformance
 
 	private static void Equal<T>(T expected, T actual, string invariant) =>
 		ConformanceAssert.Equal(expected, actual, "Definitions.Acquisition", invariant);
+
+	private static async ValueTask InvalidLimitsAsync(IJobStorage storage, FakeTimeProvider clock, CancellationToken token)
+	{
+		const string CaseName = "Definitions.Limits.RejectsInvalidSettingsWithoutChangingState";
+		await storage.MergeJobDefinitionsListAsync(new() { Definitions = [new() { Name = Name }] }, token);
+		await storage.EnqueueAsync(Job("invalid-limits", clock.GetUtcNow()), token);
+		await storage.PauseJobAsync(Name, token);
+
+		JobAcquisitionLimits[] invalidLimits =
+		[
+			new() { MaxConcurrency = -1 },
+			new() { SlidingWindowMax = -1 },
+			new() { SlidingWindowMax = 1 },
+			new() { SlidingWindowPeriod = TimeSpan.FromSeconds(1) },
+			new() { SlidingWindowMax = 1, SlidingWindowPeriod = TimeSpan.Zero },
+			new() { SlidingWindowMax = 1, SlidingWindowPeriod = TimeSpan.FromSeconds(-1) },
+			new() { FixedWindowMax = -1 },
+			new() { FixedWindowMax = 1 },
+			new() { FixedWindowPeriod = TimeSpan.FromSeconds(1) },
+			new() { FixedWindowMax = 1, FixedWindowPeriod = TimeSpan.Zero },
+			new() { FixedWindowMax = 1, FixedWindowPeriod = TimeSpan.FromSeconds(-1) },
+		];
+
+		foreach (var limits in invalidLimits)
+		{
+			await ConformanceAssert.ThrowsAsync<ValidationException>(
+				async () => await storage.AcquireDueJobsAsync(Request(limits), token), CaseName,
+				"invalid limits must be rejected before acquiring jobs");
+			await ConformanceAssert.ThrowsAsync<ValidationException>(
+				() => storage.ResumeJobAsync(Name, limits, token), CaseName,
+				"invalid limits must be rejected before resuming a definition");
+			await ConformanceAssert.ThrowsAsync<ValidationException>(
+				async () => await storage.GetJobAcquisitionStateAsync(Name, limits, token), CaseName,
+				"invalid limits must be rejected before evaluating acquisition state");
+		}
+
+		Equal(expected: true, (await storage.GetJobAcquisitionStateAsync(Name, new(), token)).IsPaused,
+			"invalid limit requests must preserve the definition's pause state");
+		await storage.ResumeJobAsync(Name, new(), token);
+		var acquired = (await storage.AcquireDueJobsAsync(Request(new()), token)).Single();
+		Equal(1, acquired.Attempt, "invalid limit requests must not consume execution attempts");
+	}
 
 	private static async ValueTask MonitoringAsync(IJobStorage storage, FakeTimeProvider clock, CancellationToken token)
 	{

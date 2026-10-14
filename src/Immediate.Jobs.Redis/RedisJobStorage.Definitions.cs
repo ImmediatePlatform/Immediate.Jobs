@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Logging;
 using Immediate.Jobs.Shared.Storage;
+using Immediate.Validations.Shared;
 using StackExchange.Redis;
 
 namespace Immediate.Jobs.Redis;
@@ -38,7 +39,7 @@ internal sealed partial class RedisJobStorage
 	private async ValueTask<JobAcquisitionState> EvaluateDefinitionAsync(string jobName, JobAcquisitionLimits limits, bool resume, CancellationToken cancellationToken)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
-		limits.Validate();
+		ValidationException.ThrowIfInvalid(limits);
 		var now = _timeProvider.GetUtcNow();
 		var values = new List<RedisValue> { _root, jobName.ToUpperInvariant(), Score(now), Timestamp(now), resume ? 1 : 0 };
 		AddDefinitionLimits(values, limits, now);

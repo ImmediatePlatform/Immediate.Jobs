@@ -6,6 +6,7 @@ using System.Threading.Channels;
 using Immediate.Jobs.Shared.Apis;
 using Immediate.Jobs.Shared.Interfaces;
 using Immediate.Jobs.Shared.Storage;
+using Immediate.Validations.Shared;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -116,7 +117,7 @@ public sealed partial class JobSchedulingService : BackgroundService
 		_definitions = definitions
 			.ToDictionary(x => x.Name, StringComparer.OrdinalIgnoreCase);
 		foreach (var definition in _definitions.Values)
-			definition.AcquisitionLimits.Validate();
+			ValidationException.ThrowIfInvalid(definition.AcquisitionLimits);
 
 		var eligibleDefinitions = _definitions.Values.Where(definition => JobTags.Intersect(definition.Tags, _serverTags)).ToList();
 		_eligibleJobNames = eligibleDefinitions.Select(static definition => definition.Name).ToList();

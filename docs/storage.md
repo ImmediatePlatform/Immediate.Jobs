@@ -43,9 +43,11 @@ them for monitoring and preventing ordinary resume or future materialization. Te
 history and definitions outside the server tag scope are preserved. Each removal is logged with the
 number of canceled invocations and schedules.
 
-Persisted durations, including continuation delays and server timeouts in snapshots, use
-ISO8601 strings (for example, `PT5S` or `PT1.0000001S`). Job attribute duration settings
-accept both ISO8601 durations and invariant `TimeSpan` strings.
+Durations stored in relational columns, including continuation delays, use ISO8601 strings
+(for example, `PT5S` or `PT1.0000001S`). JSON properties use the built-in `System.Text.Json`
+`TimeSpan` format (for example, `"00:00:05"`). Job attribute duration settings accept both
+ISO8601 durations and invariant `TimeSpan` strings.
+
 SQL Server timestamps use `datetimeoffset`; PostgreSQL uses `timestamp with time zone`
 and returns UTC instants. SQLite and Redis persist readable ISO8601 timestamps. Native
 database precision applies, so timestamp round trips may lose sub-microsecond precision
@@ -142,6 +144,11 @@ prior data are provided; users recreate their storage when its schema no longer 
 ### Definition acquisition controls
 
 `JobAcquisitionRequest.JobLimits` carries the parsed attribute limits keyed by job name. Definition metadata persists configured limits for monitoring and management on other servers.
+`JobAcquisitionLimits` uses Immediate.Validations to validate nonnegative maxima, positive periods,
+and paired window settings. `JobAcquisitionLimits.Validate(limits)` returns validation results;
+acquisition and definition-control operations reject invalid limits with `ValidationException`
+before changing storage state.
+
 Acquisition requests carry the worker's parsed limits; operational counters are stored separately. `immediate_job_definitions` stores `IsPaused`, `AcquisitionStatus`,
 `NextEligibleAt`, and fixed-window start/count. Sliding windows use independent acquisition rows
 indexed by job name and timestamp; deleting or purging invocation history must not erase rate capacity.

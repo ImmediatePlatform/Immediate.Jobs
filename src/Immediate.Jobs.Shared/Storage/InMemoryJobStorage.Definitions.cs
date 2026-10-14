@@ -1,4 +1,5 @@
 using Immediate.Jobs.Shared.Apis;
+using Immediate.Validations.Shared;
 using Microsoft.Extensions.Logging;
 
 namespace Immediate.Jobs.Shared.Storage;
@@ -43,7 +44,7 @@ public sealed partial class InMemoryJobStorage
 	{
 		InMemoryResumeJobAsyncCalled(jobName);
 		cancellationToken.ThrowIfCancellationRequested();
-		limits.Validate();
+		ValidationException.ThrowIfInvalid(limits);
 		await TaskScheduler.Yield();
 		lock (_gate)
 		{
@@ -58,7 +59,7 @@ public sealed partial class InMemoryJobStorage
 	{
 		InMemoryGetJobAcquisitionStateAsyncCalled(jobName);
 		cancellationToken.ThrowIfCancellationRequested();
-		limits.Validate();
+		ValidationException.ThrowIfInvalid(limits);
 		await TaskScheduler.Yield();
 		lock (_gate)
 			return EvaluateAcquisition(jobName, limits, timeProvider.GetUtcNow(), includeActiveCount: true);

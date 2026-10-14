@@ -1,3 +1,5 @@
+using Immediate.Validations.Shared;
+
 namespace Immediate.Jobs.Shared.Storage;
 
 /// <summary>
@@ -35,7 +37,7 @@ public static class JobAcquisitionEvaluator
 	/// <returns>
 	/// 	The highest-priority acquisition restriction and the next time-based eligibility boundary.
 	/// </returns>
-	/// <exception cref="ArgumentException">
+	/// <exception cref="ValidationException">
 	/// 	The acquisition limits are invalid.
 	/// </exception>
 	public static JobAcquisitionState Evaluate(
@@ -51,7 +53,7 @@ public static class JobAcquisitionEvaluator
 	{
 		ArgumentNullException.ThrowIfNull(limits);
 		ArgumentNullException.ThrowIfNull(slidingAcquisitions);
-		limits.Validate();
+		ValidationException.ThrowIfInvalid(limits);
 
 		DateTimeOffset? next = null;
 		if (limits.SlidingWindowPeriod is { } sliding && slidingAcquisitions.Count >= limits.SlidingWindowMax)

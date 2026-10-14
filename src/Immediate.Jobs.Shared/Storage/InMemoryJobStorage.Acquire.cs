@@ -1,4 +1,5 @@
 using Immediate.Jobs.Shared.Apis;
+using Immediate.Validations.Shared;
 using Microsoft.Extensions.Logging;
 
 namespace Immediate.Jobs.Shared.Storage;
@@ -36,7 +37,7 @@ public sealed partial class InMemoryJobStorage
 		await TaskScheduler.Yield();
 
 		foreach (var limits in request.JobLimits.Values)
-			limits.Validate();
+			ValidationException.ThrowIfInvalid(limits);
 		lock (_gate)
 		{
 			var now = timeProvider.GetUtcNow();

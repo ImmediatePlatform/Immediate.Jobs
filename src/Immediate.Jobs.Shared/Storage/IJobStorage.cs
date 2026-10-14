@@ -1,4 +1,5 @@
 using Immediate.Jobs.Shared.Apis;
+using Immediate.Validations.Shared;
 
 namespace Immediate.Jobs.Shared.Storage;
 
@@ -38,6 +39,9 @@ public interface IJobStorage : IAsyncDisposable
 	/// <returns>
 	/// 	The asynchronous resume operation.
 	/// </returns>
+	/// <exception cref="ValidationException">
+	/// 	The supplied acquisition limits are invalid.
+	/// </exception>
 	ValueTask ResumeJobAsync(string jobName, JobAcquisitionLimits limits, CancellationToken cancellationToken = default);
 
 	/// <summary>
@@ -55,6 +59,9 @@ public interface IJobStorage : IAsyncDisposable
 	/// <returns>
 	/// 	The current definition acquisition state.
 	/// </returns>
+	/// <exception cref="ValidationException">
+	/// 	The supplied acquisition limits are invalid.
+	/// </exception>
 	ValueTask<JobAcquisitionState> GetJobAcquisitionStateAsync(string jobName, JobAcquisitionLimits limits, CancellationToken cancellationToken = default);
 
 	/// <summary>
@@ -196,6 +203,9 @@ public interface IJobStorage : IAsyncDisposable
 	/// <returns>
 	/// 	The invocations acquired for the worker.
 	/// </returns>
+	/// <exception cref="ValidationException">
+	/// 	The request contains invalid acquisition limits.
+	/// </exception>
 	/// <remarks>
 	/// 	When <see cref="JobAcquisitionRequest.FairQueues"/> is set, implementations must order grouped work by
 	/// 	the supplied fair-queue policy.

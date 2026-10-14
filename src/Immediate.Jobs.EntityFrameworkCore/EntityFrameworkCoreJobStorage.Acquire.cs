@@ -1,6 +1,7 @@
 using System.Data.Common;
 using Immediate.Jobs.Shared.Apis;
 using Immediate.Jobs.Shared.Storage;
+using Immediate.Validations.Shared;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
@@ -20,7 +21,7 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 		await TaskScheduler.Yield();
 
 		foreach (var limits in request.JobLimits.Values)
-			limits.Validate();
+			ValidationException.ThrowIfInvalid(limits);
 
 		if (request.FairQueues is not null)
 			return await AcquireDueJobsFairAsync(request, cancellationToken);

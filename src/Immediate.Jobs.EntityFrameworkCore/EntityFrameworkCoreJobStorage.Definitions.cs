@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Logging;
 using Immediate.Jobs.Shared.Storage;
+using Immediate.Validations.Shared;
 using Microsoft.EntityFrameworkCore;
 
 namespace Immediate.Jobs.EntityFrameworkCore;
@@ -31,7 +32,7 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 		GetJobAcquisitionStateAsyncCalled(jobName);
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
-		limits.Validate();
+		ValidationException.ThrowIfInvalid(limits);
 		return await ReadWithStrategyAsync(async (context, token) =>
 		{
 			var definition = await context.Set<ImmediateJobDefinitionEntity>().AsNoTracking()
@@ -43,7 +44,7 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 	private async ValueTask UpdateDefinitionAsync(string jobName, JobAcquisitionLimits limits, bool paused, CancellationToken cancellationToken)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
-		limits.Validate();
+		ValidationException.ThrowIfInvalid(limits);
 		await EnsureDefinitionAsync(jobName, cancellationToken);
 		await ExecuteWithStrategyAsync(async token =>
 		{

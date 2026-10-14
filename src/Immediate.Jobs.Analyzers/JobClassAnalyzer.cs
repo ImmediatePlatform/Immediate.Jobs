@@ -185,7 +185,7 @@ public sealed class JobClassAnalyzer : DiagnosticAnalyzer
 
 		foreach (var window in new[] { "SlidingWindow", "FixedWindow" })
 		{
-			if (!arguments.IsValidAcquisitionWindow(window))
+			if (arguments.GetValidAcquisitionWindow(window) is null)
 			{
 				ReportInvalidConfigurationDiagnostic(context, jobAttribute,
 					$"`{window}Max` and `{window}Period` must both be positive, or both omitted");

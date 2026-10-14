@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Logging;
 using System.Data.Common;
 using Immediate.Jobs.Shared.Storage;
+using Immediate.Validations.Shared;
 using LinqToDB;
 using LinqToDB.Async;
 using LinqToDB.Data;
@@ -37,7 +38,7 @@ internal sealed partial class LinqToDBJobStorage<T>
 		GetJobAcquisitionStateAsyncCalled(jobName);
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
-		limits.Validate();
+		ValidationException.ThrowIfInvalid(limits);
 		await using var scope = contextScope.GetScope(out var connection);
 		var definition = await DefinitionStates(connection).SingleOrDefaultAsync(item => item.JobName == jobName, cancellationToken)
 			?? new() { JobName = jobName };
@@ -47,7 +48,7 @@ internal sealed partial class LinqToDBJobStorage<T>
 	private async ValueTask UpdateDefinitionAsync(string jobName, JobAcquisitionLimits limits, bool paused, CancellationToken cancellationToken)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
-		limits.Validate();
+		ValidationException.ThrowIfInvalid(limits);
 		await EnsureDefinitionAsync(jobName, cancellationToken);
 		await using var scope = contextScope.GetScope(out var connection);
 		await connection.BeginTransactionAsync(cancellationToken);

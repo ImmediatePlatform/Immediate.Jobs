@@ -59,7 +59,7 @@ public sealed class DefinitionAcquisitionTests
 		Assert.Equal(2, definition.FixedWindowMax);
 		Assert.Equal(TimeSpan.FromMinutes(1), definition.FixedWindowPeriod);
 		Assert.Equal(2, definition.MaxConcurrency);
-		definition.AcquisitionLimits.Validate();
+		Assert.True(JobAcquisitionLimits.Validate(definition.AcquisitionLimits).IsValid);
 	}
 
 	[Fact]

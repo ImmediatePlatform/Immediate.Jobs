@@ -1,5 +1,6 @@
 using Immediate.Jobs.Shared.Apis;
 using Immediate.Jobs.Shared.Storage;
+using Immediate.Validations.Shared;
 using Microsoft.Extensions.Logging;
 using StackExchange.Redis;
 
@@ -18,7 +19,7 @@ internal sealed partial class RedisJobStorage
 		await TaskScheduler.Yield();
 
 		foreach (var limits in request.JobLimits.Values)
-			limits.Validate();
+			ValidationException.ThrowIfInvalid(limits);
 
 		var keys = new List<RedisKey>(4 + request.Queues.Count)
 		{

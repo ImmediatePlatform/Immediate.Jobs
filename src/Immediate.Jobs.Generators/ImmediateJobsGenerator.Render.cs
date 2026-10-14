@@ -33,10 +33,10 @@ public sealed partial class ImmediateJobsGenerator
 			MaxAttempts = job.MaxAttempts.ToString(CultureInfo.InvariantCulture),
 			TimeoutLiteral = DurationLiteral(job.Timeout),
 			MaxConcurrency = job.MaxConcurrency.ToString(CultureInfo.InvariantCulture),
-			SlidingWindowMax = job.SlidingWindowMax.ToString(CultureInfo.InvariantCulture),
-			SlidingWindowPeriodLiteral = DurationLiteral(job.SlidingWindowPeriod),
-			FixedWindowMax = job.FixedWindowMax.ToString(CultureInfo.InvariantCulture),
-			FixedWindowPeriodLiteral = DurationLiteral(job.FixedWindowPeriod),
+			SlidingWindowMax = job.SlidingWindow.Max.ToString(CultureInfo.InvariantCulture),
+			SlidingWindowPeriodLiteral = DurationLiteral(job.SlidingWindow.Period),
+			FixedWindowMax = job.FixedWindow.Max.ToString(CultureInfo.InvariantCulture),
+			FixedWindowPeriodLiteral = DurationLiteral(job.FixedWindow.Period),
 			job.OverlapPolicy,
 			job.MisfireHandlingMode,
 			job.Backoff,
@@ -112,4 +112,8 @@ public sealed partial class ImmediateJobsGenerator
 			? duration.ToString("c", CultureInfo.InvariantCulture).AsCSharpLiteral()
 			: null;
 	}
+
+	private static string? DurationLiteral(TimeSpan? value) => value is { } duration
+		? duration.ToString("c", CultureInfo.InvariantCulture).AsCSharpLiteral()
+		: null;
 }

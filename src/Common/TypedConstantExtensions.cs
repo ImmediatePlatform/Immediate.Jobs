@@ -33,16 +33,18 @@ internal static class TypedConstantExtensions
 				_ => defaultValue,
 			};
 
-		public bool IsValidAcquisitionWindow(string name)
+		public AcquisitionWindow? GetValidAcquisitionWindow(string windowName)
 		{
-			var maximum = arguments.GetIntValue(name + "Max", 0);
-			var period = arguments.GetStringValue(name + "Period");
+			var maximum = arguments.GetIntValue(windowName + "Max", 0);
+			var period = arguments.GetStringValue(windowName + "Period");
 			if (maximum == 0)
-				return period is null;
+				return period is null ? new AcquisitionWindow(Max: 0, Period: null) : null;
 
 			return maximum > 0
 				&& TimeSpanSerializer.TryParse(period, out var value)
-				&& value > TimeSpan.Zero;
+				&& value > TimeSpan.Zero
+					? new AcquisitionWindow(maximum, value)
+					: null;
 		}
 
 		public string? GetStringValue(string name) =>
