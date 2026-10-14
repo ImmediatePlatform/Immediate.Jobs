@@ -55,7 +55,7 @@ function retryLabel(job: JobRecord): string {
 								{{ job.jobName }}
 							</button>
 						</td>
-						<td><code>{{ job.queueName }}</code></td>
+						<td><code>{{ job.queueName ?? 'Unavailable' }}</code></td>
 						<td>
 							<code v-if="job.groupId !== null" class="block max-w-48 truncate" :title="job.groupId">{{ job.groupId }}</code>
 							<span v-else class="text-muted">—</span>

@@ -43,7 +43,6 @@ internal sealed partial class RedisJobStorage
 		};
 		foreach (var queue in request.Queues)
 		{
-			keys.Add(DueKey(queue.QueueName));
 			values.Add(queue.QueueName);
 			values.Add(Math.Max(0, queue.Capacity));
 			values.Add(queue.JobCapacities.Count);
@@ -59,10 +58,18 @@ internal sealed partial class RedisJobStorage
 			[.. keys],
 			[.. values]
 		).WaitAsync(cancellationToken);
-		var ids = ((RedisResult[])result!)
-			.Select(static value => (string)value!)
-			.ToList();
-		return await ReadJobsAsync(ids, cancellationToken);
+		var valuesReturned = (RedisResult[])result!;
+		var ids = new List<string>(valuesReturned.Length / 2);
+		var queues = new Dictionary<string, string>(StringComparer.Ordinal);
+		for (var index = 0; index < valuesReturned.Length; index += 2)
+		{
+			var id = (string)valuesReturned[index]!;
+			ids.Add(id);
+			queues[id] = (string)valuesReturned[index + 1]!;
+		}
+
+		var jobs = await ReadJobsDataAsync(ids, cancellationToken);
+		return [.. jobs.Select(job => job with { QueueName = queues[job.JobHandle.Value] })];
 	}
 
 	/// <inheritdoc />
@@ -82,7 +89,7 @@ internal sealed partial class RedisJobStorage
 		var result = await EvaluateInt64Async(
 			RedisScripts.RenewLease,
 			[JobKey(jobHandle), LeasesKey],
-			[workerId, executionNumber, Ticks(expiresAt), Score(expiresAt), jobHandle.Value],
+			[workerId, executionNumber, Ticks(expiresAt), Score(expiresAt), jobHandle.Value, _root],
 			cancellationToken
 		);
 		ThrowIfNotOwned(result, jobHandle, workerId);

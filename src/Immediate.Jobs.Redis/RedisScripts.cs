@@ -4,52 +4,83 @@ internal static class RedisScripts
 {
 	private const string FairQueueFunctions =
 		"""
-		local function fairDueKey(root, queue, group)
-			if group == '' then return root .. 'fair:ungrouped:' .. queue end
-			return root .. 'fair:due:' .. string.len(queue) .. ':' .. queue .. ':' .. group
+		local function fairDueKey(root, jobName, group)
+			if group == '' then return root .. 'fair:ungrouped:' .. jobName end
+			return root .. 'fair:due:' .. string.len(jobName) .. ':' .. jobName .. ':' .. group
 		end
-		local function indexDue(root, queue, group, score, member)
-			redis.call('ZADD', fairDueKey(root, queue, group), score, member)
-			if group ~= '' then redis.call('SADD', root .. 'fair:groups:' .. queue, group) end
+		local function indexDue(root, jobName, group, score, member)
+			redis.call('ZADD', fairDueKey(root, jobName, group), score, member)
+			if group ~= '' then redis.call('SADD', root .. 'fair:groups:' .. jobName, group) end
 		end
-		local function unindexDue(root, queue, group, member)
-			local key = fairDueKey(root, queue, group)
+		local function unindexDue(root, jobName, group, member)
+			local key = fairDueKey(root, jobName, group)
 			redis.call('ZREM', key, member)
 			if group ~= '' and redis.call('ZCARD', key) == 0 then
-				redis.call('SREM', root .. 'fair:groups:' .. queue, group)
+				redis.call('SREM', root .. 'fair:groups:' .. jobName, group)
 			end
 		end
-		local function changeActive(root, queue, group, delta)
-			local key = root .. 'fair:active:' .. queue
+		local function changeActive(root, jobName, group, delta, id, lease)
+			local key = root .. 'fair:active:' .. jobName
 			if redis.call('HINCRBY', key, group, delta) <= 0 then redis.call('HDEL', key, group) end
+			if delta > 0 then redis.call('ZADD', root .. 'active:job:' .. jobName, lease, id)
+			else redis.call('ZREM', root .. 'active:job:' .. jobName, id) end
 		end
-		local function removeClearedCursor(root, queue, group)
-			if group == '' then return end
-			if redis.call('HEXISTS', root .. 'fair:active:' .. queue, group) == 1 then return end
-			if redis.call('ZCARD', fairDueKey(root, queue, group)) > 0 then return end
+		local function queueForJob(root, jobName)
+			local metadata = redis.call('HGET', root .. 'definition-metadata', jobName)
+			return metadata and cjson.decode(metadata).QueueName or nil
+		end
+		local function removeClearedQueueCursor(root, queue, group)
+			if group == '' or not queue then return end
+			local definitions = redis.call('HGETALL', root .. 'definition-metadata')
+			for index = 1, #definitions, 2 do
+				if cjson.decode(definitions[index + 1]).QueueName == queue then
+					local name = definitions[index]
+					if redis.call('HEXISTS', root .. 'fair:active:' .. name, group) == 1 then return end
+					if redis.call('ZCARD', fairDueKey(root, name, group)) > 0 then return end
+				end
+			end
 			redis.call('HDEL', root .. 'fair:cursor:' .. queue, group)
+		end
+		local function removeClearedCursor(root, jobName, group)
+			removeClearedQueueCursor(root, queueForJob(root, jobName), group)
+		end
+
+		""";
+
+	private const string DefinitionFunctions =
+		"""
+		local function createRecord(record, definitions, jobName)
+			local metadata = redis.call('HGET', definitions, jobName)
+			if not metadata then return nil end
+			local definition = cjson.decode(metadata)
+			local job = cjson.decode(record)
+			job.JobName = definition.Name
+			return cjson.encode(job), jobName
 		end
 
 		""";
 
 	internal const string Enqueue =
-		FairQueueFunctions +
+		FairQueueFunctions + DefinitionFunctions +
 		"""
 		if redis.call('EXISTS', KEYS[1]) == 1 then
 			return 0
 		end
+		local record, jobName = createRecord(ARGV[1], KEYS[4], ARGV[12])
+		if not record then return -1 end
+
 		redis.call('HSET', KEYS[1],
-			'record', ARGV[1], 'state', ARGV[2], 'due', ARGV[3], 'dueScore', ARGV[16],
-			'created', ARGV[17], 'dueMember', ARGV[18],
+			'record', record, 'state', ARGV[2], 'due', ARGV[3], 'dueScore', ARGV[15],
+			'created', ARGV[16], 'dueMember', ARGV[17],
 			'attempt', ARGV[4], 'worker', ARGV[5], 'lease', ARGV[6],
 			'error', ARGV[7], 'completed', ARGV[8],
 			'executionTraceId', ARGV[9], 'executionSpanId', ARGV[10],
-			'executionStartedAt', ARGV[11], 'queue', ARGV[12], 'jobName', ARGV[13], 'group', ARGV[19])
-		redis.call('ZADD', KEYS[2], ARGV[14], ARGV[15])
-		redis.call('SADD', KEYS[3], ARGV[15])
+			'executionStartedAt', ARGV[11], 'jobName', ARGV[12], 'group', ARGV[18])
+		redis.call('ZADD', KEYS[2], ARGV[13], ARGV[14])
+		redis.call('SADD', KEYS[3], ARGV[14])
 		if ARGV[2] == '2' or ARGV[2] == '3' then
-			redis.call('ZADD', KEYS[4], ARGV[16], ARGV[18])
-			indexDue(ARGV[20], ARGV[12], ARGV[19], ARGV[16], ARGV[18])
+			redis.call('ZADD', ARGV[19] .. 'due:' .. jobName, ARGV[15], ARGV[17])
+			indexDue(ARGV[19], jobName, ARGV[18], ARGV[15], ARGV[17])
 		end
 		return 1
 		""";
@@ -59,15 +90,13 @@ internal static class RedisScripts
 		"""
 		local function materialize(jobKey, indexKey, dataKey, attempt, state, completed)
 			if attempt <= 0 or redis.call('HEXISTS', dataKey, attempt .. ':state') == 1 then return end
-			local values = redis.call('HMGET', jobKey, 'worker', 'executionStartedAt',
-				'executionTraceId', 'executionSpanId', 'error')
+			local values = redis.call('HMGET', jobKey, 'worker', 'executionStartedAt', 'executionTraceId', 'executionSpanId', 'error')
 			redis.call('ZADD', indexKey, attempt, attempt)
 			redis.call('HSET', dataKey,
 				attempt .. ':state', state, attempt .. ':worker', values[1] or '',
 				attempt .. ':acquired', '', attempt .. ':started', values[2] or '',
 				attempt .. ':completed', completed or '', attempt .. ':trace', values[3] or '',
-				attempt .. ':span', values[4] or '',
-				attempt .. ':error', state == '2' and (values[5] or '') or '',
+				attempt .. ':span', values[4] or '', attempt .. ':error', state == '2' and (values[5] or '') or '',
 				attempt .. ':synthetic', '1')
 		end
 		local nowScore = tonumber(ARGV[1])
@@ -77,238 +106,141 @@ internal static class RedisScripts
 		local batchSize = tonumber(ARGV[5])
 		local queueCount = tonumber(ARGV[6])
 		local root = ARGV[7]
-		local queues = {}
 		local nowTicks = ARGV[8]
 		local fair = ARGV[9] == '1'
-		local concurrencyShareThreshold = tonumber(ARGV[10])
-		local minInflightForNoisy = tonumber(ARGV[11])
-		local groupRoundRobin = ARGV[12] == '1'
+		local threshold = tonumber(ARGV[10])
+		local minimum = tonumber(ARGV[11])
+		local roundRobin = ARGV[12] == '1'
+		local queues = {}
+		local eligible = {}
 		local position = 13
-		for queueIndex = 1, queueCount do
-			local queueName = ARGV[position]
-			local capacity = tonumber(ARGV[position + 1])
+		for index = 1, queueCount do
+			local queue = { name = ARGV[position], capacity = tonumber(ARGV[position + 1]), jobs = {} }
 			local jobCount = tonumber(ARGV[position + 2])
 			position = position + 3
-			local jobCapacities = {}
 			for jobIndex = 1, jobCount do
-				jobCapacities[ARGV[position]] = tonumber(ARGV[position + 1])
+				local name, capacity = ARGV[position], tonumber(ARGV[position + 1])
+				if queueForJob(root, name) == queue.name then
+					queue.jobs[name] = capacity
+					eligible[name] = true
+				end
 				position = position + 2
 			end
-			queues[queueIndex] = {
-				name = queueName,
-				capacity = capacity,
-				jobCapacities = jobCapacities,
-				dueKey = KEYS[4 + queueIndex]
-			}
+			queues[index] = queue
 		end
-
-		local dueByQueue = {}
-		for queueIndex = 1, queueCount do
-			dueByQueue[queues[queueIndex].name] = queues[queueIndex].dueKey
-		end
-
-		local expired = redis.call('ZRANGEBYSCORE', KEYS[1], '-inf', nowScore)
-		for _, id in ipairs(expired) do
-			local jobKey = root .. 'job:' .. id
-			local state = redis.call('HGET', jobKey, 'state')
-			local queueName = redis.call('HGET', jobKey, 'queue')
-			local dueKey = dueByQueue[queueName]
-			if state == '4' and dueKey then
-				local attempt = tonumber(redis.call('HGET', jobKey, 'attempt') or '0')
-				local lease = redis.call('HGET', jobKey, 'lease') or ''
-				local indexKey = root .. 'executions:index:' .. id
-				local dataKey = root .. 'executions:data:' .. id
-				materialize(jobKey, indexKey, dataKey, attempt, '0', '')
-				if attempt > 0 then
-					redis.call('HSET', dataKey,
-						attempt .. ':state', '4', attempt .. ':completed', lease, attempt .. ':error', '')
-				end
-				redis.call('HSET', jobKey, 'state', '3', 'worker', '', 'lease', '')
+		for _, id in ipairs(redis.call('ZRANGEBYSCORE', KEYS[1], '-inf', nowScore)) do
+			local key = root .. 'job:' .. id
+			local values = redis.call('HMGET', key, 'state', 'jobName', 'attempt', 'lease', 'dueScore', 'dueMember', 'group')
+			if values[1] == '4' and eligible[values[2]] then
+				local attempt = tonumber(values[3] or '0')
+				local indexKey, dataKey = root .. 'executions:index:' .. id, root .. 'executions:data:' .. id
+				materialize(key, indexKey, dataKey, attempt, '0', '')
+				if attempt > 0 then redis.call('HSET', dataKey, attempt .. ':state', '4', attempt .. ':completed', values[4] or '', attempt .. ':error', '') end
+				redis.call('HSET', key, 'state', '3', 'worker', '', 'lease', '')
 				redis.call('SREM', KEYS[2], id)
 				redis.call('SADD', KEYS[3], id)
-				local dueValues = redis.call('HMGET', jobKey, 'dueScore', 'dueMember', 'group')
-				redis.call('ZADD', dueKey, dueValues[1] or nowScore, dueValues[2] or id)
-				indexDue(root, queueName, dueValues[3] or '', dueValues[1] or nowScore, dueValues[2] or id)
-				changeActive(root, queueName, dueValues[3] or '', -1)
 				redis.call('ZREM', KEYS[1], id)
-			elseif not state or state ~= '4' then
-				redis.call('ZREM', KEYS[1], id)
-			end
+				redis.call('ZADD', root .. 'due:' .. values[2], values[5], values[6])
+				indexDue(root, values[2], values[7] or '', values[5], values[6])
+				changeActive(root, values[2], values[7] or '', -1, id)
+			elseif values[1] ~= '4' then redis.call('ZREM', KEYS[1], id) end
 		end
-
 		local acquired = {}
-
+		local acquiredCount = 0
+		local function head(queue, group)
+			local selected = nil
+			for name, capacity in pairs(queue.jobs) do
+				if capacity > 0 then
+					local key = group == nil and (root .. 'due:' .. name) or fairDueKey(root, name, group)
+					while true do
+						local members = redis.call('ZRANGEBYSCORE', key, '-inf', nowScore, 'LIMIT', 0, 1)
+						local member = members[1]
+						if not member then break end
+						local id = string.sub(member, 41)
+						local values = redis.call('HMGET', root .. 'job:' .. id, 'state', 'dueMember', 'group', 'jobName')
+						if (values[1] == '2' or values[1] == '3') and values[2] == member and values[4] == name then
+							local candidate = { id = id, member = member, state = values[1], group = values[3] or '', jobName = name }
+							if not selected or member < selected.member then selected = candidate end
+							break
+						end
+						redis.call('ZREM', key, member)
+					end
+				end
+			end
+			return selected
+		end
 		local function claim(queue, candidate)
-			local jobKey = root .. 'job:' .. candidate.id
-			local previousAttempt = tonumber(redis.call('HGET', jobKey, 'attempt') or '0')
-			local indexKey = root .. 'executions:index:' .. candidate.id
-			local dataKey = root .. 'executions:data:' .. candidate.id
-			local previousError = redis.call('HGET', jobKey, 'error') or ''
-			materialize(jobKey, indexKey, dataKey, previousAttempt,
-				previousError ~= '' and '2' or '4', '')
-			local attempt = previousAttempt + 1
-			redis.call('HSET', jobKey,
-				'state', '4', 'attempt', attempt, 'worker', worker, 'lease', leaseTicks,
+			local key = root .. 'job:' .. candidate.id
+			local attempt = tonumber(redis.call('HGET', key, 'attempt') or '0')
+			local indexKey, dataKey = root .. 'executions:index:' .. candidate.id, root .. 'executions:data:' .. candidate.id
+			local error = redis.call('HGET', key, 'error') or ''
+			materialize(key, indexKey, dataKey, attempt, error ~= '' and '2' or '4', '')
+			attempt = attempt + 1
+			redis.call('HSET', key, 'state', '4', 'attempt', attempt, 'worker', worker, 'lease', leaseTicks,
 				'executionTraceId', '', 'executionSpanId', '', 'executionStartedAt', '')
-			redis.call('ZREM', queue.dueKey, candidate.member)
-			unindexDue(root, queue.name, candidate.group, candidate.member)
-			changeActive(root, queue.name, candidate.group, 1)
+			redis.call('ZREM', root .. 'due:' .. candidate.jobName, candidate.member)
+			unindexDue(root, candidate.jobName, candidate.group, candidate.member)
+			changeActive(root, candidate.jobName, candidate.group, 1, candidate.id, leaseScore)
 			redis.call('ZADD', KEYS[1], leaseScore, candidate.id)
 			redis.call('SREM', candidate.state == '2' and KEYS[4] or KEYS[3], candidate.id)
 			redis.call('SADD', KEYS[2], candidate.id)
 			redis.call('ZADD', indexKey, attempt, attempt)
-			redis.call('HSET', dataKey,
-				attempt .. ':state', '0', attempt .. ':worker', worker,
-				attempt .. ':acquired', nowTicks, attempt .. ':started', '',
-				attempt .. ':completed', '', attempt .. ':trace', '', attempt .. ':span', '',
-				attempt .. ':error', '', attempt .. ':synthetic', '0')
+			redis.call('HSET', dataKey, attempt .. ':state', '0', attempt .. ':worker', worker,
+				attempt .. ':acquired', nowTicks, attempt .. ':started', '', attempt .. ':completed', '',
+				attempt .. ':trace', '', attempt .. ':span', '', attempt .. ':error', '', attempt .. ':synthetic', '0')
+			queue.jobs[candidate.jobName] = queue.jobs[candidate.jobName] - 1
 			table.insert(acquired, candidate.id)
+			table.insert(acquired, queue.name)
+			acquiredCount = acquiredCount + 1
 		end
-
-		local function fairHead(queue, group)
-			local key = fairDueKey(root, queue.name, group)
-			local offset = 0
-			while true do
-				local members = redis.call('ZRANGEBYSCORE', key, '-inf', nowScore, 'LIMIT', offset, 64)
-				local stale = {}
-				local head = nil
-				for _, member in ipairs(members) do
-					local id = string.sub(member, 41)
-					local values = redis.call('HMGET', root .. 'job:' .. id, 'state', 'queue', 'jobName', 'dueMember')
-					local state = values[1]
-					local jobCapacity = queue.jobCapacities[values[3]]
-					if not state or values[2] ~= queue.name or (state ~= '2' and state ~= '3') or values[4] ~= member then
-						table.insert(stale, member)
-					elseif jobCapacity and jobCapacity > 0 then
-						head = { id = id, member = member, state = state, jobName = values[3], group = group }
-						break
-					end
-				end
-				for _, member in ipairs(stale) do redis.call('ZREM', key, member) end
-				if head or #members < 64 then
-					if not head and group ~= '' and redis.call('ZCARD', key) == 0 then
-						redis.call('SREM', root .. 'fair:groups:' .. queue.name, group)
-					end
-					return head
-				end
-				offset = offset + #members - #stale
-			end
-		end
-
-		local function acquireFairly(queue, remaining)
-			local heads = {}
-			local hasGroupedHead = false
-			for _, group in ipairs(redis.call('SMEMBERS', root .. 'fair:groups:' .. queue.name)) do
-				heads[group] = fairHead(queue, group)
-				if heads[group] then hasGroupedHead = true end
-			end
-			if not hasGroupedHead then return false end
-			heads[''] = fairHead(queue, '')
-
-			local active = {}
-			local totalActive = 0
-			local activeValues = redis.call('HGETALL', root .. 'fair:active:' .. queue.name)
-			for index = 1, #activeValues, 2 do
-				local count = tonumber(activeValues[index + 1])
-				active[activeValues[index]] = count
-				totalActive = totalActive + count
-			end
-
-			local cursorKey = root .. 'fair:cursor:' .. queue.name
-			local lastServed = {}
-			local sequence = 0
-			local cursorValues = redis.call('HGETALL', cursorKey)
-			for index = 1, #cursorValues, 2 do
-				local value = tonumber(cursorValues[index + 1])
-				lastServed[cursorValues[index]] = value
-				if value > sequence then sequence = value end
-			end
-
-			local function isNoisy(group)
-				local count = active[group]
-				return group ~= '' and count ~= nil and totalActive > 0 and count >= minInflightForNoisy
-					and count / totalActive > concurrencyShareThreshold
-			end
-
-			local function before(left, right)
-				local leftNoisy = isNoisy(left.group)
-				local rightNoisy = isNoisy(right.group)
-				if leftNoisy ~= rightNoisy then return not leftNoisy end
-				local leftInflight = leftNoisy and active[left.group] or 0
-				local rightInflight = rightNoisy and active[right.group] or 0
-				if leftInflight ~= rightInflight then return leftInflight < rightInflight end
-				if groupRoundRobin then
-					local leftServed = lastServed[left.group] or 0
-					local rightServed = lastServed[right.group] or 0
-					if leftServed ~= rightServed then return leftServed < rightServed end
-				end
-				return left.member < right.member
-			end
-
-			while remaining > 0 and #acquired < batchSize do
-				local candidate = nil
-				for _, head in pairs(heads) do
-					if not candidate or before(head, candidate) then candidate = head end
-				end
-				if not candidate then break end
-
-				claim(queue, candidate)
-				queue.jobCapacities[candidate.jobName] = queue.jobCapacities[candidate.jobName] - 1
-				remaining = remaining - 1
-				active[candidate.group] = (active[candidate.group] or 0) + 1
-				totalActive = totalActive + 1
-				if groupRoundRobin and candidate.group ~= '' then
-					sequence = sequence + 1
-					lastServed[candidate.group] = sequence
-					redis.call('HSET', cursorKey, candidate.group, sequence)
-				end
-
-				for group, head in pairs(heads) do
-					if group == candidate.group or queue.jobCapacities[head.jobName] <= 0 then
-						heads[group] = fairHead(queue, group)
-					end
-				end
-			end
-			return true
-		end
-
-		for queueIndex = 1, queueCount do
-			if #acquired >= batchSize then
-				break
-			end
-			local queue = queues[queueIndex]
-			local remaining = math.min(queue.capacity, batchSize - #acquired)
-			if remaining > 0 and not (fair and acquireFairly(queue, remaining)) then
-				local selected = {}
-				local stale = {}
-				local offset = 0
-				local chunkSize = math.min(256, math.max(64, remaining * 4))
-				while remaining > 0 and #acquired + #selected < batchSize do
-					local candidates = redis.call(
-						'ZRANGEBYSCORE', queue.dueKey, '-inf', nowScore, 'LIMIT', offset, chunkSize)
-					if #candidates == 0 then break end
-					for _, member in ipairs(candidates) do
-						if remaining <= 0 or #acquired + #selected >= batchSize then break end
-						local id = string.sub(member, 41)
-						local jobKey = root .. 'job:' .. id
-						local values = redis.call('HMGET', jobKey, 'state', 'queue', 'jobName', 'group')
-						local state = values[1]
-						local jobCapacity = queue.jobCapacities[values[3]]
-						if not state or values[2] ~= queue.name or (state ~= '2' and state ~= '3') then
-							table.insert(stale, member)
-						elseif jobCapacity and jobCapacity > 0 then
-							table.insert(selected,
-								{ id = id, member = member, state = state, jobName = values[3], group = values[4] or '' })
-							queue.jobCapacities[values[3]] = jobCapacity - 1
-							remaining = remaining - 1
+		local definitions = redis.call('HGETALL', root .. 'definition-metadata')
+		for _, queue in ipairs(queues) do
+			local remaining = math.min(queue.capacity, batchSize - acquiredCount)
+			local groups, active, total, served, sequence = {}, {}, 0, {}, 0
+			if fair then
+				for index = 1, #definitions, 2 do
+					local name = definitions[index]
+					if cjson.decode(definitions[index + 1]).QueueName == queue.name then
+						for _, group in ipairs(redis.call('SMEMBERS', root .. 'fair:groups:' .. name)) do groups[group] = true end
+						for _, id in ipairs(redis.call('ZRANGEBYSCORE', root .. 'active:job:' .. name, '(' .. nowScore, '+inf')) do
+							local group = redis.call('HGET', root .. 'job:' .. id, 'group') or ''
+							active[group] = (active[group] or 0) + 1
+							total = total + 1
 						end
 					end
-					offset = offset + #candidates
-					if #candidates < chunkSize then break end
 				end
-				for _, member in ipairs(stale) do redis.call('ZREM', queue.dueKey, member) end
-				for _, candidate in ipairs(selected) do
-					claim(queue, candidate)
+				local cursors = redis.call('HGETALL', root .. 'fair:cursor:' .. queue.name)
+				for index = 1, #cursors, 2 do
+					served[cursors[index]] = tonumber(cursors[index + 1])
+					sequence = math.max(sequence, served[cursors[index]])
+				end
+			end
+			local function before(left, right)
+				local leftCount, rightCount = active[left.group] or 0, active[right.group] or 0
+				local leftNoisy = left.group ~= '' and total > 0 and leftCount >= minimum and leftCount / total > threshold
+				local rightNoisy = right.group ~= '' and total > 0 and rightCount >= minimum and rightCount / total > threshold
+				if leftNoisy ~= rightNoisy then return not leftNoisy end
+				if leftNoisy and leftCount ~= rightCount then return leftCount < rightCount end
+				if roundRobin and (served[left.group] or 0) ~= (served[right.group] or 0) then return (served[left.group] or 0) < (served[right.group] or 0) end
+				return left.member < right.member
+			end
+			while remaining > 0 do
+				local candidate = head(queue, fair and '' or nil)
+				if fair then
+					for group in pairs(groups) do
+						local grouped = head(queue, group)
+						if grouped and (not candidate or before(grouped, candidate)) then candidate = grouped end
+					end
+				end
+				if not candidate then break end
+				claim(queue, candidate)
+				remaining = remaining - 1
+				active[candidate.group] = (active[candidate.group] or 0) + 1
+				total = total + 1
+				if fair and roundRobin and candidate.group ~= '' then
+					sequence = sequence + 1
+					served[candidate.group] = sequence
+					redis.call('HSET', root .. 'fair:cursor:' .. queue.name, candidate.group, sequence)
 				end
 			end
 		end
@@ -340,6 +272,7 @@ internal static class RedisScripts
 		if values[1] ~= '4' or values[2] ~= ARGV[1] or values[3] ~= ARGV[2] then return -1 end
 		redis.call('HSET', KEYS[1], 'lease', ARGV[3])
 		redis.call('ZADD', KEYS[2], ARGV[4], ARGV[5])
+		redis.call('ZADD', ARGV[6] .. 'active:job:' .. redis.call('HGET', KEYS[1], 'jobName'), ARGV[4], ARGV[5])
 		return 1
 		""";
 
@@ -348,7 +281,7 @@ internal static class RedisScripts
 		"""
 		if redis.call('EXISTS', KEYS[1]) == 0 then return 0 end
 		local values = redis.call('HMGET', KEYS[1], 'state', 'worker', 'attempt',
-			'executionStartedAt', 'executionTraceId', 'executionSpanId', 'queue', 'group')
+			'executionStartedAt', 'executionTraceId', 'executionSpanId', 'jobName', 'group')
 		if values[1] ~= '4' or values[2] ~= ARGV[1] or values[3] ~= ARGV[2] then return -1 end
 		local field = ARGV[2] .. ':'
 		if redis.call('HEXISTS', KEYS[7], field .. 'state') == 0 then
@@ -364,7 +297,7 @@ internal static class RedisScripts
 		redis.call('SREM', KEYS[3], ARGV[4])
 		redis.call('SADD', KEYS[4], ARGV[4])
 		redis.call('ZADD', KEYS[5], ARGV[5], ARGV[4])
-		changeActive(ARGV[6], values[7], values[8] or '', -1)
+		changeActive(ARGV[6], values[7], values[8] or '', -1, ARGV[4])
 		removeClearedCursor(ARGV[6], values[7], values[8] or '')
 		return 1
 		""";
@@ -373,7 +306,7 @@ internal static class RedisScripts
 		FairQueueFunctions +
 		"""
 		if redis.call('EXISTS', KEYS[1]) == 0 then return 0 end
-		local values = redis.call('HMGET', KEYS[1], 'state', 'worker', 'queue', 'created', 'attempt',
+		local values = redis.call('HMGET', KEYS[1], 'state', 'worker', 'jobName', 'created', 'attempt',
 			'executionStartedAt', 'executionTraceId', 'executionSpanId', 'group')
 		if values[1] ~= '4' or values[2] ~= ARGV[1] or values[5] ~= ARGV[2] then return -1 end
 		local field = ARGV[2] .. ':'
@@ -387,7 +320,7 @@ internal static class RedisScripts
 		redis.call('ZREM', KEYS[2], ARGV[3])
 		redis.call('SREM', KEYS[3], ARGV[3])
 		local group = values[9] or ''
-		changeActive(ARGV[10], values[3], group, -1)
+		changeActive(ARGV[10], values[3], group, -1, ARGV[3])
 		if ARGV[4] == '' then
 			redis.call('HSET', KEYS[1],
 				'state', '6', 'worker', '', 'lease', '', 'error', ARGV[5], 'completed', ARGV[6])
@@ -421,17 +354,17 @@ internal static class RedisScripts
 		FairQueueFunctions +
 		"""
 		if redis.call('EXISTS', KEYS[1]) == 0 then return 0 end
-		local values = redis.call('HMGET', KEYS[1], 'state', 'jobName', 'queue', 'created', 'group', 'record')
+		local values = redis.call('HMGET', KEYS[1], 'state', 'jobName', 'created', 'group', 'record')
 		if values[2] ~= ARGV[1] then return -1 end
 		if values[1] ~= '1' then return -2 end
-		if cjson.decode(values[6]).Payload == '' then return -3 end
+		if cjson.decode(values[5]).Payload == '' then return -3 end
 		local state = tonumber(ARGV[3]) <= tonumber(ARGV[4]) and '3' or '2'
-		local member = ARGV[2] .. '|' .. values[4] .. '|' .. ARGV[6]
+		local member = ARGV[2] .. '|' .. values[3] .. '|' .. ARGV[6]
 		redis.call('HSET', KEYS[1], 'state', state, 'due', ARGV[2], 'dueScore', ARGV[3], 'dueMember', member)
 		redis.call('SREM', ARGV[5] .. 'state:1', ARGV[6])
 		redis.call('SADD', ARGV[5] .. 'state:' .. state, ARGV[6])
-		redis.call('ZADD', ARGV[5] .. 'due:' .. values[3], ARGV[3], member)
-		indexDue(ARGV[5], values[3], values[5] or '', ARGV[3], member)
+		redis.call('ZADD', ARGV[5] .. 'due:' .. values[2], ARGV[3], member)
+		indexDue(ARGV[5], values[2], values[4] or '', ARGV[3], member)
 		return 1
 		""";
 
@@ -439,7 +372,7 @@ internal static class RedisScripts
 		"""
 		local function cancelJob(root, id, completedAt, completedScore, reason)
 			if redis.call('EXISTS', root .. 'job:' .. id) == 0 then return 0 end
-			local values = redis.call('HMGET', root .. 'job:' .. id, 'state', 'queue', 'dueMember', 'attempt',
+			local values = redis.call('HMGET', root .. 'job:' .. id, 'state', 'jobName', 'dueMember', 'attempt',
 				'worker', 'executionStartedAt', 'executionTraceId', 'executionSpanId', 'group')
 			local state = values[1]
 			if state == '5' or state == '6' or state == '7' or state == '8' then return -1 end
@@ -464,7 +397,7 @@ internal static class RedisScripts
 			if values[3] then redis.call('ZREM', root .. 'due:' .. values[2], values[3]) end
 			redis.call('ZADD', root .. 'completed:7', completedScore, id)
 			local group = values[9] or ''
-			if state == '4' then changeActive(root, values[2], group, -1) end
+			if state == '4' then changeActive(root, values[2], group, -1, id) end
 			if values[3] then unindexDue(root, values[2], group, values[3]) end
 			removeClearedCursor(root, values[2], group)
 			return 1
@@ -481,7 +414,7 @@ internal static class RedisScripts
 		FairQueueFunctions +
 		"""
 		if redis.call('EXISTS', KEYS[1]) == 0 then return 0 end
-		local values = redis.call('HMGET', KEYS[1], 'state', 'queue', 'created', 'dueMember',
+		local values = redis.call('HMGET', KEYS[1], 'state', 'jobName', 'created', 'dueMember',
 			'attempt', 'worker', 'executionStartedAt', 'executionTraceId', 'executionSpanId', 'error', 'completed',
 			'group')
 		local failed = values[1] == '6'
@@ -607,8 +540,16 @@ internal static class RedisScripts
 			reports[#reports + 1] = { name, jobCount, scheduleCount }
 			redis.call('HDEL', KEYS[1], name)
 		end
+		local previousQueues = {}
 		for _, definition in ipairs(changes.Definitions) do
+			local previous = redis.call('HGET', KEYS[1], definition.Name)
+			if previous then previousQueues[cjson.decode(previous).QueueName] = true end
 			redis.call('HSET', KEYS[1], definition.Name, definition.Metadata)
+		end
+		for queue in pairs(previousQueues) do
+			for _, group in ipairs(redis.call('HKEYS', ARGV[2] .. 'fair:cursor:' .. queue)) do
+				removeClearedQueueCursor(ARGV[2], queue, group)
+			end
 		end
 		for _, name in ipairs(changes.RemovedSchedules) do
 			local key = ARGV[2] .. 'recurring:' .. name
@@ -670,8 +611,13 @@ internal static class RedisScripts
 		""";
 
 	internal const string UpsertRecurring =
-		RecurringDueFunctions +
+		RecurringDueFunctions + DefinitionFunctions +
 		"""
+		local record = ARGV[1]
+		local canonical = createRecord(record, KEYS[4], ARGV[11])
+		if canonical then record = canonical
+		end
+
 		local exists = redis.call('EXISTS', KEYS[1]) == 1
 		local paused = ARGV[3]
 		local last = ARGV[5]
@@ -692,7 +638,7 @@ internal static class RedisScripts
 		end
 		if cancellationReason ~= '' then paused = '1' end
 		redis.call('HSET', KEYS[1],
-			'record', ARGV[1], 'code', ARGV[2], 'paused', paused,
+			'record', record, 'code', ARGV[2], 'paused', paused,
 			'next', next, 'last', last, 'dueScore', dueScore, 'dueMember', dueMember,
 			'cron', ARGV[9], 'timeZone', ARGV[10], 'jobName', ARGV[11],
 			'cancellationReason', cancellationReason)
@@ -739,9 +685,9 @@ internal static class RedisScripts
 		local schedule = redis.call('HMGET', KEYS[1], 'next', 'paused', 'dueMember', 'jobName')
 		if schedule[1] ~= ARGV[1] or schedule[2] == '1' then return 0 end
 		local previousDueMember = schedule[3]
-		if not previousDueMember or previousDueMember ~= ARGV[1] .. '|' .. ARGV[21] then return 0 end
+		if not previousDueMember or previousDueMember ~= ARGV[1] .. '|' .. ARGV[20] then return 0 end
 		local previousDueScore = redis.call('ZSCORE', KEYS[7], previousDueMember)
-		if not previousDueScore or tonumber(previousDueScore) > tonumber(ARGV[24]) then return 0 end
+		if not previousDueScore or tonumber(previousDueScore) > tonumber(ARGV[23]) then return 0 end
 		local inserted = 1
 		if ARGV[2] ~= '' then
 			inserted = redis.call('HSETNX', KEYS[2], ARGV[2], ARGV[3])
@@ -753,26 +699,26 @@ internal static class RedisScripts
 			end
 			redis.call('HSET', KEYS[3],
 				'record', ARGV[4], 'state', ARGV[5], 'due', ARGV[6], 'dueScore', ARGV[7],
-				'created', ARGV[22], 'dueMember', ARGV[6] .. '|' .. ARGV[22] .. '|' .. ARGV[3],
+				'created', ARGV[21], 'dueMember', ARGV[6] .. '|' .. ARGV[21] .. '|' .. ARGV[3],
 				'recurringKey', ARGV[2],
 				'attempt', ARGV[8], 'worker', ARGV[9], 'lease', ARGV[10],
 				'error', ARGV[11], 'completed', ARGV[12],
 				'executionTraceId', ARGV[13], 'executionSpanId', ARGV[14],
-				'executionStartedAt', ARGV[15], 'queue', ARGV[16], 'jobName', ARGV[17], 'group', '')
-			redis.call('ZADD', KEYS[4], ARGV[18], ARGV[3])
+				'executionStartedAt', ARGV[15], 'jobName', ARGV[16], 'group', '')
+			redis.call('ZADD', KEYS[4], ARGV[17], ARGV[3])
 			redis.call('SADD', KEYS[5], ARGV[3])
 			if ARGV[5] == '2' or ARGV[5] == '3' then
-				redis.call('ZADD', KEYS[6], ARGV[7], ARGV[6] .. '|' .. ARGV[22] .. '|' .. ARGV[3])
-				indexDue(ARGV[25], ARGV[16], '', ARGV[7], ARGV[6] .. '|' .. ARGV[22] .. '|' .. ARGV[3])
+				redis.call('ZADD', KEYS[6], ARGV[7], ARGV[6] .. '|' .. ARGV[21] .. '|' .. ARGV[3])
+				indexDue(ARGV[24], ARGV[16], '', ARGV[7], ARGV[6] .. '|' .. ARGV[21] .. '|' .. ARGV[3])
 			elseif ARGV[5] == '7' or ARGV[5] == '8' then
-				redis.call('ZADD', KEYS[8], ARGV[23], ARGV[3])
+				redis.call('ZADD', KEYS[8], ARGV[22], ARGV[3])
 			end
 		end
-		local nextDueMember = ARGV[19] .. '|' .. ARGV[21]
+		local nextDueMember = ARGV[18] .. '|' .. ARGV[20]
 		redis.call('HSET', KEYS[1],
-			'last', ARGV[1], 'next', ARGV[19], 'dueScore', ARGV[20], 'dueMember', nextDueMember)
-		removeRecurringDue(ARGV[25], KEYS[7], schedule[4], previousDueMember)
-		addRecurringDue(ARGV[25], KEYS[7], schedule[4], ARGV[20], nextDueMember)
+			'last', ARGV[1], 'next', ARGV[18], 'dueScore', ARGV[19], 'dueMember', nextDueMember)
+		removeRecurringDue(ARGV[24], KEYS[7], schedule[4], previousDueMember)
+		addRecurringDue(ARGV[24], KEYS[7], schedule[4], ARGV[19], nextDueMember)
 		return inserted
 		""";
 

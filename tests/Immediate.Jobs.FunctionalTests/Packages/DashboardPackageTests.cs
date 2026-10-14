@@ -1,3 +1,4 @@
+using Immediate.Jobs.Shared.Apis;
 using System.Globalization;
 using System.Net;
 using System.Text.Json;
@@ -90,17 +91,19 @@ public sealed class DashboardPackageTests
 
 		await using var storage = new InMemoryJobStorage(timeProvider);
 
-		await storage.EnqueueAsync(new()
+		storage.LoadPersistedJobState(
+		[new JobRecord
 		{
 			JobHandle = jobHandle,
 			JobName = "SendGreeting",
+			QueueName = "default",
 			Payload = "{}",
 			State = JobState.Succeeded,
 			DueAt = now,
 			CreatedAt = now,
 			Attempt = 3,
 			ExecutionTraceId = TraceId,
-		}, TestContext.Current.CancellationToken);
+		}], [], [], []);
 
 		var builder = WebApplication.CreateBuilder(new WebApplicationOptions
 		{
@@ -201,15 +204,22 @@ public sealed class DashboardPackageTests
 
 		await using var storage = new InMemoryJobStorage(timeProvider);
 
-		await storage.EnqueueAsync(new()
+		await storage.MergeJobDefinitionsListAsync(new()
+		{
+			Definitions = [new() { Name = "SendGreeting" }],
+		}, TestContext.Current.CancellationToken);
+
+		storage.LoadPersistedJobState(
+		[new JobRecord
 		{
 			JobHandle = jobHandle,
 			JobName = "SendGreeting",
+			QueueName = "default",
 			Payload = "{}",
 			State = JobState.Pending,
 			DueAt = now,
 			CreatedAt = now,
-		}, TestContext.Current.CancellationToken);
+		}], [], [], []);
 
 		var request = new JobAcquisitionRequest
 		{
@@ -317,15 +327,17 @@ public sealed class DashboardPackageTests
 
 		await using var storage = new InMemoryJobStorage(timeProvider);
 
-		await storage.EnqueueAsync(new()
+		storage.LoadPersistedJobState(
+		[new JobRecord
 		{
 			JobHandle = JobHandle.FromString("job"),
 			JobName = "validation",
+			QueueName = "default",
 			Payload = "{}",
 			State = JobState.Pending,
 			DueAt = DateTimeOffset.UnixEpoch,
 			CreatedAt = DateTimeOffset.UnixEpoch,
-		}, TestContext.Current.CancellationToken);
+		}], [], [], []);
 
 		var builder = WebApplication.CreateBuilder(new WebApplicationOptions
 		{
@@ -453,15 +465,17 @@ public sealed class DashboardPackageTests
 
 		await using var storage = new InMemoryJobStorage(timeProvider);
 
-		await storage.EnqueueAsync(new()
+		storage.LoadPersistedJobState(
+		[new JobRecord
 		{
 			JobHandle = JobHandle.FromString("dashboard-cancel"),
 			JobName = "cancel-test",
+			QueueName = "default",
 			Payload = "{}",
 			State = JobState.Pending,
 			DueAt = now,
 			CreatedAt = now,
-		}, cancellationToken);
+		}], [], [], []);
 
 		var builder = WebApplication.CreateBuilder(new WebApplicationOptions
 		{
@@ -661,16 +675,18 @@ public sealed class DashboardPackageTests
 
 		await using var storage = new InMemoryJobStorage(timeProvider);
 
-		await storage.EnqueueAsync(new()
+		storage.LoadPersistedJobState(
+		[new JobRecord
 		{
 			JobHandle = JobHandle.FromString("86bf8c31-d8e6-415b-8e92-45587a09fc52"),
 			JobName = "SendGreeting",
+			QueueName = "default",
 			Payload = "{}",
 			State = JobState.Succeeded,
 			DueAt = now,
 			CreatedAt = now,
 			CompletedAt = now.AddSeconds(1),
-		}, TestContext.Current.CancellationToken);
+		}], [], [], []);
 
 		var builder = WebApplication.CreateBuilder(new WebApplicationOptions
 		{
@@ -730,16 +746,18 @@ public sealed class DashboardPackageTests
 
 		await using var storage = new InMemoryJobStorage(timeProvider);
 
-		await storage.EnqueueAsync(new()
+		storage.LoadPersistedJobState(
+		[new JobRecord
 		{
 			JobHandle = JobHandle.FromString(JobId),
 			JobName = "SendGreeting",
+			QueueName = "default",
 			GroupId = "tenant-a",
 			Payload = "{}",
 			State = JobState.Pending,
 			DueAt = now,
 			CreatedAt = now,
-		}, TestContext.Current.CancellationToken);
+		}], [], [], []);
 
 		var builder = WebApplication.CreateBuilder(new WebApplicationOptions
 		{

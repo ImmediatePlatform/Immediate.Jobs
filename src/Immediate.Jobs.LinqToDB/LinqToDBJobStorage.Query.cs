@@ -45,7 +45,7 @@ internal sealed partial class LinqToDBJobStorage<T>
 
 		await using var scope = contextScope.GetScope(out var connection);
 
-		var rawCounts = await Jobs(connection)
+		var rawCounts = await JobsWithDefinitions(connection)
 			.GroupBy(job => job.State)
 			.Select(group => new { State = group.Key, Count = group.LongCount() })
 			.ToListAsync(cancellationToken);
@@ -53,7 +53,7 @@ internal sealed partial class LinqToDBJobStorage<T>
 		foreach (var item in rawCounts)
 			counts[item.State] = item.Count;
 
-		var recurringEntities = await Recurring(connection)
+		var recurringEntities = await RecurringWithDefinitions(connection)
 			.OrderBy(schedule => schedule.Name)
 			.ToListAsync(cancellationToken);
 		var now = timeProvider.GetUtcNow();
@@ -87,7 +87,7 @@ internal sealed partial class LinqToDBJobStorage<T>
 
 		await using var scope = contextScope.GetScope(out var connection);
 
-		IQueryable<ImmediateJobEntity> jobs = Jobs(connection);
+		IQueryable<JobQueryRow> jobs = JobsWithDefinitions(connection);
 		if (query.JobHandle is { Value: { } id })
 			jobs = jobs.Where(job => job.Id == id);
 		if (query.State is { } state)
@@ -128,7 +128,7 @@ internal sealed partial class LinqToDBJobStorage<T>
 
 		await using var scope = contextScope.GetScope(out var connection);
 
-		var entities = await Jobs(connection)
+		var entities = await JobsWithDefinitions(connection)
 			.Where(job => job.JobName == jobName)
 			.Where(job => job.State.In(
 				JobState.AwaitingContinuation,
@@ -155,7 +155,7 @@ internal sealed partial class LinqToDBJobStorage<T>
 
 		await using var scope = contextScope.GetScope(out var connection);
 
-		var job = await Jobs(connection)
+		var job = await JobsWithDefinitions(connection)
 			.SingleOrDefaultAsync(item => item.Id == jobHandle.Value, cancellationToken);
 
 		if (job is null)
@@ -252,7 +252,7 @@ internal sealed partial class LinqToDBJobStorage<T>
 
 		await using var scope = contextScope.GetScope(out var connection);
 
-		var jobs = Jobs(connection).Where(job => job.BatchHandle == batchHandle.Value);
+		var jobs = JobsWithDefinitions(connection).Where(job => job.BatchHandle == batchHandle.Value);
 		if (query.State is { } state)
 			jobs = jobs.Where(job => job.State == state);
 
@@ -292,7 +292,7 @@ internal sealed partial class LinqToDBJobStorage<T>
 
 		if (!await Batches(connection).AnyAsync(batch => batch.Id == batchHandle.Value, cancellationToken))
 			return null;
-		var entities = await Jobs(connection)
+		var entities = await JobsWithDefinitions(connection)
 			.Where(job => job.BatchHandle == batchHandle.Value)
 			.OrderBy(job => job.CreatedAt)
 			.ThenBy(job => job.Id)
@@ -321,7 +321,7 @@ internal sealed partial class LinqToDBJobStorage<T>
 
 		await using var scope = contextScope.GetScope(out var connection);
 
-		var job = await Jobs(connection).SingleOrDefaultAsync(item => item.Id == jobHandle.Value, cancellationToken);
+		var job = await JobsWithDefinitions(connection).SingleOrDefaultAsync(item => item.Id == jobHandle.Value, cancellationToken);
 		if (job is null)
 			return null;
 		var edges = await Continuations(connection)

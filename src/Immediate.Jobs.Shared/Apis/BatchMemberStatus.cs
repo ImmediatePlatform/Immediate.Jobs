@@ -21,9 +21,9 @@ public sealed record BatchMemberStatus
 	public required string JobName { get; init; }
 
 	/// <summary>
-	/// 	The persisted queue name.
+	/// 	The current queue name, or <see langword="null"/> when the job definition is missing.
 	/// </summary>
-	public required string QueueName { get; init; }
+	public string? QueueName { get; init; }
 
 	/// <summary>
 	/// 	The current invocation state.

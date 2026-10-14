@@ -35,6 +35,13 @@ internal sealed partial class SingleServerJobStorage
 		{
 			await DurableStorage.InitializeAsync(cancellationToken);
 			await PrimaryStorage.InitializeAsync(cancellationToken);
+			var definitions = await DurableStorage.GetJobDefinitionsAsync(cancellationToken);
+			await PrimaryStorage.MergeJobDefinitionsListAsync(new()
+			{
+				Definitions = definitions,
+				ServerTags = definitions.SelectMany(static definition => definition.Tags).Append(JobTags.Default)
+					.Distinct(StringComparer.OrdinalIgnoreCase).ToList(),
+			}, cancellationToken);
 
 			var recoveredJobs = new List<JobRecord>();
 			var recoveredIncomingEdges = new Dictionary<JobHandle, List<JobContinuationEdge>>();
@@ -149,7 +156,7 @@ internal sealed partial class SingleServerJobStorage
 				foreach (var batch in ready)
 				{
 					await PrimaryStorage
-						.EnqueueBatchAsync(
+						.RestoreBatchAsync(
 							batch.Record,
 							batch.Jobs,
 							batch.Edges,
@@ -180,7 +187,7 @@ internal sealed partial class SingleServerJobStorage
 						);
 					}
 
-					await PrimaryStorage.EnqueueAsync(job, cancellationToken);
+					await PrimaryStorage.RestoreJobAsync(job, cancellationToken);
 					restoredJobHandles.Add(job.JobHandle);
 				}
 				else
@@ -243,7 +250,7 @@ internal sealed partial class SingleServerJobStorage
 				foreach (var job in ready)
 				{
 					await PrimaryStorage
-						.EnqueueContinuationAsync(
+						.RestoreContinuationAsync(
 							job,
 							recoveredIncomingEdges[job.JobHandle],
 							cancellationToken

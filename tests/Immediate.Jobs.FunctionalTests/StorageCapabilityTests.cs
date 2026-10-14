@@ -79,7 +79,7 @@ public sealed class StorageCapabilityTests
 		public ValueTask InitializeAsync(CancellationToken cancellationToken = default) =>
 			_inner.InitializeAsync(cancellationToken);
 
-		public ValueTask EnqueueAsync(JobRecord job, CancellationToken cancellationToken = default)
+		public ValueTask EnqueueAsync(JobSubmission job, CancellationToken cancellationToken = default)
 		{
 			EnqueueCalls++;
 			return _inner.EnqueueAsync(job, cancellationToken);

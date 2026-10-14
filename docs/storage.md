@@ -87,6 +87,18 @@ Custom providers must implement the catalogue operations and the eligible-name o
 schema update process; EF Core also requires the singleton catalogue table. The bootstrap helpers do
 not upgrade existing production databases.
 
+## Submissions
+
+Enqueue and graph-write methods accept `JobSubmission`, which contains invocation data. Read
+methods return `JobRecord`, which includes execution state and the current queue. The queue is
+unavailable when the definition is missing; retained history remains queryable.
+
+A submission requires a registered job definition. An unknown job name fails the complete operation,
+including atomic batches and buffered continuations. Stored job names retain the definition's spelling.
+
+Existing jobs and recurring schedules follow the job's current queue configuration.
+Active workers retain their acquired context for the current attempt.
+
 ## Providers
 
 | Provider | Location | Concurrency idiom |
@@ -129,8 +141,9 @@ may build keys from the root):
 | `job:{id}` | hash | Serialized `record` plus mutable fields (`state`, `due`, `dueScore`, `dueMember`, `attempt`, `worker`, `lease`, `group`, …). Reads overlay the mutable fields onto the record. |
 | `jobs` | sorted set | Every job id, scored by creation time. |
 | `state:{n}` / `completed:{n}` | set / sorted set | Ids by state; terminal ids by completion time. |
-| `due:{queue}` | sorted set | Due-ordered members `dueTicks\|createdTicks\|id`. Stale members are removed lazily. |
+| `due:{job name}` | sorted set | Due-ordered members `dueTicks\|createdTicks\|id`. Stale members are removed lazily. |
 | `leases` | sorted set | Active job ids by lease expiry. |
+| `active:job:{job name}` | sorted set | Active invocations for one job definition, scored by lease expiry. |
 | `executions:index:{id}` / `executions:data:{id}` | sorted set / hash | Execution history. |
 | `recurring:*` | various | Schedules, global and per-job due indexes, names, materialization de-duplication. |
 | `server:{worker}` / `servers` | hash / sorted set | Heartbeats, including normalized tags. |
@@ -138,14 +151,13 @@ may build keys from the root):
 | `definition-catalog-version` | string | Version used to atomically reconcile a complete scoped catalogue. |
 | `fair:*` | various | Fair-queue indexes, active counts, and cursors; see [fair queues](fair-queues.md). |
 
-The payload lives only inside `record`. Lua must not re-encode it with `cjson` (key order and escaping
-would change), so `UpdatePayloadAsync` rewrites the record in C# and swaps it with a compare-and-set
-script.
+The payload lives as a JSON string inside `record`. Preserve that string whenever Lua rewrites
+the outer record.
+`UpdatePayloadAsync` rewrites the record in C# and swaps it with a compare-and-set script.
 
 Server heartbeats persist their effective tags in the serialized server snapshot. Single-server
 storage writes heartbeats to its durable replica as well as its in-memory store, so dashboards
-reading that database can see the server's tags. Storage normalizes empty tag lists to `default`
-and removes case-insensitive duplicates before writing a heartbeat.
+reading that database can see the server's tags.
 
 ## Adding or changing a storage member
 

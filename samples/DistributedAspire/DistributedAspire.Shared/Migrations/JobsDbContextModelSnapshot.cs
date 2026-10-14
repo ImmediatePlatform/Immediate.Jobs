@@ -291,13 +291,6 @@ namespace Immediate.Jobs.DistributedAspire.Shared.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
-                    b.Property<string>("QueueName")
-                        .IsRequired()
-                        .ValueGeneratedOnAdd()
-                        .HasMaxLength(256)
-                        .HasColumnType("character varying(256)")
-                        .HasDefaultValue("default");
-
                     b.Property<string>("RecurringKey")
                         .HasMaxLength(512)
                         .HasColumnType("character varying(512)");
@@ -330,9 +323,9 @@ namespace Immediate.Jobs.DistributedAspire.Shared.Migrations
 
                     b.HasIndex("State", "DueAt");
 
-                    b.HasIndex("QueueName", "State", "GroupId");
+                    b.HasIndex("JobName", "State", "GroupId");
 
-                    b.HasIndex("QueueName", "State", "DueAt", "CreatedAt");
+                    b.HasIndex("JobName", "State", "DueAt", "CreatedAt");
 
                     b.ToTable("immediate_jobs", (string)null);
                 });
@@ -447,11 +440,6 @@ namespace Immediate.Jobs.DistributedAspire.Shared.Migrations
 
                     b.Property<long>("NextRunAt")
                         .HasColumnType("bigint");
-
-                    b.Property<string>("QueueName")
-                        .IsRequired()
-                        .HasMaxLength(256)
-                        .HasColumnType("character varying(256)");
 
                     b.Property<string>("TimeZone")
                         .IsRequired()

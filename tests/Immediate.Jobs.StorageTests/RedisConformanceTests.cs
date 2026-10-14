@@ -104,8 +104,22 @@ file sealed class RedisConformanceFixture : IAsyncDisposable
 
 		var storage = serviceProvider.GetRequiredService<IJobStorage>();
 
+		await storage.MergeJobDefinitionsListAsync(new()
+		{
+			Definitions = jobs.DistinctBy(static job => job.JobName, StringComparer.OrdinalIgnoreCase)
+				.Select(static job => new JobDefinitionRecord { Name = job.JobName, QueueName = job.QueueName ?? "default" }).ToList(),
+		});
 		foreach (var job in jobs)
-			await storage.EnqueueAsync(job);
+			await storage.EnqueueAsync(new()
+			{
+				JobHandle = job.JobHandle,
+				JobName = job.JobName,
+				Payload = job.Payload,
+				State = job.State,
+				DueAt = job.DueAt,
+				CreatedAt = job.CreatedAt,
+				RecurringKey = job.RecurringKey,
+			});
 	}
 
 	private static async ValueTask LoadRecurringSchedules(

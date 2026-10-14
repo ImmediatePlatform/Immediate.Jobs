@@ -84,8 +84,9 @@ public sealed class QueueSchedulerTests
 		_ = execution.Release.TrySetResult();
 		await harness.Scheduler.StopAsync(cancellationToken);
 
-		ValueTask Enqueue(string queueName, string jobName, int order) =>
-			storage.EnqueueAsync(
+		ValueTask Enqueue(string queueName, string jobName, int order)
+		{
+			storage.LoadPersistedJobState([
 				new()
 				{
 					JobHandle = JobHandle.FromString(Guid.NewGuid().ToString("N")),
@@ -95,9 +96,9 @@ public sealed class QueueSchedulerTests
 					State = JobState.Pending,
 					DueAt = DateTimeOffset.UnixEpoch,
 					CreatedAt = DateTimeOffset.UnixEpoch.AddTicks(order),
-				},
-				cancellationToken
-			);
+				}], [], [], []);
+			return ValueTask.CompletedTask;
+		}
 	}
 
 	private sealed class BlockingExecution : IJobInvoker
@@ -114,9 +115,10 @@ public sealed class QueueSchedulerTests
 		public async ValueTask InvokeAsync(IServiceProvider scopedServices, JobExecution execution)
 		{
 			var record = execution.Record;
-			var queueActive = _activeByQueue.AddOrUpdate(record.QueueName, 1, static (_, count) => count + 1);
+			var queueName = Assert.IsType<string>(record.QueueName);
+			var queueActive = _activeByQueue.AddOrUpdate(queueName, 1, static (_, count) => count + 1);
 			var jobActive = _activeByJob.AddOrUpdate(record.JobName, 1, static (_, count) => count + 1);
-			_ = MaximumByQueue.AddOrUpdate(record.QueueName, queueActive, (_, maximum) => Math.Max(maximum, queueActive));
+			_ = MaximumByQueue.AddOrUpdate(queueName, queueActive, (_, maximum) => Math.Max(maximum, queueActive));
 			_ = MaximumByJob.AddOrUpdate(record.JobName, jobActive, (_, maximum) => Math.Max(maximum, jobActive));
 			if (Interlocked.Increment(ref _started) == 3)
 				_ = ThreeStarted.TrySetResult();
@@ -127,7 +129,7 @@ public sealed class QueueSchedulerTests
 			}
 			finally
 			{
-				_ = _activeByQueue.AddOrUpdate(record.QueueName, 0, static (_, count) => count - 1);
+				_ = _activeByQueue.AddOrUpdate(queueName, 0, static (_, count) => count - 1);
 				_ = _activeByJob.AddOrUpdate(record.JobName, 0, static (_, count) => count - 1);
 			}
 		}

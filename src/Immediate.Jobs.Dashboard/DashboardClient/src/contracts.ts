@@ -19,7 +19,7 @@ export type ContinuationTrigger = 'Success' | 'Failure' | 'Complete';
 export type IsoDateTime = string;
 
 export interface JobRecord {
-	queueName: string;
+	queueName?: string | null;
 	jobHandle: string;
 	jobName: string;
 	groupId: string | null;

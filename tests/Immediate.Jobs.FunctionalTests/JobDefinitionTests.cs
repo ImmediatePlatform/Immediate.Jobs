@@ -10,6 +10,30 @@ namespace Immediate.Jobs.FunctionalTests;
 
 public sealed class JobDefinitionTests
 {
+	[Theory]
+	[InlineData(null)]
+	[InlineData("acquired-queue")]
+	public void JobDetailsPreserveTheQueueFromTheExecutionRecord(string? queueName)
+	{
+		var execution = new JobExecution
+		{
+			Record = new()
+			{
+				JobHandle = JobHandle.FromString("details"),
+				JobName = "details",
+				QueueName = queueName,
+				Payload = "{}",
+				State = JobState.Active,
+				DueAt = DateTimeOffset.UnixEpoch,
+				CreatedAt = DateTimeOffset.UnixEpoch,
+			},
+			Definition = Definition("details", new RecordingInvoker()),
+			CancellationToken = TestContext.Current.CancellationToken,
+		};
+
+		Assert.Equal(queueName, new JobDetails(execution).QueueName);
+	}
+
 	[Fact]
 	public async Task DisabledWorkersStillRegisterMetadata()
 	{
@@ -24,6 +48,7 @@ public sealed class JobDefinitionTests
 		var scheduler = provider.GetRequiredService<JobSchedulingService>();
 		await scheduler.StartAsync(token);
 		var storage = provider.GetRequiredService<StartupStorage>();
+		Assert.True(storage.Registered.Task.IsCompletedSuccessfully);
 		await storage.Registered.Task.WaitAsync(TimeSpan.FromSeconds(5), token);
 		Assert.Equal("metadata-only", Assert.Single(await storage.GetJobDefinitionsAsync(token)).Name);
 		await scheduler.StopAsync(token);
@@ -49,7 +74,7 @@ public sealed class JobDefinitionTests
 		}, token);
 		await harness.DrainAsync(token);
 		Assert.Equal(JobState.Succeeded, (await harness.GetJobAsync(handle, token)).State);
-		Assert.Equal(["invoice"], invoker.Names);
+		Assert.Equal(["Invoice"], invoker.Names);
 	}
 
 	private static JobDefinition Definition(string name, IJobInvoker invoker) => new()

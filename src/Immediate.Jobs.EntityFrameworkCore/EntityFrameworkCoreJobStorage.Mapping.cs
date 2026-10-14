@@ -10,7 +10,6 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 		new()
 		{
 			Id = job.JobHandle.Value,
-			QueueName = job.QueueName,
 			CancellationReason = job.CancellationReason,
 			JobName = job.JobName,
 			GroupId = job.GroupId,
@@ -91,7 +90,6 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 		new()
 		{
 			Id = job.Id,
-			QueueName = job.QueueName,
 			CancellationReason = job.CancellationReason,
 			JobName = job.JobName,
 			GroupId = job.GroupId,
@@ -117,11 +115,11 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 			ConcurrencyStamp = job.ConcurrencyStamp,
 		};
 
-	private static JobRecord ToRecord(ImmediateJobEntity job) =>
+	private static JobRecord ToRecord(ImmediateJobEntity job, string? queueName = null) =>
 		new()
 		{
 			JobHandle = JobHandle.FromString(job.Id),
-			QueueName = job.QueueName,
+			QueueName = queueName,
 			CancellationReason = job.CancellationReason,
 			JobName = job.JobName,
 			GroupId = job.GroupId,
@@ -145,6 +143,8 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 			RemainingDependencies = job.RemainingDependencies,
 			FailedDependencies = job.FailedDependencies,
 		};
+
+	private static JobRecord ToRecord(JobQueryRow job) => ToRecord(job, job.QueueName);
 
 	private static BatchStatus ToStatus(ImmediateJobBatchEntity batch) =>
 		new()
@@ -178,7 +178,6 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 		{
 			Name = schedule.Name,
 			JobName = schedule.JobName,
-			QueueName = schedule.QueueName,
 			CancellationReason = schedule.CancellationReason,
 			Cron = schedule.Cron,
 			TimeZone = schedule.TimeZone,

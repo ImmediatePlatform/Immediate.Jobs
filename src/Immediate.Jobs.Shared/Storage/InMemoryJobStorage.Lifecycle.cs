@@ -36,6 +36,7 @@ public sealed partial class InMemoryJobStorage
 		lock (_gate)
 		{
 			var current = GetOwnedActive(jobHandle, executionNumber, workerId);
+			var records = additions.ToDictionary(static addition => addition.Job.JobHandle, addition => CreateRecord(addition.Job));
 			var existingWaiters = GetUnsettledWaiters(jobHandle);
 			var newJobHandles = new HashSet<JobHandle>();
 			var dependencyEdges = new List<JobContinuationEdge>(additions.Count);
@@ -43,7 +44,7 @@ public sealed partial class InMemoryJobStorage
 
 			foreach (var addition in additions)
 			{
-				ValidateNewJob(addition.Job);
+				ValidateNewJob(records[addition.Job.JobHandle]);
 				if (!newJobHandles.Add(addition.Job.JobHandle))
 					throw new ImmediateJobException($"Job '{addition.Job.JobHandle}' occurs more than once in the completion buffer.");
 				if (addition.Job.State is not (JobState.Pending or JobState.Scheduled))
@@ -77,14 +78,14 @@ public sealed partial class InMemoryJobStorage
 			}
 
 			if (dependencyEdges.Count != 0)
-				ValidateEdges([.. additions.Select(static addition => addition.Job)], dependencyEdges, current.BatchHandle);
+				ValidateEdges([.. records.Values], dependencyEdges, current.BatchHandle);
 
 			ValidateSplice(existingWaiters, additions.Count(static addition => addition.Options == ContinuationOptions.BeforeContinuations));
 
 			IncrementBatchMembers(current.BatchHandle, trackedAdditions);
 			foreach (var addition in additions)
 			{
-				_jobs.Add(addition.Job.JobHandle, NormalizeWaitingJob(addition.Job, dependencyCount: 1));
+				_jobs.Add(addition.Job.JobHandle, NormalizeWaitingJob(records[addition.Job.JobHandle], dependencyCount: 1));
 				if (addition.Options == ContinuationOptions.BeforeContinuations)
 					SpliceBeforeWaiters(addition.Job.JobHandle, existingWaiters);
 			}
@@ -383,14 +384,14 @@ public sealed partial class InMemoryJobStorage
 		UpdateBatchAfterTerminal(job.BatchHandle, terminalState, completedAt);
 		if (propagateContinuations)
 			ProcessTerminalJob(jobHandle);
-		RemoveFairQueueCursorWhenBacklogClears(job.QueueName, job.GroupId);
+		RemoveFairQueueCursorWhenBacklogClears(GetQueueName(job.JobName), job.GroupId);
 	}
 
-	private void RemoveFairQueueCursorWhenBacklogClears(string queueName, string? groupId)
+	private void RemoveFairQueueCursorWhenBacklogClears(string? queueName, string? groupId)
 	{
-		if (groupId is null ||
+		if (queueName is null || groupId is null ||
 			_jobs.Values.Any(job =>
-				string.Equals(job.QueueName, queueName, StringComparison.Ordinal) &&
+				string.Equals(GetQueueName(job.JobName), queueName, StringComparison.Ordinal) &&
 				string.Equals(job.GroupId, groupId, StringComparison.Ordinal) &&
 				job.State is JobState.Pending or JobState.Scheduled or JobState.Active))
 		{

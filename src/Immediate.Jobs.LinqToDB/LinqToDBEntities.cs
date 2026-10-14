@@ -1,5 +1,4 @@
 using Immediate.Jobs.Shared.Apis;
-using Immediate.Jobs.Shared.Internals;
 using LinqToDB;
 using LinqToDB.Mapping;
 
@@ -49,14 +48,12 @@ internal sealed class ImmediateJobBatchEntity
 }
 
 [Table(Name = "immediate_jobs")]
-internal sealed class ImmediateJobEntity
+internal class ImmediateJobEntity
 {
 	[Column(Length = 512, CanBeNull = true)]
 	public string? CancellationReason { get; set; }
 	[PrimaryKey, Column(Length = 256, CanBeNull = false)]
 	public string Id { get; set; } = null!;
-	[Column(Length = 256, CanBeNull = false)]
-	public string QueueName { get; set; } = JobQueueDefinition.DefaultName;
 	[Column(Length = 256, CanBeNull = false)]
 	[Column(Configuration = ProviderName.PostgreSQL, DbType = "varchar(256) COLLATE \"immediate_jobs_case_insensitive\"", CanBeNull = false)]
 	[Column(Configuration = ProviderName.SQLite, DbType = "TEXT COLLATE NOCASE", CanBeNull = false)]
@@ -163,7 +160,7 @@ internal sealed class ImmediateJobContinuationEntity
 }
 
 [Table(Name = "immediate_recurring_jobs")]
-internal sealed class ImmediateRecurringJobEntity
+internal class ImmediateRecurringJobEntity
 {
 	[Column(Length = 512, CanBeNull = true)]
 	public string? CancellationReason { get; set; }
@@ -173,8 +170,6 @@ internal sealed class ImmediateRecurringJobEntity
 	[Column(Configuration = ProviderName.PostgreSQL, DbType = "varchar(256) COLLATE \"immediate_jobs_case_insensitive\"", CanBeNull = false)]
 	[Column(Configuration = ProviderName.SQLite, DbType = "TEXT COLLATE NOCASE", CanBeNull = false)]
 	public string JobName { get; set; } = null!;
-	[Column(Length = 256, CanBeNull = false)]
-	public string QueueName { get; set; } = null!;
 	[Column(Length = 128, CanBeNull = false)]
 	public string Cron { get; set; } = null!;
 	[Column(Length = 128, CanBeNull = false)]

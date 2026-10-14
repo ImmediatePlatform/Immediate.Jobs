@@ -23,7 +23,7 @@ public interface IJobGraphStorage : IJobStorage
 	/// 	A value task that represents the asynchronous enqueue operation.
 	/// </returns>
 	ValueTask EnqueueContinuationAsync(
-		JobRecord job,
+		JobSubmission job,
 		IReadOnlyList<JobContinuationEdge> edges,
 		CancellationToken cancellationToken = default
 	);
@@ -48,7 +48,7 @@ public interface IJobGraphStorage : IJobStorage
 	/// </returns>
 	ValueTask EnqueueBatchAsync(
 		BatchRecord batch,
-		IReadOnlyList<JobRecord> jobs,
+		IReadOnlyList<JobSubmission> jobs,
 		IReadOnlyList<JobContinuationEdge> edges,
 		CancellationToken cancellationToken = default
 	);
@@ -106,7 +106,7 @@ public interface IJobGraphStorage : IJobStorage
 	ValueTask AddBatchJobAsync(
 		JobHandle currentJobHandle,
 		int executionNumber,
-		JobRecord job,
+		JobSubmission job,
 		ContinuationOptions options,
 		CancellationToken cancellationToken = default
 	);

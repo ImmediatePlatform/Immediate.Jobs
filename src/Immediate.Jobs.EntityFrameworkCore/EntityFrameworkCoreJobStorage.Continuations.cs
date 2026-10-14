@@ -14,6 +14,9 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 		CancellationToken cancellationToken
 	)
 	{
+		var jobs = await CreateRecordsAsync(context, [.. additions.Select(static addition => addition.Job)], cancellationToken);
+		var records = jobs.ToDictionary(static job => job.JobHandle);
+
 		var ids = new HashSet<string>(StringComparer.Ordinal);
 		var trackedAdditions = 0;
 		foreach (var addition in additions)
@@ -59,7 +62,7 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 
 		foreach (var addition in additions)
 		{
-			var job = ToEntity(addition.Job with
+			var job = ToEntity(records[addition.Job.JobHandle] with
 			{
 				State = JobState.AwaitingContinuation,
 				RemainingDependencies = 1,

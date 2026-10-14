@@ -35,7 +35,7 @@ public sealed class JobTagTests
 		var now = harness.TimeProvider.GetUtcNow();
 		foreach (var definition in definitions)
 		{
-			await harness.Storage.EnqueueAsync(new()
+			harness.Storage.LoadPersistedJobState([new()
 			{
 				JobHandle = JobHandle.FromString(definition.Name),
 				JobName = definition.Name,
@@ -44,7 +44,7 @@ public sealed class JobTagTests
 				State = JobState.Pending,
 				CreatedAt = now,
 				DueAt = now,
-			}, token);
+			}], [], [], []);
 		}
 
 		await harness.DrainAsync(token);

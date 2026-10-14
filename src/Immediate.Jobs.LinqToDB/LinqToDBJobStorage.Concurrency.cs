@@ -27,7 +27,7 @@ internal sealed partial class LinqToDBJobStorage<T>
 		CancellationToken cancellationToken
 	)
 	{
-		var terminalGroups = new HashSet<(string QueueName, string GroupId)>();
+		var terminalGroups = new HashSet<string>(StringComparer.Ordinal);
 		await RetryConcurrencyAsync(
 			connection => MutateOwnedCoreAsync(
 				connection,
@@ -42,7 +42,8 @@ internal sealed partial class LinqToDBJobStorage<T>
 				cancellationToken
 			),
 			cancellationToken,
-			maxAttempts: MaxContendedCompletionAttempts
+			maxAttempts: MaxContendedCompletionAttempts,
+			isolationLevel: additions.Count == 0 ? IsolationLevel.Unspecified : IsolationLevel.Serializable
 		);
 		await CleanupFairQueueGroupsAsync(terminalGroups);
 	}
@@ -56,7 +57,7 @@ internal sealed partial class LinqToDBJobStorage<T>
 		DateTimeOffset? nextRetryAt,
 		bool succeeded,
 		IReadOnlyList<JobContinuationAddition> additions,
-		ISet<(string QueueName, string GroupId)> terminalGroups,
+		ISet<string> terminalGroups,
 		CancellationToken cancellationToken
 	)
 	{
@@ -221,7 +222,7 @@ internal sealed partial class LinqToDBJobStorage<T>
 	{
 		var updated = await Jobs(connection)
 			.Where(entity => entity.Id == job.Id && entity.ConcurrencyStamp == oldStamp)
-			.Set(entity => entity.QueueName, job.QueueName)
+
 			.Set(entity => entity.JobName, job.JobName)
 			.Set(entity => entity.GroupId, job.GroupId)
 			.Set(entity => entity.Payload, job.Payload)

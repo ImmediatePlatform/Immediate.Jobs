@@ -6,6 +6,7 @@ namespace Immediate.Jobs.Testing.Storage;
 
 internal static class GraphStorageConformance
 {
+	private const string RoutingName = "Graph.Submission.ResolvesQueuesAtomically";
 	private const string CapabilityName = "Graph.Capability.ResolvesAdvertisedStorage";
 	private const string BatchLifecycleName = "Graph.Batches.CommitsProjectsAndDeletesAtomically";
 	private const string ExistingGraphName = "Graph.Batches.LoadsExistingGraphWithDependencyMetadata";
@@ -24,6 +25,7 @@ internal static class GraphStorageConformance
 
 	internal static IReadOnlyList<JobStorageConformanceTestCase> Cases { get; } =
 	[
+		new(RoutingName, StorageCapabilities.Graph, ResolvesQueuesAtomicallyAsync),
 		new(CapabilityName, StorageCapabilities.Graph, ResolvesAdvertisedStorage),
 		new(BatchLifecycleName, StorageCapabilities.Graph, BatchLifecycleAsync),
 		new(ExistingGraphName, StorageCapabilities.Graph, LoadsExistingGraphAsync, ExistingGraphJobState()),
@@ -41,12 +43,67 @@ internal static class GraphStorageConformance
 		new(BatchPurgeRaceName, StorageCapabilities.Graph, SerializeBatchPurgeWithRetryAsync),
 	];
 
+	private static async ValueTask ResolvesQueuesAtomicallyAsync(IJobStorage storage, FakeTimeProvider clock, CancellationToken token)
+	{
+		var graph = GetGraph(storage, RoutingName);
+		await storage.MergeJobDefinitionsListAsync(new()
+		{
+			Definitions = [new() { Name = "Routed", QueueName = "priority" }],
+		}, token);
+		var batch = CreateBatch("routing-batch", 1);
+		var parent = CreateJob("routing-parent", batch.BatchHandle) with { JobName = "ROUTED" };
+		await graph.EnqueueBatchAsync(batch, [parent], [], token);
+		ConformanceAssert.Equal("priority", (await GetJobAsync(storage, parent.JobHandle.Value, RoutingName, token)).QueueName,
+			RoutingName, "batch persistence must resolve queues");
+
+		var continuation = CreateJob("routing-continuation") with { JobName = "routed" };
+		await graph.EnqueueContinuationAsync(continuation, [new() { ChildJobHandle = continuation.JobHandle, ParentJobHandle = parent.JobHandle, Trigger = ContinuationTrigger.Success, Delay = TimeSpan.Zero }], token);
+		ConformanceAssert.Equal("priority", (await GetJobAsync(storage, continuation.JobHandle.Value, RoutingName, token)).QueueName,
+			RoutingName, "standalone continuations must resolve queues");
+		var current = (await storage.AcquireDueJobsAsync(new()
+		{
+			WorkerId = "routing-worker",
+			Lease = TimeSpan.FromMinutes(1),
+			BatchSize = 1,
+			Queues = [new() { QueueName = "priority", Capacity = 1, JobCapacities = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase) { ["Routed"] = 1 } }],
+		}, token)).Single();
+
+		var concurrent = parent with { JobHandle = JobHandle.FromString("routing-concurrent") };
+		await graph.AddBatchJobAsync(current.JobHandle, current.Attempt, concurrent, ContinuationOptions.BesideContinuations, token);
+		ConformanceAssert.Equal("priority", (await GetJobAsync(storage, concurrent.JobHandle.Value, RoutingName, token)).QueueName,
+			RoutingName, "dynamic batch members must resolve queues");
+		var buffered = continuation with { JobHandle = JobHandle.FromString("routing-buffered") };
+		await graph.CompleteWithContinuationsAsync(current.JobHandle, current.Attempt, "routing-worker",
+			[new() { Job = buffered, Options = ContinuationOptions.Detached, Delay = TimeSpan.Zero, Trigger = ContinuationTrigger.Success }], token);
+		ConformanceAssert.Equal("priority", (await GetJobAsync(storage, buffered.JobHandle.Value, RoutingName, token)).QueueName,
+			RoutingName, "completion must resolve buffered continuation queues");
+
+		var rejected = CreateBatch("rejected-routing", 2);
+		var known = parent with { JobHandle = JobHandle.FromString("known-routing"), BatchHandle = rejected.BatchHandle };
+		var missing = known with { JobHandle = JobHandle.FromString("missing-routing"), JobName = "missing" };
+		await ConformanceAssert.ThrowsAsync<KeyNotFoundException>(() => graph.EnqueueBatchAsync(rejected, [known, missing], [], token),
+			RoutingName, "a missing definition must reject the entire batch");
+		ConformanceAssert.Null(await graph.GetBatchStatusAsync(rejected.BatchHandle, token), RoutingName, "a rejected batch must not leave a header");
+		ConformanceAssert.Equal(4, (await storage.QueryJobsAsync(new(), token)).Count, RoutingName, "a rejected batch must not leave any members");
+	}
+
 	private static PersistedJobState ExistingGraphJobState()
 	{
 		var batchHandle = BatchHandle.FromString("existing-graph-batch");
-		var parent = CreateJob("existing-graph-parent", batchHandle);
-		var child = CreateJob("existing-graph-child", batchHandle) with
+		var parent = new JobRecord
 		{
+			JobHandle = JobHandle.FromString("existing-graph-parent"),
+			JobName = "existing-graph-parent",
+			Payload = "{}",
+			State = JobState.Pending,
+			DueAt = DateTimeOffset.UnixEpoch,
+			CreatedAt = DateTimeOffset.UnixEpoch,
+			BatchHandle = batchHandle,
+		};
+		var child = parent with
+		{
+			JobHandle = JobHandle.FromString("existing-graph-child"),
+			JobName = "existing-graph-child",
 			State = JobState.AwaitingContinuation,
 			RemainingDependencies = 1,
 		};
@@ -73,6 +130,15 @@ internal static class GraphStorageConformance
 		CancellationToken cancellationToken
 	)
 	{
+		await storage.MergeJobDefinitionsListAsync(new()
+		{
+			Definitions =
+			[
+				new() { Name = "existing-graph-parent" },
+				new() { Name = "existing-graph-child" },
+			],
+		}, cancellationToken);
+
 		var graph = GetGraph(storage, ExistingGraphName);
 		var batchHandle = BatchHandle.FromString("existing-graph-batch");
 		var parent = CreateJob("existing-graph-parent", batchHandle);
@@ -120,6 +186,15 @@ internal static class GraphStorageConformance
 		CancellationToken cancellationToken
 	)
 	{
+		await storage.MergeJobDefinitionsListAsync(new()
+		{
+			Definitions =
+			[
+				new() { Name = "delayed-parent" },
+				new() { Name = "delayed-child" },
+			],
+		}, cancellationToken);
+
 		var graph = GetGraph(storage, PropagationDelayName);
 		var parent = CreateJob("delayed-parent", batchHandle: "delayed-batch");
 		var child = CreateJob("delayed-child", batchHandle: "delayed-batch") with
@@ -171,6 +246,15 @@ internal static class GraphStorageConformance
 		CancellationToken cancellationToken
 	)
 	{
+		await storage.MergeJobDefinitionsListAsync(new()
+		{
+			Definitions =
+			[
+				new() { Name = "lifecycle-parent" },
+				new() { Name = "lifecycle-child" },
+			],
+		}, cancellationToken);
+
 		var graph = GetGraph(storage, BatchLifecycleName);
 		var batchHandle = BatchHandle.FromString("lifecycle-batch");
 		var parent = CreateJob(JobHandle.FromString("lifecycle-parent"), batchHandle);
@@ -258,6 +342,14 @@ internal static class GraphStorageConformance
 		CancellationToken cancellationToken
 	)
 	{
+		await storage.MergeJobDefinitionsListAsync(new()
+		{
+			Definitions =
+			[
+				new() { Name = "invalid-member" },
+			],
+		}, cancellationToken);
+
 		var graph = GetGraph(storage, InvalidBatchName);
 		var member = CreateJob("invalid-member", batchHandle: "invalid-batch") with
 		{
@@ -292,6 +384,33 @@ internal static class GraphStorageConformance
 		CancellationToken cancellationToken
 	)
 	{
+		await storage.MergeJobDefinitionsListAsync(new()
+		{
+			Definitions =
+			[
+				new() { Name = "trigger-parent" },
+				new() { Name = "trigger-success" },
+				new() { Name = "trigger-failure" },
+				new() { Name = "trigger-complete" },
+				new() { Name = "trigger-failed-parent" },
+				new() { Name = "trigger-success-after-failure" },
+				new() { Name = "trigger-failure-after-failure" },
+				new() { Name = "trigger-complete-after-failure" },
+				new() { Name = "trigger-mixed-success-parent-fails-success-first" },
+				new() { Name = "trigger-mixed-failure-parent-fails-success-first" },
+				new() { Name = "trigger-mixed-child-fails-success-first" },
+				new() { Name = "trigger-mixed-success-parent-fails-failure-first" },
+				new() { Name = "trigger-mixed-failure-parent-fails-failure-first" },
+				new() { Name = "trigger-mixed-child-fails-failure-first" },
+				new() { Name = "trigger-mixed-success-parent-succeeds-success-first" },
+				new() { Name = "trigger-mixed-failure-parent-succeeds-success-first" },
+				new() { Name = "trigger-mixed-child-succeeds-success-first" },
+				new() { Name = "trigger-mixed-success-parent-succeeds-failure-first" },
+				new() { Name = "trigger-mixed-failure-parent-succeeds-failure-first" },
+				new() { Name = "trigger-mixed-child-succeeds-failure-first" },
+			],
+		}, cancellationToken);
+
 		var graph = GetGraph(storage, TriggerName);
 		var parent = CreateJob("trigger-parent");
 		var successChild = CreateWaitingJob("trigger-success", 1);
@@ -468,6 +587,16 @@ internal static class GraphStorageConformance
 		CancellationToken cancellationToken
 	)
 	{
+		await storage.MergeJobDefinitionsListAsync(new()
+		{
+			Definitions =
+			[
+				new() { Name = "fanin-success-parent" },
+				new() { Name = "fanin-failed-parent" },
+				new() { Name = "fanin-child" },
+			],
+		}, cancellationToken);
+
 		var graph = GetGraph(storage, FanInName);
 		var successfulParent = CreateJob("fanin-success-parent");
 		var failedParent = CreateJob("fanin-failed-parent");
@@ -505,6 +634,18 @@ internal static class GraphStorageConformance
 		CancellationToken cancellationToken
 	)
 	{
+		await storage.MergeJobDefinitionsListAsync(new()
+		{
+			Definitions =
+			[
+				new() { Name = "dynamic-current" },
+				new() { Name = "dynamic-waiter" },
+				new() { Name = "dynamic-waiting-for-trigger" },
+				new() { Name = "dynamic-inserted" },
+				new() { Name = "dynamic-stale" },
+			],
+		}, cancellationToken);
+
 		var graph = GetGraph(storage, DynamicName);
 		var current = CreateJob("dynamic-current", batchHandle: "dynamic-batch");
 		var waiter = CreateJob("dynamic-waiter", batchHandle: "dynamic-batch") with
@@ -570,6 +711,19 @@ internal static class GraphStorageConformance
 		CancellationToken cancellationToken
 	)
 	{
+		await storage.MergeJobDefinitionsListAsync(new()
+		{
+			Definitions =
+			[
+				new() { Name = "splice-failure-False-current" },
+				new() { Name = "splice-failure-False-waiter" },
+				new() { Name = "splice-failure-False-inserted" },
+				new() { Name = "splice-failure-True-current" },
+				new() { Name = "splice-failure-True-waiter" },
+				new() { Name = "splice-failure-True-inserted" },
+			],
+		}, cancellationToken);
+
 		var graph = GetGraph(storage, SpliceFailureName);
 		foreach (var addDuringCompletion in new[] { false, true })
 		{
@@ -618,6 +772,15 @@ internal static class GraphStorageConformance
 		CancellationToken cancellationToken
 	)
 	{
+		await storage.MergeJobDefinitionsListAsync(new()
+		{
+			Definitions =
+			[
+				new() { Name = "cancel-parent" },
+				new() { Name = "cancel-child" },
+			],
+		}, cancellationToken);
+
 		var graph = GetGraph(storage, CancellationName);
 		var parent = CreateJob("cancel-parent", batchHandle: "cancel-batch");
 		var child = CreateJob("cancel-child", batchHandle: "cancel-batch") with
@@ -651,6 +814,15 @@ internal static class GraphStorageConformance
 		CancellationToken cancellationToken
 	)
 	{
+		await storage.MergeJobDefinitionsListAsync(new()
+		{
+			Definitions =
+			[
+				new() { Name = "purge-parent" },
+				new() { Name = "purge-child" },
+			],
+		}, cancellationToken);
+
 		var graph = GetGraph(storage, BatchPurgeName);
 		var batchHandle = BatchHandle.FromString("purge-batch");
 		var parent = CreateJob("purge-parent", batchHandle.Value);
@@ -706,8 +878,31 @@ internal static class GraphStorageConformance
 		CancellationToken cancellationToken
 	)
 	{
+		await storage.MergeJobDefinitionsListAsync(new()
+		{
+			Definitions =
+			[
+				new() { Name = "purge-race-parent-a" },
+				new() { Name = "purge-race-child-a" },
+				new() { Name = "purge-race-parent-b" },
+				new() { Name = "purge-race-child-b" },
+				new() { Name = "purge-race-parent-c" },
+				new() { Name = "purge-race-child-c" },
+				new() { Name = "purge-race-parent-d" },
+				new() { Name = "purge-race-child-d" },
+				new() { Name = "purge-race-parent-e" },
+				new() { Name = "purge-race-child-e" },
+				new() { Name = "purge-race-parent-f" },
+				new() { Name = "purge-race-child-f" },
+				new() { Name = "purge-race-parent-g" },
+				new() { Name = "purge-race-child-g" },
+				new() { Name = "purge-race-parent-h" },
+				new() { Name = "purge-race-child-h" },
+			],
+		}, cancellationToken);
+
 		var graph = GetGraph(storage, BatchPurgeRaceName);
-		var scenarios = new List<(BatchHandle BatchHandle, JobRecord Parent)>();
+		var scenarios = new List<(BatchHandle BatchHandle, JobSubmission Parent)>();
 		foreach (var suffix in new[] { "a", "b", "c", "d", "e", "f", "g", "h" })
 		{
 			var batchHandle = BatchHandle.FromString($"purge-race-batch-{suffix}");
@@ -825,6 +1020,15 @@ internal static class GraphStorageConformance
 		CancellationToken cancellationToken
 	)
 	{
+		await storage.MergeJobDefinitionsListAsync(new()
+		{
+			Definitions =
+			[
+				new() { Name = "stale-dynamic-parent" },
+				new() { Name = "stale-dynamic-child" },
+			],
+		}, cancellationToken);
+
 		var graph = GetGraph(storage, StaleDynamicName);
 		var clock = timeProvider;
 		var current = CreateJob("stale-dynamic-parent", batchHandle: "stale-dynamic-batch");
@@ -866,6 +1070,17 @@ internal static class GraphStorageConformance
 		CancellationToken cancellationToken
 	)
 	{
+		await storage.MergeJobDefinitionsListAsync(new()
+		{
+			Definitions =
+			[
+				new() { Name = "terminal-parent" },
+				new() { Name = "terminal-child-Success" },
+				new() { Name = "terminal-child-Failure" },
+				new() { Name = "terminal-child-Complete" },
+			],
+		}, cancellationToken);
+
 		_ = timeProvider;
 		var graph = GetGraph(storage, TerminalParentName);
 		var parent = CreateJob("terminal-parent");
@@ -907,6 +1122,16 @@ internal static class GraphStorageConformance
 		CancellationToken cancellationToken
 	)
 	{
+		await storage.MergeJobDefinitionsListAsync(new()
+		{
+			Definitions =
+			[
+				new() { Name = "invalid-dynamic-parent" },
+				new() { Name = "invalid-dynamic-Detached" },
+				new() { Name = "invalid-dynamic-BesideContinuations" },
+			],
+		}, cancellationToken);
+
 		_ = timeProvider;
 		var graph = GetGraph(storage, InvalidDynamicName);
 		var current = CreateJob("invalid-dynamic-parent", batchHandle: "invalid-dynamic-batch");
@@ -956,13 +1181,13 @@ internal static class GraphStorageConformance
 			"a storage advertising graph support must implement IJobGraphStorage"
 		);
 
-	private static JobRecord CreateJob(string id, string? batchHandle = null) =>
+	private static JobSubmission CreateJob(string id, string? batchHandle = null) =>
 		CreateJob(JobHandle.FromString(id), BatchHandle.FromString(batchHandle));
 
-	private static JobRecord CreateJob(string id, BatchHandle? batchHandle) =>
+	private static JobSubmission CreateJob(string id, BatchHandle? batchHandle) =>
 		CreateJob(JobHandle.FromString(id), batchHandle);
 
-	private static JobRecord CreateJob(JobHandle id, BatchHandle? batchHandle) =>
+	private static JobSubmission CreateJob(JobHandle id, BatchHandle? batchHandle) =>
 		new()
 		{
 			JobHandle = id,
@@ -974,7 +1199,7 @@ internal static class GraphStorageConformance
 			BatchHandle = batchHandle,
 		};
 
-	private static JobRecord CreateWaitingJob(string id, int dependencies) =>
+	private static JobSubmission CreateWaitingJob(string id, int dependencies) =>
 		CreateJob(id) with
 		{
 			State = JobState.AwaitingContinuation,
@@ -1003,15 +1228,7 @@ internal static class GraphStorageConformance
 		[
 			new()
 			{
-				QueueName = new JobRecord
-				{
-					JobHandle = JobHandle.FromString("default-queue-probe"),
-					JobName = "default-queue-probe",
-					Payload = "{}",
-					State = JobState.Pending,
-					DueAt = DateTimeOffset.UnixEpoch,
-					CreatedAt = DateTimeOffset.UnixEpoch,
-				}.QueueName,
+				QueueName = "default",
 				Capacity = Math.Max(jobNames.Length, 1),
 				JobCapacities = jobNames.Distinct(StringComparer.Ordinal)
 					.ToDictionary(static name => name, static _ => 1, StringComparer.Ordinal),

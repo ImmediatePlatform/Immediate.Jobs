@@ -94,12 +94,12 @@ public sealed partial class InMemoryJobStorage(
 				_batches[b.BatchHandle] = b;
 
 			foreach (var j in jobs)
-				_jobs[j.JobHandle] = j;
+				_jobs[j.JobHandle] = j with { QueueName = null };
 
 			_edges.AddRange(edges);
 
 			foreach (var schedule in recurringSchedules)
-				_recurring[schedule.Name] = schedule;
+				_recurring[schedule.Name] = schedule with { QueueName = null };
 		}
 	}
 

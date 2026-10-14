@@ -18,7 +18,6 @@ partial class NullablePayloadJob
 		timeProvider,
 		idGenerator,
 		"nullable-payload",
-		"default",
 		static options => new PayloadJsonContext(options).Payload
 	)
 	{

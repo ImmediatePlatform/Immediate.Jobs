@@ -1,5 +1,4 @@
 using Immediate.Jobs.Shared.Apis;
-using Immediate.Jobs.Shared.Internals;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.ChangeTracking;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
@@ -127,7 +126,6 @@ public static class ImmediateJobsModelBuilderExtensions
 		_ = entity.ToTable("immediate_jobs", schema);
 		_ = entity.HasKey(job => job.Id);
 		_ = entity.Property(job => job.Id).HasMaxLength(256);
-		_ = entity.Property(job => job.QueueName).HasMaxLength(256).HasDefaultValue(JobQueueDefinition.DefaultName).IsRequired();
 		_ = entity.Property(job => job.JobName).HasMaxLength(256).IsRequired();
 		_ = entity.Property(job => job.GroupId).HasMaxLength(128);
 		_ = entity.Property(job => job.Payload).IsRequired();
@@ -168,8 +166,8 @@ public static class ImmediateJobsModelBuilderExtensions
 		_ = entity.HasIndex(job => job.BatchHandle);
 		_ = entity.HasIndex(job => new { job.State, job.DueAt });
 		_ = entity.HasIndex(job => new { job.State, job.CreatedAt });
-		_ = entity.HasIndex(job => new { job.QueueName, job.State, job.DueAt, job.CreatedAt });
-		_ = entity.HasIndex(job => new { job.QueueName, job.State, job.GroupId });
+		_ = entity.HasIndex(job => new { job.JobName, job.State, job.DueAt, job.CreatedAt });
+		_ = entity.HasIndex(job => new { job.JobName, job.State, job.GroupId });
 	}
 
 	private static void ConfigureFairQueueGroups(
@@ -210,7 +208,6 @@ public static class ImmediateJobsModelBuilderExtensions
 		_ = entity.HasKey(schedule => schedule.Name);
 		_ = entity.Property(schedule => schedule.Name).HasMaxLength(256);
 		_ = entity.Property(schedule => schedule.JobName).HasMaxLength(256).IsRequired();
-		_ = entity.Property(schedule => schedule.QueueName).HasMaxLength(256).IsRequired();
 		_ = entity.Property(schedule => schedule.Cron).HasMaxLength(128).IsRequired();
 		_ = entity.Property(schedule => schedule.TimeZone).HasMaxLength(128).IsRequired();
 		_ = entity.Property(schedule => schedule.NextRunAt).HasConversion(
@@ -273,11 +270,10 @@ internal sealed class ImmediateJobBatchEntity
 	public Guid ConcurrencyStamp { get; set; }
 }
 
-internal sealed class ImmediateJobEntity
+internal class ImmediateJobEntity
 {
 	public string? CancellationReason { get; set; }
 	public string Id { get; set; } = null!;
-	public string QueueName { get; set; } = JobQueueDefinition.DefaultName;
 	public string JobName { get; set; } = null!;
 	public string? GroupId { get; set; }
 	public string Payload { get; set; } = null!;
@@ -335,12 +331,11 @@ internal sealed class ImmediateJobContinuationEntity
 	public ContinuationParentOutcome ParentOutcome { get; set; }
 }
 
-internal sealed class ImmediateRecurringJobEntity
+internal class ImmediateRecurringJobEntity
 {
 	public string? CancellationReason { get; set; }
 	public string Name { get; set; } = null!;
 	public string JobName { get; set; } = null!;
-	public string QueueName { get; set; } = null!;
 	public string Cron { get; set; } = null!;
 	public string TimeZone { get; set; } = null!;
 	public bool IsCodeDefined { get; set; }

@@ -10,7 +10,7 @@ public sealed record JobContinuationAddition
 	/// <summary>
 	/// 	The fully serialized new invocation.
 	/// </summary>
-	public required JobRecord Job { get; init; }
+	public required JobSubmission Job { get; init; }
 
 	/// <summary>
 	/// 	How the new invocation joins and modifies the current workflow.

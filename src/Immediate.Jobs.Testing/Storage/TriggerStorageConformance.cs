@@ -37,6 +37,14 @@ internal static class TriggerStorageConformance
 		CancellationToken cancellationToken
 	)
 	{
+		await storage.MergeJobDefinitionsListAsync(new()
+		{
+			Definitions =
+			[
+				new() { Name = JobName },
+			],
+		}, cancellationToken);
+
 		var now = timeProvider.GetUtcNow();
 		var job = CreateWaitingJob("parameters", now) with { Payload = "" };
 		await storage.EnqueueAsync(job, cancellationToken);
@@ -89,6 +97,14 @@ internal static class TriggerStorageConformance
 		CancellationToken cancellationToken
 	)
 	{
+		await storage.MergeJobDefinitionsListAsync(new()
+		{
+			Definitions =
+			[
+				new() { Name = JobName },
+			],
+		}, cancellationToken);
+
 		var now = timeProvider.GetUtcNow();
 		var job = CreateWaitingJob("release", now);
 		var cancelled = CreateWaitingJob("release-cancelled", now);
@@ -154,6 +170,14 @@ internal static class TriggerStorageConformance
 		CancellationToken cancellationToken
 	)
 	{
+		await storage.MergeJobDefinitionsListAsync(new()
+		{
+			Definitions =
+			[
+				new() { Name = JobName },
+			],
+		}, cancellationToken);
+
 		var now = timeProvider.GetUtcNow();
 		var job = CreateWaitingJob("future", now);
 		await storage.EnqueueAsync(job, cancellationToken);
@@ -192,6 +216,14 @@ internal static class TriggerStorageConformance
 		CancellationToken cancellationToken
 	)
 	{
+		await storage.MergeJobDefinitionsListAsync(new()
+		{
+			Definitions =
+			[
+				new() { Name = JobName },
+			],
+		}, cancellationToken);
+
 		var now = timeProvider.GetUtcNow();
 		var job = CreateWaitingJob("contention", now);
 		await storage.EnqueueAsync(job, cancellationToken);
@@ -211,6 +243,14 @@ internal static class TriggerStorageConformance
 		CancellationToken cancellationToken
 	)
 	{
+		await storage.MergeJobDefinitionsListAsync(new()
+		{
+			Definitions =
+			[
+				new() { Name = JobName },
+			],
+		}, cancellationToken);
+
 		var now = timeProvider.GetUtcNow();
 		await storage.EnqueueAsync(CreateWaitingJob("query-old", now.AddMinutes(-10)), cancellationToken);
 		await storage.EnqueueAsync(CreateWaitingJob("query-new", now), cancellationToken);
@@ -238,6 +278,14 @@ internal static class TriggerStorageConformance
 		CancellationToken cancellationToken
 	)
 	{
+		await storage.MergeJobDefinitionsListAsync(new()
+		{
+			Definitions =
+			[
+				new() { Name = JobName },
+			],
+		}, cancellationToken);
+
 		var graph = GetGraph(storage, ParentsName);
 		var now = timeProvider.GetUtcNow();
 
@@ -303,6 +351,14 @@ internal static class TriggerStorageConformance
 		CancellationToken cancellationToken
 	)
 	{
+		await storage.MergeJobDefinitionsListAsync(new()
+		{
+			Definitions =
+			[
+				new() { Name = JobName },
+			],
+		}, cancellationToken);
+
 		var graph = GetGraph(storage, SkipName);
 		var now = timeProvider.GetUtcNow();
 		var parent = CreateJob("skip-parent", now);
@@ -332,6 +388,14 @@ internal static class TriggerStorageConformance
 		CancellationToken cancellationToken
 	)
 	{
+		await storage.MergeJobDefinitionsListAsync(new()
+		{
+			Definitions =
+			[
+				new() { Name = JobName },
+			],
+		}, cancellationToken);
+
 		var graph = GetGraph(storage, BatchName);
 		var now = timeProvider.GetUtcNow();
 		var batchHandle = BatchHandle.FromString("trigger-batch");
@@ -417,6 +481,14 @@ internal static class TriggerStorageConformance
 		CancellationToken cancellationToken
 	)
 	{
+		await storage.MergeJobDefinitionsListAsync(new()
+		{
+			Definitions =
+			[
+				new() { Name = JobName },
+			],
+		}, cancellationToken);
+
 		var graph = GetGraph(storage, BatchCancellationName);
 		var now = timeProvider.GetUtcNow();
 		var batchHandle = BatchHandle.FromString("cancel-trigger-batch");
@@ -446,7 +518,7 @@ internal static class TriggerStorageConformance
 
 	private static async ValueTask AcquireAndCompleteAsync(
 		IJobStorage storage,
-		JobRecord job,
+		JobSubmission job,
 		string workerId,
 		CancellationToken cancellationToken
 	)
@@ -463,7 +535,7 @@ internal static class TriggerStorageConformance
 			"a storage advertising graph support must implement IJobGraphStorage"
 		);
 
-	private static JobRecord CreateJob(string id, DateTimeOffset createdAt) =>
+	private static JobSubmission CreateJob(string id, DateTimeOffset createdAt) =>
 		new()
 		{
 			JobHandle = JobHandle.FromString(id),
@@ -474,14 +546,14 @@ internal static class TriggerStorageConformance
 			CreatedAt = createdAt,
 		};
 
-	private static JobRecord CreateWaitingJob(string id, DateTimeOffset createdAt) =>
+	private static JobSubmission CreateWaitingJob(string id, DateTimeOffset createdAt) =>
 		CreateJob(id, createdAt) with
 		{
 			Payload = string.Create(CultureInfo.InvariantCulture, $$"""{"id":"{{id}}"}"""),
 			State = JobState.WaitingForTrigger,
 		};
 
-	private static JobContinuationEdge CreateEdge(JobRecord child, JobRecord parent) =>
+	private static JobContinuationEdge CreateEdge(JobSubmission child, JobSubmission parent) =>
 		new()
 		{
 			ChildJobHandle = child.JobHandle,

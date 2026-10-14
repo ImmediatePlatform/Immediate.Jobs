@@ -15,6 +15,10 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 		await TaskScheduler.Yield();
 
 		await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+		var definitions = await GetDefinitionNamesAsync(context, [schedule.JobName], cancellationToken);
+		if (definitions.TryGetValue(schedule.JobName, out var name))
+			schedule = schedule with { JobName = name };
+
 		if (await UpdateRecurringAsync(context, schedule, cancellationToken) != 0)
 			return;
 		await ThrowIfReplacingCodeDefinedScheduleAsync(context, schedule, cancellationToken);
@@ -95,7 +99,7 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 		await TaskScheduler.Yield();
 
 		await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
-		return await context.Set<ImmediateRecurringJobEntity>()
+		return await RecurringWithDefinitions(context)
 			.AsNoTracking()
 			.Where(schedule => !schedule.IsPaused && schedule.NextRunAt <= now && jobNames.Contains(schedule.JobName))
 			.OrderBy(schedule => schedule.NextRunAt)
@@ -249,7 +253,7 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 			.Where(entity => entity.Name == schedule.Name && (schedule.IsCodeDefined || !entity.IsCodeDefined))
 			.ExecuteUpdateAsync(setters => setters
 				.SetProperty(entity => entity.JobName, schedule.JobName)
-				.SetProperty(entity => entity.QueueName, schedule.QueueName)
+
 				.SetProperty(entity => entity.CancellationReason, entity => schedule.CancellationReason ?? entity.CancellationReason)
 				.SetProperty(entity => entity.Cron, schedule.Cron)
 				.SetProperty(entity => entity.TimeZone, schedule.TimeZone)

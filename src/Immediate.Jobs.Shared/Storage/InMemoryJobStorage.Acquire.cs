@@ -120,7 +120,7 @@ public sealed partial class InMemoryJobStorage
 	)
 	{
 		foreach (var candidate in _jobs.Values
-			.Where(job => string.Equals(job.QueueName, queueName, StringComparison.Ordinal) &&
+			.Where(job => string.Equals(GetQueueName(job.JobName), queueName, StringComparison.Ordinal) &&
 				jobCapacities.ContainsKey(job.JobName) &&
 				job.State is JobState.Pending or JobState.Scheduled &&
 				job.DueAt <= now)
@@ -144,7 +144,7 @@ public sealed partial class InMemoryJobStorage
 		Dictionary<string, int> jobCapacities,
 		DateTimeOffset now
 	) =>
-		_jobs.Values.Any(job => string.Equals(job.QueueName, queueName, StringComparison.Ordinal) &&
+		_jobs.Values.Any(job => string.Equals(GetQueueName(job.JobName), queueName, StringComparison.Ordinal) &&
 			job.GroupId is not null &&
 			jobCapacities.TryGetValue(job.JobName, out var capacity) &&
 			capacity > 0 &&
@@ -164,7 +164,7 @@ public sealed partial class InMemoryJobStorage
 		while (queueCapacity > 0)
 		{
 			var eligible = _jobs.Values
-				.Where(job => string.Equals(job.QueueName, queueName, StringComparison.Ordinal) &&
+				.Where(job => string.Equals(GetQueueName(job.JobName), queueName, StringComparison.Ordinal) &&
 					jobCapacities.TryGetValue(job.JobName, out var capacity) &&
 					capacity > 0 &&
 					job.State is JobState.Pending or JobState.Scheduled &&
@@ -174,13 +174,13 @@ public sealed partial class InMemoryJobStorage
 				break;
 
 			var activeCounts = _jobs.Values
-				.Where(job => string.Equals(job.QueueName, queueName, StringComparison.Ordinal) &&
+				.Where(job => string.Equals(GetQueueName(job.JobName), queueName, StringComparison.Ordinal) &&
 					job.GroupId is not null &&
 					job.State == JobState.Active &&
 					job.LeaseExpiresAt > now)
 				.GroupBy(static job => job.GroupId!, StringComparer.Ordinal)
 				.ToDictionary(static group => group.Key, static group => group.Count(), StringComparer.Ordinal);
-			var totalActive = _jobs.Values.Count(job => string.Equals(job.QueueName, queueName, StringComparison.Ordinal) &&
+			var totalActive = _jobs.Values.Count(job => string.Equals(GetQueueName(job.JobName), queueName, StringComparison.Ordinal) &&
 				job.State == JobState.Active &&
 				job.LeaseExpiresAt > now);
 			var groupedHeads = eligible
@@ -273,7 +273,7 @@ public sealed partial class InMemoryJobStorage
 		_jobs[job.JobHandle] = job;
 		CreateExecution(job, now);
 		MarkBatchStarted(job.BatchHandle, now);
-		return job;
+		return ReadRecord(job);
 	}
 
 	private void MarkBatchStarted(BatchHandle? batchHandle, DateTimeOffset startedAt)

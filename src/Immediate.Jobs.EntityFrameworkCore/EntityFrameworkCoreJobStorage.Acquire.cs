@@ -38,7 +38,7 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 					break;
 
 				var candidates = await ReadWithStrategyAsync(
-					(readContext, operationCancellationToken) => readContext.Set<ImmediateJobEntity>()
+					(readContext, operationCancellationToken) => JobsWithDefinitions(readContext)
 						.AsNoTracking()
 						.Where(job => job.QueueName == queue.QueueName && eligibleNames.Contains(job.JobName) &&
 							(((job.State == JobState.Scheduled || job.State == JobState.Pending) && job.DueAt <= now)
@@ -53,7 +53,7 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 				if (candidates.Count == 0)
 					break;
 
-				var selected = new List<ImmediateJobEntity>(candidates.Count);
+				var selected = new List<JobQueryRow>(candidates.Count);
 				var selectionCapacities = new Dictionary<string, int>(jobCapacities, StringComparer.OrdinalIgnoreCase);
 				foreach (var candidate in candidates)
 				{
@@ -103,7 +103,7 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 		var now = _timeProvider.GetUtcNow();
 		var ids = jobHandles.Select(static job => job.Value).ToList();
 		await using var readContext = await contextFactory.CreateDbContextAsync(cancellationToken);
-		var candidates = await readContext.Set<ImmediateJobEntity>()
+		var candidates = await JobsWithDefinitions(readContext)
 			.AsNoTracking()
 			.Where(job => ids.Contains(job.Id) &&
 				(((job.State == JobState.Scheduled || job.State == JobState.Pending) && job.DueAt <= now)
@@ -136,7 +136,7 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 	}
 
 	private async ValueTask<IReadOnlyList<JobRecord>> AcquireCandidatesAsync(
-		List<ImmediateJobEntity> candidates,
+		List<JobQueryRow> candidates,
 		string workerId,
 		TimeSpan lease,
 		DateTimeOffset now,
@@ -173,7 +173,7 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 			try
 			{
 				_ = await context.SaveChangesAsync(cancellationToken);
-				acquired.Add(ToRecord(entity));
+				acquired.Add(ToRecord(entity, candidate.QueueName));
 			}
 			catch (DbUpdateException)
 			{
@@ -187,14 +187,14 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 	}
 
 	private async ValueTask<bool> CandidateWasClaimedAsync(
-		ImmediateJobEntity candidate,
+		JobQueryRow candidate,
 		CancellationToken cancellationToken
 	)
 	{
 		try
 		{
 			await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
-			var currentStamp = await context.Set<ImmediateJobEntity>()
+			var currentStamp = await JobsWithDefinitions(context)
 				.AsNoTracking()
 				.Where(job => job.Id == candidate.Id)
 				.Select(static job => (Guid?)job.ConcurrencyStamp)

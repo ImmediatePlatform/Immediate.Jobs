@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Data;
 using Immediate.Jobs.Shared.Apis;
 using Immediate.Jobs.Shared.Storage;
 using Microsoft.EntityFrameworkCore;
@@ -22,7 +23,7 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 		{
 			await EnsureDefinitionCatalogAsync(token);
 			await using var context = await contextFactory.CreateDbContextAsync(token);
-			await using var transaction = await context.Database.BeginTransactionAsync(token);
+			await using var transaction = await context.Database.BeginTransactionAsync(IsolationLevel.Serializable, token);
 			// A singleton row serializes the complete read/merge/write across application instances.
 			var stamp = Guid.NewGuid();
 			await context.Set<ImmediateJobDefinitionCatalogEntity>().Where(item => item.Id == 1)
@@ -82,6 +83,11 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 			}
 
 			await context.SaveChangesAsync(token);
+			await context.Set<ImmediateFairQueueGroupEntity>()
+				.Where(group => !JobsWithDefinitions(context).Any(job =>
+					job.QueueName == group.QueueName && job.GroupId == group.GroupId
+					&& (job.State == JobState.Pending || job.State == JobState.Scheduled || job.State == JobState.Active)))
+				.ExecuteDeleteAsync(token);
 			await transaction.CommitAsync(token);
 		}, cancellationToken);
 		foreach (var report in reports)
@@ -124,7 +130,6 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 	{
 		Name = entity.Name,
 		JobName = entity.JobName,
-		QueueName = entity.QueueName,
 		CancellationReason = entity.CancellationReason,
 		Cron = entity.Cron,
 		TimeZone = entity.TimeZone,

@@ -1,3 +1,4 @@
+using System.Data;
 using System.Data.Common;
 using Immediate.Jobs.Shared.Apis;
 using Immediate.Jobs.Shared.Storage;
@@ -49,6 +50,11 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 			catch (DbUpdateConcurrencyException) when (++concurrencyAttempt < MaxConcurrencyAttempts)
 			{
 				// The transaction rolled back, so the next attempt re-evaluates the graph from durable state.
+			}
+			catch (Exception exception) when (exception.GetBaseException() is DbException { IsTransient: true }
+				&& ++concurrencyAttempt < MaxConcurrencyAttempts)
+			{
+				// Serializable transactions can lose a race with catalogue reconciliation or another submission.
 			}
 			catch (DbUpdateException exception) when (++concurrencyAttempt < MaxConcurrencyAttempts)
 			{
@@ -185,7 +191,7 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 	)
 	{
 		await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
-		await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
+		await using var transaction = await context.Database.BeginTransactionAsync(additions.Count == 0 ? IsolationLevel.ReadCommitted : IsolationLevel.Serializable, cancellationToken);
 		var job = await context.Set<ImmediateJobEntity>()
 			.SingleOrDefaultAsync(item => item.Id == jobHandle.Value && item.Attempt == executionNumber && item.State == JobState.Active && item.WorkerId == workerId, cancellationToken) ?? throw new ImmediateJobException($"Worker '{workerId}' does not own active job '{jobHandle}'.");
 		var now = _timeProvider.GetUtcNow();

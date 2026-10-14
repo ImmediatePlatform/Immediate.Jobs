@@ -27,7 +27,12 @@ internal sealed partial class LinqToDBJobStorage<T>
 
 		async Task Core(T connection)
 		{
+
 			var existing = await Recurring(connection).SingleOrDefaultAsync(item => item.Name == schedule.Name, cancellationToken);
+			var definitions = await GetDefinitionNamesAsync(connection, [schedule.JobName], cancellationToken);
+			if (definitions.TryGetValue(schedule.JobName, out var name))
+				schedule = schedule with { JobName = name };
+
 			if (existing is null)
 			{
 				try
@@ -48,7 +53,7 @@ internal sealed partial class LinqToDBJobStorage<T>
 
 			var oldStamp = existing.ConcurrencyStamp;
 			existing.JobName = schedule.JobName;
-			existing.QueueName = schedule.QueueName;
+
 			existing.CancellationReason = schedule.CancellationReason ?? existing.CancellationReason;
 			existing.IsPaused |= existing.CancellationReason is not null;
 			existing.Cron = schedule.Cron;
@@ -115,7 +120,7 @@ internal sealed partial class LinqToDBJobStorage<T>
 
 		await using var scope = contextScope.GetScope(out var connection);
 
-		var schedules = await Recurring(connection)
+		var schedules = await RecurringWithDefinitions(connection)
 			.Where(schedule => !schedule.IsPaused && schedule.NextRunAt <= now && jobNames.Contains(schedule.JobName))
 			.OrderBy(schedule => schedule.NextRunAt)
 			.Take(batchSize)
@@ -246,7 +251,7 @@ internal sealed partial class LinqToDBJobStorage<T>
 		var updated = await Recurring(connection)
 			.Where(entity => entity.Name == schedule.Name && entity.ConcurrencyStamp == oldStamp)
 			.Set(entity => entity.JobName, schedule.JobName)
-			.Set(entity => entity.QueueName, schedule.QueueName)
+
 			.Set(entity => entity.Cron, schedule.Cron)
 			.Set(entity => entity.TimeZone, schedule.TimeZone)
 			.Set(entity => entity.IsCodeDefined, schedule.IsCodeDefined)

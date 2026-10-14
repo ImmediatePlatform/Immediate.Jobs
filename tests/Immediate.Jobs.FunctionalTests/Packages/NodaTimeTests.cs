@@ -17,6 +17,8 @@ public sealed class NodaTimeTests
 		var cancellationToken = TestContext.Current.CancellationToken;
 		var start = Instant.FromUtc(2026, 7, 20, 10, 0);
 		await using var harness = new JobTestHarness(start.ToDateTimeOffset());
+		await harness.DrainAsync(TestContext.Current.CancellationToken);
+		await harness.Storage.MergeJobDefinitionsListAsync(new() { Definitions = [new() { Name = "batch-workflow-test" }] }, TestContext.Current.CancellationToken);
 		var scheduler = new BatchWorkflowJob.Scheduler(
 			harness.Storage,
 			harness.Services.GetRequiredService<IJobSerializer>(),
@@ -49,6 +51,8 @@ public sealed class NodaTimeTests
 		var cancellationToken = TestContext.Current.CancellationToken;
 		var start = Instant.FromUtc(2026, 7, 20, 10, 0);
 		await using var harness = new JobTestHarness(start.ToDateTimeOffset());
+		await harness.DrainAsync(TestContext.Current.CancellationToken);
+		await harness.Storage.MergeJobDefinitionsListAsync(new() { Definitions = [new() { Name = "batch-workflow-test" }] }, TestContext.Current.CancellationToken);
 		var scheduler = new BatchWorkflowJob.Scheduler(
 			harness.Storage,
 			harness.Services.GetRequiredService<IJobSerializer>(),
@@ -100,6 +104,8 @@ public sealed class NodaTimeTests
 	public async Task RecurringOverloadUsesNodaTimeZoneId()
 	{
 		await using var harness = new JobTestHarness();
+		await harness.DrainAsync(TestContext.Current.CancellationToken);
+		await harness.Storage.MergeJobDefinitionsListAsync(new() { Definitions = [new() { Name = "noda-recurring" }] }, TestContext.Current.CancellationToken);
 		var scheduler = new NodaRecurringJob.Scheduler(
 			harness.Storage,
 			harness.Services.GetRequiredService<IJobSerializer>(),

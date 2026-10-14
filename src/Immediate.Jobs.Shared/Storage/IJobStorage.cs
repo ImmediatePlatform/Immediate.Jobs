@@ -63,7 +63,10 @@ public interface IJobStorage : IAsyncDisposable
 	/// <returns>
 	/// 	A value task that represents the asynchronous enqueue operation.
 	/// </returns>
-	ValueTask EnqueueAsync(JobRecord job, CancellationToken cancellationToken = default);
+	/// <exception cref="KeyNotFoundException">
+	/// 	The job definition does not exist.
+	/// </exception>
+	ValueTask EnqueueAsync(JobSubmission job, CancellationToken cancellationToken = default);
 
 	/// <summary>
 	/// 	Atomically replaces the payload of an invocation that is waiting for a trigger.

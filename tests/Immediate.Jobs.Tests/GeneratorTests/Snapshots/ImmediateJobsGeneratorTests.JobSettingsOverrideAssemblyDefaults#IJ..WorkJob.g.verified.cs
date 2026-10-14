@@ -18,7 +18,6 @@ partial class WorkJob
 		timeProvider,
 		idGenerator,
 		"work",
-		"default",
 		static options => new PayloadJsonContext(options).Payload
 	)
 		, global::Immediate.Jobs.Shared.Interfaces.IRecurringJobScheduler

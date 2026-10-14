@@ -152,6 +152,14 @@ public sealed partial class JobSchedulingService : BackgroundService
 	}
 
 	/// <inheritdoc />
+	public override async Task StartAsync(CancellationToken cancellationToken)
+	{
+		await TaskScheduler.Yield();
+		await InitializeAsync(cancellationToken);
+		await base.StartAsync(cancellationToken);
+	}
+
+	/// <inheritdoc />
 	protected override async Task ExecuteAsync(CancellationToken stoppingToken)
 	{
 		// initialization needs to be done no matter what, so that storage is initialized
@@ -239,6 +247,8 @@ public sealed partial class JobSchedulingService : BackgroundService
 
 	private async Task InitializeAsync(CancellationToken cancellationToken)
 	{
+		if (_drainInitialized)
+			return;
 		await _storage.InitializeAsync(cancellationToken);
 
 		var definitions = _definitions.Values
@@ -269,7 +279,6 @@ public sealed partial class JobSchedulingService : BackgroundService
 			{
 				Name = d.Name,
 				JobName = d.Name,
-				QueueName = d.Queue.Name,
 				Cron = d.Cron!,
 				TimeZone = d.TimeZone,
 				IsCodeDefined = true,
@@ -290,6 +299,7 @@ public sealed partial class JobSchedulingService : BackgroundService
 			},
 			cancellationToken
 		);
+		_drainInitialized = true;
 	}
 
 	/// <summary>
@@ -543,7 +553,7 @@ public sealed partial class JobSchedulingService : BackgroundService
 			}
 		);
 
-		using var logScope = _logger.BeginScope(new Dictionary<string, object>(StringComparer.Ordinal)
+		using var logScope = _logger.BeginScope(new Dictionary<string, object?>(StringComparer.Ordinal)
 		{
 			["JobName"] = record.JobName,
 			["QueueName"] = record.QueueName,
@@ -592,13 +602,16 @@ public sealed partial class JobSchedulingService : BackgroundService
 
 			if (_storage is IJobGraphStorage graphStorage)
 			{
+				var additions = executionBuffer.SealAndSnapshot();
 				await graphStorage.CompleteWithContinuationsAsync(
 					record.JobHandle,
 					record.Attempt,
 					_workerId,
-					executionBuffer.SealAndSnapshot(),
+					additions,
 					stoppingToken
 				);
+				foreach (var addition in additions)
+					JobTelemetry.Enqueued(addition.Job.JobName);
 			}
 			else
 			{
@@ -755,7 +768,8 @@ public sealed partial class JobSchedulingService : BackgroundService
 		JobTelemetry.Acquired();
 		Interlocked.Increment(ref _reservations);
 		_openLeases[record.JobHandle] = new(record, _timeProvider.GetUtcNow() + LeaseRenewalInterval);
-		_queueReservations.AddOrUpdate(record.QueueName, 1, static (_, count) => count + 1);
+		if (record.QueueName is { } queueName)
+			_queueReservations.AddOrUpdate(queueName, 1, static (_, count) => count + 1);
 		_jobReservations.AddOrUpdate(record.JobName, 1, static (_, count) => count + 1);
 	}
 
@@ -764,7 +778,8 @@ public sealed partial class JobSchedulingService : BackgroundService
 		JobTelemetry.Released();
 		Interlocked.Decrement(ref _reservations);
 		_openLeases.TryRemove(record.JobHandle, out _);
-		_queueReservations.AddOrUpdate(record.QueueName, 0, static (_, count) => Math.Max(0, count - 1));
+		if (record.QueueName is { } queueName)
+			_queueReservations.AddOrUpdate(queueName, 0, static (_, count) => Math.Max(0, count - 1));
 		_jobReservations.AddOrUpdate(record.JobName, 0, static (_, count) => Math.Max(0, count - 1));
 	}
 
@@ -901,7 +916,6 @@ public sealed partial class JobSchedulingService : BackgroundService
 			{
 				JobHandle = JobHandle.FromString(_idGenerator.CreateId(IdKind.Job)),
 				JobName = schedule.JobName,
-				QueueName = definition.Queue.Name,
 				Payload = "{}",
 				State = JobState.Pending,
 				DueAt = dueAt,
@@ -923,7 +937,7 @@ public sealed partial class JobSchedulingService : BackgroundService
 					if (await _storage.MaterializeRecurringAsync(schedule, record, next, dependencies: null, cancellationToken)
 						&& record.State == JobState.Pending)
 					{
-						JobTelemetry.Enqueued(record.JobName, record.QueueName);
+						JobTelemetry.Enqueued(record.JobName);
 					}
 
 					break;
@@ -966,7 +980,7 @@ public sealed partial class JobSchedulingService : BackgroundService
 						)
 						&& record.State == JobState.Pending)
 					{
-						JobTelemetry.Enqueued(record.JobName, record.QueueName);
+						JobTelemetry.Enqueued(record.JobName);
 					}
 
 					break;
@@ -977,7 +991,7 @@ public sealed partial class JobSchedulingService : BackgroundService
 				{
 
 					if (await _storage.MaterializeRecurringAsync(schedule, record, next, dependencies: null, cancellationToken))
-						JobTelemetry.Enqueued(record.JobName, record.QueueName);
+						JobTelemetry.Enqueued(record.JobName);
 
 					break;
 				}

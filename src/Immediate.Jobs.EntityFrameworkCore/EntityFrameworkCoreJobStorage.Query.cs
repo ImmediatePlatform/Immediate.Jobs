@@ -17,7 +17,7 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 		await TaskScheduler.Yield();
 
 		await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
-		var rawCounts = await context.Set<ImmediateJobEntity>()
+		var rawCounts = await JobsWithDefinitions(context)
 			.AsNoTracking()
 			.GroupBy(job => job.State)
 			.Select(group => new { State = group.Key, Count = group.LongCount() })
@@ -26,7 +26,7 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 		foreach (var item in rawCounts)
 			counts[item.State] = item.Count;
 
-		var recurring = await context.Set<ImmediateRecurringJobEntity>()
+		var recurring = await RecurringWithDefinitions(context)
 			.AsNoTracking()
 			.OrderBy(schedule => schedule.Name)
 			.Select(schedule => new RecurringJobSchedule
@@ -72,7 +72,7 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 		await TaskScheduler.Yield();
 
 		await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
-		var jobs = context.Set<ImmediateJobEntity>().AsNoTracking();
+		var jobs = JobsWithDefinitions(context).AsNoTracking();
 		if (query.JobHandle is { Value: { } id })
 			jobs = jobs.Where(job => job.Id == id);
 		if (query.State is { } state)
@@ -113,7 +113,7 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 		await TaskScheduler.Yield();
 
 		await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
-		var jobs = context.Set<ImmediateJobEntity>().AsNoTracking();
+		var jobs = JobsWithDefinitions(context).AsNoTracking();
 
 		var entities = await jobs
 			.Where(job => job.JobName == jobName)
@@ -142,7 +142,7 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 		await TaskScheduler.Yield();
 
 		await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
-		var job = await context.Set<ImmediateJobEntity>()
+		var job = await JobsWithDefinitions(context)
 			.AsNoTracking()
 			.SingleOrDefaultAsync(item => item.Id == jobHandle.Value, cancellationToken);
 		if (job is null)
@@ -263,7 +263,7 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 		await TaskScheduler.Yield();
 
 		await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
-		var jobs = context.Set<ImmediateJobEntity>()
+		var jobs = JobsWithDefinitions(context)
 			.AsNoTracking()
 			.Where(job => job.BatchHandle == batchHandle.Value);
 		if (query.State is { } state)
@@ -304,7 +304,7 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 			return null;
 		}
 
-		var jobs = await context.Set<ImmediateJobEntity>()
+		var jobs = await JobsWithDefinitions(context)
 			.AsNoTracking()
 			.Where(job => job.BatchHandle == batchHandle.Value)
 			.OrderBy(job => job.CreatedAt)
@@ -335,7 +335,7 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 		await TaskScheduler.Yield();
 
 		await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
-		var job = await context.Set<ImmediateJobEntity>()
+		var job = await JobsWithDefinitions(context)
 			.AsNoTracking()
 			.SingleOrDefaultAsync(item => item.Id == jobHandle.Value, cancellationToken);
 		if (job is null)

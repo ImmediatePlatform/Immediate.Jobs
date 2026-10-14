@@ -21,7 +21,7 @@ public sealed partial class InMemoryJobStorage
 			{
 				CapturedAt = timeProvider.GetUtcNow(),
 				Counts = counts,
-				Recurring = [.. _recurring.Values],
+				Recurring = [.. _recurring.Values.Select(ReadRecord)],
 				Servers = servers,
 				Capabilities = this.GetCapabilities(),
 			};
@@ -37,7 +37,7 @@ public sealed partial class InMemoryJobStorage
 
 		lock (_gate)
 		{
-			var jobs = _jobs.Values.AsEnumerable();
+			var jobs = _jobs.Values.Select(ReadRecord);
 			if (query.JobHandle is { } id)
 				jobs = jobs.Where(x => x.JobHandle == query.JobHandle);
 			if (query.State is { } state)
@@ -72,6 +72,7 @@ public sealed partial class InMemoryJobStorage
 		lock (_gate)
 		{
 			return _jobs.Values
+				.Select(ReadRecord)
 				.Where(j => string.Equals(j.JobName, jobName, StringComparison.OrdinalIgnoreCase))
 				.Where(
 					j => j.State is
@@ -189,11 +190,11 @@ public sealed partial class InMemoryJobStorage
 					.ThenBy(job => job.JobHandle.Value, StringComparer.Ordinal)
 					.Skip(query.Skip)
 					.Take(query.Take)
-					.Select(static job => new BatchMemberStatus
+					.Select(job => new BatchMemberStatus
 					{
 						JobHandle = job.JobHandle,
 						JobName = job.JobName,
-						QueueName = job.QueueName,
+						QueueName = GetQueueName(job.JobName),
 			CancellationReason = job.CancellationReason,
 						State = job.State,
 						Attempt = job.Attempt,
@@ -256,7 +257,7 @@ public sealed partial class InMemoryJobStorage
 			{
 				JobHandle = job.JobHandle,
 				JobName = job.JobName,
-				QueueName = job.QueueName,
+				QueueName = GetQueueName(job.JobName),
 				CancellationReason = job.CancellationReason,
 				State = job.State,
 				Attempt = job.Attempt,

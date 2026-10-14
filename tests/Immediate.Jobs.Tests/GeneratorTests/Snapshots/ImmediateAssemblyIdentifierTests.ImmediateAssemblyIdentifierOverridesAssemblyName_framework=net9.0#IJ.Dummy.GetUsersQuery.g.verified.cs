@@ -19,7 +19,6 @@ partial class GetUsersQuery
 		timeProvider,
 		idGenerator,
 		"get-users-query",
-		"default",
 		static options => new PayloadJsonContext(options).Payload
 	)
 	{
