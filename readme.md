@@ -80,8 +80,8 @@ Explicit `[Job]` settings override assembly defaults, including null values and 
 disables its inherited timeout, and `TimeZone = null` uses UTC. Defaults apply only to jobs declared
 in that assembly; they do not configure server tags or `[Handler]` registration tags.
 
-`MaxAttempts` must be at least one, and a non-null `Timeout` must be a positive, invariant-culture
-`TimeSpan` string. Use a nonblank time-zone identifier supported by the server's
+`MaxAttempts` must be at least one, and a non-null `Timeout` must be a positive invariant-culture
+`TimeSpan` string (for example, `"00:02:00"`). Use a nonblank time-zone identifier supported by the server's
 `TimeZoneInfo.FindSystemTimeZoneById`. Invalid assembly defaults produce `IJOB0017` at the attribute,
 even without any jobs, and prevent job generation even when a job overrides the invalid setting.
 

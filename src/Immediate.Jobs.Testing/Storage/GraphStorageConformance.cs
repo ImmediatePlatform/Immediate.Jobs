@@ -111,7 +111,7 @@ internal static class GraphStorageConformance
 		{
 			ChildJobHandle = child.JobHandle,
 			ParentJobHandle = parent.JobHandle,
-			Delay = TimeSpan.FromMinutes(7),
+			Delay = TimeSpan.FromMinutes(7) + TimeSpan.FromTicks(1),
 			Trigger = ContinuationTrigger.Complete,
 		};
 
@@ -151,7 +151,7 @@ internal static class GraphStorageConformance
 		{
 			ChildJobHandle = child.JobHandle,
 			ParentJobHandle = parent.JobHandle,
-			Delay = TimeSpan.FromMinutes(7),
+			Delay = TimeSpan.FromMinutes(7) + TimeSpan.FromTicks(1),
 			Trigger = ContinuationTrigger.Complete,
 		};
 
@@ -205,7 +205,7 @@ internal static class GraphStorageConformance
 		await graph.EnqueueBatchAsync(
 			CreateBatch("delayed-batch", 2),
 			[parent, child],
-			[new() { ChildJobHandle = child.JobHandle, ParentJobHandle = parent.JobHandle, Delay = TimeSpan.FromMinutes(10) }],
+			[new() { ChildJobHandle = child.JobHandle, ParentJobHandle = parent.JobHandle, Delay = TimeSpan.FromMinutes(10) + TimeSpan.FromMilliseconds(1) }],
 			cancellationToken
 		);
 
@@ -225,7 +225,7 @@ internal static class GraphStorageConformance
 		);
 		ConformanceAssert.Equal(JobState.Scheduled, released.State, PropagationDelayName,
 			"the child must remain scheduled during its post-parent delay");
-		ConformanceAssert.Equal(settledAt.AddMinutes(10), released.DueAt, PropagationDelayName,
+		ConformanceAssert.Equal(settledAt.AddMinutes(10).AddMilliseconds(1), released.DueAt, PropagationDelayName,
 			"the child due time must be based on parent settlement rather than enqueue time");
 	}
 

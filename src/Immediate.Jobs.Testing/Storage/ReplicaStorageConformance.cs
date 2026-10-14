@@ -10,7 +10,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 #pragma warning disable IDE0130
 namespace Immediate.Jobs.Testing;
 
-internal static class ReplicaStorageConformance
+internal static partial class ReplicaStorageConformance
 {
 	private const string ExactDueName = "Replica.Acquisition.ClaimsExactlyTheRequestedDueJobs";
 	private const string DuplicateName = "Replica.Acquisition.IgnoresDuplicateAndMissingRequestedIds";
@@ -25,6 +25,7 @@ internal static class ReplicaStorageConformance
 	internal static IReadOnlyList<JobStorageConformanceTestCase> Cases { get; } =
 	[
 		new(HeartbeatName, StorageCapabilities.Graph, PersistsSingleServerHeartbeatsAsync),
+		new(EnqueueRaceName, StorageCapabilities.Graph, AcquisitionWaitsUntilEnqueueHasUpdatedBothStoresAsync),
 		new(ExactDueName, StorageCapabilities.Graph, ClaimsExactlyRequestedDueJobsAsync),
 		new(DuplicateName, StorageCapabilities.Graph, IgnoresDuplicateAndMissingIdsAsync),
 		new(ProjectionName, StorageCapabilities.Graph, PersistsProjectionAndHistoryAsync),

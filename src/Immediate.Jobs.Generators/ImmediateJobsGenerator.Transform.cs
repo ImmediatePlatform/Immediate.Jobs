@@ -70,6 +70,12 @@ public sealed partial class ImmediateJobsGenerator
 		if (maxConcurrency < 0)
 			return null;
 
+		if (arguments.GetValidAcquisitionWindow("SlidingWindow") is not { } slidingWindow)
+			return null;
+
+		if (arguments.GetValidAcquisitionWindow("FixedWindow") is not { } fixedWindow)
+			return null;
+
 		if (arguments.GetValidEnumValue("Backoff", "ExponentialJitter") is not { } backoff)
 			return null;
 
@@ -79,9 +85,22 @@ public sealed partial class ImmediateJobsGenerator
 		if (arguments.GetValidEnumValue("MisfireHandlingMode", "EnqueueOne") is not { } misfireHandlingMode)
 			return null;
 
-		var timeout = arguments.GetStringValue("Timeout");
-		if (timeout is { } && (!TimeSpan.TryParse(timeout, CultureInfo.InvariantCulture, out var timeoutValue) || timeoutValue <= TimeSpan.Zero))
+		if (
+			arguments.GetStringValue("Timeout") switch
+			{
+				null => (true, default(TimeSpan?)),
+
+				{ } str
+					when TimeSpan.TryParse(str, CultureInfo.InvariantCulture, out var timeoutValue)
+					&& timeoutValue > TimeSpan.Zero =>
+					(true, timeoutValue),
+
+				_ => (false, null),
+			} is not (true, var timeout)
+		)
+		{
 			return null;
+		}
 
 		var backoffBase = arguments.GetStringValue("BackoffBase") ?? "00:00:05";
 		if (!TimeSpan.TryParse(backoffBase, CultureInfo.InvariantCulture, out var backoffValue) || backoffValue <= TimeSpan.Zero)
@@ -150,10 +169,12 @@ public sealed partial class ImmediateJobsGenerator
 			MaxAttempts = maxAttempts,
 			Timeout = timeout,
 			MaxConcurrency = maxConcurrency,
+			SlidingWindow = slidingWindow,
+			FixedWindow = fixedWindow,
 			OverlapPolicy = overlapPolicy,
 			MisfireHandlingMode = misfireHandlingMode,
 			Backoff = backoff,
-			BackoffBase = backoffBase,
+			BackoffBase = backoffValue,
 			HandlerTags = handlerAttribute?.NamedArguments.GetStringArray("Tags"),
 			JobTags = jobTags,
 			Contexts = contexts,

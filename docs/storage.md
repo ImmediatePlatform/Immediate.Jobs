@@ -4,7 +4,7 @@
 
 Two interfaces in `src/Immediate.Jobs.Shared/Storage`:
 
-- **`IJobStorage`**: queueing, acquisition (including fair-queue policies), leases, completion and
+- **`IJobStorage`**: queueing, definition pause/resume and acquisition status, acquisition (including rate limits and fair-queue policies), leases, completion and
   failure, scoped definition catalogues, recurring schedules, wait-for-trigger updates and triggers, queries, monitoring snapshots,
   heartbeats, purging. Every provider implements all of it.
 - **`IJobGraphStorage : IJobStorage`**: batches, continuations, dynamic additions from running jobs,
@@ -43,18 +43,31 @@ them for monitoring and preventing ordinary resume or future materialization. Te
 history and definitions outside the server tag scope are preserved. Each removal is logged with the
 number of canceled invocations and schedules.
 
+Durations stored in relational columns, including continuation delays, use `TimeSpan.ToString()`
+(for example, `00:00:05` or `00:00:01.0000001`). Reads parse these strings using invariant culture.
+JSON properties use the built-in `System.Text.Json` `TimeSpan` format. Job attribute duration
+settings accept invariant `TimeSpan` strings.
+
+SQL Server timestamps use `datetimeoffset`; PostgreSQL uses `timestamp with time zone`
+and returns UTC instants. SQLite and Redis persist readable ISO8601 timestamps. Native
+database precision applies, so timestamp round trips may lose sub-microsecond precision
+or the original offset. Redis sorted-set scores remain numeric indexes.
+
 Definition names are case-insensitive identities and retain their readable spelling. In-memory
 and single-server use `OrdinalIgnoreCase`; SQL Server inherits database collation; PostgreSQL uses
-a nondeterministic ICU collation (`und-u-ks-level2`); SQLite uses `NOCASE` (ASCII-only database
-comparison). EF tracking uses an ordinal case-insensitive key comparer. EF applications with custom
+a nondeterministic ICU collation (`und-u-ks-level2`); SQLite uses `NOCASE`. SQLite's case-insensitive
+name lookups are limited to ASCII letters: `Invoice` and `invoice` match, while `Résumé` and
+`RÉSUMÉ` do not. Keep non-ASCII characters in their registered case when supplying a name.
+EF tracking uses an ordinal case-insensitive key comparer. EF applications with custom
 provider conventions can pass `definitionNameCollation` to `AddImmediateJobs`.
 Definition names must not have leading or trailing whitespace: the job analyzer reports `IJOB0008`,
 and storage rejects invalid manually supplied names before modifying the catalogue.
 
 Relational providers store definition configuration in individual columns in
 `immediate_job_definition_metadata`; the name key is the only persisted definition name.
-`TimeoutTicks` and `BackoffBaseTicks` store exact .NET ticks (100 nanoseconds), and policy enums
-use small integers. Tags occupy a single JSON array column (`Tags`): PostgreSQL uses `jsonb`,
+`Timeout`, `BackoffBase`, `SlidingWindowPeriod`, and `FixedWindowPeriod`
+store `TimeSpan` strings with exact 100-nanosecond precision; window maxima use integer
+columns, and policy enums use small integers. Tags occupy a single JSON array column (`Tags`): PostgreSQL uses `jsonb`,
 SQL Server uses `nvarchar(max)`, and SQLite uses `text`. Redis continues storing serialized definition records.
 
 Code-defined schedules without catalogue metadata belong to the `default` scope. A server without
@@ -104,7 +117,7 @@ Active workers retain their acquired context for the current attempt.
 | Provider | Location | Concurrency idiom |
 | --- | --- | --- |
 | In-memory | `Shared/Storage/InMemoryJobStorage.cs` | One `Lock` (`_gate`) around every operation. Also the primary inside single-server mode. |
-| Single-server | `Shared/Storage/SingleServerJobStorage.cs` | Mutations go to the durable store first, then to the in-memory primary. Acquisition is decided by the primary and mirrored with `IJobGraphStorage.AcquireJobsAsync`. Startup recovery reloads every job (in every state), its batches, and standalone continuation edges from the durable store into the primary. |
+| Single-server | `Shared/Storage/SingleServerJobStorage.cs` | Mutations go to the durable store first, then to the in-memory primary. A shared semaphore serializes write-through mutations and acquisitions so durable claims cannot overtake an unfinished mirror update. Acquisition reserves definition controls and claims jobs in durable storage, then mirrors committed ownership into the primary, so pauses and counters survive restarts. Startup recovery reloads every job (in every state), its batches, and standalone continuation edges from the durable store into the primary. |
 | EF Core | `EntityFrameworkCore/EntityFrameworkCoreJobStorage.cs` | `IDbContextFactory<TContext>`. Each mutation is a `...CoreAsync` method that opens a context and transaction, updates tracked entities with a fresh `ConcurrencyStamp`, and runs through `RetryConcurrencyAsync` (optimistic-concurrency retries) or `ExecuteWithStrategyAsync`. |
 | LinqToDB | `LinqToDB/LinqToDBJobStorage.cs` | Explicit compare-and-swap: `UpdateJobAsync(connection, job, oldStamp)` / `UpdateBatchAsync` return `false` on a lost race, and the caller throws `LostRaceException`, which `RetryConcurrencyAsync` retries. |
 | Redis | `Redis/RedisJobStorage.cs`, `Redis/RedisScripts.cs` | Every multi-key mutation is one Lua script, so it is atomic. Implements `IJobStorage` only. |
@@ -119,17 +132,52 @@ back a job transition.
 ### Relational schema
 
 Tables: `immediate_jobs`, `immediate_job_executions`, `immediate_job_continuations`,
-`immediate_job_batches`, `immediate_recurring_jobs`, `immediate_job_servers`, and
-`immediate_fair_queue_groups`, and `immediate_job_definition_metadata`. EF Core also uses
-`immediate_job_definition_catalog` to serialize catalogue updates.
+`immediate_job_batches`, `immediate_recurring_jobs`, `immediate_job_servers`,
+`immediate_fair_queue_groups`, `immediate_job_definition_metadata`, `immediate_job_definitions`,
+and `immediate_job_acquisitions`. EF Core also uses `immediate_job_definition_catalog` to serialize
+catalogue updates.
 
-- **EF Core**: applications call `modelBuilder.AddImmediateJobs()` and own their migrations. A schema
-  change is a breaking change for every EF Core user, and needs a migration note in the pull request.
-- **LinqToDB**: `CreateImmediateJobsSchemaAsync` creates tables for new databases only; existing
-  databases need a manual additive update.
+- **EF Core**: applications call `modelBuilder.AddImmediateJobs()` to configure the current model.
+- **LinqToDB**: `CreateImmediateJobsSchemaAsync` bootstraps the current tables and indexes.
 
-Prefer changes that fit the existing columns. For example, wait-for-trigger reuses `State` and
-`Payload` instead of adding columns.
+Pre-v1.0 schema changes are applied directly. No migrations, backfills, or compatibility handling for
+prior data are provided; users recreate their storage when its schema no longer matches the code.
+
+### Definition acquisition controls
+
+Storage reads acquisition limits from persisted definition metadata for acquisition, monitoring,
+and pause/resume controls. Acquisition requests carry worker identity, leases, queue capacities,
+and optional fair-queue policy.
+`JobAcquisitionLimits` uses Immediate.Validations to validate nonnegative maxima, positive periods,
+and paired window settings. `JobAcquisitionLimits.Validate(limits)` returns validation results;
+attribute settings are validated by the analyzer and generator.
+
+Operational counters are stored separately. `immediate_job_definitions` stores `IsPaused`, `AcquisitionStatus`,
+`NextEligibleAt`, and fixed-window start/count. Sliding windows use independent acquisition rows
+indexed by job name and timestamp; deleting or purging invocation history must not erase rate capacity.
+Definition timestamps and sliding acquisition timestamps use the same native temporal columns
+as other records; precision follows the database engine. Concurrency is evaluated against active,
+unexpired invocation leases, indexed by job name/state/expiry.
+
+SQL providers take a write lock on the definition row when claiming a job and hold it through
+claim/counter commit. Advisory acquisition filters and monitoring queries do not insert or update
+definition rows or acquire write locks. In-memory uses its existing gate; Redis evaluates and claims
+inside one Lua script, caching each definition status for the invocation and refreshing it after a claim.
+All enabled limits must pass, including fair-queue paths. Failed claims roll back reservations.
+
+`PauseJobAsync` prevents acquisition while allowing enqueue, trigger release, and recurring
+materialization. `ResumeJobAsync` clears only the pause and reevaluates persisted limits without
+changing definition configuration or resetting counters. Both are idempotent and require an existing
+definition. `GetJobAcquisitionStateAsync` reevaluates current eligibility using persisted limits; stored
+status is a snapshot and must never be the sole authority for acquisition. Pause takes precedence over
+rate and concurrency restrictions. Time-based `NextEligibleAt` is the latest blocking window boundary;
+it is absent if pause or concurrency also blocks work. `ActiveCount` counts active, unexpired leases
+even for definitions without a concurrency limit. `IsConcurrencyLimited` reports exhausted concurrency
+independently of the primary restriction, including while paused.
+
+The shared `JobAcquisitionEvaluator` and
+`JobAcquisitionLimits.FixedWindowStart` are public provider helpers. Custom providers have the same
+access as built-in providers; `Immediate.Jobs.Shared` grants no friend-assembly access.
 
 ### Redis keys
 
@@ -141,9 +189,12 @@ may build keys from the root):
 | `job:{id}` | hash | Serialized `record` plus mutable fields (`state`, `due`, `dueScore`, `dueMember`, `attempt`, `worker`, `lease`, `group`, …). Reads overlay the mutable fields onto the record. |
 | `jobs` | sorted set | Every job id, scored by creation time. |
 | `state:{n}` / `completed:{n}` | set / sorted set | Ids by state; terminal ids by completion time. |
-| `due:{job name}` | sorted set | Due-ordered members `dueTicks\|createdTicks\|id`. Stale members are removed lazily. |
+| `due:{job name}` | sorted set | Due-ordered members `dueTimestamp\|createdTimestamp\|id`. Stale members are removed lazily. |
 | `leases` | sorted set | Active job ids by lease expiry. |
 | `active:job:{job name}` | sorted set | Active invocations for one job definition, scored by lease expiry. |
+| `definitions:state:{name}` | hash | Definition pause, acquisition status, next eligible time, fixed-window start/count. |
+| `definitions:acquisitions:{name}` | sorted set | Sliding acquisition history, ordered lexicographically by UTC ISO8601 timestamps and a unique execution identity. |
+| `definitions:leases:{name}` | sorted set | Active lease candidates by definition; refreshed on renewal and cleaned against invocation state during evaluation. |
 | `executions:index:{id}` / `executions:data:{id}` | sorted set / hash | Execution history. |
 | `recurring:*` | various | Schedules, global and per-job due indexes, names, materialization de-duplication. |
 | `server:{worker}` / `servers` | hash / sorted set | Heartbeats, including normalized tags. |

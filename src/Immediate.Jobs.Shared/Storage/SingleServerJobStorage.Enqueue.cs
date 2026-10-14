@@ -11,9 +11,18 @@ internal sealed partial class SingleServerJobStorage
 		SingleServerEnqueueAsyncCalled(job.JobHandle);
 		await TaskScheduler.Yield();
 		await EnsureInitializedAsync(cancellationToken);
+		await _writeThrough.WaitAsync(cancellationToken);
 
-		await DurableStorage.EnqueueAsync(job, cancellationToken);
-		await PrimaryStorage.EnqueueAsync(job, cancellationToken);
+		try
+		{
+
+			await DurableStorage.EnqueueAsync(job, cancellationToken);
+			await PrimaryStorage.EnqueueAsync(job, cancellationToken);
+		}
+		finally
+		{
+			_writeThrough.Release();
+		}
 	}
 
 	/// <inheritdoc />
@@ -26,9 +35,18 @@ internal sealed partial class SingleServerJobStorage
 		SingleServerEnqueueContinuationAsyncCalled(job.JobHandle, edges.Count);
 		await TaskScheduler.Yield();
 		await EnsureInitializedAsync(cancellationToken);
+		await _writeThrough.WaitAsync(cancellationToken);
 
-		await JobGraphStorage.EnqueueContinuationAsync(job, edges, cancellationToken);
-		await PrimaryStorage.EnqueueContinuationAsync(job, edges, cancellationToken);
+		try
+		{
+
+			await JobGraphStorage.EnqueueContinuationAsync(job, edges, cancellationToken);
+			await PrimaryStorage.EnqueueContinuationAsync(job, edges, cancellationToken);
+		}
+		finally
+		{
+			_writeThrough.Release();
+		}
 	}
 
 	/// <inheritdoc />
@@ -42,9 +60,18 @@ internal sealed partial class SingleServerJobStorage
 		SingleServerEnqueueBatchAsyncCalled(batch.BatchHandle, jobs.Count, edges.Count);
 		await TaskScheduler.Yield();
 		await EnsureInitializedAsync(cancellationToken);
+		await _writeThrough.WaitAsync(cancellationToken);
 
-		await JobGraphStorage.EnqueueBatchAsync(batch, jobs, edges, cancellationToken);
-		await PrimaryStorage.EnqueueBatchAsync(batch, jobs, edges, cancellationToken);
+		try
+		{
+
+			await JobGraphStorage.EnqueueBatchAsync(batch, jobs, edges, cancellationToken);
+			await PrimaryStorage.EnqueueBatchAsync(batch, jobs, edges, cancellationToken);
+		}
+		finally
+		{
+			_writeThrough.Release();
+		}
 	}
 
 	/// <inheritdoc />
@@ -59,9 +86,18 @@ internal sealed partial class SingleServerJobStorage
 		SingleServerAddBatchJobAsyncCalled(currentJobHandle, executionNumber, job.JobHandle);
 		await TaskScheduler.Yield();
 		await EnsureInitializedAsync(cancellationToken);
+		await _writeThrough.WaitAsync(cancellationToken);
 
-		await JobGraphStorage.AddBatchJobAsync(currentJobHandle, executionNumber, job, options, cancellationToken);
-		await PrimaryStorage.AddBatchJobAsync(currentJobHandle, executionNumber, job, options, cancellationToken);
+		try
+		{
+
+			await JobGraphStorage.AddBatchJobAsync(currentJobHandle, executionNumber, job, options, cancellationToken);
+			await PrimaryStorage.AddBatchJobAsync(currentJobHandle, executionNumber, job, options, cancellationToken);
+		}
+		finally
+		{
+			_writeThrough.Release();
+		}
 	}
 
 	[LoggerMessage(

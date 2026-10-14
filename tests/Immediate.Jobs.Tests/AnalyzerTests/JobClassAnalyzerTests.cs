@@ -38,6 +38,10 @@ public sealed class JobClassAnalyzerTests
 			[Handler, Job(
 				MaxAttempts = 3,
 				MaxConcurrency = 1,
+				SlidingWindowMax = 10,
+				SlidingWindowPeriod = "00:00:01.0000003",
+				FixedWindowMax = 100,
+				FixedWindowPeriod = "00:01:00",
 				Backoff = BackoffStrategy.Fixed,
 				BackoffBase = "00:00:05",
 				OverlapPolicy = OverlapPolicy.Skip,
@@ -65,15 +69,19 @@ public sealed class JobClassAnalyzerTests
 			
 			namespace Dummy;
 
-			[Handler, {|IJOB0005:{|IJOB0005:{|IJOB0005:{|IJOB0005:{|IJOB0005:{|IJOB0005:{|IJOB0005:Job(
+			[Handler, {|IJOB0005:{|IJOB0005:{|IJOB0005:{|IJOB0005:{|IJOB0005:{|IJOB0005:{|IJOB0005:{|IJOB0005:{|IJOB0005:Job(
 				MaxAttempts = -1,
 				MaxConcurrency = -1,
+				SlidingWindowMax = -1,
+				SlidingWindowPeriod = "00:00:01.0000003",
+				FixedWindowMax = -1,
+				FixedWindowPeriod = "00:01:00",
 				Backoff = (BackoffStrategy)5,
 				BackoffBase = "-00:00:05",
 				OverlapPolicy = (OverlapPolicy)5,
 				MisfireHandlingMode = (MisfireHandlingMode)5,
 				Timeout = "-00:01:00"
-			)|}|}|}|}|}|}|}]
+			)|}|}|}|}|}|}|}|}|}]
 			public sealed partial class GetUsersQuery
 			{
 				public record Query;

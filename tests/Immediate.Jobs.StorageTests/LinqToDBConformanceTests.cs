@@ -108,6 +108,8 @@ file sealed class RelationalConformanceFixture(
 {
 	private static readonly string[] SqlServerTables =
 	[
+		"immediate_job_acquisitions",
+		"immediate_job_definitions",
 		"immediate_job_continuations",
 		"immediate_job_executions",
 		"immediate_fair_queue_groups",

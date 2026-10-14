@@ -1,7 +1,10 @@
+using System.Globalization;
 using Immediate.Jobs.Shared.Apis;
+using Immediate.Jobs.Shared.Storage;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.ChangeTracking;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 namespace Immediate.Jobs.EntityFrameworkCore;
 
@@ -10,6 +13,13 @@ namespace Immediate.Jobs.EntityFrameworkCore;
 /// </summary>
 public static class ImmediateJobsModelBuilderExtensions
 {
+	private enum DatabaseEngine
+	{
+		SqlServer,
+		PostgreSql,
+		Sqlite,
+	}
+
 	/// <summary>
 	/// 	Configures the entities required by the Immediate.Jobs EF Core storage provider.
 	/// </summary>
@@ -28,6 +38,10 @@ public static class ImmediateJobsModelBuilderExtensions
 	public static ModelBuilder AddImmediateJobs(this ModelBuilder modelBuilder, string? schema = null, string? definitionNameCollation = null)
 	{
 		ArgumentNullException.ThrowIfNull(modelBuilder);
+		var databaseEngine = GetDatabaseEngine(modelBuilder);
+
+		ConfigureDefinitions(modelBuilder.Entity<ImmediateJobDefinitionEntity>(), schema);
+		ConfigureAcquisitions(modelBuilder.Entity<ImmediateJobAcquisitionEntity>(), schema);
 		ConfigureBatches(modelBuilder.Entity<ImmediateJobBatchEntity>(), schema);
 		ConfigureJobs(modelBuilder.Entity<ImmediateJobEntity>(), schema);
 		ConfigureExecutions(modelBuilder.Entity<ImmediateJobExecutionEntity>(), schema);
@@ -38,11 +52,15 @@ public static class ImmediateJobsModelBuilderExtensions
 		var definitions = modelBuilder.Entity<ImmediateJobDefinitionMetadataEntity>();
 		definitions.ToTable("immediate_job_definition_metadata", schema);
 		definitions.HasKey(definition => definition.Name);
-		var isPostgreSql = modelBuilder.Model.FindAnnotation("Npgsql:ValueGenerationStrategy") is not null;
 		var postgresCollation = schema is null ? "immediate_jobs_case_insensitive" : schema + "_jobs_ci";
-		definitionNameCollation ??= isPostgreSql ? postgresCollation
-			: modelBuilder.Model.FindAnnotation("SqlServer:ValueGenerationStrategy") is not null ? null : "NOCASE";
-		if (isPostgreSql && string.Equals(definitionNameCollation, postgresCollation, StringComparison.Ordinal))
+		definitionNameCollation ??= databaseEngine switch
+		{
+			DatabaseEngine.PostgreSql => postgresCollation,
+			DatabaseEngine.SqlServer => null,
+			DatabaseEngine.Sqlite => "NOCASE",
+			_ => null,
+		};
+		if (databaseEngine == DatabaseEngine.PostgreSql && string.Equals(definitionNameCollation, postgresCollation, StringComparison.Ordinal))
 		{
 			// Npgsql's public collation metadata is stored as this annotation (EF Core 8, 10, and 11).
 			modelBuilder.HasAnnotation("Npgsql:CollationDefinition:" + postgresCollation, "und-u-ks-level2,und-u-ks-level2,icu,False");
@@ -61,14 +79,71 @@ public static class ImmediateJobsModelBuilderExtensions
 		definitions.Property(definition => definition.OverlapPolicy).HasConversion<short>();
 		definitions.Property(definition => definition.MisfireHandlingMode).HasConversion<short>();
 		definitions.Property(definition => definition.Backoff).HasConversion<short>();
+		definitions.Property(definition => definition.Timeout).HasMaxLength(32);
+		definitions.Property(definition => definition.BackoffBase).HasMaxLength(32);
+		definitions.Property(definition => definition.SlidingWindowPeriod).HasMaxLength(32);
+		definitions.Property(definition => definition.FixedWindowPeriod).HasMaxLength(32);
 		var tags = definitions.Property(definition => definition.Tags).IsRequired();
-		if (isPostgreSql)
+		if (databaseEngine == DatabaseEngine.PostgreSql)
 			tags.HasColumnType("jsonb");
 		var catalogue = modelBuilder.Entity<ImmediateJobDefinitionCatalogEntity>();
 		catalogue.ToTable("immediate_job_definition_catalog", schema);
 		catalogue.HasKey(item => item.Id);
 		catalogue.Property(item => item.Id).ValueGeneratedNever();
+		ConfigureTimestamps(modelBuilder, databaseEngine);
 		return modelBuilder;
+	}
+
+	private static DatabaseEngine GetDatabaseEngine(ModelBuilder modelBuilder)
+	{
+		if (modelBuilder.Model.FindAnnotation("Npgsql:ValueGenerationStrategy") is not null)
+			return DatabaseEngine.PostgreSql;
+
+		if (modelBuilder.Model.FindAnnotation("SqlServer:ValueGenerationStrategy") is not null)
+			return DatabaseEngine.SqlServer;
+
+		return DatabaseEngine.Sqlite;
+	}
+
+	private static void ConfigureTimestamps(ModelBuilder modelBuilder, DatabaseEngine databaseEngine)
+	{
+		if (databaseEngine == DatabaseEngine.SqlServer)
+			return;
+
+		ValueConverter converter = databaseEngine == DatabaseEngine.PostgreSql
+			? new ValueConverter<DateTimeOffset, DateTimeOffset>(value => value.ToUniversalTime(), value => value)
+			: new ValueConverter<DateTimeOffset, string>(
+				value => value.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture),
+				value => DateTimeOffset.Parse(value, CultureInfo.InvariantCulture));
+
+		foreach (var entity in modelBuilder.Model.GetEntityTypes())
+		{
+			if (!string.Equals(entity.ClrType.Namespace, typeof(ImmediateJobEntity).Namespace, StringComparison.Ordinal))
+				continue;
+
+			foreach (var property in entity.GetProperties())
+			{
+				if ((Nullable.GetUnderlyingType(property.ClrType) ?? property.ClrType) == typeof(DateTimeOffset))
+					property.SetValueConverter(converter);
+			}
+		}
+	}
+
+	private static void ConfigureDefinitions(EntityTypeBuilder<ImmediateJobDefinitionEntity> entity, string? schema)
+	{
+		entity.ToTable("immediate_job_definitions", schema);
+		entity.HasKey(item => item.JobName);
+		entity.Property(item => item.JobName).HasMaxLength(256);
+		entity.Property(item => item.AcquisitionStatus).HasConversion<short>();
+		entity.Property(item => item.ConcurrencyStamp).IsConcurrencyToken();
+	}
+
+	private static void ConfigureAcquisitions(EntityTypeBuilder<ImmediateJobAcquisitionEntity> entity, string? schema)
+	{
+		entity.ToTable("immediate_job_acquisitions", schema);
+		entity.HasKey(item => item.Id);
+		entity.Property(item => item.JobName).HasMaxLength(256);
+		entity.HasIndex(item => new { item.JobName, item.AcquiredAt });
 	}
 
 	private static void ConfigureExecutions(EntityTypeBuilder<ImmediateJobExecutionEntity> entity, string? schema)
@@ -78,18 +153,6 @@ public static class ImmediateJobsModelBuilderExtensions
 		_ = entity.Property(execution => execution.JobHandle).HasMaxLength(256);
 		_ = entity.Property(execution => execution.State).HasConversion<short>();
 		_ = entity.Property(execution => execution.WorkerId).HasMaxLength(256);
-		_ = entity.Property(execution => execution.AcquiredAt).HasConversion(
-			value => value.HasValue ? value.Value.UtcTicks : (long?)null,
-			value => value.HasValue ? new DateTimeOffset(value.Value, TimeSpan.Zero) : null
-		);
-		_ = entity.Property(execution => execution.ExecutionStartedAt).HasConversion(
-			value => value.HasValue ? value.Value.UtcTicks : (long?)null,
-			value => value.HasValue ? new DateTimeOffset(value.Value, TimeSpan.Zero) : null
-		);
-		_ = entity.Property(execution => execution.CompletedAt).HasConversion(
-			value => value.HasValue ? value.Value.UtcTicks : (long?)null,
-			value => value.HasValue ? new DateTimeOffset(value.Value, TimeSpan.Zero) : null
-		);
 		_ = entity.Property(execution => execution.ExecutionTraceId).HasMaxLength(32);
 		_ = entity.Property(execution => execution.ExecutionSpanId).HasMaxLength(16);
 		_ = entity.Property(execution => execution.IsSynthetic).HasDefaultValue(value: false);
@@ -105,18 +168,6 @@ public static class ImmediateJobsModelBuilderExtensions
 		_ = entity.HasKey(batch => batch.Id);
 		_ = entity.Property(batch => batch.Id).HasMaxLength(256);
 		_ = entity.Property(batch => batch.State).HasConversion<short>();
-		_ = entity.Property(batch => batch.CreatedAt).HasConversion(
-			value => value.UtcTicks,
-			value => new DateTimeOffset(value, TimeSpan.Zero)
-		);
-		_ = entity.Property(batch => batch.StartedAt).HasConversion(
-			value => value.HasValue ? value.Value.UtcTicks : (long?)null,
-			value => value.HasValue ? new DateTimeOffset(value.Value, TimeSpan.Zero) : null
-		);
-		_ = entity.Property(batch => batch.CompletedAt).HasConversion(
-			value => value.HasValue ? value.Value.UtcTicks : (long?)null,
-			value => value.HasValue ? new DateTimeOffset(value.Value, TimeSpan.Zero) : null
-		);
 		_ = entity.Property(batch => batch.ConcurrencyStamp).IsConcurrencyToken();
 		_ = entity.HasIndex(batch => new { batch.State, batch.CompletedAt });
 	}
@@ -131,26 +182,6 @@ public static class ImmediateJobsModelBuilderExtensions
 		_ = entity.Property(job => job.Payload).IsRequired();
 		_ = entity.Property(job => job.Context).IsRequired(false);
 		_ = entity.Property(job => job.State).HasConversion<short>();
-		_ = entity.Property(job => job.DueAt).HasConversion(
-			value => value.UtcTicks,
-			value => new DateTimeOffset(value, TimeSpan.Zero)
-		);
-		_ = entity.Property(job => job.CreatedAt).HasConversion(
-			value => value.UtcTicks,
-			value => new DateTimeOffset(value, TimeSpan.Zero)
-		);
-		_ = entity.Property(job => job.LeaseExpiresAt).HasConversion(
-			value => value.HasValue ? value.Value.UtcTicks : (long?)null,
-			value => value.HasValue ? new DateTimeOffset(value.Value, TimeSpan.Zero) : null
-		);
-		_ = entity.Property(job => job.CompletedAt).HasConversion(
-			value => value.HasValue ? value.Value.UtcTicks : (long?)null,
-			value => value.HasValue ? new DateTimeOffset(value.Value, TimeSpan.Zero) : null
-		);
-		_ = entity.Property(job => job.ExecutionStartedAt).HasConversion(
-			value => value.HasValue ? value.Value.UtcTicks : (long?)null,
-			value => value.HasValue ? new DateTimeOffset(value.Value, TimeSpan.Zero) : null
-		);
 		_ = entity.Property(job => job.WorkerId).HasMaxLength(256);
 		_ = entity.Property(job => job.RecurringKey).HasMaxLength(512);
 		_ = entity.Property(job => job.TraceParent).HasMaxLength(256);
@@ -162,6 +193,7 @@ public static class ImmediateJobsModelBuilderExtensions
 			.WithMany()
 			.HasForeignKey(job => job.BatchHandle)
 			.OnDelete(DeleteBehavior.Cascade);
+		entity.HasIndex(job => new { job.JobName, job.State, job.LeaseExpiresAt });
 		_ = entity.HasIndex(job => job.RecurringKey).IsUnique();
 		_ = entity.HasIndex(job => job.BatchHandle);
 		_ = entity.HasIndex(job => new { job.State, job.DueAt });
@@ -210,14 +242,6 @@ public static class ImmediateJobsModelBuilderExtensions
 		_ = entity.Property(schedule => schedule.JobName).HasMaxLength(256).IsRequired();
 		_ = entity.Property(schedule => schedule.Cron).HasMaxLength(128).IsRequired();
 		_ = entity.Property(schedule => schedule.TimeZone).HasMaxLength(128).IsRequired();
-		_ = entity.Property(schedule => schedule.NextRunAt).HasConversion(
-			value => value.UtcTicks,
-			value => new DateTimeOffset(value, TimeSpan.Zero)
-		);
-		_ = entity.Property(schedule => schedule.LastRunAt).HasConversion(
-			value => value.HasValue ? value.Value.UtcTicks : (long?)null,
-			value => value.HasValue ? new DateTimeOffset(value.Value, TimeSpan.Zero) : null
-		);
 		_ = entity.Property(schedule => schedule.ConcurrencyStamp).IsConcurrencyToken();
 		_ = entity.HasIndex(schedule => new { schedule.IsPaused, schedule.NextRunAt });
 	}
@@ -228,14 +252,6 @@ public static class ImmediateJobsModelBuilderExtensions
 		_ = entity.HasKey(server => server.WorkerId);
 		_ = entity.Property(server => server.WorkerId).HasMaxLength(256);
 		_ = entity.Property(server => server.Details).IsRequired();
-		_ = entity.Property(server => server.LastHeartbeat).HasConversion(
-			value => value.UtcTicks,
-			value => new DateTimeOffset(value, TimeSpan.Zero)
-		);
-		_ = entity.Property(server => server.ExpiresAt).HasConversion(
-			value => value.UtcTicks,
-			value => new DateTimeOffset(value, TimeSpan.Zero)
-		);
 		_ = entity.HasIndex(server => server.ExpiresAt);
 	}
 }
@@ -326,7 +342,7 @@ internal sealed class ImmediateJobContinuationEntity
 	public string ChildJobHandle { get; set; } = null!;
 	public ContinuationParentKind ParentKind { get; set; }
 	public string ParentId { get; set; } = null!;
-	public long Delay { get; set; }
+	public string Delay { get; set; } = null!;
 	public ContinuationTrigger Trigger { get; set; }
 	public ContinuationParentOutcome ParentOutcome { get; set; }
 }
@@ -364,12 +380,16 @@ internal sealed class ImmediateJobDefinitionMetadataEntity
 	public string? Cron { get; set; }
 	public string TimeZone { get; set; } = null!;
 	public int MaxAttempts { get; set; }
-	public long? TimeoutTicks { get; set; }
+	public string? Timeout { get; set; }
 	public int MaxConcurrency { get; set; }
 	public OverlapPolicy OverlapPolicy { get; set; }
 	public MisfireHandlingMode MisfireHandlingMode { get; set; }
 	public BackoffStrategy Backoff { get; set; }
-	public long BackoffBaseTicks { get; set; }
+	public string BackoffBase { get; set; } = null!;
+	public int SlidingWindowMax { get; set; }
+	public string? SlidingWindowPeriod { get; set; }
+	public int FixedWindowMax { get; set; }
+	public string? FixedWindowPeriod { get; set; }
 	public string Tags { get; set; } = null!;
 }
 
@@ -381,4 +401,22 @@ internal sealed class ImmediateJobDefinitionCatalogEntity
 {
 	public int Id { get; set; }
 	public Guid ConcurrencyStamp { get; set; }
+}
+
+internal sealed class ImmediateJobDefinitionEntity
+{
+	public string JobName { get; set; } = null!;
+	public bool IsPaused { get; set; }
+	public JobAcquisitionStatus AcquisitionStatus { get; set; }
+	public DateTimeOffset? NextEligibleAt { get; set; }
+	public DateTimeOffset? FixedWindowStart { get; set; }
+	public int FixedWindowCount { get; set; }
+	public Guid ConcurrencyStamp { get; set; }
+}
+
+internal sealed class ImmediateJobAcquisitionEntity
+{
+	public Guid Id { get; set; }
+	public string JobName { get; set; } = null!;
+	public DateTimeOffset AcquiredAt { get; set; }
 }

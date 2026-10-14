@@ -39,9 +39,9 @@ internal sealed partial class RedisJobStorage
 
 	private static long Score(DateTimeOffset value) => value.ToUnixTimeMilliseconds();
 
-	private static string Ticks(DateTimeOffset value) => value.UtcTicks.ToString("D19", CultureInfo.InvariantCulture);
+	private static string Timestamp(DateTimeOffset value) => value.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture);
 
-	private static string DueMember(DateTimeOffset dueAt, DateTimeOffset createdAt, JobHandle handle) => $"{Ticks(dueAt)}|{Ticks(createdAt)}|{handle.Value}";
+	private static string DueMember(DateTimeOffset dueAt, DateTimeOffset createdAt, JobHandle handle) => $"{Timestamp(dueAt)}|{Timestamp(createdAt)}|{handle.Value}";
 
-	private static string NullableTicks(DateTimeOffset? value) => value is { } actual ? Ticks(actual) : "";
+	private static string NullableTimestamp(DateTimeOffset? value) => value is { } actual ? Timestamp(actual) : "";
 }

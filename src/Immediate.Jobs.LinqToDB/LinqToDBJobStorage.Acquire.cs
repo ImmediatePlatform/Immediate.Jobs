@@ -34,7 +34,7 @@ internal sealed partial class LinqToDBJobStorage<T>
 			var jobCapacities = queue.JobCapacities.ToDictionary(static pair => pair.Key, static pair => pair.Value, StringComparer.OrdinalIgnoreCase);
 			while (queueCapacity > 0)
 			{
-				var eligibleNames = jobCapacities.Where(static pair => pair.Value > 0).Select(static pair => pair.Key).ToList();
+				var eligibleNames = await FilterAcquisitionNamesAsync(jobCapacities, cancellationToken);
 				if (eligibleNames.Count == 0)
 					break;
 
@@ -133,11 +133,18 @@ internal sealed partial class LinqToDBJobStorage<T>
 		var acquired = new List<JobRecord>(candidates.Count);
 		foreach (var candidate in candidates)
 		{
+			await EnsureDefinitionAsync(candidate.JobName, cancellationToken);
 			await using var scope = contextScope.GetScope(out var connection);
 
-			_ = await connection.BeginTransactionAsync(cancellationToken);
+			await connection.BeginTransactionAsync(cancellationToken);
 			try
 			{
+				if (await ReserveDefinitionAsync(connection, candidate.JobName, now, cancellationToken) is not { } limits)
+				{
+					await connection.CommitTransactionAsync(cancellationToken);
+					continue;
+				}
+
 				var previous = ToRecord(candidate);
 				var oldStamp = candidate.ConcurrencyStamp;
 				candidate.State = JobState.Active;
@@ -170,9 +177,11 @@ internal sealed partial class LinqToDBJobStorage<T>
 					}
 				}
 
+				await RefreshAcquiredDefinitionAsync(connection, candidate.JobName, limits, now, cancellationToken);
 				await connection.CommitTransactionAsync(cancellationToken);
 				acquired.Add(ToRecord(candidate));
 			}
+
 			catch (SyntheticExecutionInsertFailedException exception)
 			{
 				await connection.RollbackTransactionAsync(cancellationToken);
@@ -181,6 +190,7 @@ internal sealed partial class LinqToDBJobStorage<T>
 					throw exception.DatabaseException;
 				}
 			}
+
 			catch (LostRaceException)
 			{
 				await connection.RollbackTransactionAsync(cancellationToken);

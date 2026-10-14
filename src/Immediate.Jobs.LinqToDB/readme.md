@@ -54,6 +54,9 @@ public sealed class JobsDataConnection(DataOptions options) : DataConnection(opt
 
 `AddMyAppJobs` is the generated registration method for an assembly named `MyApp`.
 
+SQLite uses `NOCASE` for job-name lookups, so case-insensitive matching is limited to ASCII letters.
+`Invoice` and `invoice` match; `Résumé` and `RÉSUMÉ` do not. Supply non-ASCII characters in their registered case.
+
 `CreateImmediateJobsSchemaAsync` creates the current tables and indexes for a fresh database. It runs only when the
 application calls it; worker startup does not create the schema.
 

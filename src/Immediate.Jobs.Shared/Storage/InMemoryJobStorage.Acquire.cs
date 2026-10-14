@@ -35,9 +35,9 @@ public sealed partial class InMemoryJobStorage
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 
-		var now = timeProvider.GetUtcNow();
 		lock (_gate)
 		{
+			var now = timeProvider.GetUtcNow();
 			foreach (var expired in _jobs.Values.Where(x => x.State == JobState.Active && x.LeaseExpiresAt <= now).ToList())
 			{
 				InterruptExecution(expired);
@@ -130,7 +130,7 @@ public sealed partial class InMemoryJobStorage
 		{
 			if (queueCapacity == 0)
 				break;
-			if (jobCapacities[candidate.JobName] <= 0)
+			if (jobCapacities[candidate.JobName] <= 0 || !CanAcquire(candidate.JobName, now))
 				continue;
 
 			acquired.Add(Acquire(candidate, request, now));
@@ -168,7 +168,7 @@ public sealed partial class InMemoryJobStorage
 					jobCapacities.TryGetValue(job.JobName, out var capacity) &&
 					capacity > 0 &&
 					job.State is JobState.Pending or JobState.Scheduled &&
-					job.DueAt <= now)
+					job.DueAt <= now && CanAcquire(job.JobName, now))
 				.ToList();
 			if (eligible.Count == 0)
 				break;
@@ -273,6 +273,7 @@ public sealed partial class InMemoryJobStorage
 		_jobs[job.JobHandle] = job;
 		CreateExecution(job, now);
 		MarkBatchStarted(job.BatchHandle, now);
+		RecordAcquisition(job.JobName, now);
 		return ReadRecord(job);
 	}
 

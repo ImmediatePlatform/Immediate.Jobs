@@ -112,7 +112,9 @@ partial class {{ class_name }}
 		}
 		{{~ if has_job_details ~}}
 
-		/// <summary>Generic reified method to support `struct`s with explicitly implemented properties</summary>
+		/// <summary>
+		/// 	Generic reified method to support `struct`s with explicitly implemented properties
+		/// </summary>
 		private static void SetJobDetails<TRequest>(
 			ref TRequest request,
 			global::Immediate.Jobs.Shared.JobDetails details
@@ -147,6 +149,14 @@ partial class {{ class_name }}
 			Timeout = global::System.TimeSpan.Parse({{ timeout_literal }}, global::System.Globalization.CultureInfo.InvariantCulture),
 			{{~ end ~}}
 			MaxConcurrency = {{ max_concurrency }},
+			{{~ if sliding_window_period_literal != null ~}}
+			SlidingWindowMax = {{ sliding_window_max }},
+			SlidingWindowPeriod = global::System.TimeSpan.Parse({{ sliding_window_period_literal }}, global::System.Globalization.CultureInfo.InvariantCulture),
+			{{~ end ~}}
+			{{~ if fixed_window_period_literal != null ~}}
+			FixedWindowMax = {{ fixed_window_max }},
+			FixedWindowPeriod = global::System.TimeSpan.Parse({{ fixed_window_period_literal }}, global::System.Globalization.CultureInfo.InvariantCulture),
+			{{~ end ~}}
 			OverlapPolicy = global::Immediate.Jobs.Shared.OverlapPolicy.{{ overlap_policy }},
 			MisfireHandlingMode = global::Immediate.Jobs.Shared.MisfireHandlingMode.{{ misfire_handling_mode }},
 			Backoff = global::Immediate.Jobs.Shared.BackoffStrategy.{{ backoff }},

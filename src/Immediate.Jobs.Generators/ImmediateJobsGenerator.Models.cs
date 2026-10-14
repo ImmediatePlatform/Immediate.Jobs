@@ -25,12 +25,14 @@ public sealed partial class ImmediateJobsGenerator
 		public required string? Cron { get; init; }
 		public required string TimeZone { get; init; }
 		public required int MaxAttempts { get; init; }
-		public required string? Timeout { get; init; }
+		public required TimeSpan? Timeout { get; init; }
 		public required int MaxConcurrency { get; init; }
+		public required AcquisitionWindow SlidingWindow { get; init; }
+		public required AcquisitionWindow FixedWindow { get; init; }
 		public required string OverlapPolicy { get; init; }
 		public required string MisfireHandlingMode { get; init; }
 		public required string Backoff { get; init; }
-		public required string BackoffBase { get; init; }
+		public required TimeSpan BackoffBase { get; init; }
 		public required string? HandlerTags { get; init; }
 		public required string JobTags { get; init; }
 		public required EquatableReadOnlyList<JobContextModel> Contexts { get; init; }

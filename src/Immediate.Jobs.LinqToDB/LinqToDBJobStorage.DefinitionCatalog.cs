@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Data;
+using System.Globalization;
 using Immediate.Jobs.Shared.Apis;
 using Immediate.Jobs.Shared.Storage;
 using LinqToDB;
@@ -138,18 +139,12 @@ internal sealed partial class LinqToDBJobStorage<T>
 		if (names.Count == 0)
 			return;
 
-		var removed = names.ToHashSet(StringComparer.OrdinalIgnoreCase);
 		var query = Jobs(connection).Where(job => job.State != JobState.Succeeded && job.State != JobState.Failed
-			&& job.State != JobState.Cancelled && job.State != JobState.Skipped);
-		var schedulesQuery = Recurring(connection).Where(schedule => !schedule.IsCodeDefined && schedule.CancellationReason == null);
-		if (!connection.DataProvider.Name.Contains("SQLite", StringComparison.OrdinalIgnoreCase))
-		{
-			query = query.Where(job => job.JobName.In(names));
-			schedulesQuery = schedulesQuery.Where(schedule => schedule.JobName.In(names));
-		}
-
-		var jobs = (await query.ToListAsync(cancellationToken)).Where(job => removed.Contains(job.JobName)).ToList();
-		var schedules = (await schedulesQuery.ToListAsync(cancellationToken)).Where(schedule => removed.Contains(schedule.JobName)).ToList();
+			&& job.State != JobState.Cancelled && job.State != JobState.Skipped && job.JobName.In(names));
+		var schedulesQuery = Recurring(connection).Where(schedule => !schedule.IsCodeDefined
+			&& schedule.CancellationReason == null && schedule.JobName.In(names));
+		var jobs = await query.ToListAsync(cancellationToken);
+		var schedules = await schedulesQuery.ToListAsync(cancellationToken);
 		var now = timeProvider.GetUtcNow();
 		foreach (var job in jobs)
 			await MarkCancelledAsync(connection, job, now, JobDefinitionReconciliation.RemovalCancellationReason, cancellationToken);
@@ -183,12 +178,16 @@ internal sealed partial class LinqToDBJobStorage<T>
 				Cron = src.Cron,
 				TimeZone = src.TimeZone,
 				MaxAttempts = src.MaxAttempts,
-				TimeoutTicks = src.TimeoutTicks,
+				Timeout = src.Timeout,
 				MaxConcurrency = src.MaxConcurrency,
 				OverlapPolicy = src.OverlapPolicy,
 				MisfireHandlingMode = src.MisfireHandlingMode,
 				Backoff = src.Backoff,
-				BackoffBaseTicks = src.BackoffBaseTicks,
+				BackoffBase = src.BackoffBase,
+				SlidingWindowMax = src.SlidingWindowMax,
+				SlidingWindowPeriod = src.SlidingWindowPeriod,
+				FixedWindowMax = src.FixedWindowMax,
+				FixedWindowPeriod = src.FixedWindowPeriod,
 				Tags = src.Tags,
 			})
 			.InsertWhenNotMatched();
@@ -261,12 +260,16 @@ internal sealed partial class LinqToDBJobStorage<T>
 		Cron = definition.Cron,
 		TimeZone = definition.TimeZone,
 		MaxAttempts = definition.MaxAttempts,
-		TimeoutTicks = definition.Timeout?.Ticks,
+		Timeout = definition.Timeout?.ToString(),
 		MaxConcurrency = definition.MaxConcurrency,
 		OverlapPolicy = definition.OverlapPolicy,
 		MisfireHandlingMode = definition.MisfireHandlingMode,
 		Backoff = definition.Backoff,
-		BackoffBaseTicks = definition.BackoffBase.Ticks,
+		BackoffBase = definition.BackoffBase.ToString(),
+		SlidingWindowMax = definition.SlidingWindowMax,
+		SlidingWindowPeriod = definition.SlidingWindowPeriod?.ToString(),
+		FixedWindowMax = definition.FixedWindowMax,
+		FixedWindowPeriod = definition.FixedWindowPeriod?.ToString(),
 		Tags = JsonSerializer.Serialize([.. definition.Tags], LinqToDBJsonSerializerContext.Default.StringArray),
 	};
 
@@ -279,12 +282,16 @@ internal sealed partial class LinqToDBJobStorage<T>
 		Cron = entity.Cron,
 		TimeZone = entity.TimeZone,
 		MaxAttempts = entity.MaxAttempts,
-		Timeout = entity.TimeoutTicks is { } ticks ? TimeSpan.FromTicks(ticks) : null,
+		Timeout = entity.Timeout is { } timeout ? TimeSpan.Parse(timeout, CultureInfo.InvariantCulture) : null,
 		MaxConcurrency = entity.MaxConcurrency,
 		OverlapPolicy = entity.OverlapPolicy,
 		MisfireHandlingMode = entity.MisfireHandlingMode,
 		Backoff = entity.Backoff,
-		BackoffBase = TimeSpan.FromTicks(entity.BackoffBaseTicks),
+		BackoffBase = TimeSpan.Parse(entity.BackoffBase, CultureInfo.InvariantCulture),
+		SlidingWindowMax = entity.SlidingWindowMax,
+		SlidingWindowPeriod = entity.SlidingWindowPeriod is { } slidingPeriod ? TimeSpan.Parse(slidingPeriod, CultureInfo.InvariantCulture) : null,
+		FixedWindowMax = entity.FixedWindowMax,
+		FixedWindowPeriod = entity.FixedWindowPeriod is { } fixedPeriod ? TimeSpan.Parse(fixedPeriod, CultureInfo.InvariantCulture) : null,
 		Tags = JsonSerializer.Deserialize(entity.Tags, LinqToDBJsonSerializerContext.Default.StringArray) ?? [],
 	};
 

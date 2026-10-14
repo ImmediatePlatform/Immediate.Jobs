@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Data;
+using System.Globalization;
 using Immediate.Jobs.Shared.Apis;
 using Immediate.Jobs.Shared.Storage;
 using Microsoft.EntityFrameworkCore;
@@ -38,10 +39,9 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 			reports.Clear();
 			var removed = changes.RemovedDefinitionNames.ToHashSet(StringComparer.OrdinalIgnoreCase);
 			var jobQuery = context.Set<ImmediateJobEntity>().Where(job => job.State != JobState.Succeeded
-				&& job.State != JobState.Failed && job.State != JobState.Cancelled && job.State != JobState.Skipped);
-			if (!context.Database.ProviderName!.Contains("Sqlite", StringComparison.Ordinal))
-				jobQuery = jobQuery.Where(job => removed.Contains(job.JobName));
-			var jobs = removed.Count == 0 ? [] : (await jobQuery.ToListAsync(token)).Where(job => removed.Contains(job.JobName)).ToList();
+				&& job.State != JobState.Failed && job.State != JobState.Cancelled && job.State != JobState.Skipped
+				&& removed.Contains(job.JobName));
+			var jobs = removed.Count == 0 ? [] : await jobQuery.ToListAsync(token);
 			var cancelledSchedules = schedules.Values.Where(schedule => !schedule.IsCodeDefined
 				&& removed.Contains(schedule.JobName) && schedule.CancellationReason is null).ToList();
 			var now = _timeProvider.GetUtcNow();
@@ -148,12 +148,16 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 		Cron = definition.Cron,
 		TimeZone = definition.TimeZone,
 		MaxAttempts = definition.MaxAttempts,
-		TimeoutTicks = definition.Timeout?.Ticks,
+		Timeout = definition.Timeout?.ToString(),
 		MaxConcurrency = definition.MaxConcurrency,
 		OverlapPolicy = definition.OverlapPolicy,
 		MisfireHandlingMode = definition.MisfireHandlingMode,
 		Backoff = definition.Backoff,
-		BackoffBaseTicks = definition.BackoffBase.Ticks,
+		BackoffBase = definition.BackoffBase.ToString(),
+		SlidingWindowMax = definition.SlidingWindowMax,
+		SlidingWindowPeriod = definition.SlidingWindowPeriod?.ToString(),
+		FixedWindowMax = definition.FixedWindowMax,
+		FixedWindowPeriod = definition.FixedWindowPeriod?.ToString(),
 		Tags = JsonSerializer.Serialize([.. definition.Tags], EntityFrameworkCoreJsonSerializerContext.Default.StringArray),
 	};
 
@@ -166,12 +170,16 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 		Cron = entity.Cron,
 		TimeZone = entity.TimeZone,
 		MaxAttempts = entity.MaxAttempts,
-		Timeout = entity.TimeoutTicks is { } ticks ? TimeSpan.FromTicks(ticks) : null,
+		Timeout = entity.Timeout is { } timeout ? TimeSpan.Parse(timeout, CultureInfo.InvariantCulture) : null,
 		MaxConcurrency = entity.MaxConcurrency,
 		OverlapPolicy = entity.OverlapPolicy,
 		MisfireHandlingMode = entity.MisfireHandlingMode,
 		Backoff = entity.Backoff,
-		BackoffBase = TimeSpan.FromTicks(entity.BackoffBaseTicks),
+		BackoffBase = TimeSpan.Parse(entity.BackoffBase, CultureInfo.InvariantCulture),
+		SlidingWindowMax = entity.SlidingWindowMax,
+		SlidingWindowPeriod = entity.SlidingWindowPeriod is { } slidingPeriod ? TimeSpan.Parse(slidingPeriod, CultureInfo.InvariantCulture) : null,
+		FixedWindowMax = entity.FixedWindowMax,
+		FixedWindowPeriod = entity.FixedWindowPeriod is { } fixedPeriod ? TimeSpan.Parse(fixedPeriod, CultureInfo.InvariantCulture) : null,
 		Tags = JsonSerializer.Deserialize(entity.Tags, EntityFrameworkCoreJsonSerializerContext.Default.StringArray) ?? [],
 	};
 

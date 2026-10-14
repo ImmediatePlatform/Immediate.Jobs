@@ -196,7 +196,7 @@ internal sealed partial class LinqToDBJobStorage<T>
 				ChildJobHandle = waiter.Id,
 				ParentKind = ContinuationParentKind.Job,
 				ParentId = job.Id,
-				Delay = 0,
+				Delay = TimeSpan.Zero.ToString(),
 				Trigger = ContinuationTrigger.Success,
 			}, cancellationToken);
 			var waiterStamp = waiter.ConcurrencyStamp;
@@ -216,12 +216,8 @@ internal sealed partial class LinqToDBJobStorage<T>
 		if (names.Count == 0)
 			return [with(StringComparer.OrdinalIgnoreCase)];
 
-		IQueryable<ImmediateJobDefinitionMetadataEntity> query = Definitions(connection);
-		// SQLite's NOCASE collation only handles ASCII; compare Unicode aliases in the client.
-		if (!connection.DataProvider.Name.Contains("SQLite", StringComparison.OrdinalIgnoreCase))
-			query = query.Where(definition => names.Contains(definition.Name));
-
-		var definitions = await query
+		var definitions = await Definitions(connection)
+			.Where(definition => names.Contains(definition.Name))
 			.Select(definition => definition.Name)
 			.ToListAsync(cancellationToken);
 

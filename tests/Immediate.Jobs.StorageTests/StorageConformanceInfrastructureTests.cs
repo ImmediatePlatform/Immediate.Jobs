@@ -19,13 +19,14 @@ public sealed class StorageConformanceInfrastructureTests
 		var graphCases = JobStorageConformanceSuite.GetCases(AllCapabilities);
 		var replicaCases = JobStorageConformanceSuite.GetCases(AllCapabilities, includeSingleServerReplicaCases: true);
 
-		Assert.Equal(51, queueCases.Count);
+		Assert.Equal(65, queueCases.Count);
 		Assert.All(queueCases, testCase => Assert.Equal(StorageCapabilities.Queue, testCase.RequiredCapabilities));
 		Assert.Contains(queueCases, testCase => testCase.Name.StartsWith("Recurring.", StringComparison.Ordinal));
 		Assert.Contains(queueCases, testCase => testCase.Name.StartsWith("FairQueues.", StringComparison.Ordinal));
 		Assert.Contains(graphCases, testCase => testCase.RequiredCapabilities == StorageCapabilities.Graph);
 		Assert.DoesNotContain(graphCases, testCase => testCase.Name.StartsWith("Replica.", StringComparison.Ordinal));
 		Assert.Contains(replicaCases, testCase => testCase.Name.StartsWith("Replica.", StringComparison.Ordinal));
+		Assert.Contains(replicaCases, testCase => string.Equals(testCase.Name, "Replica.Acquisition.WaitsUntilEnqueueHasUpdatedBothStores", StringComparison.Ordinal));
 	}
 
 	[Theory]
@@ -115,7 +116,7 @@ public sealed class StorageConformanceInfrastructureTests
 		using var cancellationSource = new CancellationTokenSource();
 		await cancellationSource.CancelAsync();
 
-		_ = await Assert.ThrowsAnyAsync<OperationCanceledException>(
+		await Assert.ThrowsAnyAsync<OperationCanceledException>(
 			() => testCase.RunAsync(services, cancellationSource.Token).AsTask()
 		);
 	}

@@ -33,10 +33,7 @@ internal sealed partial class LinqToDBJobStorage<T>
 			);
 			while (queueCapacity > 0)
 			{
-				var eligibleNames = jobCapacities
-					.Where(static pair => pair.Value > 0)
-					.Select(static pair => pair.Key)
-					.ToList();
+				var eligibleNames = await FilterAcquisitionNamesAsync(jobCapacities, cancellationToken);
 				if (eligibleNames.Count == 0)
 					break;
 
@@ -203,10 +200,7 @@ internal sealed partial class LinqToDBJobStorage<T>
 		var acquired = new List<JobRecord>(queueCapacity);
 		while (queueCapacity > 0)
 		{
-			var eligibleNames = jobCapacities
-				.Where(static pair => pair.Value > 0)
-				.Select(static pair => pair.Key)
-				.ToList();
+			var eligibleNames = await FilterAcquisitionNamesAsync(jobCapacities, cancellationToken);
 			if (eligibleNames.Count == 0)
 				break;
 
@@ -265,13 +259,20 @@ internal sealed partial class LinqToDBJobStorage<T>
 		CancellationToken cancellationToken
 	)
 	{
+		await EnsureDefinitionAsync(candidate.JobName, cancellationToken);
 		await using var scope = contextScope.GetScope(out var connection);
 
-		_ = await connection.BeginTransactionAsync(cancellationToken);
+		await connection.BeginTransactionAsync(cancellationToken);
 		Guid? observedCursorStamp = null;
 		var cursorWasMissing = false;
 		try
 		{
+			if (await ReserveDefinitionAsync(connection, candidate.JobName, now, cancellationToken) is not { } limits)
+			{
+				await connection.CommitTransactionAsync(cancellationToken);
+				return null;
+			}
+
 			var previous = ToRecord(candidate);
 			var oldStamp = candidate.ConcurrencyStamp;
 			candidate.State = JobState.Active;
@@ -310,7 +311,7 @@ internal sealed partial class LinqToDBJobStorage<T>
 				if (cursor is null)
 				{
 					cursorWasMissing = true;
-					_ = await InsertAsync(connection, new ImmediateFairQueueGroupEntity
+					await InsertAsync(connection, new ImmediateFairQueueGroupEntity
 					{
 						QueueName = queueName,
 						GroupId = groupId,
@@ -318,10 +319,12 @@ internal sealed partial class LinqToDBJobStorage<T>
 						ConcurrencyStamp = Guid.NewGuid(),
 					}, cancellationToken);
 				}
+
 				else if (cursor.LastServedSequence >= nextSequence)
 				{
 					throw new LostRaceException();
 				}
+
 				else
 				{
 					var cursorStamp = cursor.ConcurrencyStamp;
@@ -335,9 +338,11 @@ internal sealed partial class LinqToDBJobStorage<T>
 				}
 			}
 
+			await RefreshAcquiredDefinitionAsync(connection, candidate.JobName, limits, now, cancellationToken);
 			await connection.CommitTransactionAsync(cancellationToken);
 			return ToRecord(candidate);
 		}
+
 		catch (SyntheticExecutionInsertFailedException exception)
 		{
 			await connection.RollbackTransactionAsync(cancellationToken);
@@ -345,17 +350,20 @@ internal sealed partial class LinqToDBJobStorage<T>
 				return null;
 			throw exception.DatabaseException;
 		}
+
 		catch (LostRaceException)
 		{
 			await connection.RollbackTransactionAsync(cancellationToken);
 			return null;
 		}
+
 		catch (DbException)
 		{
 			try
 			{
 				await connection.RollbackTransactionAsync(cancellationToken);
 			}
+
 			catch (DbException)
 			{
 				// The original database error remains authoritative.

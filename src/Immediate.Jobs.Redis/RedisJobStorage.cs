@@ -58,13 +58,13 @@ internal sealed partial class RedisJobStorage(
 			RedisScripts.Heartbeat,
 			[ServerKey(server.WorkerId), ServersKey],
 			[
-				Ticks(server.LastHeartbeat),
+				Timestamp(server.LastHeartbeat),
 				server.ActiveWorkers,
 				server.MaxWorkers,
 				Score(server.LastHeartbeat + server.ServerTimeout),
 				server.WorkerId,
 				(long)server.ServerTimeout.TotalMilliseconds,
-				Ticks(server.LastHeartbeat + server.ServerTimeout),
+				Timestamp(server.LastHeartbeat + server.ServerTimeout),
 				JsonSerializer.Serialize(server, RedisJsonSerializerContext.Default.JobServerSnapshot),
 			],
 			cancellationToken

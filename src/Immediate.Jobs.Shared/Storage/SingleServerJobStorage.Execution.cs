@@ -18,28 +18,36 @@ internal sealed partial class SingleServerJobStorage
 		SingleServerSetExecutionTelemetryAsyncCalled(jobHandle, executionNumber, workerId, traceId, spanId, startedAt);
 		await TaskScheduler.Yield();
 		await EnsureInitializedAsync(cancellationToken);
+		await _writeThrough.WaitAsync(cancellationToken);
 
-		await DurableStorage
-			.SetExecutionTelemetryAsync(
-				jobHandle,
-				executionNumber,
-				workerId,
-				traceId,
-				spanId,
-				startedAt,
-				cancellationToken
-			);
+		try
+		{
+			await DurableStorage
+				.SetExecutionTelemetryAsync(
+					jobHandle,
+					executionNumber,
+					workerId,
+					traceId,
+					spanId,
+					startedAt,
+					cancellationToken
+				);
 
-		await PrimaryStorage
-			.SetExecutionTelemetryAsync(
-				jobHandle,
-				executionNumber,
-				workerId,
-				traceId,
-				spanId,
-				startedAt,
-				cancellationToken
-			);
+			await PrimaryStorage
+				.SetExecutionTelemetryAsync(
+					jobHandle,
+					executionNumber,
+					workerId,
+					traceId,
+					spanId,
+					startedAt,
+					cancellationToken
+				);
+		}
+		finally
+		{
+			_writeThrough.Release();
+		}
 	}
 
 	[LoggerMessage(

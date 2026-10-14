@@ -31,7 +31,7 @@ internal sealed partial class RedisJobStorage
 	[
 		JsonSerializer.Serialize(job, RedisJsonSerializerContext.Default.JobSubmission),
 		(int)job.State,
-		Ticks(job.DueAt),
+		Timestamp(job.DueAt),
 		0,
 		"",
 		"",
@@ -44,7 +44,7 @@ internal sealed partial class RedisJobStorage
 		Score(job.CreatedAt),
 		job.JobHandle.Value,
 		Score(job.DueAt),
-		Ticks(job.CreatedAt),
+		Timestamp(job.CreatedAt),
 		DueMember(job.DueAt, job.CreatedAt, job.JobHandle),
 		job.GroupId ?? "",
 		_root,

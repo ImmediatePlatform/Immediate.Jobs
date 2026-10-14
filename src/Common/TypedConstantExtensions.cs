@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Globalization;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 
@@ -32,6 +33,25 @@ internal static class TypedConstantExtensions
 				{ } value => value.GetEnumValue()?.Name,
 				_ => defaultValue,
 			};
+
+		public AcquisitionWindow? GetValidAcquisitionWindow(string windowName)
+		{
+			return (
+				arguments.GetIntValue(windowName + "Max"),
+				arguments.GetStringValue(windowName + "Period")
+			) switch
+			{
+				(null, null) => new(Max: null, Period: null),
+
+				({ } maximum, { } periodStr)
+					when maximum > 0
+					&& TimeSpan.TryParse(periodStr, CultureInfo.InvariantCulture, out var period)
+					&& period > TimeSpan.Zero =>
+					new(maximum, period),
+
+				_ => null,
+			};
+		}
 
 		public string? GetStringValue(string name) =>
 			arguments.GetArgumentValue(name)?.GetStringValue();

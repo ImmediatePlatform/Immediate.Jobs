@@ -37,7 +37,7 @@ internal sealed partial class RedisJobStorage
 		var result = await EvaluateInt64Async(
 			RedisScripts.SetTelemetry,
 			[JobKey(jobHandle), ExecutionIndexKey(jobHandle), ExecutionDataKey(jobHandle)],
-			[workerId, executionNumber, traceId ?? "", spanId ?? "", Ticks(startedAt)],
+			[workerId, executionNumber, traceId ?? "", spanId ?? "", Timestamp(startedAt)],
 			cancellationToken
 		);
 		ThrowIfNotOwned(result, jobHandle, workerId);

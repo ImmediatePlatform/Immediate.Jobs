@@ -37,15 +37,15 @@ internal sealed partial class RedisJobStorage
 		{
 			State = (JobState)ParseInt32(values[1]),
 			CancellationReason = values[11].IsNull ? job.CancellationReason : NullIfEmpty(values[11]),
-			DueAt = FromTicks(values[2]),
+			DueAt = FromTimestamp(values[2]),
 			Attempt = ParseInt32(values[3]),
 			WorkerId = NullIfEmpty(values[4]),
-			LeaseExpiresAt = FromNullableTicks(values[5]),
+			LeaseExpiresAt = FromNullableTimestamp(values[5]),
 			LastError = NullIfEmpty(values[6]),
-			CompletedAt = FromNullableTicks(values[7]),
+			CompletedAt = FromNullableTimestamp(values[7]),
 			ExecutionTraceId = NullIfEmpty(values[8]),
 			ExecutionSpanId = NullIfEmpty(values[9]),
-			ExecutionStartedAt = FromNullableTicks(values[10]),
+			ExecutionStartedAt = FromNullableTimestamp(values[10]),
 		};
 	}
 
@@ -85,11 +85,11 @@ internal sealed partial class RedisJobStorage
 		return queues;
 	}
 
-	private static DateTimeOffset FromTicks(RedisValue value) =>
-		new(long.Parse((string)value!, NumberStyles.None, CultureInfo.InvariantCulture), TimeSpan.Zero);
+	private static DateTimeOffset FromTimestamp(RedisValue value) =>
+		DateTimeOffset.Parse((string)value!, CultureInfo.InvariantCulture);
 
-	private static DateTimeOffset? FromNullableTicks(RedisValue value) =>
-		value.IsNullOrEmpty ? null : FromTicks(value);
+	private static DateTimeOffset? FromNullableTimestamp(RedisValue value) =>
+		value.IsNullOrEmpty ? null : FromTimestamp(value);
 
 	private static int ParseInt32(RedisValue value) =>
 		int.Parse((string)value!, NumberStyles.Integer, CultureInfo.InvariantCulture);

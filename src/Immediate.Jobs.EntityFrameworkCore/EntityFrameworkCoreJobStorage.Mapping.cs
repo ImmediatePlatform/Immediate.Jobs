@@ -1,3 +1,4 @@
+using System.Globalization;
 using Immediate.Jobs.Shared.Apis;
 using Microsoft.EntityFrameworkCore;
 
@@ -82,7 +83,7 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 			ParentKind = parentKind,
 			ParentId = parentId,
 			Trigger = edge.Trigger,
-			Delay = edge.Delay.Ticks,
+			Delay = edge.Delay.ToString(),
 		};
 	}
 
@@ -169,7 +170,7 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 			ChildJobHandle = JobHandle.FromString(edge.ChildJobHandle),
 			ParentJobHandle = edge.ParentKind == ContinuationParentKind.Job ? JobHandle.FromString(edge.ParentId) : null,
 			ParentBatchHandle = edge.ParentKind == ContinuationParentKind.Batch ? BatchHandle.FromString(edge.ParentId) : null,
-			Delay = TimeSpan.FromTicks(edge.Delay),
+			Delay = TimeSpan.Parse(edge.Delay, CultureInfo.InvariantCulture),
 			Trigger = edge.Trigger,
 		};
 

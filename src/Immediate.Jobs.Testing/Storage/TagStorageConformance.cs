@@ -32,10 +32,11 @@ internal static class TagStorageConformance
 	{
 		var original = new[] { Definition("Invoice"), Definition("Résumé"), Definition(new string('a', 256)) };
 		await storage.MergeJobDefinitionsListAsync(Registration(original), token);
-		var aliases = original.Select(definition => definition with { Name = definition.Name.ToUpperInvariant(), MaxAttempts = 9 }).ToList();
+		var aliases = original.Zip(["INVOICE", "RéSUMé", new string('A', 256)],
+			static (definition, name) => definition with { Name = name, MaxAttempts = 9 }).ToList();
 		await storage.MergeJobDefinitionsListAsync(Registration(aliases), token);
 		var definitions = await storage.GetJobDefinitionsAsync(token);
-		ConformanceAssert.Equal(3, definitions.Count, CaseNameCase, "case variants must update the same definitions, including Unicode and maximum-length names");
+		ConformanceAssert.Equal(3, definitions.Count, CaseNameCase, "ASCII case variants must update the same definitions, preserving Unicode characters and maximum-length names");
 		ConformanceAssert.True(definitions.All(static definition => definition.MaxAttempts == 9), CaseNameCase, "updates must reach case-insensitive identities");
 		ConformanceAssert.SequenceEqual(original.Select(static definition => definition.Name).Order(StringComparer.OrdinalIgnoreCase),
 			definitions.Select(static definition => definition.Name), CaseNameCase, "registration aliases must preserve the original stored spelling");

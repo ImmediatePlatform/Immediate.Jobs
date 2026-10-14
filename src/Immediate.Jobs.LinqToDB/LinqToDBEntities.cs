@@ -1,4 +1,5 @@
 using Immediate.Jobs.Shared.Apis;
+using Immediate.Jobs.Shared.Storage;
 using LinqToDB;
 using LinqToDB.Mapping;
 
@@ -151,8 +152,8 @@ internal sealed class ImmediateJobContinuationEntity
 	public ContinuationParentKind ParentKind { get; set; }
 	[PrimaryKey(3), Column(Length = 256, CanBeNull = false)]
 	public string ParentId { get; set; } = null!;
-	[Column(DataType = DataType.Int64)]
-	public long Delay { get; set; }
+	[Column(Length = 32, CanBeNull = false)]
+	public string Delay { get; set; } = null!;
 	[Column(DataType = DataType.Int16)]
 	public ContinuationTrigger Trigger { get; set; }
 	[Column(DataType = DataType.Int16)]
@@ -222,8 +223,8 @@ internal sealed class ImmediateJobDefinitionMetadataEntity
 	public string TimeZone { get; set; } = null!;
 	[Column(DataType = DataType.Int32)]
 	public int MaxAttempts { get; set; }
-	[Column(DataType = DataType.Int64, CanBeNull = true)]
-	public long? TimeoutTicks { get; set; }
+	[Column(Length = 32, CanBeNull = true)]
+	public string? Timeout { get; set; }
 	[Column(DataType = DataType.Int32)]
 	public int MaxConcurrency { get; set; }
 	[Column(DataType = DataType.Int16)]
@@ -232,10 +233,48 @@ internal sealed class ImmediateJobDefinitionMetadataEntity
 	public MisfireHandlingMode MisfireHandlingMode { get; set; }
 	[Column(DataType = DataType.Int16)]
 	public BackoffStrategy Backoff { get; set; }
-	[Column(DataType = DataType.Int64)]
-	public long BackoffBaseTicks { get; set; }
+	[Column(Length = 32, CanBeNull = false)]
+	public string BackoffBase { get; set; } = null!;
+	[Column(DataType = DataType.Int32)]
+	public int SlidingWindowMax { get; set; }
+	[Column(Length = 32, CanBeNull = true)]
+	public string? SlidingWindowPeriod { get; set; }
+	[Column(DataType = DataType.Int32)]
+	public int FixedWindowMax { get; set; }
+	[Column(Length = 32, CanBeNull = true)]
+	public string? FixedWindowPeriod { get; set; }
 	[Column(DataType = DataType.Text, CanBeNull = false)]
 	[Column(Configuration = ProviderName.SqlServer, DbType = "nvarchar(max)", CanBeNull = false)]
 	[Column(Configuration = ProviderName.PostgreSQL, DataType = DataType.BinaryJson, CanBeNull = false)]
 	public string Tags { get; set; } = null!;
+}
+
+[Table(Name = "immediate_job_definitions")]
+internal sealed class ImmediateJobDefinitionEntity
+{
+	[PrimaryKey, Column(Length = 256, CanBeNull = false)]
+	public string JobName { get; set; } = null!;
+	[Column]
+	public bool IsPaused { get; set; }
+	[Column(DataType = DataType.Int16)]
+	public JobAcquisitionStatus AcquisitionStatus { get; set; }
+	[Column(DataType = DataType.DateTimeOffset, CanBeNull = true)]
+	public DateTimeOffset? NextEligibleAt { get; set; }
+	[Column(DataType = DataType.DateTimeOffset, CanBeNull = true)]
+	public DateTimeOffset? FixedWindowStart { get; set; }
+	[Column]
+	public int FixedWindowCount { get; set; }
+	[Column(DataType = DataType.Guid)]
+	public Guid ConcurrencyStamp { get; set; }
+}
+
+[Table(Name = "immediate_job_acquisitions")]
+internal sealed class ImmediateJobAcquisitionEntity
+{
+	[PrimaryKey, Column(DataType = DataType.Guid)]
+	public Guid Id { get; set; }
+	[Column(Length = 256, CanBeNull = false)]
+	public string JobName { get; set; } = null!;
+	[Column(DataType = DataType.DateTimeOffset)]
+	public DateTimeOffset AcquiredAt { get; set; }
 }
