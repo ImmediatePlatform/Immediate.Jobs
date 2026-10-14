@@ -139,18 +139,12 @@ internal sealed partial class LinqToDBJobStorage<T>
 		if (names.Count == 0)
 			return;
 
-		var removed = names.ToHashSet(StringComparer.OrdinalIgnoreCase);
 		var query = Jobs(connection).Where(job => job.State != JobState.Succeeded && job.State != JobState.Failed
-			&& job.State != JobState.Cancelled && job.State != JobState.Skipped);
-		var schedulesQuery = Recurring(connection).Where(schedule => !schedule.IsCodeDefined && schedule.CancellationReason == null);
-		if (!connection.DataProvider.Name.Contains("SQLite", StringComparison.OrdinalIgnoreCase))
-		{
-			query = query.Where(job => job.JobName.In(names));
-			schedulesQuery = schedulesQuery.Where(schedule => schedule.JobName.In(names));
-		}
-
-		var jobs = (await query.ToListAsync(cancellationToken)).Where(job => removed.Contains(job.JobName)).ToList();
-		var schedules = (await schedulesQuery.ToListAsync(cancellationToken)).Where(schedule => removed.Contains(schedule.JobName)).ToList();
+			&& job.State != JobState.Cancelled && job.State != JobState.Skipped && job.JobName.In(names));
+		var schedulesQuery = Recurring(connection).Where(schedule => !schedule.IsCodeDefined
+			&& schedule.CancellationReason == null && schedule.JobName.In(names));
+		var jobs = await query.ToListAsync(cancellationToken);
+		var schedules = await schedulesQuery.ToListAsync(cancellationToken);
 		var now = timeProvider.GetUtcNow();
 		foreach (var job in jobs)
 			await MarkCancelledAsync(connection, job, now, JobDefinitionReconciliation.RemovalCancellationReason, cancellationToken);

@@ -44,17 +44,9 @@ internal sealed partial class LinqToDBJobStorage<T>
 		return await EvaluateDefinitionAsync(connection, definition, ToRecord(metadata).AcquisitionLimits, timeProvider.GetUtcNow(), cancellationToken, includeActiveCount: true);
 	}
 
-	private async Task<ImmediateJobDefinitionMetadataEntity> GetStoredDefinitionAsync(DataConnection connection, string jobName, CancellationToken cancellationToken)
-	{
-		IQueryable<ImmediateJobDefinitionMetadataEntity> query = Definitions(connection);
-		// SQLite's NOCASE collation only handles ASCII; compare Unicode aliases in the client.
-		if (!connection.DataProvider.Name.Contains("SQLite", StringComparison.OrdinalIgnoreCase))
-			query = query.Where(definition => definition.Name == jobName);
-
-		var definitions = await query.ToListAsync(cancellationToken);
-		return definitions.SingleOrDefault(definition => string.Equals(definition.Name, jobName, StringComparison.OrdinalIgnoreCase))
+	private async Task<ImmediateJobDefinitionMetadataEntity> GetStoredDefinitionAsync(DataConnection connection, string jobName, CancellationToken cancellationToken) =>
+		await Definitions(connection).SingleOrDefaultAsync(definition => definition.Name == jobName, cancellationToken)
 			?? throw new KeyNotFoundException($"Job definition '{jobName}' was not found.");
-	}
 
 	private async ValueTask UpdateDefinitionAsync(string jobName, bool paused, CancellationToken cancellationToken)
 	{
@@ -186,12 +178,8 @@ internal sealed partial class LinqToDBJobStorage<T>
 
 		await using var scope = contextScope.GetScope(out var connection);
 		// This is an advisory read. The definition row is locked and rechecked when claiming a job.
-		IQueryable<ImmediateJobDefinitionMetadataEntity> query = Definitions(connection);
-		if (!connection.DataProvider.Name.Contains("SQLite", StringComparison.OrdinalIgnoreCase))
-			query = query.Where(item => candidates.Contains(item.Name));
-
-		var metadata = (await query.ToListAsync(cancellationToken))
-			.Where(item => capacities.TryGetValue(item.Name, out var capacity) && capacity > 0).ToList();
+		var metadata = await Definitions(connection)
+			.Where(item => candidates.Contains(item.Name)).ToListAsync(cancellationToken);
 		if (metadata.Count == 0)
 			return [];
 

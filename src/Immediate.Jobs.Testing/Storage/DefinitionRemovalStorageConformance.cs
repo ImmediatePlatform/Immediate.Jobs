@@ -53,7 +53,7 @@ internal static class DefinitionRemovalStorageConformance
 		var schedule = new RecurringJobSchedule
 		{
 			Name = "dynamic",
-			JobName = "RÉSUMÉ",
+			JobName = "RéSUMé",
 			QueueName = "default",
 			Cron = "* * * * *",
 			TimeZone = "UTC",

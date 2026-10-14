@@ -40,17 +40,10 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 		}, cancellationToken);
 	}
 
-	private static async Task<ImmediateJobDefinitionMetadataEntity> GetStoredDefinitionAsync(TContext context, string jobName, CancellationToken cancellationToken)
-	{
-		var query = context.Set<ImmediateJobDefinitionMetadataEntity>().AsNoTracking();
-		// SQLite's NOCASE collation only handles ASCII; compare Unicode aliases in the client.
-		if (context.Database.ProviderName?.Contains("Sqlite", StringComparison.Ordinal) != true)
-			query = query.Where(definition => definition.Name == jobName);
-
-		var definitions = await query.ToListAsync(cancellationToken);
-		return definitions.SingleOrDefault(definition => string.Equals(definition.Name, jobName, StringComparison.OrdinalIgnoreCase))
+	private static async Task<ImmediateJobDefinitionMetadataEntity> GetStoredDefinitionAsync(TContext context, string jobName, CancellationToken cancellationToken) =>
+		await context.Set<ImmediateJobDefinitionMetadataEntity>().AsNoTracking()
+			.SingleOrDefaultAsync(definition => definition.Name == jobName, cancellationToken)
 			?? throw new KeyNotFoundException($"Job definition '{jobName}' was not found.");
-	}
 
 	private async ValueTask UpdateDefinitionAsync(string jobName, bool paused, CancellationToken cancellationToken)
 	{
@@ -164,12 +157,8 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 		return await ReadWithStrategyAsync(async (context, token) =>
 		{
 			// This is an advisory read. The definition row is locked and rechecked when claiming a job.
-			var query = context.Set<ImmediateJobDefinitionMetadataEntity>().AsNoTracking();
-			if (context.Database.ProviderName?.Contains("Sqlite", StringComparison.Ordinal) != true)
-				query = query.Where(item => candidates.Contains(item.Name));
-
-			var metadata = (await query.ToListAsync(token))
-				.Where(item => capacities.TryGetValue(item.Name, out var capacity) && capacity > 0).ToList();
+			var metadata = await context.Set<ImmediateJobDefinitionMetadataEntity>().AsNoTracking()
+				.Where(item => candidates.Contains(item.Name)).ToListAsync(token);
 			if (metadata.Count == 0)
 				return [];
 

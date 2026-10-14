@@ -30,7 +30,7 @@ internal static class DefinitionCatalogStorageConformance
 		var job = new JobSubmission
 		{
 			JobHandle = JobHandle.FromString("resolved-job"),
-			JobName = "RÉSUMÉ",
+			JobName = "RéSUMé",
 			Payload = "{\"value\":\"routing\"}",
 			GroupId = "tenant",
 			State = JobState.Pending,
@@ -45,7 +45,7 @@ internal static class DefinitionCatalogStorageConformance
 		var schedule = new RecurringJobSchedule
 		{
 			Name = "dynamic-routing",
-			JobName = "RÉSUMÉ",
+			JobName = "RéSUMé",
 			Cron = "* * * * *",
 			TimeZone = "UTC",
 			IsCodeDefined = false,
@@ -144,14 +144,15 @@ internal static class DefinitionCatalogStorageConformance
 	{
 		var original = new[] { Definition("Invoice") with { QueueName = "priority", QueuePriority = 9, QueueConcurrency = 2, Timeout = TimeSpan.FromMinutes(3), MaxConcurrency = 4, SlidingWindowMax = 3, SlidingWindowPeriod = TimeSpan.FromSeconds(5) + TimeSpan.FromTicks(3), FixedWindowMax = 12, FixedWindowPeriod = TimeSpan.FromMinutes(1), BackoffBase = TimeSpan.FromSeconds(13) }, Definition("Résumé"), Definition("Δοκιμή"), Definition("測試"), Definition(new string('a', 256)) };
 		await storage.MergeJobDefinitionsListAsync(Registration(original), token);
-		var aliases = original.Select(definition => definition with { Name = definition.Name.ToUpperInvariant(), MaxAttempts = 9 }).ToList();
+		var aliases = original.Zip(["INVOICE", "RéSUMé", "Δοκιμή", "測試", new string('A', 256)],
+			static (definition, name) => definition with { Name = name, MaxAttempts = 9 }).ToList();
 		await storage.MergeJobDefinitionsListAsync(Registration(aliases), token);
 		var definitions = await storage.GetJobDefinitionsAsync(token);
 		var invoice = definitions.Single(static definition => string.Equals(definition.Name, "Invoice", StringComparison.Ordinal));
 		ConformanceAssert.Equal(("priority", 9, 2, TimeSpan.FromMinutes(3), 4, TimeSpan.FromSeconds(13)),
 			(invoice.QueueName, invoice.QueuePriority, invoice.QueueConcurrency, invoice.Timeout, invoice.MaxConcurrency, invoice.BackoffBase), CaseNameCase, "non-runtime metadata must round trip");
 		ConformanceAssert.Equal(original[0].AcquisitionLimits, invoice.AcquisitionLimits, CaseNameCase, "remote monitoring and resume must use the persisted acquisition limits");
-		ConformanceAssert.Equal(5, definitions.Count, CaseNameCase, "case variants must update the same definitions, including Unicode and maximum-length names");
+		ConformanceAssert.Equal(5, definitions.Count, CaseNameCase, "ASCII case variants must update the same definitions, preserving Unicode characters and maximum-length names");
 		ConformanceAssert.True(definitions.All(static definition => definition.MaxAttempts == 9), CaseNameCase, "updates must reach case-insensitive identities");
 		ConformanceAssert.SequenceEqual(original.Select(static definition => definition.Name).Order(StringComparer.OrdinalIgnoreCase),
 			definitions.Select(static definition => definition.Name), CaseNameCase, "registration aliases must preserve the original stored spelling");

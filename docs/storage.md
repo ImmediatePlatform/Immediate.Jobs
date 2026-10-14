@@ -55,8 +55,10 @@ or the original offset. Redis sorted-set scores remain numeric indexes.
 
 Definition names are case-insensitive identities and retain their readable spelling. In-memory
 and single-server use `OrdinalIgnoreCase`; SQL Server inherits database collation; PostgreSQL uses
-a nondeterministic ICU collation (`und-u-ks-level2`); SQLite uses `NOCASE` (ASCII-only database
-comparison). EF tracking uses an ordinal case-insensitive key comparer. EF applications with custom
+a nondeterministic ICU collation (`und-u-ks-level2`); SQLite uses `NOCASE`. SQLite's case-insensitive
+name lookups are limited to ASCII letters: `Invoice` and `invoice` match, while `Résumé` and
+`RÉSUMÉ` do not. Keep non-ASCII characters in their registered case when supplying a name.
+EF tracking uses an ordinal case-insensitive key comparer. EF applications with custom
 provider conventions can pass `definitionNameCollation` to `AddImmediateJobs`.
 Definition names must not have leading or trailing whitespace: the job analyzer reports `IJOB0008`,
 and storage rejects invalid manually supplied names before modifying the catalogue.

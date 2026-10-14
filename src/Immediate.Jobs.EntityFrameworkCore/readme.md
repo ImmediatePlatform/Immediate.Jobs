@@ -63,6 +63,9 @@ public sealed class JobsDbContext(DbContextOptions<JobsDbContext> options) : DbC
 
 `AddMyAppJobs` is the generated registration method for an assembly named `MyApp`.
 
+SQLite uses `NOCASE` for job-name lookups, so case-insensitive matching is limited to ASCII letters.
+`Invoice` and `invoice` match; `Résumé` and `RÉSUMÉ` do not. Supply non-ASCII characters in their registered case.
+
 On SQL Server, enable `EnableRetryOnFailure()`. Concurrent job acquisition can make SQL Server choose one of the
 storage's reads as a deadlock victim. The storage runs its writes and its acquisition reads through the configured
 execution strategy, so a retrying strategy reruns them.

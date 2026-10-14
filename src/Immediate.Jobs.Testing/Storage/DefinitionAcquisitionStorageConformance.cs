@@ -69,7 +69,7 @@ internal static class DefinitionAcquisitionStorageConformance
 	private static async ValueTask CaseInsensitiveControlsAsync(IJobStorage storage, FakeTimeProvider clock, CancellationToken token)
 	{
 		const string CanonicalName = "Émail.Σ";
-		const string Alias = "émail.σ";
+		const string Alias = "ÉMAIL.Σ";
 		var definition = new JobDefinitionRecord
 		{
 			Name = CanonicalName,

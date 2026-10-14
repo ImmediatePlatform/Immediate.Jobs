@@ -226,12 +226,8 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 		if (names.Count == 0)
 			return [with(StringComparer.OrdinalIgnoreCase)];
 
-		var query = context.Set<ImmediateJobDefinitionMetadataEntity>().AsNoTracking();
-		// SQLite's NOCASE collation only handles ASCII; compare Unicode aliases in the client.
-		if (context.Database.ProviderName?.Contains("Sqlite", StringComparison.Ordinal) != true)
-			query = query.Where(definition => names.Contains(definition.Name));
-
-		var definitions = await query
+		var definitions = await context.Set<ImmediateJobDefinitionMetadataEntity>().AsNoTracking()
+			.Where(definition => names.Contains(definition.Name))
 			.Select(definition => definition.Name)
 			.ToListAsync(cancellationToken);
 

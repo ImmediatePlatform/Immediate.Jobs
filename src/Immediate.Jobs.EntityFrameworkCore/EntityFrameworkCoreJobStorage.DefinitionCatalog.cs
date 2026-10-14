@@ -39,10 +39,9 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 			reports.Clear();
 			var removed = changes.RemovedDefinitionNames.ToHashSet(StringComparer.OrdinalIgnoreCase);
 			var jobQuery = context.Set<ImmediateJobEntity>().Where(job => job.State != JobState.Succeeded
-				&& job.State != JobState.Failed && job.State != JobState.Cancelled && job.State != JobState.Skipped);
-			if (!context.Database.ProviderName!.Contains("Sqlite", StringComparison.Ordinal))
-				jobQuery = jobQuery.Where(job => removed.Contains(job.JobName));
-			var jobs = removed.Count == 0 ? [] : (await jobQuery.ToListAsync(token)).Where(job => removed.Contains(job.JobName)).ToList();
+				&& job.State != JobState.Failed && job.State != JobState.Cancelled && job.State != JobState.Skipped
+				&& removed.Contains(job.JobName));
+			var jobs = removed.Count == 0 ? [] : await jobQuery.ToListAsync(token);
 			var cancelledSchedules = schedules.Values.Where(schedule => !schedule.IsCodeDefined
 				&& removed.Contains(schedule.JobName) && schedule.CancellationReason is null).ToList();
 			var now = _timeProvider.GetUtcNow();
