@@ -73,7 +73,8 @@ the payload, with its queue and pause status. The header shows the job name, inv
 and actions. Job links support opening details in a new tab. Batch members link back to their workflow.
 
 Definitions can be filtered live by name, queue, or tag. Their Concurrency column lists only
-configured active-job and fixed/sliding window limits; unbounded definitions show “No limit” once.
+configured limits with current active-job and fixed/sliding acquisition counts; unbounded definitions
+show “No limit” once. Window counts include retries and expired-lease reacquisitions, and remain visible while paused.
 
 ## Monitoring refresh
 

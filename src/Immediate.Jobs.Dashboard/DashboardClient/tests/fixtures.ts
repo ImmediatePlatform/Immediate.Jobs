@@ -78,7 +78,7 @@ export const storedDefinition: JobDefinitionStatus & { acquisition: JobAcquisiti
 	backoff: 'Fixed',
 	backoffBase: '00:00:05',
 	limits: { slidingWindowMax: 0, slidingWindowPeriod: null, fixedWindowMax: 0, fixedWindowPeriod: null, maxConcurrency: 2 },
-	acquisition: { jobName: 'RemoteEmail', isPaused: false, acquisitionStatus: 'Ready', nextEligibleAt: null, activeCount: 0, isConcurrencyLimited: false },
+	acquisition: { jobName: 'RemoteEmail', isPaused: false, acquisitionStatus: 'Ready', nextEligibleAt: null, activeCount: 0, slidingWindowCount: 0, fixedWindowCount: 0, isConcurrencyLimited: false },
 };
 
 export const pausedDefinition: JobDefinitionStatus & { acquisition: JobAcquisitionState } = {
@@ -92,5 +92,5 @@ export const pausedDefinition: JobDefinitionStatus & { acquisition: JobAcquisiti
 	fixedWindowMax: 100,
 	fixedWindowPeriod: '01:00:00',
 	limits: { slidingWindowMax: 10, slidingWindowPeriod: '00:01:00', fixedWindowMax: 100, fixedWindowPeriod: '01:00:00', maxConcurrency: 2 },
-	acquisition: { jobName: 'SendGreeting', isPaused: true, acquisitionStatus: 'Paused', nextEligibleAt: null, activeCount: 2, isConcurrencyLimited: true },
+	acquisition: { jobName: 'SendGreeting', isPaused: true, acquisitionStatus: 'Paused', nextEligibleAt: null, activeCount: 2, slidingWindowCount: 3, fixedWindowCount: 7, isConcurrencyLimited: true },
 };

@@ -82,7 +82,7 @@ describe('dashboard components', () => {
 				...storedDefinition,
 				name: 'Unbounded', queueName: 'default',
 				limits: { slidingWindowMax: 0, slidingWindowPeriod: null, fixedWindowMax: 0, fixedWindowPeriod: null, maxConcurrency: 0 },
-				acquisition: { jobName: 'Unbounded', isPaused: false, acquisitionStatus: 'Ready', nextEligibleAt: null, activeCount: 3, isConcurrencyLimited: false },
+				acquisition: { jobName: 'Unbounded', isPaused: false, acquisitionStatus: 'Ready', nextEligibleAt: null, activeCount: 3, slidingWindowCount: 0, fixedWindowCount: 0, isConcurrencyLimited: false },
 			}] },
 			global: { plugins: [router] },
 		});
@@ -91,8 +91,8 @@ describe('dashboard components', () => {
 		expect(rows[0]?.text()).toContain('Paused');
 		expect(rows[0]?.text()).toContain('Max active: 2 / 2');
 		expect(rows[0]?.text()).toContain('At capacity');
-		expect(rows[0]?.text()).toContain('Sliding window: 10 per 00:01:00');
-		expect(rows[0]?.text()).toContain('Fixed window: 100 per 01:00:00');
+		expect(rows[0]?.text()).toContain('Sliding window: 3 / 10 per 00:01:00');
+		expect(rows[0]?.text()).toContain('Fixed window: 7 / 100 per 01:00:00');
 		expect(rows[0]?.text()).not.toContain('No limit');
 		expect(rows[1]?.findAll('.acquisition-limits span').map(span => span.text())).toEqual(['No limit']);
 		expect(rows[1]?.text()).not.toContain('At capacity');
@@ -136,8 +136,8 @@ describe('dashboard components', () => {
 		expect(definition.text()).toContain('default');
 		expect(definition.text()).not.toContain('old-queue');
 		expect(definition.text()).toContain('Max active: 2 / 2');
-		expect(definition.text()).toContain('Fixed window: 100 per 01:00:00');
-		expect(definition.text()).toContain('Sliding window: 10 per 00:01:00');
+		expect(definition.text()).toContain('Fixed window: 7 / 100 per 01:00:00');
+		expect(definition.text()).toContain('Sliding window: 3 / 10 per 00:01:00');
 		const sections = detail.findAll('.code-section').map(section => section.get('h3').text());
 		expect(sections.indexOf('Definition')).toBe(sections.indexOf('Payload') + 1);
 		await detail.setProps({ job: { ...completedJob, state: 'Active' } });

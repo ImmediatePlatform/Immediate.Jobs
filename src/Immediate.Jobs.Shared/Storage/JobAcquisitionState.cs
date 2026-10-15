@@ -57,6 +57,16 @@ public sealed record JobAcquisitionState
 	public int ActiveCount { get; init; }
 
 	/// <summary>
+	/// 	Acquisitions in the current sliding window. Zero when the sliding-window limit is disabled.
+	/// </summary>
+	public int SlidingWindowCount { get; init; }
+
+	/// <summary>
+	/// 	Acquisitions in the current UTC-aligned fixed window. Zero when the fixed-window limit is disabled.
+	/// </summary>
+	public int FixedWindowCount { get; init; }
+
+	/// <summary>
 	/// 	Whether the concurrency limit is exhausted, independently of pause or time-based restrictions.
 	/// </summary>
 	public bool IsConcurrencyLimited { get; init; }

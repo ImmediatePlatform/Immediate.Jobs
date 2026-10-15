@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { getDefinitions, getOverview, setDefinitionPaused } from '@/api';
 import { notifications } from '@/notifications';
-import { queryKeys } from '@/query';
+import { applyDashboardState, queryKeys } from '@/query';
 import { routes } from '@/router';
 import DefinitionsView from '@/views/DefinitionsView.vue';
 import { pausedDefinition, storedDefinition } from './fixtures';
@@ -112,6 +112,24 @@ describe('definition actions', () => {
 		expect(setDefinitionPausedMock).toHaveBeenCalledWith(pausedDefinition.name, true);
 		expect(wrapper.text()).toContain('Paused');
 		expect(notifications.value.at(-1)?.message).toBe('Definition paused.');
+		wrapper.unmount();
+		queryClient.clear();
+	});
+
+	it('updates window counts from live snapshots while keeping definition metadata cached', async () => {
+		const { wrapper, queryClient } = await mountView();
+		expect(wrapper.text()).toContain('Sliding window: 3 / 10 per 00:01:00');
+		expect(wrapper.text()).toContain('Fixed window: 7 / 100 per 01:00:00');
+		applyDashboardState(queryClient, {
+			jobs: [],
+			batches: [],
+			snapshot: snapshot({ ...pausedDefinition, acquisition: { ...pausedDefinition.acquisition, slidingWindowCount: 0, fixedWindowCount: 0 } }),
+		});
+		await flushPromises();
+		expect(wrapper.text()).toContain('Sliding window: 0 / 10 per 00:01:00');
+		expect(wrapper.text()).toContain('Fixed window: 0 / 100 per 01:00:00');
+		expect(wrapper.get('tbody button').text()).toBe('Resume');
+		expect(getDefinitionsMock).toHaveBeenCalledTimes(1);
 		wrapper.unmount();
 		queryClient.clear();
 	});

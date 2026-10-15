@@ -76,6 +76,8 @@ internal sealed partial class RedisJobStorage
 			JobName = jobName,
 			IsPaused = (long)result[3] == 1,
 			ActiveCount = (int)(long)result[4],
+			SlidingWindowCount = (int)(long)result[5],
+			FixedWindowCount = (int)(long)result[6],
 			IsConcurrencyLimited = limits.MaxConcurrency > 0 && (long)result[4] >= limits.MaxConcurrency,
 			AcquisitionStatus = (JobAcquisitionStatus)(long)result[0],
 			NextEligibleAt = next,

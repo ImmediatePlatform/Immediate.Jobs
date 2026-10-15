@@ -43,8 +43,8 @@ live status and pause/resume actions. The Servers page displays effective server
 - **Definitions view.** `/definitions` shows one row per stored definition with queue, acquisition
   status, concurrency limits, and next eligible time. Live search filters names, queues, and tags
   without a server request. One Concurrency column lists only configured limits: maximum active
-  jobs with current usage, and fixed/sliding rates with their periods. Unbounded definitions show
-  “No limit” once. A paused definition still displays its active jobs and an independent at-capacity
+  jobs with current usage, and fixed/sliding acquisition counts against their limits and periods.
+  Unbounded definitions show “No limit” once. A paused definition still displays its active jobs and an independent at-capacity
   indicator. Rows link to filtered jobs, and server-sent snapshots keep the table current.
   Each row exposes Pause or Resume based on its explicit pause state, including rate-limited or
   concurrency-limited definitions. Actions show pending/error feedback and refresh dashboard queries.

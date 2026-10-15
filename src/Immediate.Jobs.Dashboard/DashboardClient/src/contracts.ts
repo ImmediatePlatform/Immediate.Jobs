@@ -144,6 +144,8 @@ export interface JobAcquisitionState {
 	acquisitionStatus: JobAcquisitionStatus;
 	nextEligibleAt: IsoDateTime | null;
 	activeCount: number;
+	slidingWindowCount: number;
+	fixedWindowCount: number;
 	isConcurrencyLimited: boolean;
 }
 
