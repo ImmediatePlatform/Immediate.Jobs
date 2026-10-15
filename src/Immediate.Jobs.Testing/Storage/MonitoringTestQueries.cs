@@ -9,7 +9,7 @@ internal static class MonitoringTestQueries
 	{
 		var definitions = await storage.GetMonitoringDefinitionsAsync(cancellationToken);
 		var snapshot = await storage.GetMonitoringSnapshotAsync(cancellationToken);
-		var states = snapshot.Recurring.ToDictionary(static state => state.Name, StringComparer.Ordinal);
+		var states = snapshot.Recurring.ToDictionary(static state => state.Name, StringComparer.OrdinalIgnoreCase);
 		return [.. definitions.Recurring.Select(definition => RecurringJobSchedule.FromDefinition(definition, states[definition.Name]))];
 	}
 }

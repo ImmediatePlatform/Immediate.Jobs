@@ -23,6 +23,8 @@ internal static class RecurringStorageConformance
 
 	internal static IReadOnlyList<JobStorageConformanceTestCase> Cases { get; } =
 	[
+		new("Recurring.Identity.MatchesCaseInsensitiveNamesThroughout", StorageCapabilities.Queue, MatchesNamesAsync),
+		new("Recurring.Eligibility.MatchesUnicodeJobNamesBeforeBatching", StorageCapabilities.Queue, MatchesUnicodeJobsAsync),
 		new(LifecycleName, StorageCapabilities.Queue, DynamicLifecycleAsync),
 		new(MergeDefinitionsName, StorageCapabilities.Queue, MergesDefinitionsAsync, ExistingRecurringSchedules()),
 		new(DueScanName, StorageCapabilities.Queue, FiltersDueSchedulesAsync),
@@ -35,6 +37,69 @@ internal static class RecurringStorageConformance
 		new(PurgeName, StorageCapabilities.Queue, PurgeRemovesDedupeStateAsync),
 		new(ExceptionsName, StorageCapabilities.Queue, UsesDashboardExceptionConventionsAsync),
 	];
+
+	private static async ValueTask MatchesNamesAsync(IJobStorage storage, FakeTimeProvider timeProvider, CancellationToken token)
+	{
+		const string CaseName = "Recurring.Identity.MatchesCaseInsensitiveNamesThroughout";
+		var now = timeProvider.GetUtcNow();
+		foreach (var name in new[] { "Invoice", "Résumé" })
+		{
+			var alias = name.ToUpperInvariant();
+			var original = Schedule(name, now, isCodeDefined: false);
+			await storage.UpsertRecurringAsync(original, token);
+			await storage.PauseRecurringAsync(alias, token);
+			await storage.UpsertRecurringAsync(original with { Name = alias, Cron = "30 * * * *" }, token);
+			var schedules = await MonitoringTestQueries.GetSchedulesAsync(storage, token);
+			ConformanceAssert.Equal(1, schedules.Count, CaseName, "aliases must update one schedule");
+			ConformanceAssert.Equal(name, schedules.Single().Name, CaseName, "updates must retain the first spelling");
+			ConformanceAssert.True(schedules.Single().IsPaused, CaseName, "alias updates must preserve pause state");
+			await storage.ResumeRecurringAsync(alias, token);
+			var due = (await storage.GetDueRecurringAsync(now, 1, [JobName], token)).Single();
+			var occurrence = Occurrence(alias, due, JobState.Pending, now);
+			ConformanceAssert.True(await storage.MaterializeRecurringAsync(due with { Name = alias }, occurrence, now.AddMinutes(1), cancellationToken: token),
+				CaseName, "materialization must find a schedule by its alias");
+			var advanced = await GetScheduleAsync(storage, name, CaseName, token);
+			ConformanceAssert.Equal(now, advanced.LastRunAt, CaseName, "alias materialization must advance the same schedule");
+			ConformanceAssert.Equal(now.AddMinutes(1), advanced.NextRunAt, CaseName, "the next occurrence must advance");
+			ConformanceAssert.False(await storage.MaterializeRecurringAsync(due with { Name = alias }, occurrence, now.AddMinutes(1), cancellationToken: token),
+				CaseName, "an aliased stale occurrence must not materialize twice");
+			await storage.RemoveRecurringAsync(alias, token);
+			ConformanceAssert.Equal(0, (await MonitoringTestQueries.GetSchedulesAsync(storage, token)).Count, CaseName, "removal by an alias must remove the schedule");
+			await Task.WhenAll(
+				storage.UpsertRecurringAsync(original, token).AsTask(),
+				storage.UpsertRecurringAsync(original with { Name = alias }, token).AsTask());
+			ConformanceAssert.Equal(1, (await MonitoringTestQueries.GetSchedulesAsync(storage, token)).Count, CaseName,
+				"concurrent case aliases must create only one schedule");
+			await storage.RemoveRecurringAsync(alias, token);
+			var code = original with { IsCodeDefined = true, JobName = name };
+			await storage.UpsertRecurringAsync(code, token);
+			await ConformanceAssert.ThrowsAsync<ImmediateJobException>(() => storage.UpsertRecurringAsync(original with { Name = alias }, token), CaseName,
+				"dynamic aliases must not replace a code-defined schedule");
+			await ConformanceAssert.ThrowsAsync<ImmediateJobException>(() => storage.RemoveRecurringAsync(alias, token), CaseName,
+				"code-defined schedules must be protected through aliases");
+			await storage.PauseRecurringAsync(alias, token);
+			await storage.MergeJobDefinitionsListAsync(new()
+			{
+				Definitions = [new() { Name = alias, QueueName = code.QueueName, Cron = code.Cron, TimeZone = code.TimeZone }],
+				RecurringSchedules = [code with { Name = alias, JobName = alias }],
+			}, token);
+			var reconciled = await GetScheduleAsync(storage, name, CaseName, token);
+			ConformanceAssert.True(reconciled.IsPaused, CaseName, "catalogue reconciliation must preserve pause state through aliases");
+			ConformanceAssert.Equal(now, reconciled.NextRunAt, CaseName, "catalogue reconciliation must preserve recurring progress through aliases");
+			await storage.MergeJobDefinitionsListAsync(new() { Definitions = [], RecurringSchedules = [] }, token);
+		}
+	}
+
+	private static async ValueTask MatchesUnicodeJobsAsync(IJobStorage storage, FakeTimeProvider timeProvider, CancellationToken token)
+	{
+		const string CaseName = "Recurring.Eligibility.MatchesUnicodeJobNamesBeforeBatching";
+		var now = timeProvider.GetUtcNow();
+		await storage.UpsertRecurringAsync(Schedule("ignored", now.AddMinutes(-2), isCodeDefined: false), token);
+		await storage.UpsertRecurringAsync(Schedule("eligible", now.AddMinutes(-1), isCodeDefined: false) with { JobName = "Résumé" }, token);
+		var due = await storage.GetDueRecurringAsync(now, 1, ["RÉSUMÉ"], token);
+		ConformanceAssert.SequenceEqual(["eligible"], due.Select(schedule => schedule.Name), CaseName,
+			"Unicode aliases must match before ineligible schedules consume the batch");
+	}
 
 	private static async ValueTask DynamicLifecycleAsync(
 		IJobStorage storage,

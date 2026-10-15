@@ -28,7 +28,7 @@ internal sealed partial class RedisJobStorage
 				schedule.IsPaused ? 1 : 0,
 				Timestamp(schedule.NextRunAt),
 				NullableTimestamp(schedule.LastRunAt),
-				schedule.Name,
+				schedule.Name.ToUpperInvariant(),
 				Score(schedule.NextRunAt),
 				RecurringDueMember(schedule.NextRunAt, schedule.Name),
 				schedule.Cron,
@@ -54,7 +54,7 @@ internal sealed partial class RedisJobStorage
 		var result = await EvaluateInt64Async(
 			RedisScripts.RemoveRecurring,
 			[RecurringKey(name), RecurringNamesKey, RecurringDueKey],
-			[name, _root],
+			[name.ToUpperInvariant(), _root],
 			cancellationToken
 		);
 		if (result == 0)
@@ -108,7 +108,7 @@ internal sealed partial class RedisJobStorage
 			names,
 			cancellationToken
 		);
-		var schedulesByName = schedules.ToDictionary(static schedule => schedule.Name, StringComparer.Ordinal);
+		var schedulesByName = schedules.ToDictionary(static schedule => schedule.Name, StringComparer.OrdinalIgnoreCase);
 		var due = new List<RecurringJobSchedule>(schedules.Count);
 		var added = new HashSet<string>(StringComparer.Ordinal);
 		var stale = new List<RedisValue>();
@@ -222,7 +222,7 @@ internal sealed partial class RedisJobStorage
 		return [.. records
 			.Select(schedule => schedule with { QueueName = queues[schedule.JobName] })
 			.OrderBy(schedule => schedule.NextRunAt)
-			.ThenBy(schedule => schedule.Name, StringComparer.Ordinal)];
+			.ThenBy(schedule => schedule.Name, StringComparer.OrdinalIgnoreCase)];
 	}
 
 	private async ValueTask<RecurringJobSchedule?> ReadRecurringDataAsync(
@@ -273,7 +273,7 @@ internal sealed partial class RedisJobStorage
 		Score(job.CreatedAt),
 		Timestamp(nextRunAt),
 		Score(nextRunAt),
-		schedule.Name,
+		schedule.Name.ToUpperInvariant(),
 		Timestamp(job.CreatedAt),
 		job.CompletedAt is { } completedAt ? Score(completedAt) : 0,
 		Score(now),
@@ -295,7 +295,7 @@ internal sealed partial class RedisJobStorage
 			throw new ImmediateJobException($"Terminal recurring job '{job.JobHandle}' must have a completion time.");
 	}
 
-	private static string RecurringDueMember(DateTimeOffset nextRunAt, string name) => $"{Timestamp(nextRunAt)}|{name}";
+	private static string RecurringDueMember(DateTimeOffset nextRunAt, string name) => $"{Timestamp(nextRunAt)}|{name.ToUpperInvariant()}";
 
 	[LoggerMessage(
 		EventId = LibraryEventIds.UpsertRecurringAsyncCalled,

@@ -33,7 +33,7 @@ internal sealed partial class RedisJobStorage
 
 	private RedisKey CompletedKey(JobState state) => string.Create(CultureInfo.InvariantCulture, $"{_root}completed:{(int)state}");
 
-	private RedisKey RecurringKey(string name) => _root + "recurring:" + name;
+	private RedisKey RecurringKey(string name) => _root + "recurring:" + name.ToUpperInvariant();
 
 	private RedisKey ServerKey(string workerId) => _root + "server:" + workerId;
 

@@ -41,7 +41,7 @@ public sealed partial class InMemoryJobStorage(
 
 	private readonly HashSet<JobContinuationEdge> _settledEdges = [];
 
-	private readonly Dictionary<string, RecurringJobSchedule> _recurring = [with(StringComparer.Ordinal)];
+	private readonly Dictionary<string, RecurringJobSchedule> _recurring = [with(StringComparer.OrdinalIgnoreCase)];
 
 	private readonly Dictionary<string, JobServerSnapshot> _servers = [with(StringComparer.Ordinal)];
 

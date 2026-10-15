@@ -30,10 +30,10 @@ internal sealed partial class RedisJobStorage
 					Metadata = JsonSerializer.Serialize(definition, RedisJsonSerializerContext.Default.JobDefinitionRecord),
 				}).ToList(),
 				RemovedDefinitions = changes.RemovedDefinitionNames.Select(static name => name.ToUpperInvariant()).ToList(),
-				RemovedSchedules = changes.RemovedScheduleNames,
+				RemovedSchedules = changes.RemovedScheduleNames.Select(static name => name.ToUpperInvariant()).ToList(),
 				Schedules = changes.Schedules.Select(static schedule => new RedisDefinitionSchedule
 				{
-					Name = schedule.Name,
+					Name = schedule.Name.ToUpperInvariant(),
 					JobName = schedule.JobName.ToUpperInvariant(),
 					Record = JsonSerializer.Serialize(schedule with { QueueName = null }, RedisJsonSerializerContext.Default.RecurringJobSchedule),
 					Cron = schedule.Cron,

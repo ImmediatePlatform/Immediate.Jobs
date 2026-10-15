@@ -32,6 +32,7 @@ public sealed partial class InMemoryJobStorage
 				{ } =>
 					schedule with
 					{
+						Name = current.Name,
 						IsPaused = current.IsPaused || (schedule.CancellationReason ?? current.CancellationReason) is not null,
 						LastRunAt = current.LastRunAt,
 						CancellationReason = schedule.CancellationReason ?? current.CancellationReason,
@@ -56,7 +57,7 @@ public sealed partial class InMemoryJobStorage
 			if (schedule.IsCodeDefined)
 				throw new ImmediateJobException("Code-defined recurring schedules cannot be deleted.");
 
-			_ = _recurring.Remove(name);
+			_recurring.Remove(name);
 		}
 	}
 

@@ -89,7 +89,7 @@ public sealed record JobDefinitionReconciliation
 
 		managedNames.UnionWith(desired.Keys);
 
-		var existing = existingSchedules.ToDictionary(static schedule => schedule.Name, StringComparer.Ordinal);
+		var existing = existingSchedules.ToDictionary(static schedule => schedule.Name, StringComparer.OrdinalIgnoreCase);
 		var schedules = new List<RecurringJobSchedule>();
 		var scheduleNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 		foreach (var suppliedSchedule in registration.RecurringSchedules)
@@ -109,6 +109,7 @@ public sealed record JobDefinitionReconciliation
 			{
 				schedules.Add(schedule with
 				{
+					Name = current.Name,
 					IsPaused = current.IsPaused,
 					CancellationReason = current.CancellationReason ?? schedule.CancellationReason,
 					LastRunAt = current.LastRunAt,

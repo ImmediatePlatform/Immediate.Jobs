@@ -28,21 +28,28 @@ internal sealed partial class LinqToDBJobStorage<T>
 		async Task Core(T connection)
 		{
 
-			var existing = await Recurring(connection).SingleOrDefaultAsync(item => item.Name == schedule.Name, cancellationToken);
+			var name = await ResolveRecurringNameAsync(connection, schedule.Name, cancellationToken);
+			var existing = await Recurring(connection).SingleOrDefaultAsync(item => item.Name == name, cancellationToken);
 			var definitions = await GetDefinitionNamesAsync(connection, [schedule.JobName], cancellationToken);
-			if (definitions.TryGetValue(schedule.JobName, out var name))
-				schedule = schedule with { JobName = name };
+			if (definitions.TryGetValue(schedule.JobName, out var jobName))
+				schedule = schedule with { JobName = jobName };
 
 			if (existing is null)
 			{
 				try
 				{
-					_ = await InsertAsync(connection, ToEntity(schedule), cancellationToken);
+					await InsertAsync(connection, ToEntity(schedule), cancellationToken);
 					return;
+				}
+				catch (DbException exception) when (exception.SqlState is "23505")
+				{
+					// PostgreSQL aborts the transaction on a competing unique-key insert.
+					// Retry the upsert after rolling back, rather than reading that failed transaction.
+					throw new LostRaceException();
 				}
 				catch (DbException)
 				{
-					existing = await Recurring(connection).SingleOrDefaultAsync(item => item.Name == schedule.Name, cancellationToken);
+					existing = await Recurring(connection).SingleOrDefaultAsync(item => item.Name == name, cancellationToken);
 					if (existing is null)
 						throw;
 				}
@@ -76,6 +83,7 @@ internal sealed partial class LinqToDBJobStorage<T>
 
 		await using var scope = contextScope.GetScope(out var connection);
 
+		name = await ResolveRecurringNameAsync(connection, name, cancellationToken);
 		var removed = await Recurring(connection)
 			.Where(schedule => schedule.Name == name && !schedule.IsCodeDefined)
 			.DeleteAsync(cancellationToken);
@@ -120,6 +128,14 @@ internal sealed partial class LinqToDBJobStorage<T>
 
 		await using var scope = contextScope.GetScope(out var connection);
 
+		if (connection.DataProvider.Name.Contains("SQLite", StringComparison.OrdinalIgnoreCase))
+		{
+			var storedNames = await Recurring(connection)
+				.Where(schedule => !schedule.IsPaused && schedule.NextRunAt <= now)
+				.Select(schedule => schedule.JobName).Distinct().ToListAsync(cancellationToken);
+			jobNames = storedNames.Where(name => jobNames.Contains(name, StringComparer.OrdinalIgnoreCase)).ToList();
+		}
+
 		var schedules = await RecurringWithDefinitions(connection)
 			.Where(schedule => !schedule.IsPaused && schedule.NextRunAt <= now && jobNames.Contains(schedule.JobName))
 			.OrderBy(schedule => schedule.NextRunAt)
@@ -146,7 +162,8 @@ internal sealed partial class LinqToDBJobStorage<T>
 		await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
 		try
 		{
-			var entity = await Recurring(connection).SingleOrDefaultAsync(item => item.Name == schedule.Name, cancellationToken);
+			var name = await ResolveRecurringNameAsync(connection, schedule.Name, cancellationToken);
+			var entity = await Recurring(connection).SingleOrDefaultAsync(item => item.Name == name, cancellationToken);
 			if (entity is null || entity.IsPaused || entity.NextRunAt != schedule.NextRunAt)
 			{
 				return false;
@@ -203,6 +220,8 @@ internal sealed partial class LinqToDBJobStorage<T>
 
 		await using var scope = contextScope.GetScope(out var connection);
 
+		name = await ResolveRecurringNameAsync(connection, name, cancellationToken);
+
 		if (!paused && await Recurring(connection).AnyAsync(schedule => schedule.Name == name && schedule.CancellationReason != null, cancellationToken))
 			throw new ImmediateJobException("Canceled recurring schedules cannot be resumed.");
 
@@ -230,9 +249,10 @@ internal sealed partial class LinqToDBJobStorage<T>
 			return;
 		}
 
-		_ = await Recurring(connection)
+		var name = await ResolveRecurringNameAsync(connection, schedule.Name, cancellationToken);
+		await Recurring(connection)
 			.Where(entity =>
-				entity.Name == schedule.Name &&
+				entity.Name == name &&
 				!entity.IsPaused &&
 				entity.NextRunAt == schedule.NextRunAt)
 			.Set(entity => entity.LastRunAt, schedule.NextRunAt)
@@ -262,6 +282,17 @@ internal sealed partial class LinqToDBJobStorage<T>
 			.Set(entity => entity.ConcurrencyStamp, schedule.ConcurrencyStamp)
 			.UpdateAsync(cancellationToken);
 		return updated != 0;
+	}
+
+	private async Task<string> ResolveRecurringNameAsync(
+		DataConnection connection, string name, CancellationToken cancellationToken
+	)
+	{
+		if (!connection.DataProvider.Name.Contains("SQLite", StringComparison.OrdinalIgnoreCase))
+			return name;
+		// SQLite NOCASE folds ASCII only; retain the stored spelling for Unicode aliases.
+		var names = await Recurring(connection).Select(schedule => schedule.Name).ToListAsync(cancellationToken);
+		return names.FirstOrDefault(candidate => string.Equals(candidate, name, StringComparison.OrdinalIgnoreCase)) ?? name;
 	}
 
 	[LoggerMessage(

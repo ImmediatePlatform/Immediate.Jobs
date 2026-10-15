@@ -203,7 +203,7 @@ public sealed class JobMonitor(
 		var definitions = await GetDefinitionsAsync(cancellationToken);
 
 		var schedule = definitions.Recurring
-			.FirstOrDefault(candidate => string.Equals(candidate.Name, name, StringComparison.Ordinal))
+			.FirstOrDefault(candidate => string.Equals(candidate.Name, name, StringComparison.OrdinalIgnoreCase))
 			?? throw new KeyNotFoundException($"Recurring schedule '{name}' is not available.");
 
 		var statuses = await GetSnapshotAsync(cancellationToken);

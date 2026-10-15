@@ -13,7 +13,7 @@ public sealed record RecurringJobSchedule
 	public string? CancellationReason { get; init; }
 
 	/// <summary>
-	/// 	Unique schedule identity.
+	/// 	Case-insensitive schedule identity; updates preserve the first stored spelling.
 	/// </summary>
 	public required string Name { get; init; }
 
@@ -111,7 +111,7 @@ public sealed record RecurringJobSchedule
 	{
 		ArgumentNullException.ThrowIfNull(definition);
 		ArgumentNullException.ThrowIfNull(status);
-		if (!string.Equals(definition.Name, status.Name, StringComparison.Ordinal))
+		if (!string.Equals(definition.Name, status.Name, StringComparison.OrdinalIgnoreCase))
 			throw new ArgumentException("Recurring definition and status names must match.", nameof(status));
 		return new()
 		{

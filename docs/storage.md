@@ -61,6 +61,8 @@ name lookups are limited to ASCII letters: `Invoice` and `invoice` match, while 
 `RÉSUMÉ` do not. Keep non-ASCII characters in their registered case when supplying a name.
 EF tracking uses an ordinal case-insensitive key comparer. EF applications with custom
 provider conventions can pass `definitionNameCollation` to `AddImmediateJobs`.
+Recurring schedule identities follow the same collation policy, with Unicode alias resolution for
+SQLite operations. See [Recurring jobs](recurring-jobs.md).
 Definition names must not have leading or trailing whitespace: the job analyzer reports `IJOB0008`,
 and storage rejects invalid manually supplied names before modifying the catalogue.
 
