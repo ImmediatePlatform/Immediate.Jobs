@@ -725,7 +725,6 @@ internal static class RedisScripts
 		end
 
 		local exists = redis.call('EXISTS', KEYS[1]) == 1
-		local record = ARGV[1]
 		local paused = ARGV[3]
 		local last = ARGV[5]
 		local next = ARGV[4]

@@ -21,7 +21,7 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 
 		if (context.Database.ProviderName?.Contains("Sqlite", StringComparison.OrdinalIgnoreCase) == true)
 		{
-			await UpsertSqliteRecurringAsync(schedule, cancellationToken);
+			await UpsertSqliteRecurringAsync(context, schedule, cancellationToken);
 			return;
 		}
 
@@ -296,10 +296,9 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 		}
 	}
 
-	private async Task UpsertSqliteRecurringAsync(RecurringJobSchedule schedule, CancellationToken cancellationToken)
+	private async Task UpsertSqliteRecurringAsync(TContext context, RecurringJobSchedule schedule, CancellationToken cancellationToken)
 	{
 		await EnsureDefinitionCatalogAsync(cancellationToken);
-		await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 		await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
 		// Serialize Unicode name resolution with catalogue writes and other schedule inserts.
 		var stamp = Guid.NewGuid();
@@ -321,8 +320,12 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 	{
 		if (context.Database.ProviderName?.Contains("Sqlite", StringComparison.OrdinalIgnoreCase) != true)
 			return name;
+
 		// SQLite NOCASE folds ASCII only; retain the stored spelling for Unicode aliases.
-		var names = await context.Set<ImmediateRecurringJobEntity>().AsNoTracking().Select(schedule => schedule.Name).ToListAsync(cancellationToken);
+		var names = await context.Set<ImmediateRecurringJobEntity>()
+			.AsNoTracking()
+			.Select(schedule => schedule.Name)
+			.ToListAsync(cancellationToken);
 		return names.FirstOrDefault(candidate => string.Equals(candidate, name, StringComparison.OrdinalIgnoreCase)) ?? name;
 	}
 

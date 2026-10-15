@@ -132,7 +132,7 @@ internal sealed partial class RedisJobStorage
 
 		if (stale.Count != 0)
 		{
-			_ = await Database.SortedSetRemoveAsync(RecurringDueKey, [.. stale])
+			await Database.SortedSetRemoveAsync(RecurringDueKey, [.. stale])
 				.WaitAsync(cancellationToken);
 		}
 

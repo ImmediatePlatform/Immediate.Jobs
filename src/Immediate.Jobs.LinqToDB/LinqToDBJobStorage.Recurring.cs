@@ -290,8 +290,11 @@ internal sealed partial class LinqToDBJobStorage<T>
 	{
 		if (!connection.DataProvider.Name.Contains("SQLite", StringComparison.OrdinalIgnoreCase))
 			return name;
+
 		// SQLite NOCASE folds ASCII only; retain the stored spelling for Unicode aliases.
-		var names = await Recurring(connection).Select(schedule => schedule.Name).ToListAsync(cancellationToken);
+		var names = await Recurring(connection)
+			.Select(schedule => schedule.Name)
+			.ToListAsync(cancellationToken);
 		return names.FirstOrDefault(candidate => string.Equals(candidate, name, StringComparison.OrdinalIgnoreCase)) ?? name;
 	}
 

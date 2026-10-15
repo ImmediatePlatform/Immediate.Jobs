@@ -12,7 +12,9 @@ namespace Immediate.Jobs.Shared.Storage;
 /// <param name="timeProvider">
 /// 	The clock used for scheduling, leases, and timestamps.
 /// </param>
-/// <param name="logger">The logger used to record storage operations.</param>
+/// <param name="logger">
+/// 	The logger used to record storage operations.
+/// </param>
 /// <remarks>
 ///		Public use should only be done via <see cref="IImmediateJobsStorageBuilder.UseInMemory"/>.
 /// </remarks>
