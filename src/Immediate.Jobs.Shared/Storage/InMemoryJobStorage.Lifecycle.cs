@@ -189,36 +189,6 @@ public sealed partial class InMemoryJobStorage
 	}
 
 	/// <inheritdoc />
-	public async ValueTask DeleteBatchAsync(BatchHandle batchHandle, CancellationToken cancellationToken = default)
-	{
-		DeleteBatchAsyncCalled(batchHandle);
-		cancellationToken.ThrowIfCancellationRequested();
-		await TaskScheduler.Yield();
-
-		lock (_gate)
-		{
-			if (!_batches.TryGetValue(batchHandle, out var batch))
-				throw new KeyNotFoundException($"Batch '{batchHandle}' was not found.");
-			if (!IsTerminal(batch.State))
-				throw new ImmediateJobException("Only a terminal batch can be deleted.");
-
-			var jobHandles = _jobs.Values
-				.Where(job => job.BatchHandle == batchHandle)
-				.Select(static job => job.JobHandle)
-				.ToHashSet();
-
-			foreach (var jobHandle in jobHandles)
-			{
-				_ = _jobs.Remove(jobHandle);
-				_ = _executions.Remove(jobHandle);
-			}
-
-			_ = _batches.Remove(batchHandle);
-			RemoveEdgesForJobs(jobHandles, [batchHandle]);
-		}
-	}
-
-	/// <inheritdoc />
 	public async ValueTask RetryAsync(JobHandle jobHandle, CancellationToken cancellationToken = default)
 	{
 		RetryAsyncCalled(jobHandle);
@@ -486,14 +456,6 @@ public sealed partial class InMemoryJobStorage
 		Message = "CancelBatchAsync called (BatchHandle={BatchHandle})"
 	)]
 	private partial void CancelBatchAsyncCalled(BatchHandle batchHandle);
-
-	[LoggerMessage(
-		EventId = LibraryEventIds.InMemoryDeleteBatchAsyncCalled,
-		EventName = "Immediate.Jobs.Shared.DeleteBatchAsyncCalled",
-		Level = LogLevel.Debug,
-		Message = "DeleteBatchAsync called (BatchHandle={BatchHandle})"
-	)]
-	private partial void DeleteBatchAsyncCalled(BatchHandle batchHandle);
 
 	[LoggerMessage(
 		EventId = LibraryEventIds.InMemoryCancelAsyncCalled,

@@ -8,7 +8,7 @@ import FeedbackState from '@/components/FeedbackState.vue';
 import JobDetail from '@/components/JobDetail.vue';
 import type { JobRecord } from '@/contracts';
 import { errorText } from '@/notifications';
-import { useJobQuery, useJobTelemetryLinksQuery } from '@/query';
+import { useJobDefinitionQuery, useJobQuery, useJobTelemetryLinksQuery } from '@/query';
 import { useJobMutations } from '@/use-dashboard-mutations';
 
 const route = useRoute();
@@ -20,6 +20,7 @@ const jobHandle = computed(() => {
 const jobQuery = useJobQuery(jobHandle);
 const telemetryLinksQuery = useJobTelemetryLinksQuery(jobHandle);
 const jobMutations = useJobMutations();
+const definitionQuery = useJobDefinitionQuery(() => jobQuery.data.value?.jobName);
 const cancelCandidate = ref<JobRecord>();
 
 function backToJobs(): void {
@@ -61,6 +62,10 @@ async function confirmCancel(): Promise<void> {
 		<JobDetail
 			v-else-if="jobQuery.data.value"
 			:job="jobQuery.data.value"
+			:definition="definitionQuery.data.value"
+			:acquisition="definitionQuery.acquisition.value"
+			:definition-loading="definitionQuery.isPending.value"
+			:definition-error="definitionQuery.error.value ? errorText(definitionQuery.error.value) : undefined"
 			:telemetry-links="telemetryLinksQuery.data.value ?? []"
 			:pending="jobMutations.busyJobHandle.value === jobHandle"
 			:show-close="false"

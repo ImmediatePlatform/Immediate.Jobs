@@ -33,6 +33,7 @@ function slotLabel(worker: JobWorkerSnapshot): string {
 				<code class="block truncate" :title="server.workerId">{{ server.workerId }}</code>
 			</div>
 		</header>
+		<div class="server-tags" aria-label="Server tags"><span v-for="tag in server.tags" :key="tag" class="tag">{{ tag }}</span></div>
 		<dl>
 			<div>
 				<dt><Radio :size="14" aria-hidden="true" /> Last heartbeat</dt>

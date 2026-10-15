@@ -8,7 +8,7 @@ internal static class GraphStorageConformance
 {
 	private const string RoutingName = "Graph.Submission.ResolvesQueuesAtomically";
 	private const string CapabilityName = "Graph.Capability.ResolvesAdvertisedStorage";
-	private const string BatchLifecycleName = "Graph.Batches.CommitsProjectsAndDeletesAtomically";
+	private const string BatchLifecycleName = "Graph.Batches.CommitsAndProjectsAtomically";
 	private const string ExistingGraphName = "Graph.Batches.LoadsExistingGraphWithDependencyMetadata";
 	private const string InvalidBatchName = "Graph.Batches.RollbackInvalidBatchWithoutPartialWrites";
 	private const string TriggerName = "Graph.Dependencies.ReleasesAndSkipsConditionalBranches";
@@ -316,24 +316,6 @@ internal static class GraphStorageConformance
 		);
 		ConformanceAssert.Equal(2, projected.Nodes.Count, BatchLifecycleName, "graph projection must contain both nodes");
 		ConformanceAssert.Equal(1, projected.Edges.Count, BatchLifecycleName, "graph projection must contain the dependency");
-
-		await graph.DeleteBatchAsync(BatchHandle.FromString("lifecycle-batch"), cancellationToken);
-		ConformanceAssert.Null(
-			await graph.GetBatchStatusAsync(BatchHandle.FromString("lifecycle-batch"), cancellationToken),
-			BatchLifecycleName,
-			"deleting a terminal batch must remove its header"
-		);
-		ConformanceAssert.Null(
-			await graph.GetJobStatusAsync(parent.JobHandle, cancellationToken),
-			BatchLifecycleName,
-			"deleting a terminal batch must remove its members"
-		);
-		ConformanceAssert.Equal(
-			0,
-			(await graph.QueryJobExecutionsAsync(parent.JobHandle, new(), cancellationToken)).Count,
-			BatchLifecycleName,
-			"deleting a terminal batch must remove member execution history"
-		);
 	}
 
 	private static async ValueTask InvalidBatchRollsBackAsync(

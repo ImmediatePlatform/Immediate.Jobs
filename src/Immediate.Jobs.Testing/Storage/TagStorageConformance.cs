@@ -43,7 +43,7 @@ internal static class TagStorageConformance
 		await storage.MergeJobDefinitionsListAsync(Registration(aliases.Select(definition => definition with { Tags = ["email"] }).ToList(), "email"), token);
 		await storage.MergeJobDefinitionsListAsync(Registration([]), token);
 		ConformanceAssert.Equal(3, (await storage.GetJobDefinitionsAsync(token)).Count, CaseNameCase, "default cleanup must preserve retagged definitions despite name casing");
-		_ = await ConformanceAssert.ThrowsAsync<ArgumentException>(() => storage.MergeJobDefinitionsListAsync(Registration([Definition("Invoice"), Definition("invoice")]), token),
+		await ConformanceAssert.ThrowsAsync<ArgumentException>(() => storage.MergeJobDefinitionsListAsync(Registration([Definition("Invoice"), Definition("invoice")]), token),
 			CaseNameCase, "one catalogue cannot contain duplicate names that differ only by case");
 		await storage.MergeJobDefinitionsListAsync(Registration([], "email"), token);
 		ConformanceAssert.Equal(0, (await storage.GetJobDefinitionsAsync(token)).Count, CaseNameCase, "the matching tag scope must remove aliases as one identity");
@@ -86,6 +86,7 @@ internal static class TagStorageConformance
 		ConformanceAssert.SequenceEqual(["default"], actual.Tags, ScopeCase, "empty job tags must persist as default");
 		await storage.MergeJobDefinitionsListAsync(Registration([], "DEFAULT"), token);
 		ConformanceAssert.SequenceEqual(["email"], (await storage.GetJobDefinitionsAsync(token)).Select(static definition => definition.Name), ScopeCase, "an empty default catalogue must preserve the email scope");
+		ConformanceAssert.SequenceEqual(["email"], (await storage.GetMonitoringDefinitionsAsync(token)).Jobs.Select(static definition => definition.Name), ScopeCase, "monitoring must include definitions outside the current server scope");
 	}
 
 	private static async ValueTask RetagsAsync(IJobStorage storage, FakeTimeProvider timeProvider, CancellationToken token)
@@ -131,7 +132,7 @@ internal static class TagStorageConformance
 		var unregistered = Schedule(Definition("unregistered") with { Cron = "* * * * *" }, now);
 		await storage.UpsertRecurringAsync(unregistered, token);
 		await storage.MergeJobDefinitionsListAsync(new() { Definitions = [other], ServerTags = ["email"], RecurringSchedules = [Schedule(other, now)] }, token);
-		ConformanceAssert.True((await storage.GetMonitoringSnapshotAsync(token)).Recurring.Any(item => string.Equals(item.Name, unregistered.Name, StringComparison.Ordinal)),
+		ConformanceAssert.True((await MonitoringTestQueries.GetSchedulesAsync(storage, token)).Any(item => string.Equals(item.Name, unregistered.Name, StringComparison.Ordinal)),
 			RecurringCase, "a server without default must preserve unregistered code schedules without metadata");
 		var dynamic = Schedule(ordinary, now) with { Name = "dynamic", IsCodeDefined = false };
 		await storage.UpsertRecurringAsync(dynamic, token);
@@ -149,15 +150,15 @@ internal static class TagStorageConformance
 		ConformanceAssert.True(await storage.MaterializeRecurringAsync(schedule, invocation, now.AddMinutes(1), cancellationToken: token), RecurringCase, "the initial occurrence must materialize");
 		await storage.PauseRecurringAsync(ordinary.Name, token);
 		await storage.MergeJobDefinitionsListAsync(new() { Definitions = [ordinary], ServerTags = ["DEFAULT"], RecurringSchedules = [Schedule(ordinary, now.AddHours(1))] }, token);
-		var persisted = (await storage.GetMonitoringSnapshotAsync(token)).Recurring.Single(item => string.Equals(item.Name, ordinary.Name, StringComparison.Ordinal));
-		ConformanceAssert.False((await storage.GetMonitoringSnapshotAsync(token)).Recurring.Any(item => string.Equals(item.Name, unregistered.Name, StringComparison.Ordinal)),
+		var persisted = (await MonitoringTestQueries.GetSchedulesAsync(storage, token)).Single(item => string.Equals(item.Name, ordinary.Name, StringComparison.Ordinal));
+		ConformanceAssert.False((await MonitoringTestQueries.GetSchedulesAsync(storage, token)).Any(item => string.Equals(item.Name, unregistered.Name, StringComparison.Ordinal)),
 			RecurringCase, "a default server must clean up obsolete unregistered code schedules without metadata");
 		ConformanceAssert.True(persisted.IsPaused, RecurringCase, "startup must preserve schedule pause state");
 		ConformanceAssert.Equal(now.AddMinutes(1), persisted.NextRunAt, RecurringCase, "unchanged cron must retain progress");
 		ConformanceAssert.Equal<DateTimeOffset?>(now, persisted.LastRunAt, RecurringCase, "startup must retain the last occurrence");
 		var changed = ordinary with { Cron = "15 * * * *" };
 		await storage.MergeJobDefinitionsListAsync(new() { Definitions = [changed], RecurringSchedules = [Schedule(changed, now.AddHours(2))] }, token);
-		persisted = (await storage.GetMonitoringSnapshotAsync(token)).Recurring.Single(item => string.Equals(item.Name, ordinary.Name, StringComparison.Ordinal));
+		persisted = (await MonitoringTestQueries.GetSchedulesAsync(storage, token)).Single(item => string.Equals(item.Name, ordinary.Name, StringComparison.Ordinal));
 		ConformanceAssert.Equal(now.AddHours(2), persisted.NextRunAt, RecurringCase, "changed cron must reset the next occurrence");
 		ConformanceAssert.True(persisted.IsPaused, RecurringCase, "cron changes must retain pause state");
 		await storage.MergeJobDefinitionsListAsync(Registration([changed with { Cron = null }]), token);

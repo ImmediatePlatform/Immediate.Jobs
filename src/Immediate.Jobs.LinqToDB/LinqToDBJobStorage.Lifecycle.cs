@@ -97,44 +97,6 @@ internal sealed partial class LinqToDBJobStorage<T>
 	}
 
 	/// <inheritdoc />
-	public async ValueTask DeleteBatchAsync(BatchHandle batchHandle, CancellationToken cancellationToken = default)
-	{
-		DeleteBatchAsyncCalled(batchHandle);
-		cancellationToken.ThrowIfCancellationRequested();
-		await TaskScheduler.Yield();
-
-		await using var scope = contextScope.GetScope(out var connection);
-
-		_ = await connection.BeginTransactionAsync(cancellationToken);
-		try
-		{
-			var batch = await Batches(connection).SingleOrDefaultAsync(item => item.Id == batchHandle.Value, cancellationToken)
-				?? throw new KeyNotFoundException($"Batch '{batchHandle}' was not found.");
-			if (!IsTerminal(batch.State))
-				throw new ImmediateJobException("Only a terminal batch can be deleted.");
-			var jobHandles = await Jobs(connection).Where(job => job.BatchHandle == batchHandle.Value).Select(job => job.Id)
-				.ToListAsync(cancellationToken);
-			_ = await Continuations(connection)
-				.Where(edge =>
-					jobHandles.Contains(edge.ChildJobHandle)
-					|| (edge.ParentKind == ContinuationParentKind.Job && jobHandles.Contains(edge.ParentId))
-					|| (edge.ParentKind == ContinuationParentKind.Batch && edge.ParentId == batchHandle.Value)
-				)
-				.DeleteAsync(cancellationToken);
-			_ = await Executions(connection).Where(execution => jobHandles.Contains(execution.JobHandle))
-				.DeleteAsync(cancellationToken);
-			_ = await Jobs(connection).Where(job => job.BatchHandle == batchHandle.Value).DeleteAsync(cancellationToken);
-			_ = await Batches(connection).Where(item => item.Id == batchHandle.Value).DeleteAsync(cancellationToken);
-			await connection.CommitTransactionAsync(cancellationToken);
-		}
-		catch
-		{
-			await connection.RollbackTransactionAsync(cancellationToken);
-			throw;
-		}
-	}
-
-	/// <inheritdoc />
 	public async ValueTask CancelAsync(JobHandle jobHandle, CancellationToken cancellationToken = default)
 	{
 		CancelAsyncCalled(jobHandle);
@@ -512,14 +474,6 @@ internal sealed partial class LinqToDBJobStorage<T>
 		Message = "CancelBatchAsync called (BatchHandle={BatchHandle})"
 	)]
 	private partial void CancelBatchAsyncCalled(BatchHandle batchHandle);
-
-	[LoggerMessage(
-		EventId = LibraryEventIds.DeleteBatchAsyncCalled,
-		EventName = "Immediate.Jobs.LinqToDB.DeleteBatchAsyncCalled",
-		Level = LogLevel.Debug,
-		Message = "DeleteBatchAsync called (BatchHandle={BatchHandle})"
-	)]
-	private partial void DeleteBatchAsyncCalled(BatchHandle batchHandle);
 
 	[LoggerMessage(
 		EventId = LibraryEventIds.CancelAsyncCalled,

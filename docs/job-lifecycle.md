@@ -63,7 +63,7 @@ If neither supplies them, jobs allow three total attempts and have no timeout. A
 | --- | --- | --- |
 | `CancelAsync` | any non-terminal state | `Cancelled`; continuation edges settle as a cancelled parent. |
 | `RetryAsync` | `Failed`, `Scheduled` | `Pending`, due now. |
-| `DeleteAsync` | terminal states | Removes the job and its history. |
+| `DeleteAsync` | terminal states (standalone jobs only) | Removes the job and its history. |
 | `UpdatePayloadAsync` | `WaitingForTrigger` | Replaces the payload. |
 | `TryTriggerAsync` | `WaitingForTrigger` | Releases the job (see [batches and continuations](batches-and-continuations.md#wait-for-trigger)). |
 
@@ -79,12 +79,13 @@ The polling loop purges on `PurgeInterval` (default one hour):
 
 ## Definition pause and rate limits
 
-The generated scheduler exposes `PauseJobAsync`, `ResumeJobAsync`, and `GetAcquisitionStateAsync`
-returning `ValueTask` with optional cancellation tokens.
-Each call resolves the current stored definition by the generated job name, using its canonical name
-and persisted acquisition limits. A missing stored definition raises `KeyNotFoundException`. A pause leaves existing jobs queued and allows new
-jobs to be created; previously acquired work can finish. Pausing a recurring schedule is separate
-and prevents future occurrence creation.
+The generated scheduler exposes `PauseJobAsync` and `ResumeJobAsync`, returning `ValueTask`, and
+`GetAcquisitionStateAsync`, returning `ValueTask<JobAcquisitionState>`. All accept an optional
+cancellation token.
+Each call passes the generated job name directly to storage, which uses the persisted definition and
+acquisition limits. A missing stored definition raises `KeyNotFoundException`. A pause leaves existing
+jobs queued and allows new jobs to be created; previously acquired work can finish. Pausing a recurring
+schedule is separate and prevents future occurrence creation.
 
 ```csharp
 [Job(SlidingWindowMax = 100, SlidingWindowPeriod = "00:01:00",
@@ -102,3 +103,12 @@ consume no capacity or execution attempts. Resume preserves rate history and fix
 
 Definition acquisition states are `Ready`, `Paused`, `RateLimited`, and `ConcurrencyLimited`;
 individual job lifecycle state remains unchanged until the job is actually acquired.
+
+`JobMonitor.GetDefinitionsAsync()` returns all persisted job and recurring configuration.
+`GetSnapshotAsync()` returns acquisition states in `DefinitionStatuses`, including explicit pause,
+active unexpired leases, concurrency exhaustion and next eligibility. Storage evaluates the
+collection in bulk; the monitor does not loop over definitions to query status.
+`PauseDefinitionAsync(jobName)` and `ResumeDefinitionAsync(jobName)` pass the job name directly to
+storage, which preserves configured limits and rejects missing definitions. The dashboard joins
+separately cached metadata and live status for its row actions. Manual recurring triggers read persisted
+configuration and collect a monitoring snapshot to reject canceled schedules before enqueueing the invocation.

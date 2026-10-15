@@ -88,19 +88,6 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 	}
 
 	/// <inheritdoc />
-	public async ValueTask DeleteBatchAsync(BatchHandle batchHandle, CancellationToken cancellationToken = default)
-	{
-		DeleteBatchAsyncCalled(batchHandle);
-		cancellationToken.ThrowIfCancellationRequested();
-		await TaskScheduler.Yield();
-
-		await ExecuteWithStrategyAsync(
-			operationCancellationToken => DeleteBatchCoreAsync(batchHandle, operationCancellationToken),
-			cancellationToken
-		);
-	}
-
-	/// <inheritdoc />
 	public async ValueTask CancelAsync(JobHandle jobHandle, CancellationToken cancellationToken = default)
 	{
 		CancelAsyncCalled(jobHandle);
@@ -226,33 +213,6 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 		{
 			await TryRemoveFairQueueCursorAsync(queueName, groupId, CancellationToken.None);
 		}
-	}
-
-	private async Task DeleteBatchCoreAsync(BatchHandle batchHandle, CancellationToken cancellationToken)
-	{
-		await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
-		await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
-		var batch = await context.Set<ImmediateJobBatchEntity>()
-			.SingleOrDefaultAsync(item => item.Id == batchHandle.Value, cancellationToken)
-			?? throw new KeyNotFoundException($"Batch '{batchHandle}' was not found.");
-		if (!IsTerminal(batch.State))
-			throw new ImmediateJobException("Only a terminal batch can be deleted.");
-
-		var jobs = await context.Set<ImmediateJobEntity>()
-			.Where(job => job.BatchHandle == batchHandle.Value)
-			.ToListAsync(cancellationToken);
-		var jobHandles = jobs.Select(static job => job.Id).ToList();
-		var edges = await context.Set<ImmediateJobContinuationEntity>()
-			.Where(edge =>
-				jobHandles.Contains(edge.ChildJobHandle)
-				|| (edge.ParentKind == ContinuationParentKind.Job && jobHandles.Contains(edge.ParentId))
-				|| (edge.ParentKind == ContinuationParentKind.Batch && edge.ParentId == batchHandle.Value))
-			.ToListAsync(cancellationToken);
-		context.RemoveRange(edges);
-		context.RemoveRange(jobs);
-		_ = context.Remove(batch);
-		_ = await context.SaveChangesAsync(cancellationToken);
-		await transaction.CommitAsync(cancellationToken);
 	}
 
 	private async Task CancelCoreAsync(JobHandle jobHandle, CancellationToken cancellationToken)
@@ -499,14 +459,6 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 		Message = "CancelBatchAsync called (BatchHandle={BatchHandle})"
 	)]
 	private partial void CancelBatchAsyncCalled(BatchHandle batchHandle);
-
-	[LoggerMessage(
-		EventId = LibraryEventIds.DeleteBatchAsyncCalled,
-		EventName = "Immediate.Jobs.EntityFrameworkCore.DeleteBatchAsyncCalled",
-		Level = LogLevel.Debug,
-		Message = "DeleteBatchAsync called (BatchHandle={BatchHandle})"
-	)]
-	private partial void DeleteBatchAsyncCalled(BatchHandle batchHandle);
 
 	[LoggerMessage(
 		EventId = LibraryEventIds.CancelAsyncCalled,

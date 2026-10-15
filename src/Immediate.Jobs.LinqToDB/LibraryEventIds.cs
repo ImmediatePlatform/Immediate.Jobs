@@ -33,7 +33,6 @@ internal static class LibraryEventIds
 	public const int GetBatchGraphAsyncCalled = 11629;
 	public const int GetJobStatusAsyncCalled = 11630;
 	public const int CancelBatchAsyncCalled = 11631;
-	public const int DeleteBatchAsyncCalled = 11632;
 	public const int CancelAsyncCalled = 11633;
 	public const int RetryAsyncCalled = 11634;
 	public const int DeleteAsyncCalled = 11635;
@@ -49,5 +48,6 @@ internal static class LibraryEventIds
 	public const int PauseJobAsyncCalled = 11645;
 	public const int ResumeJobAsyncCalled = 11646;
 	public const int GetJobAcquisitionStateAsyncCalled = 11647;
+	public const int GetMonitoringDefinitionsAsyncCalled = 11648;
 	public const int DefinitionRemoved = 11660;
 }

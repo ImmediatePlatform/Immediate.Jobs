@@ -3,7 +3,7 @@
 This sample runs entirely on your machine: one ASP.NET Core app, with Immediate.Jobs storing its state in a local SQLite
 file through the EF Core provider. It needs no containers, no Aspire, and no external database. The app runs in
 memory-primary single-server mode: active queued and working state lives in process, and SQLite is the write-through
-durable copy used for restart recovery.
+durable copy used for restart recovery. It runs 64 workers so multiple demo jobs can execute concurrently.
 
 ## Run it
 
@@ -22,6 +22,11 @@ available in the `Development` environment, which the launch profile sets.
   it again to see the job recovered from SQLite.
 - `POST /retry-demo` enqueues a job that fails its first two attempts, retries ten seconds later each time, and
   succeeds on attempt three.
+- `POST /concurrency/max-active` enqueues a 30-second job with at most two active invocations.
+- `POST /concurrency/fixed-window` enqueues a 30-second job limited to three acquisitions per UTC-aligned minute.
+- `POST /concurrency/sliding-window` enqueues a 30-second job limited to three acquisitions in the preceding minute.
+  Call these endpoints repeatedly to observe active jobs, queued work, and acquisition limits on the Jobs and
+  Definitions pages. The fixed and sliding limits count starts, rather than the number of jobs still running.
 - `POST /fair-queue-demo` enqueues 100 slow jobs in one group and one job in a second group that becomes due five
   seconds later. With fair queues enabled, the quiet job runs as soon as it is due instead of waiting behind the
   backlog.

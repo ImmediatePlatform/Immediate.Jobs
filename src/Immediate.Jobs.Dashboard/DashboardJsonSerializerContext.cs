@@ -5,6 +5,8 @@ namespace Immediate.Jobs.Dashboard;
 
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase, UseStringEnumConverter = true)]
 [JsonSerializable(typeof(JobMonitoringSnapshot))]
+[JsonSerializable(typeof(IReadOnlyList<JobDefinitionRecord>))]
+[JsonSerializable(typeof(JobMonitoringDefinitions))]
 [JsonSerializable(typeof(DashboardState))]
 [JsonSerializable(typeof(DashboardJobPage))]
 [JsonSerializable(typeof(DashboardJobExecutionPage))]

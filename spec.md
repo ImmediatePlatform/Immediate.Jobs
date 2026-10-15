@@ -316,7 +316,8 @@ Grouped by concern:
   cannot mutate a reacquired job, even when the worker ID is unchanged.
 - **Continuations & batches:** `EnqueueContinuationAsync` (child + edges, atomic),
   `EnqueueBatchAsync` (header + members + edges, atomic), `CompleteWithContinuationsAsync` (complete +
-  flush gated dynamic continuations), `AddBatchJobAsync`, `CancelBatchAsync`, `DeleteBatchAsync`.
+  flush gated dynamic continuations), `AddBatchJobAsync`, `CancelBatchAsync`. Terminal batches remain
+  until `PurgeBatchesAsync` removes them under the configured retention policy.
 - **Recurring:** `UpsertRecurringAsync` / `PauseRecurringAsync` / `ResumeRecurringAsync` /
   `RemoveRecurringAsync` / `RemoveObsoleteCodeDefinedRecurringAsync`; `GetDueRecurringAsync` +
   `MaterializeRecurringAsync` (create occurrence + advance schedule, atomic).
@@ -382,7 +383,7 @@ operations.
   trace/log actions, while job-level actions can query across all retries. Exact-attempt callbacks
   receive both the retained execution and a compatibility job projection scoped to its attempt and
   trace/span fields.
-- **Actions:** trigger recurring job now · retry failed · delete failed · pause/resume recurring schedule · cancel a running batch · delete a terminal batch.
+- **Actions:** trigger recurring job now · retry failed · delete failed · pause/resume recurring schedule · cancel a running batch.
 - **Auth:** dashboard endpoints integrate with ASP.NET Core authorization — `AddImmediateJobsDashboard(o => o.RequireAuthorization("policy"))`. Default: allowed only in `Development` unless a policy is configured (Hangfire's local-only default, but explicit).
 - **Read/write split:** the JSON+SSE monitoring API is a documented, stable surface usable without the SPA.
 

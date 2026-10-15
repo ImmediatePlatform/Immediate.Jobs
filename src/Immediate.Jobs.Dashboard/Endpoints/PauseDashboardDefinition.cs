@@ -8,16 +8,16 @@ using Microsoft.AspNetCore.Mvc;
 namespace Immediate.Jobs.Dashboard.Endpoints;
 
 [Handler]
-[MapDelete("batches/{batchHandle}")]
+[MapPost("definitions/{name}/pause")]
 [MapGroup<DashboardApi>]
-internal static partial class DeleteDashboardBatch
+internal static partial class PauseDashboardDefinition
 {
 	[Validate]
 	internal sealed partial record Command : IValidationTarget<Command>
 	{
 		[FromRoute]
 		[NotEmpty]
-		public required string BatchHandle { get; init; }
+		public required string Name { get; init; }
 	}
 
 	internal static Results<NoContent, NotFound, ProblemHttpResult> TransformResult(
@@ -28,7 +28,7 @@ internal static partial class DeleteDashboardBatch
 		Command command,
 		JobMonitor monitor,
 		CancellationToken cancellationToken
-	) => DashboardApiEndpointOperations.MutateBatchAsync(
-		() => monitor.DeleteBatchAsync(BatchHandle.FromString(command.BatchHandle), cancellationToken)
+	) => DashboardApiEndpointOperations.MutateJobAsync(
+		() => monitor.PauseDefinitionAsync(command.Name, cancellationToken)
 	);
 }

@@ -102,25 +102,6 @@ internal sealed partial class SingleServerJobStorage
 	}
 
 	/// <inheritdoc />
-	public async ValueTask DeleteBatchAsync(BatchHandle batchHandle, CancellationToken cancellationToken = default)
-	{
-		SingleServerDeleteBatchAsyncCalled(batchHandle);
-		await TaskScheduler.Yield();
-		await EnsureInitializedAsync(cancellationToken);
-		await _writeThrough.WaitAsync(cancellationToken);
-
-		try
-		{
-			await JobGraphStorage.DeleteBatchAsync(batchHandle, cancellationToken);
-			await PrimaryStorage.DeleteBatchAsync(batchHandle, cancellationToken);
-		}
-		finally
-		{
-			_writeThrough.Release();
-		}
-	}
-
-	/// <inheritdoc />
 	public async ValueTask CancelAsync(JobHandle jobHandle, CancellationToken cancellationToken = default)
 	{
 		SingleServerCancelAsyncCalled(jobHandle);
@@ -276,14 +257,6 @@ internal sealed partial class SingleServerJobStorage
 		Message = "Single-server storage CancelBatchAsync called (BatchHandle={BatchHandle})"
 	)]
 	private partial void SingleServerCancelBatchAsyncCalled(BatchHandle batchHandle);
-
-	[LoggerMessage(
-		EventId = LibraryEventIds.SingleServerDeleteBatchAsyncCalled,
-		EventName = "Immediate.Jobs.Shared.SingleServerDeleteBatchAsyncCalled",
-		Level = LogLevel.Debug,
-		Message = "Single-server storage DeleteBatchAsync called (BatchHandle={BatchHandle})"
-	)]
-	private partial void SingleServerDeleteBatchAsyncCalled(BatchHandle batchHandle);
 
 	[LoggerMessage(
 		EventId = LibraryEventIds.SingleServerCancelAsyncCalled,

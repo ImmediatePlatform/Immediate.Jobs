@@ -12,6 +12,57 @@ internal sealed partial class LinqToDBJobStorage<T>
 	where T : DataConnection
 {
 	/// <inheritdoc />
+	public async ValueTask<JobMonitoringDefinitions> GetMonitoringDefinitionsAsync(CancellationToken cancellationToken = default)
+	{
+		GetMonitoringDefinitionsAsyncCalled();
+		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
+		await using var scope = contextScope.GetScope(out var connection);
+		var recurring = await RecurringWithDefinitions(connection).OrderBy(schedule => schedule.Name)
+			.Select(schedule => new RecurringJobDefinition
+			{
+				Name = schedule.Name,
+				JobName = schedule.JobName,
+				QueueName = schedule.QueueName,
+				Cron = schedule.Cron,
+				TimeZone = schedule.TimeZone,
+				IsCodeDefined = schedule.IsCodeDefined,
+			}).ToListAsync(cancellationToken);
+		return new() { Jobs = await ReadJobDefinitionsAsync(connection, cancellationToken), Recurring = recurring };
+	}
+
+	private async ValueTask<IReadOnlyList<JobAcquisitionState>> ReadDefinitionStatusesAsync(CancellationToken cancellationToken)
+	{
+		await using var scope = contextScope.GetScope(out var connection);
+		var definitions = await ReadJobDefinitionsAsync(connection, cancellationToken);
+		if (definitions.Count == 0)
+			return [];
+		var now = timeProvider.GetUtcNow();
+		var states = (await DefinitionStates(connection).ToListAsync(cancellationToken))
+			.ToDictionary(static state => state.JobName, StringComparer.OrdinalIgnoreCase);
+		var active = (await Jobs(connection)
+			.Where(job => job.State == JobState.Active && job.LeaseExpiresAt > now)
+			.GroupBy(job => job.JobName).Select(group => new { Name = group.Key, Count = group.Count() })
+			.ToListAsync(cancellationToken)).ToDictionary(static group => group.Name, static group => group.Count, StringComparer.OrdinalIgnoreCase);
+		var periods = definitions.Where(static definition => definition.SlidingWindowPeriod is not null)
+			.Select(static definition => definition.SlidingWindowPeriod!.Value).ToList();
+		var cutoff = now - (periods.Count == 0 ? TimeSpan.Zero : periods.Max());
+		var acquisitions = periods.Count == 0 ? [] : await Acquisitions(connection)
+			.Where(acquisition => acquisition.AcquiredAt > cutoff)
+			.OrderBy(acquisition => acquisition.AcquiredAt).ToListAsync(cancellationToken);
+		var byName = acquisitions.ToLookup(static acquisition => acquisition.JobName, StringComparer.OrdinalIgnoreCase);
+		return [.. definitions.Select(definition =>
+		{
+			var state = states.GetValueOrDefault(definition.Name);
+			var limits = definition.AcquisitionLimits;
+			return JobAcquisitionEvaluator.Evaluate(definition.Name, state?.IsPaused ?? false, limits, now,
+				limits.SlidingWindowPeriod is { } period
+					? byName[definition.Name].Where(acquisition => acquisition.AcquiredAt > now - period).Select(static acquisition => acquisition.AcquiredAt).ToList() : [],
+				state?.FixedWindowStart, state?.FixedWindowCount ?? 0, active.GetValueOrDefault(definition.Name));
+		})];
+	}
+
+	/// <inheritdoc />
 	public async ValueTask<IReadOnlyList<JobContinuationEdge>> GetIncomingEdgesAsync(
 		IReadOnlyCollection<JobHandle> childJobHandles,
 		CancellationToken cancellationToken = default
@@ -65,7 +116,15 @@ internal sealed partial class LinqToDBJobStorage<T>
 		{
 			CapturedAt = timeProvider.GetUtcNow(),
 			Counts = counts,
-			Recurring = [.. recurringEntities.Select(ToRecord)],
+			DefinitionStatuses = await ReadDefinitionStatusesAsync(cancellationToken),
+			Recurring = [.. recurringEntities.Select(static schedule => new RecurringJobStatus
+			{
+				Name = schedule.Name,
+				IsPaused = schedule.IsPaused,
+				CancellationReason = schedule.CancellationReason,
+				NextRunAt = schedule.NextRunAt,
+				LastRunAt = schedule.LastRunAt,
+			})],
 			Servers =
 			[
 				.. serverEntities.Select(server =>
@@ -426,4 +485,12 @@ internal sealed partial class LinqToDBJobStorage<T>
 		Message = "GetJobStatusAsync called (JobHandle={JobHandle})"
 	)]
 	private partial void GetJobStatusAsyncCalled(JobHandle jobHandle);
+
+	[LoggerMessage(
+		EventId = LibraryEventIds.GetMonitoringDefinitionsAsyncCalled,
+		EventName = "Immediate.Jobs.LinqToDB.GetMonitoringDefinitionsAsyncCalled",
+		Level = LogLevel.Debug,
+		Message = "GetMonitoringDefinitionsAsync called"
+	)]
+	private partial void GetMonitoringDefinitionsAsyncCalled();
 }

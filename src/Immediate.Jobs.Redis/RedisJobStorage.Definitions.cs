@@ -59,22 +59,29 @@ internal sealed partial class RedisJobStorage
 			if ((RedisResult[]?)response is not { } result)
 				continue;
 
-			var slidingOldest = FromNullableTimestamp((string?)result[1]);
-			var fixedNext = FromNullableTimestamp((string?)result[2]);
-			var next = slidingOldest + limits.SlidingWindowPeriod;
-			if (fixedNext is { } boundary && (next is null || boundary > next))
-				next = boundary;
-
-			return new()
-			{
-				JobName = definition.Name,
-				IsPaused = (long)result[3] == 1,
-				ActiveCount = (int)(long)result[4],
-				IsConcurrencyLimited = limits.MaxConcurrency > 0 && (long)result[4] >= limits.MaxConcurrency,
-				AcquisitionStatus = (JobAcquisitionStatus)(long)result[0],
-				NextEligibleAt = next,
-			};
+			return ToAcquisitionState(definition.Name, limits, result);
 		}
+	}
+
+	private static JobAcquisitionState ToAcquisitionState(string jobName, JobAcquisitionLimits limits, RedisResult[] result)
+	{
+		var slidingOldest = FromNullableTimestamp((string?)result[1]);
+		var fixedNext = FromNullableTimestamp((string?)result[2]);
+		var next = slidingOldest + limits.SlidingWindowPeriod;
+		if (fixedNext is { } boundary && (next is null || boundary > next))
+			next = boundary;
+
+		return new()
+		{
+			JobName = jobName,
+			IsPaused = (long)result[3] == 1,
+			ActiveCount = (int)(long)result[4],
+			SlidingWindowCount = (int)(long)result[5],
+			FixedWindowCount = (int)(long)result[6],
+			IsConcurrencyLimited = limits.MaxConcurrency > 0 && (long)result[4] >= limits.MaxConcurrency,
+			AcquisitionStatus = (JobAcquisitionStatus)(long)result[0],
+			NextEligibleAt = next,
+		};
 	}
 
 	private static void AddDefinitionLimits(List<RedisValue> values, JobAcquisitionLimits limits, DateTimeOffset now)

@@ -13,17 +13,48 @@
 - **Endpoints.** Each endpoint is an Immediate.Handlers handler exposed with Immediate.Apis attributes
   in `Endpoints/` (`[MapGet("jobs")]`, `[MapPost("jobs/{jobHandle}/retry")]`, …), backed by
   `JobMonitor`. Request validation runs through `DashboardValidationFilter` with Immediate.Validations.
+- **Monitoring.** `GET overview` returns counts, servers, capabilities, bulk job acquisition
+  status, and recurring pause/progress. `GET definitions` returns `{ jobs, recurring }` configuration
+  without live state. There are no separate recurring or server projection endpoints.
+- **Definition controls.** `POST definitions/{name}/pause` and `POST definitions/{name}/resume`
+  use persisted limits and canonical names through `JobMonitor`. Unknown definitions return 404.
+  These routes inherit the dashboard's access policy.
 - **Mutations.** `DashboardApiEndpointOperations` wraps them: `KeyNotFoundException` becomes 404 and
   `ImmediateJobException` becomes 409, so storage must keep that exception convention.
+- **Batch lifecycle.** Batches can be canceled, but cannot be deleted explicitly. Retention purging
+  removes terminal batches and their retained members, executions, and dependency graphs.
 - **Live updates.** `GET events` and `GET batches/{batchHandle}/stream` are server-sent event streams
   polling at `UpdateInterval` (default 2 seconds).
 - **JSON.** `DashboardJsonSerializerContext` uses camelCase properties and **string enums**, so
   renaming a `JobState` or `BatchState` member changes the wire contract.
 
+## Definitions and server tags
+
+`GET definitions` returns every persisted job and both code-defined and dynamic recurring
+schedule configuration, irrespective of local handlers or server tags. The snapshot contains only
+job acquisition state and recurring pause/progress, joined by stable identity in the client.
+The Definitions page displays tags, queue, attempts, timeout, concurrency and windows alongside
+live status and pause/resume actions. The Servers page displays effective server tags.
+
 ## Client
 
 `DashboardClient/` is Vue 3, vue-router, `@tanstack/vue-query`, Vite, and Vitest.
 
+- **Definitions view.** `/definitions` shows one row per stored definition with queue, acquisition
+  status, concurrency limits, and next eligible time. Live search filters names, queues, and tags
+  without a server request. One Concurrency column lists only configured limits: maximum active
+  jobs with current usage, and fixed/sliding acquisition counts against their limits and periods.
+  Unbounded definitions show “No limit” once. A paused definition still displays its active jobs and an independent at-capacity
+  indicator. Rows link to filtered jobs, and server-sent snapshots keep the table current.
+  Each row exposes Pause or Resume based on its explicit pause state, including rate-limited or
+  concurrency-limited definitions. Actions show pending/error feedback and refresh dashboard queries.
+- **Job details.** Pending jobs display “Paused” while their definition is paused; active, scheduled,
+  and terminal jobs retain their lifecycle labels. State filters and counts use the stored lifecycle
+  state. Details include the current definition below the payload, including queue, tags, scheduling,
+  retries, timeout, acquisition status, and configured limits. The same information is available
+  when inspecting an invocation within a batch. Queue information belongs to this definition block.
+  The header contains the invocation ID, lifecycle status, and job actions. Job-name and view links
+  are anchors that support opening details in a new tab.
 - **Contracts.** `src/contracts.ts` mirrors the server JSON. When an enum gains or renames a member,
   update `jobStates`/`batchStates` there, `isBatchState` in `src/api.ts`, any component that switches
   on states (`JobStateSummary.vue`, `WorkflowGraph.vue`, the batch cancel buttons), and the
@@ -39,3 +70,31 @@
 embeds the output as resources (`DashboardAssets` serves them). Design-time builds skip the client
 entirely. If the dashboard build fails in CI but not locally, check that `package-lock.json` is
 committed and matches `package.json`.
+
+## Refresh ownership
+
+The application owns one snapshot query, shared across Overview, Definitions, Recurring, and
+Servers. HTTP initial loading and disconnected polling call `GET overview`; concurrent observers
+share one request. SSE updates that same cache and cancel an older in-flight snapshot read.
+While live, the snapshot stays fresh across route navigation; on disconnect, active observers poll
+every five seconds. Definition controls invalidate only live status.
+
+Definition metadata is loaded by the Definitions and Recurring views and when inspecting job
+definition information, cached for five minutes, and polled every five minutes while in use. It survives route traversal and
+is never overwritten or refreshed by each SSE event. Metadata changes with the same identity can
+therefore take up to five minutes to appear. New metadata is obtained after that refresh; removed
+identities are hidden once absent from live status. The Definitions page cannot offer controls
+without acquisition status. Manual refresh invalidates both metadata and live state.
+
+Snapshots are logical observations, not an atomic cross-table transaction. EF Core and LinqToDB
+bulk-read catalog metadata, control rows, grouped active leases and the largest relevant sliding
+window, evaluating all definitions in memory. Query count does not grow per definition. Redis
+uses one catalog read and one Lua evaluation for the complete status collection; its execution
+cost still grows with definitions, history, and leases. In-memory groups active leases once.
+Single-server monitoring reads the committed durable authority and adds its process-local
+heartbeats without collecting another full snapshot.
+
+Jobs canceled because their definition was removed remain in history with their cancellation reason.
+Retained dynamic schedules show **Cancelled**, the removal reason, and no next run. Their Trigger
+and Resume actions are disabled; stale action requests are rejected by the server. Explicitly remove
+and recreate a schedule through its existing scheduler API after restoring its definition to start it again.

@@ -4,8 +4,8 @@ import { useMutation, useQueryClient } from '@tanstack/vue-query';
 import {
 	cancelBatch,
 	cancelJob,
-	deleteBatch,
 	retryJob,
+	setDefinitionPaused,
 	setRecurringPaused,
 	triggerRecurring,
 } from '@/api';
@@ -60,27 +60,16 @@ export function useBatchMutations() {
 		},
 		onError: (reason) => notify(errorText(reason), 'error'),
 	});
-	const deleteMutation = useMutation({
-		mutationFn: deleteBatch,
-		onSuccess: async (_, batchHandle) => {
-			notify('Batch deleted.');
-			queryClient.removeQueries({ queryKey: queryKeys.batch(batchHandle) });
-			queryClient.removeQueries({ queryKey: queryKeys.batchGraph(batchHandle) });
-			await refreshDashboardQueries(queryClient);
-		},
-		onError: (reason) => notify(errorText(reason), 'error'),
-	});
 
 	return {
 		cancelBatch: cancelMutation.mutateAsync,
-		deleteBatch: deleteMutation.mutateAsync,
 		busyBatchHandle: computed(() => {
 			if (cancelMutation.isPending.value) {
 				return cancelMutation.variables.value;
 			}
-			return deleteMutation.isPending.value ? deleteMutation.variables.value : undefined;
+			return undefined;
 		}),
-		mutating: computed(() => cancelMutation.isPending.value || deleteMutation.isPending.value),
+		cancelling: cancelMutation.isPending,
 	};
 }
 
@@ -98,7 +87,6 @@ export function useRecurringMutations() {
 		mutationFn: ({ name, paused }: { name: string; paused: boolean }) => setRecurringPaused(name, paused),
 		onSuccess: async (_, variables) => {
 			notify(variables.paused ? 'Schedule paused.' : 'Schedule resumed.');
-			await queryClient.invalidateQueries({ queryKey: queryKeys.recurring });
 			await queryClient.invalidateQueries({ queryKey: queryKeys.overview });
 		},
 		onError: (reason) => notify(errorText(reason), 'error'),
@@ -113,5 +101,22 @@ export function useRecurringMutations() {
 			}
 			return pauseMutation.isPending.value ? pauseMutation.variables.value?.name : undefined;
 		}),
+	};
+}
+
+export function useDefinitionMutations() {
+	const queryClient = useQueryClient();
+	const pauseMutation = useMutation({
+		mutationFn: ({ name, paused }: { name: string; paused: boolean }) => setDefinitionPaused(name, paused),
+		onSuccess: async (_, variables) => {
+			notify(variables.paused ? 'Definition paused.' : 'Definition resumed.');
+			await queryClient.invalidateQueries({ queryKey: queryKeys.overview });
+		},
+		onError: (reason) => notify(errorText(reason), 'error'),
+	});
+
+	return {
+		setPaused: pauseMutation.mutate,
+		busyName: computed(() => pauseMutation.isPending.value ? pauseMutation.variables.value?.name : undefined),
 	};
 }

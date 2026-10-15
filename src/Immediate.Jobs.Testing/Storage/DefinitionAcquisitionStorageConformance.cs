@@ -20,6 +20,7 @@ internal static class DefinitionAcquisitionStorageConformance
 		new("Definitions.Concurrency.SharesSlotsAndRecoversExpiredLeases", StorageCapabilities.Queue, ConcurrencyAsync),
 		new("Definitions.Concurrency.RenewalAndEarlyRelease", StorageCapabilities.Queue, RenewAsync),
 		new("Definitions.Monitoring.ReportsPauseAndUnexpiredConcurrencyIndependently", StorageCapabilities.Queue, MonitoringAsync),
+		new("Definitions.Monitoring.ReportsCurrentWindowCounts", StorageCapabilities.Queue, WindowCountsAsync),
 		new("Definitions.Acquisition.EnforcesLimitsUnderContention", StorageCapabilities.Queue, ContentionAsync),
 		new("Definitions.Acquisition.SkipsBlockedDefinitionsInFairQueues", StorageCapabilities.Queue, FairAsync),
 		new("Definitions.Retries.CountSuccessfulAcquisitionsOnly", StorageCapabilities.Queue, RetryAsync),
@@ -132,6 +133,59 @@ internal static class DefinitionAcquisitionStorageConformance
 		Equal(0, state.ActiveCount, "expired leases are excluded without requiring a new acquisition");
 		Equal(expected: false, state.IsConcurrencyLimited, "capacity returns after the leases expire");
 		Equal(expected: true, state.IsPaused, "expiration does not resume a paused definition");
+	}
+
+	private static async ValueTask WindowCountsAsync(IJobStorage storage, FakeTimeProvider clock, CancellationToken token)
+	{
+		var period = TimeSpan.FromMinutes(1);
+		var now = clock.GetUtcNow();
+		var start = new DateTimeOffset(now.UtcTicks - now.UtcTicks % period.Ticks, TimeSpan.Zero) + period;
+		clock.Advance(start.AddSeconds(10) - now);
+		var definition = new JobDefinitionRecord
+		{
+			Name = Name,
+			MaxConcurrency = 2,
+			SlidingWindowMax = 3,
+			SlidingWindowPeriod = TimeSpan.FromSeconds(20),
+			FixedWindowMax = 5,
+			FixedWindowPeriod = period,
+		};
+		await storage.MergeJobDefinitionsListAsync(new() { Definitions = [definition] }, token);
+		await CheckCountsAsync(0, 0, "unused windows report zero acquisitions");
+		await storage.EnqueueAsync(Job("window-one", clock.GetUtcNow()), token);
+		var first = (await storage.AcquireDueJobsAsync(Request(), token)).Single();
+		await CheckCountsAsync(1, 1, "usage is visible before a window is exhausted");
+		clock.Advance(TimeSpan.FromSeconds(5));
+		await storage.EnqueueAsync(Job("window-two", clock.GetUtcNow()), token);
+		Equal(1, (await storage.AcquireDueJobsAsync(Request(), token)).Count, "a later acquisition consumes another window slot");
+		await CheckCountsAsync(2, 2, "concurrency exhaustion does not hide window usage");
+		await storage.EnqueueAsync(Job("window-three", clock.GetUtcNow()), token);
+		await storage.PauseJobAsync(Name, token);
+		Equal(0, (await storage.AcquireDueJobsAsync(Request(), token)).Count, "paused acquisition cannot consume window capacity");
+		await storage.CompleteAsync(first.JobHandle, first.Attempt, "worker", token);
+		await storage.DeleteAsync(first.JobHandle, token);
+		await CheckCountsAsync(2, 2, "pause, completion, and deletion do not erase acquisition counts");
+		clock.Advance(TimeSpan.FromSeconds(15));
+		await CheckCountsAsync(1, 2, "only the oldest sliding acquisition ages out at its exact boundary");
+		clock.Advance(TimeSpan.FromSeconds(5));
+		await CheckCountsAsync(0, 2, "sliding usage can expire while fixed usage remains");
+		clock.Advance(start + period - clock.GetUtcNow());
+		await CheckCountsAsync(0, 0, "fixed usage resets at its boundary without another acquisition");
+		await storage.ResumeJobAsync(Name, token);
+		Equal(2, (await storage.AcquireDueJobsAsync(Request(), token)).Count, "an expired lease and queued invocation both acquire after resume");
+		await CheckCountsAsync(2, 2, "expired-lease reacquisition consumes window capacity");
+		definition = definition with { SlidingWindowMax = 0, SlidingWindowPeriod = null, FixedWindowMax = 0, FixedWindowPeriod = null };
+		await storage.MergeJobDefinitionsListAsync(new() { Definitions = [definition] }, token);
+		await CheckCountsAsync(0, 0, "disabled windows expose zero rather than retained history");
+
+		async ValueTask CheckCountsAsync(int sliding, int fixedCount, string invariant)
+		{
+			var state = await storage.GetJobAcquisitionStateAsync(Name, token);
+			Equal((sliding, fixedCount), (state.SlidingWindowCount, state.FixedWindowCount), invariant);
+			var snapshot = await storage.GetMonitoringSnapshotAsync(token);
+			var monitored = snapshot.DefinitionStatuses.Single(item => string.Equals(item.JobName, Name, StringComparison.Ordinal));
+			Equal((sliding, fixedCount), (monitored.SlidingWindowCount, monitored.FixedWindowCount), invariant);
+		}
 	}
 
 	private static async ValueTask PauseAsync(IJobStorage storage, FakeTimeProvider clock, CancellationToken token)
@@ -353,6 +407,8 @@ internal static class DefinitionAcquisitionStorageConformance
 			Name = Name,
 			SlidingWindowMax = 1,
 			SlidingWindowPeriod = TimeSpan.FromSeconds(1),
+			FixedWindowMax = 10,
+			FixedWindowPeriod = TimeSpan.FromMinutes(1),
 		};
 		await storage.MergeJobDefinitionsListAsync(new()
 		{
@@ -365,10 +421,14 @@ internal static class DefinitionAcquisitionStorageConformance
 		var status = ConformanceAssert.NotNull(await storage.GetJobStatusAsync(first.JobHandle, token),
 			"Definitions.Retries.CountSuccessfulAcquisitionsOnly", "the rate-limited invocation must have a status");
 		Equal(1, status.Attempt, "a rate-limited retry retains its attempt count");
+		var state = await storage.GetJobAcquisitionStateAsync(Name, token);
+		Equal((1, 1), (state.SlidingWindowCount, state.FixedWindowCount), "a blocked retry does not increase window counts");
 		clock.Advance(TimeSpan.FromSeconds(1));
 		var retry = (await storage.AcquireDueJobsAsync(Request(), token)).Single();
 		Equal(2, retry.Attempt, "a successful retry acquisition creates a new attempt");
-		Equal(JobAcquisitionStatus.RateLimited, (await storage.GetJobAcquisitionStateAsync(Name, token)).AcquisitionStatus, "the retry consumes rate capacity");
+		state = await storage.GetJobAcquisitionStateAsync(Name, token);
+		Equal(JobAcquisitionStatus.RateLimited, state.AcquisitionStatus, "the retry consumes rate capacity");
+		Equal((1, 2), (state.SlidingWindowCount, state.FixedWindowCount), "a successful retry consumes its own acquisition slot");
 	}
 
 	private static async ValueTask RecurringAsync(IJobStorage storage, FakeTimeProvider clock, CancellationToken token)

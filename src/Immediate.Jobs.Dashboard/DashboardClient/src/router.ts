@@ -2,6 +2,7 @@ import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
 
 import BatchDetailView from '@/views/BatchDetailView.vue';
 import BatchesView from '@/views/BatchesView.vue';
+import DefinitionsView from '@/views/DefinitionsView.vue';
 import JobDetailView from '@/views/JobDetailView.vue';
 import JobsView from '@/views/JobsView.vue';
 import OverviewView from '@/views/OverviewView.vue';
@@ -14,6 +15,12 @@ export const routes: RouteRecordRaw[] = [
 		name: 'overview',
 		component: OverviewView,
 		meta: { title: 'Overview' },
+	},
+	{
+		path: '/definitions',
+		name: 'definitions',
+		component: DefinitionsView,
+		meta: { title: 'Definitions' },
 	},
 	{
 		path: '/invocations',

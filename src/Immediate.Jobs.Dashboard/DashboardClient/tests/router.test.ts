@@ -6,6 +6,9 @@ import { router as dashboardRouter, routes } from '@/router';
 describe('dashboard routes', () => {
 	it('resolves shareable job and batch detail routes', async () => {
 		const router = createRouter({ history: createMemoryHistory(), routes });
+		await router.push('/definitions');
+		expect(router.currentRoute.value.name).toBe('definitions');
+
 		await router.push('/invocations?state=Failed');
 		expect(router.currentRoute.value.name).toBe('jobs');
 
@@ -36,16 +39,16 @@ describe('dashboard routes', () => {
 			return;
 		}
 
-		const jobsScroll = await scrollBehavior(
-			dashboardRouter.resolve('/invocations/job-7'),
-			dashboardRouter.resolve('/invocations'),
-			null,
-		);
-		const batchScroll = await scrollBehavior(
-			dashboardRouter.resolve('/batches/batch-42/jobs/job-7'),
-			dashboardRouter.resolve('/batches/batch-42'),
-			null,
-		);
+		const router = createRouter({ history: createMemoryHistory(), routes });
+		await router.push('/invocations');
+		const jobsFrom = router.currentRoute.value;
+		await router.push('/invocations/job-7');
+		const jobsScroll = await scrollBehavior(router.currentRoute.value, jobsFrom, null);
+
+		await router.push('/batches/batch-42');
+		const batchFrom = router.currentRoute.value;
+		await router.push('/batches/batch-42/jobs/job-7');
+		const batchScroll = await scrollBehavior(router.currentRoute.value, batchFrom, null);
 
 		expect(jobsScroll).toEqual({ top: 0 });
 		expect(batchScroll).toBe(false);

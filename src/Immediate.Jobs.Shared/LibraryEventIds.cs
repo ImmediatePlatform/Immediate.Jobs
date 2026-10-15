@@ -43,7 +43,6 @@ internal static class LibraryEventIds
 	public const int InMemoryGetBatchGraphAsyncCalled = 11040;
 	public const int InMemoryGetJobStatusAsyncCalled = 11041;
 	public const int InMemoryCancelBatchAsyncCalled = 11042;
-	public const int InMemoryDeleteBatchAsyncCalled = 11043;
 	public const int InMemoryCancelAsyncCalled = 11044;
 	public const int InMemoryRetryAsyncCalled = 11045;
 	public const int InMemoryDeleteAsyncCalled = 11046;
@@ -78,7 +77,6 @@ internal static class LibraryEventIds
 	public const int SingleServerGetBatchGraphAsyncCalled = 11076;
 	public const int SingleServerGetJobStatusAsyncCalled = 11077;
 	public const int SingleServerCancelBatchAsyncCalled = 11078;
-	public const int SingleServerDeleteBatchAsyncCalled = 11079;
 	public const int SingleServerCancelAsyncCalled = 11080;
 	public const int SingleServerRetryAsyncCalled = 11081;
 	public const int SingleServerDeleteAsyncCalled = 11082;
@@ -103,5 +101,7 @@ internal static class LibraryEventIds
 	public const int SingleServerPauseJobAsyncCalled = 11101;
 	public const int SingleServerResumeJobAsyncCalled = 11102;
 	public const int SingleServerGetJobAcquisitionStateAsyncCalled = 11103;
+	public const int InMemoryGetMonitoringDefinitionsAsyncCalled = 11104;
+	public const int SingleServerGetMonitoringDefinitionsAsyncCalled = 11105;
 	public const int InMemoryDefinitionRemoved = 11110;
 }

@@ -164,6 +164,10 @@ internal static partial class ReplicaStorageConformance
 			storage.FailAsync(jobHandle, executionNumber, workerId, error, nextRetryAt, cancellationToken);
 
 		/// <inheritdoc />
+		public ValueTask<JobMonitoringDefinitions> GetMonitoringDefinitionsAsync(CancellationToken cancellationToken = default) =>
+			storage.GetMonitoringDefinitionsAsync(cancellationToken);
+
+		/// <inheritdoc />
 		public ValueTask<JobMonitoringSnapshot> GetMonitoringSnapshotAsync(CancellationToken cancellationToken = default) =>
 			storage.GetMonitoringSnapshotAsync(cancellationToken);
 
@@ -270,10 +274,6 @@ internal static partial class ReplicaStorageConformance
 		/// <inheritdoc />
 		public ValueTask<bool> TryTriggerBatchAsync(BatchHandle batchHandle, CancellationToken cancellationToken = default) =>
 			storage.TryTriggerBatchAsync(batchHandle, cancellationToken);
-
-		/// <inheritdoc />
-		public ValueTask DeleteBatchAsync(BatchHandle batchHandle, CancellationToken cancellationToken = default) =>
-			storage.DeleteBatchAsync(batchHandle, cancellationToken);
 
 		/// <inheritdoc />
 		public ValueTask PurgeBatchesAsync(TimeSpan batchSucceededRetention, TimeSpan batchFailedRetention, CancellationToken cancellationToken = default) =>

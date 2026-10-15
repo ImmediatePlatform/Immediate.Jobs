@@ -55,12 +55,14 @@ public static class JobAcquisitionEvaluator
 		ArgumentNullException.ThrowIfNull(slidingAcquisitions);
 		ValidationException.ThrowIfInvalid(limits);
 
+		var currentFixedWindowCount = limits.FixedWindowMax > 0 && fixedWindowStart == limits.FixedWindowStart(now)
+			? fixedWindowCount : 0;
 		DateTimeOffset? next = null;
 		if (limits.SlidingWindowPeriod is { } sliding && slidingAcquisitions.Count >= limits.SlidingWindowMax)
 			next = slidingAcquisitions[slidingAcquisitions.Count - limits.SlidingWindowMax] + sliding;
-		if (limits.FixedWindowPeriod is { } fixedPeriod && fixedWindowStart == limits.FixedWindowStart(now) && fixedWindowCount >= limits.FixedWindowMax)
+		if (limits.FixedWindowPeriod is { } fixedPeriod && fixedWindowStart is { } start && currentFixedWindowCount >= limits.FixedWindowMax)
 		{
-			var fixedNext = fixedWindowStart!.Value + fixedPeriod;
+			var fixedNext = start + fixedPeriod;
 			if (next is null || fixedNext > next)
 				next = fixedNext;
 		}
@@ -71,6 +73,8 @@ public static class JobAcquisitionEvaluator
 			JobName = jobName,
 			IsPaused = isPaused,
 			ActiveCount = activeCount,
+			SlidingWindowCount = limits.SlidingWindowMax > 0 ? slidingAcquisitions.Count : 0,
+			FixedWindowCount = currentFixedWindowCount,
 			IsConcurrencyLimited = concurrencyLimited,
 			AcquisitionStatus = isPaused ? JobAcquisitionStatus.Paused
 				: next is not null ? JobAcquisitionStatus.RateLimited

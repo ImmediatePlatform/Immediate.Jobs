@@ -34,7 +34,7 @@ interface PositionedNode extends DisplayNode {
 
 interface PositionedEdge extends BatchGraphEdge {
 	index: number;
-	from?: PositionedNode;
+	from: PositionedNode | undefined;
 	to: PositionedNode;
 	joinsFanIn: boolean;
 	channelX?: number;
@@ -439,7 +439,7 @@ function createEdges(edgesToDraw: BatchGraphEdge[], positions: Map<string, Posit
 	forks: PositionedFork[];
 	joins: PositionedJoin[];
 } {
-	const edges = edgesToDraw.flatMap((edge, index) => {
+	const edges = edgesToDraw.flatMap<Omit<PositionedEdge, 'path'>>((edge, index) => {
 		const to = positions.get(edge.childJobHandle);
 		if (!to) {
 			return [];

@@ -41,7 +41,10 @@ const schedules = computed(() => recurringQuery.data.value ?? []);
 					</thead>
 					<tbody>
 						<tr v-for="schedule in schedules" :key="schedule.name">
-							<td><code>{{ schedule.name }}</code></td>
+							<td>
+								<code>{{ schedule.name }}</code>
+								<p v-if="schedule.cancellationReason" class="mt-1 text-xs text-muted">{{ schedule.cancellationReason }}</p>
+							</td>
 							<td>{{ schedule.jobName }}</td>
 							<td>
 								<div class="schedule-cell">
@@ -49,11 +52,12 @@ const schedules = computed(() => recurringQuery.data.value ?? []);
 									<span>{{ schedule.timeZone }}</span>
 								</div>
 							</td>
-							<td>{{ formatDate(schedule.nextRunAt) }}</td>
+							<td>{{ schedule.cancellationReason ? '—' : formatDate(schedule.nextRunAt) }}</td>
 							<td>
 								<div class="flex gap-1.5">
 									<StateBadge :state="schedule.isCodeDefined ? 'Code' : 'Dynamic'" />
-									<StateBadge v-if="schedule.isPaused" state="Paused" />
+									<StateBadge v-if="schedule.cancellationReason" state="Cancelled" />
+									<StateBadge v-else-if="schedule.isPaused" state="Paused" />
 								</div>
 							</td>
 							<td>
@@ -61,7 +65,7 @@ const schedules = computed(() => recurringQuery.data.value ?? []);
 									<button
 										class="button button-secondary"
 										type="button"
-										:disabled="recurringMutations.busyName.value === schedule.name"
+										:disabled="!!schedule.cancellationReason || recurringMutations.busyName.value === schedule.name"
 										@click="recurringMutations.trigger(schedule.name)"
 									>
 										<Play :size="14" aria-hidden="true" />
@@ -70,7 +74,7 @@ const schedules = computed(() => recurringQuery.data.value ?? []);
 									<button
 										class="button button-secondary"
 										type="button"
-										:disabled="recurringMutations.busyName.value === schedule.name"
+										:disabled="!!schedule.cancellationReason || recurringMutations.busyName.value === schedule.name"
 										@click="recurringMutations.setPaused({ name: schedule.name, paused: !schedule.isPaused })"
 									>
 										<CirclePlay v-if="schedule.isPaused" :size="14" aria-hidden="true" />

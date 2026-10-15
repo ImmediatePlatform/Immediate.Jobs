@@ -323,6 +323,10 @@ public class CapturingJobStorage(TimeProvider timeProvider) :
 	}
 
 	/// <inheritdoc />
+	public virtual ValueTask<JobMonitoringDefinitions> GetMonitoringDefinitionsAsync(CancellationToken cancellationToken = default) =>
+		_inner.GetMonitoringDefinitionsAsync(cancellationToken);
+
+	/// <inheritdoc />
 	public virtual async ValueTask<JobMonitoringSnapshot> GetMonitoringSnapshotAsync(CancellationToken cancellationToken = default) => await _inner.GetMonitoringSnapshotAsync(cancellationToken);
 
 	/// <inheritdoc />
@@ -360,9 +364,6 @@ public class CapturingJobStorage(TimeProvider timeProvider) :
 
 	/// <inheritdoc />
 	public virtual async ValueTask<bool> TryTriggerAsync(JobHandle jobHandle, string expectedJobName, DateTimeOffset dueAt, CancellationToken cancellationToken = default) => await _inner.TryTriggerAsync(jobHandle, expectedJobName, dueAt, cancellationToken);
-
-	/// <inheritdoc />
-	public virtual async ValueTask DeleteBatchAsync(BatchHandle batchHandle, CancellationToken cancellationToken = default) => await _inner.DeleteBatchAsync(batchHandle, cancellationToken);
 
 	/// <inheritdoc />
 	public virtual async ValueTask CancelAsync(JobHandle jobHandle, CancellationToken cancellationToken = default) => await _inner.CancelAsync(jobHandle, cancellationToken);

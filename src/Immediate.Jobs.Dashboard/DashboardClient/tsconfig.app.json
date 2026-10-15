@@ -6,10 +6,9 @@
 		"strict": true,
 		"noUncheckedIndexedAccess": true,
 		"exactOptionalPropertyTypes": true,
-		"baseUrl": ".",
 		"paths": {
 			"@/*": ["./src/*"]
 		},
-		"types": ["vitest/globals"]
+		"types": ["vitest/globals", "node", "vite/client"]
 	}
 }

@@ -99,18 +99,24 @@ internal static class RedisScripts
 			local paused = redis.call('HGET', key, 'paused') == '1'
 			local slidingOldest = ''
 			local fixedNext = ''
+			local slidingCount = 0
+			local fixedCount = 0
 			if limits.slidingMax > 0 then
 				local logKey = root .. 'definitions:acquisitions:' .. name
 				redis.call('ZREMRANGEBYLEX', logKey, '-', '[' .. limits.slidingCutoff .. '~')
 				local recent = redis.call('ZRANGE', logKey, 0, -1)
+				slidingCount = #recent
 				if #recent >= limits.slidingMax then
 					slidingOldest = string.match(recent[#recent - limits.slidingMax + 1], '^([^|]+)|')
 				end
 			end
 			if limits.fixedMax > 0 then
 				local values = redis.call('HMGET', key, 'fixedStart', 'fixedCount')
-				if values[1] == limits.fixedStart and tonumber(values[2] or '0') >= limits.fixedMax then
-					fixedNext = limits.fixedNext
+				if values[1] == limits.fixedStart then
+					fixedCount = tonumber(values[2] or '0')
+					if fixedCount >= limits.fixedMax then
+						fixedNext = limits.fixedNext
+					end
 				end
 			end
 			local activeCount = 0
@@ -134,7 +140,7 @@ internal static class RedisScripts
 			local status = paused and 1 or (slidingOldest ~= '' or fixedNext ~= '') and 2 or concurrencyLimited and 3 or 0
 			if paused or concurrencyLimited then slidingOldest = ''; fixedNext = '' end
 			redis.call('HSET', key, 'status', status, 'slidingOldest', slidingOldest, 'fixedNext', fixedNext)
-			return { status, slidingOldest, fixedNext, paused and 1 or 0, activeCount }
+			return { status, slidingOldest, fixedNext, paused and 1 or 0, activeCount, slidingCount, fixedCount }
 		end
 		local function recordDefinitionAcquisition(root, name, limits, nowTimestamp, id, attempt)
 			local key = root .. 'definitions:state:' .. name
@@ -149,6 +155,15 @@ internal static class RedisScripts
 			end
 		end
 
+		""";
+
+	internal const string DefinitionStates = DefinitionFunctions +
+		"""
+		local results = {}
+		for position = 4, #ARGV, 7 do
+			results[#results + 1] = definitionState(ARGV[1], ARGV[position], readLimits(ARGV, position + 1), tonumber(ARGV[2]), ARGV[3], true)
+		end
+		return results
 		""";
 
 	internal const string DefinitionState = DefinitionFunctions +

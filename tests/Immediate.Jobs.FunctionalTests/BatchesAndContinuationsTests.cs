@@ -1,7 +1,6 @@
 using System.Globalization;
 using Immediate.Handlers.Shared;
 using Immediate.Jobs.Shared.Apis;
-using Immediate.Jobs.Shared.Interfaces;
 using Immediate.Jobs.Shared.Storage;
 using Immediate.Jobs.Testing;
 using Microsoft.Extensions.DependencyInjection;
@@ -364,7 +363,6 @@ public sealed class BatchesAndContinuationsTests
 		await using var scope = harness.Services.CreateAsyncScope();
 		var batches = scope.ServiceProvider.GetRequiredService<BatchScheduler>();
 		var monitor = scope.ServiceProvider.GetRequiredService<JobMonitor>();
-		Assert.Same(monitor, scope.ServiceProvider.GetRequiredService<IJobMonitor>());
 		var scheduler = scope.ServiceProvider.GetRequiredService<BatchWorkflowJob.Scheduler>();
 		await using var batch = batches.Begin();
 		var parent = scheduler.Enqueue(new("parent"), batch);
@@ -413,7 +411,7 @@ public sealed class BatchesAndContinuationsTests
 		await using var harness = CreateHarness();
 		await harness.DrainAsync(TestContext.Current.CancellationToken);
 		await using var scope = harness.Services.CreateAsyncScope();
-		var monitor = scope.ServiceProvider.GetRequiredService<IJobMonitor>();
+		var monitor = scope.ServiceProvider.GetRequiredService<JobMonitor>();
 		var now = harness.TimeProvider.GetUtcNow();
 		harness.Storage.LoadPersistedJobState(
 			[new JobRecord

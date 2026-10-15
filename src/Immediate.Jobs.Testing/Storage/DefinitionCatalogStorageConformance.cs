@@ -52,7 +52,7 @@ internal static class DefinitionCatalogStorageConformance
 			NextRunAt = clock.GetUtcNow().AddMinutes(1),
 		};
 		await storage.UpsertRecurringAsync(schedule, token);
-		var persistedSchedule = (await storage.GetMonitoringSnapshotAsync(token)).Recurring.Single();
+		var persistedSchedule = (await MonitoringTestQueries.GetSchedulesAsync(storage, token)).Single();
 		ConformanceAssert.Equal(schedule with { JobName = definition.Name, QueueName = definition.QueueName }, persistedSchedule,
 			SubmissionCase, "dynamic schedules must use the persisted definition without a caller-supplied queue");
 
@@ -80,7 +80,7 @@ internal static class DefinitionCatalogStorageConformance
 			SubmissionCase, "the retained invocation must have a status");
 		ConformanceAssert.Null(status.QueueName,
 			SubmissionCase, "monitoring must retain jobs without inventing a queue");
-		ConformanceAssert.Null((await storage.GetMonitoringSnapshotAsync(token)).Recurring.Single().QueueName,
+		ConformanceAssert.Null((await MonitoringTestQueries.GetSchedulesAsync(storage, token)).Single().QueueName,
 			SubmissionCase, "retained schedules without a definition must have no queue");
 
 		await ConformanceAssert.ThrowsAsync<KeyNotFoundException>(
@@ -198,20 +198,20 @@ internal static class DefinitionCatalogStorageConformance
 		await storage.PauseRecurringAsync(ordinary.Name, token);
 		var alias = ordinary with { Name = "ORDINARY-CRON" };
 		await storage.MergeJobDefinitionsListAsync(new() { Definitions = [alias], RecurringSchedules = [Schedule(alias, now.AddHours(1))] }, token);
-		var persisted = (await storage.GetMonitoringSnapshotAsync(token)).Recurring.Single(item => string.Equals(item.Name, ordinary.Name, StringComparison.Ordinal));
-		ConformanceAssert.False((await storage.GetMonitoringSnapshotAsync(token)).Recurring.Any(item => string.Equals(item.Name, unregistered.Name, StringComparison.Ordinal)),
+		var persisted = (await MonitoringTestQueries.GetSchedulesAsync(storage, token)).Single(item => string.Equals(item.Name, ordinary.Name, StringComparison.Ordinal));
+		ConformanceAssert.False((await MonitoringTestQueries.GetSchedulesAsync(storage, token)).Any(item => string.Equals(item.Name, unregistered.Name, StringComparison.Ordinal)),
 			RecurringCase, "startup must clean up obsolete unregistered code schedules without metadata");
 		ConformanceAssert.True(persisted.IsPaused, RecurringCase, "startup must preserve schedule pause state");
 		ConformanceAssert.Equal(now.AddMinutes(1), persisted.NextRunAt, RecurringCase, "unchanged cron must retain progress");
 		ConformanceAssert.Equal<DateTimeOffset?>(now, persisted.LastRunAt, RecurringCase, "startup must retain the last occurrence");
 		var changed = ordinary with { Cron = "15 * * * *" };
 		await storage.MergeJobDefinitionsListAsync(new() { Definitions = [changed], RecurringSchedules = [Schedule(changed, now.AddHours(2))] }, token);
-		persisted = (await storage.GetMonitoringSnapshotAsync(token)).Recurring.Single(item => string.Equals(item.Name, ordinary.Name, StringComparison.Ordinal));
+		persisted = (await MonitoringTestQueries.GetSchedulesAsync(storage, token)).Single(item => string.Equals(item.Name, ordinary.Name, StringComparison.Ordinal));
 		ConformanceAssert.Equal(now.AddHours(2), persisted.NextRunAt, RecurringCase, "changed cron must reset the next occurrence");
 		ConformanceAssert.True(persisted.IsPaused, RecurringCase, "cron changes must retain pause state");
 		var reformatted = changed with { Cron = "15 * * * * " };
 		await storage.MergeJobDefinitionsListAsync(new() { Definitions = [reformatted], RecurringSchedules = [Schedule(reformatted, now.AddHours(3))] }, token);
-		persisted = (await storage.GetMonitoringSnapshotAsync(token)).Recurring.Single(item => string.Equals(item.Name, ordinary.Name, StringComparison.Ordinal));
+		persisted = (await MonitoringTestQueries.GetSchedulesAsync(storage, token)).Single(item => string.Equals(item.Name, ordinary.Name, StringComparison.Ordinal));
 		ConformanceAssert.Equal(now.AddHours(3), persisted.NextRunAt, RecurringCase, "any change to the stored cron text must reset the next occurrence");
 		await storage.MergeJobDefinitionsListAsync(Registration([changed with { Cron = null }]), token);
 		var snapshot = await storage.GetMonitoringSnapshotAsync(token);
@@ -243,7 +243,7 @@ internal static class DefinitionCatalogStorageConformance
 			var names = (await storage.GetJobDefinitionsAsync(token)).Select(static item => item.Name).ToList();
 			ConformanceAssert.True(names.Count == 0 || names.SequenceEqual(["a", "b", "shared"], StringComparer.Ordinal) || names.SequenceEqual(["c", "d", "shared"], StringComparer.Ordinal),
 				ConcurrentCase, "concurrent startup snapshots, including empty lists, must commit whole catalogues without mixed results");
-			var schedules = (await storage.GetMonitoringSnapshotAsync(token)).Recurring;
+			var schedules = await MonitoringTestQueries.GetSchedulesAsync(storage, token);
 			ConformanceAssert.SequenceEqual(names.Where(static name => name is "a" or "c"), schedules.Select(static schedule => schedule.JobName),
 				ConcurrentCase, "definitions and their code-defined schedules must commit together");
 		}

@@ -3,24 +3,35 @@ import { onBeforeUnmount, ref, watch } from 'vue';
 import { RouterLink } from 'vue-router';
 import { Activity, Ban, Check, ChevronDown, Copy, ExternalLink, Layers3, RotateCcw, ScrollText, X } from '@lucide/vue';
 
+import AcquisitionLimits from '@/components/AcquisitionLimits.vue';
 import StateBadge from '@/components/StateBadge.vue';
 import { getJobExecutions, getJobExecutionTelemetryLinks } from '@/api';
 import {
 	canCancelJob,
 	canRetryJob,
+	type JobAcquisitionState,
+	type JobDefinitionRecord,
 	type JobExecutionRecord,
 	type JobRecord,
 	type JobTelemetryLink,
 } from '@/contracts';
-import { formatDate, formatJson } from '@/format';
+import { formatAcquisitionStatus, formatDate, formatJobState, formatJson } from '@/format';
 
 const props = withDefaults(defineProps<{
 	job: JobRecord;
+	definition?: JobDefinitionRecord | undefined;
+	acquisition?: JobAcquisitionState | undefined;
+	definitionLoading?: boolean;
+	definitionError?: string | undefined;
 	telemetryLinks?: JobTelemetryLink[];
 	pending?: boolean;
 	showClose?: boolean;
 	showBatchLink?: boolean;
 }>(), {
+	definition: undefined,
+	acquisition: undefined,
+	definitionLoading: false,
+	definitionError: undefined,
 	telemetryLinks: () => [],
 	pending: false,
 	showClose: true,
@@ -167,50 +178,43 @@ function retryButtonLabel(job: JobRecord, pending: boolean): string {
 <template>
 	<article class="inspector" :aria-label="`Details for ${job.jobName}`">
 		<header class="inspector-header">
-			<div class="min-w-0">
-				<span class="eyebrow">Job details</span>
+			<div class="job-heading">
 				<h2 class="truncate" :title="job.jobName">{{ job.jobName }}</h2>
+				<span class="job-invocation">(<code>{{ job.jobHandle }}</code>)</span>
+				<StateBadge :state="formatJobState(job.state, acquisition?.isPaused ?? false)" />
 			</div>
-			<button v-if="showClose" class="icon-button" type="button" aria-label="Close job details" @click="emit('close')">
-				<X :size="17" aria-hidden="true" />
-			</button>
+			<div class="job-header-actions">
+				<button
+					v-if="canRetryJob(job)"
+					class="button button-secondary"
+					type="button"
+					:disabled="pending"
+					@click="emit('retry', job)"
+				>
+					<RotateCcw :size="14" aria-hidden="true" />
+					{{ retryButtonLabel(job, pending) }}
+				</button>
+				<button
+					v-if="canCancelJob(job)"
+					class="button button-secondary danger-text"
+					type="button"
+					:disabled="pending"
+					@click="emit('cancel', job)"
+				>
+					<Ban :size="14" aria-hidden="true" />
+					Cancel job
+				</button>
+				<button v-if="showClose" class="icon-button" type="button" aria-label="Close job details" @click="emit('close')">
+					<X :size="17" aria-hidden="true" />
+				</button>
+			</div>
 		</header>
 
 		<div class="inspector-content">
-			<div class="flex items-center justify-between gap-3">
-				<StateBadge :state="job.state" />
-				<div class="flex items-center gap-2">
-					<button
-						v-if="canCancelJob(job)"
-						class="button button-secondary danger-text"
-						type="button"
-						:disabled="pending"
-						@click="emit('cancel', job)"
-					>
-						<Ban :size="14" aria-hidden="true" />
-						Cancel job
-					</button>
-					<button
-						v-if="canRetryJob(job)"
-						class="button button-secondary"
-						type="button"
-						:disabled="pending"
-						@click="emit('retry', job)"
-					>
-						<RotateCcw :size="14" aria-hidden="true" />
-						{{ retryButtonLabel(job, pending) }}
-					</button>
-				</div>
-			</div>
-
 			<dl class="detail-list">
-				<div>
-					<dt>Invocation</dt>
-					<dd><code>{{ job.jobHandle }}</code></dd>
-				</div>
-				<div>
-					<dt>Queue</dt>
-					<dd><code>{{ job.queueName ?? 'Unavailable' }}</code></dd>
+				<div v-if="job.cancellationReason">
+					<dt>Cancellation reason</dt>
+					<dd>{{ job.cancellationReason }}</dd>
 				</div>
 				<div v-if="job.groupId !== null">
 					<dt>Group</dt>
@@ -384,14 +388,39 @@ function retryButtonLabel(job: JobRecord, pending: boolean): string {
 				</button>
 			</section>
 
+			<section v-if="job.context" class="code-section">
+				<h3>Context envelope</h3>
+				<pre>{{ formatJson(job.context) }}</pre>
+			</section>
+
 			<section class="code-section">
 				<h3>Payload</h3>
 				<pre v-if="job.payload">{{ formatJson(job.payload) }}</pre>
 				<span v-else class="text-muted">Parameters not supplied</span>
 			</section>
-			<section v-if="job.context" class="code-section">
-				<h3>Context envelope</h3>
-				<pre>{{ formatJson(job.context) }}</pre>
+			<section class="code-section definition-details" aria-label="Definition">
+				<h3>Definition</h3>
+				<template v-if="definition">
+					<dl class="detail-list">
+						<div><dt>Queue</dt><dd><code>{{ definition.queueName }}</code></dd></div>
+						<div><dt>Queue priority</dt><dd>{{ definition.queuePriority }}</dd></div>
+						<div><dt>Queue concurrency</dt><dd>{{ definition.queueConcurrency > 0 ? definition.queueConcurrency : 'No limit' }}</dd></div>
+						<div><dt>Tags</dt><dd><span v-for="tag in definition.tags" :key="tag" class="tag">{{ tag }}</span></dd></div>
+						<div><dt>Schedule</dt><dd><code v-if="definition.cron">{{ definition.cron }}</code><span v-else>On demand</span></dd></div>
+						<div><dt>Time zone</dt><dd>{{ definition.timeZone }}</dd></div>
+						<div><dt>Max attempts</dt><dd>{{ definition.maxAttempts }}</dd></div>
+						<div><dt>Timeout</dt><dd>{{ definition.timeout ?? 'No timeout' }}</dd></div>
+						<div><dt>Retry backoff</dt><dd>{{ definition.backoff }} · {{ definition.backoffBase }}</dd></div>
+						<div><dt>Concurrency</dt><dd><AcquisitionLimits :limits="definition" :acquisition="acquisition" /></dd></div>
+						<div><dt>Acquisition</dt><dd>{{ acquisition ? formatAcquisitionStatus(acquisition.acquisitionStatus) : 'Status unavailable' }}</dd></div>
+						<div v-if="acquisition?.nextEligibleAt"><dt>Next eligible</dt><dd>{{ formatDate(acquisition.nextEligibleAt) }}</dd></div>
+						<div v-if="definition.cron"><dt>Overlap policy</dt><dd>{{ definition.overlapPolicy }}</dd></div>
+						<div v-if="definition.cron"><dt>Misfire handling</dt><dd>{{ definition.misfireHandlingMode }}</dd></div>
+					</dl>
+				</template>
+				<p v-else-if="definitionLoading" class="text-muted">Loading job definition…</p>
+				<p v-else-if="definitionError" class="error-text">Definition information could not be loaded: {{ definitionError }}</p>
+				<p v-else class="text-muted">Definition information is unavailable.</p>
 			</section>
 		</div>
 	</article>

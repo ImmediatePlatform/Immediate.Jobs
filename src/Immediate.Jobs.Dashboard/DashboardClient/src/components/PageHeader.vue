@@ -2,7 +2,7 @@
 defineProps<{
 	title: string;
 	description: string;
-	meta?: string;
+	meta?: string | undefined;
 }>();
 </script>
 

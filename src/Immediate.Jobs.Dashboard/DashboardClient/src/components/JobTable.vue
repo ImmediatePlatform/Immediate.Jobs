@@ -1,20 +1,29 @@
 <script setup lang="ts">
+import { computed } from 'vue';
+import { RouterLink, useRoute } from 'vue-router';
 import { Ban, Eye, Layers3, RotateCcw } from '@lucide/vue';
 
 import FeedbackState from '@/components/FeedbackState.vue';
 import StateBadge from '@/components/StateBadge.vue';
-import { canCancelJob, canRetryJob, type JobRecord } from '@/contracts';
-import { formatDate } from '@/format';
+import { canCancelJob, canRetryJob, type JobAcquisitionState, type JobRecord } from '@/contracts';
+import { formatDate, formatJobState } from '@/format';
 
-withDefaults(defineProps<{
+const props = withDefaults(defineProps<{
 	rows: JobRecord[];
-	busyJobHandle?: string;
+	definitionStatuses?: JobAcquisitionState[];
+	busyJobHandle?: string | undefined;
 }>(), {
 	busyJobHandle: undefined,
+	definitionStatuses: () => [],
 });
 
+const route = useRoute();
+
+const pausedDefinitions = computed(() => new Set(props.definitionStatuses
+	.filter(definition => definition.isPaused)
+	.map(definition => definition.jobName.toUpperCase())));
+
 const emit = defineEmits<{
-	select: [job: JobRecord];
 	openBatch: [batchHandle: string];
 	cancel: [job: JobRecord];
 	retry: [job: JobRecord];
@@ -46,14 +55,13 @@ function retryLabel(job: JobRecord): string {
 				<tbody>
 					<tr v-for="job in rows" :key="job.jobHandle" :data-job-id="job.jobHandle">
 						<td>
-							<button
+							<RouterLink
 								class="table-link max-w-72 truncate"
-								type="button"
+								:to="{ name: 'job-detail', params: { jobHandle: job.jobHandle }, query: route.query }"
 								:title="job.jobName"
-								@click="emit('select', job)"
 							>
 								{{ job.jobName }}
-							</button>
+							</RouterLink>
 						</td>
 						<td><code>{{ job.queueName ?? 'Unavailable' }}</code></td>
 						<td>
@@ -67,20 +75,22 @@ function retryLabel(job: JobRecord): string {
 							</button>
 							<span v-else class="text-muted">—</span>
 						</td>
-						<td><StateBadge :state="job.state" /></td>
+						<td>
+							<StateBadge :state="formatJobState(job.state, pausedDefinitions.has(job.jobName.toUpperCase()))" />
+							<p v-if="job.cancellationReason" class="mt-1 text-xs text-muted">{{ job.cancellationReason }}</p>
+						</td>
 						<td class="numeric">{{ job.attempt }}</td>
 						<td>{{ formatDate(job.dueAt) }}</td>
 						<td>{{ formatDate(job.completedAt) }}</td>
 						<td>
 							<div class="row-actions">
-								<button
+								<RouterLink
 									class="icon-button"
-									type="button"
+									:to="{ name: 'job-detail', params: { jobHandle: job.jobHandle }, query: route.query }"
 									:aria-label="`View ${job.jobName}`"
-									@click="emit('select', job)"
 								>
 									<Eye :size="15" aria-hidden="true" />
-								</button>
+								</RouterLink>
 								<button
 									v-if="canRetryJob(job)"
 									class="icon-button"

@@ -37,10 +37,6 @@ watch(snapshot, (value) => {
 	}
 }, { immediate: true });
 
-function openJob(job: JobRecord): void {
-	void router.push({ name: 'job-detail', params: { jobHandle: job.jobHandle } });
-}
-
 function openBatch(batchHandle: string): void {
 	void router.push({ name: 'batch-detail', params: { batchHandle } });
 }
@@ -97,8 +93,8 @@ async function confirmCancel(): Promise<void> {
 			</div>
 			<JobTable
 				:rows="recentJobsQuery.data.value ?? []"
+				:definition-statuses="snapshot?.definitionStatuses ?? []"
 				:busy-job-id="jobMutations.busyJobHandle.value"
-				@select="openJob"
 				@open-batch="openBatch"
 				@cancel="cancelCandidate = $event"
 				@retry="(job) => jobMutations.retryJob(job.jobHandle)"
