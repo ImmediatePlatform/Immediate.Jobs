@@ -207,7 +207,7 @@ public sealed class JobMonitor(
 			?? throw new KeyNotFoundException($"Recurring schedule '{name}' is not available.");
 
 		var statuses = await GetSnapshotAsync(cancellationToken);
-		if (statuses.Recurring.Any(status => string.Equals(status.Name, schedule.Name, StringComparison.Ordinal) && status.CancellationReason is not null))
+		if (statuses.Recurring.Any(status => string.Equals(status.Name, schedule.Name, StringComparison.OrdinalIgnoreCase) && status.CancellationReason is not null))
 			throw new ImmediateJobException("Canceled recurring schedules cannot be triggered. Remove the schedule and create it again.");
 
 		var now = timeProvider.GetUtcNow();

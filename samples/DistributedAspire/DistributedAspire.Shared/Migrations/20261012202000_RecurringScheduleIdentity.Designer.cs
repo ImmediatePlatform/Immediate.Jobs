@@ -12,7 +12,7 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Immediate.Jobs.DistributedAspire.Shared.Migrations
 {
     [DbContext(typeof(JobsDbContext))]
-    [Migration("20261012174456_RecurringScheduleIdentity")]
+    [Migration("20261012202000_RecurringScheduleIdentity")]
     partial class RecurringScheduleIdentity
     {
         /// <inheritdoc />
@@ -310,6 +310,9 @@ namespace Immediate.Jobs.DistributedAspire.Shared.Migrations
                         .HasMaxLength(256)
                         .HasColumnType("character varying(256)");
 
+                    b.Property<string>("CancellationReason")
+                        .HasColumnType("text");
+
                     b.Property<DateTimeOffset?>("CompletedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -489,6 +492,9 @@ namespace Immediate.Jobs.DistributedAspire.Shared.Migrations
                         .HasMaxLength(256)
                         .HasColumnType("character varying(256)")
                         .UseCollation("immediate_jobs_case_insensitive");
+
+                    b.Property<string>("CancellationReason")
+                        .HasColumnType("text");
 
                     b.Property<Guid>("ConcurrencyStamp")
                         .IsConcurrencyToken()

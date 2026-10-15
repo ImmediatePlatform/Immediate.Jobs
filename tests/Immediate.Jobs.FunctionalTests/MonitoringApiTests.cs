@@ -72,8 +72,8 @@ public sealed class MonitoringApiTests
 		Assert.True(status.IsPaused);
 		Assert.Equal(JobDefinitionReconciliation.RemovalCancellationReason, status.CancellationReason);
 		Assert.Single((await monitor.GetDefinitionsAsync(token)).Recurring);
-		await Assert.ThrowsAsync<ImmediateJobException>(() => monitor.TriggerRecurringAsync("schedule", token).AsTask());
-		await Assert.ThrowsAsync<ImmediateJobException>(() => monitor.ResumeRecurringAsync("schedule", token).AsTask());
+		await Assert.ThrowsAsync<ImmediateJobException>(() => monitor.TriggerRecurringAsync("SCHEDULE", token).AsTask());
+		await Assert.ThrowsAsync<ImmediateJobException>(() => monitor.ResumeRecurringAsync("SCHEDULE", token).AsTask());
 		Assert.Empty(await storage.QueryJobsAsync(new(), token));
 	}
 
