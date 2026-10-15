@@ -35,7 +35,7 @@ async function mountView() {
 	const wrapper = mount(DefinitionsView, {
 		global: { plugins: [router, [VueQueryPlugin, { queryClient }]] },
 	});
-	await vi.waitFor(() => expect(wrapper.find('tbody tr').exists()).toBe(true));
+	await flushPromises();
 	return { wrapper, queryClient };
 }
 
@@ -45,6 +45,37 @@ describe('definition actions', () => {
 		getOverviewMock.mockReset().mockResolvedValue(snapshot());
 		setDefinitionPausedMock.mockReset().mockResolvedValue(undefined);
 		notifications.value = [];
+	});
+
+	it.each(['overview', 'definitions'])('keeps the table loading while %s is pending', async (pendingQuery) => {
+		let finish!: () => void;
+		const pending = new Promise<void>(resolve => { finish = resolve; });
+		getDefinitionsMock.mockImplementation(async () => {
+			if (pendingQuery === 'definitions') {
+				await pending;
+			}
+			return { jobs: [pausedDefinition, storedDefinition], recurring: [] };
+		});
+		getOverviewMock.mockImplementation(async () => {
+			if (pendingQuery === 'overview') {
+				await pending;
+			}
+			return snapshot();
+		});
+		const { wrapper, queryClient } = await mountView();
+		try {
+			expect(wrapper.text()).toContain('Loading definitions');
+			expect(wrapper.find('table').exists()).toBe(false);
+			finish();
+			await vi.waitFor(() => expect(wrapper.findAll('tbody tr')).toHaveLength(1));
+			expect(wrapper.get('tbody tr').text()).toContain(pausedDefinition.name);
+			expect(wrapper.get('tbody tr').text()).toContain('Paused');
+			expect(wrapper.get('tbody button').text()).toBe('Resume');
+			expect(wrapper.get('tbody button').attributes('disabled')).toBeUndefined();
+		} finally {
+			wrapper.unmount();
+			queryClient.clear();
+		}
 	});
 
 	it('resumes a paused definition, prevents duplicate requests, and refreshes its actual limits', async () => {

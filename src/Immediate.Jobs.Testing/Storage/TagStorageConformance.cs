@@ -86,7 +86,6 @@ internal static class TagStorageConformance
 		ConformanceAssert.SequenceEqual(["default"], actual.Tags, ScopeCase, "empty job tags must persist as default");
 		await storage.MergeJobDefinitionsListAsync(Registration([], "DEFAULT"), token);
 		ConformanceAssert.SequenceEqual(["email"], (await storage.GetJobDefinitionsAsync(token)).Select(static definition => definition.Name), ScopeCase, "an empty default catalogue must preserve the email scope");
-		var snapshot = await storage.GetMonitoringSnapshotAsync(token);
 		ConformanceAssert.SequenceEqual(["email"], (await storage.GetMonitoringDefinitionsAsync(token)).Jobs.Select(static definition => definition.Name), ScopeCase, "monitoring must include definitions outside the current server scope");
 	}
 

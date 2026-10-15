@@ -93,7 +93,7 @@ export function useDefinitionStatusesQuery() {
 			}));
 		}),
 		error: computed(() => definitions.error.value ?? snapshot.error.value),
-		isPending: definitions.isPending,
+		isPending: computed(() => definitions.isPending.value || snapshot.isPending.value),
 	};
 }
 
