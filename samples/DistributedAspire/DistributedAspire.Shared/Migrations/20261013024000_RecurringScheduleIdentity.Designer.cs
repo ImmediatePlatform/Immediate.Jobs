@@ -12,7 +12,7 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Immediate.Jobs.DistributedAspire.Shared.Migrations
 {
     [DbContext(typeof(JobsDbContext))]
-    [Migration("20261012202000_RecurringScheduleIdentity")]
+    [Migration("20261013024000_RecurringScheduleIdentity")]
     partial class RecurringScheduleIdentity
     {
         /// <inheritdoc />
@@ -363,12 +363,6 @@ namespace Immediate.Jobs.DistributedAspire.Shared.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
-                    b.Property<string>("QueueName")
-                        .IsRequired()
-                        .ValueGeneratedOnAdd()
-                        .HasMaxLength(256)
-                        .HasColumnType("character varying(256)")
-                        .HasDefaultValue("default");
 
                     b.Property<string>("RecurringKey")
                         .HasMaxLength(512)
@@ -404,9 +398,9 @@ namespace Immediate.Jobs.DistributedAspire.Shared.Migrations
 
                     b.HasIndex("JobName", "State", "LeaseExpiresAt");
 
-                    b.HasIndex("QueueName", "State", "GroupId");
+                    b.HasIndex("JobName", "State", "GroupId");
 
-                    b.HasIndex("QueueName", "State", "DueAt", "CreatedAt");
+                    b.HasIndex("JobName", "State", "DueAt", "CreatedAt");
 
                     b.ToTable("immediate_jobs", (string)null);
                 });
@@ -523,10 +517,6 @@ namespace Immediate.Jobs.DistributedAspire.Shared.Migrations
                     b.Property<DateTimeOffset>("NextRunAt")
                         .HasColumnType("timestamp with time zone");
 
-                    b.Property<string>("QueueName")
-                        .IsRequired()
-                        .HasMaxLength(256)
-                        .HasColumnType("character varying(256)");
 
                     b.Property<string>("TimeZone")
                         .IsRequired()

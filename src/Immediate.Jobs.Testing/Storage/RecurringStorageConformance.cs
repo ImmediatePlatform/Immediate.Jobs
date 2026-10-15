@@ -80,7 +80,7 @@ internal static class RecurringStorageConformance
 			await storage.PauseRecurringAsync(alias, token);
 			await storage.MergeJobDefinitionsListAsync(new()
 			{
-				Definitions = [new() { Name = alias, QueueName = code.QueueName, Cron = code.Cron, TimeZone = code.TimeZone }],
+				Definitions = [new() { Name = alias, QueueName = QueueName, Cron = code.Cron, TimeZone = code.TimeZone }],
 				RecurringSchedules = [code with { Name = alias, JobName = alias }],
 			}, token);
 			var reconciled = await GetScheduleAsync(storage, name, CaseName, token);
