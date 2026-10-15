@@ -28,7 +28,7 @@ internal sealed partial class RedisJobStorage
 				schedule.IsPaused ? 1 : 0,
 				Timestamp(schedule.NextRunAt),
 				NullableTimestamp(schedule.LastRunAt),
-				schedule.Name.ToUpperInvariant(),
+				NormalizeRecurringName(schedule.Name),
 				Score(schedule.NextRunAt),
 				RecurringDueMember(schedule.NextRunAt, schedule.Name),
 				schedule.Cron,
@@ -54,7 +54,7 @@ internal sealed partial class RedisJobStorage
 		var result = await EvaluateInt64Async(
 			RedisScripts.RemoveRecurring,
 			[RecurringKey(name), RecurringNamesKey, RecurringDueKey],
-			[name.ToUpperInvariant(), _root],
+			[NormalizeRecurringName(name), _root],
 			cancellationToken
 		);
 		if (result == 0)
@@ -273,7 +273,7 @@ internal sealed partial class RedisJobStorage
 		Score(job.CreatedAt),
 		Timestamp(nextRunAt),
 		Score(nextRunAt),
-		schedule.Name.ToUpperInvariant(),
+		NormalizeRecurringName(schedule.Name),
 		Timestamp(job.CreatedAt),
 		job.CompletedAt is { } completedAt ? Score(completedAt) : 0,
 		Score(now),
@@ -295,7 +295,7 @@ internal sealed partial class RedisJobStorage
 			throw new ImmediateJobException($"Terminal recurring job '{job.JobHandle}' must have a completion time.");
 	}
 
-	private static string RecurringDueMember(DateTimeOffset nextRunAt, string name) => $"{Timestamp(nextRunAt)}|{name.ToUpperInvariant()}";
+	private static string RecurringDueMember(DateTimeOffset nextRunAt, string name) => $"{Timestamp(nextRunAt)}|{NormalizeRecurringName(name)}";
 
 	[LoggerMessage(
 		EventId = LibraryEventIds.UpsertRecurringAsyncCalled,

@@ -11,8 +11,9 @@ In-memory and single-server storage use `OrdinalIgnoreCase`. PostgreSQL uses the
 as job names; SQL Server inherits the database collation. SQLite uses `NOCASE`, so case-insensitive
 matching of schedule and job names is limited to ASCII letters. Keep non-ASCII characters in their
 registered case: `Résumé` and `RéSUMé` match, but `Résumé` and `RÉSUMÉ` do not.
-Redis uses invariant-uppercase schedule keys and index members while retaining readable names in
-schedule records.
+Redis normalizes schedule keys and index members for ordinal case-insensitive matching while
+retaining the original spelling in schedule records. Names such as `ſchedule` and `schedule` remain
+distinct.
 
 - **Code-defined.** `[Job(Cron = "...", TimeZone = "...")]` on a payloadless job (`IJOB0006` rejects
   parameters). The schedule name is the job name. Its scheduler implements `IRecurringJobTrigger`

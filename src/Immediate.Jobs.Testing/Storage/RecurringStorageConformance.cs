@@ -42,7 +42,14 @@ internal static class RecurringStorageConformance
 	{
 		const string CaseName = "Recurring.Identity.MatchesCaseInsensitiveNamesThroughout";
 		var now = timeProvider.GetUtcNow();
-		foreach (var (name, alias) in new[] { ("Invoice", "INVOICE"), ("Résumé", "RéSUMé") })
+		foreach (var (name, alias) in new[]
+		{
+			("Invoice", "INVOICE"),
+			("Résumé", "RéSUMé"),
+			("ſchedule", "ſCHEDULE"),
+			("ınvoice", "ıNVOICE"),
+			("𐐨chedule", "𐐨CHEDULE"),
+		})
 		{
 			var original = Schedule(name, now, isCodeDefined: false);
 			await storage.UpsertRecurringAsync(original, token);
