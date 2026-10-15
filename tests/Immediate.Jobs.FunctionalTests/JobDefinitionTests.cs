@@ -75,7 +75,7 @@ public sealed class JobDefinitionTests
 		await harness.DrainAsync(token);
 		Assert.Equal(JobState.Succeeded, (await harness.GetJobAsync(handle, token)).State);
 		Assert.Equal(["Invoice"], invoker.Names);
-		var monitor = harness.Services.GetRequiredService<Immediate.Jobs.Shared.Interfaces.IJobMonitor>();
+		var monitor = harness.Services.GetRequiredService<JobMonitor>();
 		Assert.Equal("Invoice", (await monitor.GetDefinitionsAsync(token)).Jobs.Single().Name);
 	}
 

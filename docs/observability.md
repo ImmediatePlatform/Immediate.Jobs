@@ -52,8 +52,8 @@ operation. Ranges and rules are in [conventions](conventions.md#logging).
 
 ## Monitoring API
 
-`JobMonitor` (`Apis/JobMonitor.cs`) is the programmatic surface the dashboard uses. Its read operations
-are also exposed through the `IJobMonitor` interface:
+`JobMonitor` (`Apis/JobMonitor.cs`) is the programmatic surface the dashboard uses. Resolve it from
+dependency injection for:
 
 - the overview snapshot (counts by state, servers, capabilities, recurring schedules, definition status);
 - `GetDefinitionsAsync` for all stored job and recurring configuration, without acquisition evaluation;

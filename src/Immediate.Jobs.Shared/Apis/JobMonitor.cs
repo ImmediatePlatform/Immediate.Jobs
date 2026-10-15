@@ -5,7 +5,7 @@ using Immediate.Validations.Shared;
 namespace Immediate.Jobs.Shared.Apis;
 
 /// <summary>
-/// 	Storage-backed implementation of the public job monitoring and management services.
+/// 	Storage-backed monitoring and management for jobs, executions, batches, schedules, and scheduler nodes.
 /// </summary>
 /// <param name="storage">
 /// 	The storage provider queried for job and batch status.
@@ -20,23 +20,53 @@ public sealed class JobMonitor(
 	IJobStorage storage,
 	TimeProvider timeProvider,
 	IIdGenerator idGenerator
-) : IJobMonitor
+)
 {
-	/// <inheritdoc />
+	/// <summary>
+	/// 	Gets the aggregate monitoring snapshot.
+	/// </summary>
+	/// <param name="cancellationToken">
+	/// 	A token that can cancel the monitoring operation.
+	/// </param>
+	/// <returns>
+	/// 	The current aggregate monitoring snapshot.
+	/// </returns>
 	public async ValueTask<JobMonitoringSnapshot> GetSnapshotAsync(CancellationToken cancellationToken = default)
 	{
 		await TaskScheduler.Yield();
 		return await storage.GetMonitoringSnapshotAsync(cancellationToken);
 	}
 
-	/// <inheritdoc />
+	/// <summary>
+	/// 	Gets stored job and recurring configuration without live acquisition state.
+	/// </summary>
+	/// <param name="cancellationToken">
+	/// 	A token that can cancel the read.
+	/// </param>
+	/// <returns>
+	/// 	All persisted monitoring definitions.
+	/// </returns>
 	public async ValueTask<JobMonitoringDefinitions> GetDefinitionsAsync(CancellationToken cancellationToken = default)
 	{
 		await TaskScheduler.Yield();
 		return await storage.GetMonitoringDefinitionsAsync(cancellationToken);
 	}
 
-	/// <inheritdoc />
+	/// <summary>
+	/// 	Pauses acquisition of a stored definition's pending and future jobs. Running work may finish.
+	/// </summary>
+	/// <param name="jobName">
+	/// 	The stable job definition name.
+	/// </param>
+	/// <param name="cancellationToken">
+	/// 	A token that can cancel the operation.
+	/// </param>
+	/// <returns>
+	/// 	The asynchronous pause operation.
+	/// </returns>
+	/// <exception cref="KeyNotFoundException">
+	/// 	The definition is not stored.
+	/// </exception>
 	public async ValueTask PauseDefinitionAsync(string jobName, CancellationToken cancellationToken = default)
 	{
 		await TaskScheduler.Yield();
@@ -45,7 +75,21 @@ public sealed class JobMonitor(
 		await storage.PauseJobAsync(jobName, cancellationToken);
 	}
 
-	/// <inheritdoc />
+	/// <summary>
+	/// 	Resumes acquisition of a stored definition, preserving its rate counters and configured limits.
+	/// </summary>
+	/// <param name="jobName">
+	/// 	The stable job definition name.
+	/// </param>
+	/// <param name="cancellationToken">
+	/// 	A token that can cancel the operation.
+	/// </param>
+	/// <returns>
+	/// 	The asynchronous resume operation.
+	/// </returns>
+	/// <exception cref="KeyNotFoundException">
+	/// 	The definition is not stored.
+	/// </exception>
 	public async ValueTask ResumeDefinitionAsync(string jobName, CancellationToken cancellationToken = default)
 	{
 		await TaskScheduler.Yield();
@@ -181,7 +225,18 @@ public sealed class JobMonitor(
 		);
 	}
 
-	/// <inheritdoc />
+	/// <summary>
+	/// 	Returns jobs matching a monitoring query.
+	/// </summary>
+	/// <param name="query">
+	/// 	The job filters and paging options.
+	/// </param>
+	/// <param name="cancellationToken">
+	/// 	A token that can cancel the monitoring operation.
+	/// </param>
+	/// <returns>
+	/// 	The jobs matching the query.
+	/// </returns>
 	public async ValueTask<IReadOnlyList<JobRecord>> QueryJobsAsync(
 		JobQuery query,
 		CancellationToken cancellationToken = default
@@ -193,7 +248,21 @@ public sealed class JobMonitor(
 		return await storage.QueryJobsAsync(query, cancellationToken);
 	}
 
-	/// <inheritdoc />
+	/// <summary>
+	/// 	Returns retained executions for one job.
+	/// </summary>
+	/// <param name="jobHandle">
+	/// 	The job identifier.
+	/// </param>
+	/// <param name="query">
+	/// 	The exact-ordinal filter and paging options.
+	/// </param>
+	/// <param name="cancellationToken">
+	/// 	A token that can cancel the monitoring operation.
+	/// </param>
+	/// <returns>
+	/// 	The retained executions matching the query.
+	/// </returns>
 	public async ValueTask<IReadOnlyList<JobExecutionRecord>> QueryExecutionsAsync(
 		JobHandle jobHandle,
 		JobExecutionQuery query,
@@ -207,7 +276,18 @@ public sealed class JobMonitor(
 		return await storage.QueryJobExecutionsAsync(jobHandle, query, cancellationToken);
 	}
 
-	/// <inheritdoc />
+	/// <summary>
+	/// 	Returns batches matching a monitoring query.
+	/// </summary>
+	/// <param name="query">
+	/// 	The batch filters and paging options.
+	/// </param>
+	/// <param name="cancellationToken">
+	/// 	A token that can cancel the monitoring operation.
+	/// </param>
+	/// <returns>
+	/// 	The batches matching the query, or <see langword="null"/> when the current job storage does not support batches.
+	/// </returns>
 	public async ValueTask<IReadOnlyList<BatchStatus>?> QueryBatchesAsync(
 		BatchQuery query,
 		CancellationToken cancellationToken = default
@@ -223,7 +303,18 @@ public sealed class JobMonitor(
 		};
 	}
 
-	/// <inheritdoc />
+	/// <summary>
+	/// 	Gets aggregate progress for one batch.
+	/// </summary>
+	/// <param name="batchHandle">
+	/// 	The batch identifier.
+	/// </param>
+	/// <param name="cancellationToken">
+	/// 	A token that can cancel the monitoring operation.
+	/// </param>
+	/// <returns>
+	/// 	The aggregate batch status, or <see langword="null"/> when the batch does not exist or the current job storage does not support batches.
+	/// </returns>
 	public async ValueTask<BatchStatus?> GetBatchAsync(BatchHandle batchHandle, CancellationToken cancellationToken = default)
 	{
 		await TaskScheduler.Yield();
@@ -236,7 +327,21 @@ public sealed class JobMonitor(
 		};
 	}
 
-	/// <inheritdoc />
+	/// <summary>
+	/// 	Queries members of one batch.
+	/// </summary>
+	/// <param name="batchHandle">
+	/// 	The batch identifier.
+	/// </param>
+	/// <param name="query">
+	/// 	The member filters and paging options.
+	/// </param>
+	/// <param name="cancellationToken">
+	/// 	A token that can cancel the monitoring operation.
+	/// </param>
+	/// <returns>
+	/// 	The batch members matching the query, or <see langword="null"/> when the current job storage does not support batches.
+	/// </returns>
 	public async ValueTask<IReadOnlyList<BatchMemberStatus>?> QueryBatchMembersAsync(
 		BatchHandle batchHandle,
 		BatchMemberQuery query,
@@ -254,7 +359,18 @@ public sealed class JobMonitor(
 		};
 	}
 
-	/// <inheritdoc />
+	/// <summary>
+	/// 	Gets the persisted dependency graph for one batch.
+	/// </summary>
+	/// <param name="batchHandle">
+	/// 	The batch identifier.
+	/// </param>
+	/// <param name="cancellationToken">
+	/// 	A token that can cancel the monitoring operation.
+	/// </param>
+	/// <returns>
+	/// 	The batch dependency graph, or <see langword="null"/> when the batch does not exist or the current job storage does not support batches.
+	/// </returns>
 	public async ValueTask<BatchGraph?> GetBatchGraphAsync(BatchHandle batchHandle, CancellationToken cancellationToken = default)
 	{
 		await TaskScheduler.Yield();
@@ -267,7 +383,18 @@ public sealed class JobMonitor(
 		};
 	}
 
-	/// <inheritdoc />
+	/// <summary>
+	/// 	Gets one job and its incoming dependencies.
+	/// </summary>
+	/// <param name="jobHandle">
+	/// 	The invocation identifier.
+	/// </param>
+	/// <param name="cancellationToken">
+	/// 	A token that can cancel the monitoring operation.
+	/// </param>
+	/// <returns>
+	/// 	The job status, or <see langword="null"/> when the invocation does not exist.
+	/// </returns>
 	public async ValueTask<JobStatus?> GetJobAsync(JobHandle jobHandle, CancellationToken cancellationToken = default)
 	{
 		await TaskScheduler.Yield();

@@ -65,7 +65,6 @@ public static class ImmediateJobsRuntimeServiceCollectionExtensions
 		services.TryAddSingleton<IBatchScheduler>(sp => sp.GetRequiredService<BatchScheduler>());
 
 		services.TryAddSingleton<JobMonitor>();
-		services.TryAddSingleton<IJobMonitor>(static sp => sp.GetRequiredService<JobMonitor>());
 
 		services.AddSingleton(JobQueueDefinition.Default);
 		services.TryAddSingleton<JobSchedulingService>();

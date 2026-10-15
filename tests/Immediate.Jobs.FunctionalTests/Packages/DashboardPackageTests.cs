@@ -32,7 +32,7 @@ public sealed class DashboardPackageTests
 		await app.StartAsync(token);
 		await app.Services.GetRequiredService<JobSchedulingService>().DrainAsync(token);
 		using var client = app.GetTestClient();
-		var monitor = app.Services.GetRequiredService<Immediate.Jobs.Shared.Interfaces.IJobMonitor>();
+		var monitor = app.Services.GetRequiredService<JobMonitor>();
 		var definition = Assert.Single((await monitor.GetDefinitionsAsync(token)).Jobs);
 		await storage.EnqueueAsync(new()
 		{
@@ -223,7 +223,7 @@ public sealed class DashboardPackageTests
 		Assert.Equal("email", remote.GetProperty("tags")[0].GetString());
 		Assert.Equal("priority", remote.GetProperty("queueName").GetString());
 		Assert.Equal(7, remote.GetProperty("maxAttempts").GetInt32());
-		var monitor = app.Services.GetRequiredService<Immediate.Jobs.Shared.Interfaces.IJobMonitor>();
+		var monitor = app.Services.GetRequiredService<JobMonitor>();
 		var remoteStatus = (await monitor.GetDefinitionsAsync(token)).Jobs.Single(definition => string.Equals(definition.Name, "remote-email", StringComparison.OrdinalIgnoreCase));
 		Assert.NotNull(remoteStatus);
 		Assert.Equal(1, remoteStatus.AcquisitionLimits.SlidingWindowMax);

@@ -140,7 +140,7 @@ public sealed class DefinitionAcquisitionTests
 		Assert.False(state.IsPaused);
 		Assert.True(state.IsConcurrencyLimited);
 		Assert.Equal(JobAcquisitionStatus.RateLimited, state.AcquisitionStatus);
-		var monitor = harness.Services.GetRequiredService<IJobMonitor>();
+		var monitor = harness.Services.GetRequiredService<JobMonitor>();
 		Assert.Equal(definition.MaxAttempts, (await monitor.GetJobAsync(first, token))!.MaxAttempts);
 		var metadata = Assert.Single((await monitor.GetDefinitionsAsync(token)).Jobs);
 		Assert.Equal(definition.AcquisitionLimits, metadata.AcquisitionLimits);
