@@ -24,7 +24,7 @@ internal static class RecurringStorageConformance
 	internal static IReadOnlyList<JobStorageConformanceTestCase> Cases { get; } =
 	[
 		new("Recurring.Identity.MatchesCaseInsensitiveNamesThroughout", StorageCapabilities.Queue, MatchesNamesAsync),
-		new("Recurring.Eligibility.MatchesUnicodeJobNamesBeforeBatching", StorageCapabilities.Queue, MatchesUnicodeJobsAsync),
+		new("Recurring.Eligibility.MatchesCaseInsensitiveJobNamesBeforeBatching", StorageCapabilities.Queue, MatchesJobNamesAsync),
 		new(LifecycleName, StorageCapabilities.Queue, DynamicLifecycleAsync),
 		new(MergeDefinitionsName, StorageCapabilities.Queue, MergesDefinitionsAsync, ExistingRecurringSchedules()),
 		new(DueScanName, StorageCapabilities.Queue, FiltersDueSchedulesAsync),
@@ -42,9 +42,8 @@ internal static class RecurringStorageConformance
 	{
 		const string CaseName = "Recurring.Identity.MatchesCaseInsensitiveNamesThroughout";
 		var now = timeProvider.GetUtcNow();
-		foreach (var name in new[] { "Invoice", "Résumé" })
+		foreach (var (name, alias) in new[] { ("Invoice", "INVOICE"), ("Résumé", "RéSUMé") })
 		{
-			var alias = name.ToUpperInvariant();
 			var original = Schedule(name, now, isCodeDefined: false);
 			await storage.UpsertRecurringAsync(original, token);
 			await storage.PauseRecurringAsync(alias, token);
@@ -90,15 +89,15 @@ internal static class RecurringStorageConformance
 		}
 	}
 
-	private static async ValueTask MatchesUnicodeJobsAsync(IJobStorage storage, FakeTimeProvider timeProvider, CancellationToken token)
+	private static async ValueTask MatchesJobNamesAsync(IJobStorage storage, FakeTimeProvider timeProvider, CancellationToken token)
 	{
-		const string CaseName = "Recurring.Eligibility.MatchesUnicodeJobNamesBeforeBatching";
+		const string CaseName = "Recurring.Eligibility.MatchesCaseInsensitiveJobNamesBeforeBatching";
 		var now = timeProvider.GetUtcNow();
 		await storage.UpsertRecurringAsync(Schedule("ignored", now.AddMinutes(-2), isCodeDefined: false), token);
 		await storage.UpsertRecurringAsync(Schedule("eligible", now.AddMinutes(-1), isCodeDefined: false) with { JobName = "Résumé" }, token);
-		var due = await storage.GetDueRecurringAsync(now, 1, ["RÉSUMÉ"], token);
+		var due = await storage.GetDueRecurringAsync(now, 1, ["RéSUMé"], token);
 		ConformanceAssert.SequenceEqual(["eligible"], due.Select(schedule => schedule.Name), CaseName,
-			"Unicode aliases must match before ineligible schedules consume the batch");
+			"ASCII case aliases must match before ineligible schedules consume the batch");
 	}
 
 	private static async ValueTask DynamicLifecycleAsync(

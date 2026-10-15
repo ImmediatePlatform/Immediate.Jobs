@@ -8,11 +8,11 @@ A `RecurringJobSchedule` has a unique `Name`, the `JobName` it materializes, a `
 Schedule names are case-insensitive identities. Upsert, pause, resume, removal, manual triggering,
 materialization, and startup reconciliation accept case aliases and retain the first stored spelling.
 In-memory and single-server storage use `OrdinalIgnoreCase`. PostgreSQL uses the same ICU collation
-as job names; SQL Server inherits the database collation. SQLite uses `NOCASE`, with runtime
-resolution of Unicode schedule names and eligible job names before database queries and batch limits.
+as job names; SQL Server inherits the database collation. SQLite uses `NOCASE`, so case-insensitive
+matching of schedule and job names is limited to ASCII letters. Keep non-ASCII characters in their
+registered case: `Résumé` and `RéSUMé` match, but `Résumé` and `RÉSUMÉ` do not.
 Redis uses invariant-uppercase schedule keys and index members while retaining readable names in
-schedule records. SQLite schedule inserts serialize name resolution to avoid concurrent Unicode
-aliases creating separate schedules.
+schedule records.
 
 - **Code-defined.** `[Job(Cron = "...", TimeZone = "...")]` on a payloadless job (`IJOB0006` rejects
   parameters). The schedule name is the job name. Its scheduler implements `IRecurringJobTrigger`

@@ -19,12 +19,6 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 		if (definitions.TryGetValue(schedule.JobName, out var name))
 			schedule = schedule with { JobName = name };
 
-		if (context.Database.ProviderName?.Contains("Sqlite", StringComparison.OrdinalIgnoreCase) == true)
-		{
-			await UpsertSqliteRecurringAsync(context, schedule, cancellationToken);
-			return;
-		}
-
 		if (await UpdateRecurringAsync(context, schedule, cancellationToken) != 0)
 			return;
 		await ThrowIfReplacingCodeDefinedScheduleAsync(context, schedule, cancellationToken);
@@ -53,7 +47,6 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 		await TaskScheduler.Yield();
 
 		await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
-		name = await ResolveRecurringNameAsync(context, name, cancellationToken);
 		var removed = await context.Set<ImmediateRecurringJobEntity>()
 			.Where(schedule => schedule.Name == name && !schedule.IsCodeDefined)
 			.ExecuteDeleteAsync(cancellationToken);
@@ -106,14 +99,6 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 		await TaskScheduler.Yield();
 
 		await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
-		if (context.Database.ProviderName?.Contains("Sqlite", StringComparison.OrdinalIgnoreCase) == true)
-		{
-			var storedNames = await context.Set<ImmediateRecurringJobEntity>().AsNoTracking()
-				.Where(schedule => !schedule.IsPaused && schedule.NextRunAt <= now)
-				.Select(schedule => schedule.JobName).Distinct().ToListAsync(cancellationToken);
-			jobNames = storedNames.Where(name => jobNames.Contains(name, StringComparer.OrdinalIgnoreCase)).ToList();
-		}
-
 		return await RecurringWithDefinitions(context)
 			.AsNoTracking()
 			.Where(schedule => !schedule.IsPaused && schedule.NextRunAt <= now && jobNames.Contains(schedule.JobName))
@@ -172,9 +157,8 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 	{
 		await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 		await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
-		var name = await ResolveRecurringNameAsync(context, schedule.Name, cancellationToken);
 		var entity = await context.Set<ImmediateRecurringJobEntity>()
-			.SingleOrDefaultAsync(item => item.Name == name, cancellationToken);
+			.SingleOrDefaultAsync(item => item.Name == schedule.Name, cancellationToken);
 
 		if (entity is null || entity.IsPaused || entity.NextRunAt != schedule.NextRunAt)
 			return false;
@@ -235,11 +219,10 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 			return;
 		}
 
-		var name = await ResolveRecurringNameAsync(context, schedule.Name, cancellationToken);
 		var concurrencyStamp = Guid.NewGuid();
 		await context.Set<ImmediateRecurringJobEntity>()
 			.Where(entity =>
-				entity.Name == name &&
+				entity.Name == schedule.Name &&
 				!entity.IsPaused &&
 				entity.NextRunAt == schedule.NextRunAt)
 			.ExecuteUpdateAsync(setters => setters
@@ -253,23 +236,21 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 	{
 		ArgumentException.ThrowIfNullOrWhiteSpace(name);
 		await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
-		name = await ResolveRecurringNameAsync(context, name, cancellationToken);
 		var schedule = await context.Set<ImmediateRecurringJobEntity>().FindAsync([name], cancellationToken) ?? throw new KeyNotFoundException($"Recurring schedule '{name}' was not found.");
 		mutate(schedule);
 		schedule.ConcurrencyStamp = Guid.NewGuid();
 		await context.SaveChangesAsync(cancellationToken);
 	}
 
-	private static async Task<int> UpdateRecurringAsync(
+	private static Task<int> UpdateRecurringAsync(
 		TContext context,
 		RecurringJobSchedule schedule,
 		CancellationToken cancellationToken
 	)
 	{
-		var name = await ResolveRecurringNameAsync(context, schedule.Name, cancellationToken);
 		var concurrencyStamp = Guid.NewGuid();
-		return await context.Set<ImmediateRecurringJobEntity>()
-			.Where(entity => entity.Name == name && (schedule.IsCodeDefined || !entity.IsCodeDefined))
+		return context.Set<ImmediateRecurringJobEntity>()
+			.Where(entity => entity.Name == schedule.Name && (schedule.IsCodeDefined || !entity.IsCodeDefined))
 			.ExecuteUpdateAsync(setters => setters
 				.SetProperty(entity => entity.JobName, schedule.JobName)
 
@@ -288,45 +269,11 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 		CancellationToken cancellationToken
 	)
 	{
-		var name = await ResolveRecurringNameAsync(context, schedule.Name, cancellationToken);
 		if (!schedule.IsCodeDefined && await context.Set<ImmediateRecurringJobEntity>()
-			.AnyAsync(entity => entity.Name == name && entity.IsCodeDefined, cancellationToken))
+			.AnyAsync(entity => entity.Name == schedule.Name && entity.IsCodeDefined, cancellationToken))
 		{
 			throw new ImmediateJobException("Code-defined recurring schedules cannot be replaced by dynamic schedules.");
 		}
-	}
-
-	private async Task UpsertSqliteRecurringAsync(TContext context, RecurringJobSchedule schedule, CancellationToken cancellationToken)
-	{
-		await EnsureDefinitionCatalogAsync(cancellationToken);
-		await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
-		// Serialize Unicode name resolution with catalogue writes and other schedule inserts.
-		var stamp = Guid.NewGuid();
-		await context.Set<ImmediateJobDefinitionCatalogEntity>().Where(item => item.Id == 1)
-			.ExecuteUpdateAsync(update => update.SetProperty(item => item.ConcurrencyStamp, stamp), cancellationToken);
-		if (await UpdateRecurringAsync(context, schedule, cancellationToken) == 0)
-		{
-			await ThrowIfReplacingCodeDefinedScheduleAsync(context, schedule, cancellationToken);
-			context.Add(ToEntity(schedule));
-			await context.SaveChangesAsync(cancellationToken);
-		}
-
-		await transaction.CommitAsync(cancellationToken);
-	}
-
-	private static async Task<string> ResolveRecurringNameAsync(
-		TContext context, string name, CancellationToken cancellationToken
-	)
-	{
-		if (context.Database.ProviderName?.Contains("Sqlite", StringComparison.OrdinalIgnoreCase) != true)
-			return name;
-
-		// SQLite NOCASE folds ASCII only; retain the stored spelling for Unicode aliases.
-		var names = await context.Set<ImmediateRecurringJobEntity>()
-			.AsNoTracking()
-			.Select(schedule => schedule.Name)
-			.ToListAsync(cancellationToken);
-		return names.FirstOrDefault(candidate => string.Equals(candidate, name, StringComparison.OrdinalIgnoreCase)) ?? name;
 	}
 
 	[LoggerMessage(
