@@ -5,6 +5,16 @@
 A `RecurringJobSchedule` has a unique `Name`, the `JobName` it materializes, a `Cron`, an IANA
 `TimeZone`, `NextRunAt`, a paused flag, and `IsCodeDefined`.
 
+Schedule names are case-insensitive identities. Upsert, pause, resume, removal, manual triggering,
+materialization, and startup reconciliation accept case aliases and retain the first stored spelling.
+In-memory and single-server storage use `OrdinalIgnoreCase`. PostgreSQL uses the same ICU collation
+as job names; SQL Server inherits the database collation. SQLite uses `NOCASE`, so case-insensitive
+matching of schedule and job names is limited to ASCII letters. Keep non-ASCII characters in their
+registered case: `Résumé` and `RéSUMé` match, but `Résumé` and `RÉSUMÉ` do not.
+Redis normalizes schedule keys and index members for ordinal case-insensitive matching while
+retaining the original spelling in schedule records. Names such as `ſchedule` and `schedule` remain
+distinct.
+
 - **Code-defined.** `[Job(Cron = "...", TimeZone = "...")]` on a payloadless job (`IJOB0006` rejects
   parameters). The schedule name is the job name. Its scheduler implements `IRecurringJobTrigger`
   (`TriggerNowAsync`). An omitted `TimeZone` inherits the assembly default, or uses UTC if none is

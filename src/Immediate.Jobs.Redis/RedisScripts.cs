@@ -737,6 +737,9 @@ internal static class RedisScripts
 		if exists then
 			local current = redis.call('HMGET', KEYS[1], 'code', 'paused', 'last', 'dueMember', 'jobName')
 			if current[1] == '1' and ARGV[2] == '0' then return -1 end
+			local incoming = cjson.decode(record)
+			incoming.Name = cjson.decode(redis.call('HGET', KEYS[1], 'record')).Name
+			record = cjson.encode(incoming)
 			paused = current[2] or paused
 			last = current[3] or last
 			removeRecurringDue(ARGV[12], KEYS[3], current[5], current[4])

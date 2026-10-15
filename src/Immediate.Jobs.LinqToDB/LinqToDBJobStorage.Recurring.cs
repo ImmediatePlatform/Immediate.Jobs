@@ -30,15 +30,21 @@ internal sealed partial class LinqToDBJobStorage<T>
 
 			var existing = await Recurring(connection).SingleOrDefaultAsync(item => item.Name == schedule.Name, cancellationToken);
 			var definitions = await GetDefinitionNamesAsync(connection, [schedule.JobName], cancellationToken);
-			if (definitions.TryGetValue(schedule.JobName, out var name))
-				schedule = schedule with { JobName = name };
+			if (definitions.TryGetValue(schedule.JobName, out var jobName))
+				schedule = schedule with { JobName = jobName };
 
 			if (existing is null)
 			{
 				try
 				{
-					_ = await InsertAsync(connection, ToEntity(schedule), cancellationToken);
+					await InsertAsync(connection, ToEntity(schedule), cancellationToken);
 					return;
+				}
+				catch (DbException exception) when (exception.SqlState is "23505")
+				{
+					// PostgreSQL aborts the transaction on a competing unique-key insert.
+					// Retry the upsert after rolling back, rather than reading that failed transaction.
+					throw new LostRaceException();
 				}
 				catch (DbException)
 				{
@@ -230,7 +236,7 @@ internal sealed partial class LinqToDBJobStorage<T>
 			return;
 		}
 
-		_ = await Recurring(connection)
+		await Recurring(connection)
 			.Where(entity =>
 				entity.Name == schedule.Name &&
 				!entity.IsPaused &&

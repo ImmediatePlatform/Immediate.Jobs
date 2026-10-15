@@ -533,7 +533,7 @@ public interface IJobStorage : IAsyncDisposable
 	/// 	Removes a dynamic recurring schedule.
 	/// </summary>
 	/// <param name="name">
-	/// 	The recurring schedule name.
+	/// 	The case-insensitive recurring schedule name.
 	/// </param>
 	/// <param name="cancellationToken">
 	/// 	A token that can cancel the storage operation.
@@ -547,7 +547,7 @@ public interface IJobStorage : IAsyncDisposable
 	/// 	Pauses a recurring schedule.
 	/// </summary>
 	/// <param name="name">
-	/// 	The recurring schedule name.
+	/// 	The case-insensitive recurring schedule name.
 	/// </param>
 	/// <param name="cancellationToken">
 	/// 	A token that can cancel the storage operation.
@@ -561,7 +561,7 @@ public interface IJobStorage : IAsyncDisposable
 	/// 	Resumes a recurring schedule.
 	/// </summary>
 	/// <param name="name">
-	/// 	The recurring schedule name.
+	/// 	The case-insensitive recurring schedule name.
 	/// </param>
 	/// <param name="cancellationToken">
 	/// 	A token that can cancel the storage operation.

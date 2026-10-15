@@ -32,7 +32,7 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 			var definitions = await context.Set<ImmediateJobDefinitionMetadataEntity>()
 				.ToDictionaryAsync(static item => item.Name, StringComparer.OrdinalIgnoreCase, token);
 			var schedules = await context.Set<ImmediateRecurringJobEntity>()
-				.ToDictionaryAsync(static item => item.Name, StringComparer.Ordinal, token);
+				.ToDictionaryAsync(static item => item.Name, StringComparer.OrdinalIgnoreCase, token);
 			var changes = JobDefinitionReconciliation.Create(registration,
 				definitions.Values.Select(ToRecord).ToList(),
 				schedules.Values.Select(ToDefinitionSchedule).ToList());

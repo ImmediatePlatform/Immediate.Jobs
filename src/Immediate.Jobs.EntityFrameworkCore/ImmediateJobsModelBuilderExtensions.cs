@@ -30,7 +30,7 @@ public static class ImmediateJobsModelBuilderExtensions
 	/// 	The database schema for the Immediate.Jobs tables, or <see langword="null"/> for the provider default.
 	/// </param>
 	/// <param name="definitionNameCollation">
-	/// 	An optional case-insensitive collation for definition names; defaults to the supported provider's case-insensitive collation.
+	/// 	An optional case-insensitive collation for job and recurring schedule names; defaults to the supported provider's case-insensitive collation.
 	/// </param>
 	/// <returns>
 	/// 	The configured model builder.
@@ -68,6 +68,11 @@ public static class ImmediateJobsModelBuilderExtensions
 
 		modelBuilder.Entity<ImmediateJobEntity>().Property(job => job.JobName).UseCollation(definitionNameCollation);
 		modelBuilder.Entity<ImmediateRecurringJobEntity>().Property(schedule => schedule.JobName).UseCollation(definitionNameCollation);
+		var recurringName = modelBuilder.Entity<ImmediateRecurringJobEntity>().Property(schedule => schedule.Name).UseCollation(definitionNameCollation);
+		recurringName.Metadata.SetValueComparer(new ValueComparer<string>(
+			(left, right) => string.Equals(left, right, StringComparison.OrdinalIgnoreCase),
+			value => StringComparer.OrdinalIgnoreCase.GetHashCode(value),
+			value => value));
 		var name = definitions.Property(definition => definition.Name).HasMaxLength(256).UseCollation(definitionNameCollation);
 		name.Metadata.SetValueComparer(new ValueComparer<string>(
 			(left, right) => string.Equals(left, right, StringComparison.OrdinalIgnoreCase),

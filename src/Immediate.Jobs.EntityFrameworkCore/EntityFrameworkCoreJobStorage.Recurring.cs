@@ -23,10 +23,10 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 			return;
 		await ThrowIfReplacingCodeDefinedScheduleAsync(context, schedule, cancellationToken);
 
-		_ = context.Add(ToEntity(schedule));
+		context.Add(ToEntity(schedule));
 		try
 		{
-			_ = await context.SaveChangesAsync(cancellationToken);
+			await context.SaveChangesAsync(cancellationToken);
 		}
 		catch (DbUpdateException)
 		{
@@ -220,7 +220,7 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 		}
 
 		var concurrencyStamp = Guid.NewGuid();
-		_ = await context.Set<ImmediateRecurringJobEntity>()
+		await context.Set<ImmediateRecurringJobEntity>()
 			.Where(entity =>
 				entity.Name == schedule.Name &&
 				!entity.IsPaused &&
@@ -239,7 +239,7 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 		var schedule = await context.Set<ImmediateRecurringJobEntity>().FindAsync([name], cancellationToken) ?? throw new KeyNotFoundException($"Recurring schedule '{name}' was not found.");
 		mutate(schedule);
 		schedule.ConcurrencyStamp = Guid.NewGuid();
-		_ = await context.SaveChangesAsync(cancellationToken);
+		await context.SaveChangesAsync(cancellationToken);
 	}
 
 	private static Task<int> UpdateRecurringAsync(

@@ -31,7 +31,7 @@ public sealed class MonitoringApiTests
 		await storage.MergeJobDefinitionsListAsync(new() { Definitions = [new() { Name = "Remote", QueueName = "current" }] }, token);
 		await storage.UpsertRecurringAsync(new()
 		{
-			Name = "schedule",
+			Name = "Résumé",
 			JobName = "remote",
 			QueueName = "old",
 			Cron = "* * * * *",
@@ -40,7 +40,7 @@ public sealed class MonitoringApiTests
 			NextRunAt = clock.GetUtcNow().AddHours(1),
 		}, token);
 		var monitor = new JobMonitor(storage, clock, new FixedIdGenerator());
-		await monitor.TriggerRecurringAsync("schedule", token);
+		await monitor.TriggerRecurringAsync("RÉSUMÉ", token);
 		var job = Assert.Single(await storage.QueryJobsAsync(new(), token));
 		Assert.Equal("Remote", job.JobName);
 		Assert.Equal("current", job.QueueName);
@@ -72,8 +72,8 @@ public sealed class MonitoringApiTests
 		Assert.True(status.IsPaused);
 		Assert.Equal(JobDefinitionReconciliation.RemovalCancellationReason, status.CancellationReason);
 		Assert.Single((await monitor.GetDefinitionsAsync(token)).Recurring);
-		await Assert.ThrowsAsync<ImmediateJobException>(() => monitor.TriggerRecurringAsync("schedule", token).AsTask());
-		await Assert.ThrowsAsync<ImmediateJobException>(() => monitor.ResumeRecurringAsync("schedule", token).AsTask());
+		await Assert.ThrowsAsync<ImmediateJobException>(() => monitor.TriggerRecurringAsync("SCHEDULE", token).AsTask());
+		await Assert.ThrowsAsync<ImmediateJobException>(() => monitor.ResumeRecurringAsync("SCHEDULE", token).AsTask());
 		Assert.Empty(await storage.QueryJobsAsync(new(), token));
 	}
 

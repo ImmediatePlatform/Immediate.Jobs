@@ -33,7 +33,17 @@ internal sealed partial class RedisJobStorage
 
 	private RedisKey CompletedKey(JobState state) => string.Create(CultureInfo.InvariantCulture, $"{_root}completed:{(int)state}");
 
-	private RedisKey RecurringKey(string name) => _root + "recurring:" + name;
+	private RedisKey RecurringKey(string name) => _root + "recurring:" + NormalizeRecurringName(name);
+
+	private static string NormalizeRecurringName(string name) => string.Create(name.Length, name, static (normalized, value) =>
+	{
+		value.AsSpan().ToUpperInvariant(normalized);
+
+		// OrdinalIgnoreCase keeps ASCII and non-ASCII distinct, even when invariant uppercase maps ſ to S.
+		for (var index = 0; index < value.Length; index++)
+			if (value[index] > '\x7F' && normalized[index] <= '\x7F')
+				normalized[index] = value[index];
+	});
 
 	private RedisKey ServerKey(string workerId) => _root + "server:" + workerId;
 

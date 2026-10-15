@@ -479,7 +479,8 @@ namespace Immediate.Jobs.DistributedAspire.Shared.Migrations
                 {
                     b.Property<string>("Name")
                         .HasMaxLength(256)
-                        .HasColumnType("character varying(256)");
+                        .HasColumnType("character varying(256)")
+                        .UseCollation("immediate_jobs_case_insensitive");
 
                     b.Property<string>("CancellationReason")
                         .HasColumnType("text");
