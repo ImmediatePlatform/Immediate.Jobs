@@ -12,6 +12,7 @@
 
   <ItemGroup Label="Security Dependency">
 	<PackageReference Include="MessagePack" />
+	<PackageReference Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" />
   </ItemGroup>
 
   <ItemGroup>

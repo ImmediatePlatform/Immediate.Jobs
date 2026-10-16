@@ -11,6 +11,7 @@
   </ItemGroup>
   <ItemGroup Label="Security Dependency">
 	<PackageReference Include="MessagePack" />
+	<PackageReference Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" />
   </ItemGroup>
   <ItemGroup>
 	<ProjectReference Include="../Api/Immediate.Jobs.DistributedAspire.Api.csproj" />
