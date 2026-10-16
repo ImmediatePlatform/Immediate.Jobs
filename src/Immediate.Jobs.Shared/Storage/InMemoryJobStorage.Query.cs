@@ -50,7 +50,9 @@ public sealed partial class InMemoryJobStorage
 
 		lock (_gate)
 		{
-			var counts = Enum.GetValues<JobState>().ToDictionary(state => state, state => _jobs.Values.LongCount(x => x.State == state));
+			var counts = Enum.GetValues<JobState>().ToDictionary(static state => state, static _ => 0L);
+			foreach (var job in _jobs.Values)
+				counts[job.State]++;
 			var now = timeProvider.GetUtcNow();
 			var servers = GetLiveServersSnapshot();
 			return new JobMonitoringSnapshot
@@ -74,13 +76,13 @@ public sealed partial class InMemoryJobStorage
 
 		lock (_gate)
 		{
-			var jobs = _jobs.Values.Select(ReadRecord);
+			IEnumerable<JobRecord> jobs = _jobs.Values;
 			if (query.JobHandle is { } id)
-				jobs = jobs.Where(x => x.JobHandle == query.JobHandle);
+				jobs = _jobs.TryGetValue(id, out var job) ? [job] : [];
 			if (query.State is { } state)
 				jobs = jobs.Where(x => x.State == state);
 			if (!string.IsNullOrWhiteSpace(query.QueueName))
-				jobs = jobs.Where(x => string.Equals(x.QueueName, query.QueueName, StringComparison.Ordinal));
+				jobs = jobs.Where(x => string.Equals(GetQueueName(x.JobName), query.QueueName, StringComparison.Ordinal));
 			if (!string.IsNullOrWhiteSpace(query.JobName))
 				jobs = jobs.Where(x => string.Equals(x.JobName, query.JobName, StringComparison.OrdinalIgnoreCase));
 			if (query.CreatedBefore is { } createdBefore)
@@ -94,7 +96,8 @@ public sealed partial class InMemoryJobStorage
 				.. jobs.OrderByDescending(x => x.CreatedAt)
 					.ThenBy(x => x.JobHandle.Value, StringComparer.Ordinal)
 					.Skip(Math.Max(0, query.Skip))
-					.Take(Math.Clamp(query.Take, 1, 1000)),
+					.Take(Math.Clamp(query.Take, 1, 1000))
+					.Select(ReadRecord),
 			];
 		}
 	}
@@ -109,7 +112,6 @@ public sealed partial class InMemoryJobStorage
 		lock (_gate)
 		{
 			return _jobs.Values
-				.Select(ReadRecord)
 				.Where(j => string.Equals(j.JobName, jobName, StringComparison.OrdinalIgnoreCase))
 				.Where(
 					j => j.State is
@@ -119,6 +121,7 @@ public sealed partial class InMemoryJobStorage
 						or JobState.Pending
 						or JobState.Active
 				)
+				.Select(ReadRecord)
 				.ToList();
 		}
 	}
