@@ -148,6 +148,11 @@ public sealed class DashboardPackageTests
 				var definition = Assert.Single(document.RootElement.GetProperty("jobs").EnumerateArray());
 				Assert.Equal("limited-acquisition", definition.GetProperty("name").GetString());
 				Assert.Equal(1, definition.GetProperty("maxConcurrency").GetInt32());
+				Assert.Equal("default", definition.GetProperty("queueName").GetString());
+				Assert.False(definition.TryGetProperty("queue", out _));
+				Assert.False(definition.TryGetProperty("invoker", out _));
+				Assert.False(definition.TryGetProperty("jobType", out _));
+				Assert.False(definition.TryGetProperty("acquisitionLimits", out _));
 				Assert.False(definition.TryGetProperty("acquisition", out _));
 			}
 			else

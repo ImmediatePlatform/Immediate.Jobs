@@ -1,11 +1,12 @@
 using System.Text.Json.Serialization;
 using Immediate.Jobs.Shared.Apis;
+using Immediate.Jobs.Shared.Internals;
 
 namespace Immediate.Jobs.Dashboard;
 
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase, UseStringEnumConverter = true)]
 [JsonSerializable(typeof(JobMonitoringSnapshot))]
-[JsonSerializable(typeof(IReadOnlyList<JobDefinitionRecord>))]
+[JsonSerializable(typeof(IReadOnlyList<JobDefinition>))]
 [JsonSerializable(typeof(JobMonitoringDefinitions))]
 [JsonSerializable(typeof(DashboardState))]
 [JsonSerializable(typeof(DashboardJobPage))]

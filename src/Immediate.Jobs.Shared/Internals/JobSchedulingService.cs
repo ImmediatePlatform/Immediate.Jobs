@@ -251,29 +251,7 @@ public sealed partial class JobSchedulingService : BackgroundService
 			return;
 		await _storage.InitializeAsync(cancellationToken);
 
-		var definitions = _definitions.Values
-			.Select(static definition => new JobDefinitionRecord
-			{
-				Name = definition.Name,
-				Tags = definition.Tags,
-				QueueName = definition.Queue.Name,
-				QueuePriority = definition.Queue.Priority,
-				QueueConcurrency = definition.Queue.Concurrency,
-				Cron = definition.Cron,
-				TimeZone = definition.TimeZone,
-				MaxAttempts = definition.MaxAttempts,
-				Timeout = definition.Timeout,
-				MaxConcurrency = definition.MaxConcurrency,
-				SlidingWindowMax = definition.SlidingWindowMax,
-				SlidingWindowPeriod = definition.SlidingWindowPeriod,
-				FixedWindowMax = definition.FixedWindowMax,
-				FixedWindowPeriod = definition.FixedWindowPeriod,
-				OverlapPolicy = definition.OverlapPolicy,
-				MisfireHandlingMode = definition.MisfireHandlingMode,
-				Backoff = definition.Backoff,
-				BackoffBase = definition.BackoffBase,
-			})
-			.ToList();
+		var definitions = _definitions.Values.ToList();
 
 		var now = _timeProvider.GetUtcNow();
 
@@ -599,7 +577,8 @@ public sealed partial class JobSchedulingService : BackgroundService
 
 			var executionBuffer = new JobExecutionBuffer();
 
-			await definition.Invoker.InvokeAsync(
+			var invoker = definition.Invoker ?? throw new InvalidOperationException($"Job definition '{definition.Name}' has no runtime invoker.");
+			await invoker.InvokeAsync(
 				scope.ServiceProvider,
 				new JobExecution { Record = record, Definition = definition, CancellationToken = linkedCts.Token, Buffer = executionBuffer }
 			);

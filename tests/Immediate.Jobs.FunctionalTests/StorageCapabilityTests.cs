@@ -1,6 +1,7 @@
 using System.Globalization;
 using Immediate.Jobs.Shared.Apis;
 using Immediate.Jobs.Shared.Interfaces;
+using Immediate.Jobs.Shared.Internals;
 using Immediate.Jobs.Shared.Storage;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Time.Testing;
@@ -227,7 +228,7 @@ public sealed class StorageCapabilityTests
 		public ValueTask MergeJobDefinitionsListAsync(JobDefinitionRegistration registration, CancellationToken cancellationToken = default) =>
 			_inner.MergeJobDefinitionsListAsync(registration, cancellationToken);
 
-		public ValueTask<IReadOnlyList<JobDefinitionRecord>> GetJobDefinitionsAsync(CancellationToken cancellationToken = default) =>
+		public ValueTask<IReadOnlyList<JobDefinition>> GetJobDefinitionsAsync(CancellationToken cancellationToken = default) =>
 			_inner.GetJobDefinitionsAsync(cancellationToken);
 
 		public ValueTask<IReadOnlyList<RecurringJobSchedule>> GetDueRecurringAsync(DateTimeOffset now, int batchSize, IReadOnlyList<string> jobNames, CancellationToken cancellationToken = default) =>

@@ -1,4 +1,5 @@
 using Immediate.Jobs.Shared.Apis;
+using Immediate.Jobs.Shared.Internals;
 
 namespace Immediate.Jobs.Shared.Storage;
 
@@ -16,7 +17,7 @@ public sealed record JobDefinitionRegistration
 	/// <summary>
 	/// 	All locally registered definitions, including those outside the server's scope.
 	/// </summary>
-	public required IReadOnlyList<JobDefinitionRecord> Definitions { get; init; }
+	public required IReadOnlyList<JobDefinition> Definitions { get; init; }
 
 	/// <summary>
 	/// 	The complete list of code-defined recurring schedules for these definitions.

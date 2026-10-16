@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Data;
 using System.Globalization;
 using Immediate.Jobs.Shared.Apis;
+using Immediate.Jobs.Shared.Internals;
 using Immediate.Jobs.Shared.Storage;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -95,7 +96,7 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 	}
 
 	/// <inheritdoc />
-	public async ValueTask<IReadOnlyList<JobDefinitionRecord>> GetJobDefinitionsAsync(CancellationToken cancellationToken = default)
+	public async ValueTask<IReadOnlyList<JobDefinition>> GetJobDefinitionsAsync(CancellationToken cancellationToken = default)
 	{
 		GetJobDefinitionsAsyncCalled();
 		cancellationToken.ThrowIfCancellationRequested();
@@ -103,7 +104,7 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 		return await ReadWithStrategyAsync(ReadJobDefinitionsAsync, cancellationToken);
 	}
 
-	private static async Task<IReadOnlyList<JobDefinitionRecord>> ReadJobDefinitionsAsync(TContext context, CancellationToken cancellationToken)
+	private static async Task<IReadOnlyList<JobDefinition>> ReadJobDefinitionsAsync(TContext context, CancellationToken cancellationToken)
 	{
 		var definitions = await context.Set<ImmediateJobDefinitionMetadataEntity>()
 			.AsNoTracking()
@@ -143,7 +144,7 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 		LastRunAt = entity.LastRunAt,
 	};
 
-	private static ImmediateJobDefinitionMetadataEntity ToEntity(JobDefinitionRecord definition) => new()
+	private static ImmediateJobDefinitionMetadataEntity ToEntity(JobDefinition definition) => new()
 	{
 		Name = definition.Name,
 		QueueName = definition.QueueName,
@@ -165,7 +166,7 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 		Tags = JsonSerializer.Serialize([.. definition.Tags], EntityFrameworkCoreJsonSerializerContext.Default.StringArray),
 	};
 
-	private static JobDefinitionRecord ToRecord(ImmediateJobDefinitionMetadataEntity entity) => new()
+	private static JobDefinition ToRecord(ImmediateJobDefinitionMetadataEntity entity) => new()
 	{
 		Name = entity.Name,
 		QueueName = entity.QueueName,

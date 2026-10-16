@@ -1,3 +1,5 @@
+using Immediate.Jobs.Shared.Internals;
+
 namespace Immediate.Jobs.Shared.Apis;
 
 /// <summary>
@@ -8,7 +10,7 @@ public sealed record JobMonitoringDefinitions
 	/// <summary>
 	/// 	All persisted job definitions, irrespective of server tags or local registrations.
 	/// </summary>
-	public required IReadOnlyList<JobDefinitionRecord> Jobs { get; init; }
+	public required IReadOnlyList<JobDefinition> Jobs { get; init; }
 
 	/// <summary>
 	/// 	All code-defined and dynamic recurring schedule definitions.

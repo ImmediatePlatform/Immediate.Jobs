@@ -48,7 +48,7 @@ internal sealed partial class RedisJobStorage
 			var metadata = await Database.HashGetAsync(DefinitionMetadataKey, name).WaitAsync(cancellationToken);
 			if (metadata.IsNull)
 				throw new KeyNotFoundException($"Job definition '{jobName}' was not found.");
-			var definition = JsonSerializer.Deserialize(metadata.ToString(), RedisJsonSerializerContext.Default.JobDefinitionRecord)
+			var definition = JsonSerializer.Deserialize(metadata.ToString(), RedisJsonSerializerContext.Default.JobDefinition)
 				?? throw new ImmediateJobException($"Job definition '{jobName}' contains invalid data.");
 			var limits = definition.AcquisitionLimits;
 			var now = _timeProvider.GetUtcNow();

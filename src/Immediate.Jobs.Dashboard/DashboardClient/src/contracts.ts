@@ -68,7 +68,7 @@ export interface RecurringJobSchedule {
 	lastRunAt: IsoDateTime | null;
 }
 
-export interface JobDefinitionRecord {
+export interface JobDefinition {
 	name: string;
 	tags: string[];
 	queueName: string;
@@ -149,7 +149,7 @@ export interface JobAcquisitionState {
 	isConcurrencyLimited: boolean;
 }
 
-export interface JobDefinitionStatus extends JobDefinitionRecord {
+export interface JobDefinitionStatus extends JobDefinition {
 	limits: JobAcquisitionLimits;
 	acquisition?: JobAcquisitionState | undefined;
 }
@@ -258,6 +258,6 @@ export type RecurringJobDefinition = Omit<RecurringJobSchedule, 'isPaused' | 'ca
 export type RecurringJobStatus = Pick<RecurringJobSchedule, 'name' | 'isPaused' | 'cancellationReason' | 'nextRunAt' | 'lastRunAt'>;
 
 export interface JobMonitoringDefinitions {
-	jobs: JobDefinitionRecord[];
+	jobs: JobDefinition[];
 	recurring: RecurringJobDefinition[];
 }

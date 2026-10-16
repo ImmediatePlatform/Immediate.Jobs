@@ -1,11 +1,12 @@
 using Immediate.Jobs.Shared.Apis;
+using Immediate.Jobs.Shared.Internals;
 using Microsoft.Extensions.Logging;
 
 namespace Immediate.Jobs.Shared.Storage;
 
 public sealed partial class InMemoryJobStorage
 {
-	private readonly Dictionary<string, JobDefinitionRecord> _jobDefinitions = [with(StringComparer.OrdinalIgnoreCase)];
+	private readonly Dictionary<string, JobDefinition> _jobDefinitions = [with(StringComparer.OrdinalIgnoreCase)];
 
 	/// <inheritdoc />
 	public async ValueTask MergeJobDefinitionsListAsync(JobDefinitionRegistration registration, CancellationToken cancellationToken = default)
@@ -66,7 +67,7 @@ public sealed partial class InMemoryJobStorage
 	}
 
 	/// <inheritdoc />
-	public async ValueTask<IReadOnlyList<JobDefinitionRecord>> GetJobDefinitionsAsync(CancellationToken cancellationToken = default)
+	public async ValueTask<IReadOnlyList<JobDefinition>> GetJobDefinitionsAsync(CancellationToken cancellationToken = default)
 	{
 		InMemoryGetJobDefinitionsAsyncCalled();
 		cancellationToken.ThrowIfCancellationRequested();

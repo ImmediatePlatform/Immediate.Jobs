@@ -1,4 +1,5 @@
 using Immediate.Jobs.Shared.Apis;
+using Immediate.Jobs.Shared.Internals;
 using Immediate.Jobs.Shared.Storage;
 using Microsoft.Extensions.Time.Testing;
 
@@ -91,9 +92,9 @@ internal static class DefinitionCatalogStorageConformance
 		ConformanceAssert.Equal(1, (await storage.GetMonitoringSnapshotAsync(token)).Recurring.Count, SubmissionCase, "definition removal retains the existing schedule");
 	}
 
-	private static JobDefinitionRecord Definition(string name) => new() { Name = name };
+	private static JobDefinition Definition(string name) => new() { Name = name };
 
-	private static JobDefinitionRegistration Registration(IReadOnlyList<JobDefinitionRecord> definitions) =>
+	private static JobDefinitionRegistration Registration(IReadOnlyList<JobDefinition> definitions) =>
 		new() { Definitions = definitions };
 
 	private static async ValueTask RoundTripsConfigurationAsync(IJobStorage storage, FakeTimeProvider timeProvider, CancellationToken token)
@@ -133,7 +134,7 @@ internal static class DefinitionCatalogStorageConformance
 		ConformanceAssert.Equal(Values(Definition("Configured")), Values(stored), ConfigurationCase,
 			"an alias update must replace every field, clear nullable values, and preserve the stored name");
 
-		static object Values(JobDefinitionRecord value) =>
+		static object Values(JobDefinition value) =>
 			(value.Name, value.QueueName, value.QueuePriority, value.QueueConcurrency, value.Cron, value.TimeZone,
 				value.MaxAttempts, value.Timeout, value.MaxConcurrency, value.OverlapPolicy, value.MisfireHandlingMode,
 				value.Backoff, value.BackoffBase, value.SlidingWindowMax, value.SlidingWindowPeriod,
@@ -162,7 +163,7 @@ internal static class DefinitionCatalogStorageConformance
 		ConformanceAssert.Equal(0, (await storage.GetJobDefinitionsAsync(token)).Count, CaseNameCase, "an empty catalogue must remove aliases as one identity");
 	}
 
-	private static RecurringJobSchedule Schedule(JobDefinitionRecord definition, DateTimeOffset next) => new()
+	private static RecurringJobSchedule Schedule(JobDefinition definition, DateTimeOffset next) => new()
 	{
 		Name = definition.Name,
 		JobName = definition.Name,

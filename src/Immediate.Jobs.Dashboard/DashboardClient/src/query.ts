@@ -23,7 +23,7 @@ import type {
 	DashboardJobPage,
 	DashboardState,
 	JobFilters,
-	JobDefinitionRecord,
+	JobDefinition,
 	JobDefinitionStatus,
 	JobMonitoringDefinitions,
 	JobMonitoringSnapshot,
@@ -105,7 +105,7 @@ export function useJobDefinitionQuery(jobName: MaybeRefOrGetter<string | undefin
 		status.jobName.toUpperCase() === name.value));
 
 	return {
-		data: computed<JobDefinitionRecord | undefined>(() => {
+		data: computed<JobDefinition | undefined>(() => {
 			if (snapshot.data.value && !acquisition.value) {
 				return undefined;
 			}

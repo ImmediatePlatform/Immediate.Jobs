@@ -1,4 +1,5 @@
 using Immediate.Jobs.Shared.Apis;
+using Immediate.Jobs.Shared.Internals;
 using Microsoft.Extensions.Logging;
 
 namespace Immediate.Jobs.Shared.Storage;
@@ -49,7 +50,7 @@ internal sealed partial class SingleServerJobStorage
 	}
 
 	/// <inheritdoc />
-	public async ValueTask<IReadOnlyList<JobDefinitionRecord>> GetJobDefinitionsAsync(CancellationToken cancellationToken = default)
+	public async ValueTask<IReadOnlyList<JobDefinition>> GetJobDefinitionsAsync(CancellationToken cancellationToken = default)
 	{
 		SingleServerGetJobDefinitionsAsyncCalled();
 		cancellationToken.ThrowIfCancellationRequested();

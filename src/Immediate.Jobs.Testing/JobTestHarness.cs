@@ -510,7 +510,8 @@ public sealed class JobTestHarness : IAsyncDisposable, IDisposable
 
 		await using var scope = Services.CreateAsyncScope();
 
-		await definition.Invoker.InvokeAsync(
+		var invoker = definition.Invoker ?? throw new InvalidOperationException($"Job definition '{definition.Name}' has no runtime invoker.");
+		await invoker.InvokeAsync(
 			scope.ServiceProvider,
 			new JobExecution { Record = record, Definition = definition, CancellationToken = cancellationToken }
 		);

@@ -1,4 +1,5 @@
 using Immediate.Jobs.Shared.Apis;
+using Immediate.Jobs.Shared.Internals;
 using Immediate.Jobs.Shared.Storage;
 using Immediate.Jobs.Testing.Storage;
 using Microsoft.Extensions.DependencyInjection;
@@ -136,7 +137,7 @@ internal static partial class ReplicaStorageConformance
 			storage.MergeJobDefinitionsListAsync(registration, cancellationToken);
 
 		/// <inheritdoc />
-		public ValueTask<IReadOnlyList<JobDefinitionRecord>> GetJobDefinitionsAsync(CancellationToken cancellationToken = default) =>
+		public ValueTask<IReadOnlyList<JobDefinition>> GetJobDefinitionsAsync(CancellationToken cancellationToken = default) =>
 			storage.GetJobDefinitionsAsync(cancellationToken);
 
 		/// <inheritdoc />

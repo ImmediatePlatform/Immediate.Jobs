@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Immediate.Jobs.Shared.Apis;
+using Immediate.Jobs.Shared.Internals;
 using Immediate.Jobs.Shared.Storage;
 using Microsoft.Extensions.Logging;
 using StackExchange.Redis;
@@ -36,13 +37,13 @@ internal sealed partial class RedisJobStorage
 		{
 			cancellationToken.ThrowIfCancellationRequested();
 			var metadata = await Database.HashGetAsync(DefinitionMetadataKey, definitionKeys).WaitAsync(cancellationToken);
-			var definitions = new Dictionary<string, (RedisValue Metadata, JobDefinitionRecord Definition)>(StringComparer.Ordinal);
+			var definitions = new Dictionary<string, (RedisValue Metadata, JobDefinition Definition)>(StringComparer.Ordinal);
 			for (var index = 0; index < names.Count; index++)
 			{
 				if (metadata[index].IsNull)
 					continue;
 
-				var definition = JsonSerializer.Deserialize(metadata[index].ToString(), RedisJsonSerializerContext.Default.JobDefinitionRecord)
+				var definition = JsonSerializer.Deserialize(metadata[index].ToString(), RedisJsonSerializerContext.Default.JobDefinition)
 					?? throw new ImmediateJobException($"Job definition '{names[index]}' contains invalid data.");
 				definitions.Add(names[index], (metadata[index], definition));
 			}

@@ -1,5 +1,6 @@
 using System.Globalization;
 using Immediate.Jobs.Shared.Apis;
+using Immediate.Jobs.Shared.Internals;
 using Microsoft.Extensions.Logging;
 
 namespace Immediate.Jobs.Shared.Storage;
@@ -183,7 +184,7 @@ public sealed partial class InMemoryJobStorage
 		return job.ToJobRecord(definition.Name);
 	}
 
-	internal JobDefinitionRecord GetJobDefinition(string name)
+	internal JobDefinition GetJobDefinition(string name)
 	{
 		lock (_gate)
 			return _jobDefinitions.TryGetValue(name, out var definition)

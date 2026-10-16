@@ -1,5 +1,6 @@
 using System.Globalization;
 using Immediate.Jobs.Shared.Apis;
+using Immediate.Jobs.Shared.Internals;
 using Immediate.Jobs.Shared.Storage;
 using Microsoft.Extensions.Time.Testing;
 
@@ -71,7 +72,7 @@ internal static class DefinitionAcquisitionStorageConformance
 	{
 		const string CanonicalName = "Émail.Σ";
 		const string Alias = "ÉMAIL.Σ";
-		var definition = new JobDefinitionRecord
+		var definition = new JobDefinition
 		{
 			Name = CanonicalName,
 			MaxConcurrency = 1,
@@ -96,7 +97,7 @@ internal static class DefinitionAcquisitionStorageConformance
 
 	private static async ValueTask MonitoringAsync(IJobStorage storage, FakeTimeProvider clock, CancellationToken token)
 	{
-		var definition = new JobDefinitionRecord { Name = Name };
+		var definition = new JobDefinition { Name = Name };
 		await storage.MergeJobDefinitionsListAsync(new()
 		{
 			Definitions = [definition, new() { Name = "other-job" }],
@@ -141,7 +142,7 @@ internal static class DefinitionAcquisitionStorageConformance
 		var now = clock.GetUtcNow();
 		var start = new DateTimeOffset(now.UtcTicks - now.UtcTicks % period.Ticks, TimeSpan.Zero) + period;
 		clock.Advance(start.AddSeconds(10) - now);
-		var definition = new JobDefinitionRecord
+		var definition = new JobDefinition
 		{
 			Name = Name,
 			MaxConcurrency = 2,
@@ -215,7 +216,7 @@ internal static class DefinitionAcquisitionStorageConformance
 	private static async ValueTask SlidingAsync(IJobStorage storage, FakeTimeProvider clock, CancellationToken token)
 	{
 		var period = TimeSpan.FromSeconds(1) + TimeSpan.FromMilliseconds(3);
-		var definition = new JobDefinitionRecord
+		var definition = new JobDefinition
 		{
 			Name = Name,
 			SlidingWindowMax = 1,
@@ -242,7 +243,7 @@ internal static class DefinitionAcquisitionStorageConformance
 
 	private static async ValueTask RollingAsync(IJobStorage storage, FakeTimeProvider clock, CancellationToken token)
 	{
-		var definition = new JobDefinitionRecord
+		var definition = new JobDefinition
 		{
 			Name = Name,
 			SlidingWindowMax = 2,
@@ -273,7 +274,7 @@ internal static class DefinitionAcquisitionStorageConformance
 		var now = clock.GetUtcNow();
 		var boundary = new DateTimeOffset(now.UtcTicks - now.UtcTicks % period.Ticks, TimeSpan.Zero) + period;
 		clock.Advance(boundary - now - TimeSpan.FromMilliseconds(1));
-		var definition = new JobDefinitionRecord
+		var definition = new JobDefinition
 		{
 			Name = Name,
 			FixedWindowMax = 1,
@@ -293,7 +294,7 @@ internal static class DefinitionAcquisitionStorageConformance
 
 	private static async ValueTask CombinedAsync(IJobStorage storage, FakeTimeProvider clock, CancellationToken token)
 	{
-		var definition = new JobDefinitionRecord
+		var definition = new JobDefinition
 		{
 			Name = Name,
 			SlidingWindowMax = 1,
@@ -319,7 +320,7 @@ internal static class DefinitionAcquisitionStorageConformance
 
 	private static async ValueTask ConcurrencyAsync(IJobStorage storage, FakeTimeProvider clock, CancellationToken token)
 	{
-		var definition = new JobDefinitionRecord
+		var definition = new JobDefinition
 		{
 			Name = Name,
 			MaxConcurrency = 1,
@@ -342,7 +343,7 @@ internal static class DefinitionAcquisitionStorageConformance
 
 	private static async ValueTask RenewAsync(IJobStorage storage, FakeTimeProvider clock, CancellationToken token)
 	{
-		var definition = new JobDefinitionRecord
+		var definition = new JobDefinition
 		{
 			Name = Name,
 			MaxConcurrency = 1,
@@ -363,7 +364,7 @@ internal static class DefinitionAcquisitionStorageConformance
 
 	private static async ValueTask ContentionAsync(IJobStorage storage, FakeTimeProvider clock, CancellationToken token)
 	{
-		var definition = new JobDefinitionRecord
+		var definition = new JobDefinition
 		{
 			Name = Name,
 			MaxConcurrency = 3,
@@ -382,7 +383,7 @@ internal static class DefinitionAcquisitionStorageConformance
 
 	private static async ValueTask FairAsync(IJobStorage storage, FakeTimeProvider clock, CancellationToken token)
 	{
-		var definition = new JobDefinitionRecord
+		var definition = new JobDefinition
 		{
 			Name = Name,
 			SlidingWindowMax = 1,
@@ -402,7 +403,7 @@ internal static class DefinitionAcquisitionStorageConformance
 
 	private static async ValueTask RetryAsync(IJobStorage storage, FakeTimeProvider clock, CancellationToken token)
 	{
-		var definition = new JobDefinitionRecord
+		var definition = new JobDefinition
 		{
 			Name = Name,
 			SlidingWindowMax = 1,

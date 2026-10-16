@@ -238,7 +238,7 @@ public sealed class DefinitionAcquisitionTests
 	{
 		public int CatalogReads { get; private set; }
 
-		public override ValueTask<IReadOnlyList<JobDefinitionRecord>> GetJobDefinitionsAsync(CancellationToken cancellationToken = default)
+		public override ValueTask<IReadOnlyList<JobDefinition>> GetJobDefinitionsAsync(CancellationToken cancellationToken = default)
 		{
 			CatalogReads++;
 			return base.GetJobDefinitionsAsync(cancellationToken);

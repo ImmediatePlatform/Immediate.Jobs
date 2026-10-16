@@ -1,4 +1,5 @@
 using Immediate.Jobs.Shared.Apis;
+using Immediate.Jobs.Shared.Internals;
 using Immediate.Jobs.Shared.Storage;
 using Microsoft.Extensions.Time.Testing;
 
@@ -18,7 +19,7 @@ internal static class MonitoringStorageConformance
 	private static async ValueTask BulkAsync(IJobStorage storage, FakeTimeProvider clock, CancellationToken token)
 	{
 		var now = clock.GetUtcNow();
-		JobDefinitionRecord[] definitions =
+		JobDefinition[] definitions =
 		[
 			new()
 			{

@@ -1,4 +1,5 @@
 using Immediate.Jobs.Shared.Apis;
+using Immediate.Jobs.Shared.Internals;
 
 namespace Immediate.Jobs.Shared.Storage;
 
@@ -100,7 +101,7 @@ public interface IJobStorage : IAsyncDisposable
 	/// <returns>
 	/// 	The complete stored definition catalogue.
 	/// </returns>
-	ValueTask<IReadOnlyList<JobDefinitionRecord>> GetJobDefinitionsAsync(CancellationToken cancellationToken = default);
+	ValueTask<IReadOnlyList<JobDefinition>> GetJobDefinitionsAsync(CancellationToken cancellationToken = default);
 
 	/// <summary>
 	/// 	Inserts a pending or scheduled invocation.

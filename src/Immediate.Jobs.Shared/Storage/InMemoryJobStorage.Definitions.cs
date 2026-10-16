@@ -1,4 +1,5 @@
 using Immediate.Jobs.Shared.Apis;
+using Immediate.Jobs.Shared.Internals;
 using Microsoft.Extensions.Logging;
 
 namespace Immediate.Jobs.Shared.Storage;
@@ -67,7 +68,7 @@ public sealed partial class InMemoryJobStorage
 		}
 	}
 
-	private JobDefinitionRecord GetStoredDefinition(string jobName) =>
+	private JobDefinition GetStoredDefinition(string jobName) =>
 		_jobDefinitions.TryGetValue(jobName, out var definition)
 			? definition
 			: throw new KeyNotFoundException($"Job definition '{jobName}' was not found.");

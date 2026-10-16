@@ -32,7 +32,7 @@ For each `[Job]` class (see `Templates/Job.sbntxt`), nested in the user's partia
   current persisted definition on each call, including its acquisition limits.
 - **`Invoker`**: a singleton `IJobInvoker` that deserializes the payload and runs the handler through
   the Immediate.Handlers pipeline.
-- **`JobDefinition`**: the runtime description (name, queue, attempts, timeout, backoff, cron,
+- **`JobDefinition`**: the shared execution, storage, and monitoring description (name, queue, attempts, timeout, backoff, cron,
   overlap and misfire policies, concurrency, acquisition windows, and normalized routing tags).
 - **`PayloadJsonContext`**: hand-emitted System.Text.Json metadata for the payload and context
   types, so serialization never uses reflection.
@@ -59,7 +59,10 @@ configuration surface (`ConfigureStorage`, `ConfigureWorkers`, `UseFairQueues`, 
 - **Startup.** Initializes storage and submits the complete definition catalogue and code-defined
   schedules through `MergeJobDefinitionsListAsync`, even when workers are disabled. `StartAsync`
   completes this registration before returning. The storage
-  reconciles only definitions intersecting the server's effective tags. Metadata has no invoker or CLR type.
+  reconciles only definitions intersecting the server's effective tags. `JobDefinition` serializes queue
+  settings as `QueueName`, `QueuePriority`, and `QueueConcurrency`. The local invoker, CLR type, queue
+  object, and computed acquisition limits are excluded from JSON; definitions read from durable storage
+  have no runtime bindings. Execution uses the locally registered definitions.
 - **Polling loop.** Each iteration materializes due recurring schedules, builds a
   `JobAcquisitionRequest` from tag-eligible local definitions, free worker capacity, and queue/job concurrency limits, calls
   `IJobStorage.AcquireDueJobsAsync`, and writes the claimed records to an unbounded channel. On

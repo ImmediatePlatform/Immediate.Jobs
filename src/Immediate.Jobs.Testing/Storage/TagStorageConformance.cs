@@ -1,4 +1,5 @@
 using Immediate.Jobs.Shared.Apis;
+using Immediate.Jobs.Shared.Internals;
 using Immediate.Jobs.Shared.Storage;
 using Microsoft.Extensions.Time.Testing;
 
@@ -23,9 +24,9 @@ internal static class TagStorageConformance
 		new(CaseNameCase, StorageCapabilities.Queue, ReconcilesCaseInsensitiveNamesAsync),
 	];
 
-	private static JobDefinitionRecord Definition(string name, params string[] tags) => new() { Name = name, Tags = tags };
+	private static JobDefinition Definition(string name, params string[] tags) => new() { Name = name, Tags = tags };
 
-	private static JobDefinitionRegistration Registration(IReadOnlyList<JobDefinitionRecord> definitions, params string[] tags) =>
+	private static JobDefinitionRegistration Registration(IReadOnlyList<JobDefinition> definitions, params string[] tags) =>
 		new() { Definitions = definitions, ServerTags = tags };
 
 	private static async ValueTask ReconcilesCaseInsensitiveNamesAsync(IJobStorage storage, FakeTimeProvider timeProvider, CancellationToken token)
@@ -111,7 +112,7 @@ internal static class TagStorageConformance
 		ConformanceAssert.Equal(0, (await storage.GetJobDefinitionsAsync(token)).Count, RetagCase, "Unicode tag case variants must manage the same scope");
 	}
 
-	private static RecurringJobSchedule Schedule(JobDefinitionRecord definition, DateTimeOffset next) => new()
+	private static RecurringJobSchedule Schedule(JobDefinition definition, DateTimeOffset next) => new()
 	{
 		Name = definition.Name,
 		JobName = definition.Name,

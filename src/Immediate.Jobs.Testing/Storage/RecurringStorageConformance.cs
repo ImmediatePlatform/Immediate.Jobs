@@ -1,5 +1,6 @@
 using System.Globalization;
 using Immediate.Jobs.Shared.Apis;
+using Immediate.Jobs.Shared.Internals;
 using Immediate.Jobs.Shared.Storage;
 using Microsoft.Extensions.Time.Testing;
 
@@ -203,7 +204,7 @@ internal static class RecurringStorageConformance
 		await storage.MergeJobDefinitionsListAsync(
 			new()
 			{
-				Definitions = supplied.Select(static schedule => new JobDefinitionRecord
+				Definitions = supplied.Select(static schedule => new JobDefinition
 				{
 					Name = schedule.JobName,
 					QueueName = schedule.QueueName ?? "default",

@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Data;
 using System.Globalization;
 using Immediate.Jobs.Shared.Apis;
+using Immediate.Jobs.Shared.Internals;
 using Immediate.Jobs.Shared.Storage;
 using LinqToDB;
 using LinqToDB.Async;
@@ -68,7 +69,7 @@ internal sealed partial class LinqToDBJobStorage<T>
 			.DeleteAsync(token);
 
 	/// <inheritdoc />
-	public async ValueTask<IReadOnlyList<JobDefinitionRecord>> GetJobDefinitionsAsync(CancellationToken cancellationToken = default)
+	public async ValueTask<IReadOnlyList<JobDefinition>> GetJobDefinitionsAsync(CancellationToken cancellationToken = default)
 	{
 		GetJobDefinitionsAsyncCalled();
 		cancellationToken.ThrowIfCancellationRequested();
@@ -77,7 +78,7 @@ internal sealed partial class LinqToDBJobStorage<T>
 		return await ReadJobDefinitionsAsync(connection, cancellationToken);
 	}
 
-	private async Task<IReadOnlyList<JobDefinitionRecord>> ReadJobDefinitionsAsync(DataConnection connection, CancellationToken cancellationToken)
+	private async Task<IReadOnlyList<JobDefinition>> ReadJobDefinitionsAsync(DataConnection connection, CancellationToken cancellationToken)
 	{
 		var definitions = await Definitions(connection).ToListAsync(cancellationToken);
 		return [.. definitions.Select(ToRecord).OrderBy(static definition => definition.Name, StringComparer.OrdinalIgnoreCase)];
@@ -165,7 +166,7 @@ internal sealed partial class LinqToDBJobStorage<T>
 
 	private async Task MergeDefinitionMetadataAsync(
 		DataConnection connection,
-		IReadOnlyList<JobDefinitionRecord> definitions,
+		IReadOnlyList<JobDefinition> definitions,
 		IQueryable<string> serverTags,
 		CancellationToken cancellationToken
 	)
@@ -255,7 +256,7 @@ internal sealed partial class LinqToDBJobStorage<T>
 	[Sql.Expression(ProviderName.SQLite, "{0} COLLATE BINARY = {1} COLLATE BINARY", ServerSideOnly = true, IsPredicate = true)]
 	private static bool EqualsOrdinal(string left, string right) => throw new InvalidOperationException("This function must be translated to SQL.");
 
-	private static ImmediateJobDefinitionMetadataEntity ToEntity(JobDefinitionRecord definition) => new()
+	private static ImmediateJobDefinitionMetadataEntity ToEntity(JobDefinition definition) => new()
 	{
 		Name = definition.Name,
 		QueueName = definition.QueueName,
@@ -277,7 +278,7 @@ internal sealed partial class LinqToDBJobStorage<T>
 		Tags = JsonSerializer.Serialize([.. definition.Tags], LinqToDBJsonSerializerContext.Default.StringArray),
 	};
 
-	private static JobDefinitionRecord ToRecord(ImmediateJobDefinitionMetadataEntity entity) => new()
+	private static JobDefinition ToRecord(ImmediateJobDefinitionMetadataEntity entity) => new()
 	{
 		Name = entity.Name,
 		QueueName = entity.QueueName,

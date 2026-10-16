@@ -10,7 +10,7 @@ import {
 	canCancelJob,
 	canRetryJob,
 	type JobAcquisitionState,
-	type JobDefinitionRecord,
+	type JobDefinition,
 	type JobExecutionRecord,
 	type JobRecord,
 	type JobTelemetryLink,
@@ -19,7 +19,7 @@ import { formatAcquisitionStatus, formatDate, formatJobState, formatJson } from 
 
 const props = withDefaults(defineProps<{
 	job: JobRecord;
-	definition?: JobDefinitionRecord | undefined;
+	definition?: JobDefinition | undefined;
 	acquisition?: JobAcquisitionState | undefined;
 	definitionLoading?: boolean;
 	definitionError?: string | undefined;

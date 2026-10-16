@@ -1,5 +1,6 @@
 using System.Globalization;
 using Immediate.Jobs.Shared.Apis;
+using Immediate.Jobs.Shared.Internals;
 using Immediate.Jobs.Shared.Storage;
 using Immediate.Jobs.Testing.Storage;
 using Microsoft.Extensions.Time.Testing;
@@ -39,7 +40,7 @@ internal static partial class ReplicaStorageConformance
 	private static async ValueTask RestoresCronDefinitionsAsync(IJobStorage storage, FakeTimeProvider clock, CancellationToken token)
 	{
 		var now = clock.GetUtcNow();
-		var definition = new JobDefinitionRecord { Name = JobName, QueueName = QueueName, Cron = "* * * * *" };
+		var definition = new JobDefinition { Name = JobName, QueueName = QueueName, Cron = "* * * * *" };
 		var schedule = new RecurringJobSchedule
 		{
 			Name = JobName,

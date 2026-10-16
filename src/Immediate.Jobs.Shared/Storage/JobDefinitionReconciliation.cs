@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using Immediate.Jobs.Shared.Apis;
+using Immediate.Jobs.Shared.Internals;
 
 namespace Immediate.Jobs.Shared.Storage;
 
@@ -17,7 +18,7 @@ public sealed record JobDefinitionReconciliation
 	/// <summary>
 	/// 	The definitions to insert or replace.
 	/// </summary>
-	public required IReadOnlyList<JobDefinitionRecord> Definitions { get; init; }
+	public required IReadOnlyList<JobDefinition> Definitions { get; init; }
 
 	/// <summary>
 	/// 	The names of obsolete definitions in this server's scope.
@@ -51,7 +52,7 @@ public sealed record JobDefinitionReconciliation
 	/// </returns>
 	public static JobDefinitionReconciliation Create(
 		JobDefinitionRegistration registration,
-		IReadOnlyList<JobDefinitionRecord> existingDefinitions,
+		IReadOnlyList<JobDefinition> existingDefinitions,
 		IReadOnlyList<RecurringJobSchedule> existingSchedules
 	)
 	{

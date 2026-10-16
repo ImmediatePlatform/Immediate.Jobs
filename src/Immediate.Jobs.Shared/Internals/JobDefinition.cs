@@ -1,12 +1,13 @@
 using System.ComponentModel;
 using System.Diagnostics.CodeAnalysis;
+using System.Text.Json.Serialization;
 using Immediate.Jobs.Shared.Interfaces;
 using Immediate.Jobs.Shared.Storage;
 
 namespace Immediate.Jobs.Shared.Internals;
 
 /// <summary>
-/// 	Immutable generated execution settings.
+/// 	Immutable job configuration shared by execution, storage, and monitoring.
 /// </summary>
 [SuppressMessage("Design", "MA0053", Justification = "Inherited by each job to ensure idempotency in registrations")]
 [EditorBrowsable(EditorBrowsableState.Never)]
@@ -21,7 +22,24 @@ public record JobDefinition
 	/// <summary>
 	/// 	The queue used by newly-created invocations.
 	/// </summary>
-	public JobQueueDefinition Queue { get; init; } = JobQueueDefinition.Default;
+	[AllowNull]
+	[JsonIgnore]
+	public JobQueueDefinition Queue { get; init => field = value ?? JobQueueDefinition.Default; } = JobQueueDefinition.Default;
+
+	/// <summary>
+	/// 	The queue used for new invocations.
+	/// </summary>
+	public string QueueName { get => Queue.Name; init => Queue = Queue with { Name = value }; }
+
+	/// <summary>
+	/// 	The dispatch priority of the queue.
+	/// </summary>
+	public int QueuePriority { get => Queue.Priority; init => Queue = Queue with { Priority = value }; }
+
+	/// <summary>
+	/// 	The per-server queue concurrency limit. Zero is unbounded.
+	/// </summary>
+	public int QueueConcurrency { get => Queue.Concurrency; init => Queue = Queue with { Concurrency = value }; }
 
 	/// <summary>
 	/// 	The stable job name.
@@ -29,14 +47,16 @@ public record JobDefinition
 	public required string Name { get; init; }
 
 	/// <summary>
-	/// 	The generated invoker.
+	/// 	The generated invoker, available only on locally registered definitions.
 	/// </summary>
-	public required IJobInvoker Invoker { get; init; }
+	[JsonIgnore]
+	public IJobInvoker? Invoker { get; init; }
 
 	/// <summary>
-	/// 	The job CLR type, used only for logging and diagnostics.
+	/// 	The local job CLR type, used only for logging and diagnostics.
 	/// </summary>
-	public required Type JobType { get; init; }
+	[JsonIgnore]
+	public Type? JobType { get; init; }
 
 	/// <summary>
 	/// 	The code-defined cron expression, or <see langword="null"/> for a non-recurring job.
@@ -86,6 +106,7 @@ public record JobDefinition
 	/// <summary>
 	/// 	The parsed limits passed to storage for direct acquisition queries.
 	/// </summary>
+	[JsonIgnore]
 	public JobAcquisitionLimits AcquisitionLimits => new()
 	{
 		MaxConcurrency = MaxConcurrency,

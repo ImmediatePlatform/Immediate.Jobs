@@ -77,7 +77,7 @@ internal sealed partial class RedisJobStorage
 
 			var definition = JsonSerializer.Deserialize(
 				(string)metadata[index]!,
-				RedisJsonSerializerContext.Default.JobDefinitionRecord
+				RedisJsonSerializerContext.Default.JobDefinition
 			) ?? throw new ImmediateJobException($"Job definition '{names[index]}' contains invalid data.");
 			queues[names[index]] = definition.QueueName;
 		}

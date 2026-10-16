@@ -1,5 +1,6 @@
 using System.Diagnostics.CodeAnalysis;
 using Immediate.Jobs.Shared.Apis;
+using Immediate.Jobs.Shared.Internals;
 using Immediate.Jobs.Shared.Storage;
 
 namespace Immediate.Jobs.Testing;
@@ -161,7 +162,7 @@ public class CapturingJobStorage(TimeProvider timeProvider) :
 	}
 
 	/// <inheritdoc />
-	public virtual ValueTask<IReadOnlyList<JobDefinitionRecord>> GetJobDefinitionsAsync(CancellationToken cancellationToken = default) =>
+	public virtual ValueTask<IReadOnlyList<JobDefinition>> GetJobDefinitionsAsync(CancellationToken cancellationToken = default) =>
 		_inner.GetJobDefinitionsAsync(cancellationToken);
 
 	/// <inheritdoc />

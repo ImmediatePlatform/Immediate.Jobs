@@ -1,5 +1,6 @@
 using Immediate.Jobs.Redis;
 using Immediate.Jobs.Shared.Apis;
+using Immediate.Jobs.Shared.Internals;
 using Immediate.Jobs.Shared.Storage;
 using Immediate.Jobs.Testing.Storage;
 using Microsoft.Extensions.DependencyInjection;
@@ -107,7 +108,7 @@ file sealed class RedisConformanceFixture : IAsyncDisposable
 		await storage.MergeJobDefinitionsListAsync(new()
 		{
 			Definitions = jobs.DistinctBy(static job => job.JobName, StringComparer.OrdinalIgnoreCase)
-				.Select(static job => new JobDefinitionRecord { Name = job.JobName, QueueName = job.QueueName ?? "default" }).ToList(),
+				.Select(static job => new JobDefinition { Name = job.JobName, QueueName = job.QueueName ?? "default" }).ToList(),
 		});
 		foreach (var job in jobs)
 			await storage.EnqueueAsync(new()

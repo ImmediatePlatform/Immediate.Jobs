@@ -1,4 +1,5 @@
 using Immediate.Jobs.Shared.Apis;
+using Immediate.Jobs.Shared.Internals;
 using Immediate.Jobs.Shared.Storage;
 using Microsoft.Extensions.Time.Testing;
 
@@ -40,8 +41,8 @@ internal static class DefinitionRemovalStorageConformance
 	private static async ValueTask CancelsRemovedAsync(IJobStorage storage, FakeTimeProvider clock, CancellationToken token)
 	{
 		var now = clock.GetUtcNow();
-		var definition = new JobDefinitionRecord { Name = "Résumé", Tags = ["alpha"] };
-		var other = new JobDefinitionRecord { Name = "Other", Tags = ["beta"] };
+		var definition = new JobDefinition { Name = "Résumé", Tags = ["alpha"] };
+		var other = new JobDefinition { Name = "Other", Tags = ["beta"] };
 		await storage.MergeJobDefinitionsListAsync(new() { Definitions = [definition, other], ServerTags = ["alpha", "beta"] }, token);
 		await storage.EnqueueAsync(Job("history", definition.Name, now), token);
 		var history = (await storage.AcquireDueJobsAsync(Request(definition.Name), token)).Single();

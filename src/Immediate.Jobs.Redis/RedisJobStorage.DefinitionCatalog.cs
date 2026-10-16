@@ -1,5 +1,5 @@
 using System.Text.Json;
-using Immediate.Jobs.Shared.Apis;
+using Immediate.Jobs.Shared.Internals;
 using Immediate.Jobs.Shared.Storage;
 using Microsoft.Extensions.Logging;
 using StackExchange.Redis;
@@ -27,7 +27,7 @@ internal sealed partial class RedisJobStorage
 				Definitions = changes.Definitions.Select(static definition => new RedisDefinitionMetadata
 				{
 					Name = definition.Name.ToUpperInvariant(),
-					Metadata = JsonSerializer.Serialize(definition, RedisJsonSerializerContext.Default.JobDefinitionRecord),
+					Metadata = JsonSerializer.Serialize(definition, RedisJsonSerializerContext.Default.JobDefinition),
 				}).ToList(),
 				RemovedDefinitions = changes.RemovedDefinitionNames.Select(static name => name.ToUpperInvariant()).ToList(),
 				RemovedSchedules = changes.RemovedScheduleNames.Select(NormalizeRecurringName).ToList(),
@@ -65,13 +65,13 @@ internal sealed partial class RedisJobStorage
 	}
 
 	/// <inheritdoc />
-	public async ValueTask<IReadOnlyList<JobDefinitionRecord>> GetJobDefinitionsAsync(CancellationToken cancellationToken = default)
+	public async ValueTask<IReadOnlyList<JobDefinition>> GetJobDefinitionsAsync(CancellationToken cancellationToken = default)
 	{
 		GetJobDefinitionsAsyncCalled();
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 		var metadata = await Database.HashGetAllAsync(DefinitionMetadataKey).WaitAsync(cancellationToken);
-		return [.. metadata.Select(static entry => JsonSerializer.Deserialize((string)entry.Value!, RedisJsonSerializerContext.Default.JobDefinitionRecord)!)
+		return [.. metadata.Select(static entry => JsonSerializer.Deserialize((string)entry.Value!, RedisJsonSerializerContext.Default.JobDefinition)!)
 			.OrderBy(static definition => definition.Name, StringComparer.OrdinalIgnoreCase)];
 	}
 
