@@ -30,6 +30,7 @@ internal static partial class ReplicaStorageConformance
 		await writer.InitializeAsync(token);
 		await writer.MergeJobDefinitionsListAsync(new()
 		{
+			RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase),
 			Definitions = [new() { Name = JobName, QueueName = QueueName }],
 		}, token);
 

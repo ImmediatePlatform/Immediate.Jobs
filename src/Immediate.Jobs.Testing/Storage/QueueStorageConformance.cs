@@ -75,6 +75,7 @@ internal static class QueueStorageConformance
 	{
 		await storage.MergeJobDefinitionsListAsync(new()
 		{
+			RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase),
 			Definitions =
 			[
 				new() { Name = "RoundTrip.Job", QueueName = "queue-roundtrip" },
@@ -127,6 +128,7 @@ internal static class QueueStorageConformance
 	{
 		await storage.MergeJobDefinitionsListAsync(new()
 		{
+			RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase),
 			Definitions =
 			[
 				new() { Name = "conformance-job" },
@@ -168,6 +170,7 @@ internal static class QueueStorageConformance
 	{
 		await storage.MergeJobDefinitionsListAsync(new()
 		{
+			RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase),
 			Definitions =
 			[
 				new() { Name = "low-job", QueueName = "low" },
@@ -216,6 +219,7 @@ internal static class QueueStorageConformance
 	{
 		await storage.MergeJobDefinitionsListAsync(new()
 		{
+			RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase),
 			Definitions =
 			[
 				new() { Name = "conformance-job" },
@@ -259,6 +263,7 @@ internal static class QueueStorageConformance
 	{
 		await storage.MergeJobDefinitionsListAsync(new()
 		{
+			RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase),
 			Definitions =
 			[
 				new() { Name = "conformance-job" },
@@ -349,6 +354,7 @@ internal static class QueueStorageConformance
 	{
 		await storage.MergeJobDefinitionsListAsync(new()
 		{
+			RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase),
 			Definitions =
 			[
 				new() { Name = "conformance-job" },
@@ -388,6 +394,7 @@ internal static class QueueStorageConformance
 	{
 		await storage.MergeJobDefinitionsListAsync(new()
 		{
+			RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase),
 			Definitions =
 			[
 				new() { Name = "conformance-job" },
@@ -473,6 +480,7 @@ internal static class QueueStorageConformance
 	{
 		await storage.MergeJobDefinitionsListAsync(new()
 		{
+			RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase),
 			Definitions =
 			[
 				new() { Name = "conformance-job" },
@@ -525,6 +533,7 @@ internal static class QueueStorageConformance
 	{
 		await storage.MergeJobDefinitionsListAsync(new()
 		{
+			RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase),
 			Definitions =
 			[
 				new() { Name = "Email.Receipt", QueueName = "priority" },
@@ -635,6 +644,7 @@ internal static class QueueStorageConformance
 	{
 		await storage.MergeJobDefinitionsListAsync(new()
 		{
+			RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase),
 			Definitions =
 			[
 				new() { Name = "conformance-job" },
@@ -702,6 +712,7 @@ internal static class QueueStorageConformance
 	{
 		await storage.MergeJobDefinitionsListAsync(new()
 		{
+			RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase),
 			Definitions =
 			[
 				new() { Name = "conformance-job" },

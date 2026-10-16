@@ -75,7 +75,7 @@ public interface IJobStorage : IAsyncDisposable
 	/// 	Atomically reconciles definitions and code-defined schedules within the server's tag scope.
 	/// </summary>
 	/// <param name="registration">
-	/// 	The complete local definition catalogue, code-defined schedules, and server tags.
+	/// 	The complete local definition catalogue, next occurrence timestamps for code-defined recurring jobs, and server tags.
 	/// </param>
 	/// <param name="cancellationToken">
 	/// 	A token that can cancel the operation.

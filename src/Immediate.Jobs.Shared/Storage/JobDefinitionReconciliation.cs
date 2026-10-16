@@ -92,19 +92,23 @@ public sealed record JobDefinitionReconciliation
 		var existing = existingSchedules.ToDictionary(static schedule => schedule.Name, StringComparer.OrdinalIgnoreCase);
 		var schedules = new List<RecurringJobSchedule>();
 		var scheduleNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-		foreach (var suppliedSchedule in registration.RecurringSchedules)
+		foreach (var (jobName, nextRunAt) in registration.RecurringSchedules)
 		{
-			var schedule = suppliedSchedule;
-			if (!supplied.TryGetValue(schedule.JobName, out var definition)
-				|| !schedule.IsCodeDefined
-				|| !string.Equals(schedule.Name, definition.Name, StringComparison.OrdinalIgnoreCase)
-				|| !string.Equals(schedule.Cron, definition.Cron, StringComparison.Ordinal)
-				|| !string.Equals(schedule.TimeZone, definition.TimeZone, StringComparison.Ordinal)
-				|| !scheduleNames.Add(schedule.Name))
-				throw new ArgumentException("Code-defined schedules must match their supplied job definitions.", nameof(registration));
-			if (!desired.TryGetValue(schedule.JobName, out var managedDefinition))
+			if (!supplied.TryGetValue(jobName, out var definition)
+				|| definition.Cron is null
+				|| !scheduleNames.Add(jobName))
+				throw new ArgumentException("Code-defined schedules must match their supplied cron job definitions.", nameof(registration));
+			if (!desired.TryGetValue(jobName, out var managedDefinition))
 				continue;
-			schedule = schedule with { Name = managedDefinition.Name, JobName = managedDefinition.Name };
+			var schedule = new RecurringJobSchedule
+			{
+				Name = managedDefinition.Name,
+				JobName = managedDefinition.Name,
+				Cron = managedDefinition.Cron!,
+				TimeZone = managedDefinition.TimeZone,
+				IsCodeDefined = true,
+				NextRunAt = nextRunAt,
+			};
 			if (existing.TryGetValue(schedule.Name, out var current))
 			{
 				schedules.Add(schedule with

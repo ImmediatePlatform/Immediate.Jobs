@@ -23,7 +23,7 @@ public sealed class DefinitionAcquisitionTests
 			harness.TimeProvider,
 			harness.Services.GetRequiredService<IIdGenerator>()
 		);
-		await storage.MergeJobDefinitionsListAsync(new() { Definitions = [new() { Name = scheduler.JobName }] }, token);
+		await storage.MergeJobDefinitionsListAsync(new() { RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase), Definitions = [new() { Name = scheduler.JobName }] }, token);
 
 		await scheduler.PauseJobAsync(token);
 		Assert.True((await scheduler.GetAcquisitionStateAsync(token)).IsPaused);
@@ -112,7 +112,7 @@ public sealed class DefinitionAcquisitionTests
 			FixedWindowMax = 3,
 			MaxConcurrency = 3,
 		};
-		await harness.Storage.MergeJobDefinitionsListAsync(new() { Definitions = [definition] }, token);
+		await harness.Storage.MergeJobDefinitionsListAsync(new() { RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase), Definitions = [definition] }, token);
 		var first = await scheduler.EnqueueAsync(new(), token);
 		Assert.Equal(definition.QueueName, (await harness.GetJobAsync(first, token)).QueueName);
 		await scheduler.EnqueueAsync(new(), token);
@@ -133,7 +133,7 @@ public sealed class DefinitionAcquisitionTests
 
 		// Controls use the new persisted limits without recreating the scheduler.
 		definition = definition with { MaxConcurrency = 1, SlidingWindowMax = 2 };
-		await harness.Storage.MergeJobDefinitionsListAsync(new() { Definitions = [definition] }, token);
+		await harness.Storage.MergeJobDefinitionsListAsync(new() { RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase), Definitions = [definition] }, token);
 		await scheduler.PauseJobAsync(token);
 		await scheduler.ResumeJobAsync(token);
 		state = await scheduler.GetAcquisitionStateAsync(token);
@@ -204,6 +204,7 @@ public sealed class DefinitionAcquisitionTests
 		await harness.DrainAsync(token);
 		await harness.Storage.MergeJobDefinitionsListAsync(new()
 		{
+			RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase),
 			Definitions = [new() { Name = "Remote-Job", QueueName = "current-queue", MaxAttempts = 7 }],
 		}, token);
 		await harness.Storage.UpsertRecurringAsync(new()

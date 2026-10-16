@@ -42,7 +42,7 @@ internal static class RecurringStorageConformance
 
 	private static async ValueTask PreservesMaterializedProgressOnUpsertAsync(IJobStorage storage, FakeTimeProvider clock, CancellationToken token)
 	{
-		await storage.MergeJobDefinitionsListAsync(new() { Definitions = [new() { Name = JobName, QueueName = QueueName }] }, token);
+		await storage.MergeJobDefinitionsListAsync(new() { RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase), Definitions = [new() { Name = JobName, QueueName = QueueName }] }, token);
 		var now = clock.GetUtcNow();
 		var original = Schedule("Upsert.Progress", now, isCodeDefined: false);
 		await storage.UpsertRecurringAsync(original, token);
@@ -128,12 +128,12 @@ internal static class RecurringStorageConformance
 			await storage.MergeJobDefinitionsListAsync(new()
 			{
 				Definitions = [new() { Name = alias, QueueName = QueueName, Cron = code.Cron, TimeZone = code.TimeZone }],
-				RecurringSchedules = [code with { Name = alias, JobName = alias }],
+				RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase) { [alias] = code.NextRunAt },
 			}, token);
 			var reconciled = await GetScheduleAsync(storage, name, CaseName, token);
 			ConformanceAssert.True(reconciled.IsPaused, CaseName, "catalogue reconciliation must preserve pause state through aliases");
 			ConformanceAssert.Equal(now, reconciled.NextRunAt, CaseName, "catalogue reconciliation must preserve recurring progress through aliases");
-			await storage.MergeJobDefinitionsListAsync(new() { Definitions = [], RecurringSchedules = [] }, token);
+			await storage.MergeJobDefinitionsListAsync(new() { Definitions = [], RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase) }, token);
 		}
 	}
 
@@ -156,6 +156,7 @@ internal static class RecurringStorageConformance
 	{
 		await storage.MergeJobDefinitionsListAsync(new()
 		{
+			RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase),
 			Definitions = [new() { Name = JobName, QueueName = QueueName }],
 		}, cancellationToken);
 
@@ -250,7 +251,7 @@ internal static class RecurringStorageConformance
 					Cron = schedule.Cron,
 					TimeZone = schedule.TimeZone,
 				}).ToList(),
-				RecurringSchedules = supplied,
+				RecurringSchedules = supplied.ToDictionary(static schedule => schedule.JobName, static schedule => schedule.NextRunAt, StringComparer.OrdinalIgnoreCase),
 			},
 			cancellationToken
 		);
@@ -308,6 +309,7 @@ internal static class RecurringStorageConformance
 	{
 		await storage.MergeJobDefinitionsListAsync(new()
 		{
+			RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase),
 			Definitions = [new() { Name = JobName, QueueName = QueueName }],
 		}, cancellationToken);
 
@@ -370,6 +372,7 @@ internal static class RecurringStorageConformance
 		var now = timeProvider.GetUtcNow();
 		await storage.MergeJobDefinitionsListAsync(new()
 		{
+			RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase),
 			Definitions = [new() { Name = JobName, QueueName = QueueName }],
 		}, cancellationToken);
 		var parent = new JobSubmission
@@ -560,6 +563,7 @@ internal static class RecurringStorageConformance
 	{
 		await storage.MergeJobDefinitionsListAsync(new()
 		{
+			RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase),
 			Definitions = [new() { Name = JobName, QueueName = QueueName }],
 		}, cancellationToken);
 

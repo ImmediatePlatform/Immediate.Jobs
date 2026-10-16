@@ -106,6 +106,7 @@ file sealed class RedisConformanceFixture : IAsyncDisposable
 
 		await storage.MergeJobDefinitionsListAsync(new()
 		{
+			RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase),
 			Definitions = jobs.DistinctBy(static job => job.JobName, StringComparer.OrdinalIgnoreCase)
 				.Select(static job => new JobDefinitionRecord { Name = job.JobName, QueueName = job.QueueName ?? "default" }).ToList(),
 		});

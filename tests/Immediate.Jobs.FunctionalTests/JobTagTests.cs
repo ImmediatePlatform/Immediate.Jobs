@@ -94,7 +94,7 @@ public sealed class JobTagTests
 		await harness.Storage.MergeJobDefinitionsListAsync(new()
 		{
 			Definitions = [new() { Name = ignored.Name, Cron = ignored.Cron }],
-			RecurringSchedules = [new() { Name = ignored.Name, JobName = ignored.Name, Cron = ignored.Cron!, TimeZone = "UTC", IsCodeDefined = true, NextRunAt = now }],
+			RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase) { [ignored.Name] = now },
 		}, token);
 		await harness.DrainAsync(token);
 		await harness.AdvanceTimeAndDrainAsync(TimeSpan.FromMinutes(1), token);

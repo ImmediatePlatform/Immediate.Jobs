@@ -151,9 +151,7 @@ public class CapturingJobStorage(TimeProvider timeProvider) :
 		await _inner.MergeJobDefinitionsListAsync(registration, cancellationToken);
 		lock (_gate)
 		{
-			foreach (var schedule in registration.RecurringSchedules.Where(schedule =>
-				registration.Definitions.Any(definition => string.Equals(definition.Name, schedule.JobName, StringComparison.OrdinalIgnoreCase)
-					&& JobTags.Intersect(definition.Tags, registration.ServerTags))))
+			foreach (var schedule in JobDefinitionReconciliation.Create(registration, [], []).Schedules)
 			{
 				_recurringSchedules[schedule.Name] = schedule;
 			}

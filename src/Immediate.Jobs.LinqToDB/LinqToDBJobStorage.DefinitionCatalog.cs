@@ -19,7 +19,7 @@ internal sealed partial class LinqToDBJobStorage<T>
 		MergeJobDefinitionsListAsyncCalled();
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
-		ValidateRegistration(registration);
+		var suppliedSchedules = JobDefinitionReconciliation.Create(registration, [], []).Schedules;
 		var reports = new List<(string Name, int Jobs, int Schedules)>();
 		var terminalGroups = new HashSet<string>(StringComparer.Ordinal);
 		await RetryConcurrencyAsync(async connection =>
@@ -37,7 +37,7 @@ internal sealed partial class LinqToDBJobStorage<T>
 			var definitions = registration.Definitions
 				.Where(definition => JobTags.Intersect(definition.Tags, registration.ServerTags)).ToList();
 			var names = definitions.Select(static definition => definition.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
-			var schedules = registration.RecurringSchedules.Where(schedule => names.Contains(schedule.JobName)).ToList();
+			var schedules = suppliedSchedules.Where(schedule => names.Contains(schedule.JobName)).ToList();
 			var serverTags = registration.ServerTags.ToList().AsQueryable(connection);
 			var scheduledNames = schedules.Select(static schedule => schedule.JobName).ToList();
 			var includesDefault = registration.ServerTags.Contains(JobTags.Default, StringComparer.OrdinalIgnoreCase);
@@ -81,35 +81,6 @@ internal sealed partial class LinqToDBJobStorage<T>
 	{
 		var definitions = await Definitions(connection).ToListAsync(cancellationToken);
 		return [.. definitions.Select(ToRecord).OrderBy(static definition => definition.Name, StringComparer.OrdinalIgnoreCase)];
-	}
-
-	private static void ValidateRegistration(JobDefinitionRegistration registration)
-	{
-		ArgumentNullException.ThrowIfNull(registration);
-		ArgumentNullException.ThrowIfNull(registration.Definitions, nameof(registration));
-		ArgumentNullException.ThrowIfNull(registration.RecurringSchedules, nameof(registration));
-		var definitions = registration.Definitions.ToDictionary(static definition => definition.Name, StringComparer.OrdinalIgnoreCase);
-		foreach (var definition in definitions.Values)
-		{
-			ArgumentException.ThrowIfNullOrWhiteSpace(definition.Name, nameof(registration));
-			if (char.IsWhiteSpace(definition.Name[0]) || char.IsWhiteSpace(definition.Name[^1]))
-				throw new ArgumentException("Job definition names must not have leading or trailing whitespace.", nameof(registration));
-		}
-
-		var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-		foreach (var schedule in registration.RecurringSchedules)
-		{
-			if (!definitions.TryGetValue(schedule.JobName, out var definition)
-				|| !schedule.IsCodeDefined
-				|| !string.Equals(schedule.Name, definition.Name, StringComparison.OrdinalIgnoreCase)
-				|| !string.Equals(schedule.Cron, definition.Cron, StringComparison.Ordinal)
-				|| !string.Equals(schedule.TimeZone, definition.TimeZone, StringComparison.Ordinal)
-				|| !names.Add(schedule.Name))
-				throw new ArgumentException("Code-defined schedules must match their supplied job definitions.", nameof(registration));
-		}
-
-		if (definitions.Values.Any(definition => definition.Cron is not null && !names.Contains(definition.Name)))
-			throw new ArgumentException("Every managed cron definition must supply its code-defined schedule.", nameof(registration));
 	}
 
 	private async Task MergeSQLiteDefinitionsAsync(

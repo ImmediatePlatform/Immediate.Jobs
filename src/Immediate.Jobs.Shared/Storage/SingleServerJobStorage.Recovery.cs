@@ -47,7 +47,8 @@ internal sealed partial class SingleServerJobStorage
 				Definitions = definitions,
 				ServerTags = definitions.SelectMany(static definition => definition.Tags).Append(JobTags.Default)
 					.Distinct(StringComparer.OrdinalIgnoreCase).ToList(),
-				RecurringSchedules = schedules.Where(schedule => schedule.IsCodeDefined && names.Contains(schedule.JobName)).ToList(),
+				RecurringSchedules = schedules.Where(schedule => schedule.IsCodeDefined && names.Contains(schedule.JobName))
+					.ToDictionary(static schedule => schedule.JobName, static schedule => schedule.NextRunAt, StringComparer.OrdinalIgnoreCase),
 			}, cancellationToken);
 
 			var recoveredJobs = new List<JobRecord>();
@@ -268,8 +269,7 @@ internal sealed partial class SingleServerJobStorage
 				}
 			}
 
-			foreach (var schedule in schedules.Where(schedule => !schedule.IsCodeDefined || !names.Contains(schedule.JobName)))
-				await PrimaryStorage.UpsertRecurringAsync(schedule, cancellationToken);
+			PrimaryStorage.RestoreRecurringSchedules(schedules);
 
 			_initializationTask.SetResult();
 			_initialized = true;

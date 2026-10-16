@@ -107,6 +107,7 @@ public sealed class DashboardPackageTests
 		await using var storage = new InMemoryJobStorage(clock);
 		await storage.MergeJobDefinitionsListAsync(new()
 		{
+			RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase),
 			Definitions = [new() { Name = "limited-acquisition", MaxConcurrency = 1 }],
 		}, token);
 		await storage.EnqueueAsync(new()
@@ -182,10 +183,11 @@ public sealed class DashboardPackageTests
 		var token = TestContext.Current.CancellationToken;
 		var clock = new FakeTimeProvider(DateTimeOffset.UnixEpoch);
 		await using var storage = new InMemoryJobStorage(clock);
-		await storage.MergeJobDefinitionsListAsync(new() { Definitions = [new() { Name = "ordinary" }] }, token);
+		await storage.MergeJobDefinitionsListAsync(new() { RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase), Definitions = [new() { Name = "ordinary" }] }, token);
 		await storage.MergeJobDefinitionsListAsync(new()
 		{
 			ServerTags = ["email"],
+			RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase),
 			Definitions = [new()
 			{
 				Name = "remote-email",
@@ -452,6 +454,7 @@ public sealed class DashboardPackageTests
 
 		await storage.MergeJobDefinitionsListAsync(new()
 		{
+			RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase),
 			Definitions = [new() { Name = "SendGreeting" }],
 		}, TestContext.Current.CancellationToken);
 

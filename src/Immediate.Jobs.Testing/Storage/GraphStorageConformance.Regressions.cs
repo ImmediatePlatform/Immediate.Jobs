@@ -17,6 +17,7 @@ internal static partial class GraphStorageConformance
 		var graph = GetGraph(storage, ConcurrentSpliceName);
 		await storage.MergeJobDefinitionsListAsync(new()
 		{
+			RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase),
 			Definitions = [new() { Name = "splice-parent" }, new() { Name = "splice-waiter" }, new() { Name = "splice-inserted" }],
 		}, token);
 
@@ -92,6 +93,7 @@ internal static partial class GraphStorageConformance
 		var graph = GetGraph(storage, BufferedSpliceName);
 		await storage.MergeJobDefinitionsListAsync(new()
 		{
+			RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase),
 			Definitions = [new() { Name = "buffered-parent" }, new() { Name = "buffered-waiter" },
 				new() { Name = "buffered-first" }, new() { Name = "buffered-second" }],
 		}, token);
@@ -126,7 +128,7 @@ internal static partial class GraphStorageConformance
 	private static async ValueTask RejectsCyclicGraphsAsync(IJobStorage storage, FakeTimeProvider clock, CancellationToken token)
 	{
 		var graph = GetGraph(storage, CyclicGraphName);
-		await storage.MergeJobDefinitionsListAsync(new() { Definitions = [new() { Name = "cycle-a" }, new() { Name = "cycle-b" }] }, token);
+		await storage.MergeJobDefinitionsListAsync(new() { RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase), Definitions = [new() { Name = "cycle-a" }, new() { Name = "cycle-b" }] }, token);
 		foreach (var selfCycle in new[] { false, true })
 		{
 			var batch = BatchHandle.FromString(selfCycle ? "self-cycle" : "two-node-cycle");
@@ -147,7 +149,7 @@ internal static partial class GraphStorageConformance
 	private static async ValueTask RejectsDuplicateEdgesAsync(IJobStorage storage, FakeTimeProvider clock, CancellationToken token)
 	{
 		var graph = GetGraph(storage, DuplicateEdgeName);
-		await storage.MergeJobDefinitionsListAsync(new() { Definitions = [new() { Name = "duplicate-parent" }, new() { Name = "duplicate-child" }] }, token);
+		await storage.MergeJobDefinitionsListAsync(new() { RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase), Definitions = [new() { Name = "duplicate-parent" }, new() { Name = "duplicate-child" }] }, token);
 		var parent = CreateJob("duplicate-parent");
 		var child = CreateWaitingJob("duplicate-child", 2);
 		await storage.EnqueueAsync(parent, token);
@@ -170,7 +172,7 @@ internal static partial class GraphStorageConformance
 	private static async ValueTask RejectsIndividualBatchMemberDeletionAsync(IJobStorage storage, FakeTimeProvider clock, CancellationToken token)
 	{
 		var graph = GetGraph(storage, MemberDeletionName);
-		await storage.MergeJobDefinitionsListAsync(new() { Definitions = [new() { Name = "delete-parent" }, new() { Name = "delete-child" }] }, token);
+		await storage.MergeJobDefinitionsListAsync(new() { RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase), Definitions = [new() { Name = "delete-parent" }, new() { Name = "delete-child" }] }, token);
 		var batch = BatchHandle.FromString("delete-member-batch");
 		var parent = CreateJob("delete-parent", batch);
 		var child = CreateJob("delete-child", batch) with { State = JobState.AwaitingContinuation, RemainingDependencies = 1 };

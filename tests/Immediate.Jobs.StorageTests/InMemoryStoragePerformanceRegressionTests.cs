@@ -21,6 +21,7 @@ public sealed class InMemoryStoragePerformanceRegressionTests
 		await using var storage = new InMemoryJobStorage(clock);
 		await storage.MergeJobDefinitionsListAsync(new()
 		{
+			RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase),
 			Definitions =
 			[
 				new()
@@ -62,7 +63,7 @@ public sealed class InMemoryStoragePerformanceRegressionTests
 		var token = TestContext.Current.CancellationToken;
 		var clock = new FakeTimeProvider(DateTimeOffset.UnixEpoch);
 		await using var storage = new InMemoryJobStorage(clock);
-		await storage.MergeJobDefinitionsListAsync(new() { Definitions = [new() { Name = "free" }] }, token);
+		await storage.MergeJobDefinitionsListAsync(new() { RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase), Definitions = [new() { Name = "free" }] }, token);
 		for (var index = 0; index < 6; index++)
 		{
 			var group = index < 3 ? "a" : "b";
@@ -81,9 +82,9 @@ public sealed class InMemoryStoragePerformanceRegressionTests
 		var token = TestContext.Current.CancellationToken;
 		var clock = new FakeTimeProvider(DateTimeOffset.UnixEpoch);
 		await using var storage = new InMemoryJobStorage(clock);
-		await storage.MergeJobDefinitionsListAsync(new() { Definitions = [new() { Name = "free", QueueName = "old" }] }, token);
+		await storage.MergeJobDefinitionsListAsync(new() { RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase), Definitions = [new() { Name = "free", QueueName = "old" }] }, token);
 		await storage.EnqueueAsync(Job("target", "free", group: null, clock.GetUtcNow()), token);
-		await storage.MergeJobDefinitionsListAsync(new() { Definitions = [new() { Name = "free", QueueName = "current" }] }, token);
+		await storage.MergeJobDefinitionsListAsync(new() { RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase), Definitions = [new() { Name = "free", QueueName = "current" }] }, token);
 		var query = new JobQuery
 		{
 			JobHandle = JobHandle.FromString("target"),

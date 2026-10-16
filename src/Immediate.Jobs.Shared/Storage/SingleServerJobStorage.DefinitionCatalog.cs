@@ -32,15 +32,12 @@ internal sealed partial class SingleServerJobStorage
 				{
 					Definitions = definitions,
 					ServerTags = tags,
-					RecurringSchedules = schedules.Where(schedule => schedule.IsCodeDefined && names.Contains(schedule.JobName)).ToList(),
+					RecurringSchedules = schedules.Where(schedule => schedule.IsCodeDefined && names.Contains(schedule.JobName))
+						.ToDictionary(static schedule => schedule.JobName, static schedule => schedule.NextRunAt, StringComparer.OrdinalIgnoreCase),
 				},
 				cancellationToken
 			);
-			foreach (var schedule in schedules.Where(static schedule => !schedule.IsCodeDefined))
-				await PrimaryStorage.UpsertRecurringAsync(schedule, cancellationToken);
-			// Code-defined schedules without metadata still belong in the primary's monitoring snapshot.
-			foreach (var schedule in schedules.Where(schedule => schedule.IsCodeDefined && !names.Contains(schedule.JobName)))
-				await PrimaryStorage.UpsertRecurringAsync(schedule, cancellationToken);
+			PrimaryStorage.RestoreRecurringSchedules(schedules);
 		}
 		finally
 		{

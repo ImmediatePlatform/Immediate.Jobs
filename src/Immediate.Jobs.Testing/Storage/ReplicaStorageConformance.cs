@@ -51,7 +51,8 @@ internal static partial class ReplicaStorageConformance
 			LastRunAt = now.AddMinutes(-2),
 			NextRunAt = now.AddMinutes(-1),
 		};
-		var registration = new JobDefinitionRegistration { Definitions = [definition], RecurringSchedules = [schedule] };
+		var registration = new JobDefinitionRegistration { Definitions = [definition], RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase) { [schedule.JobName] = schedule.NextRunAt } };
+		await storage.UpsertRecurringAsync(schedule, token);
 		await storage.MergeJobDefinitionsListAsync(registration, token);
 		await storage.UpsertRecurringAsync(schedule with { Name = "recovery-dynamic", IsCodeDefined = false, IsPaused = false }, token);
 		var job = Job("recovery-pending", now);
@@ -120,6 +121,7 @@ internal static partial class ReplicaStorageConformance
 	{
 		await storage.MergeJobDefinitionsListAsync(new()
 		{
+			RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase),
 			Definitions =
 			[
 				new() { Name = JobName, QueueName = QueueName },
@@ -189,6 +191,7 @@ internal static partial class ReplicaStorageConformance
 	{
 		await storage.MergeJobDefinitionsListAsync(new()
 		{
+			RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase),
 			Definitions =
 			[
 				new() { Name = JobName, QueueName = QueueName },
@@ -228,6 +231,7 @@ internal static partial class ReplicaStorageConformance
 	{
 		await storage.MergeJobDefinitionsListAsync(new()
 		{
+			RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase),
 			Definitions =
 			[
 				new() { Name = JobName, QueueName = QueueName },
@@ -303,6 +307,7 @@ internal static partial class ReplicaStorageConformance
 	{
 		await storage.MergeJobDefinitionsListAsync(new()
 		{
+			RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase),
 			Definitions =
 			[
 				new() { Name = JobName, QueueName = QueueName },
@@ -344,6 +349,7 @@ internal static partial class ReplicaStorageConformance
 	{
 		await storage.MergeJobDefinitionsListAsync(new()
 		{
+			RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase),
 			Definitions =
 			[
 				new() { Name = JobName, QueueName = QueueName },
@@ -417,6 +423,7 @@ internal static partial class ReplicaStorageConformance
 	{
 		await storage.MergeJobDefinitionsListAsync(new()
 		{
+			RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase),
 			Definitions =
 			[
 				new() { Name = JobName, QueueName = QueueName },

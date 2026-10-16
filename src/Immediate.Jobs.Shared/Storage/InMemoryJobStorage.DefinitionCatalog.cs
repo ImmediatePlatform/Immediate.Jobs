@@ -75,6 +75,15 @@ public sealed partial class InMemoryJobStorage
 			return [.. _jobDefinitions.Values.OrderBy(static definition => definition.Name, StringComparer.OrdinalIgnoreCase)];
 	}
 
+	internal void RestoreRecurringSchedules(IReadOnlyList<RecurringJobSchedule> schedules)
+	{
+		lock (_gate)
+		{
+			foreach (var schedule in schedules)
+				_recurring[schedule.Name] = schedule;
+		}
+	}
+
 	private string? GetQueueName(string jobName) =>
 		_jobDefinitions.TryGetValue(jobName, out var definition) ? definition.QueueName : null;
 

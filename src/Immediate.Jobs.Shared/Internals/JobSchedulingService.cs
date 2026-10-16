@@ -278,21 +278,10 @@ public sealed partial class JobSchedulingService : BackgroundService
 		var now = _timeProvider.GetUtcNow();
 
 		var schedules = _definitions.Values
-			.Where(d => d.Cron is not null)
-			.Select(d => new RecurringJobSchedule
-			{
-				Name = d.Name,
-				JobName = d.Name,
-				Cron = d.Cron!,
-				TimeZone = d.TimeZone,
-				IsCodeDefined = true,
-				NextRunAt = now.GetNextOccurrence(
-					d.Cron!,
-					d.TimeZone,
-					d.Name
-				),
-			})
-			.ToList();
+			.Where(static definition => definition.Cron is not null)
+			.ToDictionary(static definition => definition.Name,
+				definition => now.GetNextOccurrence(definition.Cron!, definition.TimeZone, definition.Name),
+				StringComparer.OrdinalIgnoreCase);
 
 		await _storage.MergeJobDefinitionsListAsync(
 			new()

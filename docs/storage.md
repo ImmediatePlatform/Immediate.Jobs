@@ -34,7 +34,8 @@ monitoring snapshots and health-check data.
 ## Definition reconciliation
 
 `MergeJobDefinitionsListAsync(JobDefinitionRegistration)` receives the complete local definition list,
-all code-defined schedules, and normalized server tags. It upserts supplied matching definitions and
+a dictionary mapping code-defined recurring job names to their next occurrence timestamps, and normalized server tags.
+Schedule metadata comes from the supplied job definitions. It upserts supplied matching definitions and
 removes stored matching definitions absent from that managed list. Scope is evaluated from the old
 stored tags before updates, so retagging a definition outside the old server's scope removes its stale
 entry. Definitions outside the scope remain untouched. Empty supplied lists clear only that scope.

@@ -19,7 +19,7 @@ public sealed record JobDefinitionRegistration
 	public required IReadOnlyList<JobDefinitionRecord> Definitions { get; init; }
 
 	/// <summary>
-	/// 	The complete list of code-defined recurring schedules for these definitions.
+	/// 	The next occurrence of each code-defined recurring job, keyed by case-insensitive job name.
 	/// </summary>
-	public IReadOnlyList<RecurringJobSchedule> RecurringSchedules { get; init; } = [];
+	public required IReadOnlyDictionary<string, DateTimeOffset> RecurringSchedules { get; init; }
 }
