@@ -68,12 +68,16 @@ export interface RecurringJobSchedule {
 	lastRunAt: IsoDateTime | null;
 }
 
+export interface JobQueueDefinition {
+	name: string;
+	priority: number;
+	concurrency: number;
+}
+
 export interface JobDefinition {
 	name: string;
 	tags: string[];
-	queueName: string;
-	queuePriority: number;
-	queueConcurrency: number;
+	queue: JobQueueDefinition;
 	cron: string | null;
 	timeZone: string;
 	maxAttempts: number;

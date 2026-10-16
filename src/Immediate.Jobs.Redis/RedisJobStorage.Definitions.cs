@@ -1,4 +1,3 @@
-using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using Immediate.Jobs.Shared.Storage;
 using StackExchange.Redis;
@@ -48,7 +47,7 @@ internal sealed partial class RedisJobStorage
 			var metadata = await Database.HashGetAsync(DefinitionMetadataKey, name).WaitAsync(cancellationToken);
 			if (metadata.IsNull)
 				throw new KeyNotFoundException($"Job definition '{jobName}' was not found.");
-			var definition = JsonSerializer.Deserialize(metadata.ToString(), RedisJsonSerializerContext.Default.JobDefinition)
+			var definition = RedisJsonSerializerContext.DeserializeJobDefinition(metadata.ToString())
 				?? throw new ImmediateJobException($"Job definition '{jobName}' contains invalid data.");
 			var limits = definition.AcquisitionLimits;
 			var now = _timeProvider.GetUtcNow();

@@ -31,7 +31,7 @@ internal static partial class ReplicaStorageConformance
 		await writer.InitializeAsync(token);
 		await writer.MergeJobDefinitionsListAsync(new()
 		{
-			Definitions = [new() { Name = JobName, QueueName = QueueName }],
+			Definitions = [new() { Name = JobName, Queue = new() { Name = QueueName } }],
 		}, token);
 
 		var job = Job("enqueue-race", clock.GetUtcNow());

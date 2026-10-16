@@ -1,4 +1,3 @@
-using System.Text.Json;
 using Immediate.Jobs.Shared.Apis;
 using Immediate.Jobs.Shared.Internals;
 using Immediate.Jobs.Shared.Storage;
@@ -43,7 +42,7 @@ internal sealed partial class RedisJobStorage
 				if (metadata[index].IsNull)
 					continue;
 
-				var definition = JsonSerializer.Deserialize(metadata[index].ToString(), RedisJsonSerializerContext.Default.JobDefinition)
+				var definition = RedisJsonSerializerContext.DeserializeJobDefinition(metadata[index].ToString())
 					?? throw new ImmediateJobException($"Job definition '{names[index]}' contains invalid data.");
 				definitions.Add(names[index], (metadata[index], definition));
 			}

@@ -76,7 +76,7 @@ internal static class MonitoringStorageConformance
 		await storage.MergeJobDefinitionsListAsync(new()
 		{
 			ServerTags = ["remote"],
-			Definitions = [new() { Name = "Remote", Tags = ["remote"], QueueName = "priority" }],
+			Definitions = [new() { Name = "Remote", Tags = ["remote"], Queue = new() { Name = "priority" } }],
 		}, token);
 		var schedule = new RecurringJobSchedule
 		{

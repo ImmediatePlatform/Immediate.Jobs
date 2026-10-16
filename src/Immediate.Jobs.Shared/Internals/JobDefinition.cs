@@ -23,23 +23,7 @@ public record JobDefinition
 	/// 	The queue used by newly-created invocations.
 	/// </summary>
 	[AllowNull]
-	[JsonIgnore]
 	public JobQueueDefinition Queue { get; init => field = value ?? JobQueueDefinition.Default; } = JobQueueDefinition.Default;
-
-	/// <summary>
-	/// 	The queue used for new invocations.
-	/// </summary>
-	public string QueueName { get => Queue.Name; init => Queue = Queue with { Name = value }; }
-
-	/// <summary>
-	/// 	The dispatch priority of the queue.
-	/// </summary>
-	public int QueuePriority { get => Queue.Priority; init => Queue = Queue with { Priority = value }; }
-
-	/// <summary>
-	/// 	The per-server queue concurrency limit. Zero is unbounded.
-	/// </summary>
-	public int QueueConcurrency { get => Queue.Concurrency; init => Queue = Queue with { Concurrency = value }; }
 
 	/// <summary>
 	/// 	The stable job name.

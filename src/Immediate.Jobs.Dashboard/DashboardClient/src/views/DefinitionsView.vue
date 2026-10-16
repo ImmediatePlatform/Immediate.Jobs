@@ -16,7 +16,7 @@ const search = ref('');
 const filteredDefinitions = computed(() => {
 	const term = search.value.trim().toLowerCase();
 	return term
-		? definitions.value.filter(definition => [definition.name, definition.queueName, ...definition.tags]
+		? definitions.value.filter(definition => [definition.name, definition.queue.name, ...definition.tags]
 			.some(value => value.toLowerCase().includes(term)))
 			: definitions.value;
 });

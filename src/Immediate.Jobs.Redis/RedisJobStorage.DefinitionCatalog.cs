@@ -71,7 +71,7 @@ internal sealed partial class RedisJobStorage
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 		var metadata = await Database.HashGetAllAsync(DefinitionMetadataKey).WaitAsync(cancellationToken);
-		return [.. metadata.Select(static entry => JsonSerializer.Deserialize((string)entry.Value!, RedisJsonSerializerContext.Default.JobDefinition)!)
+		return [.. metadata.Select(static entry => RedisJsonSerializerContext.DeserializeJobDefinition((string)entry.Value!)!)
 			.OrderBy(static definition => definition.Name, StringComparer.OrdinalIgnoreCase)];
 	}
 

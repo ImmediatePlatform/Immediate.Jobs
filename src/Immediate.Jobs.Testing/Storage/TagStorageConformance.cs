@@ -60,9 +60,7 @@ internal static class TagStorageConformance
 		await storage.MergeJobDefinitionsListAsync(Registration([ordinary, other, shared], "email"), token);
 		var updated = ordinary with
 		{
-			QueueName = "priority",
-			QueuePriority = 9,
-			QueueConcurrency = 2,
+			Queue = ordinary.Queue with { Name = "priority", Priority = 9, Concurrency = 2 },
 			MaxAttempts = 8,
 			MaxConcurrency = 4,
 			Timeout = TimeSpan.FromMinutes(3),
@@ -79,9 +77,9 @@ internal static class TagStorageConformance
 		ConformanceAssert.SequenceEqual(["email", "ordinary"], definitions.Select(static definition => definition.Name), ScopeCase, "complete-list reconciliation must remove scoped omissions and preserve other scopes");
 		var actual = definitions.Single(definition => string.Equals(definition.Name, ordinary.Name, StringComparison.Ordinal));
 		ConformanceAssert.Equal(
-			(updated.Name, updated.QueueName, updated.QueuePriority, updated.QueueConcurrency, updated.Cron, updated.TimeZone,
+			(updated.Name, updated.Queue.Name, updated.Queue.Priority, updated.Queue.Concurrency, updated.Cron, updated.TimeZone,
 				updated.MaxAttempts, updated.MaxConcurrency, updated.Timeout, updated.OverlapPolicy, updated.MisfireHandlingMode, updated.Backoff, updated.BackoffBase),
-			(actual.Name, actual.QueueName, actual.QueuePriority, actual.QueueConcurrency, actual.Cron, actual.TimeZone,
+			(actual.Name, actual.Queue.Name, actual.Queue.Priority, actual.Queue.Concurrency, actual.Cron, actual.TimeZone,
 				actual.MaxAttempts, actual.MaxConcurrency, actual.Timeout, actual.OverlapPolicy, actual.MisfireHandlingMode, actual.Backoff, actual.BackoffBase),
 			ScopeCase, "all non-runtime metadata must round trip and repeated startup must be idempotent");
 		ConformanceAssert.SequenceEqual(["default"], actual.Tags, ScopeCase, "empty job tags must persist as default");
@@ -116,7 +114,7 @@ internal static class TagStorageConformance
 	{
 		Name = definition.Name,
 		JobName = definition.Name,
-		QueueName = definition.QueueName,
+		QueueName = definition.Queue.Name,
 		Cron = definition.Cron!,
 		TimeZone = definition.TimeZone,
 		IsCodeDefined = true,
@@ -141,7 +139,7 @@ internal static class TagStorageConformance
 		{
 			JobHandle = JobHandle.FromString("retained-cron-invocation"),
 			JobName = ordinary.Name,
-			QueueName = ordinary.QueueName,
+			QueueName = ordinary.Queue.Name,
 			State = JobState.Pending,
 			Payload = "{}",
 			CreatedAt = now,

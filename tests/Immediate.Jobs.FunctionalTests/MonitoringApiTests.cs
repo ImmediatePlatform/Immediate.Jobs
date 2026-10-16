@@ -28,7 +28,7 @@ public sealed class MonitoringApiTests
 		var token = TestContext.Current.CancellationToken;
 		var clock = new FakeTimeProvider(DateTimeOffset.UnixEpoch);
 		using var storage = new MonitoringStorage(clock);
-		await storage.MergeJobDefinitionsListAsync(new() { Definitions = [new() { Name = "Remote", QueueName = "current" }] }, token);
+		await storage.MergeJobDefinitionsListAsync(new() { Definitions = [new() { Name = "Remote", Queue = new() { Name = "current" } }] }, token);
 		await storage.UpsertRecurringAsync(new()
 		{
 			Name = "Résumé",

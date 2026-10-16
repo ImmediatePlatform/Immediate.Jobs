@@ -26,7 +26,7 @@ internal static class DefinitionCatalogStorageConformance
 
 	private static async ValueTask UsesCurrentDefinitionAsync(IJobStorage storage, FakeTimeProvider clock, CancellationToken token)
 	{
-		var definition = Definition("Résumé") with { QueueName = "priority" };
+		var definition = Definition("Résumé") with { Queue = new() { Name = "priority" } };
 		await storage.MergeJobDefinitionsListAsync(Registration([definition]), token);
 		var job = new JobSubmission
 		{
@@ -40,7 +40,7 @@ internal static class DefinitionCatalogStorageConformance
 		};
 		await storage.EnqueueAsync(job, token);
 		var persisted = (await storage.QueryJobsAsync(new() { JobHandle = job.JobHandle }, token)).Single();
-		ConformanceAssert.Equal(new JobRecord { JobHandle = job.JobHandle, JobName = definition.Name, QueueName = definition.QueueName, Payload = job.Payload, GroupId = job.GroupId, State = job.State, DueAt = job.DueAt, CreatedAt = job.CreatedAt }, persisted,
+		ConformanceAssert.Equal(new JobRecord { JobHandle = job.JobHandle, JobName = definition.Name, QueueName = definition.Queue.Name, Payload = job.Payload, GroupId = job.GroupId, State = job.State, DueAt = job.DueAt, CreatedAt = job.CreatedAt }, persisted,
 			SubmissionCase, "reads must expose the canonical name and current queue while preserving invocation data");
 
 		var schedule = new RecurringJobSchedule
@@ -54,13 +54,13 @@ internal static class DefinitionCatalogStorageConformance
 		};
 		await storage.UpsertRecurringAsync(schedule, token);
 		var persistedSchedule = (await MonitoringTestQueries.GetSchedulesAsync(storage, token)).Single();
-		ConformanceAssert.Equal(schedule with { JobName = definition.Name, QueueName = definition.QueueName }, persistedSchedule,
+		ConformanceAssert.Equal(schedule with { JobName = definition.Name, QueueName = definition.Queue.Name }, persistedSchedule,
 			SubmissionCase, "dynamic schedules must use the persisted definition without a caller-supplied queue");
 
-		await storage.MergeJobDefinitionsListAsync(Registration([definition with { QueueName = "PRIORITY" }]), token);
+		await storage.MergeJobDefinitionsListAsync(Registration([definition with { Queue = definition.Queue with { Name = "PRIORITY" } }]), token);
 		ConformanceAssert.Equal("PRIORITY", (await storage.QueryJobsAsync(new() { JobHandle = job.JobHandle }, token)).Single().QueueName,
 			SubmissionCase, "case-only queue changes must update persisted routing even on case-insensitive databases");
-		await storage.MergeJobDefinitionsListAsync(Registration([definition with { QueueName = "changed" }]), token);
+		await storage.MergeJobDefinitionsListAsync(Registration([definition with { Queue = definition.Queue with { Name = "changed" } }]), token);
 		await storage.EnqueueAsync(job with { JobHandle = JobHandle.FromString("changed-queue"), State = JobState.WaitingForTrigger }, token);
 		ConformanceAssert.Equal("changed", (await storage.QueryJobsAsync(new() { State = JobState.WaitingForTrigger }, token)).Single().QueueName,
 			SubmissionCase, "later submissions must use the updated definition");
@@ -102,9 +102,7 @@ internal static class DefinitionCatalogStorageConformance
 		var definition = Definition("Configured") with
 		{
 			Tags = [JobTags.Default, "configuration"],
-			QueueName = "priority",
-			QueuePriority = 9,
-			QueueConcurrency = 2,
+			Queue = new() { Name = "priority", Priority = 9, Concurrency = 2 },
 			Cron = "15 * * * *",
 			TimeZone = "America/Chicago",
 			MaxAttempts = 7,
@@ -135,7 +133,7 @@ internal static class DefinitionCatalogStorageConformance
 			"an alias update must replace every field, clear nullable values, and preserve the stored name");
 
 		static object Values(JobDefinition value) =>
-			(value.Name, value.QueueName, value.QueuePriority, value.QueueConcurrency, value.Cron, value.TimeZone,
+			(value.Name, value.Queue.Name, value.Queue.Priority, value.Queue.Concurrency, value.Cron, value.TimeZone,
 				value.MaxAttempts, value.Timeout, value.MaxConcurrency, value.OverlapPolicy, value.MisfireHandlingMode,
 				value.Backoff, value.BackoffBase, value.SlidingWindowMax, value.SlidingWindowPeriod,
 				value.FixedWindowMax, value.FixedWindowPeriod);
@@ -143,7 +141,7 @@ internal static class DefinitionCatalogStorageConformance
 
 	private static async ValueTask ReconcilesCaseInsensitiveNamesAsync(IJobStorage storage, FakeTimeProvider timeProvider, CancellationToken token)
 	{
-		var original = new[] { Definition("Invoice") with { QueueName = "priority", QueuePriority = 9, QueueConcurrency = 2, Timeout = TimeSpan.FromMinutes(3), MaxConcurrency = 4, SlidingWindowMax = 3, SlidingWindowPeriod = TimeSpan.FromSeconds(5) + TimeSpan.FromTicks(3), FixedWindowMax = 12, FixedWindowPeriod = TimeSpan.FromMinutes(1), BackoffBase = TimeSpan.FromSeconds(13) }, Definition("Résumé"), Definition("Δοκιμή"), Definition("測試"), Definition(new string('a', 256)) };
+		var original = new[] { Definition("Invoice") with { Queue = new() { Name = "priority", Priority = 9, Concurrency = 2 }, Timeout = TimeSpan.FromMinutes(3), MaxConcurrency = 4, SlidingWindowMax = 3, SlidingWindowPeriod = TimeSpan.FromSeconds(5) + TimeSpan.FromTicks(3), FixedWindowMax = 12, FixedWindowPeriod = TimeSpan.FromMinutes(1), BackoffBase = TimeSpan.FromSeconds(13) }, Definition("Résumé"), Definition("Δοκιμή"), Definition("測試"), Definition(new string('a', 256)) };
 		await storage.MergeJobDefinitionsListAsync(Registration(original), token);
 		var aliases = original.Zip(["INVOICE", "RéSUMé", "Δοκιμή", "測試", new string('A', 256)],
 			static (definition, name) => definition with { Name = name, MaxAttempts = 9 }).ToList();
@@ -151,7 +149,7 @@ internal static class DefinitionCatalogStorageConformance
 		var definitions = await storage.GetJobDefinitionsAsync(token);
 		var invoice = definitions.Single(static definition => string.Equals(definition.Name, "Invoice", StringComparison.Ordinal));
 		ConformanceAssert.Equal(("priority", 9, 2, TimeSpan.FromMinutes(3), 4, TimeSpan.FromSeconds(13)),
-			(invoice.QueueName, invoice.QueuePriority, invoice.QueueConcurrency, invoice.Timeout, invoice.MaxConcurrency, invoice.BackoffBase), CaseNameCase, "non-runtime metadata must round trip");
+			(invoice.Queue.Name, invoice.Queue.Priority, invoice.Queue.Concurrency, invoice.Timeout, invoice.MaxConcurrency, invoice.BackoffBase), CaseNameCase, "non-runtime metadata must round trip");
 		ConformanceAssert.Equal(original[0].AcquisitionLimits, invoice.AcquisitionLimits, CaseNameCase, "remote monitoring and resume must use the persisted acquisition limits");
 		ConformanceAssert.Equal(5, definitions.Count, CaseNameCase, "ASCII case variants must update the same definitions, preserving Unicode characters and maximum-length names");
 		ConformanceAssert.True(definitions.All(static definition => definition.MaxAttempts == 9), CaseNameCase, "updates must reach case-insensitive identities");
@@ -167,7 +165,7 @@ internal static class DefinitionCatalogStorageConformance
 	{
 		Name = definition.Name,
 		JobName = definition.Name,
-		QueueName = definition.QueueName,
+		QueueName = definition.Queue.Name,
 		Cron = definition.Cron!,
 		TimeZone = definition.TimeZone,
 		IsCodeDefined = true,
@@ -188,7 +186,7 @@ internal static class DefinitionCatalogStorageConformance
 		{
 			JobHandle = JobHandle.FromString("retained-cron-invocation"),
 			JobName = ordinary.Name,
-			QueueName = ordinary.QueueName,
+			QueueName = ordinary.Queue.Name,
 			State = JobState.Pending,
 			Payload = "{}",
 			CreatedAt = now,

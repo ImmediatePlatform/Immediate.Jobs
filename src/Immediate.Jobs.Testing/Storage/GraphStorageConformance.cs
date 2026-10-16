@@ -48,7 +48,7 @@ internal static class GraphStorageConformance
 		var graph = GetGraph(storage, RoutingName);
 		await storage.MergeJobDefinitionsListAsync(new()
 		{
-			Definitions = [new() { Name = "Routed", QueueName = "priority" }],
+			Definitions = [new() { Name = "Routed", Queue = new() { Name = "priority" } }],
 		}, token);
 		var batch = CreateBatch("routing-batch", 1);
 		var parent = CreateJob("routing-parent", batch.BatchHandle) with { JobName = "ROUTED" };

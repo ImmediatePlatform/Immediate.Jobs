@@ -87,7 +87,7 @@ internal static class RecurringStorageConformance
 			await storage.PauseRecurringAsync(alias, token);
 			await storage.MergeJobDefinitionsListAsync(new()
 			{
-				Definitions = [new() { Name = alias, QueueName = QueueName, Cron = code.Cron, TimeZone = code.TimeZone }],
+				Definitions = [new() { Name = alias, Queue = new() { Name = QueueName }, Cron = code.Cron, TimeZone = code.TimeZone }],
 				RecurringSchedules = [code with { Name = alias, JobName = alias }],
 			}, token);
 			var reconciled = await GetScheduleAsync(storage, name, CaseName, token);
@@ -116,7 +116,7 @@ internal static class RecurringStorageConformance
 	{
 		await storage.MergeJobDefinitionsListAsync(new()
 		{
-			Definitions = [new() { Name = JobName, QueueName = QueueName }],
+			Definitions = [new() { Name = JobName, Queue = new() { Name = QueueName } }],
 		}, cancellationToken);
 
 		var now = timeProvider.GetUtcNow();
@@ -207,7 +207,7 @@ internal static class RecurringStorageConformance
 				Definitions = supplied.Select(static schedule => new JobDefinition
 				{
 					Name = schedule.JobName,
-					QueueName = schedule.QueueName ?? "default",
+					Queue = new() { Name = schedule.QueueName ?? "default" },
 					Cron = schedule.Cron,
 					TimeZone = schedule.TimeZone,
 				}).ToList(),
@@ -270,7 +270,7 @@ internal static class RecurringStorageConformance
 	{
 		await storage.MergeJobDefinitionsListAsync(new()
 		{
-			Definitions = [new() { Name = JobName, QueueName = QueueName }],
+			Definitions = [new() { Name = JobName, Queue = new() { Name = QueueName } }],
 		}, cancellationToken);
 
 		var now = timeProvider.GetUtcNow();
@@ -332,7 +332,7 @@ internal static class RecurringStorageConformance
 		var now = timeProvider.GetUtcNow();
 		await storage.MergeJobDefinitionsListAsync(new()
 		{
-			Definitions = [new() { Name = JobName, QueueName = QueueName }],
+			Definitions = [new() { Name = JobName, Queue = new() { Name = QueueName } }],
 		}, cancellationToken);
 		var parent = new JobSubmission
 		{
@@ -522,7 +522,7 @@ internal static class RecurringStorageConformance
 	{
 		await storage.MergeJobDefinitionsListAsync(new()
 		{
-			Definitions = [new() { Name = JobName, QueueName = QueueName }],
+			Definitions = [new() { Name = JobName, Queue = new() { Name = QueueName } }],
 		}, cancellationToken);
 
 		var now = timeProvider.GetUtcNow();

@@ -48,7 +48,7 @@ public sealed class DashboardPackageTests
 			WorkerId = "dashboard-worker",
 			Lease = TimeSpan.FromSeconds(30),
 			BatchSize = 1,
-			Queues = [new() { QueueName = definition.QueueName, Capacity = 1, JobCapacities = new Dictionary<string, int>(StringComparer.Ordinal) { [definition.Name] = 2 } }],
+			Queues = [new() { QueueName = definition.Queue.Name, Capacity = 1, JobCapacities = new Dictionary<string, int>(StringComparer.Ordinal) { [definition.Name] = 2 } }],
 		};
 		Assert.Single(await storage.AcquireDueJobsAsync(request, token));
 		var pendingHandle = JobHandle.FromString("definition-action-pending");
@@ -148,8 +148,10 @@ public sealed class DashboardPackageTests
 				var definition = Assert.Single(document.RootElement.GetProperty("jobs").EnumerateArray());
 				Assert.Equal("limited-acquisition", definition.GetProperty("name").GetString());
 				Assert.Equal(1, definition.GetProperty("maxConcurrency").GetInt32());
-				Assert.Equal("default", definition.GetProperty("queueName").GetString());
-				Assert.False(definition.TryGetProperty("queue", out _));
+				Assert.Equal("default", definition.GetProperty("queue").GetProperty("name").GetString());
+				Assert.False(definition.TryGetProperty("queueName", out _));
+				Assert.False(definition.TryGetProperty("queuePriority", out _));
+				Assert.False(definition.TryGetProperty("queueConcurrency", out _));
 				Assert.False(definition.TryGetProperty("invoker", out _));
 				Assert.False(definition.TryGetProperty("jobType", out _));
 				Assert.False(definition.TryGetProperty("acquisitionLimits", out _));
@@ -195,7 +197,7 @@ public sealed class DashboardPackageTests
 			{
 				Name = "remote-email",
 				Tags = ["email"],
-				QueueName = "priority",
+				Queue = new() { Name = "priority" },
 				MaxAttempts = 7,
 				SlidingWindowMax = 1,
 				SlidingWindowPeriod = TimeSpan.FromMinutes(1),
@@ -226,7 +228,7 @@ public sealed class DashboardPackageTests
 		Assert.Equal(["ordinary", "remote-email"], definitions.RootElement.GetProperty("jobs").EnumerateArray().Select(static item => item.GetProperty("name").GetString()));
 		var remote = definitions.RootElement.GetProperty("jobs")[1];
 		Assert.Equal("email", remote.GetProperty("tags")[0].GetString());
-		Assert.Equal("priority", remote.GetProperty("queueName").GetString());
+		Assert.Equal("priority", remote.GetProperty("queue").GetProperty("name").GetString());
 		Assert.Equal(7, remote.GetProperty("maxAttempts").GetInt32());
 		var monitor = app.Services.GetRequiredService<JobMonitor>();
 		var remoteStatus = (await monitor.GetDefinitionsAsync(token)).Jobs.Single(definition => string.Equals(definition.Name, "remote-email", StringComparison.OrdinalIgnoreCase));
@@ -237,7 +239,7 @@ public sealed class DashboardPackageTests
 		{
 			JobHandle = JobHandle.FromString("remote-definition-active"),
 			JobName = remoteStatus.Name,
-			QueueName = remoteStatus.QueueName,
+			QueueName = remoteStatus.Queue.Name,
 			Payload = "{}",
 			State = JobState.Pending,
 			CreatedAt = clock.GetUtcNow(),
@@ -248,7 +250,7 @@ public sealed class DashboardPackageTests
 			WorkerId = "remote-worker",
 			Lease = TimeSpan.FromMinutes(5),
 			BatchSize = 1,
-			Queues = [new() { QueueName = remoteStatus.QueueName, Capacity = 1, JobCapacities = new Dictionary<string, int>(StringComparer.Ordinal) { [remoteStatus.Name] = 1 } }],
+			Queues = [new() { QueueName = remoteStatus.Queue.Name, Capacity = 1, JobCapacities = new Dictionary<string, int>(StringComparer.Ordinal) { [remoteStatus.Name] = 1 } }],
 		}, token));
 		foreach (var action in new[] { "pause", "resume" })
 		{

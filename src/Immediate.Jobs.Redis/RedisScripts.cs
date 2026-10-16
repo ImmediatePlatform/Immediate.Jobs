@@ -4,6 +4,9 @@ internal static class RedisScripts
 {
 	private const string FairQueueFunctions =
 		"""
+		local function queueName(definition)
+			return definition.Queue and definition.Queue.Name or definition.QueueName
+		end
 		local function fairDueKey(root, jobName, group)
 			if group == '' then return root .. 'fair:ungrouped:' .. jobName end
 			return root .. 'fair:due:' .. string.len(jobName) .. ':' .. jobName .. ':' .. group
@@ -27,13 +30,13 @@ internal static class RedisScripts
 		end
 		local function queueForJob(root, jobName)
 			local metadata = redis.call('HGET', root .. 'definition-metadata', jobName)
-			return metadata and cjson.decode(metadata).QueueName or nil
+			return metadata and queueName(cjson.decode(metadata)) or nil
 		end
 		local function removeClearedQueueCursor(root, queue, group)
 			if group == '' or not queue then return end
 			local definitions = redis.call('HGETALL', root .. 'definition-metadata')
 			for index = 1, #definitions, 2 do
-				if cjson.decode(definitions[index + 1]).QueueName == queue then
+				if queueName(cjson.decode(definitions[index + 1])) == queue then
 					local name = definitions[index]
 					if redis.call('HEXISTS', root .. 'fair:active:' .. name, group) == 1 then return end
 					if redis.call('ZCARD', fairDueKey(root, name, group)) > 0 then return end
@@ -305,7 +308,7 @@ internal static class RedisScripts
 			if fair then
 				for index = 1, #definitions, 2 do
 					local name = definitions[index]
-					if cjson.decode(definitions[index + 1]).QueueName == queue.name then
+					if queueName(cjson.decode(definitions[index + 1])) == queue.name then
 						for _, group in ipairs(redis.call('SMEMBERS', root .. 'fair:groups:' .. name)) do groups[group] = true end
 						for _, id in ipairs(redis.call('ZRANGEBYSCORE', root .. 'active:job:' .. name, '(' .. nowScore, '+inf')) do
 							local group = redis.call('HGET', root .. 'job:' .. id, 'group') or ''
@@ -649,7 +652,7 @@ internal static class RedisScripts
 		local previousQueues = {}
 		for _, definition in ipairs(changes.Definitions) do
 			local previous = redis.call('HGET', KEYS[1], definition.Name)
-			if previous then previousQueues[cjson.decode(previous).QueueName] = true end
+			if previous then previousQueues[queueName(cjson.decode(previous))] = true end
 			redis.call('HSET', KEYS[1], definition.Name, definition.Metadata)
 		end
 		for queue in pairs(previousQueues) do

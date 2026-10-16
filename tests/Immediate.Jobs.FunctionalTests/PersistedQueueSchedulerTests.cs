@@ -73,9 +73,10 @@ public sealed class PersistedQueueSchedulerTests
 		await harness.DrainAsync(token);
 		await using var scope = harness.Services.CreateAsyncScope();
 		var scheduler = scope.ServiceProvider.GetRequiredService<TimeoutJob.Scheduler>();
+		var definition = (await harness.Storage.GetJobDefinitionsAsync(token)).Single(item => string.Equals(item.Name, scheduler.JobName, StringComparison.OrdinalIgnoreCase));
 		await harness.Storage.MergeJobDefinitionsListAsync(new()
 		{
-			Definitions = [(await harness.Storage.GetJobDefinitionsAsync(token)).Single(definition => string.Equals(definition.Name, scheduler.JobName, StringComparison.OrdinalIgnoreCase)) with { QueueName = "recurring-queue" }],
+			Definitions = [definition with { Queue = definition.Queue with { Name = "recurring-queue" } }],
 		}, token);
 		await scheduler.AddOrUpdateRecurringAsync("dynamic-queue", "* * * * *", "UTC", token);
 		Assert.Equal("recurring-queue", (await harness.Storage.GetMonitoringDefinitionsAsync(token)).Recurring.Single(static schedule => string.Equals(schedule.Name, "dynamic-queue", StringComparison.Ordinal)).QueueName);
@@ -96,7 +97,7 @@ public sealed class PersistedQueueSchedulerTests
 		await harness.Storage.MergeJobDefinitionsListAsync(new()
 		{
 			Definitions = (await harness.Storage.GetJobDefinitionsAsync(token)).Select(definition => string.Equals(definition.Name, jobName, StringComparison.OrdinalIgnoreCase)
-				? definition with { Name = jobName, QueueName = queueName } : definition).ToList(),
+				? definition with { Name = jobName, Queue = definition.Queue with { Name = queueName } } : definition).ToList(),
 			RecurringSchedules = (await harness.Storage.GetMonitoringDefinitionsAsync(token)).Recurring.Where(static definition => definition.IsCodeDefined)
 				.Select(definition => Immediate.Jobs.Shared.Apis.RecurringJobSchedule.FromDefinition(definition, snapshot.Recurring.Single(status => string.Equals(status.Name, definition.Name, StringComparison.Ordinal)))).ToList(),
 		}, token);

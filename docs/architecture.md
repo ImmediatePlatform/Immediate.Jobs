@@ -59,9 +59,10 @@ configuration surface (`ConfigureStorage`, `ConfigureWorkers`, `UseFairQueues`, 
 - **Startup.** Initializes storage and submits the complete definition catalogue and code-defined
   schedules through `MergeJobDefinitionsListAsync`, even when workers are disabled. `StartAsync`
   completes this registration before returning. The storage
-  reconciles only definitions intersecting the server's effective tags. `JobDefinition` serializes queue
-  settings as `QueueName`, `QueuePriority`, and `QueueConcurrency`. The local invoker, CLR type, queue
-  object, and computed acquisition limits are excluded from JSON; definitions read from durable storage
+  reconciles only definitions intersecting the server's effective tags. `JobDefinition` serializes its
+  queue settings through the nested `Queue` object. SQL storage maps that object to the existing queue
+  columns, and Redis reads older flat metadata at its storage boundary. The local invoker, CLR type,
+  and computed acquisition limits are excluded from JSON; definitions read from durable storage
   have no runtime bindings. Execution uses the locally registered definitions.
 - **Polling loop.** Each iteration materializes due recurring schedules, builds a
   `JobAcquisitionRequest` from tag-eligible local definitions, free worker capacity, and queue/job concurrency limits, calls

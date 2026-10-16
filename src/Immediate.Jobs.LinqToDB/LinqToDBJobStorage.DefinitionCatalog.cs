@@ -259,9 +259,9 @@ internal sealed partial class LinqToDBJobStorage<T>
 	private static ImmediateJobDefinitionMetadataEntity ToEntity(JobDefinition definition) => new()
 	{
 		Name = definition.Name,
-		QueueName = definition.QueueName,
-		QueuePriority = definition.QueuePriority,
-		QueueConcurrency = definition.QueueConcurrency,
+		QueueName = definition.Queue.Name,
+		QueuePriority = definition.Queue.Priority,
+		QueueConcurrency = definition.Queue.Concurrency,
 		Cron = definition.Cron,
 		TimeZone = definition.TimeZone,
 		MaxAttempts = definition.MaxAttempts,
@@ -281,9 +281,7 @@ internal sealed partial class LinqToDBJobStorage<T>
 	private static JobDefinition ToRecord(ImmediateJobDefinitionMetadataEntity entity) => new()
 	{
 		Name = entity.Name,
-		QueueName = entity.QueueName,
-		QueuePriority = entity.QueuePriority,
-		QueueConcurrency = entity.QueueConcurrency,
+		Queue = new() { Name = entity.QueueName, Priority = entity.QueuePriority, Concurrency = entity.QueueConcurrency },
 		Cron = entity.Cron,
 		TimeZone = entity.TimeZone,
 		MaxAttempts = entity.MaxAttempts,

@@ -402,9 +402,9 @@ function retryButtonLabel(job: JobRecord, pending: boolean): string {
 				<h3>Definition</h3>
 				<template v-if="definition">
 					<dl class="detail-list">
-						<div><dt>Queue</dt><dd><code>{{ definition.queueName }}</code></dd></div>
-						<div><dt>Queue priority</dt><dd>{{ definition.queuePriority }}</dd></div>
-						<div><dt>Queue concurrency</dt><dd>{{ definition.queueConcurrency > 0 ? definition.queueConcurrency : 'No limit' }}</dd></div>
+						<div><dt>Queue</dt><dd><code>{{ definition.queue.name }}</code></dd></div>
+						<div><dt>Queue priority</dt><dd>{{ definition.queue.priority }}</dd></div>
+						<div><dt>Queue concurrency</dt><dd>{{ definition.queue.concurrency > 0 ? definition.queue.concurrency : 'No limit' }}</dd></div>
 						<div><dt>Tags</dt><dd><span v-for="tag in definition.tags" :key="tag" class="tag">{{ tag }}</span></dd></div>
 						<div><dt>Schedule</dt><dd><code v-if="definition.cron">{{ definition.cron }}</code><span v-else>On demand</span></dd></div>
 						<div><dt>Time zone</dt><dd>{{ definition.timeZone }}</dd></div>

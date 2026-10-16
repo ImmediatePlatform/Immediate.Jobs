@@ -32,6 +32,54 @@ public sealed class RedisConformanceTests(RedisStorageFixture redis)
 
 		await testCase.RunAsync(fixture.Services, TestContext.Current.CancellationToken);
 	}
+
+	[Fact]
+	public async Task LegacyQueueMetadataSupportsAcquisitionAndCatalogueUpdates()
+	{
+		var token = TestContext.Current.CancellationToken;
+		await using var fixture = await RedisConformanceFixture.CreateAsync(
+			redis.Container.GetConnectionString(),
+			new() { Jobs = [], Batches = [], Edges = [], RecurringSchedules = [] }
+		);
+		await fixture.SetDefinitionMetadataAsync("legacy", """
+			{"Name":"legacy","QueueName":"old-queue","QueuePriority":9,"QueueConcurrency":2,"Tags":["default"]}
+			""");
+		var storage = fixture.Services.GetRequiredService<IJobStorage>();
+		var definition = Assert.Single(await storage.GetJobDefinitionsAsync(token));
+		Assert.Equal(new() { Name = "old-queue", Priority = 9, Concurrency = 2 }, definition.Queue);
+		var now = fixture.Services.GetRequiredService<TimeProvider>().GetUtcNow();
+		foreach (var queue in new[] { "old-queue", "new-queue" })
+		{
+			if (string.Equals(queue, "new-queue", StringComparison.Ordinal))
+			{
+				definition = definition with { Queue = definition.Queue with { Name = queue } };
+				await storage.MergeJobDefinitionsListAsync(new() { Definitions = [definition] }, token);
+			}
+
+			var handle = JobHandle.FromString(queue);
+			await storage.EnqueueAsync(new()
+			{
+				JobHandle = handle,
+				JobName = definition.Name,
+				GroupId = "tenant",
+				Payload = "{}",
+				State = JobState.Pending,
+				DueAt = now,
+				CreatedAt = now,
+			}, token);
+			var acquired = Assert.Single(await storage.AcquireDueJobsAsync(new()
+			{
+				WorkerId = "worker",
+				Lease = TimeSpan.FromMinutes(1),
+				BatchSize = 1,
+				Queues = [new() { QueueName = queue, Capacity = 1, JobCapacities = new Dictionary<string, int>(StringComparer.Ordinal) { [definition.Name] = 1 } }],
+				FairQueues = new() { ConcurrencyShareThreshold = 0.1, MinInflightForNoisy = 30, GroupRoundRobin = true },
+			}, token));
+			Assert.Equal(handle, acquired.JobHandle);
+			Assert.Equal(queue, acquired.QueueName);
+			await storage.CompleteAsync(handle, acquired.Attempt, "worker", token);
+		}
+	}
 }
 
 file sealed class RedisConformanceFixture : IAsyncDisposable
@@ -51,6 +99,9 @@ file sealed class RedisConformanceFixture : IAsyncDisposable
 	}
 
 	internal IServiceProvider Services { get; }
+
+	internal Task SetDefinitionMetadataAsync(string name, string json) =>
+		_connection.GetDatabase().HashSetAsync($"{{{_keyPrefix}}}:definition-metadata", name.ToUpperInvariant(), json);
 
 	internal static async ValueTask<RedisConformanceFixture> CreateAsync(
 		string connectionString,
@@ -108,7 +159,7 @@ file sealed class RedisConformanceFixture : IAsyncDisposable
 		await storage.MergeJobDefinitionsListAsync(new()
 		{
 			Definitions = jobs.DistinctBy(static job => job.JobName, StringComparer.OrdinalIgnoreCase)
-				.Select(static job => new JobDefinition { Name = job.JobName, QueueName = job.QueueName ?? "default" }).ToList(),
+				.Select(static job => new JobDefinition { Name = job.JobName, Queue = new() { Name = job.QueueName ?? "default" } }).ToList(),
 		});
 		foreach (var job in jobs)
 			await storage.EnqueueAsync(new()

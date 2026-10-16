@@ -77,7 +77,7 @@ public sealed partial class InMemoryJobStorage
 	}
 
 	private string? GetQueueName(string jobName) =>
-		_jobDefinitions.TryGetValue(jobName, out var definition) ? definition.QueueName : null;
+		_jobDefinitions.TryGetValue(jobName, out var definition) ? definition.Queue.Name : null;
 
 	private JobRecord ReadRecord(JobRecord job) => job with { QueueName = GetQueueName(job.JobName) };
 

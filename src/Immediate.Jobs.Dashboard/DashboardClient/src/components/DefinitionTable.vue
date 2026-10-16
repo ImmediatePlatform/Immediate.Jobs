@@ -41,7 +41,7 @@ defineEmits<{
 				<tbody>
 					<tr v-for="definition in definitions" :key="definition.name">
 						<td>
-							<RouterLink :to="{ name: 'jobs', query: { search: definition.name, queue: definition.queueName } }">
+							<RouterLink :to="{ name: 'jobs', query: { search: definition.name, queue: definition.queue.name } }">
 								<code>{{ definition.name }}</code>
 							</RouterLink>
 						</td>
@@ -61,7 +61,7 @@ defineEmits<{
 								</button>
 							</div>
 						</td>
-						<td>{{ definition.queueName }}</td>
+						<td>{{ definition.queue.name }}</td>
 						<td><span v-for="tag in definition.tags" :key="tag" class="tag">{{ tag }}</span></td>
 						<td>
 							<div v-if="definition.cron" class="schedule-cell"><code>{{ definition.cron }}</code><span>{{ definition.timeZone }}</span></div>

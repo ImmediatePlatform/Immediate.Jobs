@@ -77,7 +77,7 @@ internal static class QueueStorageConformance
 		{
 			Definitions =
 			[
-				new() { Name = "RoundTrip.Job", QueueName = "queue-roundtrip" },
+				new() { Name = "RoundTrip.Job", Queue = new() { Name = "queue-roundtrip" } },
 			],
 		}, cancellationToken);
 
@@ -170,9 +170,9 @@ internal static class QueueStorageConformance
 		{
 			Definitions =
 			[
-				new() { Name = "low-job", QueueName = "low" },
-				new() { Name = "limited-job", QueueName = "high" },
-				new() { Name = "other-job", QueueName = "high" },
+				new() { Name = "low-job", Queue = new() { Name = "low" } },
+				new() { Name = "limited-job", Queue = new() { Name = "high" } },
+				new() { Name = "other-job", Queue = new() { Name = "high" } },
 			],
 		}, cancellationToken);
 
@@ -527,9 +527,9 @@ internal static class QueueStorageConformance
 		{
 			Definitions =
 			[
-				new() { Name = "Email.Receipt", QueueName = "priority" },
-				new() { Name = "Email.Other", QueueName = "priority" },
-				new() { Name = "Cleanup.Job", QueueName = "ordinary" },
+				new() { Name = "Email.Receipt", Queue = new() { Name = "priority" } },
+				new() { Name = "Email.Other", Queue = new() { Name = "priority" } },
+				new() { Name = "Cleanup.Job", Queue = new() { Name = "ordinary" } },
 			],
 		}, cancellationToken);
 

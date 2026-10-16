@@ -40,7 +40,7 @@ internal static partial class ReplicaStorageConformance
 	private static async ValueTask RestoresCronDefinitionsAsync(IJobStorage storage, FakeTimeProvider clock, CancellationToken token)
 	{
 		var now = clock.GetUtcNow();
-		var definition = new JobDefinition { Name = JobName, QueueName = QueueName, Cron = "* * * * *" };
+		var definition = new JobDefinition { Name = JobName, Queue = new() { Name = QueueName }, Cron = "* * * * *" };
 		var schedule = new RecurringJobSchedule
 		{
 			Name = JobName,
@@ -123,7 +123,7 @@ internal static partial class ReplicaStorageConformance
 		{
 			Definitions =
 			[
-				new() { Name = JobName, QueueName = QueueName },
+				new() { Name = JobName, Queue = new() { Name = QueueName } },
 			],
 		}, cancellationToken);
 
@@ -192,7 +192,7 @@ internal static partial class ReplicaStorageConformance
 		{
 			Definitions =
 			[
-				new() { Name = JobName, QueueName = QueueName },
+				new() { Name = JobName, Queue = new() { Name = QueueName } },
 			],
 		}, cancellationToken);
 
@@ -231,7 +231,7 @@ internal static partial class ReplicaStorageConformance
 		{
 			Definitions =
 			[
-				new() { Name = JobName, QueueName = QueueName },
+				new() { Name = JobName, Queue = new() { Name = QueueName } },
 			],
 		}, cancellationToken);
 
@@ -306,7 +306,7 @@ internal static partial class ReplicaStorageConformance
 		{
 			Definitions =
 			[
-				new() { Name = JobName, QueueName = QueueName },
+				new() { Name = JobName, Queue = new() { Name = QueueName } },
 			],
 		}, cancellationToken);
 
@@ -347,7 +347,7 @@ internal static partial class ReplicaStorageConformance
 		{
 			Definitions =
 			[
-				new() { Name = JobName, QueueName = QueueName },
+				new() { Name = JobName, Queue = new() { Name = QueueName } },
 			],
 		}, cancellationToken);
 
@@ -420,7 +420,7 @@ internal static partial class ReplicaStorageConformance
 		{
 			Definitions =
 			[
-				new() { Name = JobName, QueueName = QueueName },
+				new() { Name = JobName, Queue = new() { Name = QueueName } },
 			],
 		}, cancellationToken);
 

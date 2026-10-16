@@ -61,9 +61,7 @@ export const workflowGraph: BatchGraph = {
 export const storedDefinition: JobDefinitionStatus & { acquisition: JobAcquisitionState } = {
 	name: 'RemoteEmail',
 	tags: ['email', 'default'],
-	queueName: 'priority',
-	queuePriority: 5,
-	queueConcurrency: 2,
+	queue: { name: 'priority', priority: 5, concurrency: 2 },
 	cron: '15 * * * *',
 	timeZone: 'UTC',
 	maxAttempts: 7,
@@ -84,7 +82,7 @@ export const storedDefinition: JobDefinitionStatus & { acquisition: JobAcquisiti
 export const pausedDefinition: JobDefinitionStatus & { acquisition: JobAcquisitionState } = {
 	...storedDefinition,
 	name: 'SendGreeting',
-	queueName: 'default',
+	queue: { ...storedDefinition.queue, name: 'default' },
 	cron: null,
 	timeout: null,
 	slidingWindowMax: 10,

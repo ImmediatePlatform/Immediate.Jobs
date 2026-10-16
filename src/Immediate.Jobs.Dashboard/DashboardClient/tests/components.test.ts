@@ -80,7 +80,7 @@ describe('dashboard components', () => {
 		const wrapper = mount(DefinitionTable, {
 			props: { definitions: [pausedDefinition, {
 				...storedDefinition,
-				name: 'Unbounded', queueName: 'default',
+				name: 'Unbounded', queue: { ...storedDefinition.queue, name: 'default' },
 				limits: { slidingWindowMax: 0, slidingWindowPeriod: null, fixedWindowMax: 0, fixedWindowPeriod: null, maxConcurrency: 0 },
 				acquisition: { jobName: 'Unbounded', isPaused: false, acquisitionStatus: 'Ready', nextEligibleAt: null, activeCount: 3, slidingWindowCount: 0, fixedWindowCount: 0, isConcurrencyLimited: false },
 			}] },

@@ -109,7 +109,7 @@ internal static class DefinitionRemovalStorageConformance
 			[parent, removedChild, keptChild],
 			[new() { ChildJobHandle = removedChild.JobHandle, ParentJobHandle = parent.JobHandle, Delay = TimeSpan.Zero, Trigger = ContinuationTrigger.Success },
 				new() { ChildJobHandle = keptChild.JobHandle, ParentJobHandle = parent.JobHandle, Delay = TimeSpan.Zero, Trigger = ContinuationTrigger.Complete }], token);
-		await storage.MergeJobDefinitionsListAsync(new() { Definitions = [new() { Name = "Kept", QueueName = "changed" }] }, token);
+		await storage.MergeJobDefinitionsListAsync(new() { Definitions = [new() { Name = "Kept", Queue = new() { Name = "changed" } }] }, token);
 		ConformanceAssert.Equal(JobState.Cancelled, (await storage.GetJobStatusAsync(removedChild.JobHandle, token))!.State, GraphCase, "a removed child is canceled before dependency propagation");
 		ConformanceAssert.Equal(JobState.Pending, (await storage.GetJobStatusAsync(keptChild.JobHandle, token))!.State, GraphCase, "completion-triggered work for retained definitions is released");
 		ConformanceAssert.Equal("changed", (await storage.QueryJobsAsync(new() { JobHandle = keptChild.JobHandle }, token)).Single().QueueName,

@@ -25,10 +25,12 @@ public sealed class JobDefinitionSerializationTests
 		var json = JsonSerializer.Serialize(definition, metadata);
 		using var document = JsonDocument.Parse(json);
 		var root = document.RootElement;
-		Assert.Equal("priority", root.GetProperty("QueueName").GetString());
-		Assert.Equal(9, root.GetProperty("QueuePriority").GetInt32());
-		Assert.Equal(2, root.GetProperty("QueueConcurrency").GetInt32());
-		Assert.False(root.TryGetProperty("Queue", out _));
+		Assert.Equal("priority", root.GetProperty("Queue").GetProperty("Name").GetString());
+		Assert.Equal(9, root.GetProperty("Queue").GetProperty("Priority").GetInt32());
+		Assert.Equal(2, root.GetProperty("Queue").GetProperty("Concurrency").GetInt32());
+		Assert.False(root.TryGetProperty("QueueName", out _));
+		Assert.False(root.TryGetProperty("QueuePriority", out _));
+		Assert.False(root.TryGetProperty("QueueConcurrency", out _));
 		Assert.False(root.TryGetProperty("Invoker", out _));
 		Assert.False(root.TryGetProperty("JobType", out _));
 		Assert.False(root.TryGetProperty("AcquisitionLimits", out _));
@@ -67,7 +69,7 @@ public sealed class JobDefinitionSerializationTests
 			  "BackoffBase": "00:00:05"
 			}
 			""";
-		var definition = Assert.IsType<JobDefinition>(JsonSerializer.Deserialize(Json, RedisJsonSerializerContext.Default.JobDefinition));
+		var definition = Assert.IsType<JobDefinition>(RedisJsonSerializerContext.DeserializeJobDefinition(Json));
 		Assert.Equal(new() { Name = "priority", Priority = 9, Concurrency = 2 }, definition.Queue);
 		Assert.Equal([JobTags.Default], definition.Tags);
 		Assert.Equal(3, definition.MaxAttempts);
@@ -75,10 +77,10 @@ public sealed class JobDefinitionSerializationTests
 		Assert.Null(definition.Invoker);
 		Assert.Null(definition.JobType);
 
-		var updated = definition with { QueueName = "changed", QueueConcurrency = 4 };
+		var updated = definition with { Queue = definition.Queue with { Name = "changed", Concurrency = 4 } };
 		Assert.Equal(new() { Name = "changed", Priority = 9, Concurrency = 4 }, updated.Queue);
-		Assert.Equal("priority", definition.QueueName);
-		Assert.Equal(2, definition.QueueConcurrency);
+		Assert.Equal("priority", definition.Queue.Name);
+		Assert.Equal(2, definition.Queue.Concurrency);
 	}
 
 	private sealed record LocalDefinition : JobDefinition;

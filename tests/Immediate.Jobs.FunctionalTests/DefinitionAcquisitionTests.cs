@@ -105,7 +105,7 @@ public sealed class DefinitionAcquisitionTests
 		var original = Assert.Single(await harness.Storage.GetJobDefinitionsAsync(token));
 		var definition = original with
 		{
-			QueueName = "stored-queue",
+			Queue = original.Queue with { Name = "stored-queue" },
 			MaxAttempts = 7,
 			SlidingWindowMax = 3,
 			SlidingWindowPeriod = TimeSpan.FromSeconds(5),
@@ -114,14 +114,14 @@ public sealed class DefinitionAcquisitionTests
 		};
 		await harness.Storage.MergeJobDefinitionsListAsync(new() { Definitions = [definition] }, token);
 		var first = await scheduler.EnqueueAsync(new(), token);
-		Assert.Equal(definition.QueueName, (await harness.GetJobAsync(first, token)).QueueName);
+		Assert.Equal(definition.Queue.Name, (await harness.GetJobAsync(first, token)).QueueName);
 		await scheduler.EnqueueAsync(new(), token);
 		var acquired = await harness.Storage.AcquireDueJobsAsync(new()
 		{
 			WorkerId = "monitor-worker",
 			Lease = TimeSpan.FromSeconds(30),
 			BatchSize = 2,
-			Queues = [new() { QueueName = definition.QueueName, Capacity = 2, JobCapacities = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase) { [definition.Name] = 2 } }],
+			Queues = [new() { QueueName = definition.Queue.Name, Capacity = 2, JobCapacities = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase) { [definition.Name] = 2 } }],
 		}, token);
 		Assert.Equal(2, acquired.Count);
 		await scheduler.PauseJobAsync(token);
@@ -180,7 +180,7 @@ public sealed class DefinitionAcquisitionTests
 			WorkerId = "monitor-worker",
 			Lease = TimeSpan.FromSeconds(30),
 			BatchSize = 1,
-			Queues = [new() { QueueName = definition.QueueName, Capacity = 1, JobCapacities = new Dictionary<string, int>(StringComparer.Ordinal) { [definition.Name] = 1 } }],
+			Queues = [new() { QueueName = definition.Queue.Name, Capacity = 1, JobCapacities = new Dictionary<string, int>(StringComparer.Ordinal) { [definition.Name] = 1 } }],
 		}, token);
 		await scheduler.PauseJobAsync(token);
 		await harness.Services.GetRequiredService<JobSchedulingService>().DrainAsync(token);
@@ -204,7 +204,7 @@ public sealed class DefinitionAcquisitionTests
 		await harness.DrainAsync(token);
 		await harness.Storage.MergeJobDefinitionsListAsync(new()
 		{
-			Definitions = [new() { Name = "Remote-Job", QueueName = "current-queue", MaxAttempts = 7 }],
+			Definitions = [new() { Name = "Remote-Job", Queue = new() { Name = "current-queue" }, MaxAttempts = 7 }],
 		}, token);
 		await harness.Storage.UpsertRecurringAsync(new()
 		{

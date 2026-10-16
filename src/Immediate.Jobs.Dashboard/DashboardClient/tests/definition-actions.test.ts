@@ -135,7 +135,7 @@ describe('definition actions', () => {
 	});
 
 	it('filters definitions immediately by name, queue, and tags without refetching', async () => {
-		const invoice = { ...storedDefinition, name: 'Invoice', queueName: 'Finance', tags: ['Billing'] };
+		const invoice = { ...storedDefinition, name: 'Invoice', queue: { ...storedDefinition.queue, name: 'Finance' }, tags: ['Billing'] };
 		getDefinitionsMock.mockResolvedValue({ jobs: [pausedDefinition, invoice], recurring: [] });
 		getOverviewMock.mockResolvedValue({ ...snapshot(), definitionStatuses: [pausedDefinition.acquisition, { ...invoice.acquisition, jobName: invoice.name }] });
 		const { wrapper, queryClient } = await mountView();
