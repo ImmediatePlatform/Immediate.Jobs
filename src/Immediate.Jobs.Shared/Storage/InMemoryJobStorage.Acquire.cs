@@ -119,6 +119,7 @@ public sealed partial class InMemoryJobStorage
 		List<JobRecord> acquired
 	)
 	{
+		var eligibility = new Dictionary<string, bool>(StringComparer.Ordinal);
 		foreach (var candidate in _jobs.Values
 			.Where(job => string.Equals(GetQueueName(job.JobName), queueName, StringComparison.Ordinal) &&
 				jobCapacities.ContainsKey(job.JobName) &&
@@ -130,10 +131,11 @@ public sealed partial class InMemoryJobStorage
 		{
 			if (queueCapacity == 0)
 				break;
-			if (jobCapacities[candidate.JobName] <= 0 || !CanAcquire(candidate.JobName, now))
+			if (jobCapacities[candidate.JobName] <= 0 || !CanAcquire(candidate.JobName, now, eligibility))
 				continue;
 
 			acquired.Add(Acquire(candidate, request, now));
+			eligibility.Remove(candidate.JobName);
 			jobCapacities[candidate.JobName]--;
 			queueCapacity--;
 		}
@@ -161,60 +163,87 @@ public sealed partial class InMemoryJobStorage
 	)
 	{
 		var policy = request.FairQueues!;
+		// The gate and acquisition timestamp stay fixed for the entire batch. Build ordered
+		// backlogs once, then advance past definitions whose capacity or limits are exhausted.
+		var groups = _jobs.Values
+			.Where(job => string.Equals(GetQueueName(job.JobName), queueName, StringComparison.Ordinal) &&
+				jobCapacities.TryGetValue(job.JobName, out var capacity) && capacity > 0 &&
+				job.State is JobState.Pending or JobState.Scheduled && job.DueAt <= now)
+			.OrderBy(static job => job.DueAt)
+			.ThenBy(static job => job.CreatedAt)
+			.ThenBy(static job => job.JobHandle.Value, StringComparer.Ordinal)
+			.GroupBy(static job => job.GroupId, StringComparer.Ordinal)
+			.Select(static group => new Queue<JobRecord>(group))
+			.ToList();
+		var eligibility = new Dictionary<string, bool>(StringComparer.Ordinal);
+		var activeCounts = new Dictionary<string, int>(StringComparer.Ordinal);
+		var totalActive = 0;
+		foreach (var job in _jobs.Values)
+		{
+			if (!string.Equals(GetQueueName(job.JobName), queueName, StringComparison.Ordinal) ||
+				job.State != JobState.Active || job.LeaseExpiresAt is null || job.LeaseExpiresAt <= now)
+			{
+				continue;
+			}
+
+			totalActive++;
+			if (job.GroupId is { } groupId)
+				activeCounts[groupId] = activeCounts.GetValueOrDefault(groupId) + 1;
+		}
+
+		var nextSequence = policy.GroupRoundRobin ? GetNextSequence(queueName) : 0;
+		var candidates = new List<Queue<JobRecord>>(groups.Count);
 		while (queueCapacity > 0)
 		{
-			var eligible = _jobs.Values
-				.Where(job => string.Equals(GetQueueName(job.JobName), queueName, StringComparison.Ordinal) &&
-					jobCapacities.TryGetValue(job.JobName, out var capacity) &&
-					capacity > 0 &&
-					job.State is JobState.Pending or JobState.Scheduled &&
-					job.DueAt <= now && CanAcquire(job.JobName, now))
-				.ToList();
-			if (eligible.Count == 0)
+			candidates.Clear();
+			foreach (var group in groups)
+			{
+				while (group.TryPeek(out var head))
+				{
+					if (jobCapacities[head.JobName] > 0 && CanAcquire(head.JobName, now, eligibility))
+					{
+						candidates.Add(group);
+						break;
+					}
+
+					group.Dequeue();
+				}
+			}
+
+			if (candidates.Count == 0)
 				break;
 
-			var activeCounts = _jobs.Values
-				.Where(job => string.Equals(GetQueueName(job.JobName), queueName, StringComparison.Ordinal) &&
-					job.GroupId is not null &&
-					job.State == JobState.Active &&
-					job.LeaseExpiresAt > now)
-				.GroupBy(static job => job.GroupId!, StringComparer.Ordinal)
-				.ToDictionary(static group => group.Key, static group => group.Count(), StringComparer.Ordinal);
-			var totalActive = _jobs.Values.Count(job => string.Equals(GetQueueName(job.JobName), queueName, StringComparison.Ordinal) &&
-				job.State == JobState.Active &&
-				job.LeaseExpiresAt > now);
-			var groupedHeads = eligible
-				.Where(static job => job.GroupId is not null)
-				.GroupBy(static job => job.GroupId!, StringComparer.Ordinal)
-				.Select(static group => group
-					.OrderBy(static job => job.DueAt)
-					.ThenBy(static job => job.CreatedAt)
-					.ThenBy(static job => job.JobHandle.Value, StringComparer.Ordinal)
-					.First());
-			var ungroupedHead = eligible
-				.Where(static job => job.GroupId is null)
-				.OrderBy(static job => job.DueAt)
-				.ThenBy(static job => job.CreatedAt)
-				.ThenBy(static job => job.JobHandle.Value, StringComparer.Ordinal)
-				.Take(1);
-			var candidates = groupedHeads.Concat(ungroupedHead);
-
-			var candidate = candidates
-				.OrderBy(job => IsNoisy(job.GroupId, activeCounts, totalActive, policy))
-				.ThenBy(job => GetNoisyInflight(job.GroupId, activeCounts, totalActive, policy))
-				.ThenBy(job => policy.GroupRoundRobin ? GetLastServed(queueName, job.GroupId) : 0)
-				.ThenBy(static job => job.DueAt)
-				.ThenBy(static job => job.CreatedAt)
-				.ThenBy(static job => job.JobHandle.Value, StringComparer.Ordinal)
+			var selected = candidates
+				.OrderBy(group => IsNoisy(group.Peek().GroupId, activeCounts, totalActive, policy))
+				.ThenBy(group => GetNoisyInflight(group.Peek().GroupId, activeCounts, totalActive, policy))
+				.ThenBy(group => policy.GroupRoundRobin ? GetLastServed(queueName, group.Peek().GroupId) : 0)
+				.ThenBy(static group => group.Peek().DueAt)
+				.ThenBy(static group => group.Peek().CreatedAt)
+				.ThenBy(static group => group.Peek().JobHandle.Value, StringComparer.Ordinal)
 				.First();
 
-			var job = Acquire(candidate, request, now);
+			var job = Acquire(selected.Dequeue(), request, now);
 			acquired.Add(job);
+			eligibility.Remove(job.JobName);
 			jobCapacities[job.JobName]--;
 			queueCapacity--;
+			if (job.LeaseExpiresAt > now)
+			{
+				totalActive++;
+				if (job.GroupId is { } activeGroup)
+					activeCounts[activeGroup] = activeCounts.GetValueOrDefault(activeGroup) + 1;
+			}
+
 			if (policy.GroupRoundRobin && job.GroupId is { } groupId)
-				_fairQueueLastServed[(queueName, groupId)] = GetNextSequence(queueName);
+				_fairQueueLastServed[(queueName, groupId)] = nextSequence++;
 		}
+	}
+
+	private bool CanAcquire(string jobName, DateTimeOffset now, Dictionary<string, bool> eligibility)
+	{
+		if (!eligibility.TryGetValue(jobName, out var ready))
+			eligibility.Add(jobName, ready = CanAcquire(jobName, now));
+		return ready;
 	}
 
 	private static bool IsNoisy(
