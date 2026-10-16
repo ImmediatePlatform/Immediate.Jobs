@@ -81,7 +81,6 @@ internal static class MonitoringStorageConformance
 		{
 			Name = "dynamic",
 			JobName = "Remote",
-			QueueName = "priority",
 			Cron = "* * * * *",
 			TimeZone = "UTC",
 			IsCodeDefined = false,

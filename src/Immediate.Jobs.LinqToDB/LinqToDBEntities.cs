@@ -161,7 +161,7 @@ internal sealed class ImmediateJobContinuationEntity
 }
 
 [Table(Name = "immediate_recurring_jobs")]
-internal class ImmediateRecurringJobEntity
+internal sealed class ImmediateRecurringJobEntity
 {
 	[Column(Length = 512, CanBeNull = true)]
 	public string? CancellationReason { get; set; }

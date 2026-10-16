@@ -22,7 +22,7 @@ public sealed partial class InMemoryJobStorage
 			return new()
 			{
 				Jobs = [.. _jobDefinitions.Values.OrderBy(static definition => definition.Name, StringComparer.OrdinalIgnoreCase)],
-				Recurring = [.. _recurring.Values.OrderBy(static schedule => schedule.Name, StringComparer.Ordinal).Select(schedule => ReadRecord(schedule).ToDefinition())],
+				Recurring = [.. _recurring.Values.OrderBy(static schedule => schedule.Name, StringComparer.Ordinal).Select(schedule => schedule.ToDefinition())],
 			};
 	}
 

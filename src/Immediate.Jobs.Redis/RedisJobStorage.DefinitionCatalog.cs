@@ -35,7 +35,7 @@ internal sealed partial class RedisJobStorage
 				{
 					Name = NormalizeRecurringName(schedule.Name),
 					JobName = schedule.JobName.ToUpperInvariant(),
-					Record = JsonSerializer.Serialize(schedule with { QueueName = null }, RedisJsonSerializerContext.Default.RecurringJobSchedule),
+					Record = JsonSerializer.Serialize(schedule, RedisJsonSerializerContext.Default.RecurringJobSchedule),
 					Cron = schedule.Cron,
 					TimeZone = schedule.TimeZone,
 					Next = Timestamp(schedule.NextRunAt),

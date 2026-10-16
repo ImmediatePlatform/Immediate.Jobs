@@ -115,7 +115,6 @@ internal static class TagStorageConformance
 	{
 		Name = definition.Name,
 		JobName = definition.Name,
-		QueueName = definition.QueueName,
 		Cron = definition.Cron!,
 		TimeZone = definition.TimeZone,
 		IsCodeDefined = true,
@@ -214,7 +213,6 @@ internal static class TagStorageConformance
 		{
 			JobHandle = JobHandle.FromString("tagged-index-occurrence"),
 			JobName = moved.JobName,
-			QueueName = moved.QueueName,
 			State = JobState.Pending,
 			Payload = "{}",
 			CreatedAt = now,

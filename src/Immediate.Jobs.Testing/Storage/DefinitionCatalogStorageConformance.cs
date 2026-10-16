@@ -53,7 +53,7 @@ internal static class DefinitionCatalogStorageConformance
 		};
 		await storage.UpsertRecurringAsync(schedule, token);
 		var persistedSchedule = (await MonitoringTestQueries.GetSchedulesAsync(storage, token)).Single();
-		ConformanceAssert.Equal(schedule with { JobName = definition.Name, QueueName = definition.QueueName }, persistedSchedule,
+		ConformanceAssert.Equal(schedule with { JobName = definition.Name }, persistedSchedule,
 			SubmissionCase, "dynamic schedules must use the persisted definition without a caller-supplied queue");
 
 		await storage.MergeJobDefinitionsListAsync(Registration([definition with { QueueName = "PRIORITY" }]), token);
@@ -80,8 +80,6 @@ internal static class DefinitionCatalogStorageConformance
 			SubmissionCase, "the retained invocation must have a status");
 		ConformanceAssert.Null(status.QueueName,
 			SubmissionCase, "monitoring must retain jobs without inventing a queue");
-		ConformanceAssert.Null((await MonitoringTestQueries.GetSchedulesAsync(storage, token)).Single().QueueName,
-			SubmissionCase, "retained schedules without a definition must have no queue");
 
 		await ConformanceAssert.ThrowsAsync<KeyNotFoundException>(
 			() => storage.EnqueueAsync(job with { JobHandle = JobHandle.FromString("missing-definition") }, token),
@@ -166,7 +164,6 @@ internal static class DefinitionCatalogStorageConformance
 	{
 		Name = definition.Name,
 		JobName = definition.Name,
-		QueueName = definition.QueueName,
 		Cron = definition.Cron!,
 		TimeZone = definition.TimeZone,
 		IsCodeDefined = true,

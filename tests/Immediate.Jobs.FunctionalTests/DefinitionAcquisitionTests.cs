@@ -210,7 +210,6 @@ public sealed class DefinitionAcquisitionTests
 		{
 			Name = "remote-recurring",
 			JobName = "remote-job",
-			QueueName = "previous-queue",
 			Cron = "* * * * *",
 			TimeZone = "UTC",
 			IsCodeDefined = false,

@@ -54,7 +54,6 @@ internal static class DefinitionRemovalStorageConformance
 		{
 			Name = "dynamic",
 			JobName = "RéSUMé",
-			QueueName = "default",
 			Cron = "* * * * *",
 			TimeZone = "UTC",
 			IsCodeDefined = false,

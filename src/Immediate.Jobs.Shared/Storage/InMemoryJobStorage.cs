@@ -101,7 +101,7 @@ public sealed partial class InMemoryJobStorage(
 			_edges.AddRange(edges);
 
 			foreach (var schedule in recurringSchedules)
-				_recurring[schedule.Name] = schedule with { QueueName = null };
+				_recurring[schedule.Name] = schedule;
 		}
 	}
 

@@ -439,7 +439,7 @@ internal static class DefinitionAcquisitionStorageConformance
 		}, token);
 
 		var now = clock.GetUtcNow();
-		var schedule = new RecurringJobSchedule { Name = "schedule", JobName = Name, QueueName = "default", Cron = "* * * * *", TimeZone = "UTC", NextRunAt = now, IsCodeDefined = false };
+		var schedule = new RecurringJobSchedule { Name = "schedule", JobName = Name, Cron = "* * * * *", TimeZone = "UTC", NextRunAt = now, IsCodeDefined = false };
 		await storage.UpsertRecurringAsync(schedule, token);
 		await storage.PauseJobAsync(Name, token);
 		var due = (await storage.GetDueRecurringAsync(now, 10, [Name], token)).Single();

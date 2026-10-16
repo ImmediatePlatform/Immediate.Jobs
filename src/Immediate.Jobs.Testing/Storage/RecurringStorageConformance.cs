@@ -232,7 +232,6 @@ internal static class RecurringStorageConformance
 		var updatedDefinition = Schedule("merge-update", now.AddHours(4), isCodeDefined: true) with
 		{
 			JobName = "merge-update",
-			QueueName = "merge-updated-queue",
 			Cron = "30 * * * *",
 			TimeZone = "Europe/Vienna",
 		};
@@ -247,7 +246,7 @@ internal static class RecurringStorageConformance
 				Definitions = supplied.Select(static schedule => new JobDefinitionRecord
 				{
 					Name = schedule.JobName,
-					QueueName = schedule.QueueName ?? "default",
+					QueueName = QueueName,
 					Cron = schedule.Cron,
 					TimeZone = schedule.TimeZone,
 				}).ToList(),
@@ -259,7 +258,6 @@ internal static class RecurringStorageConformance
 		var schedules = (await MonitoringTestQueries.GetSchedulesAsync(storage, cancellationToken));
 		var updated = schedules.Single(schedule => string.Equals(schedule.Name, "merge-update", StringComparison.Ordinal));
 		ConformanceAssert.Equal(updatedDefinition.JobName, updated.JobName, MergeDefinitionsName, "merge must update the job name");
-		ConformanceAssert.Equal(updatedDefinition.QueueName, updated.QueueName, MergeDefinitionsName, "merge must update the queue name");
 		ConformanceAssert.Equal(updatedDefinition.Cron, updated.Cron, MergeDefinitionsName, "merge must update the cron expression");
 		ConformanceAssert.Equal(updatedDefinition.TimeZone, updated.TimeZone, MergeDefinitionsName, "merge must update the time zone");
 		ConformanceAssert.Equal(updatedDefinition.NextRunAt, updated.NextRunAt, MergeDefinitionsName, "merge must update the next run time");
@@ -281,7 +279,7 @@ internal static class RecurringStorageConformance
 		);
 		var dynamic = schedules.Single(schedule => string.Equals(schedule.Name, "merge-dynamic", StringComparison.Ordinal));
 		AssertSchedule(
-			Schedule("merge-dynamic", persistedAt.AddHours(3), isCodeDefined: false) with { QueueName = null },
+			Schedule("merge-dynamic", persistedAt.AddHours(3), isCodeDefined: false),
 			dynamic,
 			MergeDefinitionsName,
 			"merge must leave existing dynamic schedules untouched"
@@ -637,7 +635,6 @@ internal static class RecurringStorageConformance
 	{
 		Name = name,
 		JobName = JobName,
-		QueueName = QueueName,
 		Cron = "0 * * * *",
 		TimeZone = "UTC",
 		IsCodeDefined = isCodeDefined,

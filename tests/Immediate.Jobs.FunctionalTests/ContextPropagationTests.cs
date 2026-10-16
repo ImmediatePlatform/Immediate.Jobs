@@ -356,7 +356,6 @@ public sealed class ContextPropagationTests
 	{
 		Name = name,
 		JobName = jobName,
-		QueueName = "default",
 		Cron = "0 * * * *",
 		TimeZone = "UTC",
 		IsCodeDefined = isCodeDefined,

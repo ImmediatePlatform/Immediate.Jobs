@@ -3,7 +3,8 @@
 ## Schedules
 
 A `RecurringJobSchedule` has a unique `Name`, the `JobName` it materializes, a `Cron`, an IANA
-`TimeZone`, `NextRunAt`, a paused flag, and `IsCodeDefined`.
+`TimeZone`, `NextRunAt`, a paused flag, and `IsCodeDefined`. Queue routing comes from the current
+job definition identified by `JobName`; schedules do not carry a queue name.
 
 Schedule names are case-insensitive identities. Upsert, pause, resume, removal, manual triggering,
 materialization, and startup reconciliation accept case aliases and retain the first stored spelling.

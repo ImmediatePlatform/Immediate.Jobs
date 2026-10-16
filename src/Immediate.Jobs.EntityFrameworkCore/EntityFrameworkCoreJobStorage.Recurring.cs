@@ -99,7 +99,7 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 		await TaskScheduler.Yield();
 
 		await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
-		return await RecurringWithDefinitions(context)
+		return await context.Set<ImmediateRecurringJobEntity>()
 			.AsNoTracking()
 			.Where(schedule => !schedule.IsPaused && schedule.NextRunAt <= now && jobNames.Contains(schedule.JobName))
 			.OrderBy(schedule => schedule.NextRunAt)
@@ -108,7 +108,6 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 			{
 				Name = schedule.Name,
 				JobName = schedule.JobName,
-				QueueName = schedule.QueueName,
 				CancellationReason = schedule.CancellationReason,
 				Cron = schedule.Cron,
 				TimeZone = schedule.TimeZone,

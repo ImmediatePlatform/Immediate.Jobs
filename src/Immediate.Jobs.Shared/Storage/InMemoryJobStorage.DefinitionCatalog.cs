@@ -61,7 +61,7 @@ public sealed partial class InMemoryJobStorage
 			foreach (var name in changes.RemovedScheduleNames)
 				_recurring.Remove(name);
 			foreach (var schedule in changes.Schedules)
-				_recurring[schedule.Name] = schedule with { QueueName = null };
+				_recurring[schedule.Name] = schedule;
 		}
 	}
 
@@ -79,9 +79,6 @@ public sealed partial class InMemoryJobStorage
 		_jobDefinitions.TryGetValue(jobName, out var definition) ? definition.QueueName : null;
 
 	private JobRecord ReadRecord(JobRecord job) => job with { QueueName = GetQueueName(job.JobName) };
-
-	private RecurringJobSchedule ReadRecord(RecurringJobSchedule schedule) =>
-		schedule with { QueueName = GetQueueName(schedule.JobName) };
 
 	[LoggerMessage(
 		EventId = LibraryEventIds.InMemoryDefinitionRemoved,

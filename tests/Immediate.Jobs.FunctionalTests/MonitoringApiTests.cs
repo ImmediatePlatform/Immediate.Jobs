@@ -33,7 +33,6 @@ public sealed class MonitoringApiTests
 		{
 			Name = "Résumé",
 			JobName = "remote",
-			QueueName = "old",
 			Cron = "* * * * *",
 			TimeZone = "UTC",
 			IsCodeDefined = false,

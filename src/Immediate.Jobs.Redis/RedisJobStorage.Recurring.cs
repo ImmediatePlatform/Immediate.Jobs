@@ -23,7 +23,7 @@ internal sealed partial class RedisJobStorage
 			RedisScripts.UpsertRecurring,
 			[RecurringKey(schedule.Name), RecurringNamesKey, RecurringDueKey, DefinitionMetadataKey],
 			[
-				JsonSerializer.Serialize(schedule with { QueueName = null }, RedisJsonSerializerContext.Default.RecurringJobSchedule),
+				JsonSerializer.Serialize(schedule, RedisJsonSerializerContext.Default.RecurringJobSchedule),
 				schedule.IsCodeDefined ? 1 : 0,
 				schedule.IsPaused ? 1 : 0,
 				Timestamp(schedule.NextRunAt),
@@ -218,9 +218,7 @@ internal sealed partial class RedisJobStorage
 		var tasks = names.Select(name => ReadRecurringDataAsync(name, cancellationToken).AsTask()).ToList();
 		var schedules = await Task.WhenAll(tasks).WaitAsync(cancellationToken);
 		var records = schedules.OfType<RecurringJobSchedule>().ToList();
-		var queues = await ReadDefinitionQueuesAsync(records.Select(static schedule => schedule.JobName), cancellationToken);
 		return [.. records
-			.Select(schedule => schedule with { QueueName = queues[schedule.JobName] })
 			.OrderBy(schedule => schedule.NextRunAt)
 			.ThenBy(schedule => schedule.Name, StringComparer.OrdinalIgnoreCase)];
 	}
