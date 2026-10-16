@@ -7,6 +7,7 @@ namespace Immediate.Jobs.Testing.Storage;
 
 internal static class RecurringStorageConformance
 {
+	private const string UpsertProgressName = "Recurring.Upsert.PreservesMaterializedProgressAcrossStaleAliases";
 	private const string LifecycleName = "Recurring.Lifecycle.UpdatesPausesResumesAndRemovesDynamicSchedule";
 	private const string MergeDefinitionsName = "Recurring.Definitions.MergesCodeDefinedSchedulesAndPreservesDynamicSchedules";
 	private const string DueScanName = "Recurring.DueScanning.FiltersOrdersAndBatchesSchedules";
@@ -26,6 +27,7 @@ internal static class RecurringStorageConformance
 		new("Recurring.Identity.MatchesCaseInsensitiveNamesThroughout", StorageCapabilities.Queue, MatchesNamesAsync),
 		new("Recurring.Eligibility.MatchesCaseInsensitiveJobNamesBeforeBatching", StorageCapabilities.Queue, MatchesJobNamesAsync),
 		new(LifecycleName, StorageCapabilities.Queue, DynamicLifecycleAsync),
+		new(UpsertProgressName, StorageCapabilities.Queue, PreservesMaterializedProgressOnUpsertAsync),
 		new(MergeDefinitionsName, StorageCapabilities.Queue, MergesDefinitionsAsync, ExistingRecurringSchedules()),
 		new(DueScanName, StorageCapabilities.Queue, FiltersDueSchedulesAsync),
 		new(MaterializeName, StorageCapabilities.Queue, MaterializesAtomicallyAsync),
@@ -37,6 +39,45 @@ internal static class RecurringStorageConformance
 		new(PurgeName, StorageCapabilities.Queue, PurgeRemovesDedupeStateAsync),
 		new(ExceptionsName, StorageCapabilities.Queue, UsesDashboardExceptionConventionsAsync),
 	];
+
+	private static async ValueTask PreservesMaterializedProgressOnUpsertAsync(IJobStorage storage, FakeTimeProvider clock, CancellationToken token)
+	{
+		await storage.MergeJobDefinitionsListAsync(new() { Definitions = [new() { Name = JobName, QueueName = QueueName }] }, token);
+		var now = clock.GetUtcNow();
+		var original = Schedule("Upsert.Progress", now, isCodeDefined: false);
+		await storage.UpsertRecurringAsync(original, token);
+		var first = Occurrence("upsert-first", original, JobState.Pending, now);
+		ConformanceAssert.True(await storage.MaterializeRecurringAsync(original, first, now.AddMinutes(1), cancellationToken: token),
+			UpsertProgressName, "the first occurrence must materialize");
+		clock.Advance(TimeSpan.FromMinutes(1));
+		var advanced = await GetScheduleAsync(storage, original.Name, UpsertProgressName, token);
+		var second = Occurrence("upsert-second", advanced, JobState.Pending, clock.GetUtcNow());
+		ConformanceAssert.True(await storage.MaterializeRecurringAsync(advanced, second, now.AddMinutes(2), cancellationToken: token),
+			UpsertProgressName, "a second occurrence must advance the stored last-run time");
+		await storage.PauseRecurringAsync("UPSERT.PROGRESS", token);
+
+		foreach (var suppliedLastRun in new DateTimeOffset?[] { null, now, now.AddHours(1) })
+		{
+			var update = original with
+			{
+				Name = "UPSERT.PROGRESS",
+				Cron = "15 * * * *",
+				NextRunAt = now.AddMinutes(3),
+				LastRunAt = suppliedLastRun,
+			};
+			await storage.UpsertRecurringAsync(update, token);
+			var persisted = await GetScheduleAsync(storage, original.Name, UpsertProgressName, token);
+			ConformanceAssert.Equal<DateTimeOffset?>(now.AddMinutes(1), persisted.LastRunAt, UpsertProgressName,
+				"a configuration upsert cannot clear, rewind, or forge materialized progress");
+			ConformanceAssert.Equal(original.Name, persisted.Name, UpsertProgressName, "updates through an alias preserve the first stored spelling");
+			ConformanceAssert.Equal(update.Cron, persisted.Cron, UpsertProgressName, "preserving progress must still update configuration");
+			ConformanceAssert.Equal(update.NextRunAt, persisted.NextRunAt, UpsertProgressName, "the supplied next run time must still be updated");
+			ConformanceAssert.True(persisted.IsPaused, UpsertProgressName, "a stale upsert must preserve the administrative pause");
+		}
+
+		ConformanceAssert.Equal(2, (await storage.QueryJobsAsync(new() { JobName = JobName }, token)).Count, UpsertProgressName,
+			"schedule updates must preserve both materialized invocation records");
+	}
 
 	private static async ValueTask MatchesNamesAsync(IJobStorage storage, FakeTimeProvider timeProvider, CancellationToken token)
 	{

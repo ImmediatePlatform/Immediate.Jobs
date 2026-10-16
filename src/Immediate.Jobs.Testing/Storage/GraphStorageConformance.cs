@@ -4,7 +4,7 @@ using Microsoft.Extensions.Time.Testing;
 
 namespace Immediate.Jobs.Testing.Storage;
 
-internal static class GraphStorageConformance
+internal static partial class GraphStorageConformance
 {
 	private const string RoutingName = "Graph.Submission.ResolvesQueuesAtomically";
 	private const string CapabilityName = "Graph.Capability.ResolvesAdvertisedStorage";
@@ -41,6 +41,11 @@ internal static class GraphStorageConformance
 		new(CancellationName, StorageCapabilities.Graph, CancelUnsettledChainAsync),
 		new(BatchPurgeName, StorageCapabilities.Graph, PurgeExpiredBatchAsync),
 		new(BatchPurgeRaceName, StorageCapabilities.Graph, SerializeBatchPurgeWithRetryAsync),
+		new(ConcurrentSpliceName, StorageCapabilities.Graph, ConcurrentSplicePreservesParentsAsync),
+		new(BufferedSpliceName, StorageCapabilities.Graph, BufferedSplicePreservesEveryAdditionAsync),
+		new(CyclicGraphName, StorageCapabilities.Graph, RejectsCyclicGraphsAsync),
+		new(DuplicateEdgeName, StorageCapabilities.Graph, RejectsDuplicateEdgesAsync),
+		new(MemberDeletionName, StorageCapabilities.Graph, RejectsIndividualBatchMemberDeletionAsync),
 	];
 
 	private static async ValueTask ResolvesQueuesAtomicallyAsync(IJobStorage storage, FakeTimeProvider clock, CancellationToken token)
