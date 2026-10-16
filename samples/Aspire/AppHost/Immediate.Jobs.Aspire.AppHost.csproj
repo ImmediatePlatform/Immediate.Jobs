@@ -1,17 +1,21 @@
 <Project Sdk="Aspire.AppHost.Sdk/13.4.6">
 
   <PropertyGroup>
-    <OutputType>Exe</OutputType>
-    <UserSecretsId>e7fd0b27-61fa-4dfd-9787-1e260c52b7bd</UserSecretsId>
+	<OutputType>Exe</OutputType>
+	<UserSecretsId>e7fd0b27-61fa-4dfd-9787-1e260c52b7bd</UserSecretsId>
 	<_AspireUseSdkPickBestRid>false</_AspireUseSdkPickBestRid>
   </PropertyGroup>
-  
+
   <ItemGroup>
-    <PackageReference Include="Aspire.Hosting.PostgreSQL" />
+	<PackageReference Include="Aspire.Hosting.PostgreSQL" />
   </ItemGroup>
-  
+
+  <ItemGroup Label="Security Dependency">
+	<PackageReference Include="MessagePack" />
+  </ItemGroup>
+
   <ItemGroup>
-    <ProjectReference Include="../Api/Immediate.Jobs.Aspire.Api.csproj" />
+	<ProjectReference Include="../Api/Immediate.Jobs.Aspire.Api.csproj" />
   </ItemGroup>
-  
+
 </Project>

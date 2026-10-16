@@ -9,9 +9,12 @@
   <ItemGroup>
 	<PackageReference Include="Aspire.Hosting.PostgreSQL" />
   </ItemGroup>
+  <ItemGroup Label="Security Dependency">
+	<PackageReference Include="MessagePack" />
+  </ItemGroup>
   <ItemGroup>
 	<ProjectReference Include="../Api/Immediate.Jobs.DistributedAspire.Api.csproj" />
 	<ProjectReference Include="../Cli/Immediate.Jobs.DistributedAspire.Cli.csproj" />
-	<ProjectReference Include="..\Worker\Immediate.Jobs.DistributedAspire.Worker.csproj" />
+	<ProjectReference Include="../Worker/Immediate.Jobs.DistributedAspire.Worker.csproj" />
   </ItemGroup>
 </Project>
