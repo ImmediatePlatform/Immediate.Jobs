@@ -17,7 +17,7 @@ public sealed partial class InMemoryJobStorage
 		{
 			var changes = JobDefinitionReconciliation.Create(registration, [.. _jobDefinitions.Values], [.. _recurring.Values]);
 			var removed = changes.RemovedDefinitionNames.ToHashSet(StringComparer.OrdinalIgnoreCase);
-			var jobs = _jobs.Values.Where(job => removed.Contains(job.JobName) && !IsTerminal(job.State)).ToList();
+			var jobs = removed.SelectMany(GetJobsForDefinition).Where(job => !IsTerminal(job.State)).ToList();
 			var schedules = _recurring.Values.Where(schedule => !schedule.IsCodeDefined && removed.Contains(schedule.JobName)
 				&& schedule.CancellationReason is null).ToList();
 			var now = timeProvider.GetUtcNow();

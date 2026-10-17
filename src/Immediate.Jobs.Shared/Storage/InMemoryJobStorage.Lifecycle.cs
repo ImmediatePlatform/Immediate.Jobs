@@ -85,7 +85,7 @@ public sealed partial class InMemoryJobStorage
 			IncrementBatchMembers(current.BatchHandle, trackedAdditions);
 			foreach (var addition in additions)
 			{
-				_jobs.Add(addition.Job.JobHandle, NormalizeWaitingJob(records[addition.Job.JobHandle], dependencyCount: 1));
+				AddJob(NormalizeWaitingJob(records[addition.Job.JobHandle], dependencyCount: 1));
 				if (addition.Options == ContinuationOptions.BeforeContinuations)
 					SpliceBeforeWaiters(addition.Job.JobHandle, existingWaiters);
 			}
@@ -172,8 +172,8 @@ public sealed partial class InMemoryJobStorage
 				throw new ImmediateJobException("Only an executing batch can be cancelled.");
 
 			var now = timeProvider.GetUtcNow();
-			var jobHandles = _jobs.Values
-				.Where(job => job.BatchHandle == batchHandle && !IsTerminal(job.State))
+			var jobHandles = GetJobsForBatch(batchHandle)
+				.Where(job => !IsTerminal(job.State))
 				.Select(static job => job.JobHandle)
 				.ToList();
 			foreach (var jobHandle in jobHandles)
@@ -240,11 +240,9 @@ public sealed partial class InMemoryJobStorage
 			if (job.BatchHandle is not null)
 				throw new ImmediateJobException("Batch members cannot be deleted individually.");
 
-			_ = _jobs.Remove(jobHandle);
-			_ = _executions.Remove(jobHandle);
-			if (job.RecurringKey is { } recurringKey)
-				_ = _recurringKeys.Remove(recurringKey);
-			RemoveEdgesForJobs([jobHandle]);
+			HashSet<JobHandle> jobHandles = [jobHandle];
+			RemoveJobs(jobHandles);
+			RemoveEdgesForJobs(jobHandles);
 		}
 	}
 
@@ -275,13 +273,7 @@ public sealed partial class InMemoryJobStorage
 				.Select(static job => job.JobHandle)
 				.ToHashSet();
 
-			foreach (var id in standaloneJobHandles)
-			{
-				if (_jobs[id].RecurringKey is { } recurringKey)
-					_ = _recurringKeys.Remove(recurringKey);
-				_ = _jobs.Remove(id);
-				_ = _executions.Remove(id);
-			}
+			RemoveJobs(standaloneJobHandles);
 
 			RemoveEdgesForJobs(standaloneJobHandles);
 		}
@@ -313,16 +305,9 @@ public sealed partial class InMemoryJobStorage
 				.Select(static batch => batch.BatchHandle)
 				.ToHashSet();
 
-			var batchJobHandles = _jobs.Values
-				.Where(job => job.BatchHandle is { } batchHandle && batchHandles.Contains(batchHandle))
-				.Select(static job => job.JobHandle)
-				.ToHashSet();
-
-			foreach (var id in batchJobHandles)
-			{
-				_ = _jobs.Remove(id);
-				_ = _executions.Remove(id);
-			}
+			var batchJobHandles = batchHandles.SelectMany(batchHandle =>
+				_jobsByBatch.TryGetValue(batchHandle, out var handles) ? (IEnumerable<JobHandle>)handles : []).ToHashSet();
+			RemoveJobs(batchJobHandles);
 
 			foreach (var batchHandle in batchHandles)
 				_ = _batches.Remove(batchHandle);

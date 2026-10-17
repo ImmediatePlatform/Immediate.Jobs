@@ -123,7 +123,7 @@ public sealed partial class InMemoryJobStorage
 				_batches.Add(batch.BatchHandle, batch);
 			foreach (var job in jobs)
 			{
-				_jobs.Add(job.JobHandle, job with { QueueName = null });
+				AddJob(job with { QueueName = null });
 				if (job.RecurringKey is { } recurringKey)
 					_recurringKeys.Add(recurringKey);
 			}

@@ -110,6 +110,12 @@ public sealed partial class InMemoryJobStorage
 		return acquired;
 	}
 
+	private IEnumerable<JobRecord> GetAcquisitionCandidates(Dictionary<string, int> jobCapacities) =>
+		// A broad request benefits from one contiguous pass rather than resolving every stored handle.
+		jobCapacities.Count >= _jobsByDefinition.Count
+			? _jobs.Values
+			: jobCapacities.Keys.SelectMany(GetJobsForDefinition);
+
 	private void AcquireQueueInExistingOrder(
 		JobAcquisitionRequest request,
 		string queueName,
@@ -120,7 +126,7 @@ public sealed partial class InMemoryJobStorage
 	)
 	{
 		var eligibility = new Dictionary<string, bool>(StringComparer.Ordinal);
-		foreach (var candidate in _jobs.Values
+		foreach (var candidate in GetAcquisitionCandidates(jobCapacities)
 			.Where(job => string.Equals(GetQueueName(job.JobName), queueName, StringComparison.Ordinal) &&
 				jobCapacities.ContainsKey(job.JobName) &&
 				job.State is JobState.Pending or JobState.Scheduled &&
@@ -146,7 +152,7 @@ public sealed partial class InMemoryJobStorage
 		Dictionary<string, int> jobCapacities,
 		DateTimeOffset now
 	) =>
-		_jobs.Values.Any(job => string.Equals(GetQueueName(job.JobName), queueName, StringComparison.Ordinal) &&
+		GetAcquisitionCandidates(jobCapacities).Any(job => string.Equals(GetQueueName(job.JobName), queueName, StringComparison.Ordinal) &&
 			job.GroupId is not null &&
 			jobCapacities.TryGetValue(job.JobName, out var capacity) &&
 			capacity > 0 &&
@@ -165,7 +171,7 @@ public sealed partial class InMemoryJobStorage
 		var policy = request.FairQueues!;
 		// The gate and acquisition timestamp stay fixed for the entire batch. Build ordered
 		// backlogs once, then advance past definitions whose capacity or limits are exhausted.
-		var groups = _jobs.Values
+		var groups = GetAcquisitionCandidates(jobCapacities)
 			.Where(job => string.Equals(GetQueueName(job.JobName), queueName, StringComparison.Ordinal) &&
 				jobCapacities.TryGetValue(job.JobName, out var capacity) && capacity > 0 &&
 				job.State is JobState.Pending or JobState.Scheduled && job.DueAt <= now)

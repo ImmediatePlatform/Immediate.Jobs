@@ -28,6 +28,7 @@ public sealed partial class InMemoryJobStorage
 
 	private IReadOnlyList<JobAcquisitionState> GetDefinitionStatuses(DateTimeOffset now)
 	{
+		// This full-store snapshot needs counts for every definition in one pass.
 		var active = _jobs.Values.Where(job => job.State == JobState.Active && job.LeaseExpiresAt > now)
 			.GroupBy(static job => job.JobName, StringComparer.OrdinalIgnoreCase)
 			.ToDictionary(static group => group.Key, static group => group.Count(), StringComparer.OrdinalIgnoreCase);
@@ -79,6 +80,8 @@ public sealed partial class InMemoryJobStorage
 			IEnumerable<JobRecord> jobs = _jobs.Values;
 			if (query.JobHandle is { } id)
 				jobs = _jobs.TryGetValue(id, out var job) ? [job] : [];
+			else if (!string.IsNullOrWhiteSpace(query.JobName))
+				jobs = GetJobsForDefinition(query.JobName);
 			if (query.State is { } state)
 				jobs = jobs.Where(x => x.State == state);
 			if (!string.IsNullOrWhiteSpace(query.QueueName))
@@ -111,8 +114,7 @@ public sealed partial class InMemoryJobStorage
 
 		lock (_gate)
 		{
-			return _jobs.Values
-				.Where(j => string.Equals(j.JobName, jobName, StringComparison.OrdinalIgnoreCase))
+			return GetJobsForDefinition(jobName)
 				.Where(
 					j => j.State is
 						JobState.AwaitingContinuation
@@ -219,7 +221,7 @@ public sealed partial class InMemoryJobStorage
 			if (!_batches.ContainsKey(batchHandle))
 				return [];
 
-			var members = _jobs.Values.Where(job => job.BatchHandle == batchHandle);
+			var members = GetJobsForBatch(batchHandle);
 			if (query.State is { } state)
 				members = members.Where(job => job.State == state);
 
@@ -261,8 +263,7 @@ public sealed partial class InMemoryJobStorage
 			if (!_batches.ContainsKey(batchHandle))
 				return null;
 
-			var members = _jobs.Values
-				.Where(job => job.BatchHandle == batchHandle)
+			var members = GetJobsForBatch(batchHandle)
 				.OrderBy(job => job.CreatedAt)
 				.ThenBy(job => job.JobHandle.Value, StringComparer.Ordinal)
 				.ToList();

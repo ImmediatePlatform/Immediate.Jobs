@@ -69,8 +69,8 @@ public sealed partial class InMemoryJobStorage
 				return false;
 
 			_batches[batchHandle] = batch with { State = BatchState.Executing };
-			foreach (var job in _jobs.Values
-				.Where(job => job.BatchHandle == batchHandle && job.State == JobState.WaitingForTrigger)
+			foreach (var job in GetJobsForBatch(batchHandle)
+				.Where(job => job.State == JobState.WaitingForTrigger)
 				.ToList())
 			{
 				Trigger(job, job.DueAt);

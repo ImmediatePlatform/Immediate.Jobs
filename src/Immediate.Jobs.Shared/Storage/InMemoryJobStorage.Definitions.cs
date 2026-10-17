@@ -16,7 +16,7 @@ public sealed partial class InMemoryJobStorage
 				MaterializeSyntheticExecution(previous);
 				if (previous.State == JobState.Active)
 					InterruptExecution(previous);
-				_jobs[job.JobHandle] = job with { QueueName = null };
+				SetJob(job with { QueueName = null });
 				CreateExecution(job, timeProvider.GetUtcNow());
 				MarkBatchStarted(job.BatchHandle, timeProvider.GetUtcNow());
 			}
@@ -89,8 +89,7 @@ public sealed partial class InMemoryJobStorage
 			jobName, definition.State.IsPaused, limits, now, acquisitions,
 			definition.FixedWindowStart, definition.FixedWindowCount,
 			(includeActiveCount || limits.MaxConcurrency > 0)
-				? _jobs.Values.Count(job => string.Equals(job.JobName, jobName, StringComparison.Ordinal) &&
-					job.State == JobState.Active && job.LeaseExpiresAt > now)
+				? GetJobsForDefinition(jobName).Count(job => job.State == JobState.Active && job.LeaseExpiresAt > now)
 				: 0
 		);
 		return definition.State;

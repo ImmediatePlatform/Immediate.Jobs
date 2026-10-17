@@ -15,8 +15,7 @@ public sealed partial class InMemoryJobStorage
 		lock (_gate)
 		{
 			var record = CreateRecord(job);
-			if (!_jobs.TryAdd(record.JobHandle, record))
-				throw new ImmediateJobException($"Job '{record.JobHandle}' already exists.");
+			AddJob(record);
 		}
 	}
 
@@ -31,7 +30,7 @@ public sealed partial class InMemoryJobStorage
 			var record = CreateRecord(job);
 			ValidateNewJob(record);
 			ValidateEdges([record], edges, batchHandle: null);
-			_jobs.Add(record.JobHandle, NormalizeWaitingJob(record, edges.Count));
+			AddJob(NormalizeWaitingJob(record, edges.Count));
 			_edges.AddRange(edges);
 			EvaluateAlreadyTerminalParents(edges);
 		}
@@ -65,7 +64,7 @@ public sealed partial class InMemoryJobStorage
 				.ToDictionary(static group => group.Key, static group => group.Count());
 			foreach (var record in records)
 			{
-				_jobs.Add(record.JobHandle, incomingCounts.TryGetValue(record.JobHandle, out var dependencyCount)
+				AddJob(incomingCounts.TryGetValue(record.JobHandle, out var dependencyCount)
 					? NormalizeWaitingJob(record, dependencyCount)
 					: record with { BatchHandle = batch.BatchHandle, RemainingDependencies = 0, FailedDependencies = 0 });
 			}
@@ -119,7 +118,7 @@ public sealed partial class InMemoryJobStorage
 				: [];
 			ValidateSplice(existingWaiters, options == ContinuationOptions.BeforeContinuations ? 1 : 0);
 			IncrementBatchMembers(current.BatchHandle, 1);
-			_jobs.Add(persisted.JobHandle, persisted with { RemainingDependencies = 0 });
+			AddJob(persisted with { RemainingDependencies = 0 });
 			if (options == ContinuationOptions.BeforeContinuations)
 				SpliceBeforeWaiters(persisted.JobHandle, existingWaiters);
 		}

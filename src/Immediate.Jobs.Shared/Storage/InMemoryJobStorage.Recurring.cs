@@ -121,7 +121,7 @@ public sealed partial class InMemoryJobStorage
 			var inserted = job.RecurringKey is null || _recurringKeys.Add(job.RecurringKey);
 			if (inserted)
 			{
-				_jobs[job.JobHandle] = job with { QueueName = null };
+				SetJob(job with { QueueName = null });
 
 				if (dependencies is { })
 				{
