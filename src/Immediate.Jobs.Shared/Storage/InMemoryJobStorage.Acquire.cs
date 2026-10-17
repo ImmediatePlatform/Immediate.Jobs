@@ -303,6 +303,24 @@ public sealed partial class InMemoryJobStorage
 		return ReadRecord(job);
 	}
 
+	internal void ApplyAcquiredJobs(IReadOnlyList<JobRecord> acquired)
+	{
+		lock (_gate)
+		{
+			foreach (var job in acquired)
+			{
+				if (!_jobs.TryGetValue(job.JobHandle, out var previous) || job.Attempt != previous.Attempt + 1)
+					throw new ImmediateJobException("The single-server primary has drifted from durable storage. Use only one scheduler process.");
+				MaterializeSyntheticExecution(previous);
+				if (previous.State == JobState.Active)
+					InterruptExecution(previous);
+				SetJob(job with { QueueName = null });
+				CreateExecution(job, timeProvider.GetUtcNow());
+				MarkBatchStarted(job.BatchHandle, timeProvider.GetUtcNow());
+			}
+		}
+	}
+
 	private void MarkBatchStarted(BatchHandle? batchHandle, DateTimeOffset startedAt)
 	{
 		if (batchHandle is null)
