@@ -152,16 +152,10 @@ public sealed partial class JobSchedulingService : BackgroundService
 	}
 
 	/// <inheritdoc />
-	public override async Task StartAsync(CancellationToken cancellationToken)
-	{
-		await TaskScheduler.Yield();
-		await InitializeAsync(cancellationToken);
-		await base.StartAsync(cancellationToken);
-	}
-
-	/// <inheritdoc />
 	protected override async Task ExecuteAsync(CancellationToken stoppingToken)
 	{
+		await TaskScheduler.Yield();
+
 		// initialization needs to be done no matter what, so that storage is initialized
 		await InitializeAsync(stoppingToken);
 
@@ -247,12 +241,10 @@ public sealed partial class JobSchedulingService : BackgroundService
 
 	private async Task InitializeAsync(CancellationToken cancellationToken)
 	{
-		if (_drainInitialized)
-			return;
 		await _storage.InitializeAsync(cancellationToken);
 
 		var definitions = _definitions.Values
-			.Select(static definition => new JobDefinitionRecord
+			.Select(definition => new JobDefinitionRecord
 			{
 				Name = definition.Name,
 				Tags = definition.Tags,
@@ -278,10 +270,16 @@ public sealed partial class JobSchedulingService : BackgroundService
 		var now = _timeProvider.GetUtcNow();
 
 		var schedules = _definitions.Values
-			.Where(static definition => definition.Cron is not null)
-			.ToDictionary(static definition => definition.Name,
-				definition => now.GetNextOccurrence(definition.Cron!, definition.TimeZone, definition.Name),
-				StringComparer.OrdinalIgnoreCase);
+			.Where(d => d.Cron is not null)
+			.ToDictionary(
+				x => x.Name,
+				d => now.GetNextOccurrence(
+					d.Cron!,
+					d.TimeZone,
+					d.Name
+				),
+				StringComparer.OrdinalIgnoreCase
+			);
 
 		await _storage.MergeJobDefinitionsListAsync(
 			new()
@@ -292,7 +290,6 @@ public sealed partial class JobSchedulingService : BackgroundService
 			},
 			cancellationToken
 		);
-		_drainInitialized = true;
 	}
 
 	/// <summary>
