@@ -112,12 +112,6 @@ public sealed partial class InMemoryJobStorage
 		return acquired;
 	}
 
-	private IEnumerable<JobRecord> GetAcquisitionCandidates(Dictionary<string, int> jobCapacities) =>
-		// A broad request benefits from one contiguous pass rather than resolving every stored handle.
-		jobCapacities.Count >= _jobsByDefinition.Count
-			? _jobs.Values
-			: jobCapacities.Keys.SelectMany(GetJobsForDefinition);
-
 	private void AcquireQueueInExistingOrder(
 		JobAcquisitionRequest request,
 		string queueName,
@@ -128,10 +122,8 @@ public sealed partial class InMemoryJobStorage
 	)
 	{
 		var eligibility = new Dictionary<string, bool>(StringComparer.Ordinal);
-		foreach (var candidate in GetAcquisitionCandidates(jobCapacities)
-			.Where(job => string.Equals(GetQueueName(job.JobName), queueName, StringComparison.Ordinal) &&
-				jobCapacities.ContainsKey(job.JobName) &&
-				job.State is JobState.Pending or JobState.Scheduled &&
+		foreach (var candidate in GetJobsForQueue(queueName, jobCapacities.Keys)
+			.Where(job => job.State is JobState.Pending or JobState.Scheduled &&
 				job.DueAt <= now)
 			.OrderBy(job => job.DueAt)
 			.ThenBy(job => job.CreatedAt)
@@ -154,8 +146,7 @@ public sealed partial class InMemoryJobStorage
 		Dictionary<string, int> jobCapacities,
 		DateTimeOffset now
 	) =>
-		GetAcquisitionCandidates(jobCapacities).Any(job => string.Equals(GetQueueName(job.JobName), queueName, StringComparison.Ordinal) &&
-			job.GroupId is not null &&
+		GetJobsForQueue(queueName, jobCapacities.Keys).Any(job => job.GroupId is not null &&
 			jobCapacities.TryGetValue(job.JobName, out var capacity) &&
 			capacity > 0 &&
 			job.State is JobState.Pending or JobState.Scheduled &&
@@ -173,9 +164,8 @@ public sealed partial class InMemoryJobStorage
 		var policy = request.FairQueues!;
 		// The gate and acquisition timestamp stay fixed for the entire batch. Build ordered
 		// backlogs once, then advance past definitions whose capacity or limits are exhausted.
-		var groups = GetAcquisitionCandidates(jobCapacities)
-			.Where(job => string.Equals(GetQueueName(job.JobName), queueName, StringComparison.Ordinal) &&
-				jobCapacities.TryGetValue(job.JobName, out var capacity) && capacity > 0 &&
+		var groups = GetJobsForQueue(queueName, jobCapacities.Keys)
+			.Where(job => jobCapacities.TryGetValue(job.JobName, out var capacity) && capacity > 0 &&
 				job.State is JobState.Pending or JobState.Scheduled && job.DueAt <= now)
 			.OrderBy(static job => job.DueAt)
 			.ThenBy(static job => job.CreatedAt)
@@ -186,10 +176,9 @@ public sealed partial class InMemoryJobStorage
 		var eligibility = new Dictionary<string, bool>(StringComparer.Ordinal);
 		var activeCounts = new Dictionary<string, int>(StringComparer.Ordinal);
 		var totalActive = 0;
-		foreach (var job in _jobs.Values)
+		foreach (var job in GetJobsForQueue(queueName))
 		{
-			if (!string.Equals(GetQueueName(job.JobName), queueName, StringComparison.Ordinal) ||
-				job.State != JobState.Active || job.LeaseExpiresAt is null || job.LeaseExpiresAt <= now)
+			if (job.State != JobState.Active || job.LeaseExpiresAt is null || job.LeaseExpiresAt <= now)
 			{
 				continue;
 			}

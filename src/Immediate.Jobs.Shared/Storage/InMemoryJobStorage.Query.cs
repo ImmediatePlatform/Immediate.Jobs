@@ -82,9 +82,11 @@ public sealed partial class InMemoryJobStorage
 				jobs = _jobs.TryGetValue(id, out var job) ? [job] : [];
 			else if (!string.IsNullOrWhiteSpace(query.JobName))
 				jobs = GetJobsForDefinition(query.JobName);
+			else if (!string.IsNullOrWhiteSpace(query.QueueName))
+				jobs = GetJobsForQueue(query.QueueName);
 			if (query.State is { } state)
 				jobs = jobs.Where(x => x.State == state);
-			if (!string.IsNullOrWhiteSpace(query.QueueName))
+			if (!string.IsNullOrWhiteSpace(query.QueueName) && (query.JobHandle is not null || !string.IsNullOrWhiteSpace(query.JobName)))
 				jobs = jobs.Where(x => string.Equals(GetQueueName(x.JobName), query.QueueName, StringComparison.Ordinal));
 			if (!string.IsNullOrWhiteSpace(query.JobName))
 				jobs = jobs.Where(x => string.Equals(x.JobName, query.JobName, StringComparison.OrdinalIgnoreCase));

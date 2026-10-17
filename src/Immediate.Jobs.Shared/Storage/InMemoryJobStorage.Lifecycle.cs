@@ -363,8 +363,7 @@ public sealed partial class InMemoryJobStorage
 	private void RemoveFairQueueCursorWhenBacklogClears(string? queueName, string? groupId)
 	{
 		if (queueName is null || groupId is null ||
-			_jobs.Values.Any(job =>
-				string.Equals(GetQueueName(job.JobName), queueName, StringComparison.Ordinal) &&
+			GetJobsForQueue(queueName).Any(job =>
 				string.Equals(job.GroupId, groupId, StringComparison.Ordinal) &&
 				job.State is JobState.Pending or JobState.Scheduled or JobState.Active))
 		{

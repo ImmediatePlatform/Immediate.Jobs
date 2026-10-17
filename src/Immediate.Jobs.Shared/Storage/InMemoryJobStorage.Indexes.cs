@@ -5,6 +5,15 @@ namespace Immediate.Jobs.Shared.Storage;
 
 public sealed partial class InMemoryJobStorage
 {
+	private IEnumerable<JobRecord> GetJobsForQueue(string queueName, IEnumerable<string>? definitionNames = null)
+	{
+		var definitions = (definitionNames ?? _jobsByDefinition.Keys)
+			.Where(name => string.Equals(GetQueueName(name), queueName, StringComparison.Ordinal) && _jobsByDefinition.ContainsKey(name))
+			.ToList();
+		// Dictionary keys are distinct. When every stored definition matches, avoid resolving each handle.
+		return definitions.Count == _jobsByDefinition.Count ? _jobs.Values : definitions.SelectMany(GetJobsForDefinition);
+	}
+
 	private IEnumerable<JobRecord> GetJobsForBatch(BatchHandle batchHandle) =>
 		_jobsByBatch.TryGetValue(batchHandle, out var handles) ? handles.Select(handle => _jobs[handle]) : [];
 
