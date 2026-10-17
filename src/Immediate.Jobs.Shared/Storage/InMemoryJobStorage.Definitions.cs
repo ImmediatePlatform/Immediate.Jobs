@@ -49,11 +49,17 @@ public sealed partial class InMemoryJobStorage
 		}
 	}
 
+	/// <remarks>
+	/// 	The caller must hold the <c>_gate</c> lock.
+	/// </remarks>
 	private JobDefinitionRecord GetStoredDefinition(string jobName) =>
 		_jobDefinitions.TryGetValue(jobName, out var definition)
 			? definition
 			: throw new KeyNotFoundException($"Job definition '{jobName}' was not found.");
 
+	/// <remarks>
+	/// 	The caller must hold the <c>_gate</c> lock throughout this call and any use of the returned mutable state.
+	/// </remarks>
 	private DefinitionAcquisition GetAcquisitionDefinition(string jobName)
 	{
 		if (!_acquisitionDefinitions.TryGetValue(jobName, out var definition))
@@ -61,6 +67,9 @@ public sealed partial class InMemoryJobStorage
 		return definition;
 	}
 
+	/// <remarks>
+	/// 	The caller must hold the <c>_gate</c> lock.
+	/// </remarks>
 	private JobAcquisitionState EvaluateAcquisition(string jobName, JobAcquisitionLimits limits, DateTimeOffset now, bool includeActiveCount = false)
 	{
 		var definition = GetAcquisitionDefinition(jobName);
@@ -77,9 +86,15 @@ public sealed partial class InMemoryJobStorage
 		return definition.State;
 	}
 
+	/// <remarks>
+	/// 	The caller must hold the <c>_gate</c> lock.
+	/// </remarks>
 	private bool CanAcquire(string jobName, DateTimeOffset now) =>
 		EvaluateAcquisition(jobName, GetStoredDefinition(jobName).AcquisitionLimits, now).AcquisitionStatus == JobAcquisitionStatus.Ready;
 
+	/// <remarks>
+	/// 	The caller must hold the <c>_gate</c> lock.
+	/// </remarks>
 	private void RecordAcquisition(string jobName, DateTimeOffset now)
 	{
 		var limits = GetStoredDefinition(jobName).AcquisitionLimits;
@@ -112,6 +127,9 @@ public sealed partial class InMemoryJobStorage
 		public int FixedWindowCount { get; set; }
 	}
 
+	/// <remarks>
+	/// 	The caller does not need to hold the <c>_gate</c> lock.
+	/// </remarks>
 	[LoggerMessage(
 		EventId = LibraryEventIds.InMemoryPauseJobAsyncCalled,
 		EventName = "Immediate.Jobs.Shared.InMemoryPauseJobAsyncCalled",
@@ -120,6 +138,9 @@ public sealed partial class InMemoryJobStorage
 	)]
 	private partial void InMemoryPauseJobAsyncCalled(string jobName);
 
+	/// <remarks>
+	/// 	The caller does not need to hold the <c>_gate</c> lock.
+	/// </remarks>
 	[LoggerMessage(
 		EventId = LibraryEventIds.InMemoryResumeJobAsyncCalled,
 		EventName = "Immediate.Jobs.Shared.InMemoryResumeJobAsyncCalled",
@@ -128,6 +149,9 @@ public sealed partial class InMemoryJobStorage
 	)]
 	private partial void InMemoryResumeJobAsyncCalled(string jobName);
 
+	/// <remarks>
+	/// 	The caller does not need to hold the <c>_gate</c> lock.
+	/// </remarks>
 	[LoggerMessage(
 		EventId = LibraryEventIds.InMemoryGetJobAcquisitionStateAsyncCalled,
 		EventName = "Immediate.Jobs.Shared.InMemoryGetJobAcquisitionStateAsyncCalled",

@@ -75,11 +75,20 @@ public sealed partial class InMemoryJobStorage
 			return [.. _jobDefinitions.Values.OrderBy(static definition => definition.Name, StringComparer.OrdinalIgnoreCase)];
 	}
 
+	/// <remarks>
+	/// 	The caller must hold the <c>_gate</c> lock.
+	/// </remarks>
 	private string? GetQueueName(string jobName) =>
 		_jobDefinitions.TryGetValue(jobName, out var definition) ? definition.QueueName : null;
 
+	/// <remarks>
+	/// 	The caller must hold the <c>_gate</c> lock.
+	/// </remarks>
 	private JobRecord ReadRecord(JobRecord job) => job with { QueueName = GetQueueName(job.JobName) };
 
+	/// <remarks>
+	/// 	The caller does not need to hold the <c>_gate</c> lock.
+	/// </remarks>
 	[LoggerMessage(
 		EventId = LibraryEventIds.InMemoryDefinitionRemoved,
 		EventName = "Immediate.Jobs.Shared.DefinitionRemoved",
@@ -88,6 +97,9 @@ public sealed partial class InMemoryJobStorage
 	)]
 	private partial void DefinitionRemoved(string jobName, int jobCount, int scheduleCount);
 
+	/// <remarks>
+	/// 	The caller does not need to hold the <c>_gate</c> lock.
+	/// </remarks>
 	[LoggerMessage(
 		EventId = LibraryEventIds.InMemoryMergeJobDefinitionsListAsyncCalled,
 		EventName = "Immediate.Jobs.Shared.InMemoryMergeJobDefinitionsListAsyncCalled",
@@ -96,6 +108,9 @@ public sealed partial class InMemoryJobStorage
 	)]
 	private partial void InMemoryMergeJobDefinitionsListAsyncCalled();
 
+	/// <remarks>
+	/// 	The caller does not need to hold the <c>_gate</c> lock.
+	/// </remarks>
 	[LoggerMessage(
 		EventId = LibraryEventIds.InMemoryGetJobDefinitionsAsyncCalled,
 		EventName = "Immediate.Jobs.Shared.InMemoryGetJobDefinitionsAsyncCalled",

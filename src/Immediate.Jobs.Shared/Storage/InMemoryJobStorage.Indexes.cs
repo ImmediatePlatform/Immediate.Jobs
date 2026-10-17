@@ -5,6 +5,9 @@ namespace Immediate.Jobs.Shared.Storage;
 
 public sealed partial class InMemoryJobStorage
 {
+	/// <remarks>
+	/// 	The caller must hold the <c>_gate</c> lock throughout this call and enumeration of the returned sequence.
+	/// </remarks>
 	private IEnumerable<JobRecord> GetJobsForQueue(string queueName, IEnumerable<string>? definitionNames = null)
 	{
 		var definitions = (definitionNames ?? _jobsByDefinition.Keys)
@@ -14,19 +17,31 @@ public sealed partial class InMemoryJobStorage
 		return definitions.Count == _jobsByDefinition.Count ? _jobs.Values : definitions.SelectMany(GetJobsForDefinition);
 	}
 
+	/// <remarks>
+	/// 	The caller must hold the <c>_gate</c> lock throughout this call and enumeration of the returned sequence.
+	/// </remarks>
 	private IEnumerable<JobRecord> GetJobsForBatch(BatchHandle batchHandle) =>
 		_jobsByBatch.TryGetValue(batchHandle, out var handles) ? handles.Select(handle => _jobs[handle]) : [];
 
+	/// <remarks>
+	/// 	The caller must hold the <c>_gate</c> lock throughout this call and enumeration of the returned sequence.
+	/// </remarks>
 	private IEnumerable<JobRecord> GetJobsForDefinition(string jobName) =>
 		_jobsByDefinition.TryGetValue(jobName, out var handles) ? handles.Select(handle => _jobs[handle]) : [];
 
 	// Membership changes run under _gate. State-only updates keep their existing index entries.
+	/// <remarks>
+	/// 	The caller must hold the <c>_gate</c> lock.
+	/// </remarks>
 	private void AddJob(JobRecord job)
 	{
 		ValidateNewElement(_jobs, job.JobHandle) = job;
 		AddJobIndexes(job);
 	}
 
+	/// <remarks>
+	/// 	The caller must hold the <c>_gate</c> lock.
+	/// </remarks>
 	private void AddJobIndexes(JobRecord job)
 	{
 		AddJobHandle(_jobsByDefinition, job.JobName, job.JobHandle);
@@ -34,6 +49,9 @@ public sealed partial class InMemoryJobStorage
 			AddJobHandle(_jobsByBatch, batchHandle, job.JobHandle);
 	}
 
+	/// <remarks>
+	/// 	The caller must hold the <c>_gate</c> lock.
+	/// </remarks>
 	private void SetJob(JobRecord job)
 	{
 		ref var stored = ref CollectionsMarshal.GetValueRefOrAddDefault(_jobs, job.JobHandle, out _);
@@ -68,6 +86,9 @@ public sealed partial class InMemoryJobStorage
 		stored = job;
 	}
 
+	/// <remarks>
+	/// 	The caller must hold the <c>_gate</c> lock while modifying the supplied storage index.
+	/// </remarks>
 	private static void AddJobHandle(Dictionary<BatchHandle, List<JobHandle>> index, BatchHandle key, JobHandle handle)
 	{
 		ref var handles = ref CollectionsMarshal.GetValueRefOrAddDefault(index, key, out _);
@@ -75,6 +96,9 @@ public sealed partial class InMemoryJobStorage
 		handles.Add(handle);
 	}
 
+	/// <remarks>
+	/// 	The caller must hold the <c>_gate</c> lock while modifying the supplied storage index.
+	/// </remarks>
 	private static void AddJobHandle(Dictionary<string, HashSet<JobHandle>> index, string key, JobHandle handle)
 	{
 		ref var handles = ref CollectionsMarshal.GetValueRefOrAddDefault(index, key, out _);
@@ -82,6 +106,9 @@ public sealed partial class InMemoryJobStorage
 		handles.Add(handle);
 	}
 
+	/// <remarks>
+	/// 	The caller must hold the <c>_gate</c> lock while modifying the supplied storage index.
+	/// </remarks>
 	private static void RemoveJobHandle(Dictionary<string, HashSet<JobHandle>> index, string key, JobHandle handle)
 	{
 		var handles = index[key];
@@ -90,6 +117,9 @@ public sealed partial class InMemoryJobStorage
 			index.Remove(key);
 	}
 
+	/// <remarks>
+	/// 	The caller must hold the <c>_gate</c> lock.
+	/// </remarks>
 	private void RemoveJobs(HashSet<JobHandle> jobHandles)
 	{
 		if (jobHandles.Count == 0)

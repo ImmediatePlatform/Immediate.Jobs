@@ -89,6 +89,9 @@ public sealed partial class InMemoryJobStorage
 		}
 	}
 
+	/// <remarks>
+	/// 	The caller must hold the <c>_gate</c> lock.
+	/// </remarks>
 	private List<JobRecord> AcquireInExistingOrder(JobAcquisitionRequest request, DateTimeOffset now)
 	{
 		var acquired = new List<JobRecord>(request.BatchSize);
@@ -112,6 +115,9 @@ public sealed partial class InMemoryJobStorage
 		return acquired;
 	}
 
+	/// <remarks>
+	/// 	The caller must hold the <c>_gate</c> lock.
+	/// </remarks>
 	private void AcquireQueueInExistingOrder(
 		JobAcquisitionRequest request,
 		string queueName,
@@ -141,6 +147,9 @@ public sealed partial class InMemoryJobStorage
 		}
 	}
 
+	/// <remarks>
+	/// 	The caller must hold the <c>_gate</c> lock.
+	/// </remarks>
 	private bool HasEligibleGroupedJob(
 		string queueName,
 		Dictionary<string, int> jobCapacities,
@@ -152,6 +161,9 @@ public sealed partial class InMemoryJobStorage
 			job.State is JobState.Pending or JobState.Scheduled &&
 			job.DueAt <= now);
 
+	/// <remarks>
+	/// 	The caller must hold the <c>_gate</c> lock.
+	/// </remarks>
 	private void AcquireQueueFairly(
 		JobAcquisitionRequest request,
 		string queueName,
@@ -236,6 +248,9 @@ public sealed partial class InMemoryJobStorage
 		}
 	}
 
+	/// <remarks>
+	/// 	The caller must hold the <c>_gate</c> lock.
+	/// </remarks>
 	private bool CanAcquire(string jobName, DateTimeOffset now, Dictionary<string, bool> eligibility)
 	{
 		if (!eligibility.TryGetValue(jobName, out var ready))
@@ -243,6 +258,9 @@ public sealed partial class InMemoryJobStorage
 		return ready;
 	}
 
+	/// <remarks>
+	/// 	The caller does not need to hold the <c>_gate</c> lock; this method does not access mutable storage state.
+	/// </remarks>
 	private static bool IsNoisy(
 		string? groupId,
 		Dictionary<string, int> activeCounts,
@@ -257,6 +275,9 @@ public sealed partial class InMemoryJobStorage
 			(double)groupActive / totalActive > policy.ConcurrencyShareThreshold;
 	}
 
+	/// <remarks>
+	/// 	The caller does not need to hold the <c>_gate</c> lock; this method does not access mutable storage state.
+	/// </remarks>
 	private static int GetNoisyInflight(
 		string? groupId,
 		Dictionary<string, int> activeCounts,
@@ -267,6 +288,9 @@ public sealed partial class InMemoryJobStorage
 		return IsNoisy(groupId, activeCounts, totalActive, policy) ? activeCounts[groupId!] : 0;
 	}
 
+	/// <remarks>
+	/// 	The caller must hold the <c>_gate</c> lock.
+	/// </remarks>
 	private long GetLastServed(string queueName, string? groupId)
 	{
 		return groupId is not null && _fairQueueLastServed.TryGetValue((queueName, groupId), out var sequence)
@@ -274,6 +298,9 @@ public sealed partial class InMemoryJobStorage
 			: 0;
 	}
 
+	/// <remarks>
+	/// 	The caller must hold the <c>_gate</c> lock.
+	/// </remarks>
 	private long GetNextSequence(string queueName)
 	{
 		return _fairQueueLastServed
@@ -283,6 +310,9 @@ public sealed partial class InMemoryJobStorage
 			.Max() + 1;
 	}
 
+	/// <remarks>
+	/// 	The caller must hold the <c>_gate</c> lock.
+	/// </remarks>
 	private JobRecord Acquire(JobRecord candidate, JobAcquisitionRequest request, DateTimeOffset now)
 	{
 		MaterializeSyntheticExecution(candidate);
@@ -303,6 +333,9 @@ public sealed partial class InMemoryJobStorage
 		return ReadRecord(job);
 	}
 
+	/// <remarks>
+	/// 	The caller does not need to hold the <c>_gate</c> lock; this method acquires it internally.
+	/// </remarks>
 	internal void ApplyAcquiredJobs(IReadOnlyList<JobRecord> acquired)
 	{
 		lock (_gate)
@@ -321,6 +354,9 @@ public sealed partial class InMemoryJobStorage
 		}
 	}
 
+	/// <remarks>
+	/// 	The caller must hold the <c>_gate</c> lock.
+	/// </remarks>
 	private void MarkBatchStarted(BatchHandle? batchHandle, DateTimeOffset startedAt)
 	{
 		if (batchHandle is null)
@@ -330,6 +366,9 @@ public sealed partial class InMemoryJobStorage
 			batch = batch with { StartedAt = startedAt };
 	}
 
+	/// <remarks>
+	/// 	The caller does not need to hold the <c>_gate</c> lock.
+	/// </remarks>
 	[LoggerMessage(
 		EventId = LibraryEventIds.InMemoryRenewLeaseAsyncCalled,
 		EventName = "Immediate.Jobs.Shared.RenewLeaseAsyncCalled",
@@ -338,6 +377,9 @@ public sealed partial class InMemoryJobStorage
 	)]
 	private partial void RenewLeaseAsyncCalled(JobHandle jobHandle, int execution);
 
+	/// <remarks>
+	/// 	The caller does not need to hold the <c>_gate</c> lock.
+	/// </remarks>
 	[LoggerMessage(
 		EventId = LibraryEventIds.InMemoryAcquireDueJobsAsyncCalled,
 		EventName = "Immediate.Jobs.Shared.AcquireDueJobsAsyncCalled",

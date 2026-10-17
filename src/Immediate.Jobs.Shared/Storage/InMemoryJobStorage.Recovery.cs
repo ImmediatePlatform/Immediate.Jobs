@@ -22,6 +22,7 @@ public sealed partial class InMemoryJobStorage
 	/// <remarks>
 	///	    This method should run before any other methods run to initialize test state. Use in regular app code is not
 	///	    supported.
+	///	    The caller does not need to hold the <c>_gate</c> lock; this method acquires it internally.
 	/// </remarks>
 	public void LoadPersistedJobState(
 		IReadOnlyList<JobRecord> jobs,
@@ -141,6 +142,9 @@ public sealed partial class InMemoryJobStorage
 		}
 	}
 
+	/// <remarks>
+	/// 	The caller does not need to hold the <c>_gate</c> lock; this method does not access mutable storage state.
+	/// </remarks>
 	private static void ValidateBatchState(BatchRecord batch, List<JobRecord> jobs)
 	{
 		if (jobs.Count == 0)

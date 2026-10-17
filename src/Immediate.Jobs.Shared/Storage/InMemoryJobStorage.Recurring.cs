@@ -135,6 +135,9 @@ public sealed partial class InMemoryJobStorage
 		}
 	}
 
+	/// <remarks>
+	/// 	The caller does not need to hold the <c>_gate</c> lock; this method acquires it internally.
+	/// </remarks>
 	private ValueTask SetRecurringPausedAsync(string name, bool isPaused, CancellationToken cancellationToken)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
@@ -153,6 +156,9 @@ public sealed partial class InMemoryJobStorage
 		return ValueTask.CompletedTask;
 	}
 
+	/// <remarks>
+	/// 	The caller does not need to hold the <c>_gate</c> lock.
+	/// </remarks>
 	[LoggerMessage(
 		EventId = LibraryEventIds.InMemoryUpsertRecurringAsyncCalled,
 		EventName = "Immediate.Jobs.Shared.UpsertRecurringAsyncCalled",
@@ -161,6 +167,9 @@ public sealed partial class InMemoryJobStorage
 	)]
 	private partial void UpsertRecurringAsyncCalled(string schedule);
 
+	/// <remarks>
+	/// 	The caller does not need to hold the <c>_gate</c> lock.
+	/// </remarks>
 	[LoggerMessage(
 		EventId = LibraryEventIds.InMemoryRemoveRecurringAsyncCalled,
 		EventName = "Immediate.Jobs.Shared.RemoveRecurringAsyncCalled",
@@ -169,6 +178,9 @@ public sealed partial class InMemoryJobStorage
 	)]
 	private partial void RemoveRecurringAsyncCalled(string name);
 
+	/// <remarks>
+	/// 	The caller does not need to hold the <c>_gate</c> lock.
+	/// </remarks>
 	[LoggerMessage(
 		EventId = LibraryEventIds.InMemoryPauseRecurringAsyncCalled,
 		EventName = "Immediate.Jobs.Shared.PauseRecurringAsyncCalled",
@@ -177,6 +189,9 @@ public sealed partial class InMemoryJobStorage
 	)]
 	private partial void PauseRecurringAsyncCalled(string name);
 
+	/// <remarks>
+	/// 	The caller does not need to hold the <c>_gate</c> lock.
+	/// </remarks>
 	[LoggerMessage(
 		EventId = LibraryEventIds.InMemoryResumeRecurringAsyncCalled,
 		EventName = "Immediate.Jobs.Shared.ResumeRecurringAsyncCalled",
@@ -185,6 +200,9 @@ public sealed partial class InMemoryJobStorage
 	)]
 	private partial void ResumeRecurringAsyncCalled(string name);
 
+	/// <remarks>
+	/// 	The caller does not need to hold the <c>_gate</c> lock.
+	/// </remarks>
 	[LoggerMessage(
 		EventId = LibraryEventIds.InMemoryGetDueRecurringAsyncCalled,
 		EventName = "Immediate.Jobs.Shared.GetDueRecurringAsyncCalled",
@@ -193,6 +211,9 @@ public sealed partial class InMemoryJobStorage
 	)]
 	private partial void GetDueRecurringAsyncCalled(int batchSize);
 
+	/// <remarks>
+	/// 	The caller does not need to hold the <c>_gate</c> lock.
+	/// </remarks>
 	[LoggerMessage(
 		EventId = LibraryEventIds.InMemoryMaterializeRecurringAsyncCalled,
 		EventName = "Immediate.Jobs.Shared.MaterializeRecurringAsyncCalled",

@@ -124,12 +124,18 @@ public sealed partial class InMemoryJobStorage
 		}
 	}
 
+	/// <remarks>
+	/// 	The caller does not need to hold the <c>_gate</c> lock; definition lookup acquires it internally.
+	/// </remarks>
 	private JobRecord CreateRecord(JobSubmission job)
 	{
 		var definition = GetJobDefinition(job.JobName);
 		return job.ToJobRecord(definition.Name);
 	}
 
+	/// <remarks>
+	/// 	The caller does not need to hold the <c>_gate</c> lock; this method acquires it internally.
+	/// </remarks>
 	internal JobDefinitionRecord GetJobDefinition(string name)
 	{
 		lock (_gate)
@@ -138,12 +144,18 @@ public sealed partial class InMemoryJobStorage
 				: throw new KeyNotFoundException($"Job definition '{name}' was not found.");
 	}
 
+	/// <remarks>
+	/// 	The caller must hold the <c>_gate</c> lock.
+	/// </remarks>
 	private void ValidateNewJob(JobRecord job)
 	{
 		if (_jobs.ContainsKey(job.JobHandle))
 			throw new ImmediateJobException($"Job '{job.JobHandle}' already exists.");
 	}
 
+	/// <remarks>
+	/// 	The caller must hold the <c>_gate</c> lock.
+	/// </remarks>
 	private void ValidateEdges(
 		IReadOnlyList<JobRecord> newJobs,
 		IReadOnlyList<JobContinuationEdge> edges,
@@ -213,6 +225,9 @@ public sealed partial class InMemoryJobStorage
 			throw new ImmediateJobException("The continuation graph contains a dependency cycle.");
 	}
 
+	/// <remarks>
+	/// 	The caller does not need to hold the <c>_gate</c> lock.
+	/// </remarks>
 	[LoggerMessage(
 		EventId = LibraryEventIds.InMemoryEnqueueAsyncCalled,
 		EventName = "Immediate.Jobs.Shared.EnqueueAsyncCalled",
@@ -221,6 +236,9 @@ public sealed partial class InMemoryJobStorage
 	)]
 	private partial void EnqueueAsyncCalled(JobHandle jobHandle);
 
+	/// <remarks>
+	/// 	The caller does not need to hold the <c>_gate</c> lock.
+	/// </remarks>
 	[LoggerMessage(
 		EventId = LibraryEventIds.InMemoryEnqueueContinuationAsyncCalled,
 		EventName = "Immediate.Jobs.Shared.EnqueueContinuationAsyncCalled",
@@ -229,6 +247,9 @@ public sealed partial class InMemoryJobStorage
 	)]
 	private partial void EnqueueContinuationAsyncCalled(JobHandle jobHandle, int edges);
 
+	/// <remarks>
+	/// 	The caller does not need to hold the <c>_gate</c> lock.
+	/// </remarks>
 	[LoggerMessage(
 		EventId = LibraryEventIds.InMemoryEnqueueBatchAsyncCalled,
 		EventName = "Immediate.Jobs.Shared.EnqueueBatchAsyncCalled",
@@ -237,6 +258,9 @@ public sealed partial class InMemoryJobStorage
 	)]
 	private partial void EnqueueBatchAsyncCalled(BatchHandle batchHandle, int jobs, int edges);
 
+	/// <remarks>
+	/// 	The caller does not need to hold the <c>_gate</c> lock.
+	/// </remarks>
 	[LoggerMessage(
 		EventId = LibraryEventIds.InMemoryAddBatchJobAsyncCalled,
 		EventName = "Immediate.Jobs.Shared.AddBatchJobAsyncCalled",

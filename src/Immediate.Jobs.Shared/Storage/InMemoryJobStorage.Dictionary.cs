@@ -6,7 +6,10 @@ namespace Immediate.Jobs.Shared.Storage;
 
 public sealed partial class InMemoryJobStorage
 {
-	// Use only under _gate. Do not retain refs across additions or removals in the same dictionary.
+	/// <remarks>
+	/// 	The caller must hold the <c>_gate</c> lock throughout this call and while using the returned reference.
+	/// 	The dictionary must not be structurally modified while the reference is in use.
+	/// </remarks>
 	[SuppressMessage("Style", "IDE0007:Use implicit type", Justification = "Interaction between IDE0007 and CS8619")]
 	private static ref TElement ValidateExistingElement<TKey, TElement>(Dictionary<TKey, TElement> dictionary, TKey key)
 		where TKey : notnull
@@ -18,6 +21,10 @@ public sealed partial class InMemoryJobStorage
 	}
 
 	// This inserts a default slot: finish validation and construct the value before calling.
+	/// <remarks>
+	/// 	The caller must hold the <c>_gate</c> lock throughout this call and while using the returned reference.
+	/// 	The dictionary must not be structurally modified while the reference is in use.
+	/// </remarks>
 	[SuppressMessage("Style", "IDE0007:Use implicit type", Justification = "Interaction between IDE0007 and CS8619")]
 	private static ref TElement? ValidateNewElement<TKey, TElement>(Dictionary<TKey, TElement> dictionary, TKey key)
 		where TKey : notnull

@@ -6,6 +6,9 @@ namespace Immediate.Jobs.Shared.Storage;
 
 public sealed partial class InMemoryJobStorage
 {
+	/// <remarks>
+	/// 	The caller does not need to hold the <c>_gate</c> lock; this method does not access mutable storage state.
+	/// </remarks>
 	private static JobRecord NormalizeWaitingJob(JobRecord job, int dependencyCount) => job with
 	{
 		State = dependencyCount == 0 || job.State == JobState.WaitingForTrigger ? job.State : JobState.AwaitingContinuation,
@@ -16,6 +19,9 @@ public sealed partial class InMemoryJobStorage
 		CompletedAt = null,
 	};
 
+	/// <remarks>
+	/// 	The caller must hold the <c>_gate</c> lock.
+	/// </remarks>
 	private void EvaluateAlreadyTerminalParents(IReadOnlyList<JobContinuationEdge> edges)
 	{
 		foreach (var parentId in edges
@@ -39,6 +45,9 @@ public sealed partial class InMemoryJobStorage
 		}
 	}
 
+	/// <remarks>
+	/// 	The caller must hold the <c>_gate</c> lock.
+	/// </remarks>
 	private void ProcessTerminalJob(JobHandle parentJobHandle)
 	{
 		if (!_jobs.TryGetValue(parentJobHandle, out var parent) || !IsTerminal(parent.State))
@@ -53,6 +62,9 @@ public sealed partial class InMemoryJobStorage
 		}
 	}
 
+	/// <remarks>
+	/// 	The caller must hold the <c>_gate</c> lock.
+	/// </remarks>
 	private void ProcessTerminalBatch(BatchHandle parentBatchHandle)
 	{
 		if (!_batches.TryGetValue(parentBatchHandle, out var parent) || !IsTerminal(parent.State))
@@ -67,6 +79,9 @@ public sealed partial class InMemoryJobStorage
 		}
 	}
 
+	/// <remarks>
+	/// 	The caller must hold the <c>_gate</c> lock.
+	/// </remarks>
 	private void SettleEdge(JobContinuationEdge edge, bool parentFailed)
 	{
 		ref var child = ref CollectionsMarshal.GetValueRefOrNullRef(_jobs, edge.ChildJobHandle);
@@ -106,6 +121,9 @@ public sealed partial class InMemoryJobStorage
 			TransitionToTerminal(ref child, JobState.Skipped, error: null, timeProvider.GetUtcNow());
 	}
 
+	/// <remarks>
+	/// 	The caller must hold the <c>_gate</c> lock.
+	/// </remarks>
 	private (bool Satisfied, int FailedDependencies, TimeSpan Delay) EvaluateIncomingTriggers(JobHandle childJobHandle)
 	{
 		var allTerminal = true;
@@ -147,6 +165,9 @@ public sealed partial class InMemoryJobStorage
 		);
 	}
 
+	/// <remarks>
+	/// 	The caller must hold the <c>_gate</c> lock.
+	/// </remarks>
 	private JobContinuationEdge[] GetUnsettledWaiters(JobHandle parentJobHandle) =>
 	[
 		.. _edges.Where(edge => edge.ParentJobHandle == parentJobHandle &&
@@ -155,6 +176,9 @@ public sealed partial class InMemoryJobStorage
 			!IsTerminal(child.State)),
 	];
 
+	/// <remarks>
+	/// 	The caller must hold the <c>_gate</c> lock.
+	/// </remarks>
 	private void SpliceBeforeWaiters(
 		JobHandle newParentJobHandle,
 		IReadOnlyList<JobContinuationEdge> existingWaiters
@@ -181,6 +205,9 @@ public sealed partial class InMemoryJobStorage
 		}
 	}
 
+	/// <remarks>
+	/// 	The caller must hold the <c>_gate</c> lock.
+	/// </remarks>
 	private void ValidateSplice(IReadOnlyList<JobContinuationEdge> existingWaiters, int additions)
 	{
 		if (additions == 0)
@@ -195,6 +222,9 @@ public sealed partial class InMemoryJobStorage
 		}
 	}
 
+	/// <remarks>
+	/// 	The caller must hold the <c>_gate</c> lock.
+	/// </remarks>
 	private void IncrementBatchMembers(BatchHandle? batchHandle, int count)
 	{
 		if (count == 0)
@@ -214,8 +244,14 @@ public sealed partial class InMemoryJobStorage
 		};
 	}
 
+	/// <remarks>
+	/// 	The caller does not need to hold the <c>_gate</c> lock; this method does not access mutable storage state.
+	/// </remarks>
 	private static bool IsTerminal(JobState state) =>
 		state is JobState.Succeeded or JobState.Failed or JobState.Cancelled or JobState.Skipped;
 
+	/// <remarks>
+	/// 	The caller does not need to hold the <c>_gate</c> lock; this method does not access mutable storage state.
+	/// </remarks>
 	private static bool IsTerminal(BatchState state) => state is not (BatchState.Executing or BatchState.WaitingForTrigger);
 }

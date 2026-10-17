@@ -329,6 +329,9 @@ public sealed partial class InMemoryJobStorage
 		}
 	}
 
+	/// <remarks>
+	/// 	The caller must hold the <c>_gate</c> lock.
+	/// </remarks>
 	private void TransitionToTerminal(
 		ref JobRecord job,
 		JobState terminalState,
@@ -360,6 +363,9 @@ public sealed partial class InMemoryJobStorage
 		RemoveFairQueueCursorWhenBacklogClears(queueName, groupId);
 	}
 
+	/// <remarks>
+	/// 	The caller must hold the <c>_gate</c> lock.
+	/// </remarks>
 	private void RemoveFairQueueCursorWhenBacklogClears(string? queueName, string? groupId)
 	{
 		if (queueName is null || groupId is null ||
@@ -373,6 +379,9 @@ public sealed partial class InMemoryJobStorage
 		_ = _fairQueueLastServed.Remove((queueName, groupId));
 	}
 
+	/// <remarks>
+	/// 	The caller must hold the <c>_gate</c> lock.
+	/// </remarks>
 	private void UpdateBatchAfterTerminal(BatchHandle? batchHandle, JobState state, DateTimeOffset completedAt)
 	{
 		if (batchHandle is null)
@@ -405,6 +414,9 @@ public sealed partial class InMemoryJobStorage
 			ProcessTerminalBatch(batchHandle);
 	}
 
+	/// <remarks>
+	/// 	The caller must hold the <c>_gate</c> lock.
+	/// </remarks>
 	private void RemoveEdgesForJobs(
 		HashSet<JobHandle> jobHandles,
 		HashSet<BatchHandle>? batchHandles = null
@@ -429,6 +441,9 @@ public sealed partial class InMemoryJobStorage
 		}
 	}
 
+	/// <remarks>
+	/// 	The caller does not need to hold the <c>_gate</c> lock.
+	/// </remarks>
 	[LoggerMessage(
 		EventId = LibraryEventIds.InMemoryCompleteAsyncCalled,
 		EventName = "Immediate.Jobs.Shared.CompleteAsyncCalled",
@@ -437,6 +452,9 @@ public sealed partial class InMemoryJobStorage
 	)]
 	private partial void CompleteAsyncCalled(JobHandle jobHandle, int execution);
 
+	/// <remarks>
+	/// 	The caller does not need to hold the <c>_gate</c> lock.
+	/// </remarks>
 	[LoggerMessage(
 		EventId = LibraryEventIds.InMemoryCompleteWithContinuationsAsyncCalled,
 		EventName = "Immediate.Jobs.Shared.CompleteWithContinuationsAsyncCalled",
@@ -445,6 +463,9 @@ public sealed partial class InMemoryJobStorage
 	)]
 	private partial void CompleteWithContinuationsAsyncCalled(JobHandle jobHandle, int execution);
 
+	/// <remarks>
+	/// 	The caller does not need to hold the <c>_gate</c> lock.
+	/// </remarks>
 	[LoggerMessage(
 		EventId = LibraryEventIds.InMemoryFailAsyncCalled,
 		EventName = "Immediate.Jobs.Shared.FailAsyncCalled",
@@ -453,6 +474,9 @@ public sealed partial class InMemoryJobStorage
 	)]
 	private partial void FailAsyncCalled(JobHandle jobHandle, int execution);
 
+	/// <remarks>
+	/// 	The caller does not need to hold the <c>_gate</c> lock.
+	/// </remarks>
 	[LoggerMessage(
 		EventId = LibraryEventIds.InMemoryCancelBatchAsyncCalled,
 		EventName = "Immediate.Jobs.Shared.CancelBatchAsyncCalled",
@@ -461,6 +485,9 @@ public sealed partial class InMemoryJobStorage
 	)]
 	private partial void CancelBatchAsyncCalled(BatchHandle batchHandle);
 
+	/// <remarks>
+	/// 	The caller does not need to hold the <c>_gate</c> lock.
+	/// </remarks>
 	[LoggerMessage(
 		EventId = LibraryEventIds.InMemoryCancelAsyncCalled,
 		EventName = "Immediate.Jobs.Shared.CancelAsyncCalled",
@@ -469,6 +496,9 @@ public sealed partial class InMemoryJobStorage
 	)]
 	private partial void CancelAsyncCalled(JobHandle jobHandle);
 
+	/// <remarks>
+	/// 	The caller does not need to hold the <c>_gate</c> lock.
+	/// </remarks>
 	[LoggerMessage(
 		EventId = LibraryEventIds.InMemoryRetryAsyncCalled,
 		EventName = "Immediate.Jobs.Shared.RetryAsyncCalled",
@@ -477,6 +507,9 @@ public sealed partial class InMemoryJobStorage
 	)]
 	private partial void RetryAsyncCalled(JobHandle jobHandle);
 
+	/// <remarks>
+	/// 	The caller does not need to hold the <c>_gate</c> lock.
+	/// </remarks>
 	[LoggerMessage(
 		EventId = LibraryEventIds.InMemoryDeleteAsyncCalled,
 		EventName = "Immediate.Jobs.Shared.DeleteAsyncCalled",
@@ -485,6 +518,9 @@ public sealed partial class InMemoryJobStorage
 	)]
 	private partial void DeleteAsyncCalled(JobHandle jobHandle);
 
+	/// <remarks>
+	/// 	The caller does not need to hold the <c>_gate</c> lock.
+	/// </remarks>
 	[LoggerMessage(
 		EventId = LibraryEventIds.InMemoryPurgeJobsAsyncCalled,
 		EventName = "Immediate.Jobs.Shared.PurgeJobsAsyncCalled",
@@ -493,6 +529,9 @@ public sealed partial class InMemoryJobStorage
 	)]
 	private partial void PurgeJobsAsyncCalled(TimeSpan succeededRetention, TimeSpan failedRetention);
 
+	/// <remarks>
+	/// 	The caller does not need to hold the <c>_gate</c> lock.
+	/// </remarks>
 	[LoggerMessage(
 		EventId = LibraryEventIds.InMemoryPurgeBatchesAsyncCalled,
 		EventName = "Immediate.Jobs.Shared.PurgeBatchesAsyncCalled",

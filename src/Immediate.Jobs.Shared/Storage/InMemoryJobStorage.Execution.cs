@@ -43,6 +43,9 @@ public sealed partial class InMemoryJobStorage
 		}
 	}
 
+	/// <remarks>
+	/// 	The caller must hold the <c>_gate</c> lock.
+	/// </remarks>
 	private void CreateExecution(JobRecord job, DateTimeOffset acquiredAt)
 	{
 		if (!_executions.TryGetValue(job.JobHandle, out var executions))
@@ -63,11 +66,17 @@ public sealed partial class InMemoryJobStorage
 		}
 	}
 
+	/// <remarks>
+	/// 	The caller must hold the <c>_gate</c> lock.
+	/// </remarks>
 	private void InterruptExecution(JobRecord job)
 	{
 		CompleteExecution(job, JobExecutionState.Interrupted, job.LeaseExpiresAt ?? timeProvider.GetUtcNow());
 	}
 
+	/// <remarks>
+	/// 	The caller must hold the <c>_gate</c> lock.
+	/// </remarks>
 	private void CompleteExecution(
 		JobRecord job,
 		JobExecutionState state,
@@ -87,6 +96,10 @@ public sealed partial class InMemoryJobStorage
 		});
 	}
 
+	/// <remarks>
+	/// 	The caller must hold the <c>_gate</c> lock throughout this call and while using the returned reference.
+	/// 	The dictionary must not be structurally modified while the reference is in use.
+	/// </remarks>
 	[SuppressMessage("Style", "IDE0007:Use implicit type", Justification = "Interaction between IDE0007 and CS8619")]
 	private ref JobRecord GetOwnedActive(JobHandle jobHandle, int executionNumber, string workerId)
 	{
@@ -110,6 +123,9 @@ public sealed partial class InMemoryJobStorage
 		return ref job;
 	}
 
+	/// <remarks>
+	/// 	The caller must hold the <c>_gate</c> lock.
+	/// </remarks>
 	private void MaterializeSyntheticExecution(JobRecord job)
 	{
 		var synthetic = JobExecutionRecords.CreateSynthetic(job);
@@ -120,6 +136,9 @@ public sealed partial class InMemoryJobStorage
 		_ = executions.TryAdd(synthetic.Attempt, synthetic);
 	}
 
+	/// <remarks>
+	/// 	The caller must hold the <c>_gate</c> lock.
+	/// </remarks>
 	private void UpdateExecution(
 		JobHandle jobHandle,
 		int executionNumber,
@@ -137,6 +156,9 @@ public sealed partial class InMemoryJobStorage
 		executions[executionNumber] = update(execution);
 	}
 
+	/// <remarks>
+	/// 	The caller does not need to hold the <c>_gate</c> lock.
+	/// </remarks>
 	[LoggerMessage(
 		EventId = LibraryEventIds.InMemorySetExecutionTelemetryAsyncCalled,
 		EventName = "Immediate.Jobs.Shared.SetExecutionTelemetryAsyncCalled",
