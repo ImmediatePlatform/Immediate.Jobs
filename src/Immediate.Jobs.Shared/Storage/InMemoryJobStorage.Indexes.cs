@@ -6,7 +6,7 @@ namespace Immediate.Jobs.Shared.Storage;
 public sealed partial class InMemoryJobStorage
 {
 	/// <remarks>
-	/// 	The caller must hold the <c>_gate</c> lock throughout this call and enumeration of the returned sequence.
+	/// 	The caller must hold the <see cref="_gate"/> lock throughout this call and enumeration of the returned sequence.
 	/// </remarks>
 	private IEnumerable<JobRecord> GetJobsForQueue(string queueName, IEnumerable<string>? definitionNames = null)
 	{
@@ -18,20 +18,19 @@ public sealed partial class InMemoryJobStorage
 	}
 
 	/// <remarks>
-	/// 	The caller must hold the <c>_gate</c> lock throughout this call and enumeration of the returned sequence.
+	/// 	The caller must hold the <see cref="_gate"/> lock throughout this call and enumeration of the returned sequence.
 	/// </remarks>
 	private IEnumerable<JobRecord> GetJobsForBatch(BatchHandle batchHandle) =>
 		_jobsByBatch.TryGetValue(batchHandle, out var handles) ? handles.Select(handle => _jobs[handle]) : [];
 
 	/// <remarks>
-	/// 	The caller must hold the <c>_gate</c> lock throughout this call and enumeration of the returned sequence.
+	/// 	The caller must hold the <see cref="_gate"/> lock throughout this call and enumeration of the returned sequence.
 	/// </remarks>
 	private IEnumerable<JobRecord> GetJobsForDefinition(string jobName) =>
 		_jobsByDefinition.TryGetValue(jobName, out var handles) ? handles.Select(handle => _jobs[handle]) : [];
 
-	// Membership changes run under _gate. State-only updates keep their existing index entries.
 	/// <remarks>
-	/// 	The caller must hold the <c>_gate</c> lock.
+	/// 	The caller must hold the <see cref="_gate"/> lock.
 	/// </remarks>
 	private void AddJob(JobRecord job)
 	{
@@ -40,7 +39,7 @@ public sealed partial class InMemoryJobStorage
 	}
 
 	/// <remarks>
-	/// 	The caller must hold the <c>_gate</c> lock.
+	/// 	The caller must hold the <see cref="_gate"/> lock.
 	/// </remarks>
 	private void AddJobIndexes(JobRecord job)
 	{
@@ -50,7 +49,7 @@ public sealed partial class InMemoryJobStorage
 	}
 
 	/// <remarks>
-	/// 	The caller must hold the <c>_gate</c> lock.
+	/// 	The caller must hold the <see cref="_gate"/> lock.
 	/// </remarks>
 	private void SetJob(JobRecord job)
 	{
@@ -87,7 +86,7 @@ public sealed partial class InMemoryJobStorage
 	}
 
 	/// <remarks>
-	/// 	The caller must hold the <c>_gate</c> lock while modifying the supplied storage index.
+	/// 	The caller must hold the <see cref="_gate"/> lock while modifying the supplied storage index.
 	/// </remarks>
 	private static void AddJobHandle(Dictionary<BatchHandle, List<JobHandle>> index, BatchHandle key, JobHandle handle)
 	{
@@ -97,7 +96,7 @@ public sealed partial class InMemoryJobStorage
 	}
 
 	/// <remarks>
-	/// 	The caller must hold the <c>_gate</c> lock while modifying the supplied storage index.
+	/// 	The caller must hold the <see cref="_gate"/> lock while modifying the supplied storage index.
 	/// </remarks>
 	private static void AddJobHandle(Dictionary<string, HashSet<JobHandle>> index, string key, JobHandle handle)
 	{
@@ -107,7 +106,7 @@ public sealed partial class InMemoryJobStorage
 	}
 
 	/// <remarks>
-	/// 	The caller must hold the <c>_gate</c> lock while modifying the supplied storage index.
+	/// 	The caller must hold the <see cref="_gate"/> lock while modifying the supplied storage index.
 	/// </remarks>
 	private static void RemoveJobHandle(Dictionary<string, HashSet<JobHandle>> index, string key, JobHandle handle)
 	{
@@ -118,7 +117,7 @@ public sealed partial class InMemoryJobStorage
 	}
 
 	/// <remarks>
-	/// 	The caller must hold the <c>_gate</c> lock.
+	/// 	The caller must hold the <see cref="_gate"/> lock.
 	/// </remarks>
 	private void RemoveJobs(HashSet<JobHandle> jobHandles)
 	{

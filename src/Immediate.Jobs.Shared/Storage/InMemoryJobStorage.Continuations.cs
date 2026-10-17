@@ -7,7 +7,7 @@ namespace Immediate.Jobs.Shared.Storage;
 public sealed partial class InMemoryJobStorage
 {
 	/// <remarks>
-	/// 	The caller does not need to hold the <c>_gate</c> lock; this method does not access mutable storage state.
+	/// 	The caller does not need to hold the <see cref="_gate"/> lock; this method does not access mutable storage state.
 	/// </remarks>
 	private static JobRecord NormalizeWaitingJob(JobRecord job, int dependencyCount) => job with
 	{
@@ -20,7 +20,7 @@ public sealed partial class InMemoryJobStorage
 	};
 
 	/// <remarks>
-	/// 	The caller must hold the <c>_gate</c> lock.
+	/// 	The caller must hold the <see cref="_gate"/> lock.
 	/// </remarks>
 	private void EvaluateAlreadyTerminalParents(IReadOnlyList<JobContinuationEdge> edges)
 	{
@@ -46,7 +46,7 @@ public sealed partial class InMemoryJobStorage
 	}
 
 	/// <remarks>
-	/// 	The caller must hold the <c>_gate</c> lock.
+	/// 	The caller must hold the <see cref="_gate"/> lock.
 	/// </remarks>
 	private void ProcessTerminalJob(JobHandle parentJobHandle)
 	{
@@ -63,7 +63,7 @@ public sealed partial class InMemoryJobStorage
 	}
 
 	/// <remarks>
-	/// 	The caller must hold the <c>_gate</c> lock.
+	/// 	The caller must hold the <see cref="_gate"/> lock.
 	/// </remarks>
 	private void ProcessTerminalBatch(BatchHandle parentBatchHandle)
 	{
@@ -80,7 +80,7 @@ public sealed partial class InMemoryJobStorage
 	}
 
 	/// <remarks>
-	/// 	The caller must hold the <c>_gate</c> lock.
+	/// 	The caller must hold the <see cref="_gate"/> lock.
 	/// </remarks>
 	private void SettleEdge(JobContinuationEdge edge, bool parentFailed)
 	{
@@ -122,7 +122,7 @@ public sealed partial class InMemoryJobStorage
 	}
 
 	/// <remarks>
-	/// 	The caller must hold the <c>_gate</c> lock.
+	/// 	The caller must hold the <see cref="_gate"/> lock.
 	/// </remarks>
 	private (bool Satisfied, int FailedDependencies, TimeSpan Delay) EvaluateIncomingTriggers(JobHandle childJobHandle)
 	{
@@ -166,7 +166,7 @@ public sealed partial class InMemoryJobStorage
 	}
 
 	/// <remarks>
-	/// 	The caller must hold the <c>_gate</c> lock.
+	/// 	The caller must hold the <see cref="_gate"/> lock.
 	/// </remarks>
 	private JobContinuationEdge[] GetUnsettledWaiters(JobHandle parentJobHandle) =>
 	[
@@ -177,7 +177,7 @@ public sealed partial class InMemoryJobStorage
 	];
 
 	/// <remarks>
-	/// 	The caller must hold the <c>_gate</c> lock.
+	/// 	The caller must hold the <see cref="_gate"/> lock.
 	/// </remarks>
 	private void SpliceBeforeWaiters(
 		JobHandle newParentJobHandle,
@@ -206,7 +206,7 @@ public sealed partial class InMemoryJobStorage
 	}
 
 	/// <remarks>
-	/// 	The caller must hold the <c>_gate</c> lock.
+	/// 	The caller must hold the <see cref="_gate"/> lock.
 	/// </remarks>
 	private void ValidateSplice(IReadOnlyList<JobContinuationEdge> existingWaiters, int additions)
 	{
@@ -223,7 +223,7 @@ public sealed partial class InMemoryJobStorage
 	}
 
 	/// <remarks>
-	/// 	The caller must hold the <c>_gate</c> lock.
+	/// 	The caller must hold the <see cref="_gate"/> lock.
 	/// </remarks>
 	private void IncrementBatchMembers(BatchHandle? batchHandle, int count)
 	{
@@ -245,13 +245,13 @@ public sealed partial class InMemoryJobStorage
 	}
 
 	/// <remarks>
-	/// 	The caller does not need to hold the <c>_gate</c> lock; this method does not access mutable storage state.
+	/// 	The caller does not need to hold the <see cref="_gate"/> lock; this method does not access mutable storage state.
 	/// </remarks>
 	private static bool IsTerminal(JobState state) =>
 		state is JobState.Succeeded or JobState.Failed or JobState.Cancelled or JobState.Skipped;
 
 	/// <remarks>
-	/// 	The caller does not need to hold the <c>_gate</c> lock; this method does not access mutable storage state.
+	/// 	The caller does not need to hold the <see cref="_gate"/> lock; this method does not access mutable storage state.
 	/// </remarks>
 	private static bool IsTerminal(BatchState state) => state is not (BatchState.Executing or BatchState.WaitingForTrigger);
 }

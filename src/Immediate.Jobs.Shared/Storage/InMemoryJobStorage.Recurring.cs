@@ -136,7 +136,7 @@ public sealed partial class InMemoryJobStorage
 	}
 
 	/// <remarks>
-	/// 	The caller does not need to hold the <c>_gate</c> lock; this method acquires it internally.
+	/// 	The caller does not need to hold the <see cref="_gate"/> lock; this method acquires it internally.
 	/// </remarks>
 	private ValueTask SetRecurringPausedAsync(string name, bool isPaused, CancellationToken cancellationToken)
 	{
@@ -157,7 +157,7 @@ public sealed partial class InMemoryJobStorage
 	}
 
 	/// <remarks>
-	/// 	The caller does not need to hold the <c>_gate</c> lock.
+	/// 	The caller does not need to hold the <see cref="_gate"/> lock.
 	/// </remarks>
 	[LoggerMessage(
 		EventId = LibraryEventIds.InMemoryUpsertRecurringAsyncCalled,
@@ -168,7 +168,7 @@ public sealed partial class InMemoryJobStorage
 	private partial void UpsertRecurringAsyncCalled(string schedule);
 
 	/// <remarks>
-	/// 	The caller does not need to hold the <c>_gate</c> lock.
+	/// 	The caller does not need to hold the <see cref="_gate"/> lock.
 	/// </remarks>
 	[LoggerMessage(
 		EventId = LibraryEventIds.InMemoryRemoveRecurringAsyncCalled,
@@ -179,7 +179,7 @@ public sealed partial class InMemoryJobStorage
 	private partial void RemoveRecurringAsyncCalled(string name);
 
 	/// <remarks>
-	/// 	The caller does not need to hold the <c>_gate</c> lock.
+	/// 	The caller does not need to hold the <see cref="_gate"/> lock.
 	/// </remarks>
 	[LoggerMessage(
 		EventId = LibraryEventIds.InMemoryPauseRecurringAsyncCalled,
@@ -190,7 +190,7 @@ public sealed partial class InMemoryJobStorage
 	private partial void PauseRecurringAsyncCalled(string name);
 
 	/// <remarks>
-	/// 	The caller does not need to hold the <c>_gate</c> lock.
+	/// 	The caller does not need to hold the <see cref="_gate"/> lock.
 	/// </remarks>
 	[LoggerMessage(
 		EventId = LibraryEventIds.InMemoryResumeRecurringAsyncCalled,
@@ -201,7 +201,7 @@ public sealed partial class InMemoryJobStorage
 	private partial void ResumeRecurringAsyncCalled(string name);
 
 	/// <remarks>
-	/// 	The caller does not need to hold the <c>_gate</c> lock.
+	/// 	The caller does not need to hold the <see cref="_gate"/> lock.
 	/// </remarks>
 	[LoggerMessage(
 		EventId = LibraryEventIds.InMemoryGetDueRecurringAsyncCalled,
@@ -212,7 +212,7 @@ public sealed partial class InMemoryJobStorage
 	private partial void GetDueRecurringAsyncCalled(int batchSize);
 
 	/// <remarks>
-	/// 	The caller does not need to hold the <c>_gate</c> lock.
+	/// 	The caller does not need to hold the <see cref="_gate"/> lock.
 	/// </remarks>
 	[LoggerMessage(
 		EventId = LibraryEventIds.InMemoryMaterializeRecurringAsyncCalled,

@@ -125,7 +125,7 @@ public sealed partial class InMemoryJobStorage
 	}
 
 	/// <remarks>
-	/// 	The caller does not need to hold the <c>_gate</c> lock; definition lookup acquires it internally.
+	/// 	The caller does not need to hold the <see cref="_gate"/> lock; definition lookup acquires it internally.
 	/// </remarks>
 	private JobRecord CreateRecord(JobSubmission job)
 	{
@@ -134,7 +134,7 @@ public sealed partial class InMemoryJobStorage
 	}
 
 	/// <remarks>
-	/// 	The caller does not need to hold the <c>_gate</c> lock; this method acquires it internally.
+	/// 	The caller does not need to hold the <see cref="_gate"/> lock; this method acquires it internally.
 	/// </remarks>
 	internal JobDefinitionRecord GetJobDefinition(string name)
 	{
@@ -145,7 +145,7 @@ public sealed partial class InMemoryJobStorage
 	}
 
 	/// <remarks>
-	/// 	The caller must hold the <c>_gate</c> lock.
+	/// 	The caller must hold the <see cref="_gate"/> lock.
 	/// </remarks>
 	private void ValidateNewJob(JobRecord job)
 	{
@@ -154,7 +154,7 @@ public sealed partial class InMemoryJobStorage
 	}
 
 	/// <remarks>
-	/// 	The caller must hold the <c>_gate</c> lock.
+	/// 	The caller must hold the <see cref="_gate"/> lock.
 	/// </remarks>
 	private void ValidateEdges(
 		IReadOnlyList<JobRecord> newJobs,
@@ -226,7 +226,7 @@ public sealed partial class InMemoryJobStorage
 	}
 
 	/// <remarks>
-	/// 	The caller does not need to hold the <c>_gate</c> lock.
+	/// 	The caller does not need to hold the <see cref="_gate"/> lock.
 	/// </remarks>
 	[LoggerMessage(
 		EventId = LibraryEventIds.InMemoryEnqueueAsyncCalled,
@@ -237,7 +237,7 @@ public sealed partial class InMemoryJobStorage
 	private partial void EnqueueAsyncCalled(JobHandle jobHandle);
 
 	/// <remarks>
-	/// 	The caller does not need to hold the <c>_gate</c> lock.
+	/// 	The caller does not need to hold the <see cref="_gate"/> lock.
 	/// </remarks>
 	[LoggerMessage(
 		EventId = LibraryEventIds.InMemoryEnqueueContinuationAsyncCalled,
@@ -248,7 +248,7 @@ public sealed partial class InMemoryJobStorage
 	private partial void EnqueueContinuationAsyncCalled(JobHandle jobHandle, int edges);
 
 	/// <remarks>
-	/// 	The caller does not need to hold the <c>_gate</c> lock.
+	/// 	The caller does not need to hold the <see cref="_gate"/> lock.
 	/// </remarks>
 	[LoggerMessage(
 		EventId = LibraryEventIds.InMemoryEnqueueBatchAsyncCalled,
@@ -259,7 +259,7 @@ public sealed partial class InMemoryJobStorage
 	private partial void EnqueueBatchAsyncCalled(BatchHandle batchHandle, int jobs, int edges);
 
 	/// <remarks>
-	/// 	The caller does not need to hold the <c>_gate</c> lock.
+	/// 	The caller does not need to hold the <see cref="_gate"/> lock.
 	/// </remarks>
 	[LoggerMessage(
 		EventId = LibraryEventIds.InMemoryAddBatchJobAsyncCalled,

@@ -98,7 +98,7 @@ public sealed partial class InMemoryJobStorage(
 	}
 
 	/// <remarks>
-	/// 	The caller does not need to hold the <c>_gate</c> lock.
+	/// 	The caller does not need to hold the <see cref="_gate"/> lock.
 	/// </remarks>
 	[LoggerMessage(
 		EventId = LibraryEventIds.InMemoryDisposeAsyncCalled,
@@ -109,7 +109,7 @@ public sealed partial class InMemoryJobStorage(
 	private partial void DisposeAsyncCalled();
 
 	/// <remarks>
-	/// 	The caller does not need to hold the <c>_gate</c> lock.
+	/// 	The caller does not need to hold the <see cref="_gate"/> lock.
 	/// </remarks>
 	[LoggerMessage(
 		EventId = LibraryEventIds.InMemoryInitializeAsyncCalled,
@@ -120,7 +120,7 @@ public sealed partial class InMemoryJobStorage(
 	private partial void InitializeAsyncCalled();
 
 	/// <remarks>
-	/// 	The caller does not need to hold the <c>_gate</c> lock.
+	/// 	The caller does not need to hold the <see cref="_gate"/> lock.
 	/// </remarks>
 	[LoggerMessage(
 		EventId = LibraryEventIds.InMemoryHeartbeatAsyncCalled,
@@ -131,7 +131,7 @@ public sealed partial class InMemoryJobStorage(
 	private partial void HeartbeatAsyncCalled(string server);
 
 	/// <remarks>
-	/// 	The caller does not need to hold the <c>_gate</c> lock.
+	/// 	The caller does not need to hold the <see cref="_gate"/> lock.
 	/// </remarks>
 	[LoggerMessage(
 		EventId = LibraryEventIds.InMemoryIsHealthyAsyncCalled,

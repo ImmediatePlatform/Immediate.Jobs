@@ -6,7 +6,7 @@ namespace Immediate.Jobs.Shared.Storage;
 public sealed partial class InMemoryJobStorage
 {
 	/// <remarks>
-	/// 	The caller does not need to hold the <c>_gate</c> lock; this method acquires it internally.
+	/// 	The caller does not need to hold the <see cref="_gate"/> lock; this method acquires it internally.
 	/// </remarks>
 	internal IReadOnlyList<JobServerSnapshot> GetLiveServersSnapshot()
 	{
@@ -30,7 +30,7 @@ public sealed partial class InMemoryJobStorage
 	}
 
 	/// <remarks>
-	/// 	The caller must hold the <c>_gate</c> lock.
+	/// 	The caller must hold the <see cref="_gate"/> lock.
 	/// </remarks>
 	private IReadOnlyList<JobAcquisitionState> GetDefinitionStatuses(DateTimeOffset now)
 	{
@@ -322,7 +322,7 @@ public sealed partial class InMemoryJobStorage
 	}
 
 	/// <remarks>
-	/// 	The caller does not need to hold the <c>_gate</c> lock; this method does not access mutable storage state.
+	/// 	The caller does not need to hold the <see cref="_gate"/> lock; this method does not access mutable storage state.
 	/// </remarks>
 	private static BatchStatus ToStatus(BatchRecord batch) =>
 		new()
@@ -342,7 +342,7 @@ public sealed partial class InMemoryJobStorage
 		};
 
 	/// <remarks>
-	/// 	The caller does not need to hold the <c>_gate</c> lock.
+	/// 	The caller does not need to hold the <see cref="_gate"/> lock.
 	/// </remarks>
 	[LoggerMessage(
 		EventId = LibraryEventIds.InMemoryGetMonitoringSnapshotAsyncCalled,
@@ -353,7 +353,7 @@ public sealed partial class InMemoryJobStorage
 	private partial void GetMonitoringSnapshotAsyncCalled();
 
 	/// <remarks>
-	/// 	The caller does not need to hold the <c>_gate</c> lock.
+	/// 	The caller does not need to hold the <see cref="_gate"/> lock.
 	/// </remarks>
 	[LoggerMessage(
 		EventId = LibraryEventIds.InMemoryQueryJobsAsyncCalled,
@@ -364,7 +364,7 @@ public sealed partial class InMemoryJobStorage
 	private partial void QueryJobsAsyncCalled(JobQuery query);
 
 	/// <remarks>
-	/// 	The caller does not need to hold the <c>_gate</c> lock.
+	/// 	The caller does not need to hold the <see cref="_gate"/> lock.
 	/// </remarks>
 	[LoggerMessage(
 		EventId = LibraryEventIds.InMemoryQueryNonCompletedJobsAsyncCalled,
@@ -375,7 +375,7 @@ public sealed partial class InMemoryJobStorage
 	private partial void QueryNonCompletedJobsAsyncCalled(string jobName);
 
 	/// <remarks>
-	/// 	The caller does not need to hold the <c>_gate</c> lock.
+	/// 	The caller does not need to hold the <see cref="_gate"/> lock.
 	/// </remarks>
 	[LoggerMessage(
 		EventId = LibraryEventIds.InMemoryQueryJobExecutionsAsyncCalled,
@@ -386,7 +386,7 @@ public sealed partial class InMemoryJobStorage
 	private partial void QueryJobExecutionsAsyncCalled(JobHandle jobHandle);
 
 	/// <remarks>
-	/// 	The caller does not need to hold the <c>_gate</c> lock.
+	/// 	The caller does not need to hold the <see cref="_gate"/> lock.
 	/// </remarks>
 	[LoggerMessage(
 		EventId = LibraryEventIds.InMemoryGetBatchStatusAsyncCalled,
@@ -397,7 +397,7 @@ public sealed partial class InMemoryJobStorage
 	private partial void GetBatchStatusAsyncCalled(BatchHandle batchHandle);
 
 	/// <remarks>
-	/// 	The caller does not need to hold the <c>_gate</c> lock.
+	/// 	The caller does not need to hold the <see cref="_gate"/> lock.
 	/// </remarks>
 	[LoggerMessage(
 		EventId = LibraryEventIds.InMemoryQueryBatchesAsyncCalled,
@@ -408,7 +408,7 @@ public sealed partial class InMemoryJobStorage
 	private partial void QueryBatchesAsyncCalled(BatchQuery query);
 
 	/// <remarks>
-	/// 	The caller does not need to hold the <c>_gate</c> lock.
+	/// 	The caller does not need to hold the <see cref="_gate"/> lock.
 	/// </remarks>
 	[LoggerMessage(
 		EventId = LibraryEventIds.InMemoryQueryBatchMembersAsyncCalled,
@@ -419,7 +419,7 @@ public sealed partial class InMemoryJobStorage
 	private partial void QueryBatchMembersAsyncCalled(BatchHandle batchHandle);
 
 	/// <remarks>
-	/// 	The caller does not need to hold the <c>_gate</c> lock.
+	/// 	The caller does not need to hold the <see cref="_gate"/> lock.
 	/// </remarks>
 	[LoggerMessage(
 		EventId = LibraryEventIds.InMemoryGetBatchGraphAsyncCalled,
@@ -430,7 +430,7 @@ public sealed partial class InMemoryJobStorage
 	private partial void GetBatchGraphAsyncCalled(BatchHandle batchHandle);
 
 	/// <remarks>
-	/// 	The caller does not need to hold the <c>_gate</c> lock.
+	/// 	The caller does not need to hold the <see cref="_gate"/> lock.
 	/// </remarks>
 	[LoggerMessage(
 		EventId = LibraryEventIds.InMemoryGetJobStatusAsyncCalled,
@@ -441,7 +441,7 @@ public sealed partial class InMemoryJobStorage
 	private partial void GetJobStatusAsyncCalled(JobHandle jobHandle);
 
 	/// <remarks>
-	/// 	The caller does not need to hold the <c>_gate</c> lock.
+	/// 	The caller does not need to hold the <see cref="_gate"/> lock.
 	/// </remarks>
 	[LoggerMessage(
 		EventId = LibraryEventIds.InMemoryGetMonitoringDefinitionsAsyncCalled,

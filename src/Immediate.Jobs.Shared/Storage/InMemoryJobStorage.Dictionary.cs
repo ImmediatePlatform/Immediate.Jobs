@@ -7,7 +7,7 @@ namespace Immediate.Jobs.Shared.Storage;
 public sealed partial class InMemoryJobStorage
 {
 	/// <remarks>
-	/// 	The caller must hold the <c>_gate</c> lock throughout this call and while using the returned reference.
+	/// 	The caller must hold the <see cref="_gate"/> lock throughout this call and while using the returned reference.
 	/// 	The dictionary must not be structurally modified while the reference is in use.
 	/// </remarks>
 	[SuppressMessage("Style", "IDE0007:Use implicit type", Justification = "Interaction between IDE0007 and CS8619")]
@@ -22,7 +22,7 @@ public sealed partial class InMemoryJobStorage
 
 	// This inserts a default slot: finish validation and construct the value before calling.
 	/// <remarks>
-	/// 	The caller must hold the <c>_gate</c> lock throughout this call and while using the returned reference.
+	/// 	The caller must hold the <see cref="_gate"/> lock throughout this call and while using the returned reference.
 	/// 	The dictionary must not be structurally modified while the reference is in use.
 	/// </remarks>
 	[SuppressMessage("Style", "IDE0007:Use implicit type", Justification = "Interaction between IDE0007 and CS8619")]
