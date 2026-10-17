@@ -30,7 +30,7 @@
 		"eslint": "^10.9.1",
 		"eslint-plugin-vue": "^10.10.0",
 		"globals": "^17.9.0",
-		"happy-dom": "^20.11.2",
+		"happy-dom": "^20.14.5",
 		"tailwindcss": "^4.3.3",
 		"typescript": "^6.0.3",
 		"typescript-eslint": "^8.66.0",
