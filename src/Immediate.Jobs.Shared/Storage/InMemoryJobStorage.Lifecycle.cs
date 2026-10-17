@@ -1,3 +1,5 @@
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using Immediate.Jobs.Shared.Apis;
 using Microsoft.Extensions.Logging;
 
@@ -93,7 +95,9 @@ public sealed partial class InMemoryJobStorage
 			_edges.AddRange(dependencyEdges);
 			var completedAt = timeProvider.GetUtcNow();
 			CompleteExecution(current, JobExecutionState.Succeeded, completedAt);
-			TransitionToTerminal(jobHandle, JobState.Succeeded, error: null, completedAt);
+			// Continuation inserts above may resize _jobs; obtain the ref only after they finish.
+			ref var completed = ref ValidateExistingElement(_jobs, jobHandle);
+			TransitionToTerminal(ref completed, JobState.Succeeded, error: null, completedAt);
 		}
 	}
 
@@ -113,13 +117,13 @@ public sealed partial class InMemoryJobStorage
 
 		lock (_gate)
 		{
-			var job = GetOwnedActive(jobHandle, executionNumber, workerId);
+			ref var job = ref GetOwnedActive(jobHandle, executionNumber, workerId);
 			var completedAt = timeProvider.GetUtcNow();
 			CompleteExecution(job, JobExecutionState.Failed, completedAt, error);
 			if (nextRetryAt.HasValue)
 			{
 				var now = timeProvider.GetUtcNow();
-				_jobs[jobHandle] = job with
+				job = job with
 				{
 					State = nextRetryAt <= now ? JobState.Pending : JobState.Scheduled,
 					DueAt = nextRetryAt.Value,
@@ -131,7 +135,7 @@ public sealed partial class InMemoryJobStorage
 			}
 			else
 			{
-				TransitionToTerminal(jobHandle, JobState.Failed, error, completedAt);
+				TransitionToTerminal(ref job, JobState.Failed, error, completedAt);
 			}
 		}
 	}
@@ -145,7 +149,8 @@ public sealed partial class InMemoryJobStorage
 
 		lock (_gate)
 		{
-			if (!_jobs.TryGetValue(jobHandle, out var job))
+			ref var job = ref CollectionsMarshal.GetValueRefOrNullRef(_jobs, jobHandle);
+			if (Unsafe.IsNullRef(ref job))
 				throw new KeyNotFoundException($"Job '{jobHandle}' was not found.");
 			if (IsTerminal(job.State))
 				throw new ImmediateJobException("Only a non-terminal job can be cancelled.");
@@ -153,7 +158,7 @@ public sealed partial class InMemoryJobStorage
 			var now = timeProvider.GetUtcNow();
 			if (job.State == JobState.Active)
 				CompleteExecution(job, JobExecutionState.Cancelled, now);
-			TransitionToTerminal(jobHandle, JobState.Cancelled, error: null, now);
+			TransitionToTerminal(ref job, JobState.Cancelled, error: null, now);
 		}
 	}
 
@@ -166,21 +171,26 @@ public sealed partial class InMemoryJobStorage
 
 		lock (_gate)
 		{
-			if (!_batches.TryGetValue(batchHandle, out var batch))
+			ref var batch = ref CollectionsMarshal.GetValueRefOrNullRef(_batches, batchHandle);
+			if (Unsafe.IsNullRef(ref batch))
 				throw new KeyNotFoundException($"Batch '{batchHandle}' was not found.");
 			if (IsTerminal(batch.State))
 				throw new ImmediateJobException("Only an executing batch can be cancelled.");
 
 			var now = timeProvider.GetUtcNow();
-			var jobHandles = GetJobsForBatch(batchHandle)
-				.Where(job => !IsTerminal(job.State))
-				.Select(static job => job.JobHandle)
-				.ToList();
-			foreach (var jobHandle in jobHandles)
+			var jobHandles = new List<JobHandle>();
+			if (_jobsByBatch.TryGetValue(batchHandle, out var handles))
 			{
-				if (_jobs.TryGetValue(jobHandle, out var job) && job.State == JobState.Active)
-					CompleteExecution(job, JobExecutionState.Cancelled, now);
-				TransitionToTerminal(jobHandle, JobState.Cancelled, error: null, now, propagateContinuations: false);
+				foreach (var handle in handles)
+				{
+					ref var job = ref ValidateExistingElement(_jobs, handle);
+					if (IsTerminal(job.State))
+						continue;
+					if (job.State == JobState.Active)
+						CompleteExecution(job, JobExecutionState.Cancelled, now);
+					TransitionToTerminal(ref job, JobState.Cancelled, error: null, now, propagateContinuations: false);
+					jobHandles.Add(handle);
+				}
 			}
 
 			foreach (var jobHandle in jobHandles)
@@ -197,23 +207,27 @@ public sealed partial class InMemoryJobStorage
 
 		lock (_gate)
 		{
-			if (!_jobs.TryGetValue(jobHandle, out var job))
+			ref var job = ref CollectionsMarshal.GetValueRefOrNullRef(_jobs, jobHandle);
+			if (Unsafe.IsNullRef(ref job))
 				throw new KeyNotFoundException($"Job '{jobHandle}' was not found.");
 			var wasFailed = job.State == JobState.Failed;
 			if (!wasFailed && job.State != JobState.Scheduled)
 				throw new ImmediateJobException("Only failed or scheduled jobs can be retried.");
 
 			MaterializeSyntheticExecution(job);
-			_jobs[jobHandle] = job with
+			job = job with
 			{
 				State = JobState.Pending,
 				DueAt = timeProvider.GetUtcNow(),
 				CompletedAt = wasFailed ? null : job.CompletedAt,
 				LastError = wasFailed ? null : job.LastError,
 			};
-			if (wasFailed && job.BatchHandle is { } batchHandle && _batches.TryGetValue(batchHandle, out var batch))
+			if (wasFailed && job.BatchHandle is { } batchHandle)
 			{
-				_batches[batchHandle] = batch with
+				ref var batch = ref CollectionsMarshal.GetValueRefOrNullRef(_batches, batchHandle);
+				if (Unsafe.IsNullRef(ref batch))
+					return;
+				batch = batch with
 				{
 					State = BatchState.Executing,
 					PendingCount = batch.PendingCount + 1,
@@ -316,7 +330,7 @@ public sealed partial class InMemoryJobStorage
 	}
 
 	private void TransitionToTerminal(
-		JobHandle jobHandle,
+		ref JobRecord job,
 		JobState terminalState,
 		string? error,
 		DateTimeOffset completedAt,
@@ -325,10 +339,14 @@ public sealed partial class InMemoryJobStorage
 	{
 		if (!IsTerminal(terminalState))
 			throw new ArgumentOutOfRangeException(nameof(terminalState));
-		if (!_jobs.TryGetValue(jobHandle, out var job) || IsTerminal(job.State))
+		if (IsTerminal(job.State))
 			return;
 
-		_jobs[jobHandle] = job with
+		var jobHandle = job.JobHandle;
+		var batchHandle = job.BatchHandle;
+		var queueName = GetQueueName(job.JobName);
+		var groupId = job.GroupId;
+		job = job with
 		{
 			State = terminalState,
 			WorkerId = null,
@@ -336,10 +354,10 @@ public sealed partial class InMemoryJobStorage
 			LastError = error,
 			CompletedAt = completedAt,
 		};
-		UpdateBatchAfterTerminal(job.BatchHandle, terminalState, completedAt);
+		UpdateBatchAfterTerminal(batchHandle, terminalState, completedAt);
 		if (propagateContinuations)
 			ProcessTerminalJob(jobHandle);
-		RemoveFairQueueCursorWhenBacklogClears(GetQueueName(job.JobName), job.GroupId);
+		RemoveFairQueueCursorWhenBacklogClears(queueName, groupId);
 	}
 
 	private void RemoveFairQueueCursorWhenBacklogClears(string? queueName, string? groupId)
@@ -358,7 +376,10 @@ public sealed partial class InMemoryJobStorage
 
 	private void UpdateBatchAfterTerminal(BatchHandle? batchHandle, JobState state, DateTimeOffset completedAt)
 	{
-		if (batchHandle is null || !_batches.TryGetValue(batchHandle, out var batch))
+		if (batchHandle is null)
+			return;
+		ref var batch = ref CollectionsMarshal.GetValueRefOrNullRef(_batches, batchHandle);
+		if (Unsafe.IsNullRef(ref batch))
 			return;
 
 		var pending = Math.Max(0, batch.PendingCount - 1);
@@ -381,7 +402,6 @@ public sealed partial class InMemoryJobStorage
 			};
 		}
 
-		_batches[batchHandle] = batch;
 		if (pending == 0)
 			ProcessTerminalBatch(batchHandle);
 	}

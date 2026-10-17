@@ -1,3 +1,5 @@
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using Immediate.Jobs.Shared.Apis;
 
 namespace Immediate.Jobs.Shared.Storage;
@@ -67,13 +69,14 @@ public sealed partial class InMemoryJobStorage
 
 	private void SettleEdge(JobContinuationEdge edge, bool parentFailed)
 	{
-		if (!_jobs.TryGetValue(edge.ChildJobHandle, out var child) || IsTerminal(child.State))
+		ref var child = ref CollectionsMarshal.GetValueRefOrNullRef(_jobs, edge.ChildJobHandle);
+		if (Unsafe.IsNullRef(ref child) || IsTerminal(child.State))
 			return;
 
 		var remaining = Math.Max(0, child.RemainingDependencies - 1);
 		if (remaining != 0)
 		{
-			_jobs[child.JobHandle] = child with
+			child = child with
 			{
 				RemainingDependencies = remaining,
 				FailedDependencies = child.FailedDependencies + (parentFailed ? 1 : 0),
@@ -89,7 +92,7 @@ public sealed partial class InMemoryJobStorage
 
 		var dueAt = child.DueAt > evaluateDelay ? child.DueAt : evaluateDelay;
 
-		_jobs[child.JobHandle] = child with
+		child = child with
 		{
 			State = triggersSatisfied && child.State == JobState.AwaitingContinuation
 				? dueAt <= timeProvider.GetUtcNow() ? JobState.Pending : JobState.Scheduled
@@ -100,7 +103,7 @@ public sealed partial class InMemoryJobStorage
 		};
 
 		if (!triggersSatisfied)
-			TransitionToTerminal(child.JobHandle, JobState.Skipped, error: null, timeProvider.GetUtcNow());
+			TransitionToTerminal(ref child, JobState.Skipped, error: null, timeProvider.GetUtcNow());
 	}
 
 	private (bool Satisfied, int FailedDependencies, TimeSpan Delay) EvaluateIncomingTriggers(JobHandle childJobHandle)
@@ -159,10 +162,11 @@ public sealed partial class InMemoryJobStorage
 	{
 		foreach (var existingEdge in existingWaiters)
 		{
-			if (!_jobs.TryGetValue(existingEdge.ChildJobHandle, out var child) || IsTerminal(child.State))
+			ref var child = ref CollectionsMarshal.GetValueRefOrNullRef(_jobs, existingEdge.ChildJobHandle);
+			if (Unsafe.IsNullRef(ref child) || IsTerminal(child.State))
 				continue;
 
-			_jobs[child.JobHandle] = child with
+			child = child with
 			{
 				State = child.State == JobState.WaitingForTrigger ? JobState.WaitingForTrigger : JobState.AwaitingContinuation,
 				RemainingDependencies = child.RemainingDependencies + 1,
@@ -195,12 +199,15 @@ public sealed partial class InMemoryJobStorage
 	{
 		if (count == 0)
 			return;
-		if (batchHandle is null || !_batches.TryGetValue(batchHandle, out var batch))
+		if (batchHandle is null)
+			throw new ImmediateJobException("The current job's batch was not found.");
+		ref var batch = ref CollectionsMarshal.GetValueRefOrNullRef(_batches, batchHandle);
+		if (Unsafe.IsNullRef(ref batch))
 			throw new ImmediateJobException("The current job's batch was not found.");
 		if (batch.TotalJobs > int.MaxValue - count || batch.PendingCount > int.MaxValue - count)
 			throw new ImmediateJobException($"Batch '{batchHandle}' member count overflow.");
 
-		_batches[batchHandle] = batch with
+		batch = batch with
 		{
 			TotalJobs = batch.TotalJobs + count,
 			PendingCount = batch.PendingCount + count,

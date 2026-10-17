@@ -1,3 +1,4 @@
+using System.Globalization;
 using Immediate.Jobs.Shared.Apis;
 using Immediate.Jobs.Shared.Storage;
 using Microsoft.Extensions.Time.Testing;
@@ -6,6 +7,72 @@ namespace Immediate.Jobs.StorageTests;
 
 public sealed class InMemoryStorageIndexTests
 {
+	[Fact]
+	public async Task CompletionUpdatesTheStoredParentAfterInsertingManyContinuations()
+	{
+		var token = TestContext.Current.CancellationToken;
+		var clock = new FakeTimeProvider(DateTimeOffset.UnixEpoch.AddDays(1));
+		await using var storage = new InMemoryJobStorage(clock);
+		await RegisterAsync(storage, token);
+		var parent = Record("parent", "Work") with { State = JobState.Active, Attempt = 1, WorkerId = "worker", LeaseExpiresAt = clock.GetUtcNow().AddHours(1) };
+		storage.LoadPersistedJobState([parent], [], [], []);
+		var additions = Enumerable.Range(0, 512).Select(i => new JobContinuationAddition
+		{
+			Job = Submission(JobHandle.FromString(string.Create(CultureInfo.InvariantCulture, $"child-{i}")), "Work"),
+			Options = ContinuationOptions.Detached,
+			Delay = TimeSpan.Zero,
+		}).ToList();
+
+		await storage.CompleteWithContinuationsAsync(parent.JobHandle, 1, "worker", additions, token);
+
+		Assert.Equal(JobState.Succeeded, Assert.Single(await storage.QueryJobsAsync(new() { JobHandle = parent.JobHandle }, token)).State);
+		var children = await storage.QueryNonCompletedJobsAsync("work", token);
+		Assert.Equal(512, children.Count);
+		Assert.All(children, static child => Assert.Equal(JobState.Pending, child.State));
+	}
+
+	[Fact]
+	public async Task RejectedBatchDoesNotReserveItsHandleOrItsJobs()
+	{
+		var token = TestContext.Current.CancellationToken;
+		await using var storage = new InMemoryJobStorage(new FakeTimeProvider());
+		await RegisterAsync(storage, token);
+		var batch = Batch(BatchHandle.FromString("batch"), 1);
+		var job = Submission(JobHandle.FromString("job"), "Work") with { BatchHandle = batch.BatchHandle };
+		JobContinuationEdge edge = new() { ChildJobHandle = job.JobHandle, ParentJobHandle = JobHandle.FromString("missing"), Trigger = ContinuationTrigger.Success, Delay = TimeSpan.Zero };
+
+		await Assert.ThrowsAsync<KeyNotFoundException>(async () => await storage.EnqueueBatchAsync(batch, [job], [edge], token));
+		Assert.Null(await storage.GetBatchStatusAsync(batch.BatchHandle, token));
+		Assert.Empty(await storage.QueryNonCompletedJobsAsync("work", token));
+		await storage.EnqueueBatchAsync(batch, [job], [], token);
+		Assert.Single(await storage.QueryBatchMembersAsync(batch.BatchHandle, new(), token));
+	}
+
+	[Fact]
+	public async Task BatchTriggerDoesNotRetriggerMembersSkippedDuringPropagation()
+	{
+		var token = TestContext.Current.CancellationToken;
+		await using var storage = new InMemoryJobStorage(new FakeTimeProvider());
+		await RegisterAsync(storage, token);
+		var batch = BatchHandle.FromString("batch");
+		var failed = Record("failed", "Other") with { State = JobState.Failed, CompletedAt = DateTimeOffset.UnixEpoch };
+		var first = Record("first", "Work") with { BatchHandle = batch, State = JobState.WaitingForTrigger };
+		var second = Record("second", "Work") with { BatchHandle = batch, State = JobState.WaitingForTrigger, RemainingDependencies = 1 };
+		storage.LoadPersistedJobState([failed, first, second], [Batch(batch, 2) with { State = BatchState.WaitingForTrigger }],
+		[
+			new() { ChildJobHandle = first.JobHandle, ParentJobHandle = failed.JobHandle, Trigger = ContinuationTrigger.Success, Delay = TimeSpan.Zero },
+			new() { ChildJobHandle = second.JobHandle, ParentJobHandle = first.JobHandle, Trigger = ContinuationTrigger.Success, Delay = TimeSpan.Zero },
+		], []);
+
+		Assert.True(await storage.TryTriggerBatchAsync(batch, token));
+		Assert.All(await storage.QueryBatchMembersAsync(batch, new(), token), static member => Assert.Equal(JobState.Skipped, member.State));
+		var status = await storage.GetBatchStatusAsync(batch, token);
+		Assert.NotNull(status);
+		Assert.Equal(BatchState.Succeeded, status.State);
+		Assert.Equal(2, status.Skipped);
+		Assert.False(await storage.TryTriggerBatchAsync(batch, token));
+	}
+
 	[Fact]
 	public async Task BatchAndDefinitionLookupsReflectRecoveryCancellationPurgeAndHandleReuse()
 	{

@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using Immediate.Jobs.Shared.Apis;
 
 namespace Immediate.Jobs.Shared.Storage;
@@ -13,8 +14,12 @@ public sealed partial class InMemoryJobStorage
 	// Membership changes run under _gate. State-only updates keep their existing index entries.
 	private void AddJob(JobRecord job)
 	{
-		if (!_jobs.TryAdd(job.JobHandle, job))
-			throw new ImmediateJobException($"Job '{job.JobHandle}' already exists.");
+		ValidateNewElement(_jobs, job.JobHandle) = job;
+		AddJobIndexes(job);
+	}
+
+	private void AddJobIndexes(JobRecord job)
+	{
 		AddJobHandle(_jobsByDefinition, job.JobName, job.JobHandle);
 		if (job.BatchHandle is { } batchHandle)
 			AddJobHandle(_jobsByBatch, batchHandle, job.JobHandle);
@@ -22,9 +27,12 @@ public sealed partial class InMemoryJobStorage
 
 	private void SetJob(JobRecord job)
 	{
-		if (!_jobs.TryGetValue(job.JobHandle, out var previous))
+		ref var stored = ref CollectionsMarshal.GetValueRefOrAddDefault(_jobs, job.JobHandle, out _);
+		var previous = stored;
+		if (previous is null)
 		{
-			AddJob(job);
+			stored = job;
+			AddJobIndexes(job);
 			return;
 		}
 
@@ -48,20 +56,20 @@ public sealed partial class InMemoryJobStorage
 				AddJobHandle(_jobsByBatch, newBatch, job.JobHandle);
 		}
 
-		_jobs[job.JobHandle] = job;
+		stored = job;
 	}
 
 	private static void AddJobHandle(Dictionary<BatchHandle, List<JobHandle>> index, BatchHandle key, JobHandle handle)
 	{
-		if (!index.TryGetValue(key, out var handles))
-			index.Add(key, handles = []);
+		ref var handles = ref CollectionsMarshal.GetValueRefOrAddDefault(index, key, out _);
+		handles ??= [];
 		handles.Add(handle);
 	}
 
 	private static void AddJobHandle(Dictionary<string, HashSet<JobHandle>> index, string key, JobHandle handle)
 	{
-		if (!index.TryGetValue(key, out var handles))
-			index.Add(key, handles = []);
+		ref var handles = ref CollectionsMarshal.GetValueRefOrAddDefault(index, key, out _);
+		handles ??= [];
 		handles.Add(handle);
 	}
 

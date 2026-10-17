@@ -1,3 +1,5 @@
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using Immediate.Jobs.Shared.Apis;
 using Microsoft.Extensions.Logging;
 
@@ -20,8 +22,8 @@ public sealed partial class InMemoryJobStorage
 
 		lock (_gate)
 		{
-			var job = GetOwnedActive(jobHandle, executionNumber, workerId);
-			_jobs[jobHandle] = job with { LeaseExpiresAt = timeProvider.GetUtcNow() + lease };
+			ref var job = ref GetOwnedActive(jobHandle, executionNumber, workerId);
+			job = job with { LeaseExpiresAt = timeProvider.GetUtcNow() + lease };
 		}
 	}
 
@@ -314,8 +316,11 @@ public sealed partial class InMemoryJobStorage
 
 	private void MarkBatchStarted(BatchHandle? batchHandle, DateTimeOffset startedAt)
 	{
-		if (batchHandle is not null && _batches.TryGetValue(batchHandle, out var batch) && batch.StartedAt is null)
-			_batches[batchHandle] = batch with { StartedAt = startedAt };
+		if (batchHandle is null)
+			return;
+		ref var batch = ref CollectionsMarshal.GetValueRefOrNullRef(_batches, batchHandle);
+		if (!Unsafe.IsNullRef(ref batch) && batch.StartedAt is null)
+			batch = batch with { StartedAt = startedAt };
 	}
 
 	[LoggerMessage(

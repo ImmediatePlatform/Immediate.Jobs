@@ -1,4 +1,7 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using Immediate.Jobs.Shared.Apis;
 using Microsoft.Extensions.Logging;
 
@@ -23,9 +26,9 @@ public sealed partial class InMemoryJobStorage
 
 		lock (_gate)
 		{
-			var job = GetOwnedActive(jobHandle, executionNumber, workerId);
+			ref var job = ref GetOwnedActive(jobHandle, executionNumber, workerId);
 			MaterializeSyntheticExecution(job);
-			_jobs[jobHandle] = job with
+			job = job with
 			{
 				ExecutionTraceId = traceId,
 				ExecutionSpanId = spanId,
@@ -84,9 +87,11 @@ public sealed partial class InMemoryJobStorage
 		});
 	}
 
-	private JobRecord GetOwnedActive(JobHandle jobHandle, int executionNumber, string workerId)
+	[SuppressMessage("Style", "IDE0007:Use implicit type", Justification = "Interaction between IDE0007 and CS8619")]
+	private ref JobRecord GetOwnedActive(JobHandle jobHandle, int executionNumber, string workerId)
 	{
-		if (!_jobs.TryGetValue(jobHandle, out var job) || job.State != JobState.Active)
+		ref JobRecord job = ref CollectionsMarshal.GetValueRefOrNullRef(_jobs, jobHandle);
+		if (Unsafe.IsNullRef(ref job) || job.State != JobState.Active)
 		{
 			throw new ImmediateJobException($"Worker '{workerId}' does not own active job '{jobHandle}'.");
 		}
@@ -102,7 +107,7 @@ public sealed partial class InMemoryJobStorage
 		if (!string.Equals(job.WorkerId, workerId, StringComparison.Ordinal))
 			throw new ImmediateJobException($"Worker '{workerId}' does not own active job '{jobHandle}'.");
 
-		return job;
+		return ref job;
 	}
 
 	private void MaterializeSyntheticExecution(JobRecord job)

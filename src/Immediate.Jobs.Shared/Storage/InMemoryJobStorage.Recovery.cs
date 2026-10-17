@@ -120,7 +120,7 @@ public sealed partial class InMemoryJobStorage
 
 			// Commit only after validating the complete graph. Persisted progress is already settled.
 			foreach (var batch in batches)
-				_batches.Add(batch.BatchHandle, batch);
+				ValidateNewElement(_batches, batch.BatchHandle) = batch;
 			foreach (var job in jobs)
 			{
 				AddJob(job with { QueueName = null });

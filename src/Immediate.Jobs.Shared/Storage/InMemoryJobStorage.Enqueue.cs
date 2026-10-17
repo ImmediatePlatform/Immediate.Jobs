@@ -59,7 +59,7 @@ public sealed partial class InMemoryJobStorage
 			}
 
 			ValidateEdges(records, edges, batch.BatchHandle);
-			_batches.Add(batch.BatchHandle, batch);
+			ValidateNewElement(_batches, batch.BatchHandle) = batch;
 			var incomingCounts = edges.GroupBy(static edge => edge.ChildJobHandle)
 				.ToDictionary(static group => group.Key, static group => group.Count());
 			foreach (var record in records)
