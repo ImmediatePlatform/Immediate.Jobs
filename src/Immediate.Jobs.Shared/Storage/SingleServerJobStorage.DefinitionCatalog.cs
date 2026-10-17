@@ -16,28 +16,7 @@ internal sealed partial class SingleServerJobStorage
 		try
 		{
 			await DurableStorage.MergeJobDefinitionsListAsync(registration, cancellationToken);
-			// Refresh the entire durable catalogue of schedules, from durable storage.
-			var snapshot = await DurableStorage.GetMonitoringSnapshotAsync(cancellationToken);
-			var monitoringDefinitions = await DurableStorage.GetMonitoringDefinitionsAsync(cancellationToken);
-			var definitions = monitoringDefinitions.Jobs;
-			var statuses = snapshot.Recurring.ToDictionary(static status => status.Name, StringComparer.OrdinalIgnoreCase);
-			var schedules = monitoringDefinitions.Recurring.Where(definition => statuses.ContainsKey(definition.Name))
-				.Select(definition => RecurringJobSchedule.FromDefinition(definition, statuses[definition.Name])).ToList();
-			var names = definitions.Select(static definition => definition.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
-			var primaryDefinitions = await PrimaryStorage.GetJobDefinitionsAsync(cancellationToken);
-			var tags = definitions.Concat(primaryDefinitions).SelectMany(static definition => definition.Tags)
-				.Append(JobTags.Default).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-			await PrimaryStorage.MergeJobDefinitionsListAsync(
-				new()
-				{
-					Definitions = definitions,
-					ServerTags = tags,
-					RecurringSchedules = schedules.Where(schedule => schedule.IsCodeDefined && names.Contains(schedule.JobName))
-						.ToDictionary(static schedule => schedule.JobName, static schedule => schedule.NextRunAt, StringComparer.OrdinalIgnoreCase),
-				},
-				cancellationToken
-			);
-			PrimaryStorage.RestoreRecurringSchedules(schedules);
+			await PrimaryStorage.MergeJobDefinitionsListAsync(registration, cancellationToken);
 		}
 		finally
 		{

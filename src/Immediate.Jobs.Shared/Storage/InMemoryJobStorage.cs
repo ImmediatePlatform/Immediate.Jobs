@@ -64,47 +64,6 @@ public sealed partial class InMemoryJobStorage(
 		cancellationToken.ThrowIfCancellationRequested();
 	}
 
-	/// <summary>
-	///	    Used for testing to pre-load various values to the storage before the test starts.
-	/// </summary>
-	/// <param name="jobs">
-	///	    The jobs that should be loaded in the database.
-	/// </param>
-	/// <param name="batches">
-	///	    The batches that should be loaded in the database.
-	/// </param>
-	/// <param name="edges">
-	///	    The continuation edges that should be loaded in the database.
-	/// </param>
-	/// <param name="recurringSchedules">
-	///	    The recurring schedules that should be loaded in the database.
-	/// </param>
-	/// <remarks>
-	///	    This method should run before any other methods run to initialize test state. Use in regular app code is not
-	///	    supported.
-	/// </remarks>
-	public void LoadPersistedJobState(
-		IReadOnlyList<JobRecord> jobs,
-		IReadOnlyList<BatchRecord> batches,
-		IReadOnlyList<JobContinuationEdge> edges,
-		IReadOnlyList<RecurringJobSchedule> recurringSchedules
-	)
-	{
-		lock (_gate)
-		{
-			foreach (var b in batches)
-				_batches[b.BatchHandle] = b;
-
-			foreach (var j in jobs)
-				_jobs[j.JobHandle] = j with { QueueName = null };
-
-			_edges.AddRange(edges);
-
-			foreach (var schedule in recurringSchedules)
-				_recurring[schedule.Name] = schedule;
-		}
-	}
-
 	/// <inheritdoc />
 	public async ValueTask HeartbeatAsync(JobServerSnapshot server, CancellationToken cancellationToken = default)
 	{
