@@ -78,15 +78,6 @@ public sealed record JobDefinitionReconciliation
 			.Select(static definition => definition.Name)
 			.ToHashSet(StringComparer.OrdinalIgnoreCase);
 		var removedDefinitions = managedNames.Where(name => !desired.ContainsKey(name)).ToList();
-		// Schedules persisted before the definition catalogue existed belonged to the default scope.
-		if (registration.ServerTags.Contains(JobTags.Default, StringComparer.OrdinalIgnoreCase))
-		{
-			var knownNames = existingDefinitions.Select(static definition => definition.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
-			managedNames.UnionWith(existingSchedules
-				.Where(schedule => schedule.IsCodeDefined && !knownNames.Contains(schedule.JobName))
-				.Select(static schedule => schedule.JobName));
-		}
-
 		managedNames.UnionWith(desired.Keys);
 
 		var existing = existingSchedules.ToDictionary(static schedule => schedule.Name, StringComparer.OrdinalIgnoreCase);

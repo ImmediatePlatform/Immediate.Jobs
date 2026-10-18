@@ -176,8 +176,6 @@ internal static class DefinitionCatalogStorageConformance
 		var ordinary = Definition("ordinary-cron") with { Cron = "* * * * *" };
 		var schedule = Schedule(ordinary, now);
 		await storage.MergeJobDefinitionsListAsync(new() { Definitions = [ordinary], RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase) { [schedule.JobName] = schedule.NextRunAt } }, token);
-		var unregistered = Schedule(Definition("unregistered") with { Cron = "* * * * *" }, now);
-		await storage.UpsertRecurringAsync(unregistered, token);
 		var dynamic = Schedule(ordinary, now) with { Name = "dynamic", IsCodeDefined = false };
 		await storage.UpsertRecurringAsync(dynamic, token);
 		var invocation = new JobRecord
@@ -196,8 +194,6 @@ internal static class DefinitionCatalogStorageConformance
 		var alias = ordinary with { Name = "ORDINARY-CRON" };
 		await storage.MergeJobDefinitionsListAsync(new() { Definitions = [alias], RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase) { [ordinary.Name] = now.AddHours(1) } }, token);
 		var persisted = (await MonitoringTestQueries.GetSchedulesAsync(storage, token)).Single(item => string.Equals(item.Name, ordinary.Name, StringComparison.Ordinal));
-		ConformanceAssert.False((await MonitoringTestQueries.GetSchedulesAsync(storage, token)).Any(item => string.Equals(item.Name, unregistered.Name, StringComparison.Ordinal)),
-			RecurringCase, "startup must clean up obsolete unregistered code schedules without metadata");
 		ConformanceAssert.True(persisted.IsPaused, RecurringCase, "startup must preserve schedule pause state");
 		ConformanceAssert.Equal(now.AddMinutes(1), persisted.NextRunAt, RecurringCase, "unchanged cron must retain progress");
 		ConformanceAssert.Equal<DateTimeOffset?>(now, persisted.LastRunAt, RecurringCase, "startup must retain the last occurrence");

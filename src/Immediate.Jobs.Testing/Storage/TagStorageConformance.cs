@@ -128,11 +128,7 @@ internal static class TagStorageConformance
 		var other = Definition("email-cron", "email") with { Cron = "* * * * *" };
 		var schedule = Schedule(ordinary, now);
 		await storage.MergeJobDefinitionsListAsync(new() { Definitions = [ordinary], RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase) { [schedule.JobName] = schedule.NextRunAt } }, token);
-		var unregistered = Schedule(Definition("unregistered") with { Cron = "* * * * *" }, now);
-		await storage.UpsertRecurringAsync(unregistered, token);
 		await storage.MergeJobDefinitionsListAsync(new() { Definitions = [other], ServerTags = ["email"], RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase) { [other.Name] = now } }, token);
-		ConformanceAssert.True((await MonitoringTestQueries.GetSchedulesAsync(storage, token)).Any(item => string.Equals(item.Name, unregistered.Name, StringComparison.Ordinal)),
-			RecurringCase, "a server without default must preserve unregistered code schedules without metadata");
 		var dynamic = Schedule(ordinary, now) with { Name = "dynamic", IsCodeDefined = false };
 		await storage.UpsertRecurringAsync(dynamic, token);
 		var invocation = new JobRecord
@@ -150,8 +146,6 @@ internal static class TagStorageConformance
 		await storage.PauseRecurringAsync(ordinary.Name, token);
 		await storage.MergeJobDefinitionsListAsync(new() { Definitions = [ordinary], ServerTags = ["DEFAULT"], RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase) { [ordinary.Name] = now.AddHours(1) } }, token);
 		var persisted = (await MonitoringTestQueries.GetSchedulesAsync(storage, token)).Single(item => string.Equals(item.Name, ordinary.Name, StringComparison.Ordinal));
-		ConformanceAssert.False((await MonitoringTestQueries.GetSchedulesAsync(storage, token)).Any(item => string.Equals(item.Name, unregistered.Name, StringComparison.Ordinal)),
-			RecurringCase, "a default server must clean up obsolete unregistered code schedules without metadata");
 		ConformanceAssert.True(persisted.IsPaused, RecurringCase, "startup must preserve schedule pause state");
 		ConformanceAssert.Equal(now.AddMinutes(1), persisted.NextRunAt, RecurringCase, "unchanged cron must retain progress");
 		ConformanceAssert.Equal<DateTimeOffset?>(now, persisted.LastRunAt, RecurringCase, "startup must retain the last occurrence");

@@ -281,16 +281,32 @@ public sealed class ContextPropagationTests
 		var cancellationToken = TestContext.Current.CancellationToken;
 		await using var harness = CreateHarness(new());
 		var nextRunAt = harness.TimeProvider.GetUtcNow() + TimeSpan.FromHours(1);
-		await harness.Storage.UpsertRecurringAsync(
-			CreateRecurringSchedule("removed-job", "removed-job", isCodeDefined: true, nextRunAt),
+		await harness.Storage.MergeJobDefinitionsListAsync(
+			new()
+			{
+				Definitions =
+				[
+					new() { Name = "removed-job", Cron = "0 * * * *" },
+					new() { Name = "context-round-trip", Cron = "0 * * * *" },
+				],
+				RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase)
+				{
+					["removed-job"] = nextRunAt,
+					["context-round-trip"] = nextRunAt,
+				},
+			},
 			cancellationToken
 		);
 		await harness.Storage.UpsertRecurringAsync(
-			CreateRecurringSchedule("context-round-trip", "context-round-trip", isCodeDefined: true, nextRunAt),
-			cancellationToken
-		);
-		await harness.Storage.UpsertRecurringAsync(
-			CreateRecurringSchedule("dynamic-context", "context-round-trip", isCodeDefined: false, nextRunAt),
+			new()
+			{
+				Name = "dynamic-context",
+				JobName = "context-round-trip",
+				Cron = "0 * * * *",
+				TimeZone = "UTC",
+				IsCodeDefined = false,
+				NextRunAt = nextRunAt,
+			},
 			cancellationToken
 		);
 
@@ -347,20 +363,6 @@ public sealed class ContextPropagationTests
 			Context = context,
 		};
 
-	private static RecurringJobSchedule CreateRecurringSchedule(
-		string name,
-		string jobName,
-		bool isCodeDefined,
-		DateTimeOffset nextRunAt
-	) => new()
-	{
-		Name = name,
-		JobName = jobName,
-		Cron = "0 * * * *",
-		TimeZone = "UTC",
-		IsCodeDefined = isCodeDefined,
-		NextRunAt = nextRunAt,
-	};
 }
 
 public sealed class ContextProbe
