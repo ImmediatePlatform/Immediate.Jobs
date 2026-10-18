@@ -155,8 +155,7 @@ public sealed partial class InMemoryJobStorage
 			var executions = _executions.TryGetValue(jobHandle, out var persisted)
 				? persisted.Values.AsEnumerable()
 				: [];
-			var synthetic = JobExecutionRecords.CreateSynthetic(job);
-			if (synthetic is not null && (persisted is null || !persisted.ContainsKey(synthetic.Attempt)))
+			if ((persisted is null || !persisted.ContainsKey(job.Attempt)) && JobExecutionRecords.CreateSynthetic(job) is { } synthetic)
 				executions = executions.Append(synthetic);
 			if (query.Attempt is { } attempt)
 				executions = executions.Where(execution => execution.Attempt == attempt);

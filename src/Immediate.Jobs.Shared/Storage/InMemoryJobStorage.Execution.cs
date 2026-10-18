@@ -27,19 +27,27 @@ public sealed partial class InMemoryJobStorage
 		lock (_gate)
 		{
 			ref var job = ref GetOwnedActive(jobHandle, executionNumber, workerId);
-			MaterializeSyntheticExecution(job);
+			ref var execution = ref MaterializeSyntheticExecution(job);
+			if (Unsafe.IsNullRef(ref execution))
+			{
+				throw new ImmediateJobException(string.Create(
+					CultureInfo.InvariantCulture,
+					$"Execution {executionNumber} for job '{jobHandle}' was not found."
+				));
+			}
+
 			job = job with
 			{
 				ExecutionTraceId = traceId,
 				ExecutionSpanId = spanId,
 				ExecutionStartedAt = startedAt,
 			};
-			UpdateExecution(jobHandle, executionNumber, execution => execution with
+			execution = execution with
 			{
 				ExecutionTraceId = traceId,
 				ExecutionSpanId = spanId,
 				ExecutionStartedAt = startedAt,
-			});
+			};
 		}
 	}
 
@@ -48,8 +56,8 @@ public sealed partial class InMemoryJobStorage
 	/// </remarks>
 	private void CreateExecution(JobRecord job, DateTimeOffset acquiredAt)
 	{
-		if (!_executions.TryGetValue(job.JobHandle, out var executions))
-			_executions.Add(job.JobHandle, executions = []);
+		ref var executions = ref CollectionsMarshal.GetValueRefOrAddDefault(_executions, job.JobHandle, out _);
+		executions ??= [];
 		if (!executions.TryAdd(job.Attempt, new()
 		{
 			JobHandle = job.JobHandle,
@@ -87,13 +95,13 @@ public sealed partial class InMemoryJobStorage
 		if (job.Attempt <= 0)
 			return;
 
-		MaterializeSyntheticExecution(job);
-		UpdateExecution(job.JobHandle, job.Attempt, execution => execution with
+		ref var execution = ref MaterializeSyntheticExecution(job);
+		execution = execution with
 		{
 			State = state,
 			CompletedAt = completedAt,
 			Error = error,
-		});
+		};
 	}
 
 	/// <remarks>
@@ -124,36 +132,22 @@ public sealed partial class InMemoryJobStorage
 	}
 
 	/// <remarks>
-	/// 	The caller must hold the <see cref="_gate"/> lock.
+	/// 	The caller must hold the <see cref="_gate"/> lock throughout this call and while using the returned reference.
+	/// 	The per-job execution dictionary must not be structurally modified while the reference is in use.
+	/// 	Returns a null reference when the job has never been acquired.
 	/// </remarks>
-	private void MaterializeSyntheticExecution(JobRecord job)
+	[SuppressMessage("Style", "IDE0007:Use implicit type", Justification = "Interaction between IDE0007 and CS8619")]
+	private ref JobExecutionRecord MaterializeSyntheticExecution(JobRecord job)
 	{
-		var synthetic = JobExecutionRecords.CreateSynthetic(job);
-		if (synthetic is null)
-			return;
-		if (!_executions.TryGetValue(job.JobHandle, out var executions))
-			_executions.Add(job.JobHandle, executions = []);
-		_ = executions.TryAdd(synthetic.Attempt, synthetic);
-	}
+		if (job.Attempt <= 0)
+			return ref Unsafe.NullRef<JobExecutionRecord>();
 
-	/// <remarks>
-	/// 	The caller must hold the <see cref="_gate"/> lock.
-	/// </remarks>
-	private void UpdateExecution(
-		JobHandle jobHandle,
-		int executionNumber,
-		Func<JobExecutionRecord, JobExecutionRecord> update
-	)
-	{
-		if (!_executions.TryGetValue(jobHandle, out var executions) || !executions.TryGetValue(executionNumber, out var execution))
-		{
-			throw new ImmediateJobException(string.Create(
-				CultureInfo.InvariantCulture,
-				$"Execution {executionNumber} for job '{jobHandle}' was not found."
-			));
-		}
-
-		executions[executionNumber] = update(execution);
+		ref var executions = ref CollectionsMarshal.GetValueRefOrAddDefault(_executions, job.JobHandle, out _);
+		executions ??= [];
+		ref JobExecutionRecord execution = ref CollectionsMarshal.GetValueRefOrAddDefault(executions, job.Attempt, out var exists)!;
+		if (!exists)
+			execution = JobExecutionRecords.CreateSynthetic(job)!;
+		return ref execution;
 	}
 
 	/// <remarks>
