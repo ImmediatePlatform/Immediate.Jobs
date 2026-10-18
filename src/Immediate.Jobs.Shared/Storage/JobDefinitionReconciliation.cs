@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Diagnostics.CodeAnalysis;
 using Immediate.Jobs.Shared.Apis;
 
 namespace Immediate.Jobs.Shared.Storage;
@@ -35,7 +36,7 @@ public sealed record JobDefinitionReconciliation
 	public required IReadOnlyList<string> RemovedScheduleNames { get; init; }
 
 	/// <summary>
-	/// 	Validates a complete catalogue and computes changes against the provider's locked snapshot.
+	/// 	Computes changes against the provider's locked snapshot.
 	/// </summary>
 	/// <param name="registration">
 	/// 	The application's complete catalogue and normalized server tags.
@@ -49,28 +50,18 @@ public sealed record JobDefinitionReconciliation
 	/// <returns>
 	/// 	The scoped changes to commit atomically.
 	/// </returns>
+	/// <remarks>
+	/// 	The scheduler constructs a complete registration with one schedule for each code-defined recurring job.
+	/// </remarks>
+	[SuppressMessage("Design", "CA1062:Validate arguments of public methods", Justification = "Only called with scheduler-created registrations and provider snapshots.")]
 	public static JobDefinitionReconciliation Create(
 		JobDefinitionRegistration registration,
 		IReadOnlyList<JobDefinitionRecord> existingDefinitions,
 		IReadOnlyList<RecurringJobSchedule> existingSchedules
 	)
 	{
-		ArgumentNullException.ThrowIfNull(registration);
-		ArgumentNullException.ThrowIfNull(registration.Definitions, nameof(registration));
-		ArgumentNullException.ThrowIfNull(registration.RecurringSchedules, nameof(registration));
-		ArgumentNullException.ThrowIfNull(existingDefinitions);
-		ArgumentNullException.ThrowIfNull(existingSchedules);
-
-		var supplied = registration.Definitions.ToDictionary(static definition => definition.Name, StringComparer.OrdinalIgnoreCase);
-		foreach (var definition in supplied.Values)
-		{
-			ArgumentException.ThrowIfNullOrWhiteSpace(definition.Name, nameof(registration));
-			if (char.IsWhiteSpace(definition.Name[0]) || char.IsWhiteSpace(definition.Name[^1]))
-				throw new ArgumentException("Job definition names must not have leading or trailing whitespace.", nameof(registration));
-		}
-
 		var canonicalNames = existingDefinitions.ToDictionary(static definition => definition.Name, static definition => definition.Name, StringComparer.OrdinalIgnoreCase);
-		var desired = supplied.Values
+		var desired = registration.Definitions
 			.Where(definition => JobTags.Intersect(definition.Tags, registration.ServerTags))
 			.Select(definition => canonicalNames.TryGetValue(definition.Name, out var name) ? definition with { Name = name } : definition)
 			.ToDictionary(static definition => definition.Name, StringComparer.OrdinalIgnoreCase);
@@ -84,13 +75,8 @@ public sealed record JobDefinitionReconciliation
 
 		var existing = existingSchedules.ToDictionary(static schedule => schedule.Name, StringComparer.OrdinalIgnoreCase);
 		var schedules = new List<RecurringJobSchedule>();
-		var scheduleNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 		foreach (var (jobName, nextRunAt) in registration.RecurringSchedules)
 		{
-			if (!supplied.TryGetValue(jobName, out var definition)
-				|| definition.Cron is null
-				|| !scheduleNames.Add(jobName))
-				throw new ArgumentException("Code-defined schedules must match their supplied cron job definitions.", nameof(registration));
 			if (!desired.TryGetValue(jobName, out var managedDefinition))
 				continue;
 			var schedule = new RecurringJobSchedule
@@ -119,8 +105,6 @@ public sealed record JobDefinitionReconciliation
 				schedules.Add(schedule);
 		}
 
-		if (desired.Values.Any(definition => definition.Cron is not null && !scheduleNames.Contains(definition.Name)))
-			throw new ArgumentException("Every managed cron definition must supply its code-defined schedule.", nameof(registration));
 		var desiredScheduleNames = schedules.Select(static schedule => schedule.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
 		return new()
 		{

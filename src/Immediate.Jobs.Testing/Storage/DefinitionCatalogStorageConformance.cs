@@ -9,7 +9,7 @@ internal static class DefinitionCatalogStorageConformance
 	private const string SubmissionCase = "Definitions.Submission.UsesCurrentDefinition";
 	private const string RecurringCase = "Definitions.Recurring.PreservesProgressAndInvocations";
 	private const string ConcurrentCase = "Definitions.Catalogue.SerializesConcurrentCompleteLists";
-	private const string InvalidCase = "Definitions.Catalogue.RejectsInvalidSnapshotsWithoutPartialChanges";
+	private const string CancellationCase = "Definitions.Catalogue.PreservesMetadataWhenStartupIsCancelled";
 	private const string CaseNameCase = "Definitions.Catalogue.ReconcilesCaseInsensitiveNames";
 	private const string ConfigurationCase = "Definitions.Catalogue.RoundTripsAndUpdatesConfiguration";
 
@@ -18,7 +18,7 @@ internal static class DefinitionCatalogStorageConformance
 		new(SubmissionCase, StorageCapabilities.Queue, UsesCurrentDefinitionAsync),
 		new(RecurringCase, StorageCapabilities.Queue, PreservesRecurringAsync),
 		new(ConcurrentCase, StorageCapabilities.Queue, ReconcilesConcurrentlyAsync),
-		new(InvalidCase, StorageCapabilities.Queue, RejectsInvalidAsync),
+		new(CancellationCase, StorageCapabilities.Queue, PreservesMetadataWhenCancelledAsync),
 		new(CaseNameCase, StorageCapabilities.Queue, ReconcilesCaseInsensitiveNamesAsync),
 		new(ConfigurationCase, StorageCapabilities.Queue, RoundTripsConfigurationAsync),
 	];
@@ -154,8 +154,6 @@ internal static class DefinitionCatalogStorageConformance
 		ConformanceAssert.True(definitions.All(static definition => definition.MaxAttempts == 9), CaseNameCase, "updates must reach case-insensitive identities");
 		ConformanceAssert.SequenceEqual(original.Select(static definition => definition.Name).Order(StringComparer.OrdinalIgnoreCase),
 			definitions.Select(static definition => definition.Name), CaseNameCase, "registration aliases must preserve the original stored spelling");
-		await ConformanceAssert.ThrowsAsync<ArgumentException>(() => storage.MergeJobDefinitionsListAsync(Registration([Definition("Invoice"), Definition("invoice")]), token),
-			CaseNameCase, "one catalogue cannot contain duplicate names that differ only by case");
 		await storage.MergeJobDefinitionsListAsync(Registration([]), token);
 		ConformanceAssert.Equal(0, (await storage.GetJobDefinitionsAsync(token)).Count, CaseNameCase, "an empty catalogue must remove aliases as one identity");
 	}
@@ -242,40 +240,12 @@ internal static class DefinitionCatalogStorageConformance
 		}
 	}
 
-	private static async ValueTask RejectsInvalidAsync(IJobStorage storage, FakeTimeProvider timeProvider, CancellationToken token)
+	private static async ValueTask PreservesMetadataWhenCancelledAsync(IJobStorage storage, FakeTimeProvider timeProvider, CancellationToken token)
 	{
 		await storage.MergeJobDefinitionsListAsync(Registration([Definition("original")]), token);
-		var invalid = Registration([Definition("missing-schedule") with { Cron = "* * * * *" }]);
-		await ConformanceAssert.ThrowsAsync<ArgumentException>(() => storage.MergeJobDefinitionsListAsync(invalid, token), InvalidCase, "invalid catalogues must be rejected before mutation");
-		var cronDefinition = Definition("recurring") with { Cron = "* * * * *" };
-		foreach (var registration in new JobDefinitionRegistration[]
-		{
-			new() { Definitions = [cronDefinition], RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase) { ["unknown"] = timeProvider.GetUtcNow() } },
-			new() { Definitions = [Definition("ordinary")], RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase) { ["ordinary"] = timeProvider.GetUtcNow() } },
-			new()
-			{
-				Definitions = [cronDefinition],
-				RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.Ordinal)
-				{
-					["recurring"] = timeProvider.GetUtcNow(),
-					["RECURRING"] = timeProvider.GetUtcNow(),
-				},
-			},
-		})
-		{
-			await ConformanceAssert.ThrowsAsync<ArgumentException>(() => storage.MergeJobDefinitionsListAsync(registration, token),
-				InvalidCase, "schedule keys must identify distinct supplied cron definitions, ignoring case");
-		}
-
-		foreach (var name in new[] { " original", "original ", "\toriginal", "original\n", "\u00a0original", "original\u00a0" })
-		{
-			await ConformanceAssert.ThrowsAsync<ArgumentException>(() => storage.MergeJobDefinitionsListAsync(Registration([Definition(name)]), token),
-				InvalidCase, "names with leading or trailing whitespace must be rejected before mutation");
-		}
-
 		using var cancellation = new CancellationTokenSource();
 		await cancellation.CancelAsync();
-		await ConformanceAssert.ThrowsAsync<OperationCanceledException>(() => storage.MergeJobDefinitionsListAsync(Registration([]), cancellation.Token), InvalidCase, "cancelled startup must not delete metadata");
-		ConformanceAssert.SequenceEqual(["original"], (await storage.GetJobDefinitionsAsync(token)).Select(static item => item.Name), InvalidCase, "rejected calls must preserve the complete previous catalogue");
+		await ConformanceAssert.ThrowsAsync<OperationCanceledException>(() => storage.MergeJobDefinitionsListAsync(Registration([]), cancellation.Token), CancellationCase, "cancelled startup must not delete metadata");
+		ConformanceAssert.SequenceEqual(["original"], (await storage.GetJobDefinitionsAsync(token)).Select(static item => item.Name), CancellationCase, "cancelled startup must preserve the complete previous catalogue");
 	}
 }

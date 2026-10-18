@@ -85,6 +85,8 @@ public interface IJobStorage : IAsyncDisposable
 	/// 	A value task representing the complete scoped reconciliation.
 	/// </returns>
 	/// <remarks>
+	/// 	Called by <see cref="Internals.JobSchedulingService"/> during startup with a complete, internally constructed
+	/// 	registration. Storage implementations can rely on its definitions and recurring schedules being consistent.
 	/// 	Matching definitions are inserted or updated; matching stored definitions omitted from the managed list
 	/// 	are removed. Removing a definition cancels its nonterminal invocations and dynamic recurring schedules, retaining
 	/// 	their records and cancellation reasons. Unrelated definitions and terminal invocation history are preserved.

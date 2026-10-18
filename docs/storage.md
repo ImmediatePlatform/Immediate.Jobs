@@ -64,7 +64,10 @@ EF tracking uses an ordinal case-insensitive key comparer. EF applications with 
 provider conventions can pass `definitionNameCollation` to `AddImmediateJobs`.
 Recurring schedule identities follow the same collation policy, including SQLite's ASCII-only case matching. See [Recurring jobs](recurring-jobs.md).
 Definition names must not have leading or trailing whitespace: the job analyzer reports `IJOB0008`,
-and storage rejects invalid manually supplied names before modifying the catalogue.
+and the generator omits invalid definitions. `JobSchedulingService` builds a case-insensitive definition
+map and constructs the complete startup registration, deriving recurring schedules from those same
+definitions. Storage reconciliation relies on that internally constructed registration rather than
+validating manually supplied catalogues.
 
 Relational providers store definition configuration in individual columns in
 `immediate_job_definition_metadata`; the name key is the only persisted definition name.
@@ -72,9 +75,6 @@ Relational providers store definition configuration in individual columns in
 store `TimeSpan` strings with exact 100-nanosecond precision; window maxima use integer
 columns, and policy enums use small integers. Tags occupy a single JSON array column (`Tags`): PostgreSQL uses `jsonb`,
 SQL Server uses `nvarchar(max)`, and SQLite uses `text`. Redis continues storing serialized definition records.
-
-Code-defined schedules without catalogue metadata belong to the `default` scope. A server without
-`default` leaves those schedules alone unless it supplies a matching definition.
 
 Concurrent startup snapshots commit atomically. In-memory uses its gate; EF Core takes an early write
 lock on a singleton catalogue row. LinqToDB uses a serializable transaction and merges supplied

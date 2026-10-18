@@ -147,7 +147,6 @@ public class CapturingJobStorage(TimeProvider timeProvider) :
 	/// <inheritdoc />
 	public virtual async ValueTask MergeJobDefinitionsListAsync(JobDefinitionRegistration registration, CancellationToken cancellationToken = default)
 	{
-		ArgumentNullException.ThrowIfNull(registration);
 		await _inner.MergeJobDefinitionsListAsync(registration, cancellationToken);
 		lock (_gate)
 		{
