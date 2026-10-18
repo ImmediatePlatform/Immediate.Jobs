@@ -560,21 +560,6 @@ internal static class RedisScripts
 		return 1
 		""";
 
-	internal const string Delete =
-		"""
-		if redis.call('EXISTS', KEYS[1]) == 0 then return 0 end
-		local values = redis.call('HMGET', KEYS[1], 'state', 'recurringKey')
-		local state = values[1]
-		if state ~= '5' and state ~= '6' and state ~= '7' and state ~= '8' then return -1 end
-		redis.call('DEL', KEYS[1])
-		redis.call('DEL', KEYS[4], KEYS[5])
-		redis.call('ZREM', KEYS[2], ARGV[1])
-		redis.call('SREM', ARGV[2] .. 'state:' .. state, ARGV[1])
-		redis.call('ZREM', ARGV[2] .. 'completed:' .. state, ARGV[1])
-		if values[2] and values[2] ~= '' then redis.call('HDEL', KEYS[3], values[2]) end
-		return 1
-		""";
-
 	internal const string Purge =
 		"""
 		if redis.call('EXISTS', KEYS[1]) == 0 then

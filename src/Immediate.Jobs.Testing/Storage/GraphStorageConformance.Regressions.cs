@@ -10,7 +10,7 @@ internal static partial class GraphStorageConformance
 	private const string BufferedSpliceName = "Graph.Dynamic.BufferedSpliceWaitsForEveryAddition";
 	private const string CyclicGraphName = "Graph.Validation.RejectsCyclesWithoutPartialWrites";
 	private const string DuplicateEdgeName = "Graph.Validation.RejectsDuplicateLogicalEdgesWithoutPartialWrites";
-	private const string MemberDeletionName = "Graph.Maintenance.RejectsIndividualBatchMemberDeletion";
+	private const string MemberPurgeName = "Graph.Maintenance.StandalonePurgePreservesBatchMembers";
 
 	private static async ValueTask ConcurrentSplicePreservesParentsAsync(IJobStorage storage, FakeTimeProvider clock, CancellationToken token)
 	{
@@ -169,24 +169,24 @@ internal static partial class GraphStorageConformance
 			"failed inserts must not leak edges into a later valid continuation using the same handle");
 	}
 
-	private static async ValueTask RejectsIndividualBatchMemberDeletionAsync(IJobStorage storage, FakeTimeProvider clock, CancellationToken token)
+	private static async ValueTask StandalonePurgePreservesBatchMembersAsync(IJobStorage storage, FakeTimeProvider clock, CancellationToken token)
 	{
-		var graph = GetGraph(storage, MemberDeletionName);
-		await storage.MergeJobDefinitionsListAsync(new() { RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase), Definitions = [new() { Name = "delete-parent" }, new() { Name = "delete-child" }] }, token);
-		var batch = BatchHandle.FromString("delete-member-batch");
-		var parent = CreateJob("delete-parent", batch);
-		var child = CreateJob("delete-child", batch) with { State = JobState.AwaitingContinuation, RemainingDependencies = 1 };
+		var graph = GetGraph(storage, MemberPurgeName);
+		await storage.MergeJobDefinitionsListAsync(new() { RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase), Definitions = [new() { Name = "purge-parent" }, new() { Name = "purge-child" }] }, token);
+		var batch = BatchHandle.FromString("purge-member-batch");
+		var parent = CreateJob("purge-parent", batch);
+		var child = CreateJob("purge-child", batch) with { State = JobState.AwaitingContinuation, RemainingDependencies = 1 };
 		await graph.EnqueueBatchAsync(CreateBatch(batch, 2), [parent, child],
 			[new() { ParentJobHandle = parent.JobHandle, ChildJobHandle = child.JobHandle, Delay = TimeSpan.Zero }], token);
-		var active = (await storage.AcquireDueJobsAsync(CreateRequest("delete-worker", parent.JobName), token)).Single();
-		await storage.CompleteAsync(parent.JobHandle, active.Attempt, "delete-worker", token);
+		var active = (await storage.AcquireDueJobsAsync(CreateRequest("purge-worker", parent.JobName), token)).Single();
+		await storage.CompleteAsync(parent.JobHandle, active.Attempt, "purge-worker", token);
 		var status = await graph.GetBatchStatusAsync(batch, token);
-		await ConformanceAssert.ThrowsAsync<ImmediateJobException>(() => storage.DeleteAsync(parent.JobHandle, token), MemberDeletionName,
-			"a terminal member cannot be deleted separately from its batch");
+		clock.Advance(TimeSpan.FromMilliseconds(1));
+		await storage.PurgeJobsAsync(TimeSpan.Zero, TimeSpan.Zero, token);
 		ConformanceAssert.Equal(JobState.Succeeded, (await storage.GetJobStatusAsync(parent.JobHandle, token))!.State,
-			MemberDeletionName, "a rejected deletion must preserve the member");
-		ConformanceAssert.Equal(status, await graph.GetBatchStatusAsync(batch, token), MemberDeletionName, "a rejected deletion must preserve batch progress");
+			MemberPurgeName, "standalone purging must preserve the batch member");
+		ConformanceAssert.Equal(status, await graph.GetBatchStatusAsync(batch, token), MemberPurgeName, "standalone purging must preserve batch progress");
 		var persisted = (await graph.GetBatchGraphAsync(batch, token))!;
-		ConformanceAssert.Equal((2, 1), (persisted.Nodes.Count, persisted.Edges.Count), MemberDeletionName, "a rejected deletion must preserve the graph");
+		ConformanceAssert.Equal((2, 1), (persisted.Nodes.Count, persisted.Edges.Count), MemberPurgeName, "standalone purging must preserve the graph");
 	}
 }

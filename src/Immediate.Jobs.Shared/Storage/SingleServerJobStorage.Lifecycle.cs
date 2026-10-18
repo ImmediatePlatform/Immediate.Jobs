@@ -140,25 +140,6 @@ internal sealed partial class SingleServerJobStorage
 	}
 
 	/// <inheritdoc />
-	public async ValueTask DeleteAsync(JobHandle jobHandle, CancellationToken cancellationToken = default)
-	{
-		SingleServerDeleteAsyncCalled(jobHandle);
-		await TaskScheduler.Yield();
-		await EnsureInitializedAsync(cancellationToken);
-		await _writeThrough.WaitAsync(cancellationToken);
-
-		try
-		{
-			await DurableStorage.DeleteAsync(jobHandle, cancellationToken);
-			await PrimaryStorage.DeleteAsync(jobHandle, cancellationToken);
-		}
-		finally
-		{
-			_writeThrough.Release();
-		}
-	}
-
-	/// <inheritdoc />
 	public async ValueTask PurgeJobsAsync(
 		TimeSpan succeededRetention,
 		TimeSpan failedRetention,
@@ -273,14 +254,6 @@ internal sealed partial class SingleServerJobStorage
 		Message = "Single-server storage RetryAsync called (JobHandle={JobHandle})"
 	)]
 	private partial void SingleServerRetryAsyncCalled(JobHandle jobHandle);
-
-	[LoggerMessage(
-		EventId = LibraryEventIds.SingleServerDeleteAsyncCalled,
-		EventName = "Immediate.Jobs.Shared.SingleServerDeleteAsyncCalled",
-		Level = LogLevel.Debug,
-		Message = "Single-server storage DeleteAsync called (JobHandle={JobHandle})"
-	)]
-	private partial void SingleServerDeleteAsyncCalled(JobHandle jobHandle);
 
 	[LoggerMessage(
 		EventId = LibraryEventIds.SingleServerPurgeJobsAsyncCalled,

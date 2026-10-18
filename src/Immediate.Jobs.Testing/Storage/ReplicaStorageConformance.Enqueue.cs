@@ -197,10 +197,6 @@ internal static partial class ReplicaStorageConformance
 			storage.RetryAsync(jobHandle, cancellationToken);
 
 		/// <inheritdoc />
-		public ValueTask DeleteAsync(JobHandle jobHandle, CancellationToken cancellationToken = default) =>
-			storage.DeleteAsync(jobHandle, cancellationToken);
-
-		/// <inheritdoc />
 		public ValueTask PurgeJobsAsync(TimeSpan succeededRetention, TimeSpan failedRetention, CancellationToken cancellationToken = default) =>
 			storage.PurgeJobsAsync(succeededRetention, failedRetention, cancellationToken);
 

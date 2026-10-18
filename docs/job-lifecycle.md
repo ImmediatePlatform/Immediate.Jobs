@@ -63,7 +63,6 @@ If neither supplies them, jobs allow three total attempts and have no timeout. A
 | --- | --- | --- |
 | `CancelAsync` | any non-terminal state | `Cancelled`; continuation edges settle as a cancelled parent. |
 | `RetryAsync` | `Failed`, `Scheduled` | `Pending`, due now. |
-| `DeleteAsync` | terminal states (standalone jobs only) | Removes the job and its history. |
 | `UpdatePayloadAsync` | `WaitingForTrigger` | Replaces the payload. |
 | `TryTriggerAsync` | `WaitingForTrigger` | Releases the job (see [batches and continuations](batches-and-continuations.md#wait-for-trigger)). |
 

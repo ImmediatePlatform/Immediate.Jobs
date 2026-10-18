@@ -456,20 +456,6 @@ public interface IJobStorage : IAsyncDisposable
 	ValueTask RetryAsync(JobHandle jobHandle, CancellationToken cancellationToken = default);
 
 	/// <summary>
-	/// 	Deletes a terminal invocation.
-	/// </summary>
-	/// <param name="jobHandle">
-	/// 	The terminal invocation identifier.
-	/// </param>
-	/// <param name="cancellationToken">
-	/// 	A token that can cancel the storage operation.
-	/// </param>
-	/// <returns>
-	/// 	A value task that represents the asynchronous deletion.
-	/// </returns>
-	ValueTask DeleteAsync(JobHandle jobHandle, CancellationToken cancellationToken = default);
-
-	/// <summary>
 	/// 	Deletes terminal job history older than the supplied retention periods.
 	/// </summary>
 	/// <param name="succeededRetention">

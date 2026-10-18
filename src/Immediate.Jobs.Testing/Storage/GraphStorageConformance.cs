@@ -45,7 +45,7 @@ internal static partial class GraphStorageConformance
 		new(BufferedSpliceName, StorageCapabilities.Graph, BufferedSplicePreservesEveryAdditionAsync),
 		new(CyclicGraphName, StorageCapabilities.Graph, RejectsCyclicGraphsAsync),
 		new(DuplicateEdgeName, StorageCapabilities.Graph, RejectsDuplicateEdgesAsync),
-		new(MemberDeletionName, StorageCapabilities.Graph, RejectsIndividualBatchMemberDeletionAsync),
+		new(MemberPurgeName, StorageCapabilities.Graph, StandalonePurgePreservesBatchMembersAsync),
 	];
 
 	private static async ValueTask ResolvesQueuesAtomicallyAsync(IJobStorage storage, FakeTimeProvider clock, CancellationToken token)

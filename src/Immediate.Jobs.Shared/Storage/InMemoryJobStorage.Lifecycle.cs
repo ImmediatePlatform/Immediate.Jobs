@@ -239,28 +239,6 @@ public sealed partial class InMemoryJobStorage
 	}
 
 	/// <inheritdoc />
-	public async ValueTask DeleteAsync(JobHandle jobHandle, CancellationToken cancellationToken = default)
-	{
-		DeleteAsyncCalled(jobHandle);
-		cancellationToken.ThrowIfCancellationRequested();
-		await TaskScheduler.Yield();
-
-		lock (_gate)
-		{
-			if (!_jobs.TryGetValue(jobHandle, out var job))
-				throw new KeyNotFoundException($"Job '{jobHandle}' was not found.");
-			if (!IsTerminal(job.State))
-				throw new ImmediateJobException("Only terminal jobs can be deleted.");
-			if (job.BatchHandle is not null)
-				throw new ImmediateJobException("Batch members cannot be deleted individually.");
-
-			HashSet<JobHandle> jobHandles = [jobHandle];
-			RemoveJobs(jobHandles);
-			RemoveEdgesForJobs(jobHandles);
-		}
-	}
-
-	/// <inheritdoc />
 	public async ValueTask PurgeJobsAsync(
 		TimeSpan succeededRetention,
 		TimeSpan failedRetention,
@@ -506,17 +484,6 @@ public sealed partial class InMemoryJobStorage
 		Message = "RetryAsync called (JobHandle={JobHandle})"
 	)]
 	private partial void RetryAsyncCalled(JobHandle jobHandle);
-
-	/// <remarks>
-	/// 	The caller does not need to hold the <see cref="_gate"/> lock.
-	/// </remarks>
-	[LoggerMessage(
-		EventId = LibraryEventIds.InMemoryDeleteAsyncCalled,
-		EventName = "Immediate.Jobs.Shared.DeleteAsyncCalled",
-		Level = LogLevel.Debug,
-		Message = "DeleteAsync called (JobHandle={JobHandle})"
-	)]
-	private partial void DeleteAsyncCalled(JobHandle jobHandle);
 
 	/// <remarks>
 	/// 	The caller does not need to hold the <see cref="_gate"/> lock.

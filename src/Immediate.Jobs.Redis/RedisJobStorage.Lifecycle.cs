@@ -131,25 +131,6 @@ internal sealed partial class RedisJobStorage
 	}
 
 	/// <inheritdoc />
-	public async ValueTask DeleteAsync(JobHandle jobHandle, CancellationToken cancellationToken = default)
-	{
-		DeleteAsyncCalled(jobHandle);
-		cancellationToken.ThrowIfCancellationRequested();
-		await TaskScheduler.Yield();
-
-		var result = await EvaluateInt64Async(
-			RedisScripts.Delete,
-			[JobKey(jobHandle), AllJobsKey, RecurringDedupeKey, ExecutionIndexKey(jobHandle), ExecutionDataKey(jobHandle)],
-			[jobHandle.Value, _root],
-			cancellationToken
-		);
-		if (result == 0)
-			throw new KeyNotFoundException($"Job '{jobHandle}' was not found.");
-		if (result < 0)
-			throw new ImmediateJobException("Only terminal jobs can be deleted.");
-	}
-
-	/// <inheritdoc />
 	public async ValueTask PurgeJobsAsync(
 		TimeSpan succeededRetention,
 		TimeSpan failedRetention,
@@ -236,14 +217,6 @@ internal sealed partial class RedisJobStorage
 		Message = "RetryAsync called (JobHandle={JobHandle})"
 	)]
 	private partial void RetryAsyncCalled(JobHandle jobHandle);
-
-	[LoggerMessage(
-		EventId = LibraryEventIds.DeleteAsyncCalled,
-		EventName = "Immediate.Jobs.Redis.DeleteAsyncCalled",
-		Level = LogLevel.Debug,
-		Message = "DeleteAsync called (JobHandle={JobHandle})"
-	)]
-	private partial void DeleteAsyncCalled(JobHandle jobHandle);
 
 	[LoggerMessage(
 		EventId = LibraryEventIds.PurgeJobsAsyncCalled,

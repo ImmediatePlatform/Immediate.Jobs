@@ -370,9 +370,6 @@ public class CapturingJobStorage(TimeProvider timeProvider) :
 	public virtual async ValueTask RetryAsync(JobHandle jobHandle, CancellationToken cancellationToken = default) => await _inner.RetryAsync(jobHandle, cancellationToken);
 
 	/// <inheritdoc />
-	public virtual async ValueTask DeleteAsync(JobHandle jobHandle, CancellationToken cancellationToken = default) => await _inner.DeleteAsync(jobHandle, cancellationToken);
-
-	/// <inheritdoc />
 	public virtual async ValueTask PurgeJobsAsync(TimeSpan succeededRetention, TimeSpan failedRetention, CancellationToken cancellationToken = default) => await _inner.PurgeJobsAsync(succeededRetention, failedRetention, cancellationToken);
 
 	/// <inheritdoc />

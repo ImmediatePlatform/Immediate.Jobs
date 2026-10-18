@@ -13,7 +13,7 @@ internal static class DefinitionAcquisitionStorageConformance
 		new("Definitions.Controls.RejectsMissingDefinitions", StorageCapabilities.Queue, MissingDefinitionsAsync),
 		new("Definitions.Controls.ResolvesCaseInsensitiveNamesAndPreservesLimits", StorageCapabilities.Queue, CaseInsensitiveControlsAsync),
 		new("Definitions.Pause.BlocksPendingAndNewJobsOnly", StorageCapabilities.Queue, PauseAsync),
-		new("Definitions.SlidingWindow.EnforcesExactBoundaryAndRetainsHistoryAfterDeletion", StorageCapabilities.Queue, SlidingAsync),
+		new("Definitions.SlidingWindow.EnforcesExactBoundaryAndRetainsHistoryAfterPurge", StorageCapabilities.Queue, SlidingAsync),
 		new("Definitions.SlidingWindow.ReleasesOnlyExpiredAcquisitions", StorageCapabilities.Queue, RollingAsync),
 		new("Definitions.FixedWindow.ResetsAtAlignedBoundary", StorageCapabilities.Queue, FixedAsync),
 		new("Definitions.Limits.CombineAndResumeWithoutReset", StorageCapabilities.Queue, CombinedAsync),
@@ -164,9 +164,11 @@ internal static class DefinitionAcquisitionStorageConformance
 		await storage.PauseJobAsync(Name, token);
 		Equal(0, (await storage.AcquireDueJobsAsync(Request(), token)).Count, "paused acquisition cannot consume window capacity");
 		await storage.CompleteAsync(first.JobHandle, first.Attempt, "worker", token);
-		await storage.DeleteAsync(first.JobHandle, token);
-		await CheckCountsAsync(2, 2, "pause, completion, and deletion do not erase acquisition counts");
-		clock.Advance(TimeSpan.FromSeconds(15));
+		clock.Advance(TimeSpan.FromMilliseconds(1));
+		await storage.PurgeJobsAsync(TimeSpan.Zero, TimeSpan.Zero, token);
+		Equal<JobStatus?>(expected: null, await storage.GetJobStatusAsync(first.JobHandle, token), "terminal invocation was purged");
+		await CheckCountsAsync(2, 2, "pause, completion, and purging do not erase acquisition counts");
+		clock.Advance(TimeSpan.FromSeconds(15) - TimeSpan.FromMilliseconds(1));
 		await CheckCountsAsync(1, 2, "only the oldest sliding acquisition ages out at its exact boundary");
 		clock.Advance(TimeSpan.FromSeconds(5));
 		await CheckCountsAsync(0, 2, "sliding usage can expire while fixed usage remains");
@@ -233,9 +235,11 @@ internal static class DefinitionAcquisitionStorageConformance
 		await storage.EnqueueAsync(Job("two", now), token);
 		var active = (await storage.AcquireDueJobsAsync(Request(), token)).Single();
 		await storage.CompleteAsync(active.JobHandle, active.Attempt, "worker", token);
-		await storage.DeleteAsync(active.JobHandle, token);
-		Equal(now + period, (await storage.GetJobAcquisitionStateAsync(Name, token)).NextEligibleAt, "deletion must not erase sliding rate history or duration precision");
-		clock.Advance(period - TimeSpan.FromMilliseconds(1));
+		clock.Advance(TimeSpan.FromMilliseconds(1));
+		await storage.PurgeJobsAsync(TimeSpan.Zero, TimeSpan.Zero, token);
+		Equal<JobStatus?>(expected: null, await storage.GetJobStatusAsync(active.JobHandle, token), "terminal invocation was purged");
+		Equal(now + period, (await storage.GetJobAcquisitionStateAsync(Name, token)).NextEligibleAt, "purging must not erase sliding rate history or duration precision");
+		clock.Advance(period - TimeSpan.FromMilliseconds(2));
 		Equal(0, (await storage.AcquireDueJobsAsync(Request(), token)).Count, "sliding capacity remains exhausted until the exact boundary");
 		clock.Advance(TimeSpan.FromMilliseconds(1));
 		Equal(JobAcquisitionStatus.Ready, (await storage.GetJobAcquisitionStateAsync(Name, token)).AcquisitionStatus, "status refreshes without an acquisition");

@@ -45,7 +45,6 @@ internal static class LibraryEventIds
 	public const int InMemoryCancelBatchAsyncCalled = 11042;
 	public const int InMemoryCancelAsyncCalled = 11044;
 	public const int InMemoryRetryAsyncCalled = 11045;
-	public const int InMemoryDeleteAsyncCalled = 11046;
 	public const int InMemoryPurgeJobsAsyncCalled = 11047;
 	public const int InMemoryPurgeBatchesAsyncCalled = 11048;
 	public const int InMemoryHeartbeatAsyncCalled = 11049;
@@ -79,7 +78,6 @@ internal static class LibraryEventIds
 	public const int SingleServerCancelBatchAsyncCalled = 11078;
 	public const int SingleServerCancelAsyncCalled = 11080;
 	public const int SingleServerRetryAsyncCalled = 11081;
-	public const int SingleServerDeleteAsyncCalled = 11082;
 	public const int SingleServerPurgeJobsAsyncCalled = 11083;
 	public const int SingleServerPurgeBatchesAsyncCalled = 11084;
 	public const int SingleServerHeartbeatAsyncCalled = 11085;

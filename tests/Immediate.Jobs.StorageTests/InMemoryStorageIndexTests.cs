@@ -115,7 +115,7 @@ public sealed class InMemoryStorageIndexTests
 	}
 
 	[Fact]
-	public async Task StandaloneDeleteAndPurgeRemoveDefinitionMembershipBeforeHandleReuse()
+	public async Task StandalonePurgeRemovesDefinitionMembershipBeforeHandleReuse()
 	{
 		var token = TestContext.Current.CancellationToken;
 		var clock = new FakeTimeProvider(DateTimeOffset.UnixEpoch.AddDays(1));
@@ -125,7 +125,8 @@ public sealed class InMemoryStorageIndexTests
 		await storage.EnqueueAsync(Submission(handle, "work"), token);
 		await storage.EnqueueAsync(Submission(JobHandle.FromString("other"), "other"), token);
 		await storage.CancelAsync(handle, token);
-		await storage.DeleteAsync(handle, token);
+		clock.Advance(TimeSpan.FromTicks(1));
+		await storage.PurgeJobsAsync(TimeSpan.Zero, TimeSpan.Zero, token);
 		Assert.Empty(await storage.QueryJobsAsync(new() { JobName = "Work" }, token));
 		await storage.EnqueueAsync(Submission(handle, "WORK"), token);
 		Assert.Single(await storage.QueryNonCompletedJobsAsync("work", token));

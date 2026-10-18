@@ -19,7 +19,7 @@ internal static class QueueStorageConformance
 	private const string MutationName = "Queue.Mutations.RejectsMissingAndInvalidTransitions";
 	private const string QueryName = "Queue.Queries.ComposesFiltersAndPagesDeterministically";
 	private const string MonitoringName = "Queue.Monitoring.ReportsCountsStatusAndHeartbeatLiveness";
-	private const string MaintenanceName = "Queue.Maintenance.DeletesAndPurgesTerminalHistory";
+	private const string MaintenanceName = "Queue.Maintenance.PurgesTerminalHistory";
 	private const string CancellationName = "Queue.Cancellation.ObservesPreCancelledOperation";
 	private const string DisposeName = "Queue.Lifecycle.ToleratesRepeatedConcurrentDisposal";
 
@@ -37,7 +37,7 @@ internal static class QueueStorageConformance
 		new(MutationName, StorageCapabilities.Queue, RejectsInvalidMutationsAsync),
 		new(QueryName, StorageCapabilities.Queue, QueriesAndPagesAsync),
 		new(MonitoringName, StorageCapabilities.Queue, ReportsMonitoringAsync),
-		new(MaintenanceName, StorageCapabilities.Queue, DeletesAndPurgesAsync),
+		new(MaintenanceName, StorageCapabilities.Queue, PurgesTerminalHistoryAsync),
 		new(CancellationName, StorageCapabilities.Queue, ObservesCancellationAsync),
 		new(DisposeName, StorageCapabilities.Queue, DisposesIdempotentlyAsync),
 	];
@@ -497,12 +497,6 @@ internal static class QueueStorageConformance
 			"retry must reject a pending job without changing it"
 		);
 
-		await ConformanceAssert.ThrowsAsync<ImmediateJobException>(
-			() => storage.DeleteAsync(jobHandle, cancellationToken),
-			MutationName,
-			"delete must reject a non-terminal job without changing it"
-		);
-
 		var pending = (await storage.QueryJobsAsync(new() { JobHandle = jobHandle }, cancellationToken)).Single();
 		ConformanceAssert.Equal(JobState.Pending, pending.State, MutationName, "invalid mutations must not partially change the target");
 
@@ -514,12 +508,6 @@ internal static class QueueStorageConformance
 
 		await ConformanceAssert.ThrowsAsync<KeyNotFoundException>(
 			() => storage.RetryAsync(JobHandle.FromString("missing"), cancellationToken),
-			MutationName,
-			"dashboard mutation targets that do not exist must throw KeyNotFoundException"
-		);
-
-		await ConformanceAssert.ThrowsAsync<KeyNotFoundException>(
-			() => storage.DeleteAsync(JobHandle.FromString("missing"), cancellationToken),
 			MutationName,
 			"dashboard mutation targets that do not exist must throw KeyNotFoundException"
 		);
@@ -704,7 +692,7 @@ internal static class QueueStorageConformance
 		ConformanceAssert.Equal(storage.GetCapabilities(), snapshot.Capabilities, MonitoringName, "monitoring must report the resolved storage capabilities");
 	}
 
-	private static async ValueTask DeletesAndPurgesAsync(
+	private static async ValueTask PurgesTerminalHistoryAsync(
 		IJobStorage storage,
 		FakeTimeProvider timeProvider,
 		CancellationToken cancellationToken
@@ -718,22 +706,6 @@ internal static class QueueStorageConformance
 				new() { Name = "conformance-job" },
 			],
 		}, cancellationToken);
-
-		await EnqueueAcquireAndComplete(storage, "delete-me", "maintenance-worker", timeProvider.GetUtcNow(), cancellationToken);
-
-		await storage.DeleteAsync(JobHandle.FromString("delete-me"), cancellationToken);
-
-		ConformanceAssert.Null(
-			await storage.GetJobStatusAsync(JobHandle.FromString("delete-me"), cancellationToken),
-			MaintenanceName,
-			"deleting a terminal job must remove the job"
-		);
-		ConformanceAssert.Equal(
-			0,
-			(await storage.QueryJobExecutionsAsync(JobHandle.FromString("delete-me"), new(), cancellationToken)).Count,
-			MaintenanceName,
-			"deleting a terminal job must remove its execution history"
-		);
 
 		await EnqueueAcquireAndComplete(storage, "old-success", "maintenance-worker", timeProvider.GetUtcNow(), cancellationToken);
 

@@ -181,9 +181,6 @@ public sealed class StorageCapabilityTests
 		public ValueTask RetryAsync(JobHandle jobHandle, CancellationToken cancellationToken = default) =>
 			_inner.RetryAsync(jobHandle, cancellationToken);
 
-		public ValueTask DeleteAsync(JobHandle jobHandle, CancellationToken cancellationToken = default) =>
-			_inner.DeleteAsync(jobHandle, cancellationToken);
-
 		public ValueTask PurgeJobsAsync(
 			TimeSpan succeededRetention,
 			TimeSpan failedRetention,
