@@ -139,13 +139,13 @@ public sealed class InMemoryStorageIndexTests
 	}
 
 	[Fact]
-	public async Task RecurringReplacementMovesDefinitionMembershipAndDedupeDoesNotAddPhantomHandles()
+	public async Task RecurringMaterializationIndexesNewJobsAndDedupeDoesNotAddPhantomHandles()
 	{
 		var token = TestContext.Current.CancellationToken;
 		var clock = new FakeTimeProvider(DateTimeOffset.UnixEpoch.AddDays(1));
 		await using var storage = new InMemoryJobStorage(clock);
 		await RegisterAsync(storage, token);
-		var original = Record("reused", "Work");
+		var original = Record("existing", "Work");
 		var schedule = new RecurringJobSchedule
 		{
 			Name = "dynamic",
@@ -156,12 +156,12 @@ public sealed class InMemoryStorageIndexTests
 			NextRunAt = clock.GetUtcNow(),
 		};
 		storage.LoadPersistedJobState([original], [], [], [schedule]);
-		var replacement = original with { JobName = "Other", RecurringKey = "occurrence" };
+		var materialized = Record("recurring", "Other") with { RecurringKey = "occurrence" };
 		var next = clock.GetUtcNow().AddMinutes(1);
-		Assert.True(await storage.MaterializeRecurringAsync(schedule, replacement, next, cancellationToken: token));
-		Assert.Empty(await storage.QueryJobsAsync(new() { JobName = "work" }, token));
-		Assert.Equal(original.JobHandle, Assert.Single(await storage.QueryNonCompletedJobsAsync("OTHER", token)).JobHandle);
-		Assert.False(await storage.MaterializeRecurringAsync(schedule with { NextRunAt = next }, replacement with { JobHandle = JobHandle.FromString("duplicate") }, next.AddMinutes(1), cancellationToken: token));
+		Assert.True(await storage.MaterializeRecurringAsync(schedule, materialized, next, cancellationToken: token));
+		Assert.Equal(original.JobHandle, Assert.Single(await storage.QueryJobsAsync(new() { JobName = "work" }, token)).JobHandle);
+		Assert.Equal(materialized.JobHandle, Assert.Single(await storage.QueryNonCompletedJobsAsync("OTHER", token)).JobHandle);
+		Assert.False(await storage.MaterializeRecurringAsync(schedule with { NextRunAt = next }, materialized with { JobHandle = JobHandle.FromString("duplicate") }, next.AddMinutes(1), cancellationToken: token));
 		Assert.Single(await storage.QueryJobsAsync(new() { JobName = "other" }, token));
 		Assert.Empty(await storage.QueryJobsAsync(new() { JobHandle = JobHandle.FromString("duplicate") }, token));
 	}

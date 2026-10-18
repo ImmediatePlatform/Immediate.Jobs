@@ -53,36 +53,10 @@ public sealed partial class InMemoryJobStorage
 	/// </remarks>
 	private void SetJob(JobRecord job)
 	{
-		ref var stored = ref CollectionsMarshal.GetValueRefOrAddDefault(_jobs, job.JobHandle, out _);
-		var previous = stored;
-		if (previous is null)
-		{
-			stored = job;
-			AddJobIndexes(job);
-			return;
-		}
-
-		if (!string.Equals(previous.JobName, job.JobName, StringComparison.OrdinalIgnoreCase))
-		{
-			RemoveJobHandle(_jobsByDefinition, previous.JobName, job.JobHandle);
-			AddJobHandle(_jobsByDefinition, job.JobName, job.JobHandle);
-		}
-
-		if (previous.BatchHandle != job.BatchHandle)
-		{
-			if (previous.BatchHandle is { } oldBatch)
-			{
-				var handles = _jobsByBatch[oldBatch];
-				handles.Remove(job.JobHandle);
-				if (handles.Count == 0)
-					_jobsByBatch.Remove(oldBatch);
-			}
-
-			if (job.BatchHandle is { } newBatch)
-				AddJobHandle(_jobsByBatch, newBatch, job.JobHandle);
-		}
-
+		ref var stored = ref CollectionsMarshal.GetValueRefOrAddDefault(_jobs, job.JobHandle, out var exists);
 		stored = job;
+		if (!exists)
+			AddJobIndexes(job);
 	}
 
 	/// <remarks>
@@ -106,17 +80,6 @@ public sealed partial class InMemoryJobStorage
 	}
 
 	/// <remarks>
-	/// 	The caller must hold the <see cref="_gate"/> lock while modifying the supplied storage index.
-	/// </remarks>
-	private static void RemoveJobHandle(Dictionary<string, HashSet<JobHandle>> index, string key, JobHandle handle)
-	{
-		var handles = index[key];
-		handles.Remove(handle);
-		if (handles.Count == 0)
-			index.Remove(key);
-	}
-
-	/// <remarks>
 	/// 	The caller must hold the <see cref="_gate"/> lock.
 	/// </remarks>
 	private void RemoveJobs(HashSet<JobHandle> jobHandles)
@@ -128,7 +91,10 @@ public sealed partial class InMemoryJobStorage
 		foreach (var handle in jobHandles)
 		{
 			var job = _jobs[handle];
-			RemoveJobHandle(_jobsByDefinition, job.JobName, handle);
+			var definitions = _jobsByDefinition[job.JobName];
+			definitions.Remove(handle);
+			if (definitions.Count == 0)
+				_jobsByDefinition.Remove(job.JobName);
 			if (job.BatchHandle is { } batchHandle)
 				batches.Add(batchHandle);
 			_jobs.Remove(handle);
