@@ -105,17 +105,15 @@ public sealed partial class InMemoryJobStorage
 	}
 
 	/// <remarks>
-	/// 	The caller must hold the <see cref="_gate"/> lock throughout this call and while using the returned reference.
-	/// 	The dictionary must not be structurally modified while the reference is in use.
+	/// 	The caller must hold the <see cref="_gate"/> lock.
 	/// </remarks>
 	[SuppressMessage("Style", "IDE0007:Use implicit type", Justification = "Interaction between IDE0007 and CS8619")]
 	private ref JobRecord GetOwnedActive(JobHandle jobHandle, int executionNumber, string workerId)
 	{
-		ref JobRecord job = ref CollectionsMarshal.GetValueRefOrNullRef(_jobs, jobHandle);
-		if (Unsafe.IsNullRef(ref job) || job.State != JobState.Active)
-		{
+		ref JobRecord job = ref ValidateExistingElement(_jobs, jobHandle);
+
+		if (job.State != JobState.Active)
 			throw new ImmediateJobException($"Worker '{workerId}' does not own active job '{jobHandle}'.");
-		}
 
 		if (job.Attempt != executionNumber)
 		{
@@ -132,9 +130,8 @@ public sealed partial class InMemoryJobStorage
 	}
 
 	/// <remarks>
-	/// 	The caller must hold the <see cref="_gate"/> lock throughout this call and while using the returned reference.
-	/// 	The per-job execution dictionary must not be structurally modified while the reference is in use.
-	/// 	Returns a null reference when the job has never been acquired.
+	/// 	The caller must hold the <see cref="_gate"/> lock.
+	/// 	Returns a <see langword="null"/> reference when the job has never been acquired.
 	/// </remarks>
 	[SuppressMessage("Style", "IDE0007:Use implicit type", Justification = "Interaction between IDE0007 and CS8619")]
 	private ref JobExecutionRecord MaterializeSyntheticExecution(JobRecord job)

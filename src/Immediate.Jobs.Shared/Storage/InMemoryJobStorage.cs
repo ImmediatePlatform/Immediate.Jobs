@@ -33,6 +33,9 @@ public sealed partial class InMemoryJobStorage(
 
 	private readonly Lock _gate = new();
 
+	private readonly Dictionary<string, JobDefinitionRecord> _jobDefinitions = [with(StringComparer.OrdinalIgnoreCase)];
+	private readonly Dictionary<string, DefinitionAcquisition> _acquisitionDefinitions = [with(StringComparer.Ordinal)];
+
 	private readonly Dictionary<JobHandle, JobRecord> _jobs = [];
 	private readonly Dictionary<BatchHandle, List<JobHandle>> _jobsByBatch = [];
 	private readonly Dictionary<string, HashSet<JobHandle>> _jobsByDefinition = [with(StringComparer.OrdinalIgnoreCase)];
@@ -42,15 +45,12 @@ public sealed partial class InMemoryJobStorage(
 	private readonly Dictionary<BatchHandle, BatchRecord> _batches = [];
 
 	private readonly List<JobContinuationEdge> _edges = [];
-
 	private readonly HashSet<JobContinuationEdge> _settledEdges = [];
 
 	private readonly Dictionary<string, RecurringJobSchedule> _recurring = [with(StringComparer.OrdinalIgnoreCase)];
-
-	private readonly Dictionary<string, JobServerSnapshot> _servers = [with(StringComparer.Ordinal)];
-
 	private readonly HashSet<string> _recurringKeys = [with(StringComparer.Ordinal)];
 
+	private readonly Dictionary<string, JobServerSnapshot> _servers = [with(StringComparer.Ordinal)];
 	private readonly Dictionary<(string QueueName, string GroupId), long> _fairQueueLastServed = [];
 
 	/// <inheritdoc />

@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using Immediate.Jobs.Shared.Apis;
 using Microsoft.Extensions.Logging;
@@ -115,7 +116,8 @@ public sealed partial class InMemoryJobStorage
 
 		lock (_gate)
 		{
-			if (!_recurring.TryGetValue(schedule.Name, out var current) || current.IsPaused || current.NextRunAt != schedule.NextRunAt)
+			ref var current = ref CollectionsMarshal.GetValueRefOrNullRef(_recurring, schedule.Name);
+			if (Unsafe.IsNullRef(ref current) || current.IsPaused || current.NextRunAt != schedule.NextRunAt)
 				return false;
 
 			var inserted = job.RecurringKey is null || _recurringKeys.Add(job.RecurringKey);
@@ -130,7 +132,7 @@ public sealed partial class InMemoryJobStorage
 				}
 			}
 
-			_recurring[schedule.Name] = current with { LastRunAt = schedule.NextRunAt, NextRunAt = nextRunAt };
+			current = current with { LastRunAt = schedule.NextRunAt, NextRunAt = nextRunAt };
 			return inserted;
 		}
 	}
@@ -144,13 +146,12 @@ public sealed partial class InMemoryJobStorage
 
 		lock (_gate)
 		{
-			if (!_recurring.TryGetValue(name, out var schedule))
-				throw new KeyNotFoundException($"Recurring schedule '{name}' was not found.");
+			ref var schedule = ref ValidateExistingElement(_recurring, name);
 
 			if (!isPaused && schedule.CancellationReason is not null)
 				throw new ImmediateJobException("Canceled recurring schedules cannot be resumed.");
 
-			_recurring[name] = schedule with { IsPaused = isPaused };
+			schedule = schedule with { IsPaused = isPaused };
 		}
 
 		return ValueTask.CompletedTask;

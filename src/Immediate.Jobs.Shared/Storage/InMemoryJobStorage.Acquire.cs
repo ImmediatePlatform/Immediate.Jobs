@@ -1,5 +1,3 @@
-using System.Runtime.CompilerServices;
-using System.Runtime.InteropServices;
 using Immediate.Jobs.Shared.Apis;
 using Microsoft.Extensions.Logging;
 
@@ -362,8 +360,10 @@ public sealed partial class InMemoryJobStorage
 	{
 		if (batchHandle is null)
 			return;
-		ref var batch = ref CollectionsMarshal.GetValueRefOrNullRef(_batches, batchHandle);
-		if (!Unsafe.IsNullRef(ref batch) && batch.StartedAt is null)
+
+		ref var batch = ref ValidateExistingElement(_batches, batchHandle);
+
+		if (batch.StartedAt is null)
 			batch = batch with { StartedAt = startedAt };
 	}
 

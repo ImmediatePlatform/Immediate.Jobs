@@ -5,8 +5,6 @@ namespace Immediate.Jobs.Shared.Storage;
 
 public sealed partial class InMemoryJobStorage
 {
-	private readonly Dictionary<string, JobDefinitionRecord> _jobDefinitions = [with(StringComparer.OrdinalIgnoreCase)];
-
 	/// <inheritdoc />
 	public async ValueTask MergeJobDefinitionsListAsync(JobDefinitionRegistration registration, CancellationToken cancellationToken = default)
 	{
@@ -71,6 +69,7 @@ public sealed partial class InMemoryJobStorage
 		InMemoryGetJobDefinitionsAsyncCalled();
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
+
 		lock (_gate)
 			return [.. _jobDefinitions.Values.OrderBy(static definition => definition.Name, StringComparer.OrdinalIgnoreCase)];
 	}

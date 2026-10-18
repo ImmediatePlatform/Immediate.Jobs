@@ -1,6 +1,4 @@
 using System.Diagnostics.CodeAnalysis;
-using System.Runtime.CompilerServices;
-using System.Runtime.InteropServices;
 using Immediate.Jobs.Shared.Apis;
 using Microsoft.Extensions.Logging;
 
@@ -23,6 +21,7 @@ public sealed partial class InMemoryJobStorage
 		lock (_gate)
 		{
 			ref var job = ref GetTriggerable(jobHandle, expectedJobName);
+
 			if (job.State != JobState.WaitingForTrigger)
 				throw new ImmediateJobException($"Job '{jobHandle}' is not waiting for a trigger.");
 
@@ -45,12 +44,15 @@ public sealed partial class InMemoryJobStorage
 		lock (_gate)
 		{
 			ref var job = ref GetTriggerable(jobHandle, expectedJobName);
+
 			if (job.BatchHandle is not null && _batches[job.BatchHandle].State == BatchState.WaitingForTrigger)
 				throw new ImmediateJobException($"Job '{jobHandle}' belongs to batch '{job.BatchHandle}', which is waiting for a trigger; trigger the batch instead.");
-			if (job.State != JobState.WaitingForTrigger)
-				return false;
+
 			if (job.Payload.Length == 0)
 				throw new ImmediateJobException($"Job '{jobHandle}' cannot be triggered before its parameters are supplied.");
+
+			if (job.State != JobState.WaitingForTrigger)
+				return false;
 
 			Trigger(ref job, dueAt);
 			return true;
@@ -66,13 +68,13 @@ public sealed partial class InMemoryJobStorage
 
 		lock (_gate)
 		{
-			ref var batch = ref CollectionsMarshal.GetValueRefOrNullRef(_batches, batchHandle);
-			if (Unsafe.IsNullRef(ref batch))
-				throw new KeyNotFoundException($"Batch '{batchHandle}' was not found.");
+			ref var batch = ref ValidateExistingElement(_batches, batchHandle);
+
 			if (batch.State != BatchState.WaitingForTrigger)
 				return false;
 
 			batch = batch with { State = BatchState.Executing };
+
 			if (_jobsByBatch.TryGetValue(batchHandle, out var handles))
 			{
 				foreach (var handle in handles)
@@ -94,9 +96,8 @@ public sealed partial class InMemoryJobStorage
 	[SuppressMessage("Style", "IDE0007:Use implicit type", Justification = "Interaction between IDE0007 and CS8619")]
 	private ref JobRecord GetTriggerable(JobHandle jobHandle, string expectedJobName)
 	{
-		ref JobRecord job = ref CollectionsMarshal.GetValueRefOrNullRef(_jobs, jobHandle);
-		if (Unsafe.IsNullRef(ref job))
-			throw new KeyNotFoundException($"Job '{jobHandle}' was not found.");
+		ref JobRecord job = ref ValidateExistingElement(_jobs, jobHandle);
+
 		if (!string.Equals(job.JobName, expectedJobName, StringComparison.OrdinalIgnoreCase))
 			throw new ImmediateJobException($"Job '{jobHandle}' is not a '{expectedJobName}' job.");
 
@@ -114,11 +115,13 @@ public sealed partial class InMemoryJobStorage
 			return;
 		}
 
+		var jobId = job.JobHandle;
 		var now = timeProvider.GetUtcNow();
-		var jobHandle = job.JobHandle;
-		if (_edges.Any(edge => edge.ChildJobHandle == jobHandle))
+
+		if (_edges.Any(edge => edge.ChildJobHandle == jobId))
 		{
 			var (triggersSatisfied, _, delay) = EvaluateIncomingTriggers(job.JobHandle);
+
 			if (!triggersSatisfied)
 			{
 				TransitionToTerminal(ref job, JobState.Skipped, error: null, now);

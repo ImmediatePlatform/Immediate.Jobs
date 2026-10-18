@@ -171,23 +171,26 @@ public sealed partial class InMemoryJobStorage
 
 		lock (_gate)
 		{
-			ref var batch = ref CollectionsMarshal.GetValueRefOrNullRef(_batches, batchHandle);
-			if (Unsafe.IsNullRef(ref batch))
-				throw new KeyNotFoundException($"Batch '{batchHandle}' was not found.");
+			ref var batch = ref ValidateExistingElement(_batches, batchHandle);
+
 			if (IsTerminal(batch.State))
 				throw new ImmediateJobException("Only an executing batch can be cancelled.");
 
 			var now = timeProvider.GetUtcNow();
 			var jobHandles = new List<JobHandle>();
+
 			if (_jobsByBatch.TryGetValue(batchHandle, out var handles))
 			{
 				foreach (var handle in handles)
 				{
 					ref var job = ref ValidateExistingElement(_jobs, handle);
+
 					if (IsTerminal(job.State))
 						continue;
+
 					if (job.State == JobState.Active)
 						CompleteExecution(job, JobExecutionState.Cancelled, now);
+
 					TransitionToTerminal(ref job, JobState.Cancelled, error: null, now, propagateContinuations: false);
 					jobHandles.Add(handle);
 				}

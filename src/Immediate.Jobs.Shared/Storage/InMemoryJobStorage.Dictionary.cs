@@ -16,7 +16,7 @@ public sealed partial class InMemoryJobStorage
 	{
 		ref TElement record = ref CollectionsMarshal.GetValueRefOrNullRef(dictionary, key);
 		if (Unsafe.IsNullRef(ref record))
-			throw new ImmediateJobException($"{typeof(TElement)} '{key}' does not exist.");
+			throw new KeyNotFoundException($"{typeof(TElement)} '{key}' does not exist.");
 		return ref record;
 	}
 

@@ -5,14 +5,13 @@ namespace Immediate.Jobs.Shared.Storage;
 
 public sealed partial class InMemoryJobStorage
 {
-	private readonly Dictionary<string, DefinitionAcquisition> _acquisitionDefinitions = [with(StringComparer.Ordinal)];
-
 	/// <inheritdoc />
 	public async ValueTask PauseJobAsync(string jobName, CancellationToken cancellationToken = default)
 	{
 		InMemoryPauseJobAsyncCalled(jobName);
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
+
 		lock (_gate)
 		{
 			jobName = GetStoredDefinition(jobName).Name;

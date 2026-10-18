@@ -12,6 +12,7 @@ public sealed partial class InMemoryJobStorage
 		EnqueueAsyncCalled(job.JobHandle);
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
+
 		lock (_gate)
 		{
 			var record = CreateRecord(job);
@@ -25,6 +26,7 @@ public sealed partial class InMemoryJobStorage
 		EnqueueContinuationAsyncCalled(job.JobHandle, edges.Count);
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
+
 		lock (_gate)
 		{
 			var record = CreateRecord(job);

@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using Immediate.Jobs.Shared.Apis;
 
 namespace Immediate.Jobs.Shared.Storage;
@@ -146,7 +147,7 @@ public interface IJobStorage : IAsyncDisposable
 	ValueTask UpdatePayloadAsync(
 		JobHandle jobHandle,
 		string expectedJobName,
-		string payload,
+		[StringSyntax("json")] string payload,
 		CancellationToken cancellationToken = default
 	);
 

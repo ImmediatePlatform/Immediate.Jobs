@@ -54,10 +54,9 @@ public sealed partial class InMemoryJobStorage
 			return;
 
 		foreach (var edge in _edges
-			.Where(edge => edge.ParentJobHandle == parentJobHandle && !_settledEdges.Contains(edge))
-			.ToList())
+			.Where(edge => edge.ParentJobHandle == parentJobHandle && !_settledEdges.Contains(edge)))
 		{
-			_ = _settledEdges.Add(edge);
+			_settledEdges.Add(edge);
 			SettleEdge(edge, parentFailed: parent.State == JobState.Failed);
 		}
 	}
@@ -71,10 +70,9 @@ public sealed partial class InMemoryJobStorage
 			return;
 
 		foreach (var edge in _edges
-			.Where(edge => edge.ParentBatchHandle == parentBatchHandle && !_settledEdges.Contains(edge))
-			.ToList())
+			.Where(edge => edge.ParentBatchHandle == parentBatchHandle && !_settledEdges.Contains(edge)))
 		{
-			_ = _settledEdges.Add(edge);
+			_settledEdges.Add(edge);
 			SettleEdge(edge, parentFailed: parent.State == BatchState.Failed);
 		}
 	}
@@ -229,11 +227,12 @@ public sealed partial class InMemoryJobStorage
 	{
 		if (count == 0)
 			return;
+
 		if (batchHandle is null)
 			throw new ImmediateJobException("The current job's batch was not found.");
-		ref var batch = ref CollectionsMarshal.GetValueRefOrNullRef(_batches, batchHandle);
-		if (Unsafe.IsNullRef(ref batch))
-			throw new ImmediateJobException("The current job's batch was not found.");
+
+		ref var batch = ref ValidateExistingElement(_batches, batchHandle);
+
 		if (batch.TotalJobs > int.MaxValue - count || batch.PendingCount > int.MaxValue - count)
 			throw new ImmediateJobException($"Batch '{batchHandle}' member count overflow.");
 
@@ -253,5 +252,6 @@ public sealed partial class InMemoryJobStorage
 	/// <remarks>
 	/// 	The caller does not need to hold the <see cref="_gate"/> lock; this method does not access mutable storage state.
 	/// </remarks>
-	private static bool IsTerminal(BatchState state) => state is not (BatchState.Executing or BatchState.WaitingForTrigger);
+	private static bool IsTerminal(BatchState state) =>
+		state is not (BatchState.Executing or BatchState.WaitingForTrigger);
 }
