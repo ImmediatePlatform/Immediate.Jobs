@@ -2,47 +2,51 @@
 
 ## Where a test belongs
 
-| Project | Covers | Notes |
-| --- | --- | --- |
-| `tests/Immediate.Jobs.Tests` | Generator output and analyzers | Generator tests compare against Verify snapshots in `GeneratorTests/Snapshots`; review and accept the `*.received.*` files when output intentionally changes. Analyzer and suppressor tests use `Microsoft.CodeAnalysis.Testing`. |
-| `tests/Immediate.Jobs.FunctionalTests` | The runtime above storage: schedulers, `JobSchedulingService`, batches built through the public API, context propagation, packages (`Packages/` covers the dashboard via TestHost, NodaTime, and the Testing package) | Uses `JobTestHarness` with jobs declared in the test assembly. |
-| `tests/Immediate.Jobs.StorageTests` | Every storage provider | Runs the conformance suite against in-memory, capturing, EF Core and LinqToDB (SQLite, PostgreSQL, SQL Server; distributed and single-server), and Redis. PostgreSQL, SQL Server, and Redis run in Testcontainers, so Docker is required. |
-| `DashboardClient/tests` | Vue components | `npm run check`. |
+| Project | Responsibility |
+| --- | --- |
+| `tests/Immediate.Jobs.Tests` | Generator output, analyzers, and suppressors. Verify snapshots record generated source; Microsoft.CodeAnalysis.Testing checks diagnostics. |
+| `tests/Immediate.Jobs.FunctionalTests` | Behavior above storage: schedulers, runtime coordination, context propagation, and package integration through public APIs. |
+| `tests/Immediate.Jobs.StorageTests` | Provider conformance. Durable fixtures cover supported engines and distributed or single-server topology. |
+| `src/Immediate.Jobs.Dashboard/DashboardClient/tests` | Client behavior, navigation, query ownership, and mutation feedback. |
 
-**Guidance for adding tests:**
+Test each invariant at the layer that owns it:
 
-- **Every storage behaviour test belongs in the conformance suite**, so every provider is held to
-  the same contract. Do not write standalone or provider-specific storage tests.
-- **Functional tests cover only what the layer above storage adds**, for example a scheduler turning
-  `TryTriggerAsync`'s `false` into an exception, or argument validation. Don't re-assert storage
-  semantics there.
-- **Don't test framework or library behaviour**, and don't add a test that duplicates one in another
-  project.
+- **Provider-neutral storage contracts** belong in the shared conformance suite. Every applicable
+  provider must satisfy the same state, ownership, ordering, and atomicity rules. Express storage
+  regressions through these cases rather than standalone provider- or engine-specific tests.
+- **Functional tests** cover what the scheduler or package adds above storage. Use valid registrations
+  and snapshots produced by the owning layer; avoid requiring downstream defensive validation of
+  objects constructed internally.
+- **Boundary validation** belongs with configuration, analyzers, generators, or public input handling.
+  Cancellation, contention, and recovery remain runtime behaviors worth exercising at their owning
+  boundaries.
 
-Call `await harness.DrainAsync(cancellationToken)` once to initialize a fresh harness before
-scheduling jobs.
+Avoid testing framework behavior or repeating assertions already covered at another layer. Review
+snapshot differences before accepting generated output changes.
 
 ## The conformance suite
 
-`src/Immediate.Jobs.Testing/Storage` ships in the `Immediate.Jobs.Testing` package, so custom
-providers can run it too.
+`src/Immediate.Jobs.Testing/Storage` ships in the Testing package so custom providers can run the same
+contracts. The [suite registration](../src/Immediate.Jobs.Testing/Storage/JobStorageConformanceSuite.cs)
+is the source of truth for available cases.
 
-- **Case files.** `DefinitionAcquisitionStorageConformance`, `QueueStorageConformance`, `DefinitionCatalogStorageConformance`, `TagStorageConformance`, `RecurringStorageConformance`,
-  `FairQueueStorageConformance`, `TriggerStorageConformance`, `GraphStorageConformance`, and
-  `ReplicaStorageConformance`.
-- **Case shape.** Each case is `new(Name, RequiredCapabilities, Scenario[, PersistedJobState])`. Names
-  follow `Area.Topic.Behavior` and must stay unique and stable.
-- **Selection.** `JobStorageConformanceSuite.GetCases(capabilities, includeSingleServerReplicaCases)`
-  returns every case whose required capabilities are advertised. `Queue` cases run for every provider
-  and `Graph` cases for graph storage. Replica cases additionally require the opt-in flag, because
-  only EF Core and LinqToDB can back single-server mode.
-- **Running a case.** `RunAsync` resolves exactly one `IJobStorage` and a `FakeTimeProvider`,
-  initializes the storage, and runs the scenario. Fixtures create a fresh backend (database, schema,
-  or key prefix) per case. `PersistedJobState` seeds pre-existing jobs, batches, edges, and schedules.
-- **Assertions.** Use `ConformanceAssert`; failures name the case and the invariant that was broken.
-- **Adding a case.** Add a name constant, an entry in `Cases`, and the scenario method.
-  `StorageConformanceInfrastructureTests` asserts the number of `Queue`-tier cases, so update it when
-  you add one there.
+Each case has a stable, unique `Area.Topic.Behavior` name, required capabilities, a scenario, and an
+optional persisted-state fixture. Queue cases run for every provider; graph cases require graph
+support. Replica recovery cases are opt-in because a single-server durable provider needs additional
+recovery operations.
+
+Resolve exactly one `IJobStorage` and a `FakeTimeProvider` for a case. Isolate each scenario with fresh
+storage, a database/schema, or a Redis prefix. Persisted-state fixtures represent the starting state
+of a recovery scenario. Use `ConformanceAssert` so failures identify both the case and its invariant.
+When adding cases, update suite registration and the infrastructure checks for capability routing
+and case discovery.
+
+## Deterministic runtime tests
+
+Use `JobTestHarness` and its injected clock instead of real delays. Initialize a fresh harness with
+`DrainAsync` before scheduling, then advance time and drain explicitly when a scenario requires it.
+Use explicit synchronization for contention and worker coordination so tests assert ordering rather
+than depending on thread timing.
 
 ## Running
 
@@ -51,6 +55,7 @@ dotnet test --project tests/Immediate.Jobs.StorageTests -c Release -f net10.0 --
 dotnet test --project tests/Immediate.Jobs.FunctionalTests -c Release -f net8.0
 ```
 
-The test projects use Microsoft.Testing.Platform (xUnit v3); arguments after `--` go to the test
-host. Locally, one target framework is usually enough for storage tests; CI runs all three. After
-editing tests, rebuild every framework you run, because `--no-build` happily runs stale binaries.
+The projects use Microsoft.Testing.Platform with xUnit v3; arguments after `--` go to the test host.
+PostgreSQL, SQL Server, and Redis fixtures require Docker. Run the affected cases locally and use CI
+for the full framework and provider matrix. Rebuild every framework being executed so results
+reflect the current sources. Build prerequisites are in [the maintainer guide](README.md#build-and-test).

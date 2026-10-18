@@ -1,100 +1,75 @@
 # Dashboard
 
-`src/Immediate.Jobs.Dashboard` is an HTTP API plus a Vue client, shipped as one package.
+`src/Immediate.Jobs.Dashboard` ships an HTTP API and an embedded Vue client as one package.
 
 ## Server
 
-- **Registration.** `AddImmediateJobsDashboard()` (on `IImmediateJobsBuilder`) registers the
-  services; `MapImmediateJobsDashboard("/jobs")` maps a route group serving the API, the SPA shell,
-  and the embedded `app.js`/`app.css`.
-- **Access.** If `ImmediateJobsDashboardOptions.AuthorizationPolicy` is set, the group requires it.
-  Otherwise, with `RestrictToDevelopmentEnvironment` (default `true`), `DevelopmentDashboardFilter`
-  returns 403 outside the Development environment.
-- **Endpoints.** Each endpoint is an Immediate.Handlers handler exposed with Immediate.Apis attributes
-  in `Endpoints/` (`[MapGet("jobs")]`, `[MapPost("jobs/{jobHandle}/retry")]`, …), backed by
-  `JobMonitor`. Request validation runs through `DashboardValidationFilter` with Immediate.Validations.
-- **Monitoring.** `GET overview` returns counts, servers, capabilities, bulk job acquisition
-  status, and recurring pause/progress. `GET definitions` returns `{ jobs, recurring }` configuration
-  without live state. There are no separate recurring or server projection endpoints.
-- **Definition controls.** `POST definitions/{name}/pause` and `POST definitions/{name}/resume`
-  use persisted limits and canonical names through `JobMonitor`. Unknown definitions return 404.
-  These routes inherit the dashboard's access policy.
-- **Mutations.** `DashboardApiEndpointOperations` wraps them: `KeyNotFoundException` becomes 404 and
-  `ImmediateJobException` becomes 409, so storage must keep that exception convention.
-- **Batch lifecycle.** Batches can be canceled, but cannot be deleted explicitly. Retention purging
-  removes terminal batches and their retained members, executions, and dependency graphs.
-- **Live updates.** `GET events` and `GET batches/{batchHandle}/stream` are server-sent event streams
-  polling at `UpdateInterval` (default 2 seconds).
-- **JSON.** `DashboardJsonSerializerContext` uses camelCase properties and **string enums**, so
-  renaming a `JobState` or `BatchState` member changes the wire contract.
+`AddImmediateJobsDashboard` registers services; `MapImmediateJobsDashboard` maps the API, application
+shell, and embedded assets beneath a configurable route prefix. Endpoint handlers delegate domain
+operations to `JobMonitor`, keeping scheduling and storage rules outside the HTTP layer.
 
-## Definitions and server tags
+The route group owns access control. A configured authorization policy applies to every route;
+the default development restriction rejects access outside the Development environment. New
+endpoints must inherit the same policy and validation pipeline.
 
-`GET definitions` returns every persisted job and both code-defined and dynamic recurring
-schedule configuration, irrespective of local handlers or server tags. The snapshot contains only
-job acquisition state and recurring pause/progress, joined by stable identity in the client.
-The Definitions page displays tags, queue, attempts, timeout, concurrency and windows alongside
-live status and pause/resume actions. The Servers page displays effective server tags.
+Keep error mapping consistent: missing targets become HTTP 404 and invalid operations become HTTP
+409. The underlying storage contract supplies the distinction. Request validation belongs at the
+HTTP boundary through Immediate.Validations.
 
-## Client
+The API separates live observations (`GET overview`) from stored configuration (`GET definitions`).
+Server-sent events provide refreshed observations, including batch progress. Definition pause/resume
+and recurring controls operate on persisted identities and configuration.
 
-`DashboardClient/` is Vue 3, vue-router, `@tanstack/vue-query`, Vite, and Vitest.
+JSON uses camelCase properties and string enums. Enum names, property names, and endpoint shapes are
+wire contracts shared with the client. Update client contracts, state guards, presentation, and tests
+together when those contracts change.
 
-- **Definitions view.** `/definitions` shows one row per stored definition with queue, acquisition
-  status, concurrency limits, and next eligible time. Live search filters names, queues, and tags
-  without a server request. One Concurrency column lists only configured limits: maximum active
-  jobs with current usage, and fixed/sliding acquisition counts against their limits and periods.
-  Unbounded definitions show “No limit” once. A paused definition still displays its active jobs and an independent at-capacity
-  indicator. Rows link to filtered jobs, and server-sent snapshots keep the table current.
-  Each row exposes Pause or Resume based on its explicit pause state, including rate-limited or
-  concurrency-limited definitions. Actions show pending/error feedback and refresh dashboard queries.
-- **Job details.** Pending jobs display “Paused” while their definition is paused; active, scheduled,
-  and terminal jobs retain their lifecycle labels. State filters and counts use the stored lifecycle
-  state. Details include the current definition below the payload, including queue, tags, scheduling,
-  retries, timeout, acquisition status, and configured limits. The same information is available
-  when inspecting an invocation within a batch. Queue information belongs to this definition block.
-  The header contains the invocation ID, lifecycle status, and job actions. Job-name and view links
-  are anchors that support opening details in a new tab.
-- **Contracts.** `src/contracts.ts` mirrors the server JSON. When an enum gains or renames a member,
-  update `jobStates`/`batchStates` there, `isBatchState` in `src/api.ts`, any component that switches
-  on states (`JobStateSummary.vue`, `WorkflowGraph.vue`, the batch cancel buttons), and the
-  `data-state` selectors in `src/styles.css`, which use the lower-cased state name.
-- **Checks.** `npm run check` runs ESLint, `vue-tsc`, and Vitest (`tests/`).
-- **Build.** `npm run build` type-checks and bundles; `npm run size` fails if the gzipped bundle
-  exceeds 200 KiB.
+## Configuration and live state
 
-## Build integration
+Configuration is global: it includes definitions and code-defined or dynamic schedules, regardless
+of local handlers and server tags. Live acquisition and recurring status are joined to configuration
+by stable identity. A dashboard connected to one server can therefore describe stored work outside
+that server's execution scope.
 
-`Immediate.Jobs.Dashboard.csproj` runs `npm ci` and `npm run build` once per build, in the outer
-(cross-targeting) build only, with inputs and outputs so unchanged sources are skipped. It then
-embeds the output as resources (`DashboardAssets` serves them). Design-time builds skip the client
-entirely. If the dashboard build fails in CI but not locally, check that `package-lock.json` is
-committed and matches `package.json`.
+Treat lifecycle state, definition pause, rate limits, and concurrency exhaustion as separate facts.
+A paused definition leaves queued jobs in their lifecycle state and allows already acquired jobs
+to finish. Counts and filters use stored lifecycle state; control feedback explains why acquisition
+is blocked. Definition configuration belongs to the definition even when shown alongside a job or
+batch member.
+
+Show configured limits alongside their observed usage. Pause/resume actions follow explicit pause
+state, including when another acquisition restriction also applies. Use ordinary links for navigation
+and preserve opening details in a new tab. Mutations expose pending and error feedback and refresh
+the state they affect.
+
+Jobs cancelled by definition removal retain their cancellation reason in history. Retained dynamic
+schedules expose cancellation and suppress trigger/resume actions. The server enforces the same
+restriction for stale requests. Restoring a definition alone does not reactivate a cancelled schedule;
+explicit removal and recreation establish a new schedule.
 
 ## Refresh ownership
 
-The application owns one snapshot query, shared across Overview, Definitions, Recurring, and
-Servers. HTTP initial loading and disconnected polling call `GET overview`; concurrent observers
-share one request. SSE updates that same cache and cancel an older in-flight snapshot read.
-While live, the snapshot stays fresh across route navigation; on disconnect, active observers poll
-every five seconds. Definition controls invalidate only live status.
+One shared query owns the live snapshot across views. Initial HTTP reads, disconnected polling, and
+server-sent events update the same cache. Deduplicate concurrent observers and prevent an older HTTP
+response from overwriting a newer streamed observation. Route navigation should reuse that state;
+reconnect and fallback polling must preserve the same ownership.
 
-Definition metadata is loaded by the Definitions and Recurring views and when inspecting job
-definition information, cached for five minutes, and polled every five minutes while in use. It survives route traversal and
-is never overwritten or refreshed by each SSE event. Metadata changes with the same identity can
-therefore take up to five minutes to appear. New metadata is obtained after that refresh; removed
-identities are hidden once absent from live status. The Definitions page cannot offer controls
-without acquisition status. Manual refresh invalidates both metadata and live state.
+Cache definition metadata independently because configuration and live status change at different
+rates. Streamed status must not overwrite configuration or force a metadata read on every event.
+Bound metadata staleness through periodic refresh, join by identity, and require live status for
+controls that depend on acquisition state. Manual refresh updates both configuration and status;
+control mutations invalidate the observations they change.
 
-Snapshots are logical observations, not an atomic cross-table transaction. EF Core and LinqToDB
-bulk-read catalog metadata, control rows, grouped active leases and the largest relevant sliding
-window, evaluating all definitions in memory. Query count does not grow per definition. Redis
-uses one catalog read and one Lua evaluation for the complete status collection; its execution
-cost still grows with definitions, history, and leases. In-memory groups active leases once.
-Single-server monitoring reads the committed durable authority and adds its process-local
-heartbeats without collecting another full snapshot.
+Snapshots are logical observations across storage records. Bulk-evaluate them so query count does not
+grow with the number of definitions. Database round trips, work over acquisition history, and cache
+freshness are separate performance concerns; keep their ownership explicit.
 
-Jobs canceled because their definition was removed remain in history with their cancellation reason.
-Retained dynamic schedules show **Cancelled**, the removal reason, and no next run. Their Trigger
-and Resume actions are disabled; stale action requests are rejected by the server. Explicitly remove
-and recreate a schedule through its existing scheduler API after restoring its definition to start it again.
+## Client and build integration
+
+`DashboardClient` uses Vue, vue-router, vue-query, Vite, and Vitest. Keep server JSON contracts and
+client types aligned. Run `npm run check` for linting, type checks, and component tests; use the build
+and bundle-size checks when changing shipped assets.
+
+The .NET package embeds the built client. Build integration runs the client once for a cross-targeted
+build, skips unchanged inputs, and avoids running it for design-time builds. Keep the npm lockfile
+consistent with package declarations so local and CI builds use the same dependencies.

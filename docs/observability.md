@@ -9,11 +9,12 @@ Ambient request state (tenant, user, culture, …) can flow from the enqueueing 
   jobs carry.
 - The generator emits `CaptureContext()` on the job's `Scheduler`. It runs every extractor, serializes
   each value with the generated JSON metadata, and combines the results into one envelope with
-  `JobContextEnvelope.AddSlice`/`Create`. The envelope is stored in `JobRecord.Context` and is fixed
+  separately identified slices. The envelope is stored in `JobRecord.Context` and is fixed
   at creation; updates and triggers don't change it.
-- The generated `Invoker` reads the envelope (`JobContextEnvelope.Read`) and calls `Restore` on the
-  scoped extractor before running the handler. Slices without a matching extractor (for example after
-  an extractor was removed) are logged by `LogOrphanedSlices` and ignored.
+- The generated `Invoker` reads the envelope and calls `Restore` on the scoped extractor before
+  running the handler. Slices without a matching extractor (for example after an extractor was
+  removed) are logged and ignored, allowing extractor configuration to evolve without preventing
+  retained jobs from executing.
 
 ## Traces
 
@@ -37,6 +38,9 @@ Meter `Immediate.Jobs` (`Internals/JobTelemetry.cs`):
 
 `jobs.enqueued` is emitted when a job is created through a scheduler, including waiting jobs and
 recurring occurrences.
+
+Instrument names, units, and tags are an observability contract. Keep them consistent across
+execution paths so dashboards and alerts do not depend on which scheduler or provider handled work.
 
 ## Logging
 
