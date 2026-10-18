@@ -244,7 +244,7 @@ public sealed partial class InMemoryJobStorage
 						JobHandle = job.JobHandle,
 						JobName = job.JobName,
 						QueueName = GetQueueName(job.JobName),
-			CancellationReason = job.CancellationReason,
+						CancellationReason = job.CancellationReason,
 						State = job.State,
 						Attempt = job.Attempt,
 						CreatedAt = job.CreatedAt,

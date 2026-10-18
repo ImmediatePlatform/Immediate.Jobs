@@ -10,7 +10,6 @@ public sealed record JobDefinitionRegistration
 	/// <summary>
 	/// 	The effective server tags. Omitted or empty lists use the default tag.
 	/// </summary>
-	[System.Diagnostics.CodeAnalysis.AllowNull]
 	public IReadOnlyList<string> ServerTags { get; init => field = JobTags.Normalize(value); } = JobTags.Normalize(tags: null);
 
 	/// <summary>

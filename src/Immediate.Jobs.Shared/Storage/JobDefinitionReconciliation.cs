@@ -56,10 +56,11 @@ public sealed record JobDefinitionReconciliation
 	)
 	{
 		ArgumentNullException.ThrowIfNull(registration);
-		ArgumentNullException.ThrowIfNull(existingDefinitions);
-		ArgumentNullException.ThrowIfNull(existingSchedules);
 		ArgumentNullException.ThrowIfNull(registration.Definitions, nameof(registration));
 		ArgumentNullException.ThrowIfNull(registration.RecurringSchedules, nameof(registration));
+		ArgumentNullException.ThrowIfNull(existingDefinitions);
+		ArgumentNullException.ThrowIfNull(existingSchedules);
+
 		var supplied = registration.Definitions.ToDictionary(static definition => definition.Name, StringComparer.OrdinalIgnoreCase);
 		foreach (var definition in supplied.Values)
 		{
@@ -78,6 +79,7 @@ public sealed record JobDefinitionReconciliation
 			.Select(static definition => definition.Name)
 			.ToHashSet(StringComparer.OrdinalIgnoreCase);
 		var removedDefinitions = managedNames.Where(name => !desired.ContainsKey(name)).ToList();
+
 		managedNames.UnionWith(desired.Keys);
 
 		var existing = existingSchedules.ToDictionary(static schedule => schedule.Name, StringComparer.OrdinalIgnoreCase);
