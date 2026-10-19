@@ -40,8 +40,10 @@ internal sealed partial class RedisJobStorage
 		);
 		if (result == -2)
 			throw new KeyNotFoundException($"Job definition '{schedule.JobName}' was not found.");
+		if (result == -3)
+			throw new ImmediateJobException("Code-defined recurring schedules must be created by definition reconciliation.");
 		if (result < 0)
-			throw new ImmediateJobException("Code-defined recurring schedules cannot be replaced by dynamic schedules.");
+			throw new ImmediateJobException("Recurring schedule ownership cannot be changed by upsert.");
 	}
 
 	/// <inheritdoc />

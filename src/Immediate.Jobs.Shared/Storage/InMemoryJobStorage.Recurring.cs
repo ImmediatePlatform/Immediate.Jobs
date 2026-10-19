@@ -21,23 +21,29 @@ public sealed partial class InMemoryJobStorage
 				schedule = schedule with { JobName = definition.Name };
 			}
 
-			ref var current = ref CollectionsMarshal.GetValueRefOrAddDefault(_recurring, schedule.Name, out _);
-
-			current = current switch
+			ref var current = ref CollectionsMarshal.GetValueRefOrNullRef(_recurring, schedule.Name);
+			if (Unsafe.IsNullRef(ref current))
 			{
-				{ IsCodeDefined: true } when !schedule.IsCodeDefined =>
-					throw new ImmediateJobException("Code-defined recurring schedules cannot be replaced by dynamic schedules."),
+				if (schedule.IsCodeDefined)
+					throw new ImmediateJobException("Code-defined recurring schedules must be created by definition reconciliation.");
+				_recurring.Add(schedule.Name, schedule);
+				return;
+			}
 
-				{ } =>
-					schedule with
-					{
-						Name = current.Name,
-						IsPaused = current.IsPaused || (schedule.CancellationReason ?? current.CancellationReason) is not null,
-						LastRunAt = current.LastRunAt,
-						CancellationReason = schedule.CancellationReason ?? current.CancellationReason,
-					},
+			if (current.IsCodeDefined != schedule.IsCodeDefined)
+				throw new ImmediateJobException("Recurring schedule ownership cannot be changed by upsert.");
+			if (current.IsCodeDefined)
+			{
+				current = current with { NextRunAt = schedule.NextRunAt };
+				return;
+			}
 
-				_ => schedule,
+			current = schedule with
+			{
+				Name = current.Name,
+				IsPaused = current.IsPaused || (schedule.CancellationReason ?? current.CancellationReason) is not null,
+				LastRunAt = current.LastRunAt,
+				CancellationReason = schedule.CancellationReason ?? current.CancellationReason,
 			};
 		}
 	}

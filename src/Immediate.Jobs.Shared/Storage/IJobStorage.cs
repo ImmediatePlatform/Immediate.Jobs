@@ -516,6 +516,16 @@ public interface IJobStorage : IAsyncDisposable
 	/// <returns>
 	/// 	A value task that represents the asynchronous upsert.
 	/// </returns>
+	/// <remarks>
+	/// 	Only dynamic schedules can be created by upsert. Code-defined schedules are created through
+	/// 	<see cref="MergeJobDefinitionsListAsync"/>. Updates must preserve the stored schedule's
+	/// 	<see cref="RecurringJobSchedule.IsCodeDefined"/> value.
+	/// 	For existing code-defined schedules, only <see cref="RecurringJobSchedule.NextRunAt"/> is updated;
+	/// 	all other supplied values are ignored.
+	/// </remarks>
+	/// <exception cref="ImmediateJobException">
+	/// 	The upsert would create a code-defined schedule or change an existing schedule's ownership.
+	/// </exception>
 	ValueTask UpsertRecurringAsync(RecurringJobSchedule schedule, CancellationToken cancellationToken = default);
 
 	/// <summary>

@@ -35,6 +35,9 @@ internal sealed partial class LinqToDBJobStorage<T>
 
 			if (existing is null)
 			{
+				if (schedule.IsCodeDefined)
+					throw new ImmediateJobException("Code-defined recurring schedules must be created by definition reconciliation.");
+
 				try
 				{
 					await InsertAsync(connection, ToEntity(schedule), cancellationToken);
@@ -54,17 +57,19 @@ internal sealed partial class LinqToDBJobStorage<T>
 				}
 			}
 
-			if (!schedule.IsCodeDefined && existing.IsCodeDefined)
-				throw new ImmediateJobException("Code-defined recurring schedules cannot be replaced by dynamic schedules.");
+			if (schedule.IsCodeDefined != existing.IsCodeDefined)
+				throw new ImmediateJobException("Recurring schedule ownership cannot be changed by upsert.");
 
 			var oldStamp = existing.ConcurrencyStamp;
-			existing.JobName = schedule.JobName;
+			if (!existing.IsCodeDefined)
+			{
+				existing.JobName = schedule.JobName;
+				existing.CancellationReason = schedule.CancellationReason ?? existing.CancellationReason;
+				existing.IsPaused |= existing.CancellationReason is not null;
+				existing.Cron = schedule.Cron;
+				existing.TimeZone = schedule.TimeZone;
+			}
 
-			existing.CancellationReason = schedule.CancellationReason ?? existing.CancellationReason;
-			existing.IsPaused |= existing.CancellationReason is not null;
-			existing.Cron = schedule.Cron;
-			existing.TimeZone = schedule.TimeZone;
-			existing.IsCodeDefined = schedule.IsCodeDefined;
 			existing.NextRunAt = schedule.NextRunAt;
 			existing.ConcurrencyStamp = Guid.NewGuid();
 

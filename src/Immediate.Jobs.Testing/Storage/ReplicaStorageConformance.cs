@@ -52,7 +52,24 @@ internal static partial class ReplicaStorageConformance
 			NextRunAt = now.AddMinutes(-1),
 		};
 		var registration = new JobDefinitionRegistration { Definitions = [definition], RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase) { [schedule.JobName] = schedule.NextRunAt } };
-		await storage.UpsertRecurringAsync(schedule, token);
+		await storage.MergeJobDefinitionsListAsync(registration with
+		{
+			RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase) { [schedule.JobName] = now.AddMinutes(-2) },
+		}, token);
+		var previous = schedule with { IsPaused = false, LastRunAt = null, NextRunAt = now.AddMinutes(-2) };
+		ConformanceAssert.True(await storage.MaterializeRecurringAsync(previous, new()
+		{
+			JobHandle = JobHandle.FromString("recovery-history"),
+			JobName = JobName,
+			Payload = "{}",
+			State = JobState.Skipped,
+			CreatedAt = previous.NextRunAt,
+			DueAt = previous.NextRunAt,
+			CompletedAt = previous.NextRunAt,
+			RecurringKey = "recovery-history",
+		}, schedule.NextRunAt, cancellationToken: token), RecurringRecoveryName,
+			"the schedule must have materialized progress before recovery");
+		await storage.PauseRecurringAsync(schedule.Name, token);
 		await storage.MergeJobDefinitionsListAsync(registration, token);
 		await storage.UpsertRecurringAsync(schedule with { Name = "recovery-dynamic", IsCodeDefined = false, IsPaused = false }, token);
 		var job = Job("recovery-pending", now);
