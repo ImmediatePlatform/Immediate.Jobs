@@ -9,6 +9,7 @@ internal static class TagStorageConformance
 	private const string ScopeCase = "Tags.Catalogue.ReconcilesCompleteListsWithinTagScope";
 	private const string RetagCase = "Tags.Catalogue.RemovesPreviouslyMatchingRetaggedDefinitions";
 	private const string RecurringCase = "Tags.Recurring.PreservesOtherScopesProgressAndInvocations";
+	private const string RetaggedCronRemovalCase = "Tags.Recurring.RemovesCodeScheduleWhenCronRemovedWhileRetagging";
 	private const string ConcurrentCase = "Tags.Catalogue.SerializesConcurrentCompleteLists";
 	private const string DueCase = "Tags.Recurring.FiltersEligibleNamesBeforeBatchLimit";
 	private const string CaseNameCase = "Tags.Catalogue.ReconcilesCaseInsensitiveNamesAcrossTagScopes";
@@ -18,6 +19,7 @@ internal static class TagStorageConformance
 		new(ScopeCase, StorageCapabilities.Queue, ReconcilesScopesAsync),
 		new(RetagCase, StorageCapabilities.Queue, RetagsAsync),
 		new(RecurringCase, StorageCapabilities.Queue, PreservesRecurringAsync),
+		new(RetaggedCronRemovalCase, StorageCapabilities.Queue, RemovesCodeScheduleWhenRetaggedAsync),
 		new(ConcurrentCase, StorageCapabilities.Queue, ReconcilesConcurrentlyAsync),
 		new(DueCase, StorageCapabilities.Queue, FiltersBeforeBatchAsync),
 		new(CaseNameCase, StorageCapabilities.Queue, ReconcilesCaseInsensitiveNamesAsync),
@@ -118,6 +120,31 @@ internal static class TagStorageConformance
 		IsCodeDefined = true,
 		NextRunAt = next,
 	};
+
+	private static async ValueTask RemovesCodeScheduleWhenRetaggedAsync(IJobStorage storage, FakeTimeProvider timeProvider, CancellationToken token)
+	{
+		var now = timeProvider.GetUtcNow();
+		var original = Definition("moving-cron", "old") with { Cron = "* * * * *" };
+		await storage.MergeJobDefinitionsListAsync(Registration([original], "old") with
+		{
+			RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase) { [original.Name] = now },
+		}, token);
+		ConformanceAssert.SequenceEqual([original.Name],
+			(await storage.GetDueRecurringAsync(now, 10, [original.Name], token)).Select(static schedule => schedule.Name),
+			RetaggedCronRemovalCase, "the original tag scope must create a due code-defined schedule before retagging");
+
+		var retagged = original with { Tags = ["new"], Cron = null };
+		await storage.MergeJobDefinitionsListAsync(Registration([retagged], "new"), token);
+
+		var definition = (await storage.GetJobDefinitionsAsync(token)).Single();
+		ConformanceAssert.SequenceEqual(retagged.Tags, definition.Tags, RetaggedCronRemovalCase,
+			"the new tag scope must adopt the definition from its previous scope");
+		ConformanceAssert.Null(definition.Cron, RetaggedCronRemovalCase, "the adopted definition must no longer have a cron expression");
+		ConformanceAssert.SequenceEqual([], (await MonitoringTestQueries.GetSchedulesAsync(storage, token)).Select(static schedule => schedule.Name),
+			RetaggedCronRemovalCase, "removing cron while retagging into the current server scope must delete the obsolete code-defined schedule");
+		ConformanceAssert.Equal(0, (await storage.GetDueRecurringAsync(now, 10, [original.Name], token)).Count,
+			RetaggedCronRemovalCase, "the removed schedule must not remain eligible for recurring materialization");
+	}
 
 	private static async ValueTask PreservesRecurringAsync(IJobStorage storage, FakeTimeProvider timeProvider, CancellationToken token)
 	{
