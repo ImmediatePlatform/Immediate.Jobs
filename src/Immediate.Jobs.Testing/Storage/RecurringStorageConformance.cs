@@ -251,7 +251,11 @@ internal static class RecurringStorageConformance
 			Schedule("preserve-next-run", now.AddHours(-1), isCodeDefined: true) with { JobName = "preserve-next-run" },
 			Schedule("merge-remove", now.AddHours(2), isCodeDefined: true) with { JobName = "merge-remove" },
 		};
-		await storage.MergeJobDefinitionsListAsync(CreateRegistration(originalCodeSchedules), cancellationToken);
+		var initial = CreateRegistration(originalCodeSchedules);
+		await storage.MergeJobDefinitionsListAsync(initial with
+		{
+			Definitions = [.. initial.Definitions, new() { Name = "merge-dynamic-to-static", QueueName = QueueName }],
+		}, cancellationToken);
 		var previous = originalCodeSchedules[0];
 		var history = Occurrence("merge-history", previous, JobState.Skipped, now.AddHours(-1)) with
 		{
@@ -261,7 +265,12 @@ internal static class RecurringStorageConformance
 		ConformanceAssert.True(await storage.MaterializeRecurringAsync(previous, history, now.AddHours(1), cancellationToken: cancellationToken),
 			MergeDefinitionsName, "the existing schedule must have materialized progress before reconciliation");
 		await storage.PauseRecurringAsync(previous.Name, cancellationToken);
-		await storage.UpsertRecurringAsync(Schedule("merge-dynamic-to-static", now.AddHours(3), isCodeDefined: false), cancellationToken);
+		await storage.UpsertRecurringAsync(Schedule("merge-dynamic-to-static", now.AddHours(3), isCodeDefined: false) with { JobName = "merge-dynamic-to-static" }, cancellationToken);
+		await storage.MergeJobDefinitionsListAsync(initial, cancellationToken);
+		var cancelled = await GetScheduleAsync(storage, "merge-dynamic-to-static", MergeDefinitionsName, cancellationToken);
+		ConformanceAssert.True(cancelled.IsPaused, MergeDefinitionsName, "removing the dynamic schedule's definition must pause it before adoption");
+		ConformanceAssert.Equal(JobDefinitionReconciliation.RemovalCancellationReason, cancelled.CancellationReason, MergeDefinitionsName,
+			"the adopted schedule must start with a real definition-removal cancellation");
 		await storage.UpsertRecurringAsync(Schedule("merge-dynamic", now.AddHours(3), isCodeDefined: false), cancellationToken);
 		var updatedDefinition = Schedule("merge-update", now.AddHours(4), isCodeDefined: true) with
 		{
@@ -310,7 +319,7 @@ internal static class RecurringStorageConformance
 			upgradeToStatic with { NextRunAt = now.AddHours(3) },
 			schedules.Single(schedule => string.Equals(schedule.Name, "merge-dynamic-to-static", StringComparison.Ordinal)),
 			MergeDefinitionsName,
-			"merge must upgrade to static safely"
+			"code-defined adoption must clear dynamic cancellation and its pause"
 		);
 
 		ConformanceAssert.Equal(

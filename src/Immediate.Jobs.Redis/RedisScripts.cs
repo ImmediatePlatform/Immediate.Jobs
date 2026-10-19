@@ -655,8 +655,12 @@ internal static class RedisScripts
 			local key = ARGV[2] .. 'recurring:' .. schedule.Name
 			local paused, last, next = schedule.Paused, schedule.Last, schedule.Next
 			local dueScore, dueMember = schedule.DueScore, schedule.DueMember
-			local current = redis.call('HMGET', key, 'paused', 'last', 'next', 'dueScore', 'dueMember', 'cron', 'timeZone', 'jobName')
+			local current = redis.call('HMGET', key, 'paused', 'last', 'next', 'dueScore', 'dueMember', 'cron', 'timeZone', 'jobName', 'code', 'cancellationReason')
 			paused = current[1] or paused
+			if current[9] == '0' and current[10] and current[10] ~= '' then
+				paused = '0'
+				redis.call('HDEL', key, 'cancellationReason')
+			end
 			last = current[2] or last
 			removeRecurringDue(ARGV[2], KEYS[4], current[8], current[5])
 			if current[6] == schedule.Cron and current[7] == schedule.TimeZone then

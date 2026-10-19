@@ -90,11 +90,12 @@ public sealed record JobDefinitionReconciliation
 			};
 			if (existing.TryGetValue(schedule.Name, out var current))
 			{
+				var resetCancellation = !current.IsCodeDefined && current.CancellationReason is not null;
 				schedules.Add(schedule with
 				{
 					Name = current.Name,
-					IsPaused = current.IsPaused,
-					CancellationReason = current.CancellationReason ?? schedule.CancellationReason,
+					IsPaused = current.IsPaused && !resetCancellation,
+					CancellationReason = resetCancellation ? null : current.CancellationReason,
 					LastRunAt = current.LastRunAt,
 					NextRunAt = string.Equals(current.Cron, schedule.Cron, StringComparison.Ordinal)
 						&& string.Equals(current.TimeZone, schedule.TimeZone, StringComparison.Ordinal)

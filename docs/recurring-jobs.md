@@ -31,7 +31,8 @@ preserve the pause state and last occurrence.
 `UpsertRecurringAsync` creates dynamic schedules and updates existing schedules without changing
 `IsCodeDefined`. Creating a code-defined schedule or changing ownership through upsert throws
 `ImmediateJobException` without modifying the schedule. Definition reconciliation owns creation
-and adoption of code-defined schedules.
+and adoption of code-defined schedules. Adopting a dynamic schedule canceled by definition removal
+clears its cancellation reason and pause. An administrative pause on an uncanceled schedule is preserved.
 Upserts of existing code-defined schedules update only `NextRunAt`; configuration, pause state,
 cancellation, and materialized progress remain under their respective storage operations.
 

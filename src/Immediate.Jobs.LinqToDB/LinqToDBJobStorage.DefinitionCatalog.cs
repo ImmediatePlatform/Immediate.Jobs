@@ -206,6 +206,8 @@ internal sealed partial class LinqToDBJobStorage<T>
 			.UpdateWhenMatched(static (dst, src) => new ImmediateRecurringJobEntity
 			{
 				JobName = src.JobName,
+				IsPaused = dst.IsPaused && !(!dst.IsCodeDefined && dst.CancellationReason != null),
+				CancellationReason = !dst.IsCodeDefined && dst.CancellationReason != null ? null : dst.CancellationReason,
 				Cron = src.Cron,
 				TimeZone = src.TimeZone,
 				IsCodeDefined = true,
