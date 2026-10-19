@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using Immediate.Jobs.Shared.Apis;
 using Microsoft.Extensions.Logging;
 
@@ -11,55 +12,126 @@ public sealed partial class InMemoryJobStorage
 		InMemoryMergeJobDefinitionsListAsyncCalled();
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
+
 		lock (_gate)
 		{
-			var changes = JobDefinitionReconciliation.Create(registration, [.. _jobDefinitions.Values], [.. _recurring.Values]);
-			var removed = changes.RemovedDefinitionNames.ToHashSet(StringComparer.OrdinalIgnoreCase);
-			var jobs = removed.SelectMany(GetJobsForDefinition).Where(job => !IsTerminal(job.State)).ToList();
-			var schedules = _recurring.Values.Where(schedule => !schedule.IsCodeDefined && removed.Contains(schedule.JobName)
-				&& schedule.CancellationReason is null).ToList();
-			var now = timeProvider.GetUtcNow();
-			// Mark every affected invocation before settling dependencies between them.
-			foreach (var job in jobs)
+			var existingDefinitionsToRemove = _jobDefinitions
+				.Where(jd => JobTags.Intersect(jd.Value.Tags, registration.ServerTags))
+				.Select(jd => jd.Key)
+				.ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+			var existingSchedulesToRemove = _recurring
+				.Where(
+					r =>
+						r.Value.IsCodeDefined
+						&& _jobDefinitions.TryGetValue(r.Value.JobName, out var def)
+						&& JobTags.Intersect(def.Tags, registration.ServerTags)
+				)
+				.Select(r => r.Key)
+				.ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+			var existingSchedulesToCancel = _recurring
+				.Where(
+					r =>
+						!r.Value.IsCodeDefined
+						&& _jobDefinitions.TryGetValue(r.Value.JobName, out var def)
+						&& JobTags.Intersect(def.Tags, registration.ServerTags)
+				)
+				.GroupBy(r => r.Value.JobName, r => r.Value, StringComparer.OrdinalIgnoreCase)
+				.ToDictionary(r => r.Key, r => r.ToList(), StringComparer.OrdinalIgnoreCase);
+
+			foreach (var definition in registration.Definitions.Where(d => JobTags.Intersect(d.Tags, registration.ServerTags)))
 			{
-				if (job.State == JobState.Active)
-					CompleteExecution(job, JobExecutionState.Cancelled, now, JobDefinitionReconciliation.RemovalCancellationReason);
-				_jobs[job.JobHandle] = job with
+				existingDefinitionsToRemove.Remove(definition.Name);
+
+				ref var definitionRecord = ref CollectionsMarshal.GetValueRefOrAddDefault(_jobDefinitions, definition.Name, out _);
+				var originalName = definitionRecord?.Name ?? definition.Name;
+				definitionRecord = definition with { Name = originalName };
+
+				if (registration.RecurringSchedules.TryGetValue(definition.Name, out var nextRunAt))
 				{
-					State = JobState.Cancelled,
-					CancellationReason = JobDefinitionReconciliation.RemovalCancellationReason,
-					CompletedAt = now,
-					WorkerId = null,
-					LeaseExpiresAt = null,
-				};
+					existingSchedulesToRemove.Remove(definition.Name);
+
+					ref var recurring = ref CollectionsMarshal.GetValueRefOrAddDefault(_recurring, definition.Name, out _);
+
+					recurring = new()
+					{
+						Name = originalName,
+						JobName = originalName,
+						Cron = definition.Cron!,
+						TimeZone = definition.TimeZone,
+						IsCodeDefined = true,
+						IsPaused = recurring is { IsPaused: true },
+						LastRunAt = recurring is { } ? recurring.LastRunAt : null,
+
+						NextRunAt =
+							recurring is { }
+							&& string.Equals(recurring.Cron, definition.Cron, StringComparison.Ordinal)
+							&& string.Equals(recurring.TimeZone, definition.TimeZone, StringComparison.Ordinal)
+							? recurring.NextRunAt
+							: nextRunAt,
+					};
+				}
 			}
 
-			foreach (var job in jobs)
+			foreach (var name in existingSchedulesToRemove)
+				_recurring.Remove(name);
+
+			var now = timeProvider.GetUtcNow();
+
+			// Mark every affected invocation before settling dependencies between them.
+			var removedJobs = new List<JobRecord>();
+
+			foreach (var jobName in existingDefinitionsToRemove)
+			{
+				_jobDefinitions.Remove(jobName);
+
+				if (!_jobsByDefinition.TryGetValue(jobName, out var handles))
+					handles = [];
+
+				var schedules = existingSchedulesToCancel.GetValueOrDefault(jobName, []);
+
+				DefinitionRemoved(
+					jobName,
+					handles.Count,
+					schedules.Count
+				);
+
+				foreach (var jobHandle in handles)
+				{
+					ref var job = ref ValidateExistingElement(_jobs, jobHandle);
+
+					if (IsTerminal(job.State))
+						continue;
+
+					if (job.State == JobState.Active)
+						CompleteExecution(job, JobExecutionState.Cancelled, now, JobDefinitionReconciliation.RemovalCancellationReason);
+
+					job = job with
+					{
+						State = JobState.Cancelled,
+						CancellationReason = JobDefinitionReconciliation.RemovalCancellationReason,
+						CompletedAt = now,
+						WorkerId = null,
+						LeaseExpiresAt = null,
+					};
+
+					removedJobs.Add(job);
+				}
+
+				foreach (var schedule in schedules)
+					_recurring[schedule.Name] = schedule with { IsPaused = true, CancellationReason = JobDefinitionReconciliation.RemovalCancellationReason };
+			}
+
+			foreach (var job in removedJobs)
 			{
 				UpdateBatchAfterTerminal(job.BatchHandle, JobState.Cancelled, now);
 				ProcessTerminalJob(job.JobHandle);
 				RemoveFairQueueCursorWhenBacklogClears(GetQueueName(job.JobName), job.GroupId);
 			}
 
-			foreach (var schedule in schedules)
-				_recurring[schedule.Name] = schedule with { IsPaused = true, CancellationReason = JobDefinitionReconciliation.RemovalCancellationReason };
-			foreach (var name in changes.RemovedDefinitionNames)
-			{
-				_jobDefinitions.Remove(name);
-				DefinitionRemoved(name, jobs.Count(job => string.Equals(job.JobName, name, StringComparison.OrdinalIgnoreCase)),
-					schedules.Count(schedule => string.Equals(schedule.JobName, name, StringComparison.OrdinalIgnoreCase)));
-			}
-
-			foreach (var definition in changes.Definitions)
-				_jobDefinitions[definition.Name] = definition;
-
 			foreach (var (queue, group) in _fairQueueLastServed.Keys.ToList())
 				RemoveFairQueueCursorWhenBacklogClears(queue, group);
-
-			foreach (var name in changes.RemovedScheduleNames)
-				_recurring.Remove(name);
-			foreach (var schedule in changes.Schedules)
-				_recurring[schedule.Name] = schedule;
 		}
 	}
 
