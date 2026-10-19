@@ -22,7 +22,14 @@ public sealed partial class InMemoryJobStorage
 
 			var existingSchedulesToRemove = _recurring
 				.Where(r => r.Value.IsCodeDefined)
-				.ToDictionary(r => r.Key, r => _jobDefinitions.TryGetValue(r.Value.JobName, out var def) ? def.Tags : [], StringComparer.OrdinalIgnoreCase);
+				.ToDictionary(
+					r => r.Key,
+					r => (
+						r.Value.JobName,
+						Tags: _jobDefinitions.TryGetValue(r.Value.JobName, out var def) ? def.Tags : []
+					),
+					StringComparer.OrdinalIgnoreCase
+			);
 
 			var existingSchedulesToCancel = _recurring
 				.Where(r => !r.Value.IsCodeDefined)
@@ -63,13 +70,18 @@ public sealed partial class InMemoryJobStorage
 				}
 			}
 
-			foreach (var (name, tags) in existingSchedulesToRemove)
+			foreach (var (name, (jobName, tags)) in existingSchedulesToRemove)
 			{
-				// if we're here, the schedule is active on the current server tags
-				// but possibly old definition referenced the current server tags
-				// so keep tags from original definition and double-check before dropping
-				if (JobTags.Intersect(tags, registration.ServerTags))
+				if (
+					JobTags.Intersect(tags, registration.ServerTags)
+					|| (
+						_jobDefinitions.TryGetValue(jobName, out var newDefinition)
+						&& JobTags.Intersect(newDefinition.Tags, registration.ServerTags)
+					)
+				)
+				{
 					_recurring.Remove(name);
+				}
 			}
 
 			var now = timeProvider.GetUtcNow();
