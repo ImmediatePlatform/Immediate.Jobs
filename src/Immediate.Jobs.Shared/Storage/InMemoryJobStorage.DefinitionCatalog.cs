@@ -21,22 +21,11 @@ public sealed partial class InMemoryJobStorage
 				.ToHashSet(StringComparer.OrdinalIgnoreCase);
 
 			var existingSchedulesToRemove = _recurring
-				.Where(
-					r =>
-						r.Value.IsCodeDefined
-						&& _jobDefinitions.TryGetValue(r.Value.JobName, out var def)
-						&& JobTags.Intersect(def.Tags, registration.ServerTags)
-				)
-				.Select(r => r.Key)
-				.ToHashSet(StringComparer.OrdinalIgnoreCase);
+				.Where(r => r.Value.IsCodeDefined)
+				.ToDictionary(r => r.Key, r => _jobDefinitions.TryGetValue(r.Value.JobName, out var def) ? def.Tags : [], StringComparer.OrdinalIgnoreCase);
 
 			var existingSchedulesToCancel = _recurring
-				.Where(
-					r =>
-						!r.Value.IsCodeDefined
-						&& _jobDefinitions.TryGetValue(r.Value.JobName, out var def)
-						&& JobTags.Intersect(def.Tags, registration.ServerTags)
-				)
+				.Where(r => !r.Value.IsCodeDefined)
 				.GroupBy(r => r.Value.JobName, r => r.Value, StringComparer.OrdinalIgnoreCase)
 				.ToDictionary(r => r.Key, r => r.ToList(), StringComparer.OrdinalIgnoreCase);
 
@@ -56,12 +45,12 @@ public sealed partial class InMemoryJobStorage
 
 					recurring = new()
 					{
-						Name = originalName,
+						Name = recurring?.Name ?? originalName,
 						JobName = originalName,
 						Cron = definition.Cron!,
 						TimeZone = definition.TimeZone,
 						IsCodeDefined = true,
-						IsPaused = recurring is { IsPaused: true },
+						IsPaused = recurring is { IsPaused: true, CancellationReason: null },
 						LastRunAt = recurring is { } ? recurring.LastRunAt : null,
 
 						NextRunAt =
@@ -74,13 +63,19 @@ public sealed partial class InMemoryJobStorage
 				}
 			}
 
-			foreach (var name in existingSchedulesToRemove)
-				_recurring.Remove(name);
+			foreach (var (name, tags) in existingSchedulesToRemove)
+			{
+				// if we're here, the schedule is active on the current server tags
+				// but possibly old definition referenced the current server tags
+				// so keep tags from original definition and double-check before dropping
+				if (JobTags.Intersect(tags, registration.ServerTags))
+					_recurring.Remove(name);
+			}
 
 			var now = timeProvider.GetUtcNow();
 
 			// Mark every affected invocation before settling dependencies between them.
-			var removedJobs = new List<JobRecord>();
+			var cancelledJobs = new List<JobRecord>();
 
 			foreach (var jobName in existingDefinitionsToRemove)
 			{
@@ -116,14 +111,14 @@ public sealed partial class InMemoryJobStorage
 						LeaseExpiresAt = null,
 					};
 
-					removedJobs.Add(job);
+					cancelledJobs.Add(job);
 				}
 
 				foreach (var schedule in schedules)
 					_recurring[schedule.Name] = schedule with { IsPaused = true, CancellationReason = JobDefinitionReconciliation.RemovalCancellationReason };
 			}
 
-			foreach (var job in removedJobs)
+			foreach (var job in cancelledJobs)
 			{
 				UpdateBatchAfterTerminal(job.BatchHandle, JobState.Cancelled, now);
 				ProcessTerminalJob(job.JobHandle);
