@@ -50,21 +50,6 @@ public sealed partial class InMemoryJobStorage
 	}
 
 	/// <remarks>
-	/// 	The caller must hold the <see cref="_gate"/> lock.
-	/// </remarks>
-	private void SetJob(JobRecord job)
-	{
-		ref var stored = ref CollectionsMarshal.GetValueRefOrAddDefault(_jobs, job.JobHandle, out var exists);
-		if (exists)
-			UpdateJob(ref stored!, job);
-		else
-		{
-			stored = job;
-			AddJobIndexes(job);
-		}
-	}
-
-	/// <remarks>
 	/// 	The caller must hold the <see cref="_gate"/> lock while modifying the supplied storage index.
 	/// </remarks>
 	private static void AddJobHandle(Dictionary<BatchHandle, List<JobHandle>> index, BatchHandle key, JobHandle handle)

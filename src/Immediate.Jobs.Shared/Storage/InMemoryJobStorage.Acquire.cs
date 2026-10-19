@@ -1,3 +1,5 @@
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using Immediate.Jobs.Shared.Apis;
 using Microsoft.Extensions.Logging;
 
@@ -140,8 +142,8 @@ public sealed partial class InMemoryJobStorage
 
 		while (queueCapacity > 0 && candidates.TryDequeue(out var runnable, out var head))
 		{
-			var candidate = _jobs[head.JobHandle];
-			acquired.Add(Acquire(candidate, request, now));
+			ref var candidate = ref ValidateExistingElement(_jobs, head.JobHandle);
+			acquired.Add(Acquire(ref candidate, request, now));
 			jobCapacities[candidate.JobName]--;
 			queueCapacity--;
 
@@ -237,7 +239,7 @@ public sealed partial class InMemoryJobStorage
 				.ThenBy(static group => group.Peek().JobHandle.Value, StringComparer.Ordinal)
 				.First();
 
-			var job = Acquire(selected.Dequeue(), request, now);
+			var job = Acquire(ref ValidateExistingElement(_jobs, selected.Dequeue().JobHandle), request, now);
 			acquired.Add(job);
 			eligibility.Remove(job.JobName);
 			jobCapacities[job.JobName]--;
@@ -319,9 +321,10 @@ public sealed partial class InMemoryJobStorage
 	/// <remarks>
 	/// 	The caller must hold the <see cref="_gate"/> lock.
 	/// </remarks>
-	private JobRecord Acquire(JobRecord candidate, JobAcquisitionRequest request, DateTimeOffset now)
+	private JobRecord Acquire(ref JobRecord candidate, JobAcquisitionRequest request, DateTimeOffset now)
 	{
 		MaterializeSyntheticExecution(candidate);
+
 		var job = candidate with
 		{
 			State = JobState.Active,
@@ -332,7 +335,8 @@ public sealed partial class InMemoryJobStorage
 			ExecutionSpanId = null,
 			ExecutionStartedAt = null,
 		};
-		SetJob(job);
+
+		UpdateJob(ref candidate, job);
 		CreateExecution(job, now);
 		MarkBatchStarted(job.BatchHandle, now);
 		RecordAcquisition(job.JobName, now);
@@ -348,13 +352,17 @@ public sealed partial class InMemoryJobStorage
 		{
 			foreach (var job in acquired)
 			{
-				if (!_jobs.TryGetValue(job.JobHandle, out var previous) || job.Attempt != previous.Attempt + 1)
+				ref var previous = ref CollectionsMarshal.GetValueRefOrNullRef(_jobs, job.JobHandle);
+
+				if (Unsafe.IsNullRef(ref previous) || job.Attempt != previous.Attempt + 1)
 					throw new ImmediateJobException("The single-server primary has drifted from durable storage. Use only one scheduler process.");
+
 				if (previous.State == JobState.Active)
 					InterruptExecution(previous);
 				else
 					MaterializeSyntheticExecution(previous);
-				SetJob(job with { QueueName = null });
+
+				UpdateJob(ref previous, job);
 				CreateExecution(job, timeProvider.GetUtcNow());
 				MarkBatchStarted(job.BatchHandle, timeProvider.GetUtcNow());
 			}

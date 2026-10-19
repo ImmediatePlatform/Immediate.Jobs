@@ -102,14 +102,17 @@ public sealed partial class InMemoryJobStorage
 					if (job.State == JobState.Active)
 						CompleteExecution(job, JobExecutionState.Cancelled, now, JobDefinitionReconciliation.RemovalCancellationReason);
 
-					job = job with
-					{
-						State = JobState.Cancelled,
-						CancellationReason = JobDefinitionReconciliation.RemovalCancellationReason,
-						CompletedAt = now,
-						WorkerId = null,
-						LeaseExpiresAt = null,
-					};
+					UpdateJob(
+						ref job,
+						job with
+						{
+							State = JobState.Cancelled,
+							CancellationReason = JobDefinitionReconciliation.RemovalCancellationReason,
+							CompletedAt = now,
+							WorkerId = null,
+							LeaseExpiresAt = null,
+						}
+					);
 
 					cancelledJobs.Add(job);
 				}
