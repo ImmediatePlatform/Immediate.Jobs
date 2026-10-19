@@ -677,6 +677,97 @@ public sealed class InMemoryJobStorageTests
 		RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase),
 	}, token);
 
+	[Fact]
+	public async Task RenewedLeasesIgnoreOldDeadlinesAndExpireWithoutRequestedQueues()
+	{
+		var token = TestContext.Current.CancellationToken;
+		var clock = new FakeTimeProvider(DateTimeOffset.UnixEpoch);
+		await using var storage = new InMemoryJobStorage(clock);
+		await RegisterAsync(storage, [new() { Name = "wanted", QueueName = "q", MaxConcurrency = 1 }], token);
+		await storage.EnqueueAsync(Submission(JobHandle.FromString("leased"), "wanted"), token);
+		var claimed = Assert.Single(await storage.AcquireDueJobsAsync(Request(fair: false), token));
+		clock.Advance(TimeSpan.FromSeconds(30));
+		await storage.RenewLeaseAsync(claimed.JobHandle, claimed.Attempt, "worker", TimeSpan.FromMinutes(2), token);
+		clock.Advance(TimeSpan.FromSeconds(31));
+		Assert.Empty(await storage.AcquireDueJobsAsync(Request(fair: false) with { Queues = [] }, token));
+		Assert.Equal(JobState.Active, (await storage.GetJobStatusAsync(claimed.JobHandle, token))!.State);
+		Assert.Equal(1, (await storage.GetJobAcquisitionStateAsync("wanted", token)).ActiveCount);
+
+		clock.Advance(TimeSpan.FromMinutes(2));
+		Assert.Equal(0, (await storage.GetJobAcquisitionStateAsync("wanted", token)).ActiveCount);
+		Assert.Empty(await storage.AcquireDueJobsAsync(Request(fair: false) with { Queues = [] }, token));
+		Assert.Equal(JobState.Pending, (await storage.GetJobStatusAsync(claimed.JobHandle, token))!.State);
+		var reclaimed = Assert.Single(await storage.AcquireDueJobsAsync(Request(fair: false), token));
+		Assert.Equal(claimed.Attempt + 1, reclaimed.Attempt);
+		Assert.Equal(JobExecutionState.Interrupted, (await storage.QueryJobExecutionsAsync(claimed.JobHandle, new(), token)).Single(e => e.Attempt == claimed.Attempt).State);
+	}
+
+	[Fact]
+	public async Task RunnableOrderingHonorsLimitsAliasesAndQueueReassignment()
+	{
+		var token = TestContext.Current.CancellationToken;
+		await using var storage = new InMemoryJobStorage(new FakeTimeProvider(DateTimeOffset.UnixEpoch));
+		JobDefinitionRecord[] definitions =
+		[
+			new() { Name = "wanted", QueueName = "q", MaxConcurrency = 1 },
+			new() { Name = "second", QueueName = "q" },
+			new() { Name = "paused", QueueName = "q" },
+		];
+		await RegisterAsync(storage, definitions, token);
+		storage.LoadPersistedJobState(
+		[
+			Job("z-tie", "second"), Job("a-tie", "wanted"), Job("b-exceeds-limit", "wanted"),
+			Job("earliest", "second") with { DueAt = DateTimeOffset.UnixEpoch.AddSeconds(-1) },
+			Job("future", "second") with { State = JobState.Scheduled, DueAt = DateTimeOffset.UnixEpoch.AddHours(1) },
+			Job("blocked", "paused") with { DueAt = DateTimeOffset.UnixEpoch.AddDays(-1) },
+		], [], [], []);
+		await storage.PauseJobAsync("paused", token);
+		var request = Request(fair: false) with
+		{
+			BatchSize = 10,
+			Queues = [new()
+			{
+				QueueName = "q", Capacity = 10,
+				JobCapacities = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+				{
+					["WANTED"] = 10, ["SECOND"] = 10, ["PAUSED"] = 10,
+				},
+			}],
+		};
+		Assert.Equal<string>(["earliest", "a-tie", "z-tie"],
+			(await storage.AcquireDueJobsAsync(request, token)).Select(j => j.JobHandle.Value));
+		await storage.CompleteAsync(JobHandle.FromString("a-tie"), 1, "worker", token);
+		await RegisterAsync(storage, definitions.Select(d => d with { QueueName = "moved" }).ToList(), token);
+		Assert.Empty(await storage.AcquireDueJobsAsync(request, token));
+		var moved = request with { Queues = [request.Queues[0] with { QueueName = "moved" }] };
+		Assert.Equal("b-exceeds-limit", Assert.Single(await storage.AcquireDueJobsAsync(moved, token)).JobHandle.Value);
+	}
+
+	[Fact]
+	public async Task RetryAndCancellationKeepRunnableAndLeaseMembershipCurrent()
+	{
+		var token = TestContext.Current.CancellationToken;
+		var clock = new FakeTimeProvider(DateTimeOffset.UnixEpoch);
+		await using var storage = new InMemoryJobStorage(clock);
+		await RegisterAsync(storage, [new() { Name = "wanted", QueueName = "q" }], token);
+		var handle = JobHandle.FromString("retry");
+		await storage.EnqueueAsync(Submission(handle, "wanted"), token);
+		var claimed = Assert.Single(await storage.AcquireDueJobsAsync(Request(fair: false), token));
+		await storage.FailAsync(handle, claimed.Attempt, "worker", "retry later", clock.GetUtcNow().AddHours(1), token);
+		Assert.Empty(await storage.AcquireDueJobsAsync(Request(fair: false), token));
+		await storage.RetryAsync(handle, token);
+		claimed = Assert.Single(await storage.AcquireDueJobsAsync(Request(fair: false), token));
+		await storage.FailAsync(handle, claimed.Attempt, "worker", "failed", nextRetryAt: null, token);
+		Assert.Empty(await storage.AcquireDueJobsAsync(Request(fair: false), token));
+		await storage.RetryAsync(handle, token);
+		claimed = Assert.Single(await storage.AcquireDueJobsAsync(Request(fair: false), token));
+		await storage.CancelAsync(handle, token);
+		clock.Advance(TimeSpan.FromDays(1));
+		Assert.Empty(await storage.AcquireDueJobsAsync(Request(fair: false), token));
+		Assert.Equal(JobState.Cancelled, (await storage.GetJobStatusAsync(handle, token))!.State);
+		Assert.Equal(0, (await storage.GetJobAcquisitionStateAsync("wanted", token)).ActiveCount);
+	}
+
 	private static JobSubmission Submission(JobHandle handle, string name) => new()
 	{
 		JobHandle = handle,

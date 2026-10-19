@@ -123,7 +123,7 @@ public sealed partial class InMemoryJobStorage
 			if (nextRetryAt.HasValue)
 			{
 				var now = timeProvider.GetUtcNow();
-				job = job with
+				UpdateJob(ref job, job with
 				{
 					State = nextRetryAt <= now ? JobState.Pending : JobState.Scheduled,
 					DueAt = nextRetryAt.Value,
@@ -131,7 +131,7 @@ public sealed partial class InMemoryJobStorage
 					LeaseExpiresAt = null,
 					LastError = error,
 					CompletedAt = null,
-				};
+				});
 			}
 			else
 			{
@@ -218,13 +218,13 @@ public sealed partial class InMemoryJobStorage
 				throw new ImmediateJobException("Only failed or scheduled jobs can be retried.");
 
 			MaterializeSyntheticExecution(job);
-			job = job with
+			UpdateJob(ref job, job with
 			{
 				State = JobState.Pending,
 				DueAt = timeProvider.GetUtcNow(),
 				CompletedAt = wasFailed ? null : job.CompletedAt,
 				LastError = wasFailed ? null : job.LastError,
-			};
+			});
 			if (wasFailed && job.BatchHandle is { } batchHandle)
 			{
 				ref var batch = ref CollectionsMarshal.GetValueRefOrNullRef(_batches, batchHandle);
@@ -330,14 +330,14 @@ public sealed partial class InMemoryJobStorage
 		var batchHandle = job.BatchHandle;
 		var queueName = GetQueueName(job.JobName);
 		var groupId = job.GroupId;
-		job = job with
+		UpdateJob(ref job, job with
 		{
 			State = terminalState,
 			WorkerId = null,
 			LeaseExpiresAt = null,
 			LastError = error,
 			CompletedAt = completedAt,
-		};
+		});
 		UpdateBatchAfterTerminal(batchHandle, terminalState, completedAt);
 		if (propagateContinuations)
 			ProcessTerminalJob(jobHandle);

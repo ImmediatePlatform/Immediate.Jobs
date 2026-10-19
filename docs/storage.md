@@ -81,6 +81,14 @@ Evaluate status in bulk rather than issuing an acquisition-state query for each 
 | LinqToDB | Transactions and compare-and-swap updates protect mutations. Retry a lost race as a complete operation. |
 | Redis | Lua scripts make related key updates atomic. Catalogue reconciliation also uses version checks to detect competing snapshots. Graph operations are unsupported. |
 
+The in-memory provider keeps pending and scheduled jobs ordered per definition by due time,
+creation time, and ordinal handle. Ordinary acquisition merges the earliest eligible entries across
+definitions. Active leases have a separate expiry-ordered index, so polling need not scan retained
+history. Renewals replace the previous lease entry rather than leaving stale expiry entries behind.
+Every state, due-time, or lease change must update these indexes under `_gate`; metadata-only
+changes do not alter index membership. Active lease counts are cached per definition, with a live
+count fallback when expired leases have not yet been reclaimed.
+
 Single-server mode has one scheduler process. Its durable provider remains the authority for claims,
 definition pauses, and acquisition counters so those controls survive restarts. Durable graph
 providers must also implement the recovery reads; the in-memory primary is a reconstructable mirror.

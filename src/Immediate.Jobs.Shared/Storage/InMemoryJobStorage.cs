@@ -39,6 +39,9 @@ public sealed partial class InMemoryJobStorage(
 	private readonly Dictionary<JobHandle, JobRecord> _jobs = [];
 	private readonly Dictionary<BatchHandle, List<JobHandle>> _jobsByBatch = [];
 	private readonly Dictionary<string, HashSet<JobHandle>> _jobsByDefinition = [with(StringComparer.OrdinalIgnoreCase)];
+	private readonly Dictionary<string, SortedSet<RunnableJob>> _runnableJobs = [with(StringComparer.OrdinalIgnoreCase)];
+	private readonly SortedSet<JobLease> _jobLeases = [with(JobLeaseComparer)];
+	private readonly Dictionary<string, int> _activeLeaseCounts = [with(StringComparer.OrdinalIgnoreCase)];
 
 	private readonly Dictionary<JobHandle, Dictionary<int, JobExecutionRecord>> _executions = [];
 

@@ -43,6 +43,7 @@ public sealed partial class InMemoryJobStorage
 	/// </remarks>
 	private void AddJobIndexes(JobRecord job)
 	{
+		AddSchedulingIndexes(job);
 		AddJobHandle(_jobsByDefinition, job.JobName, job.JobHandle);
 		if (job.BatchHandle is { } batchHandle)
 			AddJobHandle(_jobsByBatch, batchHandle, job.JobHandle);
@@ -54,9 +55,13 @@ public sealed partial class InMemoryJobStorage
 	private void SetJob(JobRecord job)
 	{
 		ref var stored = ref CollectionsMarshal.GetValueRefOrAddDefault(_jobs, job.JobHandle, out var exists);
-		stored = job;
-		if (!exists)
+		if (exists)
+			UpdateJob(ref stored!, job);
+		else
+		{
+			stored = job;
 			AddJobIndexes(job);
+		}
 	}
 
 	/// <remarks>
@@ -91,6 +96,7 @@ public sealed partial class InMemoryJobStorage
 		foreach (var handle in jobHandles)
 		{
 			var job = _jobs[handle];
+			RemoveSchedulingIndexes(job);
 			var definitions = _jobsByDefinition[job.JobName];
 			definitions.Remove(handle);
 			if (definitions.Count == 0)

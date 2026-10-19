@@ -21,7 +21,7 @@ public sealed partial class InMemoryJobStorage
 		lock (_gate)
 		{
 			ref var job = ref GetOwnedActive(jobHandle, executionNumber, workerId);
-			job = job with { LeaseExpiresAt = timeProvider.GetUtcNow() + lease };
+			UpdateJob(ref job, job with { LeaseExpiresAt = timeProvider.GetUtcNow() + lease });
 		}
 	}
 
@@ -38,15 +38,16 @@ public sealed partial class InMemoryJobStorage
 		lock (_gate)
 		{
 			var now = timeProvider.GetUtcNow();
-			foreach (var expired in _jobs.Values.Where(x => x.State == JobState.Active && x.LeaseExpiresAt <= now).ToList())
+			while (_jobLeases.Count != 0 && _jobLeases.Min.ExpiresAt <= now)
 			{
+				ref var expired = ref ValidateExistingElement(_jobs, _jobLeases.Min.JobHandle);
 				InterruptExecution(expired);
-				_jobs[expired.JobHandle] = expired with
+				UpdateJob(ref expired, expired with
 				{
 					State = JobState.Pending,
 					WorkerId = null,
 					LeaseExpiresAt = null,
-				};
+				});
 			}
 
 			if (request.FairQueues is null)
@@ -125,23 +126,30 @@ public sealed partial class InMemoryJobStorage
 		List<JobRecord> acquired
 	)
 	{
-		var eligibility = new Dictionary<string, bool>(StringComparer.Ordinal);
-		foreach (var candidate in GetJobsForQueue(queueName, jobCapacities.Keys)
-			.Where(job => job.State is JobState.Pending or JobState.Scheduled &&
-				job.DueAt <= now)
-			.OrderBy(job => job.DueAt)
-			.ThenBy(job => job.CreatedAt)
-			.ThenBy(job => job.JobHandle.Value, StringComparer.Ordinal))
+		var candidates = new PriorityQueue<SortedSet<RunnableJob>, RunnableJob>(jobCapacities.Count, RunnableJobComparer);
+		foreach (var (name, capacity) in jobCapacities)
 		{
-			if (queueCapacity == 0)
-				break;
-			if (jobCapacities[candidate.JobName] <= 0 || !CanAcquire(candidate.JobName, now, eligibility))
+			if (capacity <= 0 || !string.Equals(GetQueueName(name), queueName, StringComparison.Ordinal)
+				|| !_runnableJobs.TryGetValue(name, out var runnable) || runnable.Min.DueAt > now || !CanAcquire(_jobs[runnable.Min.JobHandle].JobName, now))
+			{
 				continue;
+			}
 
+			candidates.Enqueue(runnable, runnable.Min);
+		}
+
+		while (queueCapacity > 0 && candidates.TryDequeue(out var runnable, out var head))
+		{
+			var candidate = _jobs[head.JobHandle];
 			acquired.Add(Acquire(candidate, request, now));
-			eligibility.Remove(candidate.JobName);
 			jobCapacities[candidate.JobName]--;
 			queueCapacity--;
+
+			if (queueCapacity > 0 && jobCapacities[candidate.JobName] > 0 && runnable.Count != 0
+				&& runnable.Min.DueAt <= now && CanAcquire(candidate.JobName, now))
+			{
+				candidates.Enqueue(runnable, runnable.Min);
+			}
 		}
 	}
 
@@ -153,7 +161,7 @@ public sealed partial class InMemoryJobStorage
 		Dictionary<string, int> jobCapacities,
 		DateTimeOffset now
 	) =>
-		GetJobsForQueue(queueName, jobCapacities.Keys).Any(job => job.GroupId is not null &&
+		GetRunnableJobsForQueue(queueName, jobCapacities.Keys, now).Any(job => job.GroupId is not null &&
 			jobCapacities.TryGetValue(job.JobName, out var capacity) &&
 			capacity > 0 &&
 			job.State is JobState.Pending or JobState.Scheduled &&
@@ -174,7 +182,7 @@ public sealed partial class InMemoryJobStorage
 		var policy = request.FairQueues!;
 		// The gate and acquisition timestamp stay fixed for the entire batch. Build ordered
 		// backlogs once, then advance past definitions whose capacity or limits are exhausted.
-		var groups = GetJobsForQueue(queueName, jobCapacities.Keys)
+		var groups = GetRunnableJobsForQueue(queueName, jobCapacities.Keys, now)
 			.Where(job => jobCapacities.TryGetValue(job.JobName, out var capacity) && capacity > 0 &&
 				job.State is JobState.Pending or JobState.Scheduled && job.DueAt <= now)
 			.OrderBy(static job => job.DueAt)
@@ -324,7 +332,7 @@ public sealed partial class InMemoryJobStorage
 			ExecutionSpanId = null,
 			ExecutionStartedAt = null,
 		};
-		_jobs[job.JobHandle] = job;
+		SetJob(job);
 		CreateExecution(job, now);
 		MarkBatchStarted(job.BatchHandle, now);
 		RecordAcquisition(job.JobName, now);

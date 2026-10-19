@@ -89,11 +89,11 @@ public sealed partial class InMemoryJobStorage
 		var remaining = Math.Max(0, child.RemainingDependencies - 1);
 		if (remaining != 0)
 		{
-			child = child with
+			UpdateJob(ref child, child with
 			{
 				RemainingDependencies = remaining,
 				FailedDependencies = child.FailedDependencies + (parentFailed ? 1 : 0),
-			};
+			});
 			return;
 		}
 
@@ -105,7 +105,7 @@ public sealed partial class InMemoryJobStorage
 
 		var dueAt = child.DueAt > evaluateDelay ? child.DueAt : evaluateDelay;
 
-		child = child with
+		UpdateJob(ref child, child with
 		{
 			State = triggersSatisfied && child.State == JobState.AwaitingContinuation
 				? dueAt <= timeProvider.GetUtcNow() ? JobState.Pending : JobState.Scheduled
@@ -113,7 +113,7 @@ public sealed partial class InMemoryJobStorage
 			DueAt = dueAt,
 			RemainingDependencies = 0,
 			FailedDependencies = failedDependencies,
-		};
+		});
 
 		if (!triggersSatisfied)
 			TransitionToTerminal(ref child, JobState.Skipped, error: null, timeProvider.GetUtcNow());
@@ -188,11 +188,11 @@ public sealed partial class InMemoryJobStorage
 			if (Unsafe.IsNullRef(ref child) || IsTerminal(child.State))
 				continue;
 
-			child = child with
+			UpdateJob(ref child, child with
 			{
 				State = child.State == JobState.WaitingForTrigger ? JobState.WaitingForTrigger : JobState.AwaitingContinuation,
 				RemainingDependencies = child.RemainingDependencies + 1,
-			};
+			});
 			_edges.Add(new()
 			{
 				ChildJobHandle = child.JobHandle,

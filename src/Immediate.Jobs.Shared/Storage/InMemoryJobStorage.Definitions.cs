@@ -79,7 +79,7 @@ public sealed partial class InMemoryJobStorage
 			jobName, definition.State.IsPaused, limits, now, acquisitions,
 			definition.FixedWindowStart, definition.FixedWindowCount,
 			(includeActiveCount || limits.MaxConcurrency > 0)
-				? GetJobsForDefinition(jobName).Count(job => job.State == JobState.Active && job.LeaseExpiresAt > now)
+				? GetActiveLeaseCount(jobName, now)
 				: 0
 		);
 		return definition.State;

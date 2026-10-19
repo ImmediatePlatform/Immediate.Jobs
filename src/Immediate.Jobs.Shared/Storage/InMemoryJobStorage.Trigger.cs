@@ -25,7 +25,7 @@ public sealed partial class InMemoryJobStorage
 			if (job.State != JobState.WaitingForTrigger)
 				throw new ImmediateJobException($"Job '{jobHandle}' is not waiting for a trigger.");
 
-			job = job with { Payload = payload };
+			UpdateJob(ref job, job with { Payload = payload });
 		}
 	}
 
@@ -111,7 +111,7 @@ public sealed partial class InMemoryJobStorage
 	{
 		if (job.RemainingDependencies != 0)
 		{
-			job = job with { State = JobState.AwaitingContinuation, DueAt = dueAt };
+			UpdateJob(ref job, job with { State = JobState.AwaitingContinuation, DueAt = dueAt });
 			return;
 		}
 
@@ -131,11 +131,11 @@ public sealed partial class InMemoryJobStorage
 			dueAt = dueAt > now + delay ? dueAt : now + delay;
 		}
 
-		job = job with
+		UpdateJob(ref job, job with
 		{
 			State = dueAt <= now ? JobState.Pending : JobState.Scheduled,
 			DueAt = dueAt,
-		};
+		});
 	}
 
 	/// <remarks>
