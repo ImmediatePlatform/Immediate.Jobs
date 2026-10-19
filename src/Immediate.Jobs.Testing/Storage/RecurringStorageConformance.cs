@@ -10,6 +10,7 @@ internal static class RecurringStorageConformance
 	private const string UpsertProgressName = "Recurring.Upsert.PreservesMaterializedProgressAcrossStaleAliases";
 	private const string LifecycleName = "Recurring.Lifecycle.UpdatesPausesResumesAndRemovesDynamicSchedule";
 	private const string MergeDefinitionsName = "Recurring.Definitions.MergesCodeDefinedSchedulesAndPreservesDynamicSchedules";
+	private const string AdoptionRemovalName = "Recurring.Definitions.AdoptsDynamicScheduleWhenOriginalDefinitionIsRemoved";
 	private const string DueScanName = "Recurring.DueScanning.FiltersOrdersAndBatchesSchedules";
 	private const string MaterializeName = "Recurring.Materialization.CreatesOccurrenceAndAdvancesScheduleAtomically";
 	private const string TerminalParentName = "Recurring.Materialization.EvaluatesTerminalParentsAtomically";
@@ -29,6 +30,7 @@ internal static class RecurringStorageConformance
 		new(LifecycleName, StorageCapabilities.Queue, DynamicLifecycleAsync),
 		new(UpsertProgressName, StorageCapabilities.Queue, PreservesMaterializedProgressOnUpsertAsync),
 		new(MergeDefinitionsName, StorageCapabilities.Queue, MergesDefinitionsAsync),
+		new(AdoptionRemovalName, StorageCapabilities.Queue, AdoptsScheduleWhileRemovingOriginalDefinitionAsync),
 		new(DueScanName, StorageCapabilities.Queue, FiltersDueSchedulesAsync),
 		new(MaterializeName, StorageCapabilities.Queue, MaterializesAtomicallyAsync),
 		new(TerminalParentName, StorageCapabilities.Graph, EvaluatesTerminalParentAsync),
@@ -340,6 +342,42 @@ internal static class RecurringStorageConformance
 			}).ToList(),
 			RecurringSchedules = schedules.ToDictionary(static schedule => schedule.JobName, static schedule => schedule.NextRunAt, StringComparer.OrdinalIgnoreCase),
 		};
+	}
+
+	private static async ValueTask AdoptsScheduleWhileRemovingOriginalDefinitionAsync(
+		IJobStorage storage,
+		FakeTimeProvider timeProvider,
+		CancellationToken token
+	)
+	{
+		var now = timeProvider.GetUtcNow();
+		var work = new JobDefinitionRecord { Name = "Work", QueueName = QueueName };
+		var legacy = new JobDefinitionRecord { Name = "Legacy", QueueName = QueueName };
+		await storage.MergeJobDefinitionsListAsync(new()
+		{
+			Definitions = [work, legacy],
+			RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase),
+		}, token);
+		var dynamic = Schedule(work.Name, now.AddHours(1), isCodeDefined: false) with { JobName = legacy.Name };
+		await storage.UpsertRecurringAsync(dynamic, token);
+		AssertSchedule(dynamic, await GetScheduleAsync(storage, dynamic.Name, AdoptionRemovalName, token),
+			AdoptionRemovalName, "the dynamic schedule must initially target the definition that will be removed");
+
+		var code = Schedule(work.Name, now, isCodeDefined: true) with { JobName = work.Name, Cron = "30 * * * *" };
+		await storage.MergeJobDefinitionsListAsync(new()
+		{
+			Definitions = [work with { Cron = code.Cron, TimeZone = code.TimeZone }],
+			RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase) { [work.Name] = code.NextRunAt },
+		}, token);
+
+		ConformanceAssert.SequenceEqual([work.Name], (await storage.GetJobDefinitionsAsync(token)).Select(static definition => definition.Name),
+			AdoptionRemovalName, "the merge must retain the new code-defined target and remove the original dynamic target");
+		AssertSchedule(code, await GetScheduleAsync(storage, code.Name, AdoptionRemovalName, token),
+			AdoptionRemovalName, "canceling schedules for the removed definition must not overwrite the adopted code-defined schedule");
+		ConformanceAssert.SequenceEqual([code.Name], (await storage.GetDueRecurringAsync(now, 10, [work.Name], token)).Select(static schedule => schedule.Name),
+			AdoptionRemovalName, "the adopted schedule must remain eligible under its new job definition");
+		ConformanceAssert.Equal(0, (await storage.GetDueRecurringAsync(now.AddHours(1), 10, [legacy.Name], token)).Count,
+			AdoptionRemovalName, "the adopted schedule must no longer appear under the removed job definition");
 	}
 
 	private static async ValueTask FiltersDueSchedulesAsync(
