@@ -32,7 +32,7 @@ public sealed partial class InMemoryJobStorage
 			);
 
 			var existingSchedulesToCancel = _recurring
-				.Where(r => !r.Value.IsCodeDefined)
+				.Where(r => !r.Value.IsCodeDefined && !registration.RecurringSchedules.ContainsKey(r.Key))
 				.GroupBy(r => r.Value.JobName, r => r.Value, StringComparer.OrdinalIgnoreCase)
 				.ToDictionary(r => r.Key, r => r.ToList(), StringComparer.OrdinalIgnoreCase);
 
@@ -97,12 +97,7 @@ public sealed partial class InMemoryJobStorage
 					handles = [];
 
 				var schedules = existingSchedulesToCancel.GetValueOrDefault(jobName, []);
-
-				DefinitionRemoved(
-					jobName,
-					handles.Count,
-					schedules.Count
-				);
+				var jobsCount = 0;
 
 				foreach (var jobHandle in handles)
 				{
@@ -127,10 +122,17 @@ public sealed partial class InMemoryJobStorage
 					);
 
 					cancelledJobs.Add(job);
+					jobsCount++;
 				}
 
 				foreach (var schedule in schedules)
 					_recurring[schedule.Name] = schedule with { IsPaused = true, CancellationReason = JobDefinitionReconciliation.RemovalCancellationReason };
+
+				DefinitionRemoved(
+					jobName,
+					jobsCount,
+					schedules.Count
+				);
 			}
 
 			foreach (var job in cancelledJobs)
