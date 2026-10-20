@@ -52,7 +52,7 @@ public sealed partial class JobSchedulingService : BackgroundService
 	private readonly string _workerId = string.Create(CultureInfo.InvariantCulture, $"{Environment.MachineName}:{Environment.ProcessId}:{DateTimeOffset.UtcNow.Ticks}");
 	private readonly Channel<JobRecord> _channel;
 	private int _reservations;
-	private bool _drainInitialized;
+	private bool _initialized;
 	private bool _fairQueuesDisabledWarningLogged;
 	private DateTimeOffset _nextPurgeTimestamp;
 
@@ -151,13 +151,18 @@ public sealed partial class JobSchedulingService : BackgroundService
 			GraphFeaturesDisabled(storage.GetType().Name);
 	}
 
+	/// <inheritdoc/>
+	public override async Task StartAsync(CancellationToken cancellationToken)
+	{
+		// Initializing here so storage is initialized prior to any services running.
+		await InitializeAsync(cancellationToken);
+		await base.StartAsync(cancellationToken);
+	}
+
 	/// <inheritdoc />
 	protected override async Task ExecuteAsync(CancellationToken stoppingToken)
 	{
 		await TaskScheduler.Yield();
-
-		// initialization needs to be done no matter what, so that storage is initialized
-		await InitializeAsync(stoppingToken);
 
 		if (!_options.IsJobSchedulingServiceEnabled)
 			return;
@@ -222,10 +227,10 @@ public sealed partial class JobSchedulingService : BackgroundService
 	/// </returns>
 	public async ValueTask DrainAsync(CancellationToken cancellationToken = default)
 	{
-		if (!_drainInitialized)
+		if (!_initialized)
 			await InitializeAsync(cancellationToken);
 
-		_drainInitialized = true;
+		_initialized = true;
 
 		while (true)
 		{

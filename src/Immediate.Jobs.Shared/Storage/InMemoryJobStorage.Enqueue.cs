@@ -14,10 +14,7 @@ public sealed partial class InMemoryJobStorage
 		await TaskScheduler.Yield();
 
 		lock (_gate)
-		{
-			var record = CreateRecord(job);
-			AddJob(record);
-		}
+			AddJob(CreateRecord(job));
 	}
 
 	/// <inheritdoc />
@@ -30,7 +27,6 @@ public sealed partial class InMemoryJobStorage
 		lock (_gate)
 		{
 			var record = CreateRecord(job);
-			ValidateNewJob(record);
 			ValidateEdges([record], edges, batchHandle: null);
 			AddJob(NormalizeWaitingJob(record, edges.Count));
 			_edges.AddRange(edges);
@@ -141,9 +137,11 @@ public sealed partial class InMemoryJobStorage
 	internal JobDefinitionRecord GetJobDefinition(string name)
 	{
 		lock (_gate)
+		{
 			return _jobDefinitions.TryGetValue(name, out var definition)
 				? definition
 				: throw new KeyNotFoundException($"Job definition '{name}' was not found.");
+		}
 	}
 
 	/// <remarks>
