@@ -53,7 +53,7 @@ internal sealed partial class SingleServerJobStorage
 		try
 		{
 			await DurableStorage.RenewLeaseAsync(jobHandle, executionNumber, workerId, lease, cancellationToken);
-			await PrimaryStorage.RenewLeaseAsync(jobHandle, executionNumber, workerId, lease, cancellationToken);
+			PrimaryStorage.ApplyRenewedLease(jobHandle, executionNumber, workerId, lease);
 		}
 		finally
 		{

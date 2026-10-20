@@ -30,11 +30,15 @@ internal static class FairQueueStorageConformance
 		new(RotationName, StorageCapabilities.Queue, RotatesAcrossGroupsAsync),
 		new(InterleaveName, StorageCapabilities.Queue, InterleavesGroupsAsync),
 		new(NoisyName, StorageCapabilities.Queue, ServesQuietGroupAsync),
-		new(ExpiredName, StorageCapabilities.Queue, IgnoresExpiredLeasesAsync),
 		new(OrdinaryName, StorageCapabilities.Queue, NullPolicyPreservesOrderAsync),
 		new(ConcurrencyName, StorageCapabilities.Queue, ConcurrentClaimsAreDistinctAsync),
 		new(RetryName, StorageCapabilities.Queue, KeepsRetriedJobsEligibleAsync),
 		new(CancellationName, StorageCapabilities.Queue, ClearsCancelledGroupsAsync),
+	];
+
+	internal static IReadOnlyList<JobStorageConformanceTestCase> LeaseCases { get; } =
+	[
+		new(ExpiredName, StorageCapabilities.Queue, IgnoresExpiredLeasesAsync),
 	];
 
 	private static async ValueTask RotatesAcrossGroupsAsync(

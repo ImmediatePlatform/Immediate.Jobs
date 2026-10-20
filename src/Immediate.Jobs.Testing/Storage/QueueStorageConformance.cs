@@ -31,7 +31,6 @@ internal static class QueueStorageConformance
 		new(DueName, StorageCapabilities.Queue, ExcludesFutureAndParkedAsync),
 		new(CapacityName, StorageCapabilities.Queue, HonorsOrderingAndCapacitiesAsync),
 		new(ContentionName, StorageCapabilities.Queue, ClaimsOnceUnderContentionAsync),
-		new(LeaseName, StorageCapabilities.Queue, ReclaimsExpiredLeaseAsync),
 		new(CompletionName, StorageCapabilities.Queue, PersistsCompletionAsync),
 		new(FailureName, StorageCapabilities.Queue, PersistsFailureRetryAndCancellationAsync),
 		new(MutationName, StorageCapabilities.Queue, RejectsInvalidMutationsAsync),
@@ -40,6 +39,11 @@ internal static class QueueStorageConformance
 		new(MaintenanceName, StorageCapabilities.Queue, PurgesTerminalHistoryAsync),
 		new(CancellationName, StorageCapabilities.Queue, ObservesCancellationAsync),
 		new(DisposeName, StorageCapabilities.Queue, DisposesIdempotentlyAsync),
+	];
+
+	internal static IReadOnlyList<JobStorageConformanceTestCase> LeaseCases { get; } =
+	[
+		new(LeaseName, StorageCapabilities.Queue, ReclaimsExpiredLeaseAsync),
 	];
 
 	private static async ValueTask InitializeAsync(
@@ -205,9 +209,9 @@ internal static class QueueStorageConformance
 		);
 
 		ConformanceAssert.True(
-			acquired.All(job => job.State == JobState.Active && string.Equals(job.WorkerId, "capacity-worker", StringComparison.Ordinal) && job.Attempt == 1 && job.LeaseExpiresAt == now.AddMinutes(1)),
+			acquired.All(job => job.State == JobState.Active && string.Equals(job.WorkerId, "capacity-worker", StringComparison.Ordinal) && job.Attempt == 1),
 			CapacityName,
-			"every acquired projection must contain active ownership, lease expiry, and execution ordinal"
+			"every acquired projection must contain active ownership and execution ordinal"
 		);
 	}
 
@@ -273,12 +277,17 @@ internal static class QueueStorageConformance
 		await storage.EnqueueAsync(CreateJob("leased", timeProvider.GetUtcNow()), cancellationToken);
 
 		var first = (await storage.AcquireDueJobsAsync(CreateRequest("owner-a", 1), cancellationToken)).Single();
+		ConformanceAssert.Equal<DateTimeOffset?>(timeProvider.GetUtcNow().AddMinutes(1), first.LeaseExpiresAt, LeaseName,
+			"a durable acquisition must project its lease deadline");
 
 		await storage.SetExecutionTelemetryAsync(first.JobHandle, first.Attempt, "owner-a", "trace-a", "span-a", timeProvider.GetUtcNow(), cancellationToken);
 
 		timeProvider.Advance(TimeSpan.FromSeconds(30));
 
 		await storage.RenewLeaseAsync(first.JobHandle, first.Attempt, "owner-a", TimeSpan.FromMinutes(2), cancellationToken);
+		var renewed = (await storage.QueryJobsAsync(new() { JobHandle = first.JobHandle }, cancellationToken)).Single();
+		ConformanceAssert.Equal<DateTimeOffset?>(timeProvider.GetUtcNow().AddMinutes(2), renewed.LeaseExpiresAt, LeaseName,
+			"job queries must expose the renewed durable deadline, including through a single-server mirror");
 
 		timeProvider.Advance(TimeSpan.FromMinutes(1));
 
@@ -293,6 +302,8 @@ internal static class QueueStorageConformance
 		);
 
 		timeProvider.Advance(TimeSpan.FromMinutes(2));
+		ConformanceAssert.Equal(0, (await storage.GetJobAcquisitionStateAsync("conformance-job", cancellationToken)).ActiveCount,
+			LeaseName, "expired leases must release advisory concurrency without another acquisition");
 
 		var second = (await storage.AcquireDueJobsAsync(CreateRequest("owner-b", 1), cancellationToken)).Single();
 

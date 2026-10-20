@@ -34,17 +34,13 @@ public sealed partial class InMemoryJobStorage
 	/// </remarks>
 	private IReadOnlyList<JobAcquisitionState> GetDefinitionStatuses(DateTimeOffset now)
 	{
-		// This full-store snapshot needs counts for every definition in one pass.
-		var active = _jobs.Values.Where(job => job.State == JobState.Active && job.LeaseExpiresAt > now)
-			.GroupBy(static job => job.JobName, StringComparer.OrdinalIgnoreCase)
-			.ToDictionary(static group => group.Key, static group => group.Count(), StringComparer.OrdinalIgnoreCase);
 		return [.. _jobDefinitions.Values.OrderBy(static definition => definition.Name, StringComparer.OrdinalIgnoreCase).Select(definition =>
 		{
 			var usage = GetAcquisitionDefinition(definition.Name);
 			var limits = definition.AcquisitionLimits;
 			return JobAcquisitionEvaluator.Evaluate(definition.Name, usage.State.IsPaused, limits, now,
 				limits.SlidingWindowPeriod is { } period ? usage.Acquisitions.Where(acquired => acquired > now - period).Order().ToList() : [],
-				usage.FixedWindowStart, usage.FixedWindowCount, active.GetValueOrDefault(definition.Name));
+				usage.FixedWindowStart, usage.FixedWindowCount, _activeJobCounts.GetValueOrDefault(definition.Name));
 		})];
 	}
 

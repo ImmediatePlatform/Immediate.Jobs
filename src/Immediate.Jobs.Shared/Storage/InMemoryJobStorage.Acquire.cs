@@ -21,9 +21,18 @@ public sealed partial class InMemoryJobStorage
 		await TaskScheduler.Yield();
 
 		lock (_gate)
+			_ = GetOwnedActive(jobHandle, executionNumber, workerId);
+	}
+
+	/// <remarks>
+	/// 	The caller does not need to hold the <see cref="_gate"/> lock; this method acquires it internally.
+	/// </remarks>
+	internal void ApplyRenewedLease(JobHandle jobHandle, int executionNumber, string workerId, TimeSpan lease)
+	{
+		lock (_gate)
 		{
 			ref var job = ref GetOwnedActive(jobHandle, executionNumber, workerId);
-			UpdateJob(ref job, job with { LeaseExpiresAt = timeProvider.GetUtcNow() + lease });
+			job = job with { LeaseExpiresAt = timeProvider.GetUtcNow() + lease };
 		}
 	}
 
@@ -40,18 +49,6 @@ public sealed partial class InMemoryJobStorage
 		lock (_gate)
 		{
 			var now = timeProvider.GetUtcNow();
-			while (_jobLeases.Count != 0 && _jobLeases.Min.ExpiresAt <= now)
-			{
-				ref var expired = ref ValidateExistingElement(_jobs, _jobLeases.Min.JobHandle);
-				InterruptExecution(expired);
-				UpdateJob(ref expired, expired with
-				{
-					State = JobState.Pending,
-					WorkerId = null,
-					LeaseExpiresAt = null,
-				});
-			}
-
 			if (request.FairQueues is null)
 				return AcquireInExistingOrder(request, now);
 
@@ -198,7 +195,7 @@ public sealed partial class InMemoryJobStorage
 		var totalActive = 0;
 		foreach (var job in GetJobsForQueue(queueName))
 		{
-			if (job.State != JobState.Active || job.LeaseExpiresAt is null || job.LeaseExpiresAt <= now)
+			if (job.State != JobState.Active)
 			{
 				continue;
 			}
@@ -244,12 +241,9 @@ public sealed partial class InMemoryJobStorage
 			eligibility.Remove(job.JobName);
 			jobCapacities[job.JobName]--;
 			queueCapacity--;
-			if (job.LeaseExpiresAt > now)
-			{
-				totalActive++;
-				if (job.GroupId is { } activeGroup)
-					activeCounts[activeGroup] = activeCounts.GetValueOrDefault(activeGroup) + 1;
-			}
+			totalActive++;
+			if (job.GroupId is { } activeGroup)
+				activeCounts[activeGroup] = activeCounts.GetValueOrDefault(activeGroup) + 1;
 
 			if (policy.GroupRoundRobin && job.GroupId is { } groupId)
 				_fairQueueLastServed[(queueName, groupId)] = nextSequence++;
@@ -330,7 +324,7 @@ public sealed partial class InMemoryJobStorage
 			State = JobState.Active,
 			Attempt = candidate.Attempt + 1,
 			WorkerId = request.WorkerId,
-			LeaseExpiresAt = now + request.Lease,
+			LeaseExpiresAt = null,
 			ExecutionTraceId = null,
 			ExecutionSpanId = null,
 			ExecutionStartedAt = null,

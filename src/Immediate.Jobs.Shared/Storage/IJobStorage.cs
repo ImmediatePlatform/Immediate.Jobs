@@ -45,7 +45,7 @@ public interface IJobStorage : IAsyncDisposable
 	ValueTask ResumeJobAsync(string jobName, CancellationToken cancellationToken = default);
 
 	/// <summary>
-	/// 	Evaluates the current acquisition status and active unexpired leases using a definition's persisted limits.
+	/// 	Evaluates the current acquisition status and owned active jobs using a definition's persisted limits.
 	/// </summary>
 	/// <param name="jobName">
 	/// 	The stable definition name.
@@ -249,7 +249,7 @@ public interface IJobStorage : IAsyncDisposable
 	);
 
 	/// <summary>
-	/// 	Extends the lease on an active job owned by the worker.
+	/// 	Extends time-limited ownership, or validates process-lifetime ownership, of an active job owned by the worker.
 	/// </summary>
 	/// <param name="jobHandle">
 	/// 	The active invocation identifier.

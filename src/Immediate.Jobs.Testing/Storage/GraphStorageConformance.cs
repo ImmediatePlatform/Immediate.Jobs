@@ -1039,7 +1039,7 @@ internal static partial class GraphStorageConformance
 			cancellationToken
 		);
 		_ = await graph.AcquireDueJobsAsync(CreateRequest("stale-dynamic-worker", current.JobName), cancellationToken);
-		clock.Advance(TimeSpan.FromMinutes(2));
+		await graph.FailAsync(current.JobHandle, 1, "stale-dynamic-worker", "retry", clock.GetUtcNow(), cancellationToken);
 		_ = await graph.AcquireDueJobsAsync(CreateRequest("stale-dynamic-worker", current.JobName), cancellationToken);
 
 		var addition = CreateJob("stale-dynamic-child", batchHandle: "stale-dynamic-batch");

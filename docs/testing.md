@@ -35,6 +35,11 @@ optional persisted-state fixture. Queue cases run for every provider; graph case
 support. Replica recovery cases are opt-in because a single-server durable provider needs additional
 recovery operations.
 
+Select `usesExpiringLeases: false` when running the suite against in-memory storage or its capturing
+wrapper. Those cases verify process-lifetime ownership and active-state accounting instead of
+expiry and reclaim. Single-server durable storage retains the default lease cases, because durable
+acquisition remains authoritative even when reads use an in-memory mirror.
+
 Resolve exactly one `IJobStorage` and a `FakeTimeProvider` for a case. Isolate each scenario with fresh
 storage, a database/schema, or a Redis prefix. Persisted-state fixtures represent the starting state
 of a recovery scenario. Use `ConformanceAssert` so failures identify both the case and its invariant.

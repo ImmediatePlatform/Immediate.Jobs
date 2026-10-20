@@ -17,7 +17,6 @@ internal static class DefinitionAcquisitionStorageConformance
 		new("Definitions.SlidingWindow.ReleasesOnlyExpiredAcquisitions", StorageCapabilities.Queue, RollingAsync),
 		new("Definitions.FixedWindow.ResetsAtAlignedBoundary", StorageCapabilities.Queue, FixedAsync),
 		new("Definitions.Limits.CombineAndResumeWithoutReset", StorageCapabilities.Queue, CombinedAsync),
-		new("Definitions.Concurrency.SharesSlotsAndRecoversExpiredLeases", StorageCapabilities.Queue, ConcurrencyAsync),
 		new("Definitions.Concurrency.RenewalAndEarlyRelease", StorageCapabilities.Queue, RenewAsync),
 		new("Definitions.Monitoring.ReportsPauseAndUnexpiredConcurrencyIndependently", StorageCapabilities.Queue, MonitoringAsync),
 		new("Definitions.Monitoring.ReportsCurrentWindowCounts", StorageCapabilities.Queue, WindowCountsAsync),
@@ -25,6 +24,11 @@ internal static class DefinitionAcquisitionStorageConformance
 		new("Definitions.Acquisition.SkipsBlockedDefinitionsInFairQueues", StorageCapabilities.Queue, FairAsync),
 		new("Definitions.Retries.CountSuccessfulAcquisitionsOnly", StorageCapabilities.Queue, RetryAsync),
 		new("Definitions.Recurring.MaterializesDuringExecutionPause", StorageCapabilities.Queue, RecurringAsync),
+	];
+
+	internal static IReadOnlyList<JobStorageConformanceTestCase> LeaseCases { get; } =
+	[
+		new("Definitions.Concurrency.SharesSlotsAndRecoversExpiredLeases", StorageCapabilities.Queue, ConcurrencyAsync),
 	];
 
 	private static JobSubmission Job(string id, DateTimeOffset now, string name = Name, string? group = null) => new()
@@ -128,12 +132,6 @@ internal static class DefinitionAcquisitionStorageConformance
 		Equal(definition.AcquisitionLimits, (await storage.GetJobDefinitionsAsync(token)).Single(item => string.Equals(item.Name, Name, StringComparison.Ordinal)).AcquisitionLimits,
 			"resume preserves the stored concurrency setting");
 		await storage.PauseJobAsync(Name, token);
-
-		clock.Advance(TimeSpan.FromSeconds(30));
-		state = await storage.GetJobAcquisitionStateAsync(Name, token);
-		Equal(0, state.ActiveCount, "expired leases are excluded without requiring a new acquisition");
-		Equal(expected: false, state.IsConcurrencyLimited, "capacity returns after the leases expire");
-		Equal(expected: true, state.IsPaused, "expiration does not resume a paused definition");
 	}
 
 	private static async ValueTask WindowCountsAsync(IJobStorage storage, FakeTimeProvider clock, CancellationToken token)
@@ -158,9 +156,11 @@ internal static class DefinitionAcquisitionStorageConformance
 		await CheckCountsAsync(1, 1, "usage is visible before a window is exhausted");
 		clock.Advance(TimeSpan.FromSeconds(5));
 		await storage.EnqueueAsync(Job("window-two", clock.GetUtcNow()), token);
-		Equal(1, (await storage.AcquireDueJobsAsync(Request(), token)).Count, "a later acquisition consumes another window slot");
+		var second = (await storage.AcquireDueJobsAsync(Request(), token)).Single();
 		await CheckCountsAsync(2, 2, "concurrency exhaustion does not hide window usage");
+		await storage.CompleteAsync(second.JobHandle, second.Attempt, "worker", token);
 		await storage.EnqueueAsync(Job("window-three", clock.GetUtcNow()), token);
+		await storage.EnqueueAsync(Job("window-four", clock.GetUtcNow()), token);
 		await storage.PauseJobAsync(Name, token);
 		Equal(0, (await storage.AcquireDueJobsAsync(Request(), token)).Count, "paused acquisition cannot consume window capacity");
 		await storage.CompleteAsync(first.JobHandle, first.Attempt, "worker", token);
@@ -175,8 +175,8 @@ internal static class DefinitionAcquisitionStorageConformance
 		clock.Advance(start + period - clock.GetUtcNow());
 		await CheckCountsAsync(0, 0, "fixed usage resets at its boundary without another acquisition");
 		await storage.ResumeJobAsync(Name, token);
-		Equal(2, (await storage.AcquireDueJobsAsync(Request(), token)).Count, "an expired lease and queued invocation both acquire after resume");
-		await CheckCountsAsync(2, 2, "expired-lease reacquisition consumes window capacity");
+		Equal(2, (await storage.AcquireDueJobsAsync(Request(), token)).Count, "queued invocations acquire after resume");
+		await CheckCountsAsync(2, 2, "successful acquisitions consume the refreshed window capacity");
 		definition = definition with { SlidingWindowMax = 0, SlidingWindowPeriod = null, FixedWindowMax = 0, FixedWindowPeriod = null };
 		await storage.MergeJobDefinitionsListAsync(new() { RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase), Definitions = [definition] }, token);
 		await CheckCountsAsync(0, 0, "disabled windows expose zero rather than retained history");

@@ -16,7 +16,7 @@ public sealed class InMemoryJobStorageTests
 		StorageCapabilities.Graph;
 
 	public static TheoryData<JobStorageConformanceTestCase> Cases =>
-		[.. JobStorageConformanceSuite.GetCases(Capabilities)];
+		[.. JobStorageConformanceSuite.GetCases(Capabilities, usesExpiringLeases: false)];
 
 	[Theory]
 	[MemberData(nameof(Cases))]
@@ -677,29 +677,30 @@ public sealed class InMemoryJobStorageTests
 		RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase),
 	}, token);
 
-	[Fact]
-	public async Task RenewedLeasesIgnoreOldDeadlinesAndExpireWithoutRequestedQueues()
+	[Theory]
+	[InlineData(null)]
+	[InlineData(-1)]
+	[InlineData(1)]
+	public async Task RestoredActiveJobsRetainOwnershipRegardlessOfLeaseDeadline(int? leaseDays)
 	{
 		var token = TestContext.Current.CancellationToken;
 		var clock = new FakeTimeProvider(DateTimeOffset.UnixEpoch);
 		await using var storage = new InMemoryJobStorage(clock);
 		await RegisterAsync(storage, [new() { Name = "wanted", QueueName = "q", MaxConcurrency = 1 }], token);
-		await storage.EnqueueAsync(Submission(JobHandle.FromString("leased"), "wanted"), token);
-		var claimed = Assert.Single(await storage.AcquireDueJobsAsync(Request(fair: false), token));
-		clock.Advance(TimeSpan.FromSeconds(30));
-		await storage.RenewLeaseAsync(claimed.JobHandle, claimed.Attempt, "worker", TimeSpan.FromMinutes(2), token);
-		clock.Advance(TimeSpan.FromSeconds(31));
-		Assert.Empty(await storage.AcquireDueJobsAsync(Request(fair: false) with { Queues = [] }, token));
-		Assert.Equal(JobState.Active, (await storage.GetJobStatusAsync(claimed.JobHandle, token))!.State);
+		var active = Job("active", "wanted") with
+		{
+			State = JobState.Active,
+			Attempt = 1,
+			WorkerId = "worker",
+			LeaseExpiresAt = leaseDays is { } days ? clock.GetUtcNow().AddDays(days) : null,
+		};
+		storage.LoadPersistedJobState([active], [], [], []);
+		clock.Advance(TimeSpan.FromDays(2));
+		Assert.Empty(await storage.AcquireDueJobsAsync(Request(fair: false), token));
 		Assert.Equal(1, (await storage.GetJobAcquisitionStateAsync("wanted", token)).ActiveCount);
-
-		clock.Advance(TimeSpan.FromMinutes(2));
+		Assert.Equal(1, (await storage.GetMonitoringSnapshotAsync(token)).DefinitionStatuses.Single().ActiveCount);
+		await storage.CompleteAsync(active.JobHandle, active.Attempt, "worker", token);
 		Assert.Equal(0, (await storage.GetJobAcquisitionStateAsync("wanted", token)).ActiveCount);
-		Assert.Empty(await storage.AcquireDueJobsAsync(Request(fair: false) with { Queues = [] }, token));
-		Assert.Equal(JobState.Pending, (await storage.GetJobStatusAsync(claimed.JobHandle, token))!.State);
-		var reclaimed = Assert.Single(await storage.AcquireDueJobsAsync(Request(fair: false), token));
-		Assert.Equal(claimed.Attempt + 1, reclaimed.Attempt);
-		Assert.Equal(JobExecutionState.Interrupted, (await storage.QueryJobExecutionsAsync(claimed.JobHandle, new(), token)).Single(e => e.Attempt == claimed.Attempt).State);
 	}
 
 	[Fact]

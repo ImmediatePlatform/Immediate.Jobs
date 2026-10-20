@@ -166,7 +166,7 @@ public sealed class DefinitionAcquisitionTests
 	}
 
 	[Fact]
-	public async Task MonitorShowsPauseAndConcurrencyTogetherAndDropsExpiredLeases()
+	public async Task MonitorShowsPauseAndRetainsProcessOwnedConcurrency()
 	{
 		var token = TestContext.Current.CancellationToken;
 		await using var harness = CreateHarness();
@@ -192,7 +192,7 @@ public sealed class DefinitionAcquisitionTests
 		Assert.Equal(1, status.ActiveCount);
 		Assert.Equal(2, definition.AcquisitionLimits.MaxConcurrency);
 		harness.TimeProvider.Advance(TimeSpan.FromSeconds(30));
-		Assert.Equal(0, (await monitor.GetSnapshotAsync(token)).DefinitionStatuses.Single(state => string.Equals(state.JobName, definition.Name, StringComparison.OrdinalIgnoreCase)).ActiveCount);
+		Assert.Equal(1, (await monitor.GetSnapshotAsync(token)).DefinitionStatuses.Single(state => string.Equals(state.JobName, definition.Name, StringComparison.OrdinalIgnoreCase)).ActiveCount);
 		Assert.True((await monitor.GetSnapshotAsync(token)).DefinitionStatuses.Single(state => string.Equals(state.JobName, definition.Name, StringComparison.OrdinalIgnoreCase)).IsPaused);
 	}
 

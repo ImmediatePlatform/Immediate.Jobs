@@ -32,8 +32,9 @@ members at the end, and rename only when the numeric value keeps its meaning.
 | 7 | `Cancelled` | — | Terminal. |
 | 8 | `Skipped` | — | Terminal; a continuation whose trigger condition was not met, or a recurring occurrence skipped by `OverlapPolicy.Skip`. |
 
-Acquisition only considers `Pending` and `Scheduled` jobs with `DueAt <= now`, plus `Active` jobs
-whose lease has expired (they are reclaimed first).
+Acquisition considers `Pending` and `Scheduled` jobs with `DueAt <= now`. Durable providers can also
+reclaim `Active` jobs whose leases have expired. Standalone in-memory ownership does not expire;
+active work remains owned until an explicit state transition.
 
 ## Attempts, retries, and timeouts
 
@@ -41,8 +42,8 @@ whose lease has expired (they are reclaimed first).
 Unspecified settings use the built-in defaults. An explicit `Timeout = null` on a job disables its
 inherited timeout.
 
-- **Claiming** sets `Active`, increments `Attempt`, assigns the worker and a lease of
-  `ImmediateJobsOptions.LeaseDuration`, and opens an execution row.
+- **Claiming** sets `Active`, increments `Attempt`, assigns the worker, and opens an execution row.
+  Durable claims also receive a lease of `ImmediateJobsOptions.LeaseDuration`.
 - **Timeout** is a positive invariant-culture `TimeSpan` string in either attribute,
   for example `Timeout = "00:02:00"`; the handler's token is cancelled when it
   elapses. That fails the attempt only if the handler throws; a handler that ignores the token and
@@ -54,6 +55,8 @@ inherited timeout.
   random factor in `[0.5, 1.5)`.
 - **Leases** are renewed by the lease-renewal loop while the handler runs. If a process dies, another
   acquisition reclaims the job once the lease expires, marking the open execution `Interrupted`.
+  Standalone in-memory scheduling skips lease deadlines and renewal. Single-server durable mode
+  retains durable leases, while its in-memory mirror does not independently expire ownership.
 - **Ownership checks.** Every completion, failure, telemetry, and renewal call passes the worker id
   and attempt; storage rejects stale owners, so a reclaimed job can't be completed twice.
 

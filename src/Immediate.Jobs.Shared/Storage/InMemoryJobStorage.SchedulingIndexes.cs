@@ -6,19 +6,12 @@ namespace Immediate.Jobs.Shared.Storage;
 public sealed partial class InMemoryJobStorage
 {
 	private readonly record struct RunnableJob(DateTimeOffset DueAt, DateTimeOffset CreatedAt, JobHandle JobHandle);
-	private readonly record struct JobLease(DateTimeOffset ExpiresAt, JobHandle JobHandle);
 
 	private static readonly IComparer<RunnableJob> RunnableJobComparer = Comparer<RunnableJob>.Create(static (left, right) =>
 	{
 		var order = left.DueAt.CompareTo(right.DueAt);
 		if (order == 0)
 			order = left.CreatedAt.CompareTo(right.CreatedAt);
-		return order != 0 ? order : StringComparer.Ordinal.Compare(left.JobHandle.Value, right.JobHandle.Value);
-	});
-
-	private static readonly IComparer<JobLease> JobLeaseComparer = Comparer<JobLease>.Create(static (left, right) =>
-	{
-		var order = left.ExpiresAt.CompareTo(right.ExpiresAt);
 		return order != 0 ? order : StringComparer.Ordinal.Compare(left.JobHandle.Value, right.JobHandle.Value);
 	});
 
@@ -53,14 +46,10 @@ public sealed partial class InMemoryJobStorage
 		if (isRunnable && (!wasRunnable || orderChanged))
 			AddRunnableJob(updated);
 
-		var wasLeased = stored.State == JobState.Active && stored.LeaseExpiresAt is not null;
-		var isLeased = updated.State == JobState.Active && updated.LeaseExpiresAt is not null;
-		if (wasLeased && (!isLeased || stored.LeaseExpiresAt != updated.LeaseExpiresAt))
-			_jobLeases.Remove(new(stored.LeaseExpiresAt!.Value, stored.JobHandle));
-		if (isLeased && (!wasLeased || stored.LeaseExpiresAt != updated.LeaseExpiresAt))
-			_jobLeases.Add(new(updated.LeaseExpiresAt!.Value, updated.JobHandle));
-		if (wasLeased != isLeased)
-			ChangeActiveLeaseCount(stored.JobName, isLeased ? 1 : -1);
+		var wasActive = stored.State == JobState.Active;
+		var isActive = updated.State == JobState.Active;
+		if (wasActive != isActive)
+			ChangeActiveJobCount(stored.JobName, isActive ? 1 : -1);
 
 		stored = updated;
 	}
@@ -72,11 +61,8 @@ public sealed partial class InMemoryJobStorage
 	{
 		if (job.State is JobState.Pending or JobState.Scheduled)
 			AddRunnableJob(job);
-		if (job.State == JobState.Active && job.LeaseExpiresAt is { } expiresAt)
-		{
-			_jobLeases.Add(new(expiresAt, job.JobHandle));
-			ChangeActiveLeaseCount(job.JobName, 1);
-		}
+		if (job.State == JobState.Active)
+			ChangeActiveJobCount(job.JobName, 1);
 	}
 
 	/// <remarks>
@@ -86,11 +72,8 @@ public sealed partial class InMemoryJobStorage
 	{
 		if (job.State is JobState.Pending or JobState.Scheduled)
 			RemoveRunnableJob(job);
-		if (job.State == JobState.Active && job.LeaseExpiresAt is { } expiresAt)
-		{
-			_jobLeases.Remove(new(expiresAt, job.JobHandle));
-			ChangeActiveLeaseCount(job.JobName, -1);
-		}
+		if (job.State == JobState.Active)
+			ChangeActiveJobCount(job.JobName, -1);
 	}
 
 	/// <remarks>
@@ -117,19 +100,11 @@ public sealed partial class InMemoryJobStorage
 	/// <remarks>
 	/// 	The caller must hold the <see cref="_gate"/> lock.
 	/// </remarks>
-	private void ChangeActiveLeaseCount(string jobName, int change)
+	private void ChangeActiveJobCount(string jobName, int change)
 	{
-		ref var count = ref CollectionsMarshal.GetValueRefOrAddDefault(_activeLeaseCounts, jobName, out _);
+		ref var count = ref CollectionsMarshal.GetValueRefOrAddDefault(_activeJobCounts, jobName, out _);
 		count += change;
 		if (count == 0)
-			_activeLeaseCounts.Remove(jobName);
+			_activeJobCounts.Remove(jobName);
 	}
-
-	/// <remarks>
-	/// 	The caller must hold the <see cref="_gate"/> lock.
-	/// </remarks>
-	private int GetActiveLeaseCount(string jobName, DateTimeOffset now) =>
-		_jobLeases.Count == 0 || _jobLeases.Min.ExpiresAt > now
-			? _activeLeaseCounts.GetValueOrDefault(jobName)
-			: GetJobsForDefinition(jobName).Count(job => job.State == JobState.Active && job.LeaseExpiresAt > now);
 }

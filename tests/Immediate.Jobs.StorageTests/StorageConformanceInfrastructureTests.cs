@@ -29,6 +29,19 @@ public sealed class StorageConformanceInfrastructureTests
 		Assert.Contains(replicaCases, testCase => string.Equals(testCase.Name, "Replica.Acquisition.WaitsUntilEnqueueHasUpdatedBothStores", StringComparison.Ordinal));
 	}
 
+	[Fact]
+	public void ProcessOwnershipCasesReplaceExpiryCasesAndRemainSerializableByName()
+	{
+		var cases = JobStorageConformanceSuite.GetCases(AllCapabilities, usesExpiringLeases: false);
+		Assert.Contains(cases, testCase => testCase.Name.StartsWith("Queue.Ownership.", StringComparison.Ordinal));
+		Assert.DoesNotContain(cases, testCase => testCase.Name.StartsWith("Queue.Leases.", StringComparison.Ordinal));
+		Assert.DoesNotContain(cases, testCase => testCase.Name.EndsWith("RecoversExpiredLeases", StringComparison.Ordinal));
+		Assert.DoesNotContain(cases, testCase => testCase.Name.EndsWith("IgnoresExpiredLeases", StringComparison.Ordinal));
+		Assert.All(cases, testCase => Assert.True(JobStorageConformanceSuite.AllCasesByName.ContainsKey(testCase.Name)));
+		Assert.Throws<ArgumentException>(() => JobStorageConformanceSuite.GetCases(AllCapabilities,
+			includeSingleServerReplicaCases: true, usesExpiringLeases: false));
+	}
+
 	[Theory]
 	[InlineData(StorageCapabilities.None)]
 	[InlineData((StorageCapabilities)2)]

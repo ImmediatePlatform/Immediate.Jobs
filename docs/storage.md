@@ -20,7 +20,8 @@ capability enum values because monitoring and health-check data serialize them.
 - **Consistent errors.** Missing targets raise `KeyNotFoundException`; invalid state transitions raise
   `ImmediateJobException`. Callers, including the dashboard, rely on that distinction.
 - **Deterministic acquisition.** Order eligible jobs within a queue by `DueAt`, `CreatedAt`, then
-  `JobHandle`, respecting queue and definition capacities. Reclaim expired leases before claiming.
+  `JobHandle`, respecting queue and definition capacities. Providers with expiring ownership
+  reclaim expired leases before claiming.
 - **Faithful records.** Preserve provider-neutral fields and serialized payloads across writes and
   reads. Provider-specific precision and collation limits are described below.
 - **Coherent graphs.** Preserve trigger gates and dependency counters during every transition. Retain
@@ -83,15 +84,19 @@ Evaluate status in bulk rather than issuing an acquisition-state query for each 
 
 The in-memory provider keeps pending and scheduled jobs ordered per definition by due time,
 creation time, and ordinal handle. Ordinary acquisition merges the earliest eligible entries across
-definitions. Active leases have a separate expiry-ordered index, so polling need not scan retained
-history. Renewals replace the previous lease entry rather than leaving stale expiry entries behind.
-Every state, due-time, or lease change must update these indexes under `_gate`; metadata-only
-changes do not alter index membership. Active lease counts are cached per definition, with a live
-count fallback when expired leases have not yet been reclaimed.
+definitions. Ownership lasts until an explicit state transition; elapsed time cannot reclaim a job
+owned by the same process. Active counts, concurrency limits, and fair-queue usage depend on job
+state, with counts cached per definition. State and due-time changes update these indexes under
+`_gate`; lease timestamps mirrored from durable storage are metadata and do not affect eligibility.
+Standalone in-memory acquisitions have no lease deadline, and their scheduler does not run renewal.
 
 Single-server mode has one scheduler process. Its durable provider remains the authority for claims,
 definition pauses, and acquisition counters so those controls survive restarts. Durable graph
 providers must also implement the recovery reads; the in-memory primary is a reconstructable mirror.
+Durable claims and renewals retain their lease semantics in this topology. Runtime reclaim and
+restart recovery remain the durable provider's responsibility; the primary mirrors committed claims
+and renewal timestamps without independently expiring them. In particular, an unexpired claim
+loaded during startup remains recoverable through subsequent durable acquisition.
 
 Fair-queue cursor cleanup must not undo a committed job transition. Relational providers perform that
 cleanup after the main transaction commits. Selection rules are in [fair queues](fair-queues.md).
@@ -140,9 +145,10 @@ identity, leases, queue capacities, and an optional fair-queue policy. Validate 
 at its owning boundary through `JobAcquisitionLimits` and the analyzer/generator rules.
 
 Rate capacity belongs to acquisition history. Purging invocation history must not erase sliding
-acquisition timestamps or fixed-window counters. Evaluate concurrency against active, unexpired
-leases. Reserve capacity and claim the invocation atomically, rolling back reservations when a
-claim fails. Every acquisition path, including fair selection, enforces every enabled limit.
+acquisition timestamps or fixed-window counters. Evaluate durable concurrency against active,
+unexpired leases and in-memory concurrency against active job state. Reserve capacity and claim
+the invocation atomically, rolling back reservations when a claim fails. Every acquisition path,
+including fair selection, enforces every enabled limit.
 
 Advisory eligibility reads must not create control rows or take acquisition write locks. Persisted
 status is an observation; reevaluate eligibility when claiming work. Pause takes precedence over

@@ -47,7 +47,7 @@ public sealed partial class JobSchedulingService : BackgroundService
 
 	private readonly ConcurrentDictionary<string, int> _queueReservations = new(StringComparer.Ordinal);
 	private readonly ConcurrentDictionary<string, int> _jobReservations = new(StringComparer.OrdinalIgnoreCase);
-	private readonly ConcurrentDictionary<JobHandle, OpenLease> _openLeases = [];
+	private readonly ConcurrentDictionary<JobHandle, OpenLease>? _openLeases;
 	private readonly CancellationTokenSource _workerCancellation = new();
 	private readonly string _workerId = string.Create(CultureInfo.InvariantCulture, $"{Environment.MachineName}:{Environment.ProcessId}:{DateTimeOffset.UtcNow.Ticks}");
 	private readonly Channel<JobRecord> _channel;
@@ -105,6 +105,7 @@ public sealed partial class JobSchedulingService : BackgroundService
 
 		_scopeFactory = scopeFactory;
 		_storage = storage;
+		_openLeases = storage is InMemoryJobStorage ? null : new();
 		_options = options.Value;
 		_fairQueueOptions = fairQueueOptions.Value;
 		_timeProvider = timeProvider;
@@ -427,6 +428,9 @@ public sealed partial class JobSchedulingService : BackgroundService
 	/// </summary>
 	private async Task RunLeaseRenewalLoopAsync(CancellationToken cancellationToken)
 	{
+		if (_openLeases is null)
+			return;
+
 		await Task.Yield();
 
 		while (!cancellationToken.IsCancellationRequested)
@@ -762,7 +766,8 @@ public sealed partial class JobSchedulingService : BackgroundService
 	{
 		JobTelemetry.Acquired();
 		Interlocked.Increment(ref _reservations);
-		_openLeases[record.JobHandle] = new(record, _timeProvider.GetUtcNow() + LeaseRenewalInterval);
+		if (_openLeases is { } leases)
+			leases[record.JobHandle] = new(record, _timeProvider.GetUtcNow() + LeaseRenewalInterval);
 		if (record.QueueName is { } queueName)
 			_queueReservations.AddOrUpdate(queueName, 1, static (_, count) => count + 1);
 		_jobReservations.AddOrUpdate(record.JobName, 1, static (_, count) => count + 1);
@@ -772,7 +777,7 @@ public sealed partial class JobSchedulingService : BackgroundService
 	{
 		JobTelemetry.Released();
 		Interlocked.Decrement(ref _reservations);
-		_openLeases.TryRemove(record.JobHandle, out _);
+		_openLeases?.TryRemove(record.JobHandle, out _);
 		if (record.QueueName is { } queueName)
 			_queueReservations.AddOrUpdate(queueName, 0, static (_, count) => Math.Max(0, count - 1));
 		_jobReservations.AddOrUpdate(record.JobName, 0, static (_, count) => Math.Max(0, count - 1));
