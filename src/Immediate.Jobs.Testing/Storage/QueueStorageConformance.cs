@@ -311,6 +311,13 @@ internal static class QueueStorageConformance
 		ConformanceAssert.Equal<DateTimeOffset?>(timeProvider.GetUtcNow().AddMinutes(2), renewed.LeaseExpiresAt, LeaseName,
 			"job queries must expose the renewed durable deadline, including through a single-server mirror");
 
+		await ConformanceAssert.ThrowsAsync<ImmediateJobException>(
+			() => storage.RenewLeaseAsync(first.JobHandle, first.Attempt, "owner-b", TimeSpan.FromHours(1), cancellationToken),
+			LeaseName,
+			"a different worker cannot renew the current execution's lease",
+			first.JobHandle.Value
+		);
+
 		timeProvider.Advance(TimeSpan.FromMinutes(1));
 
 		ConformanceAssert.Equal(
@@ -687,6 +694,16 @@ internal static class QueueStorageConformance
 		await storage.HeartbeatAsync(new()
 		{
 			WorkerId = "live-server",
+			Tags = [],
+			LastHeartbeat = liveAt - TimeSpan.FromSeconds(1),
+			ActiveWorkers = 0,
+			MaxWorkers = 1,
+			ServerTimeout = TimeSpan.FromMinutes(1),
+		}, cancellationToken);
+
+		await storage.HeartbeatAsync(new()
+		{
+			WorkerId = "live-server",
 			Tags = ["email", "default"],
 			LastHeartbeat = liveAt,
 			ActiveWorkers = 1,
@@ -714,6 +731,9 @@ internal static class QueueStorageConformance
 			MonitoringName,
 			"heartbeats must appear while live and disappear after their configured liveness window"
 		);
+		ConformanceAssert.Equal(liveAt, snapshot.Servers[0].LastHeartbeat, MonitoringName, "a subsequent heartbeat replaces the previous timestamp");
+		ConformanceAssert.Equal(1, snapshot.Servers[0].ActiveWorkers, MonitoringName, "a subsequent heartbeat replaces active worker usage");
+		ConformanceAssert.Equal(2, snapshot.Servers[0].MaxWorkers, MonitoringName, "a subsequent heartbeat replaces configured capacity");
 		ConformanceAssert.Equal(TimeSpan.FromMinutes(5), snapshot.Servers[0].ServerTimeout, MonitoringName, "monitoring must preserve each server's configured liveness window");
 		ConformanceAssert.SequenceEqual(["email", "default"], snapshot.Servers[0].Tags, MonitoringName, "monitoring must preserve effective server tags");
 		ConformanceAssert.Equal(2, snapshot.Servers[0].Workers.Count, MonitoringName, "monitoring must preserve worker snapshots");

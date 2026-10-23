@@ -34,18 +34,34 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 		var definitions = await ReadJobDefinitionsAsync(context, cancellationToken);
 		if (definitions.Count == 0)
 			return [];
-		var now = _timeProvider.GetUtcNow();
-		var states = (await context.Set<ImmediateJobDefinitionEntity>().AsNoTracking().ToListAsync(cancellationToken))
+		return await ReadDefinitionStatusesAsync(context, definitions, _timeProvider.GetUtcNow(), cancellationToken);
+	}
+
+	private static async Task<IReadOnlyList<JobAcquisitionState>> ReadDefinitionStatusesAsync(
+		TContext context,
+		IReadOnlyList<JobDefinitionRecord> definitions,
+		DateTimeOffset now,
+		CancellationToken cancellationToken,
+		bool includeActiveCount = true
+	)
+	{
+		var names = definitions.Select(static definition => definition.Name).ToList();
+		var states = (await context.Set<ImmediateJobDefinitionEntity>().AsNoTracking()
+			.Where(state => names.Contains(state.JobName)).ToListAsync(cancellationToken))
 			.ToDictionary(static state => state.JobName, StringComparer.OrdinalIgnoreCase);
-		var active = (await context.Set<ImmediateJobEntity>().AsNoTracking()
-			.Where(job => job.State == JobState.Active && job.LeaseExpiresAt > now)
+		var activeNames = includeActiveCount ? names : definitions
+			.Where(static definition => definition.MaxConcurrency > 0)
+			.Select(static definition => definition.Name)
+			.ToList();
+		Dictionary<string, int> active = activeNames.Count == 0 ? [with(StringComparer.OrdinalIgnoreCase)] : (await context.Set<ImmediateJobEntity>().AsNoTracking()
+			.Where(job => activeNames.Contains(job.JobName) && job.State == JobState.Active && job.LeaseExpiresAt > now)
 			.GroupBy(job => job.JobName).Select(group => new { Name = group.Key, Count = group.Count() })
 			.ToListAsync(cancellationToken)).ToDictionary(static group => group.Name, static group => group.Count, StringComparer.OrdinalIgnoreCase);
 		var periods = definitions.Where(static definition => definition.SlidingWindowPeriod is not null)
 			.Select(static definition => definition.SlidingWindowPeriod!.Value).ToList();
 		var cutoff = now - (periods.Count == 0 ? TimeSpan.Zero : periods.Max());
 		var acquisitions = periods.Count == 0 ? [] : await context.Set<ImmediateJobAcquisitionEntity>().AsNoTracking()
-			.Where(acquisition => acquisition.AcquiredAt > cutoff)
+			.Where(acquisition => names.Contains(acquisition.JobName) && acquisition.AcquiredAt > cutoff)
 			.OrderBy(acquisition => acquisition.AcquiredAt).ToListAsync(cancellationToken);
 		var byName = acquisitions.ToLookup(static acquisition => acquisition.JobName, StringComparer.OrdinalIgnoreCase);
 		return [.. definitions.Select(definition =>

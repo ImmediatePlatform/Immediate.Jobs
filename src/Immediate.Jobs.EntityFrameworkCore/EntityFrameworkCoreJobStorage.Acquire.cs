@@ -132,13 +132,20 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 
-		await MutateOwnedAsync(
-			jobHandle,
-			executionNumber,
-			workerId,
-			(job, _) => job.LeaseExpiresAt = _timeProvider.GetUtcNow() + lease,
-			cancellationToken
-		);
+		await ExecuteWithStrategyAsync(async token =>
+		{
+			await using var context = await contextFactory.CreateDbContextAsync(token);
+			var expiresAt = _timeProvider.GetUtcNow() + lease;
+			var stamp = Guid.NewGuid();
+			var updated = await context.Set<ImmediateJobEntity>()
+				.Where(job => job.Id == jobHandle.Value && job.Attempt == executionNumber &&
+					job.State == JobState.Active && job.WorkerId == workerId)
+				.ExecuteUpdateAsync(update => update
+					.SetProperty(job => job.LeaseExpiresAt, expiresAt)
+					.SetProperty(job => job.ConcurrencyStamp, stamp), token);
+			if (updated == 0)
+				throw new ImmediateJobException($"Worker '{workerId}' does not own active job '{jobHandle}'.");
+		}, cancellationToken);
 	}
 
 	private async ValueTask<IReadOnlyList<JobRecord>> AcquireCandidatesAsync(
