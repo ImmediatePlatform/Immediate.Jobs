@@ -162,21 +162,17 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 			if (metadata.Count == 0)
 				return [];
 
-			var canonicalNames = metadata.Select(static item => item.Name).ToList();
-			// Resolve names before reading counters: metadata and counter columns may have different collations.
-			var definitions = await context.Set<ImmediateJobDefinitionEntity>().AsNoTracking()
-				.Where(item => canonicalNames.Contains(item.JobName)).ToDictionaryAsync(static item => item.JobName, StringComparer.Ordinal, token);
-			var names = new List<string>();
-			var now = _timeProvider.GetUtcNow();
-			foreach (var item in metadata)
-			{
-				var definition = definitions.GetValueOrDefault(item.Name) ?? new() { JobName = item.Name };
-				var state = await EvaluateDefinitionAsync(context, definition, ToRecord(item).AcquisitionLimits, now, additionalActive: 0, token);
-				if (state.AcquisitionStatus == JobAcquisitionStatus.Ready)
-					names.Add(item.Name);
-			}
-
-			return names;
+			// Evaluate the advisory snapshot in batches; the claim still locks and rechecks its definition.
+			var states = await ReadDefinitionStatusesAsync(
+				context,
+				metadata.Select(ToRecord).ToList(),
+				_timeProvider.GetUtcNow(),
+				token,
+				includeActiveCount: false
+			);
+			return states.Where(static state => state.AcquisitionStatus == JobAcquisitionStatus.Ready)
+				.Select(static state => state.JobName)
+				.ToList();
 		}, cancellationToken);
 	}
 
