@@ -70,13 +70,24 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 	)
 	{
 		await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
-		var job = await GetTriggerableAsync(context, jobHandle, expectedJobName, cancellationToken);
+		var job = await context.Set<ImmediateJobEntity>()
+			.Where(item => item.Id == jobHandle.Value)
+			.Select(item => new { item.JobName, item.State, item.ConcurrencyStamp })
+			.SingleOrDefaultAsync(cancellationToken)
+			?? throw new KeyNotFoundException($"Job '{jobHandle}' was not found.");
+		if (!string.Equals(job.JobName, expectedJobName, StringComparison.OrdinalIgnoreCase))
+			throw new ImmediateJobException($"Job '{jobHandle}' is not a '{expectedJobName}' job.");
 		if (job.State != JobState.WaitingForTrigger)
 			throw new ImmediateJobException($"Job '{jobHandle}' is not waiting for a trigger.");
 
-		job.Payload = payload;
-		job.ConcurrencyStamp = Guid.NewGuid();
-		_ = await context.SaveChangesAsync(cancellationToken);
+		var stamp = Guid.NewGuid();
+		var updated = await context.Set<ImmediateJobEntity>()
+			.Where(item => item.Id == jobHandle.Value && item.ConcurrencyStamp == job.ConcurrencyStamp)
+			.ExecuteUpdateAsync(update => update
+				.SetProperty(item => item.Payload, payload)
+				.SetProperty(item => item.ConcurrencyStamp, stamp), cancellationToken);
+		if (updated == 0)
+			throw new DbUpdateConcurrencyException();
 	}
 
 	private async Task<bool> TryTriggerCoreAsync(
