@@ -311,7 +311,7 @@ public sealed partial class InMemoryJobStorage
 				CompletedAt = job.CompletedAt,
 				LastError = job.LastError,
 				BatchHandle = job.BatchHandle,
-				DependsOn = [.. _edges.Where(edge => edge.ChildJobHandle == jobHandle)],
+				DependsOn = [.. GetIncomingEdges(jobHandle)],
 			};
 		}
 	}

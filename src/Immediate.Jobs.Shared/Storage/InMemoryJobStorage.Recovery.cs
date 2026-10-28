@@ -129,7 +129,7 @@ public sealed partial class InMemoryJobStorage
 					_recurringKeys.Add(recurringKey);
 			}
 
-			_edges.AddRange(edges);
+			AddEdges(edges);
 			foreach (var edge in edges)
 			{
 				if ((edge.ParentJobHandle is { } jobHandle && IsTerminal(restoredJobs[jobHandle].State))

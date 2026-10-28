@@ -47,6 +47,9 @@ public sealed partial class InMemoryJobStorage(
 	private readonly Dictionary<BatchHandle, BatchRecord> _batches = [];
 
 	private readonly List<JobContinuationEdge> _edges = [];
+	private readonly Dictionary<JobHandle, List<JobContinuationEdge>> _edgesByParentJob = [];
+	private readonly Dictionary<BatchHandle, List<JobContinuationEdge>> _edgesByParentBatch = [];
+	private readonly Dictionary<JobHandle, List<JobContinuationEdge>> _edgesByChildJob = [];
 	private readonly HashSet<JobContinuationEdge> _settledEdges = [];
 
 	private readonly Dictionary<string, RecurringJobSchedule> _recurring = [with(StringComparer.OrdinalIgnoreCase)];

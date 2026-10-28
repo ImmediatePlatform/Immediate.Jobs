@@ -24,24 +24,24 @@ public sealed partial class InMemoryJobStorage
 	/// </remarks>
 	private void EvaluateAlreadyTerminalParents(IReadOnlyList<JobContinuationEdge> edges)
 	{
-		foreach (var parentId in edges
+		// Existing edges of terminal parents are already settled. Group only the new edges,
+		// preserving parent order and the job-before-batch phases during propagation.
+		foreach (var parent in edges
 			.Where(static edge => edge.ParentJobHandle is not null)
-			.Select(static edge => edge.ParentJobHandle!)
-			.Distinct()
-			.Where(parentId => _jobs.TryGetValue(parentId, out var parent) && IsTerminal(parent.State))
+			.GroupBy(static edge => edge.ParentJobHandle!)
+			.Where(group => _jobs.TryGetValue(group.Key, out var job) && IsTerminal(job.State))
 			.ToList())
 		{
-			ProcessTerminalJob(parentId);
+			SettleEdges(parent, parentFailed: _jobs[parent.Key].State == JobState.Failed);
 		}
 
-		foreach (var parentId in edges
+		foreach (var parent in edges
 			.Where(static edge => edge.ParentBatchHandle is not null)
-			.Select(static edge => edge.ParentBatchHandle!)
-			.Distinct()
-			.Where(parentId => _batches.TryGetValue(parentId, out var parent) && IsTerminal(parent.State))
+			.GroupBy(static edge => edge.ParentBatchHandle!)
+			.Where(group => _batches.TryGetValue(group.Key, out var batch) && IsTerminal(batch.State))
 			.ToList())
 		{
-			ProcessTerminalBatch(parentId);
+			SettleEdges(parent, parentFailed: _batches[parent.Key].State == BatchState.Failed);
 		}
 	}
 
@@ -53,12 +53,7 @@ public sealed partial class InMemoryJobStorage
 		if (!_jobs.TryGetValue(parentJobHandle, out var parent) || !IsTerminal(parent.State))
 			return;
 
-		foreach (var edge in _edges
-			.Where(edge => edge.ParentJobHandle == parentJobHandle && !_settledEdges.Contains(edge)))
-		{
-			_settledEdges.Add(edge);
-			SettleEdge(edge, parentFailed: parent.State == JobState.Failed);
-		}
+		SettleEdges(GetOutgoingEdges(parentJobHandle), parentFailed: parent.State == JobState.Failed);
 	}
 
 	/// <remarks>
@@ -69,11 +64,18 @@ public sealed partial class InMemoryJobStorage
 		if (!_batches.TryGetValue(parentBatchHandle, out var parent) || !IsTerminal(parent.State))
 			return;
 
-		foreach (var edge in _edges
-			.Where(edge => edge.ParentBatchHandle == parentBatchHandle && !_settledEdges.Contains(edge)))
+		SettleEdges(GetOutgoingEdges(parentBatchHandle), parentFailed: parent.State == BatchState.Failed);
+	}
+
+	/// <remarks>
+	/// 	The caller must hold the <see cref="_gate"/> lock. Propagation does not add or remove edges.
+	/// </remarks>
+	private void SettleEdges(IEnumerable<JobContinuationEdge> edges, bool parentFailed)
+	{
+		foreach (var edge in edges)
 		{
-			_settledEdges.Add(edge);
-			SettleEdge(edge, parentFailed: parent.State == BatchState.Failed);
+			if (_settledEdges.Add(edge))
+				SettleEdge(edge, parentFailed);
 		}
 	}
 
@@ -130,7 +132,7 @@ public sealed partial class InMemoryJobStorage
 		var failedDependencies = 0;
 		var delay = TimeSpan.Zero;
 
-		foreach (var edge in _edges.Where(edge => edge.ChildJobHandle == childJobHandle))
+		foreach (var edge in GetIncomingEdges(childJobHandle))
 		{
 			var parentTerminal = false;
 			var parentSucceeded = false;
@@ -168,8 +170,7 @@ public sealed partial class InMemoryJobStorage
 	/// </remarks>
 	private JobContinuationEdge[] GetUnsettledWaiters(JobHandle parentJobHandle) =>
 	[
-		.. _edges.Where(edge => edge.ParentJobHandle == parentJobHandle &&
-			!_settledEdges.Contains(edge) &&
+		.. GetOutgoingEdges(parentJobHandle).Where(edge => !_settledEdges.Contains(edge) &&
 			_jobs.TryGetValue(edge.ChildJobHandle, out var child) &&
 			!IsTerminal(child.State)),
 	];
@@ -193,7 +194,7 @@ public sealed partial class InMemoryJobStorage
 				State = child.State == JobState.WaitingForTrigger ? JobState.WaitingForTrigger : JobState.AwaitingContinuation,
 				RemainingDependencies = child.RemainingDependencies + 1,
 			});
-			_edges.Add(new()
+			AddEdge(new()
 			{
 				ChildJobHandle = child.JobHandle,
 				ParentJobHandle = newParentJobHandle,

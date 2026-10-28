@@ -92,7 +92,7 @@ public sealed partial class InMemoryJobStorage
 					SpliceBeforeWaiters(addition.Job.JobHandle, existingWaiters);
 			}
 
-			_edges.AddRange(dependencyEdges);
+			AddEdges(dependencyEdges);
 			var completedAt = timeProvider.GetUtcNow();
 			CompleteExecution(current, JobExecutionState.Succeeded, completedAt);
 			// Continuation inserts above may resize _jobs; obtain the ref only after they finish.
@@ -393,33 +393,6 @@ public sealed partial class InMemoryJobStorage
 
 		if (pending == 0)
 			ProcessTerminalBatch(batchHandle);
-	}
-
-	/// <remarks>
-	/// 	The caller must hold the <see cref="_gate"/> lock.
-	/// </remarks>
-	private void RemoveEdgesForJobs(
-		HashSet<JobHandle> jobHandles,
-		HashSet<BatchHandle>? batchHandles = null
-	)
-	{
-		if (jobHandles.Count == 0 && (batchHandles is null || batchHandles.Count == 0))
-			return;
-
-		var batches = batchHandles ?? [];
-		for (var index = _edges.Count - 1; index >= 0; index--)
-		{
-			var edge = _edges[index];
-			if (!jobHandles.Contains(edge.ChildJobHandle) &&
-				(edge.ParentJobHandle is null || !jobHandles.Contains(edge.ParentJobHandle)) &&
-				(edge.ParentBatchHandle is null || !batches.Contains(edge.ParentBatchHandle)))
-			{
-				continue;
-			}
-
-			_edges.RemoveAt(index);
-			_ = _settledEdges.Remove(edge);
-		}
 	}
 
 	/// <remarks>

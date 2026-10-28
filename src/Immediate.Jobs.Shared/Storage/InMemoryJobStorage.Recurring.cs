@@ -133,7 +133,7 @@ public sealed partial class InMemoryJobStorage
 
 				if (dependencies is { })
 				{
-					_edges.AddRange(dependencies);
+					AddEdges(dependencies);
 					EvaluateAlreadyTerminalParents(dependencies);
 				}
 			}

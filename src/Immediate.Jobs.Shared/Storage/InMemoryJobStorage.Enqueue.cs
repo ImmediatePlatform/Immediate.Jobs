@@ -29,7 +29,7 @@ public sealed partial class InMemoryJobStorage
 			var record = CreateRecord(job);
 			ValidateEdges([record], edges, batchHandle: null);
 			AddJob(NormalizeWaitingJob(record, edges.Count));
-			_edges.AddRange(edges);
+			AddEdges(edges);
 			EvaluateAlreadyTerminalParents(edges);
 		}
 	}
@@ -67,7 +67,7 @@ public sealed partial class InMemoryJobStorage
 					: record with { BatchHandle = batch.BatchHandle, RemainingDependencies = 0, FailedDependencies = 0 });
 			}
 
-			_edges.AddRange(edges);
+			AddEdges(edges);
 			EvaluateAlreadyTerminalParents(edges);
 		}
 	}

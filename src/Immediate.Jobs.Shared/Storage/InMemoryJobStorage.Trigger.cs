@@ -118,7 +118,7 @@ public sealed partial class InMemoryJobStorage
 		var jobId = job.JobHandle;
 		var now = timeProvider.GetUtcNow();
 
-		if (_edges.Any(edge => edge.ChildJobHandle == jobId))
+		if (_edgesByChildJob.ContainsKey(jobId))
 		{
 			var (triggersSatisfied, _, delay) = EvaluateIncomingTriggers(job.JobHandle);
 
