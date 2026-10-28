@@ -62,7 +62,7 @@ public sealed partial class InMemoryJobStorage(
 	}
 
 	/// <inheritdoc />
-	public async ValueTask InitializeAsync(CancellationToken cancellationToken = default)
+	public async ValueTask InitializeAsync(bool interruptActiveLeases, CancellationToken cancellationToken = default)
 	{
 		InitializeAsyncCalled();
 		cancellationToken.ThrowIfCancellationRequested();

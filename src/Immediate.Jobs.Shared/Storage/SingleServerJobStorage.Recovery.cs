@@ -12,7 +12,7 @@ internal sealed partial class SingleServerJobStorage
 	private bool _initialized;
 
 	/// <inheritdoc />
-	public async ValueTask InitializeAsync(CancellationToken cancellationToken = default)
+	public async ValueTask InitializeAsync(bool interruptActiveLeases, CancellationToken cancellationToken = default)
 	{
 		SingleServerInitializeAsyncCalled();
 		await TaskScheduler.Yield();
@@ -22,8 +22,8 @@ internal sealed partial class SingleServerJobStorage
 
 		try
 		{
-			await DurableStorage.InitializeAsync(cancellationToken);
-			await PrimaryStorage.InitializeAsync(cancellationToken);
+			await DurableStorage.InitializeAsync(interruptActiveLeases: true, cancellationToken);
+			await PrimaryStorage.InitializeAsync(interruptActiveLeases: false, cancellationToken);
 			var monitoringDefinitions = await DurableStorage.GetMonitoringDefinitionsAsync(cancellationToken);
 			var snapshot = await DurableStorage.GetMonitoringSnapshotAsync(cancellationToken);
 			var definitions = monitoringDefinitions.Jobs;

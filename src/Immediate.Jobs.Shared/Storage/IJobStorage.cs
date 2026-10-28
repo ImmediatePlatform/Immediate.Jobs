@@ -64,13 +64,18 @@ public interface IJobStorage : IAsyncDisposable
 	/// <summary>
 	/// 	Initializes provider storage.
 	/// </summary>
+	/// <param name="interruptActiveLeases">
+	/// 	Whether to interrupt all active executions and return their jobs to pending without resetting attempts,
+	/// 	batch progress, dependencies, or acquisition history. Only single-server startup may pass true, after
+	/// 	all previous workers have stopped. Distributed initialization must pass false.
+	/// </param>
 	/// <param name="cancellationToken">
 	/// 	A token that can cancel the storage operation.
 	/// </param>
 	/// <returns>
 	/// 	A value task that represents the asynchronous initialization.
 	/// </returns>
-	ValueTask InitializeAsync(CancellationToken cancellationToken = default);
+	ValueTask InitializeAsync(bool interruptActiveLeases, CancellationToken cancellationToken = default);
 
 	/// <summary>
 	/// 	Atomically reconciles definitions and code-defined schedules within the server's tag scope.

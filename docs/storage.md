@@ -93,10 +93,13 @@ Standalone in-memory acquisitions have no lease deadline, and their scheduler do
 Single-server mode has one scheduler process. Its durable provider remains the authority for claims,
 definition pauses, and acquisition counters so those controls survive restarts. Durable graph
 providers must also implement the recovery reads; the in-memory primary is a reconstructable mirror.
-Durable claims and renewals retain their lease semantics in this topology. Runtime reclaim and
-restart recovery remain the durable provider's responsibility; the primary mirrors committed claims
-and renewal timestamps without independently expiring them. In particular, an unexpired claim
-loaded during startup remains recoverable through subsequent durable acquisition.
+Durable claims and renewals retain their lease semantics in this topology. At startup the wrapper
+calls durable `InitializeAsync(interruptActiveLeases: true)` before reading its snapshot. With no
+previous workers still running, active executions are interrupted and their invocations returned to
+pending immediately, preserving attempts, workflow progress, pauses, and acquisition history. The
+next acquisition increments the attempt normally. Recovery is idempotent, with job/history changes
+committed atomically in bounded batches. Distributed startup passes false and preserves live leases.
+The primary mirrors committed claims and renewal timestamps without independently expiring them.
 
 Fair-queue cursor cleanup must not undo a committed job transition. Relational providers perform that
 cleanup after the main transaction commits. Selection rules are in [fair queues](fair-queues.md).

@@ -24,13 +24,17 @@ public static class JobStorageConformanceSuite
 	/// <param name="usesExpiringLeases">
 	/// 	Whether ownership expires by time. Use false for in-memory storage and wrappers around it.
 	/// </param>
+	/// <param name="includeLeaseInterruptionCases">
+	/// 	Whether to test explicit interruption during durable initialization. Use false for the single-server wrapper.
+	/// </param>
 	/// <returns>
 	/// 	Individually discoverable conformance test cases.
 	/// </returns>
 	public static IReadOnlyList<JobStorageConformanceTestCase> GetCases(
 		StorageCapabilities capabilities,
 		bool includeSingleServerReplicaCases = false,
-		bool usesExpiringLeases = true
+		bool usesExpiringLeases = true,
+		bool includeLeaseInterruptionCases = true
 	)
 	{
 		if ((capabilities & ~KnownCapabilities) != StorageCapabilities.None)
@@ -45,6 +49,7 @@ public static class JobStorageConformanceSuite
 			throw new ArgumentException("Single-server durable replicas require expiring leases.", nameof(usesExpiringLeases));
 
 		return QueueStorageConformance.Cases
+			.Concat(usesExpiringLeases && includeLeaseInterruptionCases ? InitializationStorageConformance.Cases.Where(testCase => capabilities.HasFlag(testCase.RequiredCapabilities)) : [])
 			.Concat(DefinitionAcquisitionStorageConformance.Cases)
 			.Concat(MonitoringStorageConformance.Cases)
 			.Concat(AddOptionalCases(capabilities, StorageCapabilities.Queue, RecurringStorageConformance.Cases))

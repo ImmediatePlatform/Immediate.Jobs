@@ -36,12 +36,24 @@ internal sealed partial class RedisJobStorage(
 	private IDatabase Database => _connection.GetDatabase(_storageOptions.Database);
 
 	/// <inheritdoc />
-	public async ValueTask InitializeAsync(CancellationToken cancellationToken = default)
+	public async ValueTask InitializeAsync(bool interruptActiveLeases, CancellationToken cancellationToken = default)
 	{
 		InitializeAsyncCalled();
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 		await Database.PingAsync().WaitAsync(cancellationToken);
+		if (interruptActiveLeases)
+		{
+			var now = Timestamp(_timeProvider.GetUtcNow());
+			while (await EvaluateInt64Async(
+				RedisScripts.InterruptActiveLeases,
+				[StateKey(JobState.Active), StateKey(JobState.Pending), LeasesKey],
+				[_root, now],
+				cancellationToken) != 0)
+			{
+				cancellationToken.ThrowIfCancellationRequested();
+			}
+		}
 	}
 
 	/// <inheritdoc />

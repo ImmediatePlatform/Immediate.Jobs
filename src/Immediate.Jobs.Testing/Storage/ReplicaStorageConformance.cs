@@ -26,6 +26,7 @@ internal static partial class ReplicaStorageConformance
 	internal static IReadOnlyList<JobStorageConformanceTestCase> Cases { get; } =
 	[
 		new(RecurringRecoveryName, StorageCapabilities.Graph, RestoresCronDefinitionsAsync),
+		new(InterruptedRecoveryName, StorageCapabilities.Graph, InterruptsBeforeSnapshotAsync),
 		new(HeartbeatName, StorageCapabilities.Graph, PersistsSingleServerHeartbeatsAsync),
 		new(EnqueueRaceName, StorageCapabilities.Graph, AcquisitionWaitsUntilEnqueueHasUpdatedBothStoresAsync),
 		new(ExactDueName, StorageCapabilities.Graph, ClaimsExactlyRequestedDueJobsAsync),
@@ -81,7 +82,7 @@ internal static partial class ReplicaStorageConformance
 		services.AddImmediateJobsCore().ConfigureStorage(builder => builder.UseSingleServer(_ => storage));
 		await using var provider = services.BuildServiceProvider();
 		var writer = provider.GetRequiredService<IJobStorage>();
-		await writer.InitializeAsync(token);
+		await writer.InitializeAsync(interruptActiveLeases: false, token);
 
 		ConformanceAssert.Equal(JobState.Pending, (await GetJobAsync(writer, job.JobHandle, RecurringRecoveryName, token)).State,
 			RecurringRecoveryName, "startup must recover queued jobs alongside their cron definition");
@@ -107,7 +108,7 @@ internal static partial class ReplicaStorageConformance
 		services.AddImmediateJobsCore().ConfigureStorage(builder => builder.UseSingleServer(_ => storage));
 		await using var provider = services.BuildServiceProvider();
 		var writer = provider.GetRequiredService<IJobStorage>();
-		await writer.InitializeAsync(token);
+		await writer.InitializeAsync(interruptActiveLeases: false, token);
 		var heartbeat = new JobServerSnapshot
 		{
 			WorkerId = "remote-reader-server",

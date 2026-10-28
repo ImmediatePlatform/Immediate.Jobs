@@ -175,8 +175,7 @@ internal static class RedisScripts
 		return definitionState(root, name, readLimits(ARGV, 7), tonumber(ARGV[3]), ARGV[4], true)
 		""";
 
-	internal const string Acquire =
-		DefinitionFunctions + FairQueueFunctions +
+	private const string ExecutionFunctions =
 		"""
 		local function materialize(jobKey, indexKey, dataKey, attempt, state, completed)
 			if attempt <= 0 or redis.call('HEXISTS', dataKey, attempt .. ':state') == 1 then return end
@@ -189,6 +188,39 @@ internal static class RedisScripts
 				attempt .. ':span', values[4] or '', attempt .. ':error', state == '2' and (values[5] or '') or '',
 				attempt .. ':synthetic', '1')
 		end
+
+		""";
+
+	internal const string InterruptActiveLeases =
+		FairQueueFunctions + ExecutionFunctions +
+		"""
+		local root, now = ARGV[1], ARGV[2]
+		local ids = redis.call('SRANDMEMBER', KEYS[1], 1000)
+		for _, id in ipairs(ids) do
+			local key = root .. 'job:' .. id
+			local values = redis.call('HMGET', key, 'state', 'jobName', 'attempt', 'dueScore', 'dueMember', 'group')
+			if values[1] == '4' then
+				local attempt = tonumber(values[3] or '0')
+				local indexKey, dataKey = root .. 'executions:index:' .. id, root .. 'executions:data:' .. id
+				materialize(key, indexKey, dataKey, attempt, '0', '')
+				if attempt > 0 then
+					redis.call('HSET', dataKey, attempt .. ':state', '4', attempt .. ':completed', now, attempt .. ':error', '')
+				end
+				redis.call('HSET', key, 'state', '3', 'worker', '', 'lease', '', 'completed', '')
+				redis.call('SADD', KEYS[2], id)
+				redis.call('ZADD', root .. 'due:' .. values[2], values[4], values[5])
+				indexDue(root, values[2], values[6] or '', values[4], values[5])
+				changeActive(root, values[2], values[6] or '', -1, id)
+			end
+			redis.call('SREM', KEYS[1], id)
+			redis.call('ZREM', KEYS[3], id)
+		end
+		return #ids
+		""";
+
+	internal const string Acquire =
+		DefinitionFunctions + FairQueueFunctions + ExecutionFunctions +
+		"""
 		local nowScore = tonumber(ARGV[1])
 		local leaseScore = tonumber(ARGV[2])
 		local leaseTimestamp = ARGV[3]

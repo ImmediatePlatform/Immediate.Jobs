@@ -35,7 +35,7 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>(
 	}
 
 	/// <inheritdoc />
-	public async ValueTask InitializeAsync(CancellationToken cancellationToken = default)
+	public async ValueTask InitializeAsync(bool interruptActiveLeases, CancellationToken cancellationToken = default)
 	{
 		InitializeAsyncCalled();
 		cancellationToken.ThrowIfCancellationRequested();
@@ -44,6 +44,9 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>(
 		await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 		_ = context.Model.FindEntityType(typeof(ImmediateJobEntity))
 			?? throw new ImmediateJobException("Immediate.Jobs entities are not configured. Call modelBuilder.AddImmediateJobs() from OnModelCreating.");
+
+		if (interruptActiveLeases)
+			await InterruptActiveLeasesAsync(cancellationToken);
 	}
 
 	/// <summary>

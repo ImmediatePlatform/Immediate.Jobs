@@ -206,7 +206,7 @@ public sealed class InMemoryJobStorageTests
 		services.AddImmediateJobsCore().ConfigureStorage(builder => builder.UseSingleServer(_ => durable));
 		await using var provider = services.BuildServiceProvider();
 		var writer = provider.GetRequiredService<IJobStorage>();
-		await writer.InitializeAsync(token);
+		await writer.InitializeAsync(interruptActiveLeases: false, token);
 		Assert.Equal(1, durable.SnapshotReads);
 		Assert.Equal(1, durable.DefinitionReads);
 		Assert.Equal("dynamic", Assert.Single(await writer.GetDueRecurringAsync(now, 10, ["code", "ordinary"], token)).Name);

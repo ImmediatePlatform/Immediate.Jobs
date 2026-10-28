@@ -52,8 +52,8 @@ internal static class QueueStorageConformance
 		CancellationToken cancellationToken
 	)
 	{
-		await storage.InitializeAsync(cancellationToken);
-		await storage.InitializeAsync(cancellationToken);
+		await storage.InitializeAsync(interruptActiveLeases: false, cancellationToken);
+		await storage.InitializeAsync(interruptActiveLeases: false, cancellationToken);
 	}
 
 	private static async ValueTask IsHealthyAsync(

@@ -247,7 +247,7 @@ public sealed partial class JobSchedulingService : BackgroundService
 
 	private async Task InitializeAsync(CancellationToken cancellationToken)
 	{
-		await _storage.InitializeAsync(cancellationToken);
+		await _storage.InitializeAsync(interruptActiveLeases: false, cancellationToken);
 
 		var definitions = _definitions.Values
 			.Select(definition => new JobDefinitionRecord

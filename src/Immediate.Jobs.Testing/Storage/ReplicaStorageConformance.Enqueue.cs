@@ -27,7 +27,7 @@ internal static partial class ReplicaStorageConformance
 
 		await using var provider = services.BuildServiceProvider();
 		var writer = provider.GetRequiredService<IJobStorage>();
-		await writer.InitializeAsync(token);
+		await writer.InitializeAsync(interruptActiveLeases: false, token);
 		await writer.MergeJobDefinitionsListAsync(new()
 		{
 			RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase),
@@ -129,8 +129,8 @@ internal static partial class ReplicaStorageConformance
 			storage.GetJobAcquisitionStateAsync(jobName, cancellationToken);
 
 		/// <inheritdoc />
-		public ValueTask InitializeAsync(CancellationToken cancellationToken = default) =>
-			storage.InitializeAsync(cancellationToken);
+		public ValueTask InitializeAsync(bool interruptActiveLeases, CancellationToken cancellationToken = default) =>
+			storage.InitializeAsync(interruptActiveLeases, cancellationToken);
 
 		/// <inheritdoc />
 		public ValueTask MergeJobDefinitionsListAsync(JobDefinitionRegistration registration, CancellationToken cancellationToken = default) =>

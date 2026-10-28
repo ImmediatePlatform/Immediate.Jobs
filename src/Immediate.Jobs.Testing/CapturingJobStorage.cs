@@ -142,7 +142,7 @@ public class CapturingJobStorage(TimeProvider timeProvider) :
 	}
 
 	/// <inheritdoc />
-	public virtual async ValueTask InitializeAsync(CancellationToken cancellationToken = default) => await _inner.InitializeAsync(cancellationToken);
+	public virtual async ValueTask InitializeAsync(bool interruptActiveLeases, CancellationToken cancellationToken = default) => await _inner.InitializeAsync(interruptActiveLeases, cancellationToken);
 
 	/// <inheritdoc />
 	public virtual async ValueTask MergeJobDefinitionsListAsync(JobDefinitionRegistration registration, CancellationToken cancellationToken = default)
