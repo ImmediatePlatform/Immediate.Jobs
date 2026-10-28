@@ -36,7 +36,7 @@ public sealed partial class InMemoryJobStorage
 		lock (_gate)
 		{
 			ref var job = ref GetOwnedActive(jobHandle, executionNumber, workerId);
-			job = job with { LeaseExpiresAt = timeProvider.GetUtcNow() + lease };
+			UpdateJob(ref job, job with { LeaseExpiresAt = timeProvider.GetUtcNow() + lease });
 		}
 	}
 
@@ -53,165 +53,171 @@ public sealed partial class InMemoryJobStorage
 		lock (_gate)
 		{
 			var now = timeProvider.GetUtcNow();
-			if (request.FairQueues is null)
-				return AcquireInExistingOrder(request, now);
-
-			var acquired = new List<JobRecord>(request.BatchSize);
-			foreach (var queue in request.Queues)
-			{
-				var queueCapacity = Math.Min(queue.Capacity, request.BatchSize - acquired.Count);
-				if (queueCapacity <= 0)
-					continue;
-
-				var jobCapacities = queue.JobCapacities.ToDictionary(static pair => pair.Key, static pair => pair.Value, StringComparer.OrdinalIgnoreCase);
-				if (!HasEligibleGroupedJob(queue.QueueName, jobCapacities, now))
-				{
-					AcquireQueueInExistingOrder(
-						request,
-						queue.QueueName,
-						jobCapacities,
-						queueCapacity,
-						now,
-						acquired
-					);
-					continue;
-				}
-
-				AcquireQueueFairly(
-					request,
-					queue.QueueName,
-					jobCapacities,
-					queueCapacity,
-					now,
-					acquired
-				);
-			}
-
-			return acquired;
+			var selected = SelectDueJobs(request, now, useExpiringLeases: false);
+			return AcquireJobs(selected, request.WorkerId, now, leaseExpiresAt: null, request.FairQueues?.GroupRoundRobin == true, reclaimExpired: false);
 		}
 	}
 
-	/// <remarks>
-	/// 	The caller must hold the <see cref="_gate"/> lock.
-	/// </remarks>
-	private List<JobRecord> AcquireInExistingOrder(JobAcquisitionRequest request, DateTimeOffset now)
+	/// <summary>
+	/// 	Selects the jobs a request would acquire without changing ownership, history, limits, or fairness cursors.
+	/// </summary>
+	internal async ValueTask<IReadOnlyList<JobHandle>> ProvisionallyAcquireDueJobsAsync(
+		JobAcquisitionRequest request,
+		CancellationToken cancellationToken = default
+	)
 	{
-		var acquired = new List<JobRecord>(request.BatchSize);
+		cancellationToken.ThrowIfCancellationRequested();
+		await TaskScheduler.Yield();
+
+		lock (_gate)
+			return SelectDueJobs(request, timeProvider.GetUtcNow(), useExpiringLeases: true);
+	}
+
+	/// <remarks>
+	/// 	The caller must hold the <see cref="_gate"/> lock. Only request-local selection state is modified.
+	/// </remarks>
+	private List<JobHandle> SelectDueJobs(JobAcquisitionRequest request, DateTimeOffset now, bool useExpiringLeases)
+	{
+		ArgumentOutOfRangeException.ThrowIfNegative(request.BatchSize, nameof(request));
+		if (request.BatchSize == 0 || (_runnableJobs.Count == 0 &&
+			(!useExpiringLeases || _activeLeases.Count == 0 || _activeLeases.Min.Deadline > now)))
+		{
+			return [];
+		}
+
+		var selection = new AcquisitionSelection(this, now, request, useExpiringLeases);
 		foreach (var queue in request.Queues)
 		{
-			var queueCapacity = Math.Min(queue.Capacity, request.BatchSize - acquired.Count);
+			var queueCapacity = Math.Min(queue.Capacity, request.BatchSize - selection.Jobs.Count);
 			if (queueCapacity <= 0)
 				continue;
 
-			var jobCapacities = queue.JobCapacities
-				.ToDictionary(static pair => pair.Key, static pair => pair.Value, StringComparer.OrdinalIgnoreCase);
-
-			AcquireQueueInExistingOrder(
-				request,
-				queue.QueueName,
-				jobCapacities,
-				queueCapacity,
-				now,
-				acquired
-			);
+			var capacities = queue.JobCapacities.ToDictionary(static pair => pair.Key, static pair => pair.Value, StringComparer.OrdinalIgnoreCase);
+			if (request.FairQueues is { } policy && selection.GetJobsForQueue(queue.QueueName, capacities.Keys)
+				.Any(job => job.GroupId is not null && capacities[job.JobName] > 0 && !selection.Contains(job.JobHandle)))
+			{
+				SelectQueueFairly(queue.QueueName, capacities, queueCapacity, policy, selection);
+			}
+			else
+			{
+				SelectQueueInExistingOrder(queue.QueueName, capacities, queueCapacity, now, selection);
+			}
 		}
 
-		return acquired;
+		return selection.Jobs;
 	}
 
 	/// <remarks>
 	/// 	The caller must hold the <see cref="_gate"/> lock.
 	/// </remarks>
-	private void AcquireQueueInExistingOrder(
-		JobAcquisitionRequest request,
+	private void SelectQueueInExistingOrder(
 		string queueName,
-		Dictionary<string, int> jobCapacities,
+		Dictionary<string, int> capacities,
 		int queueCapacity,
 		DateTimeOffset now,
-		List<JobRecord> acquired
+		AcquisitionSelection selection
 	)
 	{
-		var candidates = new PriorityQueue<SortedSet<RunnableJob>, RunnableJob>(jobCapacities.Count);
-		foreach (var (name, capacity) in jobCapacities)
+		var candidates = new PriorityQueue<int, RunnableJob>(capacities.Count);
+		var iterators = new List<IEnumerator<RunnableJob>>(capacities.Count);
+		try
 		{
-			if (capacity <= 0 || !string.Equals(GetQueueName(name), queueName, StringComparison.Ordinal)
-				|| !_runnableJobs.TryGetValue(name, out var runnable) || runnable.Min.DueAt > now || !CanAcquire(_jobs[runnable.Min.JobHandle].JobName, now))
+			foreach (var (name, capacity) in capacities)
 			{
-				continue;
+				if (capacity <= 0 || !string.Equals(GetQueueName(name), queueName, StringComparison.Ordinal)
+					|| !selection.HasDueJobs(name) || !selection.CanAcquire(name))
+				{
+					continue;
+				}
+
+				foreach (var source in selection.GetSources(name))
+				{
+					var cursor = source.GetEnumerator();
+					iterators.Add(cursor);
+					if (AdvanceCandidate(cursor, now, selection))
+						candidates.Enqueue(iterators.Count - 1, cursor.Current);
+				}
 			}
 
-			candidates.Enqueue(runnable, runnable.Min);
-		}
-
-		while (queueCapacity > 0 && candidates.TryDequeue(out var runnable, out var head))
-		{
-			ref var candidate = ref ValidateExistingElement(_jobs, head.JobHandle);
-			acquired.Add(Acquire(ref candidate, request, now));
-			jobCapacities[candidate.JobName]--;
-			queueCapacity--;
-
-			if (queueCapacity > 0 && jobCapacities[candidate.JobName] > 0 && runnable.Count != 0
-				&& runnable.Min.DueAt <= now && CanAcquire(candidate.JobName, now))
+			while (queueCapacity > 0 && candidates.TryDequeue(out var index, out var head))
 			{
-				candidates.Enqueue(runnable, runnable.Min);
+				var iterator = iterators[index];
+				var job = _jobs[head.JobHandle];
+				if (capacities[job.JobName] <= 0 || !selection.CanAcquire(job.JobName))
+					continue;
+				selection.Select(job);
+				capacities[job.JobName]--;
+				queueCapacity--;
+
+				if (queueCapacity > 0 && capacities[job.JobName] > 0 && selection.CanAcquire(job.JobName)
+					&& AdvanceCandidate(iterator, now, selection))
+				{
+					candidates.Enqueue(index, iterator.Current);
+				}
 			}
 		}
+		finally
+		{
+			foreach (var iterator in iterators)
+				iterator.Dispose();
+		}
+	}
+
+	private static bool AdvanceCandidate(IEnumerator<RunnableJob> iterator, DateTimeOffset now, AcquisitionSelection selection)
+	{
+		while (iterator.MoveNext())
+		{
+			if (iterator.Current.DueAt > now)
+				return false;
+			if (!selection.Contains(iterator.Current.JobHandle))
+				return true;
+		}
+
+		return false;
 	}
 
 	/// <remarks>
 	/// 	The caller must hold the <see cref="_gate"/> lock.
 	/// </remarks>
-	private bool HasEligibleGroupedJob(
+	private void SelectQueueFairly(
 		string queueName,
-		Dictionary<string, int> jobCapacities,
-		DateTimeOffset now
-	) =>
-		GetRunnableJobsForQueue(queueName, jobCapacities.Keys, now).Any(job => job.GroupId is not null &&
-			jobCapacities.TryGetValue(job.JobName, out var capacity) &&
-			capacity > 0 &&
-			job.State is JobState.Pending or JobState.Scheduled &&
-			job.DueAt <= now);
-
-	/// <remarks>
-	/// 	The caller must hold the <see cref="_gate"/> lock.
-	/// </remarks>
-	private void AcquireQueueFairly(
-		JobAcquisitionRequest request,
-		string queueName,
-		Dictionary<string, int> jobCapacities,
+		Dictionary<string, int> capacities,
 		int queueCapacity,
-		DateTimeOffset now,
-		List<JobRecord> acquired
+		FairQueuePolicy policy,
+		AcquisitionSelection selection
 	)
 	{
-		var policy = request.FairQueues!;
-		// The gate and acquisition timestamp stay fixed for the entire batch. Build ordered
-		// backlogs once, then advance past definitions whose capacity or limits are exhausted.
-		var groups = GetRunnableJobsForQueue(queueName, jobCapacities.Keys, now)
-			.Where(job => jobCapacities.TryGetValue(job.JobName, out var capacity) && capacity > 0 &&
-				job.State is JobState.Pending or JobState.Scheduled && job.DueAt <= now)
+		var groups = selection.GetJobsForQueue(queueName, capacities.Keys)
+			.Where(job => capacities[job.JobName] > 0 && !selection.Contains(job.JobHandle))
 			.OrderBy(static job => job.DueAt)
 			.ThenBy(static job => job.CreatedAt)
 			.ThenBy(static job => job.JobHandle.Value, StringComparer.Ordinal)
 			.GroupBy(static job => job.GroupId, StringComparer.Ordinal)
 			.Select(static group => new Queue<JobRecord>(group))
 			.ToList();
-		var eligibility = new Dictionary<string, bool>(StringComparer.Ordinal);
 		var activeCounts = new Dictionary<string, int>(StringComparer.Ordinal);
 		var totalActive = 0;
 		foreach (var job in GetJobsForQueue(queueName))
 		{
-			if (job.State != JobState.Active)
-			{
+			if (job.State != JobState.Active || selection.IsExpired(job))
 				continue;
-			}
 
 			totalActive++;
 			if (job.GroupId is { } groupId)
 				activeCounts[groupId] = activeCounts.GetValueOrDefault(groupId) + 1;
 		}
 
-		var nextSequence = policy.GroupRoundRobin ? GetNextSequence(queueName) : 0;
+		foreach (var handle in selection.Jobs)
+		{
+			var job = _jobs[handle];
+			if (!string.Equals(GetQueueName(job.JobName), queueName, StringComparison.Ordinal))
+				continue;
+
+			totalActive++;
+			if (job.GroupId is { } groupId)
+				activeCounts[groupId] = activeCounts.GetValueOrDefault(groupId) + 1;
+		}
+
 		var candidates = new List<Queue<JobRecord>>(groups.Count);
 		while (queueCapacity > 0)
 		{
@@ -220,7 +226,7 @@ public sealed partial class InMemoryJobStorage
 			{
 				while (group.TryPeek(out var head))
 				{
-					if (jobCapacities[head.JobName] > 0 && CanAcquire(head.JobName, now, eligibility))
+					if (capacities[head.JobName] > 0 && selection.CanAcquire(head.JobName))
 					{
 						candidates.Add(group);
 						break;
@@ -236,34 +242,22 @@ public sealed partial class InMemoryJobStorage
 			var selected = candidates
 				.OrderBy(group => IsNoisy(group.Peek().GroupId, activeCounts, totalActive, policy))
 				.ThenBy(group => GetNoisyInflight(group.Peek().GroupId, activeCounts, totalActive, policy))
-				.ThenBy(group => policy.GroupRoundRobin ? GetLastServed(queueName, group.Peek().GroupId) : 0)
+				.ThenBy(group => policy.GroupRoundRobin ? selection.GetLastServed(queueName, group.Peek().GroupId) : 0)
 				.ThenBy(static group => group.Peek().DueAt)
 				.ThenBy(static group => group.Peek().CreatedAt)
 				.ThenBy(static group => group.Peek().JobHandle.Value, StringComparer.Ordinal)
 				.First();
 
-			var job = Acquire(ref ValidateExistingElement(_jobs, selected.Dequeue().JobHandle), request, now);
-			acquired.Add(job);
-			eligibility.Remove(job.JobName);
-			jobCapacities[job.JobName]--;
+			var job = selected.Dequeue();
+			selection.Select(job);
+			capacities[job.JobName]--;
 			queueCapacity--;
 			totalActive++;
 			if (job.GroupId is { } activeGroup)
 				activeCounts[activeGroup] = activeCounts.GetValueOrDefault(activeGroup) + 1;
-
 			if (policy.GroupRoundRobin && job.GroupId is { } groupId)
-				_fairQueueLastServed[(queueName, groupId)] = nextSequence++;
+				selection.RecordGroup(queueName, groupId);
 		}
-	}
-
-	/// <remarks>
-	/// 	The caller must hold the <see cref="_gate"/> lock.
-	/// </remarks>
-	private bool CanAcquire(string jobName, DateTimeOffset now, Dictionary<string, bool> eligibility)
-	{
-		if (!eligibility.TryGetValue(jobName, out var ready))
-			eligibility.Add(jobName, ready = CanAcquire(jobName, now));
-		return ready;
 	}
 
 	/// <remarks>
@@ -299,16 +293,6 @@ public sealed partial class InMemoryJobStorage
 	/// <remarks>
 	/// 	The caller must hold the <see cref="_gate"/> lock.
 	/// </remarks>
-	private long GetLastServed(string queueName, string? groupId)
-	{
-		return groupId is not null && _fairQueueLastServed.TryGetValue((queueName, groupId), out var sequence)
-			? sequence
-			: 0;
-	}
-
-	/// <remarks>
-	/// 	The caller must hold the <see cref="_gate"/> lock.
-	/// </remarks>
 	private long GetNextSequence(string queueName)
 	{
 		return _fairQueueLastServed
@@ -321,7 +305,7 @@ public sealed partial class InMemoryJobStorage
 	/// <remarks>
 	/// 	The caller must hold the <see cref="_gate"/> lock.
 	/// </remarks>
-	private JobRecord Acquire(ref JobRecord candidate, JobAcquisitionRequest request, DateTimeOffset now)
+	private JobRecord Acquire(ref JobRecord candidate, string workerId, DateTimeOffset now, DateTimeOffset? leaseExpiresAt)
 	{
 		MaterializeSyntheticExecution(candidate);
 
@@ -329,8 +313,8 @@ public sealed partial class InMemoryJobStorage
 		{
 			State = JobState.Active,
 			Attempt = candidate.Attempt + 1,
-			WorkerId = request.WorkerId,
-			LeaseExpiresAt = null,
+			WorkerId = workerId,
+			LeaseExpiresAt = leaseExpiresAt,
 			ExecutionTraceId = null,
 			ExecutionSpanId = null,
 			ExecutionStartedAt = null,
@@ -344,28 +328,60 @@ public sealed partial class InMemoryJobStorage
 	}
 
 	/// <remarks>
-	/// 	The caller does not need to hold the <see cref="_gate"/> lock; this method acquires it internally.
+	/// 	The caller must hold the <see cref="_gate"/> lock. Exact claims have already been selected or confirmed by durable storage.
 	/// </remarks>
-	internal void ApplyAcquiredJobs(IReadOnlyList<JobRecord> acquired)
+	private List<JobRecord> AcquireJobs(
+		IReadOnlyCollection<JobHandle> jobs,
+		string workerId,
+		DateTimeOffset now,
+		DateTimeOffset? leaseExpiresAt,
+		bool roundRobin,
+		bool reclaimExpired
+	)
 	{
-		lock (_gate)
+		var acquired = new List<JobRecord>(jobs.Count);
+		foreach (var handle in jobs)
 		{
-			foreach (var job in acquired)
-			{
-				ref var previous = ref CollectionsMarshal.GetValueRefOrNullRef(_jobs, job.JobHandle);
+			ref var job = ref CollectionsMarshal.GetValueRefOrNullRef(_jobs, handle);
+			if (Unsafe.IsNullRef(ref job))
+				continue;
+			var expired = reclaimExpired && job.State == JobState.Active && job.LeaseExpiresAt <= now;
+			if (!expired && (job.State is not (JobState.Pending or JobState.Scheduled) || job.DueAt > now))
+				continue;
+			if (expired)
+				CompleteExecution(job, JobExecutionState.Interrupted, job.LeaseExpiresAt!.Value);
 
-				if (Unsafe.IsNullRef(ref previous) || job.Attempt != previous.Attempt + 1)
-					throw new ImmediateJobException("The single-server primary has drifted from durable storage. Use only one scheduler process.");
+			var record = Acquire(ref job, workerId, now, leaseExpiresAt);
+			acquired.Add(record);
+		}
 
-				if (previous.State == JobState.Active)
-					InterruptExecution(previous);
-				else
-					MaterializeSyntheticExecution(previous);
+		if (roundRobin)
+			RecordFairAcquisitions(acquired);
+		return acquired;
+	}
 
-				UpdateJob(ref previous, job);
-				CreateExecution(job, timeProvider.GetUtcNow());
-				MarkBatchStarted(job.BatchHandle, timeProvider.GetUtcNow());
-			}
+	/// <summary>
+	/// 	Advances round-robin cursors only for confirmed claims made under a round-robin policy.
+	/// </summary>
+	internal void ApplyFairQueueAcquisitions(IReadOnlyList<JobRecord> acquired, FairQueuePolicy? policy)
+	{
+		if (policy?.GroupRoundRobin != true || acquired.Count == 0)
+			return;
+
+		lock (_gate)
+			RecordFairAcquisitions(acquired);
+	}
+
+	/// <remarks>
+	/// 	The caller must hold the <see cref="_gate"/> lock.
+	/// </remarks>
+	private void RecordFairAcquisitions(IReadOnlyList<JobRecord> acquired)
+	{
+		var nextSequences = new Dictionary<string, long>(StringComparer.Ordinal);
+		foreach (var job in acquired)
+		{
+			if (job.GroupId is { } groupId && job.QueueName is { } queueName)
+				RecordGroup(_fairQueueLastServed, nextSequences, queueName, groupId);
 		}
 	}
 

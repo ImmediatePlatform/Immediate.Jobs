@@ -89,6 +89,7 @@ internal sealed partial class SingleServerJobStorage
 
 			cancellationToken.ThrowIfCancellationRequested();
 			PrimaryStorage.LoadPersistedJobState(recoveredJobs, recoveredBatches, recoveredEdges, schedules);
+			PrimaryStorage.ApplyDefinitionAcquisitionStates(snapshot.DefinitionStatuses);
 			_initializationTask.SetResult();
 			_initialized = true;
 		}

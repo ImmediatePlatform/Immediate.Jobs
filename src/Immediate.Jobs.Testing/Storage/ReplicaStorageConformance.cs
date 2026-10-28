@@ -14,6 +14,7 @@ internal static partial class ReplicaStorageConformance
 {
 	private const string ExactDueName = "Replica.Acquisition.ClaimsExactlyTheRequestedDueJobs";
 	private const string DuplicateName = "Replica.Acquisition.IgnoresDuplicateAndMissingRequestedIds";
+	private const string RequestedOrderName = "Replica.Acquisition.PreservesRequestedOrderWhenLimitsAllowOnlyOneClaim";
 	private const string ProjectionName = "Replica.Acquisition.PersistsOwnershipLeaseAttemptAndHistory";
 	private const string ContentionName = "Replica.Acquisition.ClaimsEachInvocationVersionOnceUnderContention";
 	private const string StaleName = "Replica.Leases.ReclaimsExpiredExecutionAndFencesStaleOwner";
@@ -31,6 +32,7 @@ internal static partial class ReplicaStorageConformance
 		new(EnqueueRaceName, StorageCapabilities.Graph, AcquisitionWaitsUntilEnqueueHasUpdatedBothStoresAsync),
 		new(ExactDueName, StorageCapabilities.Graph, ClaimsExactlyRequestedDueJobsAsync),
 		new(DuplicateName, StorageCapabilities.Graph, IgnoresDuplicateAndMissingIdsAsync),
+		new(RequestedOrderName, StorageCapabilities.Graph, PreservesRequestedOrderAsync),
 		new(ProjectionName, StorageCapabilities.Graph, PersistsProjectionAndHistoryAsync),
 		new(ContentionName, StorageCapabilities.Graph, ClaimsOnceUnderContentionAsync),
 		new(StaleName, StorageCapabilities.Graph, ReclaimsAndFencesStaleOwnerAsync),
@@ -239,6 +241,27 @@ internal static partial class ReplicaStorageConformance
 			DuplicateName,
 			"an empty exact-id request must return an empty result"
 		);
+	}
+
+	private static async ValueTask PreservesRequestedOrderAsync(IJobStorage storage, FakeTimeProvider clock, CancellationToken token)
+	{
+		await storage.MergeJobDefinitionsListAsync(new()
+		{
+			Definitions = [new() { Name = JobName, QueueName = QueueName, MaxConcurrency = 1 }],
+			RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase),
+		}, token);
+		var first = Job("z-requested-first", clock.GetUtcNow());
+		var second = Job("a-requested-second", clock.GetUtcNow());
+		await storage.EnqueueAsync(second, token);
+		await storage.EnqueueAsync(first, token);
+		var replica = Replica(storage, RequestedOrderName);
+
+		var acquired = await replica.AcquireJobsAsync([first.JobHandle, second.JobHandle], "ordered-worker", TimeSpan.FromMinutes(1), token);
+
+		ConformanceAssert.Equal(1, acquired.Count, RequestedOrderName, "the concurrency limit must allow only one claim");
+		ConformanceAssert.Equal(first.JobHandle, acquired[0].JobHandle, RequestedOrderName, "the first requested job must receive the available capacity");
+		ConformanceAssert.Equal(JobState.Pending, (await GetJobAsync(storage, second.JobHandle, RequestedOrderName, token)).State,
+			RequestedOrderName, "the other requested job must remain pending");
 	}
 
 	private static async ValueTask PersistsProjectionAndHistoryAsync(

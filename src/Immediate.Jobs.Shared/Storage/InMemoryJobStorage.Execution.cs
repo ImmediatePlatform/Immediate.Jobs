@@ -77,14 +77,6 @@ public sealed partial class InMemoryJobStorage
 	/// <remarks>
 	/// 	The caller must hold the <see cref="_gate"/> lock.
 	/// </remarks>
-	private void InterruptExecution(JobRecord job)
-	{
-		CompleteExecution(job, JobExecutionState.Interrupted, job.LeaseExpiresAt ?? timeProvider.GetUtcNow());
-	}
-
-	/// <remarks>
-	/// 	The caller must hold the <see cref="_gate"/> lock.
-	/// </remarks>
 	private void CompleteExecution(
 		JobRecord job,
 		JobExecutionState state,

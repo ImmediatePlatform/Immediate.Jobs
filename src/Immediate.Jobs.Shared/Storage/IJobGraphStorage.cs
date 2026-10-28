@@ -254,6 +254,7 @@ public interface IJobGraphStorage : IJobStorage
 	/// </returns>
 	/// <remarks>
 	/// 	Used by single-server mode to mirror the exact set of jobs selected by its authoritative in-process queue.
+	/// 	Successful claims retain the enumeration order of the requested handles.
 	/// 	Providers that cannot act as a single-server durable store may throw <see cref="NotSupportedException"/>.
 	/// </remarks>
 	ValueTask<IReadOnlyList<JobRecord>> AcquireJobsAsync(

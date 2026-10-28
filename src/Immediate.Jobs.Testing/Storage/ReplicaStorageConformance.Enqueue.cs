@@ -277,8 +277,11 @@ internal static partial class ReplicaStorageConformance
 			storage.PurgeBatchesAsync(batchSucceededRetention, batchFailedRetention, cancellationToken);
 
 		/// <inheritdoc />
-		public ValueTask<IReadOnlyList<JobRecord>> AcquireJobsAsync(IReadOnlyCollection<JobHandle> jobs, string workerId, TimeSpan lease, CancellationToken cancellationToken = default) =>
-			storage.AcquireJobsAsync(jobs, workerId, lease, cancellationToken);
+		public ValueTask<IReadOnlyList<JobRecord>> AcquireJobsAsync(IReadOnlyCollection<JobHandle> jobs, string workerId, TimeSpan lease, CancellationToken cancellationToken = default)
+		{
+			AcquisitionEntered.TrySetResult();
+			return storage.AcquireJobsAsync(jobs, workerId, lease, cancellationToken);
+		}
 
 		/// <inheritdoc />
 		public ValueTask<IReadOnlyList<JobContinuationEdge>> GetIncomingEdgesAsync(IReadOnlyCollection<JobHandle> childJobs, CancellationToken cancellationToken = default) =>

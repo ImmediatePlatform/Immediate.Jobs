@@ -43,6 +43,8 @@ public sealed partial class InMemoryJobStorage
 				ref var definitionRecord = ref CollectionsMarshal.GetValueRefOrAddDefault(_jobDefinitions, definition.Name, out _);
 				var originalName = definitionRecord?.Name ?? definition.Name;
 				definitionRecord = definition with { Name = originalName };
+				if (_acquisitionDefinitions.TryGetValue(originalName, out var usage))
+					usage.DurableRateLimitUntil = null;
 
 				if (registration.RecurringSchedules.TryGetValue(definition.Name, out var nextRunAt))
 				{

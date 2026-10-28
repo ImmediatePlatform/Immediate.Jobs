@@ -5,6 +5,15 @@ namespace Immediate.Jobs.Shared.Storage;
 
 public sealed partial class InMemoryJobStorage
 {
+	private readonly record struct ActiveLease(DateTimeOffset Deadline, JobHandle JobHandle)
+	{
+		public static IComparer<ActiveLease> Comparer { get; } = Comparer<ActiveLease>.Create(static (left, right) =>
+		{
+			var order = left.Deadline.CompareTo(right.Deadline);
+			return order != 0 ? order : StringComparer.Ordinal.Compare(left.JobHandle.Value, right.JobHandle.Value);
+		});
+	}
+
 	private readonly record struct RunnableJob(DateTimeOffset DueAt, DateTimeOffset CreatedAt, JobHandle JobHandle) : IComparable<RunnableJob>
 	{
 		public int CompareTo(RunnableJob other)
@@ -28,26 +37,6 @@ public sealed partial class InMemoryJobStorage
 	}
 
 	/// <remarks>
-	/// 	The caller must hold the <see cref="_gate"/> lock throughout this call and enumeration of the returned sequence.
-	/// </remarks>
-	private IEnumerable<JobRecord> GetRunnableJobsForQueue(string queueName, IEnumerable<string> definitionNames, DateTimeOffset now)
-	{
-		foreach (var name in definitionNames)
-		{
-			if (!string.Equals(GetQueueName(name), queueName, StringComparison.Ordinal) || !_runnableJobs.TryGetValue(name, out var runnable))
-				continue;
-
-			foreach (var entry in runnable)
-			{
-				if (entry.DueAt > now)
-					break;
-
-				yield return _jobs[entry.JobHandle];
-			}
-		}
-	}
-
-	/// <remarks>
 	/// 	The caller must hold the <see cref="_gate"/> lock. The reference must remain valid throughout this call.
 	/// </remarks>
 	private void UpdateJob(ref JobRecord stored, JobRecord updated)
@@ -67,6 +56,10 @@ public sealed partial class InMemoryJobStorage
 
 		if (wasActive != isActive)
 			ChangeActiveJobCount(stored.JobName, isActive ? 1 : -1);
+		if (wasActive && stored.LeaseExpiresAt is { } oldDeadline && (!isActive || stored.LeaseExpiresAt != updated.LeaseExpiresAt))
+			_activeLeases.Remove(new(oldDeadline, stored.JobHandle));
+		if (isActive && updated.LeaseExpiresAt is { } newDeadline && (!wasActive || stored.LeaseExpiresAt != updated.LeaseExpiresAt))
+			_activeLeases.Add(new(newDeadline, updated.JobHandle));
 
 		stored = updated;
 	}
@@ -80,7 +73,11 @@ public sealed partial class InMemoryJobStorage
 			AddRunnableJob(job);
 
 		if (job.State == JobState.Active)
+		{
 			ChangeActiveJobCount(job.JobName, 1);
+			if (job.LeaseExpiresAt is { } deadline)
+				_activeLeases.Add(new(deadline, job.JobHandle));
+		}
 	}
 
 	/// <remarks>
@@ -92,7 +89,11 @@ public sealed partial class InMemoryJobStorage
 			RemoveRunnableJob(job);
 
 		if (job.State == JobState.Active)
+		{
 			ChangeActiveJobCount(job.JobName, -1);
+			if (job.LeaseExpiresAt is { } deadline)
+				_activeLeases.Remove(new(deadline, job.JobHandle));
+		}
 	}
 
 	/// <remarks>

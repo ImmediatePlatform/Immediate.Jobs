@@ -88,12 +88,6 @@ public sealed partial class InMemoryJobStorage
 	/// <remarks>
 	/// 	The caller must hold the <see cref="_gate"/> lock.
 	/// </remarks>
-	private bool CanAcquire(string jobName, DateTimeOffset now) =>
-		EvaluateAcquisition(jobName, GetStoredDefinition(jobName).AcquisitionLimits, now).AcquisitionStatus == JobAcquisitionStatus.Ready;
-
-	/// <remarks>
-	/// 	The caller must hold the <see cref="_gate"/> lock.
-	/// </remarks>
 	private void RecordAcquisition(string jobName, DateTimeOffset now)
 	{
 		var limits = GetStoredDefinition(jobName).AcquisitionLimits;
@@ -124,6 +118,26 @@ public sealed partial class InMemoryJobStorage
 		public List<DateTimeOffset> Acquisitions { get; } = [];
 		public DateTimeOffset? FixedWindowStart { get; set; }
 		public int FixedWindowCount { get; set; }
+		public DateTimeOffset? DurableRateLimitUntil { get; set; }
+	}
+
+	/// <summary>
+	/// 	Restores pauses and known durable rate-limit boundaries without inventing sliding-window timestamps.
+	/// </summary>
+	internal void ApplyDefinitionAcquisitionStates(IReadOnlyList<JobAcquisitionState> states)
+	{
+		lock (_gate)
+		{
+			foreach (var state in states)
+			{
+				if (!_jobDefinitions.TryGetValue(state.JobName, out var definition))
+					continue;
+
+				var usage = GetAcquisitionDefinition(definition.Name);
+				usage.State = usage.State with { IsPaused = state.IsPaused };
+				usage.DurableRateLimitUntil = state.AcquisitionStatus == JobAcquisitionStatus.RateLimited ? state.NextEligibleAt : null;
+			}
+		}
 	}
 
 	/// <remarks>

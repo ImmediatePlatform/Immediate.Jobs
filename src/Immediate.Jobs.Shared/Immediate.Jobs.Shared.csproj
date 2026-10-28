@@ -10,6 +10,8 @@
   </PropertyGroup>
 
   <ItemGroup>
+	<InternalsVisibleTo Include="Immediate.Jobs.StorageTests" />
+
 	<Compile Update="Storage/InMemoryJobStorage.*.cs" DependentUpon="InMemoryJobStorage.cs" />
 	<Compile Update="Storage/SingleServerJobStorage.*.cs" DependentUpon="SingleServerJobStorage.cs" />
   </ItemGroup>

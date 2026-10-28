@@ -17,6 +17,7 @@ internal sealed partial class SingleServerJobStorage
 		{
 			await DurableStorage.MergeJobDefinitionsListAsync(registration, cancellationToken);
 			await PrimaryStorage.MergeJobDefinitionsListAsync(registration, cancellationToken);
+			_acquisitionDefinitionsToRefresh.IntersectWith(registration.Definitions.Select(static definition => definition.Name));
 		}
 		finally
 		{

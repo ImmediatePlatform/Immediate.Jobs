@@ -375,12 +375,6 @@ public class CapturingJobStorage(TimeProvider timeProvider) :
 	public virtual async ValueTask PurgeBatchesAsync(TimeSpan batchSucceededRetention, TimeSpan batchFailedRetention, CancellationToken cancellationToken = default) => await _inner.PurgeBatchesAsync(batchSucceededRetention, batchFailedRetention, cancellationToken);
 
 	/// <inheritdoc />
-	/// <remarks>
-	/// 	Not supported: capturing storage cannot be used as a single-server durable store.
-	/// </remarks>
-	/// <exception cref="NotSupportedException">
-	/// 	Always thrown.
-	/// </exception>
 	public virtual async ValueTask<IReadOnlyList<JobRecord>> AcquireJobsAsync(IReadOnlyCollection<JobHandle> jobs, string workerId, TimeSpan lease, CancellationToken cancellationToken = default) => await _inner.AcquireJobsAsync(jobs, workerId, lease, cancellationToken);
 
 	/// <inheritdoc />

@@ -110,6 +110,12 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 				|| (job.State == JobState.Active && job.LeaseExpiresAt <= now)))
 			.ToListAsync(cancellationToken);
 
+		// Preserve the in-memory scheduler's priority when limits permit only part of the requested set.
+		var order = new Dictionary<string, int>(StringComparer.Ordinal);
+		foreach (var handle in jobHandles)
+			order.TryAdd(handle.Value, order.Count);
+		candidates.Sort((left, right) => order[left.Id].CompareTo(order[right.Id]));
+
 		return await AcquireCandidatesAsync(candidates, workerId, lease, now, cancellationToken);
 	}
 

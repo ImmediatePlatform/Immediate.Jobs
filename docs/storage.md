@@ -87,12 +87,21 @@ creation time, and ordinal handle. Ordinary acquisition merges the earliest elig
 definitions. Ownership lasts until an explicit state transition; elapsed time cannot reclaim a job
 owned by the same process. Active counts, concurrency limits, and fair-queue usage depend on job
 state, with counts cached per definition. State and due-time changes update these indexes under
-`_gate`; lease timestamps mirrored from durable storage are metadata and do not affect eligibility.
-Standalone in-memory acquisitions have no lease deadline, and their scheduler does not run renewal.
+`_gate`. Standalone in-memory acquisitions have no lease deadline, and their scheduler does not run
+renewal. Single-server provisional selection also merges expired durable leases from a deadline
+index and excludes them from concurrency and noisy-group usage. It leaves ownership and execution
+history unchanged until durable storage confirms reclamation.
 
 Single-server mode has one scheduler process. Its durable provider remains the authority for claims,
 definition pauses, and acquisition counters so those controls survive restarts. Durable graph
 providers must also implement the recovery reads; the in-memory primary is a reconstructable mirror.
+Candidate discovery and ordering use the primary's runnable indexes. Provisional selection shares
+the ordinary in-memory selection path and reserves capacity only in request-local state. The wrapper
+commits the selected handles through durable `AcquireJobsAsync` first, then applies only confirmed
+claims through the primary's exact-claim method. Failed or partial claims do not consume unconfirmed
+local attempts, rate capacity, or fairness turns. Pause/resume are mirrored under the write-through
+lock. Recovery restores pause state and known rate-limit boundaries; durable claims retain the full
+rate history. After a partial claim, refresh affected definition status before the next selection.
 Durable claims and renewals retain their lease semantics in this topology. At startup the wrapper
 calls durable `InitializeAsync(interruptActiveLeases: true)` before reading its snapshot. With no
 previous workers still running, active executions are interrupted and their invocations returned to

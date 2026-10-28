@@ -5,6 +5,10 @@ namespace Immediate.Jobs.Shared.Storage;
 
 internal sealed partial class SingleServerJobStorage
 {
+	// Recheck durable limits before the next selection if recovery or a boundary caused a partial claim.
+	// Refresh before making new claims so a failed refresh cannot hide an already committed acquisition.
+	private readonly HashSet<string> _acquisitionDefinitionsToRefresh = [with(StringComparer.OrdinalIgnoreCase)];
+
 	/// <inheritdoc />
 	public async ValueTask<IReadOnlyList<JobRecord>> AcquireDueJobsAsync(
 		JobAcquisitionRequest request,
@@ -18,15 +22,41 @@ internal sealed partial class SingleServerJobStorage
 
 		try
 		{
-			// Definition pause, counters, and acquisition history must survive process restart.
-			// Reserve them with the durable claim, then mirror the committed ownership into the primary.
-			var acquired = await DurableStorage
-				.AcquireDueJobsAsync(request, cancellationToken);
+			foreach (var name in _acquisitionDefinitionsToRefresh.ToList())
+			{
+				if (!request.Queues.Any(queue => queue.JobCapacities.ContainsKey(name)))
+					continue;
 
-			if (acquired.Count == 0)
-				return acquired;
+				var state = await DurableStorage.GetJobAcquisitionStateAsync(name, cancellationToken);
+				PrimaryStorage.ApplyDefinitionAcquisitionStates([state]);
+				_acquisitionDefinitionsToRefresh.Remove(name);
+			}
 
-			PrimaryStorage.ApplyAcquiredJobs(acquired);
+			var selected = await PrimaryStorage.ProvisionallyAcquireDueJobsAsync(request, cancellationToken);
+			if (selected.Count == 0)
+				return [];
+
+			var acquired = await JobGraphStorage.AcquireJobsAsync(selected, request.WorkerId, request.Lease, cancellationToken);
+			// Ownership must reach the mirror even if cancellation arrives after the durable commit.
+			var mirrored = await PrimaryStorage.AcquireJobsAsync(
+				acquired.Select(static job => job.JobHandle).ToList(), request.WorkerId, request.Lease, CancellationToken.None);
+			if (mirrored.Count != acquired.Count || mirrored.Where((job, index) =>
+				job.JobHandle != acquired[index].JobHandle || job.Attempt != acquired[index].Attempt).Any())
+			{
+				throw new ImmediateJobException("The single-server primary has drifted from durable storage. Use only one scheduler process.");
+			}
+
+			PrimaryStorage.ApplyFairQueueAcquisitions(mirrored, request.FairQueues);
+
+			if (acquired.Count != selected.Count)
+			{
+				var confirmed = acquired.Select(static job => job.JobHandle).ToHashSet();
+				foreach (var handle in selected.Where(handle => !confirmed.Contains(handle)))
+				{
+					var job = await PrimaryStorage.GetJobStatusAsync(handle, CancellationToken.None);
+					_acquisitionDefinitionsToRefresh.Add(job!.JobName);
+				}
+			}
 
 			return acquired;
 		}
