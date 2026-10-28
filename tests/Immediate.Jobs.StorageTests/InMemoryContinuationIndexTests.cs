@@ -67,8 +67,10 @@ public sealed class InMemoryContinuationIndexTests
 		Assert.Equal(1, status.Skipped);
 	}
 
-	[Fact]
-	public async Task LateBatchPropagatesMixedTerminalParentsWithoutDoubleSettlement()
+	[Theory]
+	[InlineData(false)]
+	[InlineData(true)]
+	public async Task LateBatchPropagatesMixedTerminalParentsRegardlessOfEdgeOrder(bool reverseEdges)
 	{
 		var token = TestContext.Current.CancellationToken;
 		await using var storage = new InMemoryJobStorage(new FakeTimeProvider(DateTimeOffset.UnixEpoch));
@@ -87,19 +89,76 @@ public sealed class InMemoryContinuationIndexTests
 			Edge(failed.JobHandle, first.JobHandle),
 			Edge(first.JobHandle, second.JobHandle),
 			new() { ParentBatchHandle = parentBatch, ChildJobHandle = second.JobHandle, Delay = TimeSpan.Zero },
+			Edge(failed.JobHandle, second.JobHandle) with { Trigger = ContinuationTrigger.Complete },
 			Edge(second.JobHandle, third.JobHandle) with { Trigger = ContinuationTrigger.Complete },
 		];
+		if (reverseEdges)
+			Array.Reverse(edges);
 
 		await storage.EnqueueBatchAsync(Batch(batch, 3), [first, second, third], edges, token);
 
 		Assert.Equal(JobState.Skipped, (await storage.GetJobStatusAsync(first.JobHandle, token))!.State);
 		Assert.Equal(JobState.Skipped, (await storage.GetJobStatusAsync(second.JobHandle, token))!.State);
 		Assert.Equal(JobState.Pending, (await storage.GetJobStatusAsync(third.JobHandle, token))!.State);
+		foreach (var handle in new[] { first.JobHandle, second.JobHandle, third.JobHandle })
+		{
+			var settled = Assert.Single(await storage.QueryJobsAsync(new() { JobHandle = handle }, token));
+			Assert.Equal(0, settled.RemainingDependencies);
+			Assert.Equal(handle == third.JobHandle ? 0 : 1, settled.FailedDependencies);
+		}
+
 		var status = await storage.GetBatchStatusAsync(batch, token);
 		Assert.NotNull(status);
 		Assert.Equal(2, status.Skipped);
 		Assert.Equal(1, status.Remaining);
 		Assert.Equal(edges, (await storage.GetBatchGraphAsync(batch, token))!.Edges);
+	}
+
+	[Theory]
+	[InlineData(false, false)]
+	[InlineData(false, true)]
+	[InlineData(true, false)]
+	[InlineData(true, true)]
+	public async Task MixedParentsPreserveFailureTriggersAndDelaysRegardlessOfEdgeOrder(bool reverseEdges, bool liveParent)
+	{
+		var token = TestContext.Current.CancellationToken;
+		var clock = new FakeTimeProvider(DateTimeOffset.UnixEpoch);
+		await using var storage = new InMemoryJobStorage(clock);
+		await RegisterAsync(storage, token);
+		var parentBatch = BatchHandle.FromString("parent");
+		var failed = Job("parent") with { State = JobState.Failed, CompletedAt = clock.GetUtcNow() };
+		var member = Job("member") with { BatchHandle = parentBatch, State = JobState.Succeeded, CompletedAt = clock.GetUtcNow() };
+		var pending = Job("pending", "other");
+		storage.LoadPersistedJobState([failed, member, pending],
+			[Batch(parentBatch) with { State = BatchState.Succeeded, PendingCount = 0, SucceededCount = 1, CompletedAt = clock.GetUtcNow() }], [], []);
+		var child = Submission("child");
+		List<JobContinuationEdge> edges =
+		[
+			Edge(failed.JobHandle, child.JobHandle) with { Trigger = ContinuationTrigger.Failure, Delay = TimeSpan.FromMinutes(1) },
+			new() { ParentBatchHandle = parentBatch, ChildJobHandle = child.JobHandle, Delay = TimeSpan.FromMinutes(5) },
+		];
+		if (liveParent)
+			edges.Add(Edge(pending.JobHandle, child.JobHandle));
+		if (reverseEdges)
+			edges.Reverse();
+
+		await storage.EnqueueContinuationAsync(child, edges, token);
+
+		if (liveParent)
+		{
+			var waiting = Assert.Single(await storage.QueryJobsAsync(new() { JobHandle = child.JobHandle }, token));
+			Assert.Equal(JobState.AwaitingContinuation, waiting.State);
+			Assert.Equal(1, waiting.RemainingDependencies);
+			Assert.Equal(1, waiting.FailedDependencies);
+			var acquired = Assert.Single(await storage.AcquireDueJobsAsync(Request("other"), token));
+			await storage.CompleteAsync(acquired.JobHandle, acquired.Attempt, "worker", token);
+		}
+
+		var settled = Assert.Single(await storage.QueryJobsAsync(new() { JobHandle = child.JobHandle }, token));
+		Assert.Equal(JobState.Scheduled, settled.State);
+		Assert.Equal(clock.GetUtcNow().AddMinutes(5), settled.DueAt);
+		Assert.Equal(0, settled.RemainingDependencies);
+		Assert.Equal(1, settled.FailedDependencies);
 	}
 
 	[Fact]

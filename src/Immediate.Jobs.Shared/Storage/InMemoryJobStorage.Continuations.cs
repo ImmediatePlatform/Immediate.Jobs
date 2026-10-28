@@ -24,24 +24,30 @@ public sealed partial class InMemoryJobStorage
 	/// </remarks>
 	private void EvaluateAlreadyTerminalParents(IReadOnlyList<JobContinuationEdge> edges)
 	{
-		// Existing edges of terminal parents are already settled. Group only the new edges,
-		// preserving parent order and the job-before-batch phases during propagation.
-		foreach (var parent in edges
-			.Where(static edge => edge.ParentJobHandle is not null)
-			.GroupBy(static edge => edge.ParentJobHandle!)
-			.Where(group => _jobs.TryGetValue(group.Key, out var job) && IsTerminal(job.State))
-			.ToList())
+		// All new edges are indexed before propagation. Parents that become terminal while
+		// settling an edge propagate recursively; _settledEdges prevents double settlement.
+		foreach (var edge in edges)
 		{
-			SettleEdges(parent, parentFailed: _jobs[parent.Key].State == JobState.Failed);
-		}
+			bool parentFailed;
+			if (edge.ParentJobHandle is { } jobHandle)
+			{
+				if (!_jobs.TryGetValue(jobHandle, out var job) || !IsTerminal(job.State))
+					continue;
+				parentFailed = job.State == JobState.Failed;
+			}
+			else if (edge.ParentBatchHandle is { } batchHandle)
+			{
+				if (!_batches.TryGetValue(batchHandle, out var batch) || !IsTerminal(batch.State))
+					continue;
+				parentFailed = batch.State == BatchState.Failed;
+			}
+			else
+			{
+				continue;
+			}
 
-		foreach (var parent in edges
-			.Where(static edge => edge.ParentBatchHandle is not null)
-			.GroupBy(static edge => edge.ParentBatchHandle!)
-			.Where(group => _batches.TryGetValue(group.Key, out var batch) && IsTerminal(batch.State))
-			.ToList())
-		{
-			SettleEdges(parent, parentFailed: _batches[parent.Key].State == BatchState.Failed);
+			if (_settledEdges.Add(edge))
+				SettleEdge(edge, parentFailed);
 		}
 	}
 
