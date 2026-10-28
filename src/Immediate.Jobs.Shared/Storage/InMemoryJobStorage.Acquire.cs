@@ -21,12 +21,16 @@ public sealed partial class InMemoryJobStorage
 		await TaskScheduler.Yield();
 
 		lock (_gate)
-			_ = GetOwnedActive(jobHandle, executionNumber, workerId);
+		{
+			// only need to validate it exists
+			GetOwnedActive(jobHandle, executionNumber, workerId);
+		}
 	}
 
-	/// <remarks>
-	/// 	The caller does not need to hold the <see cref="_gate"/> lock; this method acquires it internally.
-	/// </remarks>
+	/// <summary>
+	///		An <see langword="internal" /> to support use as primary storage for <see cref="SingleServerJobStorage"/>;
+	///		updates the internal lease to match the durable storage.
+	/// </summary>
 	internal void ApplyRenewedLease(JobHandle jobHandle, int executionNumber, string workerId, TimeSpan lease)
 	{
 		lock (_gate)
@@ -99,7 +103,9 @@ public sealed partial class InMemoryJobStorage
 			if (queueCapacity <= 0)
 				continue;
 
-			var jobCapacities = queue.JobCapacities.ToDictionary(static pair => pair.Key, static pair => pair.Value, StringComparer.OrdinalIgnoreCase);
+			var jobCapacities = queue.JobCapacities
+				.ToDictionary(static pair => pair.Key, static pair => pair.Value, StringComparer.OrdinalIgnoreCase);
+
 			AcquireQueueInExistingOrder(
 				request,
 				queue.QueueName,
@@ -125,7 +131,7 @@ public sealed partial class InMemoryJobStorage
 		List<JobRecord> acquired
 	)
 	{
-		var candidates = new PriorityQueue<SortedSet<RunnableJob>, RunnableJob>(jobCapacities.Count, RunnableJobComparer);
+		var candidates = new PriorityQueue<SortedSet<RunnableJob>, RunnableJob>(jobCapacities.Count);
 		foreach (var (name, capacity) in jobCapacities)
 		{
 			if (capacity <= 0 || !string.Equals(GetQueueName(name), queueName, StringComparison.Ordinal)

@@ -13,6 +13,7 @@ public sealed partial class InMemoryJobStorage
 		var definitions = (definitionNames ?? _jobsByDefinition.Keys)
 			.Where(name => string.Equals(GetQueueName(name), queueName, StringComparison.Ordinal) && _jobsByDefinition.ContainsKey(name))
 			.ToList();
+
 		// Dictionary keys are distinct. When every stored definition matches, avoid resolving each handle.
 		return definitions.Count == _jobsByDefinition.Count ? _jobs.Values : definitions.SelectMany(GetJobsForDefinition);
 	}
@@ -35,26 +36,20 @@ public sealed partial class InMemoryJobStorage
 	private void AddJob(JobRecord job)
 	{
 		ValidateNewElement(_jobs, job.JobHandle) = job;
-		AddJobIndexes(job);
-	}
 
-	/// <remarks>
-	/// 	The caller must hold the <see cref="_gate"/> lock.
-	/// </remarks>
-	private void AddJobIndexes(JobRecord job)
-	{
 		AddSchedulingIndexes(job);
-		AddJobHandle(_jobsByDefinition, job.JobName, job.JobHandle);
+		AddJobHandle(job.JobName, job.JobHandle);
+
 		if (job.BatchHandle is { } batchHandle)
-			AddJobHandle(_jobsByBatch, batchHandle, job.JobHandle);
+			AddJobHandle(batchHandle, job.JobHandle);
 	}
 
 	/// <remarks>
 	/// 	The caller must hold the <see cref="_gate"/> lock while modifying the supplied storage index.
 	/// </remarks>
-	private static void AddJobHandle(Dictionary<BatchHandle, List<JobHandle>> index, BatchHandle key, JobHandle handle)
+	private void AddJobHandle(BatchHandle key, JobHandle handle)
 	{
-		ref var handles = ref CollectionsMarshal.GetValueRefOrAddDefault(index, key, out _);
+		ref var handles = ref CollectionsMarshal.GetValueRefOrAddDefault(_jobsByBatch, key, out _);
 		handles ??= [];
 		handles.Add(handle);
 	}
@@ -62,9 +57,9 @@ public sealed partial class InMemoryJobStorage
 	/// <remarks>
 	/// 	The caller must hold the <see cref="_gate"/> lock while modifying the supplied storage index.
 	/// </remarks>
-	private static void AddJobHandle(Dictionary<string, HashSet<JobHandle>> index, string key, JobHandle handle)
+	private void AddJobHandle(string key, JobHandle handle)
 	{
-		ref var handles = ref CollectionsMarshal.GetValueRefOrAddDefault(index, key, out _);
+		ref var handles = ref CollectionsMarshal.GetValueRefOrAddDefault(_jobsByDefinition, key, out _);
 		handles ??= [];
 		handles.Add(handle);
 	}
@@ -76,6 +71,7 @@ public sealed partial class InMemoryJobStorage
 	{
 		if (jobHandles.Count == 0)
 			return;
+
 		var single = jobHandles.Count == 1 ? jobHandles.First() : null;
 		var batches = new HashSet<BatchHandle>();
 		foreach (var handle in jobHandles)

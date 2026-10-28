@@ -5,15 +5,27 @@ namespace Immediate.Jobs.Shared.Storage;
 
 public sealed partial class InMemoryJobStorage
 {
-	private readonly record struct RunnableJob(DateTimeOffset DueAt, DateTimeOffset CreatedAt, JobHandle JobHandle);
-
-	private static readonly IComparer<RunnableJob> RunnableJobComparer = Comparer<RunnableJob>.Create(static (left, right) =>
+	private readonly record struct RunnableJob(DateTimeOffset DueAt, DateTimeOffset CreatedAt, JobHandle JobHandle) : IComparable<RunnableJob>
 	{
-		var order = left.DueAt.CompareTo(right.DueAt);
-		if (order == 0)
-			order = left.CreatedAt.CompareTo(right.CreatedAt);
-		return order != 0 ? order : StringComparer.Ordinal.Compare(left.JobHandle.Value, right.JobHandle.Value);
-	});
+		public int CompareTo(RunnableJob other)
+		{
+			var order = DueAt.CompareTo(other.DueAt);
+			if (order != 0)
+				return order;
+
+			order = CreatedAt.CompareTo(other.CreatedAt);
+			if (order != 0)
+				return order;
+
+			return StringComparer.Ordinal.Compare(JobHandle.Value, other.JobHandle.Value);
+
+		}
+
+		public static bool operator <(RunnableJob left, RunnableJob right) => Comparer<RunnableJob>.Default.Compare(left, right) < 0;
+		public static bool operator <=(RunnableJob left, RunnableJob right) => Comparer<RunnableJob>.Default.Compare(left, right) <= 0;
+		public static bool operator >(RunnableJob left, RunnableJob right) => Comparer<RunnableJob>.Default.Compare(left, right) > 0;
+		public static bool operator >=(RunnableJob left, RunnableJob right) => Comparer<RunnableJob>.Default.Compare(left, right) >= 0;
+	}
 
 	/// <remarks>
 	/// 	The caller must hold the <see cref="_gate"/> lock throughout this call and enumeration of the returned sequence.
@@ -24,10 +36,12 @@ public sealed partial class InMemoryJobStorage
 		{
 			if (!string.Equals(GetQueueName(name), queueName, StringComparison.Ordinal) || !_runnableJobs.TryGetValue(name, out var runnable))
 				continue;
+
 			foreach (var entry in runnable)
 			{
 				if (entry.DueAt > now)
 					break;
+
 				yield return _jobs[entry.JobHandle];
 			}
 		}
@@ -40,14 +54,17 @@ public sealed partial class InMemoryJobStorage
 	{
 		var wasRunnable = stored.State is JobState.Pending or JobState.Scheduled;
 		var isRunnable = updated.State is JobState.Pending or JobState.Scheduled;
+
 		var orderChanged = stored.DueAt != updated.DueAt || stored.CreatedAt != updated.CreatedAt;
 		if (wasRunnable && (!isRunnable || orderChanged))
 			RemoveRunnableJob(stored);
+
 		if (isRunnable && (!wasRunnable || orderChanged))
 			AddRunnableJob(updated);
 
 		var wasActive = stored.State == JobState.Active;
 		var isActive = updated.State == JobState.Active;
+
 		if (wasActive != isActive)
 			ChangeActiveJobCount(stored.JobName, isActive ? 1 : -1);
 
@@ -61,6 +78,7 @@ public sealed partial class InMemoryJobStorage
 	{
 		if (job.State is JobState.Pending or JobState.Scheduled)
 			AddRunnableJob(job);
+
 		if (job.State == JobState.Active)
 			ChangeActiveJobCount(job.JobName, 1);
 	}
@@ -72,6 +90,7 @@ public sealed partial class InMemoryJobStorage
 	{
 		if (job.State is JobState.Pending or JobState.Scheduled)
 			RemoveRunnableJob(job);
+
 		if (job.State == JobState.Active)
 			ChangeActiveJobCount(job.JobName, -1);
 	}
@@ -82,7 +101,7 @@ public sealed partial class InMemoryJobStorage
 	private void AddRunnableJob(JobRecord job)
 	{
 		ref var runnable = ref CollectionsMarshal.GetValueRefOrAddDefault(_runnableJobs, job.JobName, out _);
-		runnable ??= [with(RunnableJobComparer)];
+		runnable ??= [];
 		runnable.Add(new(job.DueAt, job.CreatedAt, job.JobHandle));
 	}
 
