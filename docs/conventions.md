@@ -95,8 +95,7 @@ A new diagnostic needs:
 
 ### Storage tests
 
-- `InternalsVisibleTo` is forbidden in `Immediate.Jobs.Shared`. Exercise acquisition through public
-  storage conformance methods; do not expose or independently test its internal selectors.
+- `InternalsVisibleTo` is forbidden in `Immediate.Jobs.Shared`.
 - Test provider-neutral storage behavior through conformance cases under
   `src/Immediate.Jobs.Testing/Storage` (see [testing](testing.md)). Cover a storage regression through
   that shared suite so it holds every applicable provider to the same rule. Avoid standalone tests
