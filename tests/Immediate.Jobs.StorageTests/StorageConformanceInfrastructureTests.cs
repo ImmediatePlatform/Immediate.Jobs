@@ -1,3 +1,5 @@
+using System.Reflection;
+using System.Runtime.CompilerServices;
 using Immediate.Jobs.Shared.Storage;
 using Immediate.Jobs.Testing;
 using Immediate.Jobs.Testing.Storage;
@@ -13,13 +15,17 @@ public sealed class StorageConformanceInfrastructureTests
 		StorageCapabilities.Graph;
 
 	[Fact]
+	public void SharedAssemblyDoesNotExposeInternals() =>
+		Assert.Empty(typeof(IJobStorage).Assembly.GetCustomAttributes<InternalsVisibleToAttribute>());
+
+	[Fact]
 	public void GetCasesAlwaysIncludesQueueTierAndRoutesOnlyAdvertisedOptionalSuites()
 	{
 		var queueCases = JobStorageConformanceSuite.GetCases(StorageCapabilities.Queue);
 		var graphCases = JobStorageConformanceSuite.GetCases(AllCapabilities);
 		var replicaCases = JobStorageConformanceSuite.GetCases(AllCapabilities, includeSingleServerReplicaCases: true);
 
-		Assert.Equal(74, queueCases.Count);
+		Assert.Equal(75, queueCases.Count);
 		Assert.All(queueCases, testCase => Assert.Equal(StorageCapabilities.Queue, testCase.RequiredCapabilities));
 		Assert.Contains(queueCases, testCase => testCase.Name.StartsWith("Recurring.", StringComparison.Ordinal));
 		Assert.Contains(queueCases, testCase => testCase.Name.StartsWith("FairQueues.", StringComparison.Ordinal));
@@ -27,6 +33,9 @@ public sealed class StorageConformanceInfrastructureTests
 		Assert.DoesNotContain(graphCases, testCase => testCase.Name.StartsWith("Replica.", StringComparison.Ordinal));
 		Assert.Contains(replicaCases, testCase => testCase.Name.StartsWith("Replica.", StringComparison.Ordinal));
 		Assert.Contains(replicaCases, testCase => string.Equals(testCase.Name, "Replica.Acquisition.WaitsUntilEnqueueHasUpdatedBothStores", StringComparison.Ordinal));
+		Assert.Contains(queueCases, testCase => string.Equals(testCase.Name, "Queue.Acquisition.DoesNotDuplicateClaimsAcrossRepeatedQueueEntries", StringComparison.Ordinal));
+		Assert.Equal(8, replicaCases.Count(testCase => testCase.Name.StartsWith("Replica.Acquisition.FailedClaimsPreserve", StringComparison.Ordinal)));
+		Assert.All(replicaCases, testCase => Assert.True(JobStorageConformanceSuite.AllCasesByName.ContainsKey(testCase.Name)));
 	}
 
 	[Fact]

@@ -12,6 +12,7 @@ internal static class QueueStorageConformance
 	private const string RoundTripName = "Queue.Enqueue.RoundTripsRecordAndRejectsDuplicate";
 	private const string DueName = "Queue.Acquisition.ExcludesFutureJobs";
 	private const string CapacityName = "Queue.Acquisition.HonorsOrderingAndCapacities";
+	private const string RepeatedQueueName = "Queue.Acquisition.DoesNotDuplicateClaimsAcrossRepeatedQueueEntries";
 	private const string ContentionName = "Queue.Acquisition.ClaimsEachJobOnceUnderContention";
 	private const string LeaseName = "Queue.Leases.ReclaimsExpiredLeaseAndRejectsStaleOwner";
 	private const string CompletionName = "Queue.Executions.PersistsTelemetryCompletionAndHistory";
@@ -30,6 +31,7 @@ internal static class QueueStorageConformance
 		new(RoundTripName, StorageCapabilities.Queue, RoundTripsRecordAsync),
 		new(DueName, StorageCapabilities.Queue, ExcludesFutureAndParkedAsync),
 		new(CapacityName, StorageCapabilities.Queue, HonorsOrderingAndCapacitiesAsync),
+		new(RepeatedQueueName, StorageCapabilities.Queue, ClaimsOnceAcrossRepeatedQueuesAsync),
 		new(ContentionName, StorageCapabilities.Queue, ClaimsOnceUnderContentionAsync),
 		new(CompletionName, StorageCapabilities.Queue, PersistsCompletionAsync),
 		new(FailureName, StorageCapabilities.Queue, PersistsFailureRetryAndCancellationAsync),
@@ -213,6 +215,26 @@ internal static class QueueStorageConformance
 			CapacityName,
 			"every acquired projection must contain active ownership and execution ordinal"
 		);
+	}
+
+	private static async ValueTask ClaimsOnceAcrossRepeatedQueuesAsync(IJobStorage storage, FakeTimeProvider clock, CancellationToken token)
+	{
+		await storage.MergeJobDefinitionsListAsync(new()
+		{
+			Definitions = [new() { Name = "conformance-job" }],
+			RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase),
+		}, token);
+		await storage.EnqueueAsync(CreateJob("a", clock.GetUtcNow()), token);
+		await storage.EnqueueAsync(CreateJob("b", clock.GetUtcNow()), token);
+		var request = CreateRequest("repeated-queue-worker", 1) with { BatchSize = 2 };
+		request = request with { Queues = [request.Queues[0], request.Queues[0]] };
+
+		var acquired = await storage.AcquireDueJobsAsync(request, token);
+
+		ConformanceAssert.SequenceEqual(["a", "b"], acquired.Select(static job => job.JobHandle.Value), RepeatedQueueName,
+			"repeated queue entries must advance to the next due job rather than duplicate a claim");
+		ConformanceAssert.True(acquired.All(static job => job.Attempt == 1), RepeatedQueueName,
+			"a repeated queue entry must not create a second execution of the same job");
 	}
 
 	private static async ValueTask ClaimsOnceUnderContentionAsync(

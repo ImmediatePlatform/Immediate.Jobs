@@ -24,6 +24,10 @@ Test each invariant at the layer that owns it:
 Avoid testing framework behavior or repeating assertions already covered at another layer. Review
 snapshot differences before accepting generated output changes.
 
+`Immediate.Jobs.Shared` must not expose internals through `InternalsVisibleTo`, including to test
+assemblies. Exercise acquisition through the public storage conformance methods across providers
+and topologies; do not add independent tests of `InMemoryJobStorage`'s internal acquisition helpers.
+
 ## The conformance suite
 
 `src/Immediate.Jobs.Testing/Storage` ships in the Testing package so custom providers can run the same

@@ -30,6 +30,7 @@ internal static partial class ReplicaStorageConformance
 		new(InterruptedRecoveryName, StorageCapabilities.Graph, InterruptsBeforeSnapshotAsync),
 		new(HeartbeatName, StorageCapabilities.Graph, PersistsSingleServerHeartbeatsAsync),
 		new(EnqueueRaceName, StorageCapabilities.Graph, AcquisitionWaitsUntilEnqueueHasUpdatedBothStoresAsync),
+		.. CreateAcquisitionCases(),
 		new(ExactDueName, StorageCapabilities.Graph, ClaimsExactlyRequestedDueJobsAsync),
 		new(DuplicateName, StorageCapabilities.Graph, IgnoresDuplicateAndMissingIdsAsync),
 		new(RequestedOrderName, StorageCapabilities.Graph, PreservesRequestedOrderAsync),
