@@ -1,6 +1,6 @@
 namespace Immediate.Jobs.Redis;
 
-internal static class RedisScripts
+internal static partial class RedisScripts
 {
 	private const string FairQueueFunctions =
 		"""
@@ -159,8 +159,9 @@ internal static class RedisScripts
 
 	internal const string DefinitionStates = DefinitionFunctions +
 		"""
+		if (redis.call('GET', KEYS[1]) or '0') ~= ARGV[4] then return nil end
 		local results = {}
-		for position = 4, #ARGV, 7 do
+		for position = 5, #ARGV, 7 do
 			results[#results + 1] = definitionState(ARGV[1], ARGV[position], readLimits(ARGV, position + 1), tonumber(ARGV[2]), ARGV[3], true)
 		end
 		return results
@@ -219,7 +220,7 @@ internal static class RedisScripts
 		""";
 
 	internal const string Acquire =
-		DefinitionFunctions + FairQueueFunctions + ExecutionFunctions +
+		DefinitionFunctions + FairQueueFunctions + ExecutionFunctions + JobReadFunctions +
 		"""
 		local nowScore = tonumber(ARGV[1])
 		local leaseScore = tonumber(ARGV[2])
@@ -326,11 +327,10 @@ internal static class RedisScripts
 			recordDefinitionAcquisition(root, candidate.jobName, queue.jobLimits[candidate.jobName], nowTimestamp, candidate.id, attempt)
 			definitionStatuses[candidate.jobName] = nil
 			cachedDefinitionStatus(queue, candidate.jobName)
-			table.insert(acquired, candidate.id)
-			table.insert(acquired, queue.name)
+			table.insert(acquired, readJob(root, key))
 			acquiredCount = acquiredCount + 1
 		end
-		local definitions = redis.call('HGETALL', root .. 'definition-metadata')
+		local definitions = fair and redis.call('HGETALL', root .. 'definition-metadata') or {}
 		for _, queue in ipairs(queues) do
 			local remaining = math.min(queue.capacity, batchSize - acquiredCount)
 			local groups, active, total, served, sequence = {}, {}, 0, {}, 0
@@ -594,23 +594,21 @@ internal static class RedisScripts
 
 	internal const string Purge =
 		"""
-		if redis.call('EXISTS', KEYS[1]) == 0 then
-			redis.call('DEL', KEYS[6], KEYS[7])
-			redis.call('ZREM', KEYS[2], ARGV[1])
-			return 0
+		local ids = redis.call('ZRANGEBYSCORE', KEYS[1], '-inf', '(' .. ARGV[3], 'LIMIT', 0, ARGV[4])
+		for _, id in ipairs(ids) do
+			local key = ARGV[1] .. 'job:' .. id
+			local values = redis.call('HMGET', key, 'state', 'recurringKey')
+			if not values[1] or values[1] == ARGV[2] then
+				redis.call('DEL', key, ARGV[1] .. 'executions:index:' .. id, ARGV[1] .. 'executions:data:' .. id)
+				redis.call('ZREM', KEYS[2], id)
+				redis.call('SREM', KEYS[3], id)
+				if values[2] and values[2] ~= '' and redis.call('HGET', KEYS[4], values[2]) == id then
+					redis.call('HDEL', KEYS[4], values[2])
+				end
+			end
+			redis.call('ZREM', KEYS[1], id)
 		end
-		local values = redis.call('HMGET', KEYS[1], 'state', 'completed', 'recurringKey')
-		if values[1] ~= ARGV[2] then
-			redis.call('ZREM', KEYS[2], ARGV[1])
-			return 0
-		end
-		redis.call('DEL', KEYS[1])
-		redis.call('DEL', KEYS[6], KEYS[7])
-		redis.call('ZREM', KEYS[2], ARGV[1])
-		redis.call('ZREM', KEYS[3], ARGV[1])
-		redis.call('SREM', KEYS[4], ARGV[1])
-		if values[3] and values[3] ~= '' then redis.call('HDEL', KEYS[5], values[3]) end
-		return 1
+		return #ids
 		""";
 
 	private const string RecurringDueFunctions =
@@ -710,12 +708,12 @@ internal static class RedisScripts
 		return reports
 		""";
 
-	internal const string GetDueRecurringForJobs =
+	internal const string GetDueRecurringForJobs = RecurringReadFunctions +
 		"""
 		local limit = tonumber(ARGV[3])
 		local result, jobs, seen = {}, {}, {}
 		if limit <= 0 then return result end
-		for index = 4, #ARGV do
+		for index = 5, #ARGV do
 			local jobName = ARGV[index]
 			if not jobs[jobName] then
 				jobs[jobName] = true
@@ -724,8 +722,9 @@ internal static class RedisScripts
 				for _, member in ipairs(members) do
 					local name = string.match(member, '^[^|]+|(.+)$')
 					local scheduleKey = ARGV[1] .. 'recurring:' .. name
-					local current = redis.call('HMGET', scheduleKey, 'paused', 'dueMember', 'jobName')
-					if current[1] ~= '1' and current[2] == member and current[3] == jobName and not seen[member] then
+					local current = redis.call('HMGET', scheduleKey, 'paused', 'dueMember', 'jobName', 'next')
+					if current[1] ~= '1' and current[2] == member and current[3] == jobName
+						and current[4] <= ARGV[4] and not seen[member] then
 						seen[member] = true
 						table.insert(result, member)
 					end
@@ -734,7 +733,9 @@ internal static class RedisScripts
 		end
 		table.sort(result)
 		while #result > limit do table.remove(result) end
-		return result
+		local names = {}
+		for _, member in ipairs(result) do names[#names + 1] = string.match(member, '^[^|]+|(.+)$') end
+		return readRecurring(ARGV[1], names)
 		""";
 
 	internal const string UpsertRecurring =

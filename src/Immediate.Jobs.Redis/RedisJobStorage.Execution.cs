@@ -1,4 +1,4 @@
-using System.Globalization;
+using Immediate.Jobs.Shared.Apis;
 using Microsoft.Extensions.Logging;
 using StackExchange.Redis;
 
@@ -43,8 +43,20 @@ internal sealed partial class RedisJobStorage
 		ThrowIfNotOwned(result, jobHandle, workerId);
 	}
 
-	private static RedisValue ExecutionField(int executionNumber, string name) =>
-		string.Create(CultureInfo.InvariantCulture, $"{executionNumber}:{name}");
+	private static JobExecutionRecord ToExecutionRecord(JobHandle jobHandle, RedisValue[] values) => new()
+	{
+		JobHandle = jobHandle,
+		Attempt = ParseInt32(values[0]),
+		State = (JobExecutionState)ParseInt32(values[1]),
+		WorkerId = NullIfEmpty(values[2]),
+		AcquiredAt = FromNullableTimestamp(values[3]),
+		ExecutionStartedAt = FromNullableTimestamp(values[4]),
+		CompletedAt = FromNullableTimestamp(values[5]),
+		ExecutionTraceId = NullIfEmpty(values[6]),
+		ExecutionSpanId = NullIfEmpty(values[7]),
+		Error = NullIfEmpty(values[8]),
+		IsSynthetic = values[9] == "1",
+	};
 
 	[LoggerMessage(
 		EventId = LibraryEventIds.SetExecutionTelemetryAsyncCalled,

@@ -397,7 +397,8 @@ internal static class RecurringStorageConformance
 		var second = Schedule("due-second", now.AddMinutes(-1), isCodeDefined: false);
 		var paused = Schedule("due-paused", now.AddMinutes(-3), isCodeDefined: false) with { IsPaused = true };
 		var future = Schedule("due-future", now.AddMinutes(1), isCodeDefined: false);
-		foreach (var schedule in new[] { future, second, paused, first })
+		var fractionalFuture = Schedule("due-fractional", now.AddTicks(5000), isCodeDefined: false);
+		foreach (var schedule in new[] { future, fractionalFuture, second, paused, first })
 			await storage.UpsertRecurringAsync(schedule, cancellationToken);
 
 		var firstPage = await storage.GetDueRecurringAsync(now, 1, [JobName], cancellationToken);
@@ -414,6 +415,10 @@ internal static class RecurringStorageConformance
 			DueScanName,
 			"a due scan must exclude paused and future schedules"
 		);
+
+		var fractionalDue = await storage.GetDueRecurringAsync(now.AddTicks(2500), 10, [JobName], cancellationToken);
+		ConformanceAssert.SequenceEqual([first.Name, second.Name], fractionalDue.Select(static schedule => schedule.Name),
+			DueScanName, "a due scan must exclude future schedules within the same millisecond");
 	}
 
 	private static async ValueTask MaterializesAtomicallyAsync(
