@@ -134,6 +134,32 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 		}
 	}
 
+	private static async Task<(ImmediateJobEntity Job, ImmediateJobExecutionEntity Execution)> GetOwnedExecutionAsync(
+		TContext context,
+		JobHandle jobHandle,
+		int executionNumber,
+		string workerId,
+		CancellationToken cancellationToken
+	)
+	{
+		var owned = await (
+			from job in context.Set<ImmediateJobEntity>()
+			where job.Id == jobHandle.Value && job.Attempt == executionNumber && job.State == JobState.Active && job.WorkerId == workerId
+			join execution in context.Set<ImmediateJobExecutionEntity>() on new { JobHandle = job.Id, job.Attempt }
+				equals new { execution.JobHandle, execution.Attempt } into executions
+			from execution in executions.DefaultIfEmpty()
+			select new { Job = job, Execution = execution }
+		).SingleOrDefaultAsync(cancellationToken)
+			?? throw new ImmediateJobException($"Worker '{workerId}' does not own active job '{jobHandle}'.");
+		if (owned.Execution is { } existing)
+			return (owned.Job, existing);
+		var synthetic = JobExecutionRecord.CreateSynthetic(ToRecord(owned.Job))
+			?? throw new ImmediateJobException($"Active job '{owned.Job.Id}' has no execution ordinal.");
+		var materialized = ToEntity(synthetic);
+		context.Add(materialized);
+		return (owned.Job, materialized);
+	}
+
 	private ValueTask MutateOwnedAsync(
 		JobHandle jobHandle,
 		int executionNumber,
@@ -160,10 +186,7 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 	)
 	{
 		await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
-		var job = await context.Set<ImmediateJobEntity>()
-			.SingleOrDefaultAsync(item => item.Id == jobHandle.Value && item.Attempt == executionNumber && item.State == JobState.Active && item.WorkerId == workerId, cancellationToken) ?? throw new ImmediateJobException($"Worker '{workerId}' does not own active job '{jobHandle}'.");
-		var execution = await GetOrMaterializeExecutionAsync(context, job, cancellationToken)
-			?? throw new ImmediateJobException($"Active job '{job.Id}' has no execution ordinal.");
+		var (job, execution) = await GetOwnedExecutionAsync(context, jobHandle, executionNumber, workerId, cancellationToken);
 		mutate(job, execution);
 		job.ConcurrencyStamp = Guid.NewGuid();
 		try
@@ -192,11 +215,8 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 	{
 		await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 		await using var transaction = await context.Database.BeginTransactionAsync(additions.Count == 0 ? IsolationLevel.ReadCommitted : IsolationLevel.Serializable, cancellationToken);
-		var job = await context.Set<ImmediateJobEntity>()
-			.SingleOrDefaultAsync(item => item.Id == jobHandle.Value && item.Attempt == executionNumber && item.State == JobState.Active && item.WorkerId == workerId, cancellationToken) ?? throw new ImmediateJobException($"Worker '{workerId}' does not own active job '{jobHandle}'.");
+		var (job, execution) = await GetOwnedExecutionAsync(context, jobHandle, executionNumber, workerId, cancellationToken);
 		var now = _timeProvider.GetUtcNow();
-		var execution = await GetOrMaterializeExecutionAsync(context, job, cancellationToken)
-			?? throw new ImmediateJobException($"Active job '{job.Id}' has no execution ordinal.");
 		execution.State = succeeded ? JobExecutionState.Succeeded : JobExecutionState.Failed;
 		execution.CompletedAt = now;
 		execution.Error = error;
@@ -226,7 +246,6 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 		var terminalGroups = GetTerminalFairQueueGroups(context);
 		_ = await context.SaveChangesAsync(cancellationToken);
 		await transaction.CommitAsync(cancellationToken);
-		foreach (var (queueName, groupId) in terminalGroups)
-			await TryRemoveFairQueueCursorAsync(queueName, groupId, CancellationToken.None);
+		await TryRemoveFairQueueCursorsAsync(terminalGroups, CancellationToken.None);
 	}
 }

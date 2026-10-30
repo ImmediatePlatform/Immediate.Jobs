@@ -102,128 +102,127 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 		CancellationToken cancellationToken
 	)
 	{
-		var waiterIds = await context.Set<ImmediateJobContinuationEntity>()
-			.Where(edge => edge.ParentKind == ContinuationParentKind.Job && edge.ParentId == currentJobHandle.Value)
-			.Select(edge => edge.ChildJobHandle)
-			.Distinct()
+		return await context.Set<ImmediateJobEntity>()
+			.Where(job => (job.State == JobState.AwaitingContinuation || job.State == JobState.WaitingForTrigger)
+				&& context.Set<ImmediateJobContinuationEntity>().Any(edge => edge.ParentKind == ContinuationParentKind.Job
+					&& edge.ParentId == currentJobHandle.Value && edge.ChildJobHandle == job.Id))
 			.ToListAsync(cancellationToken);
-		return waiterIds.Count == 0
-			? []
-			: await context.Set<ImmediateJobEntity>()
-				.Where(job => waiterIds.Contains(job.Id) && (job.State == JobState.AwaitingContinuation || job.State == JobState.WaitingForTrigger))
-				.ToListAsync(cancellationToken);
 	}
+
+	private static Task PropagateTerminalAsync(
+		TContext context,
+		ImmediateJobEntity terminalJob,
+		DateTimeOffset now,
+		CancellationToken cancellationToken
+	) => PropagateTerminalAsync(context, [terminalJob], now, cancellationToken);
 
 	private static async Task PropagateTerminalAsync(
 		TContext context,
-		ImmediateJobEntity terminalJob,
+		IReadOnlyList<ImmediateJobEntity> terminalJobs,
 		DateTimeOffset now,
 		CancellationToken cancellationToken
 	)
 	{
 		var parents = new Queue<(ContinuationParentKind Kind, string Id, ContinuationParentOutcome Outcome)>();
 		var processed = new HashSet<(ContinuationParentKind Kind, string Id)>();
-		parents.Enqueue((
-			ContinuationParentKind.Job,
-			terminalJob.Id,
-			GetParentOutcome(terminalJob.State)
-		));
-		await UpdateBatchForTerminalJobAsync(context, terminalJob, now, parents, cancellationToken);
-
-		while (parents.TryDequeue(out var parent))
+		await LoadBatchesAsync(context, terminalJobs, cancellationToken);
+		foreach (var job in terminalJobs)
 		{
-			if (!processed.Add((parent.Kind, parent.Id)))
-				continue;
-			var edges = await context.Set<ImmediateJobContinuationEntity>()
-				.Where(edge => edge.ParentKind == parent.Kind
-					&& edge.ParentId == parent.Id
-					&& edge.ParentOutcome == ContinuationParentOutcome.Unsettled)
-				.ToListAsync(cancellationToken);
-			foreach (var edge in edges)
+			parents.Enqueue((ContinuationParentKind.Job, job.Id, GetParentOutcome(job.State)));
+			await UpdateBatchForTerminalJobAsync(context, job, now, parents, cancellationToken);
+		}
+
+		while (parents.Count != 0)
+		{
+			var frontier = new Dictionary<(ContinuationParentKind Kind, string Id), ContinuationParentOutcome>();
+			while (frontier.Count < 1000 && parents.TryDequeue(out var parent))
 			{
-				edge.ParentOutcome = parent.Outcome;
-				var child = await context.Set<ImmediateJobEntity>()
-					.SingleOrDefaultAsync(job => job.Id == edge.ChildJobHandle, cancellationToken);
-				if (child is null || IsTerminal(child.State))
-					continue;
+				if (processed.Add((parent.Kind, parent.Id)))
+					frontier.Add((parent.Kind, parent.Id), parent.Outcome);
+			}
 
-				if (child.State is not (JobState.AwaitingContinuation or JobState.WaitingForTrigger) || child.RemainingDependencies <= 0)
-					continue;
-				child.RemainingDependencies--;
-				if (parent.Outcome == ContinuationParentOutcome.Failed)
-					child.FailedDependencies++;
-				if (child.RemainingDependencies == 0)
+			if (frontier.Count == 0)
+				continue;
+			var jobIds = frontier.Keys.Where(static key => key.Kind == ContinuationParentKind.Job).Select(static key => key.Id).ToList();
+			var batchIds = frontier.Keys.Where(static key => key.Kind == ContinuationParentKind.Batch).Select(static key => key.Id).ToList();
+			var edges = await context.Set<ImmediateJobContinuationEntity>()
+				.Where(edge => edge.ParentOutcome == ContinuationParentOutcome.Unsettled &&
+					((edge.ParentKind == ContinuationParentKind.Job && jobIds.Contains(edge.ParentId)) ||
+					(edge.ParentKind == ContinuationParentKind.Batch && batchIds.Contains(edge.ParentId))))
+				.ToListAsync(cancellationToken);
+			foreach (var childIds in edges.Select(static edge => edge.ChildJobHandle).Distinct(StringComparer.Ordinal).Chunk(1000))
+			{
+				var children = await context.Set<ImmediateJobEntity>()
+					.Where(job => childIds.Contains(job.Id))
+					.ToDictionaryAsync(static job => job.Id, StringComparer.Ordinal, cancellationToken);
+				var incoming = (await context.Set<ImmediateJobContinuationEntity>()
+					.Where(edge => childIds.Contains(edge.ChildJobHandle))
+					.ToListAsync(cancellationToken))
+					.ToLookup(static edge => edge.ChildJobHandle, StringComparer.Ordinal);
+				await LoadBatchesAsync(context, children.Values, cancellationToken);
+				foreach (var edge in childIds.SelectMany(id => incoming[id]).Where(edge =>
+					edge.ParentOutcome == ContinuationParentOutcome.Unsettled && frontier.ContainsKey((edge.ParentKind, edge.ParentId))))
 				{
-					var skip = await ShouldSkipSettledContinuationAsync(
-						context,
-						child.Id,
-						cancellationToken
-					);
-					if (skip)
-					{
-						child.State = JobState.Skipped;
-						child.CompletedAt = now;
-						parents.Enqueue((ContinuationParentKind.Job, child.Id, ContinuationParentOutcome.Other));
-						await UpdateBatchForTerminalJobAsync(context, child, now, parents, cancellationToken);
-					}
-					else if (child.State != JobState.WaitingForTrigger)
-					{
-						var delay = await GetMaximumContinuationDelayAsync(
-							context,
-							child.Id,
-							cancellationToken
-						);
-						var delayedDueAt = now + delay;
-						if (child.DueAt < delayedDueAt)
-							child.DueAt = delayedDueAt;
-						child.State = child.DueAt <= now ? JobState.Pending : JobState.Scheduled;
-					}
-				}
+					edge.ParentOutcome = frontier[(edge.ParentKind, edge.ParentId)];
+					if (!children.TryGetValue(edge.ChildJobHandle, out var child) || IsTerminal(child.State)
+						|| child.State is not (JobState.AwaitingContinuation or JobState.WaitingForTrigger) || child.RemainingDependencies <= 0)
+						continue;
 
-				child.ConcurrencyStamp = Guid.NewGuid();
+					child.RemainingDependencies--;
+					if (edge.ParentOutcome == ContinuationParentOutcome.Failed)
+						child.FailedDependencies++;
+					if (child.RemainingDependencies == 0)
+					{
+						var (skip, delay) = EvaluateContinuation(incoming[child.Id]);
+						if (skip)
+						{
+							child.State = JobState.Skipped;
+							child.CompletedAt = now;
+							parents.Enqueue((ContinuationParentKind.Job, child.Id, ContinuationParentOutcome.Other));
+							await UpdateBatchForTerminalJobAsync(context, child, now, parents, cancellationToken);
+						}
+						else if (child.State != JobState.WaitingForTrigger)
+						{
+							var delayedDueAt = now + delay;
+							if (child.DueAt < delayedDueAt)
+								child.DueAt = delayedDueAt;
+							child.State = child.DueAt <= now ? JobState.Pending : JobState.Scheduled;
+						}
+					}
+
+					child.ConcurrencyStamp = Guid.NewGuid();
+				}
 			}
 		}
 	}
 
-	private static async Task<TimeSpan> GetMaximumContinuationDelayAsync(
-		TContext context,
-		string childJobHandle,
-		CancellationToken cancellationToken
-	)
+	private static async Task LoadBatchesAsync(TContext context, IEnumerable<ImmediateJobEntity> jobs, CancellationToken cancellationToken)
 	{
-		var delays = await context.Set<ImmediateJobContinuationEntity>()
-			.Where(edge => edge.ChildJobHandle == childJobHandle)
-			.Select(edge => edge.Delay)
-			.ToListAsync(cancellationToken);
-		return delays.Count == 0
-			? TimeSpan.Zero
-			: delays.Max(static delay => TimeSpan.Parse(delay, CultureInfo.InvariantCulture));
+		var tracked = context.Set<ImmediateJobBatchEntity>().Local.Select(static batch => batch.Id).ToHashSet(StringComparer.Ordinal);
+		foreach (var ids in jobs.Where(static job => job.BatchHandle != null).Select(static job => job.BatchHandle!)
+			.Distinct(StringComparer.Ordinal).Where(id => !tracked.Contains(id)).Chunk(1000))
+		{
+			await context.Set<ImmediateJobBatchEntity>().Where(batch => ids.Contains(batch.Id)).LoadAsync(cancellationToken);
+		}
 	}
 
-	private static async Task<bool> ShouldSkipSettledContinuationAsync(
-		TContext context,
-		string childJobHandle,
-		CancellationToken cancellationToken
-	)
+	private static (bool Skip, TimeSpan Delay) EvaluateContinuation(IEnumerable<ImmediateJobContinuationEntity> edges)
 	{
-		var edges = await context.Set<ImmediateJobContinuationEntity>()
-			.Where(edge => edge.ChildJobHandle == childJobHandle)
-			.ToListAsync(cancellationToken);
 		var requiresFailure = false;
 		var anyFailed = false;
+		var violated = false;
+		TimeSpan? delay = null;
 		foreach (var edge in edges)
 		{
-			if (edge.Trigger == ContinuationTrigger.Success
-				&& edge.ParentOutcome != ContinuationParentOutcome.Succeeded)
-			{
-				return true;
-			}
-
+			violated |= edge.Trigger == ContinuationTrigger.Success && edge.ParentOutcome != ContinuationParentOutcome.Succeeded;
 			requiresFailure |= edge.Trigger == ContinuationTrigger.Failure;
 			anyFailed |= edge.ParentOutcome == ContinuationParentOutcome.Failed;
+			var edgeDelay = TimeSpan.Parse(edge.Delay, CultureInfo.InvariantCulture);
+			if (delay is null || edgeDelay > delay)
+				delay = edgeDelay;
 		}
 
-		return requiresFailure && !anyFailed;
+		return (violated || (requiresFailure && !anyFailed), delay ?? TimeSpan.Zero);
 	}
 
 	private static async Task UpdateBatchForTerminalJobAsync(
@@ -236,8 +235,8 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 	{
 		if (job.BatchHandle is not { } batchHandle)
 			return;
-		var batch = await context.Set<ImmediateJobBatchEntity>()
-			.SingleAsync(item => item.Id == batchHandle, cancellationToken);
+		var batch = await context.Set<ImmediateJobBatchEntity>().FindAsync([batchHandle], cancellationToken)
+			?? throw new DbUpdateConcurrencyException();
 		batch.PendingCount = Math.Max(0, batch.PendingCount - 1);
 		switch (job.State)
 		{

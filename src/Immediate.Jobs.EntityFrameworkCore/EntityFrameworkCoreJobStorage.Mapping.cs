@@ -52,22 +52,6 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 			IsSynthetic = execution.IsSynthetic,
 		};
 
-	private static JobExecutionRecord ToRecord(ImmediateJobExecutionEntity execution) =>
-		new()
-		{
-			JobHandle = JobHandle.FromString(execution.JobHandle),
-			Attempt = execution.Attempt,
-			State = execution.State,
-			WorkerId = execution.WorkerId,
-			AcquiredAt = execution.AcquiredAt,
-			ExecutionStartedAt = execution.ExecutionStartedAt,
-			CompletedAt = execution.CompletedAt,
-			ExecutionTraceId = execution.ExecutionTraceId,
-			ExecutionSpanId = execution.ExecutionSpanId,
-			Error = execution.Error,
-			IsSynthetic = execution.IsSynthetic,
-		};
-
 	private static ImmediateJobContinuationEntity ToEntity(JobContinuationEdge edge)
 	{
 		var (parentKind, parentId) = (edge.ParentJobHandle, edge.ParentBatchHandle) switch

@@ -1,3 +1,4 @@
+using System.Linq.Expressions;
 using System.Text.Json;
 using Immediate.Jobs.Shared.Apis;
 using Immediate.Jobs.Shared.Storage;
@@ -31,48 +32,56 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 	private async ValueTask<IReadOnlyList<JobAcquisitionState>> ReadDefinitionStatusesAsync(CancellationToken cancellationToken)
 	{
 		await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
-		var definitions = await ReadJobDefinitionsAsync(context, cancellationToken);
-		if (definitions.Count == 0)
-			return [];
-		return await ReadDefinitionStatusesAsync(context, definitions, _timeProvider.GetUtcNow(), cancellationToken);
+		return await ReadDefinitionStatusesAsync(context, context.Set<ImmediateJobDefinitionMetadataEntity>(),
+			_timeProvider.GetUtcNow(), cancellationToken);
 	}
 
 	private static async Task<IReadOnlyList<JobAcquisitionState>> ReadDefinitionStatusesAsync(
 		TContext context,
-		IReadOnlyList<JobDefinitionRecord> definitions,
+		IQueryable<ImmediateJobDefinitionMetadataEntity> metadata,
 		DateTimeOffset now,
 		CancellationToken cancellationToken,
 		bool includeActiveCount = true
 	)
 	{
-		var names = definitions.Select(static definition => definition.Name).ToList();
-		var states = (await context.Set<ImmediateJobDefinitionEntity>().AsNoTracking()
-			.Where(state => names.Contains(state.JobName)).ToListAsync(cancellationToken))
-			.ToDictionary(static state => state.JobName, StringComparer.OrdinalIgnoreCase);
-		var activeNames = includeActiveCount ? names : definitions
-			.Where(static definition => definition.MaxConcurrency > 0)
-			.Select(static definition => definition.Name)
-			.ToList();
-		Dictionary<string, int> active = activeNames.Count == 0 ? [with(StringComparer.OrdinalIgnoreCase)] : (await context.Set<ImmediateJobEntity>().AsNoTracking()
-			.Where(job => activeNames.Contains(job.JobName) && job.State == JobState.Active && job.LeaseExpiresAt > now)
-			.GroupBy(job => job.JobName).Select(group => new { Name = group.Key, Count = group.Count() })
-			.ToListAsync(cancellationToken)).ToDictionary(static group => group.Name, static group => group.Count, StringComparer.OrdinalIgnoreCase);
-		var periods = definitions.Where(static definition => definition.SlidingWindowPeriod is not null)
-			.Select(static definition => definition.SlidingWindowPeriod!.Value).ToList();
-		var cutoff = now - (periods.Count == 0 ? TimeSpan.Zero : periods.Max());
-		var acquisitions = periods.Count == 0 ? [] : await context.Set<ImmediateJobAcquisitionEntity>().AsNoTracking()
-			.Where(acquisition => names.Contains(acquisition.JobName) && acquisition.AcquiredAt > cutoff)
-			.OrderBy(acquisition => acquisition.AcquiredAt).ToListAsync(cancellationToken);
-		var byName = acquisitions.ToLookup(static acquisition => acquisition.JobName, StringComparer.OrdinalIgnoreCase);
-		return [.. definitions.Select(definition =>
+		var snapshots = await (
+			from item in metadata.AsNoTracking()
+			join usage in context.Set<ImmediateJobDefinitionEntity>() on item.Name equals usage.JobName into usages
+			from usage in usages.DefaultIfEmpty()
+			select new
+			{
+				Metadata = item,
+				IsPaused = usage != null && usage.IsPaused,
+				FixedWindowStart = usage == null ? null : usage.FixedWindowStart,
+				FixedWindowCount = usage == null ? 0 : usage.FixedWindowCount,
+				ActiveCount = includeActiveCount || item.MaxConcurrency > 0
+					? context.Set<ImmediateJobEntity>().Count(job => job.JobName == item.Name && job.State == JobState.Active && job.LeaseExpiresAt > now)
+					: 0,
+			}).ToListAsync(cancellationToken);
+		var definitions = snapshots.OrderBy(static snapshot => snapshot.Metadata.Name, StringComparer.OrdinalIgnoreCase)
+			.Select(snapshot => new { State = snapshot, Definition = ToRecord(snapshot.Metadata) }).ToList();
+		var windows = definitions.Where(static item => item.Definition.SlidingWindowPeriod != null)
+			.GroupBy(static item => item.Definition.SlidingWindowPeriod!.Value).ToList();
+		Expression<Func<ImmediateJobAcquisitionEntity, bool>> predicate = static _ => false;
+		foreach (var window in windows)
 		{
-			var state = states.GetValueOrDefault(definition.Name);
-			var limits = definition.AcquisitionLimits;
-			return JobAcquisitionEvaluator.Evaluate(definition.Name, state?.IsPaused ?? false, limits, now,
-				limits.SlidingWindowPeriod is { } period
-					? byName[definition.Name].Where(acquisition => acquisition.AcquiredAt > now - period).Select(static acquisition => acquisition.AcquiredAt).ToList() : [],
-				state?.FixedWindowStart, state?.FixedWindowCount ?? 0, active.GetValueOrDefault(definition.Name));
-		})];
+			var names = window.Select(static item => item.Definition.Name).ToList();
+			var cutoff = now - window.Key;
+			Expression<Func<ImmediateJobAcquisitionEntity, bool>> inWindow = acquisition =>
+				names.Contains(acquisition.JobName) && acquisition.AcquiredAt > cutoff;
+			predicate = Expression.Lambda<Func<ImmediateJobAcquisitionEntity, bool>>(
+				Expression.OrElse(predicate.Body, Expression.Invoke(inWindow, predicate.Parameters)), predicate.Parameters);
+		}
+
+		var acquisitions = windows.Count == 0 ? [] : await context.Set<ImmediateJobAcquisitionEntity>()
+			.Where(predicate).OrderBy(acquisition => acquisition.AcquiredAt)
+			.Select(acquisition => new { acquisition.JobName, acquisition.AcquiredAt })
+			.ToListAsync(cancellationToken);
+		var byName = acquisitions.ToLookup(static acquisition => acquisition.JobName, StringComparer.OrdinalIgnoreCase);
+		return [.. definitions.Select(item => JobAcquisitionEvaluator.Evaluate(
+			item.Definition.Name, item.State.IsPaused, item.Definition.AcquisitionLimits, now,
+			byName[item.Definition.Name].Select(static acquisition => acquisition.AcquiredAt).ToList(),
+			item.State.FixedWindowStart, item.State.FixedWindowCount, item.State.ActiveCount))];
 	}
 
 	/// <inheritdoc />
@@ -204,49 +213,61 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 		await TaskScheduler.Yield();
 
 		await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
-		var job = await JobsWithDefinitions(context)
-			.AsNoTracking()
-			.SingleOrDefaultAsync(item => item.Id == jobHandle.Value, cancellationToken);
-		if (job is null)
-			return [];
-
-		var executions = context.Set<ImmediateJobExecutionEntity>()
-			.AsNoTracking()
-			.Where(execution => execution.JobHandle == jobHandle.Value);
+		var jobs = context.Set<ImmediateJobEntity>().Where(job => job.Id == jobHandle.Value);
+		var persisted = context.Set<ImmediateJobExecutionEntity>()
+			.Where(execution => execution.JobHandle == jobHandle.Value && jobs.Any())
+			.Select(execution => new
+			{
+				execution.JobHandle,
+				execution.Attempt,
+				State = (short)execution.State,
+				execution.WorkerId,
+				execution.AcquiredAt,
+				execution.ExecutionStartedAt,
+				execution.CompletedAt,
+				execution.ExecutionTraceId,
+				execution.ExecutionSpanId,
+				execution.Error,
+				execution.IsSynthetic,
+			});
+		var synthetic = jobs.Where(job => job.Attempt > 0 && !context.Set<ImmediateJobExecutionEntity>()
+			.Any(execution => execution.JobHandle == job.Id && execution.Attempt == job.Attempt))
+			.Select(job => new
+			{
+				JobHandle = job.Id,
+				job.Attempt,
+				State = (short)(job.State == JobState.Active ? JobExecutionState.Active
+					: job.State == JobState.Succeeded ? JobExecutionState.Succeeded
+					: job.State == JobState.Failed || ((job.State == JobState.Pending || job.State == JobState.Scheduled) && job.LastError != null) ? JobExecutionState.Failed
+					: job.State == JobState.Cancelled ? JobExecutionState.Cancelled : JobExecutionState.Interrupted),
+				WorkerId = job.State == JobState.Active ? job.WorkerId : null,
+				AcquiredAt = (DateTimeOffset?)null,
+				job.ExecutionStartedAt,
+				CompletedAt = job.State == JobState.Succeeded || job.State == JobState.Failed || job.State == JobState.Cancelled || job.State == JobState.Skipped ? job.CompletedAt : null,
+				job.ExecutionTraceId,
+				job.ExecutionSpanId,
+				Error = job.State == JobState.Failed || ((job.State == JobState.Pending || job.State == JobState.Scheduled) && job.LastError != null) ? job.LastError : null,
+				IsSynthetic = true,
+			});
+		var executions = persisted.Concat(synthetic).AsNoTracking();
 		if (query.Attempt is { } attempt)
 			executions = executions.Where(execution => execution.Attempt == attempt);
-
-		var synthetic = JobExecutionRecord.CreateSynthetic(ToRecord(job));
-		var syntheticMissing = synthetic is not null
-			&& (query.Attempt is null || query.Attempt == synthetic.Attempt)
-			&& !await executions.AnyAsync(
-				execution => execution.Attempt == synthetic.Attempt,
-				cancellationToken
-			);
-		var skip = query.Skip;
-		var take = query.Take;
-		var result = new List<JobExecutionRecord>(take);
-		if (syntheticMissing && skip == 0 && take != 0)
+		var result = await executions.OrderByDescending(execution => execution.Attempt)
+			.Skip(query.Skip).Take(query.Take).ToListAsync(cancellationToken);
+		return [.. result.Select(static execution => new JobExecutionRecord
 		{
-			result.Add(synthetic!);
-			take--;
-		}
-		else if (syntheticMissing)
-		{
-			skip--;
-		}
-
-		if (take != 0 && skip >= 0)
-		{
-			var persisted = await executions
-				.OrderByDescending(execution => execution.Attempt)
-				.Skip(skip)
-				.Take(take)
-				.ToListAsync(cancellationToken);
-			result.AddRange(persisted.Select(ToRecord));
-		}
-
-		return result;
+			JobHandle = JobHandle.FromString(execution.JobHandle),
+			Attempt = execution.Attempt,
+			State = (JobExecutionState)execution.State,
+			WorkerId = execution.WorkerId,
+			AcquiredAt = execution.AcquiredAt,
+			ExecutionStartedAt = execution.ExecutionStartedAt,
+			CompletedAt = execution.CompletedAt,
+			ExecutionTraceId = execution.ExecutionTraceId,
+			ExecutionSpanId = execution.ExecutionSpanId,
+			Error = execution.Error,
+			IsSynthetic = execution.IsSynthetic,
+		})];
 	}
 
 	/// <inheritdoc />
@@ -360,19 +381,18 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 		await TaskScheduler.Yield();
 
 		await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
-		if (!await context.Set<ImmediateJobBatchEntity>()
-			.AnyAsync(batch => batch.Id == batchHandle.Value, cancellationToken))
-		{
+		var batch = await context.Set<ImmediateJobBatchEntity>().AsNoTracking()
+			.Where(batch => batch.Id == batchHandle.Value)
+			.Select(batch => new
+			{
+				Jobs = context.Set<ImmediateJobEntity>().Where(job => job.BatchHandle == batch.Id)
+					.OrderBy(job => job.CreatedAt).ThenBy(job => job.Id)
+					.Select(job => new BatchGraphNode { JobHandle = JobHandle.FromString(job.Id), JobName = job.JobName, State = job.State })
+					.ToList(),
+			}).AsSingleQuery().SingleOrDefaultAsync(cancellationToken);
+		if (batch is null)
 			return null;
-		}
-
-		var jobs = await JobsWithDefinitions(context)
-			.AsNoTracking()
-			.Where(job => job.BatchHandle == batchHandle.Value)
-			.OrderBy(job => job.CreatedAt)
-			.ThenBy(job => job.Id)
-			.Select(job => new BatchGraphNode { JobHandle = JobHandle.FromString(job.Id), JobName = job.JobName, State = job.State })
-			.ToListAsync(cancellationToken);
+		var jobs = batch.Jobs;
 		var ids = jobs.Select(static job => job.JobHandle.Value).ToList();
 		var edges = ids.Count == 0
 			? []
@@ -397,17 +417,26 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 		await TaskScheduler.Yield();
 
 		await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
-		var job = await JobsWithDefinitions(context)
-			.AsNoTracking()
-			.SingleOrDefaultAsync(item => item.Id == jobHandle.Value, cancellationToken);
+		var job = await JobsWithDefinitions(context).AsNoTracking()
+			.Where(job => job.Id == jobHandle.Value)
+			.Select(job => new
+			{
+				job.Id,
+				job.JobName,
+				job.QueueName,
+				job.CancellationReason,
+				job.State,
+				job.Attempt,
+				job.CreatedAt,
+				job.DueAt,
+				job.CompletedAt,
+				job.LastError,
+				job.BatchHandle,
+				Edges = context.Set<ImmediateJobContinuationEntity>().Where(edge => edge.ChildJobHandle == job.Id)
+					.OrderBy(edge => edge.ParentKind).ThenBy(edge => edge.ParentId).ToList(),
+			}).AsSingleQuery().SingleOrDefaultAsync(cancellationToken);
 		if (job is null)
 			return null;
-		var edges = await context.Set<ImmediateJobContinuationEntity>()
-			.AsNoTracking()
-			.Where(edge => edge.ChildJobHandle == jobHandle.Value)
-			.OrderBy(edge => edge.ParentKind)
-			.ThenBy(edge => edge.ParentId)
-			.ToListAsync(cancellationToken);
 		return new JobStatus
 		{
 			JobHandle = JobHandle.FromString(job.Id),
@@ -422,7 +451,7 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 			CompletedAt = job.CompletedAt,
 			LastError = job.LastError,
 			BatchHandle = BatchHandle.FromString(job.BatchHandle),
-			DependsOn = [.. edges.Select(ToContinuationEdge)],
+			DependsOn = [.. job.Edges.Select(ToContinuationEdge)],
 		};
 	}
 

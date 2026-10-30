@@ -25,6 +25,7 @@ internal static partial class GraphStorageConformance
 
 	internal static IReadOnlyList<JobStorageConformanceTestCase> Cases { get; } =
 	[
+		new(WideFailureName, StorageCapabilities.Graph, PropagatesWideFailureAsync),
 		new(RoutingName, StorageCapabilities.Graph, ResolvesQueuesAtomicallyAsync),
 		new(CapabilityName, StorageCapabilities.Graph, ResolvesAdvertisedStorage),
 		new(BatchLifecycleName, StorageCapabilities.Graph, BatchLifecycleAsync),

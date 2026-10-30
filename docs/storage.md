@@ -116,6 +116,29 @@ indexes and settled-edge tracking without reconciling definitions or replaying s
 Fair-queue cursor cleanup must not undo a committed job transition. Relational providers perform that
 cleanup after the main transaction commits. Selection rules are in [fair queues](fair-queues.md).
 
+### EF Core query boundaries
+
+See the [per-method query budgets](ef-core-query-budgets.md) for command counts and retained
+transaction boundaries.
+
+Graph operations load outgoing edges, affected children, incoming dependencies, and missing batch
+headers by bounded frontier rather than querying once per edge. Execution histories are loaded
+before bulk mutations; tracked entities are reused within the transaction. Job and execution changes
+still commit together, with optimistic stamps checked on the owning invocation and batch headers.
+Startup interruption uses version-guarded set updates and inserts synthetic history only when missing.
+
+Ordinary acquisition bypasses fair ranking and cursor queries. Consecutive fresh standalone jobs
+with no definition limits can be claimed in bounded sets, preserving requested order. Each set locks
+and rechecks its definition, claims only matching invocation versions, and inserts execution history
+in the same transaction. Limited definitions, reclaimed executions, and batch members retain
+individual claim transactions. Fair acquisition ranks one head per group from grouped inflight
+counts; its round-robin cursor update remains part of the claim transaction.
+
+Definition status reads combine metadata, counters, and active counts, then load only the timestamp
+history required by each definition's own window. Read projections combine related data where that
+avoids extra queries, while independent collections stay separate to avoid cartesian products.
+Provider batching still determines the number of commands needed to persist multiple changed rows.
+
 ## Persisted representation
 
 ### Names and collation
