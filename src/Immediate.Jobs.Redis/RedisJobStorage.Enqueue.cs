@@ -27,28 +27,40 @@ internal sealed partial class RedisJobStorage
 			throw new ImmediateJobException($"Job '{job.JobHandle}' already exists.");
 	}
 
-	private RedisValue[] CreateEnqueueArguments(JobSubmission job) =>
-	[
-		JsonSerializer.Serialize(job, RedisJsonSerializerContext.Default.JobSubmission),
-		(int)job.State,
-		Timestamp(job.DueAt),
-		0,
-		"",
-		"",
-		"",
-		"",
-		"",
-		"",
-		"",
-		job.JobName.ToUpperInvariant(),
-		Score(job.CreatedAt),
-		job.JobHandle.Value,
-		Score(job.DueAt),
-		Timestamp(job.CreatedAt),
-		DueMember(job.DueAt, job.CreatedAt, job.JobHandle),
-		job.GroupId ?? "",
-		_root,
-	];
+	private RedisValue[] CreateEnqueueArguments(JobSubmission job)
+	{
+		var name = job.JobName.ToUpperInvariant();
+		RedisValue metadata = "";
+		if (_definitionSnapshots.TryGetValue(name, out var snapshot))
+		{
+			if (!string.Equals(job.JobName, snapshot.Definition.Name, StringComparison.Ordinal))
+				job = job with { JobName = snapshot.Definition.Name };
+			metadata = snapshot.Metadata;
+		}
+
+		return [
+			JsonSerializer.Serialize(job, RedisJsonSerializerContext.Default.JobSubmission),
+			(int)job.State,
+			Timestamp(job.DueAt),
+			0,
+			"",
+			"",
+			"",
+			"",
+			"",
+			"",
+			"",
+			name,
+			Score(job.CreatedAt),
+			job.JobHandle.Value,
+			Score(job.DueAt),
+			Timestamp(job.CreatedAt),
+			DueMember(job.DueAt, job.CreatedAt, job.JobHandle),
+			job.GroupId ?? "",
+			_root,
+			metadata,
+		];
+	}
 
 	private static void ValidateQueueJob(JobSubmission job)
 	{

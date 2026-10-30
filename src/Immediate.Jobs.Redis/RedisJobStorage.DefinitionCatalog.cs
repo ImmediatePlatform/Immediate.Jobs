@@ -30,10 +30,10 @@ internal sealed partial class RedisJobStorage
 					Metadata = JsonSerializer.Serialize(definition, RedisJsonSerializerContext.Default.JobDefinitionRecord),
 				}).ToList(),
 				RemovedDefinitions = changes.RemovedDefinitionNames.Select(static name => name.ToUpperInvariant()).ToList(),
-				RemovedSchedules = changes.RemovedScheduleNames.Select(NormalizeRecurringName).ToList(),
+				RemovedSchedules = changes.RemovedScheduleNames.Select(NormalizeOrdinalIgnoreCase).ToList(),
 				Schedules = changes.Schedules.Select(static schedule => new RedisDefinitionSchedule
 				{
-					Name = NormalizeRecurringName(schedule.Name),
+					Name = NormalizeOrdinalIgnoreCase(schedule.Name),
 					JobName = schedule.JobName.ToUpperInvariant(),
 					Record = JsonSerializer.Serialize(schedule, RedisJsonSerializerContext.Default.RecurringJobSchedule),
 					Cron = schedule.Cron,
@@ -52,6 +52,14 @@ internal sealed partial class RedisJobStorage
 					Timestamp(now), Score(now), JobDefinitionReconciliation.RemovalCancellationReason]).WaitAsync(cancellationToken);
 			if (!result.IsNull)
 			{
+				foreach (var name in changes.RemovedDefinitionNames)
+					_definitionSnapshots.TryRemove(name.ToUpperInvariant(), out _);
+				for (var index = 0; index < changes.Definitions.Count; index++)
+				{
+					var metadata = payload.Definitions[index];
+					_definitionSnapshots[metadata.Name] = new(metadata.Metadata, changes.Definitions[index]);
+				}
+
 				foreach (var report in (RedisResult[])result!)
 				{
 					var values = (RedisResult[])report!;
@@ -84,7 +92,7 @@ internal sealed partial class RedisJobStorage
 
 	private static IReadOnlyList<JobDefinitionRecord> ReadDefinitionRecords(RedisValue[] metadata) =>
 		[.. metadata.Select(static value => JsonSerializer.Deserialize(
-			(string)value!, RedisJsonSerializerContext.Default.JobDefinitionRecord)!)
+			(byte[])value!, RedisJsonSerializerContext.Default.JobDefinitionRecord)!)
 			.OrderBy(static definition => definition.Name, StringComparer.OrdinalIgnoreCase)];
 
 	[LoggerMessage(

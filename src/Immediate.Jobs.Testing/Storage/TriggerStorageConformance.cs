@@ -43,6 +43,8 @@ internal static class TriggerStorageConformance
 			Definitions =
 			[
 				new() { Name = JobName },
+				new() { Name = "Δοκιμή.Σ" },
+				new() { Name = "S" },
 			],
 		}, cancellationToken);
 
@@ -90,6 +92,19 @@ internal static class TriggerStorageConformance
 			ParametersName,
 			"a rejected update must leave the payload unchanged"
 		);
+
+		const string Opaque = """{"number":9007199254740993,"text":"雪<&>\u003c\""}""";
+		var unicode = CreateWaitingJob("unicode-parameters", now) with { JobName = "Δοκιμή.Σ", Context = Opaque };
+		await storage.EnqueueAsync(unicode, cancellationToken);
+		await storage.UpdatePayloadAsync(unicode.JobHandle, "δοκιμή.ς", Opaque, cancellationToken);
+		var persisted = await GetJobAsync(storage, unicode.JobHandle, ParametersName, cancellationToken);
+		ConformanceAssert.Equal(Opaque, persisted.Payload, ParametersName, "parameter updates preserve the opaque payload string exactly");
+		ConformanceAssert.Equal(Opaque, persisted.Context, ParametersName, "parameter updates preserve the opaque context string exactly");
+		var ascii = CreateWaitingJob("ascii-parameters", now) with { JobName = "S" };
+		await storage.EnqueueAsync(ascii, cancellationToken);
+		await ConformanceAssert.ThrowsAsync<ImmediateJobException>(
+			() => storage.UpdatePayloadAsync(ascii.JobHandle, "ſ", "{}", cancellationToken), ParametersName,
+			"parameter updates preserve the ordinal distinction between ASCII and non-ASCII names");
 	}
 
 	private static async ValueTask ReleasesWaitingJobOnceAsync(

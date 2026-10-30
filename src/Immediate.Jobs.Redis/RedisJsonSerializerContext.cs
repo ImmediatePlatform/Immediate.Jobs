@@ -5,6 +5,7 @@ namespace Immediate.Jobs.Redis;
 
 [JsonSerializable(typeof(JobSubmission))]
 [JsonSerializable(typeof(JobRecord))]
+[JsonSerializable(typeof(RedisJobHeader))]
 [JsonSerializable(typeof(RecurringJobSchedule))]
 [JsonSerializable(typeof(JobServerSnapshot))]
 [JsonSerializable(typeof(JobDefinitionRecord))]

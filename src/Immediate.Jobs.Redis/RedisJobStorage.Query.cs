@@ -86,7 +86,7 @@ internal sealed partial class RedisJobStorage
 				Recurring = [.. ReadRecurringRecords(snapshot[2]).Select(static schedule => schedule.ToStatus())],
 				DefinitionStatuses = statuses,
 				Servers = [.. ReadValues(snapshot[3]).Select(static value =>
-					JsonSerializer.Deserialize((string)value!, RedisJsonSerializerContext.Default.JobServerSnapshot)!)],
+					JsonSerializer.Deserialize((byte[])value!, RedisJsonSerializerContext.Default.JobServerSnapshot)!)],
 				Capabilities = this.GetCapabilities(),
 			};
 		}
@@ -208,25 +208,28 @@ internal sealed partial class RedisJobStorage
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 
-		var job = await ReadJobAsync(jobHandle, cancellationToken);
-		return job is null
-			? null
-			: new JobStatus
-			{
-				JobHandle = job.JobHandle,
-				JobName = job.JobName,
-				QueueName = job.QueueName,
-				CancellationReason = job.CancellationReason,
-				State = job.State,
-				Attempt = job.Attempt,
-				MaxAttempts = 0,
-				CreatedAt = job.CreatedAt,
-				DueAt = job.DueAt,
-				CompletedAt = job.CompletedAt,
-				LastError = job.LastError,
-				BatchHandle = null,
-				DependsOn = [],
-			};
+		var values = await ReadJobValuesAsync(jobHandle, cancellationToken);
+		if (values is null)
+			return null;
+
+		var header = JsonSerializer.Deserialize((byte[])values[0]!, RedisJsonSerializerContext.Default.RedisJobHeader)
+			?? throw new ImmediateJobException($"Job '{jobHandle}' contains invalid data.");
+		return new()
+		{
+			JobHandle = header.JobHandle,
+			JobName = header.JobName,
+			QueueName = NullIfEmpty(values[12]),
+			CancellationReason = values[11].IsNull ? header.CancellationReason : NullIfEmpty(values[11]),
+			State = (JobState)ParseInt32(values[1]),
+			Attempt = ParseInt32(values[3]),
+			MaxAttempts = 0,
+			CreatedAt = header.CreatedAt,
+			DueAt = FromTimestamp(values[2]),
+			CompletedAt = FromNullableTimestamp(values[7]),
+			LastError = NullIfEmpty(values[6]),
+			BatchHandle = null,
+			DependsOn = [],
+		};
 	}
 
 	private async Task<(long Scanned, IReadOnlyList<JobRecord> Jobs)> ReadJobPageAsync(

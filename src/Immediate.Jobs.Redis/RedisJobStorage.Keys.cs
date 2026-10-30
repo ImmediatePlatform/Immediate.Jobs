@@ -33,9 +33,9 @@ internal sealed partial class RedisJobStorage
 
 	private RedisKey CompletedKey(JobState state) => string.Create(CultureInfo.InvariantCulture, $"{_root}completed:{(int)state}");
 
-	private RedisKey RecurringKey(string name) => _root + "recurring:" + NormalizeRecurringName(name);
+	private RedisKey RecurringKey(string name) => _root + "recurring:" + NormalizeOrdinalIgnoreCase(name);
 
-	private static string NormalizeRecurringName(string name) => string.Create(name.Length, name, static (normalized, value) =>
+	private static string NormalizeOrdinalIgnoreCase(string name) => string.Create(name.Length, name, static (normalized, value) =>
 	{
 		value.AsSpan().ToUpperInvariant(normalized);
 

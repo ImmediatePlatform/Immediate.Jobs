@@ -1,4 +1,3 @@
-using System.Text.Json;
 using Immediate.Jobs.Shared.Apis;
 using Immediate.Jobs.Shared.Storage;
 using Microsoft.Extensions.Logging;
@@ -31,21 +30,11 @@ internal sealed partial class RedisJobStorage
 		if (names.Count == 0)
 			return [];
 
-		RedisValue[] definitionKeys = [.. names.Select(static name => (RedisValue)name)];
+		var refresh = false;
 		while (true)
 		{
 			cancellationToken.ThrowIfCancellationRequested();
-			var metadata = await Database.HashGetAsync(DefinitionMetadataKey, definitionKeys).WaitAsync(cancellationToken);
-			var definitions = new Dictionary<string, (RedisValue Metadata, JobDefinitionRecord Definition)>(StringComparer.Ordinal);
-			for (var index = 0; index < names.Count; index++)
-			{
-				if (metadata[index].IsNull)
-					continue;
-
-				var definition = JsonSerializer.Deserialize(metadata[index].ToString(), RedisJsonSerializerContext.Default.JobDefinitionRecord)
-					?? throw new ImmediateJobException($"Job definition '{names[index]}' contains invalid data.");
-				definitions.Add(names[index], (metadata[index], definition));
-			}
+			var definitions = await ReadDefinitionSnapshotsAsync(names, refresh, cancellationToken);
 
 			var now = _timeProvider.GetUtcNow();
 			var leaseExpiresAt = now + request.Lease;
@@ -66,25 +55,33 @@ internal sealed partial class RedisJobStorage
 			};
 			foreach (var queue in request.Queues)
 			{
-				var capacities = queue.JobCapacities.Where(pair => definitions.ContainsKey(pair.Key.ToUpperInvariant())).ToList();
 				values.Add(queue.QueueName);
 				values.Add(Math.Max(0, queue.Capacity));
-				values.Add(capacities.Count);
-				foreach (var capacity in capacities)
+				var countIndex = values.Count;
+				values.Add(0);
+				var count = 0;
+				foreach (var capacity in queue.JobCapacities)
 				{
 					var name = capacity.Key.ToUpperInvariant();
-					var (snapshot, definition) = definitions[name];
+					if (!definitions.TryGetValue(name, out var snapshot))
+						continue;
+					count++;
 					values.Add(name);
 					values.Add(Math.Max(0, capacity.Value));
-					values.Add(snapshot);
-					AddDefinitionLimits(values, definition.AcquisitionLimits, now);
+					values.Add(snapshot.Metadata);
+					AddDefinitionLimits(values, snapshot.Limits, now);
 				}
+
+				values[countIndex] = count;
 			}
 
 			var result = await Database.ScriptEvaluateAsync(RedisScripts.Acquire, keys, [.. values]).WaitAsync(cancellationToken);
 			// Retry if a definition changed after its limits were read.
 			if (result.IsNull)
+			{
+				refresh = true;
 				continue;
+			}
 
 			return ReadJobRecords(result);
 		}

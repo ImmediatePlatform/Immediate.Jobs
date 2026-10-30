@@ -6,19 +6,19 @@ internal static partial class RedisScripts
 	private const string JobReadFunctions =
 		"""
 		local queues = {}
-		local function readJob(root, key)
+		local function readJob(root, key, queue)
 			local values = redis.call('HMGET', key, 'record', 'state', 'due', 'attempt', 'worker', 'lease',
-				'error', 'completed', 'executionTraceId', 'executionSpanId', 'executionStartedAt', 'cancellationReason')
-			local name = redis.call('HGET', key, 'jobName')
-			local queue = false
-			if name then
-				if queues[name] == nil then
-					local metadata = redis.call('HGET', root .. 'definition-metadata', name)
-					queues[name] = metadata and cjson.decode(metadata).QueueName or false
-				end
+				'error', 'completed', 'executionTraceId', 'executionSpanId', 'executionStartedAt', 'cancellationReason', 'jobName')
+			local name = values[13]
+			if queue == nil and name then
 				queue = queues[name]
+				if queue == nil then
+					local metadata = redis.call('HGET', root .. 'definition-metadata', name)
+					queue = metadata and cjson.decode(metadata).QueueName or false
+					queues[name] = queue
+				end
 			end
-			values[13] = queue
+			values[13] = queue or false
 			return values
 		end
 
@@ -39,12 +39,17 @@ internal static partial class RedisScripts
 		"""
 		local ids = redis.call('ZREVRANGE', KEYS[1], ARGV[2], ARGV[3])
 		local result = {}
+		local filtered = ARGV[4] ~= '' or ARGV[5] ~= '' or ARGV[6] ~= ''
 		for _, id in ipairs(ids) do
 			local key = ARGV[1] .. 'job:' .. id
-			local filter = redis.call('HMGET', key, 'state', 'jobName', 'created')
-			if (ARGV[4] == '' or filter[1] == ARGV[4])
-				and (ARGV[5] == '' or filter[2] == ARGV[5])
-				and (ARGV[6] == '' or (filter[3] and filter[3] < ARGV[6])) then
+			local matches = true
+			if filtered then
+				local filter = redis.call('HMGET', key, 'state', 'jobName', 'created')
+				matches = (ARGV[4] == '' or filter[1] == ARGV[4])
+					and (ARGV[5] == '' or filter[2] == ARGV[5])
+					and (ARGV[6] == '' or (filter[3] and filter[3] < ARGV[6]))
+			end
+			if matches then
 				local values = readJob(ARGV[1], key)
 				if values[1] then result[#result + 1] = values end
 			end
@@ -68,13 +73,16 @@ internal static partial class RedisScripts
 
 	internal const string ReadJobExecutions = JobReadFunctions +
 		"""
-		local job = readJob(ARGV[1], KEYS[1])
-		if not job[1] then return {} end
+		local current = redis.call('HMGET', KEYS[1], 'state', 'attempt')
+		if not current[1] then return {} end
+		local job = false
 		local skip, take, synthetic = tonumber(ARGV[2]), tonumber(ARGV[3]), 0
-		local latest = tonumber(job[4])
+		local latest = tonumber(current[2])
 		if latest > 0 and (ARGV[4] == '' or tonumber(ARGV[4]) == latest)
 			and redis.call('HEXISTS', KEYS[3], latest .. ':state') == 0 then
-			if skip == 0 then synthetic = 1; take = take - 1
+			if skip == 0 then
+				synthetic = 1; take = take - 1
+				job = readJob(ARGV[1], KEYS[1], false)
 			else skip = skip - 1 end
 		end
 		local executions = {}
