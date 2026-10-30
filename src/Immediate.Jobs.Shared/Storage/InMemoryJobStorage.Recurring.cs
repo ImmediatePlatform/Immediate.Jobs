@@ -26,12 +26,14 @@ public sealed partial class InMemoryJobStorage
 			{
 				if (schedule.IsCodeDefined)
 					throw new ImmediateJobException("Code-defined recurring schedules must be created by definition reconciliation.");
+
 				_recurring.Add(schedule.Name, schedule);
 				return;
 			}
 
 			if (current.IsCodeDefined != schedule.IsCodeDefined)
 				throw new ImmediateJobException("Recurring schedule ownership cannot be changed by upsert.");
+
 			if (current.IsCodeDefined)
 			{
 				current = current with { NextRunAt = schedule.NextRunAt };
@@ -59,6 +61,7 @@ public sealed partial class InMemoryJobStorage
 		{
 			if (!_recurring.TryGetValue(name, out var schedule))
 				throw new KeyNotFoundException($"Recurring schedule '{name}' was not found.");
+
 			if (schedule.IsCodeDefined)
 				throw new ImmediateJobException("Code-defined recurring schedules cannot be deleted.");
 
@@ -102,7 +105,15 @@ public sealed partial class InMemoryJobStorage
 		{
 			return
 			[
-				.. _recurring.Values.Where(x => !x.IsPaused && x.NextRunAt <= now && jobNames.Contains(x.JobName, StringComparer.OrdinalIgnoreCase)).OrderBy(x => x.NextRunAt).Take(batchSize),
+				.. _recurring.Values
+					.Where(
+						x =>
+							!x.IsPaused
+							&& x.NextRunAt <= now
+							&& jobNames.Contains(x.JobName, StringComparer.OrdinalIgnoreCase)
+					)
+					.OrderBy(x => x.NextRunAt)
+					.Take(batchSize),
 			];
 		}
 	}

@@ -401,12 +401,6 @@ public sealed partial class JobSchedulingService : BackgroundService
 
 		if (_timeProvider.GetUtcNow() >= _nextPurgeTimestamp)
 		{
-			await _storage.PurgeJobsAsync(
-				_options.SucceededRetention,
-				_options.FailedRetention,
-				cancellationToken
-			);
-
 			if (_storage is IJobGraphStorage graphStorage)
 			{
 				await graphStorage.PurgeBatchesAsync(
@@ -415,6 +409,12 @@ public sealed partial class JobSchedulingService : BackgroundService
 					cancellationToken
 				);
 			}
+
+			await _storage.PurgeJobsAsync(
+				_options.SucceededRetention,
+				_options.FailedRetention,
+				cancellationToken
+			);
 
 			_nextPurgeTimestamp = _timeProvider.GetUtcNow() + _options.PurgeInterval;
 		}

@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using Immediate.Jobs.Shared.Apis;
 
 namespace Immediate.Jobs.Shared.Storage;
@@ -82,19 +83,22 @@ public sealed partial class InMemoryJobStorage
 	private Dictionary<string, List<RunnableJob>> GetExpiredJobs(DateTimeOffset now)
 	{
 		var expired = new Dictionary<string, List<RunnableJob>>(StringComparer.OrdinalIgnoreCase);
+
 		foreach (var lease in _activeLeases)
 		{
 			if (lease.Deadline > now)
 				break;
 
 			var job = _jobs[lease.JobHandle];
-			if (!expired.TryGetValue(job.JobName, out var jobs))
-				expired.Add(job.JobName, jobs = []);
+
+			ref var jobs = ref CollectionsMarshal.GetValueRefOrAddDefault(expired, job.JobName, out _);
+			jobs ??= [];
 			jobs.Add(new(job.DueAt, job.CreatedAt, job.JobHandle));
 		}
 
-		foreach (var jobs in expired.Values)
+		foreach (var (_, jobs) in expired)
 			jobs.Sort();
+
 		return expired;
 	}
 
@@ -103,7 +107,7 @@ public sealed partial class InMemoryJobStorage
 	/// </remarks>
 	private int GetRemainingAcquisitionCapacity(string name, DateTimeOffset now, int expiredCount)
 	{
-		var definition = GetStoredDefinition(name);
+		var definition = ValidateExistingElement(_jobDefinitions, name);
 		_acquisitionDefinitions.TryGetValue(definition.Name, out var usage);
 		if (usage?.DurableRateLimitUntil > now)
 			return 0;

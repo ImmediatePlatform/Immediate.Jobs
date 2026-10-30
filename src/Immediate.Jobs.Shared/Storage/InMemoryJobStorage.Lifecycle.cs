@@ -269,7 +269,6 @@ public sealed partial class InMemoryJobStorage
 				.ToHashSet();
 
 			RemoveJobs(standaloneJobHandles);
-
 			RemoveEdgesForJobs(standaloneJobHandles);
 		}
 	}
@@ -300,12 +299,20 @@ public sealed partial class InMemoryJobStorage
 				.Select(static batch => batch.BatchHandle)
 				.ToHashSet();
 
-			var batchJobHandles = batchHandles.SelectMany(batchHandle =>
-				_jobsByBatch.TryGetValue(batchHandle, out var handles) ? (IEnumerable<JobHandle>)handles : []).ToHashSet();
-			RemoveJobs(batchJobHandles);
+			var batchJobHandles = new HashSet<JobHandle>();
 
 			foreach (var batchHandle in batchHandles)
-				_ = _batches.Remove(batchHandle);
+			{
+				_batches.Remove(batchHandle);
+
+				if (_jobsByBatch.Remove(batchHandle, out var handles))
+				{
+					foreach (var h in handles)
+						batchJobHandles.Add(h);
+				}
+			}
+
+			RemoveJobs(batchJobHandles);
 			RemoveEdgesForJobs(batchJobHandles, batchHandles);
 		}
 	}
@@ -367,11 +374,14 @@ public sealed partial class InMemoryJobStorage
 	{
 		if (batchHandle is null)
 			return;
+
 		ref var batch = ref CollectionsMarshal.GetValueRefOrNullRef(_batches, batchHandle);
+
 		if (Unsafe.IsNullRef(ref batch))
 			return;
 
 		var pending = Math.Max(0, batch.PendingCount - 1);
+
 		batch = batch with
 		{
 			PendingCount = pending,
@@ -380,19 +390,22 @@ public sealed partial class InMemoryJobStorage
 			CancelledCount = batch.CancelledCount + (state == JobState.Cancelled ? 1 : 0),
 			SkippedCount = batch.SkippedCount + (state == JobState.Skipped ? 1 : 0),
 		};
+
 		if (pending == 0)
 		{
 			batch = batch with
 			{
-				State = batch.FailedCount != 0
-					? BatchState.Failed
-					: batch.CancelledCount != 0 ? BatchState.Cancelled : BatchState.Succeeded,
+				State = batch switch
+				{
+					{ FailedCount: not 0 } => BatchState.Failed,
+					{ CancelledCount: not 0 } => BatchState.Cancelled,
+					_ => BatchState.Succeeded,
+				},
 				CompletedAt = completedAt,
 			};
-		}
 
-		if (pending == 0)
-			ProcessTerminalBatch(batchHandle);
+			ProcessTerminalBatch(batch.BatchHandle);
+		}
 	}
 
 	/// <remarks>

@@ -1,4 +1,4 @@
-using Immediate.Jobs.Shared.Apis;
+using System.Runtime.InteropServices;
 using Microsoft.Extensions.Logging;
 
 namespace Immediate.Jobs.Shared.Storage;
@@ -14,7 +14,7 @@ public sealed partial class InMemoryJobStorage
 
 		lock (_gate)
 		{
-			jobName = GetStoredDefinition(jobName).Name;
+			jobName = ValidateExistingElement(_jobDefinitions, jobName).Name;
 			var definition = GetAcquisitionDefinition(jobName);
 			definition.State = definition.State with { IsPaused = true, AcquisitionStatus = JobAcquisitionStatus.Paused, NextEligibleAt = null };
 		}
@@ -26,9 +26,10 @@ public sealed partial class InMemoryJobStorage
 		InMemoryResumeJobAsyncCalled(jobName);
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
+
 		lock (_gate)
 		{
-			var definition = GetStoredDefinition(jobName);
+			var definition = ValidateExistingElement(_jobDefinitions, jobName);
 			var acquisition = GetAcquisitionDefinition(definition.Name);
 			acquisition.State = acquisition.State with { IsPaused = false };
 			EvaluateAcquisition(definition.Name, definition.AcquisitionLimits, timeProvider.GetUtcNow());
@@ -41,29 +42,24 @@ public sealed partial class InMemoryJobStorage
 		InMemoryGetJobAcquisitionStateAsyncCalled(jobName);
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
+
 		lock (_gate)
 		{
-			var definition = GetStoredDefinition(jobName);
+			var definition = ValidateExistingElement(_jobDefinitions, jobName);
 			return EvaluateAcquisition(definition.Name, definition.AcquisitionLimits, timeProvider.GetUtcNow(), includeActiveCount: true);
 		}
 	}
-
-	/// <remarks>
-	/// 	The caller must hold the <see cref="_gate"/> lock.
-	/// </remarks>
-	private JobDefinitionRecord GetStoredDefinition(string jobName) =>
-		_jobDefinitions.TryGetValue(jobName, out var definition)
-			? definition
-			: throw new KeyNotFoundException($"Job definition '{jobName}' was not found.");
 
 	/// <remarks>
 	/// 	The caller must hold the <see cref="_gate"/> lock throughout this call and any use of the returned mutable state.
 	/// </remarks>
 	private DefinitionAcquisition GetAcquisitionDefinition(string jobName)
 	{
-		if (!_acquisitionDefinitions.TryGetValue(jobName, out var definition))
-			_acquisitionDefinitions.Add(jobName, definition = new() { State = new() { JobName = jobName } });
-		return definition;
+		return CollectionsMarshal.GetValueRefOrAddDefault(
+			_acquisitionDefinitions,
+			jobName,
+			out _
+		) ??= new() { State = new() { JobName = jobName } };
 	}
 
 	/// <remarks>
@@ -90,8 +86,9 @@ public sealed partial class InMemoryJobStorage
 	/// </remarks>
 	private void RecordAcquisition(string jobName, DateTimeOffset now)
 	{
-		var limits = GetStoredDefinition(jobName).AcquisitionLimits;
+		var limits = ValidateExistingElement(_jobDefinitions, jobName).AcquisitionLimits;
 		var definition = GetAcquisitionDefinition(jobName);
+
 		if (limits.SlidingWindowPeriod is { } period)
 		{
 			definition.Acquisitions.RemoveAll(acquired => acquired <= now - period);

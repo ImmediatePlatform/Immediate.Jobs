@@ -113,6 +113,7 @@ public sealed partial class InMemoryJobStorage
 	{
 		var runnable = _runnableJobs[job.JobName];
 		runnable.Remove(new(job.DueAt, job.CreatedAt, job.JobHandle));
+
 		if (runnable.Count == 0)
 			_runnableJobs.Remove(job.JobName);
 	}
@@ -124,6 +125,7 @@ public sealed partial class InMemoryJobStorage
 	{
 		ref var count = ref CollectionsMarshal.GetValueRefOrAddDefault(_activeJobCounts, jobName, out _);
 		count += change;
+
 		if (count == 0)
 			_activeJobCounts.Remove(jobName);
 	}

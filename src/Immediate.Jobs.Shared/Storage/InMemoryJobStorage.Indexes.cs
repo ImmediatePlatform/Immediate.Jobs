@@ -72,32 +72,35 @@ public sealed partial class InMemoryJobStorage
 		if (jobHandles.Count == 0)
 			return;
 
-		var single = jobHandles.Count == 1 ? jobHandles.First() : null;
 		var batches = new HashSet<BatchHandle>();
+
 		foreach (var handle in jobHandles)
 		{
 			var job = _jobs[handle];
 			RemoveSchedulingIndexes(job);
+
 			var definitions = _jobsByDefinition[job.JobName];
 			definitions.Remove(handle);
-			if (definitions.Count == 0)
-				_jobsByDefinition.Remove(job.JobName);
+
 			if (job.BatchHandle is { } batchHandle)
 				batches.Add(batchHandle);
+
 			_jobs.Remove(handle);
 			_executions.Remove(handle);
+
 			if (job.RecurringKey is { } recurringKey)
 				_recurringKeys.Remove(recurringKey);
 		}
 
 		// Filter each affected list once, avoiding quadratic removal when a large group is purged.
+		// index may already be affected by `PurgeBatch`
 		foreach (var batch in batches)
 		{
-			var handles = _jobsByBatch[batch];
-			if (single is not null)
-				handles.Remove(single);
-			else
-				handles.RemoveAll(jobHandles.Contains);
+			if (!_jobsByBatch.TryGetValue(batch, out var handles))
+				continue;
+
+			handles.RemoveAll(jobHandles.Contains);
+
 			if (handles.Count == 0)
 				_jobsByBatch.Remove(batch);
 		}

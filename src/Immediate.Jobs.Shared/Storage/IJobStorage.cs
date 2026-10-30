@@ -62,18 +62,19 @@ public interface IJobStorage : IAsyncDisposable
 	ValueTask<JobAcquisitionState> GetJobAcquisitionStateAsync(string jobName, CancellationToken cancellationToken = default);
 
 	/// <summary>
-	/// 	Initializes provider storage.
+	///     Initializes provider storage.
 	/// </summary>
 	/// <param name="interruptActiveLeases">
-	/// 	Whether to interrupt all active executions and return their jobs to pending without resetting attempts,
-	/// 	batch progress, dependencies, or acquisition history. Only single-server startup may pass true, after
-	/// 	all previous workers have stopped. Distributed initialization must pass false.
+	///     Whether to interrupt all active executions and return their jobs to pending without resetting attempts,
+	///     batch progress, dependencies, or acquisition history. Only single-server startup may pass <see
+	///     langword="true"/>, after all previous workers have stopped. Distributed initialization must pass <see
+	///     langword="false"/>.
 	/// </param>
 	/// <param name="cancellationToken">
-	/// 	A token that can cancel the storage operation.
+	///     A token that can cancel the storage operation.
 	/// </param>
 	/// <returns>
-	/// 	A value task that represents the asynchronous initialization.
+	///     A value task that represents the asynchronous initialization.
 	/// </returns>
 	ValueTask InitializeAsync(bool interruptActiveLeases, CancellationToken cancellationToken = default);
 
