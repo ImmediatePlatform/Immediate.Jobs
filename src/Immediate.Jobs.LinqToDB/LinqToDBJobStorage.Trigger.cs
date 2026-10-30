@@ -86,14 +86,21 @@ internal sealed partial class LinqToDBJobStorage<T>
 		CancellationToken cancellationToken
 	)
 	{
-		var job = await GetTriggerableAsync(connection, jobHandle, expectedJobName, cancellationToken);
+		var job = await Jobs(connection).Where(item => item.Id == jobHandle.Value)
+			.Select(item => new { item.JobName, item.State, item.ConcurrencyStamp })
+			.SingleOrDefaultAsync(cancellationToken)
+			?? throw new KeyNotFoundException($"Job '{jobHandle}' was not found.");
+		if (!string.Equals(job.JobName, expectedJobName, StringComparison.OrdinalIgnoreCase))
+			throw new ImmediateJobException($"Job '{jobHandle}' is not a '{expectedJobName}' job.");
 		if (job.State != JobState.WaitingForTrigger)
 			throw new ImmediateJobException($"Job '{jobHandle}' is not waiting for a trigger.");
 
-		var oldStamp = job.ConcurrencyStamp;
-		job.Payload = payload;
-		job.ConcurrencyStamp = Guid.NewGuid();
-		if (!await UpdateJobAsync(connection, job, oldStamp, cancellationToken))
+		var updated = await Jobs(connection)
+			.Where(item => item.Id == jobHandle.Value && item.ConcurrencyStamp == job.ConcurrencyStamp)
+			.Set(item => item.Payload, payload)
+			.Set(item => item.ConcurrencyStamp, Guid.NewGuid())
+			.UpdateAsync(cancellationToken);
+		if (updated == 0)
 			throw new LostRaceException();
 	}
 
@@ -118,7 +125,9 @@ internal sealed partial class LinqToDBJobStorage<T>
 		if (job.Payload.Length == 0)
 			throw new ImmediateJobException($"Job '{jobHandle}' cannot be triggered before its parameters are supplied.");
 
-		await TriggerWaitingJobAsync(connection, job, dueAt, timeProvider.GetUtcNow(), terminalGroups, cancellationToken);
+		var now = timeProvider.GetUtcNow();
+		if (await TriggerWaitingJobAsync(connection, job, dueAt, now, cancellationToken))
+			await PropagateTerminalAsync(connection, job, now, terminalGroups, cancellationToken);
 		return true;
 	}
 
@@ -137,13 +146,13 @@ internal sealed partial class LinqToDBJobStorage<T>
 		return job;
 	}
 
-	private async Task TriggerWaitingJobAsync(
+	private async Task<bool> TriggerWaitingJobAsync(
 		DataConnection connection,
 		ImmediateJobEntity job,
 		DateTimeOffset dueAt,
 		DateTimeOffset now,
-		ISet<string> terminalGroups,
-		CancellationToken cancellationToken
+		CancellationToken cancellationToken,
+		IEnumerable<ImmediateJobContinuationEntity>? incoming = null
 	)
 	{
 		var oldStamp = job.ConcurrencyStamp;
@@ -153,25 +162,29 @@ internal sealed partial class LinqToDBJobStorage<T>
 		{
 			job.State = JobState.AwaitingContinuation;
 		}
-		else if (await ShouldSkipSettledContinuationAsync(connection, job.Id, cancellationToken))
-		{
-			job.State = JobState.Skipped;
-			job.CompletedAt = now;
-			skipped = true;
-		}
 		else
 		{
-			var delayedDueAt = now + await GetMaximumContinuationDelayAsync(connection, job.Id, cancellationToken);
-			if (job.DueAt < delayedDueAt)
-				job.DueAt = delayedDueAt;
-			job.State = job.DueAt <= now ? JobState.Pending : JobState.Scheduled;
+			incoming ??= await Continuations(connection).Where(edge => edge.ChildJobHandle == job.Id).ToListAsync(cancellationToken);
+			var (skip, delay) = EvaluateContinuation(incoming);
+			if (skip)
+			{
+				job.State = JobState.Skipped;
+				job.CompletedAt = now;
+				skipped = true;
+			}
+			else
+			{
+				var delayedDueAt = now + delay;
+				if (job.DueAt < delayedDueAt)
+					job.DueAt = delayedDueAt;
+				job.State = job.DueAt <= now ? JobState.Pending : JobState.Scheduled;
+			}
 		}
 
 		job.ConcurrencyStamp = Guid.NewGuid();
 		if (!await UpdateJobAsync(connection, job, oldStamp, cancellationToken))
 			throw new LostRaceException();
-		if (skipped)
-			await PropagateTerminalAsync(connection, job, now, terminalGroups, cancellationToken);
+		return skipped;
 	}
 
 	private async Task<bool> TryTriggerBatchCoreAsync(
@@ -197,9 +210,19 @@ internal sealed partial class LinqToDBJobStorage<T>
 			.Where(job => job.BatchHandle == batchHandle.Value && job.State == JobState.WaitingForTrigger)
 			.OrderBy(job => job.Id)
 			.ToListAsync(cancellationToken);
-		foreach (var job in jobs)
-			await TriggerWaitingJobAsync(connection, job, job.DueAt, now, terminalGroups, cancellationToken);
+		var skippedJobs = new List<ImmediateJobEntity>();
+		foreach (var block in jobs.Chunk(256))
+		{
+			var ids = block.Where(static job => job.RemainingDependencies == 0).Select(static job => job.Id).ToList();
+			var incoming = (ids.Count == 0 ? [] : await Continuations(connection)
+				.Where(edge => ids.Contains(edge.ChildJobHandle)).ToListAsync(cancellationToken))
+				.ToLookup(static edge => edge.ChildJobHandle, StringComparer.Ordinal);
+			foreach (var job in block)
+				if (await TriggerWaitingJobAsync(connection, job, job.DueAt, now, cancellationToken, incoming[job.Id]))
+					skippedJobs.Add(job);
+		}
 
+		await PropagateTerminalAsync(connection, skippedJobs, now, terminalGroups, cancellationToken);
 		return true;
 	}
 

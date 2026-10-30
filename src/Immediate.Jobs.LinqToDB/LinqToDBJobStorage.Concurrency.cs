@@ -61,15 +61,9 @@ internal sealed partial class LinqToDBJobStorage<T>
 		CancellationToken cancellationToken
 	)
 	{
-		var job = await Jobs(connection)
-			.SingleOrDefaultAsync(
-				item => item.Id == jobHandle.Value && item.Attempt == executionNumber && item.State == JobState.Active && item.WorkerId == workerId,
-				cancellationToken
-			) ?? throw new ImmediateJobException($"Worker '{workerId}' does not own active job '{jobHandle}'.");
+		var job = await ReadOwnedJobAsync(connection, jobHandle, executionNumber, workerId, cancellationToken);
 		var oldStamp = job.ConcurrencyStamp;
 		var now = timeProvider.GetUtcNow();
-		_ = await GetOrMaterializeExecutionAsync(connection, job, cancellationToken)
-			?? throw new ImmediateJobException($"Active job '{job.Id}' has no execution ordinal.");
 		var executionUpdated = await Executions(connection)
 			.Where(execution => execution.JobHandle == jobHandle.Value && execution.Attempt == executionNumber && execution.State == JobExecutionState.Active)
 			.Set(execution => execution.State, succeeded ? JobExecutionState.Succeeded : JobExecutionState.Failed)

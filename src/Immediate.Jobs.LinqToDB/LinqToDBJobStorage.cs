@@ -117,6 +117,7 @@ internal sealed partial class LinqToDBJobStorage<T>(
 
 		await using var scope = contextScope.GetScope(out var connection);
 
+		var details = JsonSerializer.Serialize(server, LinqToDBJsonSerializerContext.Default.JobServerSnapshot);
 		_ = await Servers(connection)
 			.Where(entity => entity.ExpiresAt < server.LastHeartbeat)
 			.DeleteAsync(cancellationToken);
@@ -126,7 +127,7 @@ internal sealed partial class LinqToDBJobStorage<T>(
 			.Set(entity => entity.ExpiresAt, server.LastHeartbeat + server.ServerTimeout)
 			.Set(entity => entity.ActiveWorkers, server.ActiveWorkers)
 			.Set(entity => entity.MaxWorkers, server.MaxWorkers)
-			.Set(entity => entity.Details, JsonSerializer.Serialize(server, LinqToDBJsonSerializerContext.Default.JobServerSnapshot))
+			.Set(entity => entity.Details, details)
 			.UpdateAsync(cancellationToken);
 		if (updated != 0)
 			return;
@@ -139,7 +140,7 @@ internal sealed partial class LinqToDBJobStorage<T>(
 				ExpiresAt = server.LastHeartbeat + server.ServerTimeout,
 				ActiveWorkers = server.ActiveWorkers,
 				MaxWorkers = server.MaxWorkers,
-				Details = JsonSerializer.Serialize(server, LinqToDBJsonSerializerContext.Default.JobServerSnapshot),
+				Details = details,
 			}, cancellationToken);
 		}
 		catch (DbException)
@@ -150,7 +151,7 @@ internal sealed partial class LinqToDBJobStorage<T>(
 				.Set(entity => entity.ExpiresAt, server.LastHeartbeat + server.ServerTimeout)
 				.Set(entity => entity.ActiveWorkers, server.ActiveWorkers)
 				.Set(entity => entity.MaxWorkers, server.MaxWorkers)
-				.Set(entity => entity.Details, JsonSerializer.Serialize(server, LinqToDBJsonSerializerContext.Default.JobServerSnapshot))
+				.Set(entity => entity.Details, details)
 				.UpdateAsync(cancellationToken);
 		}
 	}

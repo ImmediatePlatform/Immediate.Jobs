@@ -153,6 +153,9 @@ Applications configure the EF Core model through `AddImmediateJobs`. LinqToDB's 
 the current tables and indexes. Bootstrap helpers target fresh storage; they do not manage production
 schema upgrades. Schema changes follow the repository's [compatibility policy](conventions.md#public-api-and-compatibility).
 
+The [LinqToDB command review](linq2db-query-budgets.md) records the costs of each storage API,
+including guarded server-side mutations, bounded bulk claims and continuation traversal.
+
 ### Definition acquisition controls
 
 Acquisition, monitoring, pause, and resume use persisted definition limits. Requests supply worker

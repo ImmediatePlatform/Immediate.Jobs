@@ -135,13 +135,10 @@ internal sealed partial class LinqToDBJobStorage<T>
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 
-		await using var scope = contextScope.GetScope(out var connection);
-
 		var now = timeProvider.GetUtcNow();
-		_ = await connection.BeginTransactionAsync(cancellationToken);
-		try
+		await RetryConcurrencyAsync(async connection =>
 		{
-			var jobHandles = await Jobs(connection)
+			var jobs = await Jobs(connection)
 				.Where(job =>
 					job.BatchHandle == null
 					&& (
@@ -154,11 +151,15 @@ internal sealed partial class LinqToDBJobStorage<T>
 						)
 					)
 				)
-				.Select(job => job.Id)
+				.Select(job => new ImmediateJobEntity { Id = job.Id, ConcurrencyStamp = job.ConcurrencyStamp })
 				.ToListAsync(cancellationToken);
 
-			if (jobHandles.Count != 0)
+			if (jobs.Count != 0)
 			{
+				foreach (var block in jobs.Chunk(256))
+					if (await VersionedJobs(connection, block).Set(job => job.ConcurrencyStamp, Guid.NewGuid()).UpdateAsync(cancellationToken) != block.Length)
+						throw new LostRaceException();
+				var jobHandles = jobs.Select(static job => job.Id).ToList();
 				_ = await Continuations(connection)
 					.Where(edge =>
 						jobHandles.Contains(edge.ChildJobHandle)
@@ -169,14 +170,7 @@ internal sealed partial class LinqToDBJobStorage<T>
 					.DeleteAsync(cancellationToken);
 				_ = await Jobs(connection).Where(job => jobHandles.Contains(job.Id)).DeleteAsync(cancellationToken);
 			}
-
-			await connection.CommitTransactionAsync(cancellationToken);
-		}
-		catch
-		{
-			await connection.RollbackTransactionAsync(cancellationToken);
-			throw;
-		}
+		}, cancellationToken);
 	}
 
 	/// <inheritdoc />
@@ -214,47 +208,43 @@ internal sealed partial class LinqToDBJobStorage<T>
 			?? throw new KeyNotFoundException($"Batch '{batchHandle}' was not found.");
 		if (IsTerminal(batch.State))
 			throw new ImmediateJobException("Only an executing batch can be cancelled.");
-		var jobHandles = await Jobs(connection).Where(job => job.BatchHandle == batchHandle.Value).Select(job => job.Id)
-			.ToListAsync(cancellationToken);
-		var jobsToCancel = new List<ImmediateJobEntity>(jobHandles.Count);
-		foreach (var jobHandle in jobHandles)
+		var jobsToCancel = await Jobs(connection)
+			.Where(job => job.BatchHandle == batchHandle.Value && (job.State == JobState.AwaitingContinuation
+				|| job.State == JobState.WaitingForTrigger || job.State == JobState.Scheduled
+				|| job.State == JobState.Pending || job.State == JobState.Active))
+			.OrderBy(job => job.Id).ToListAsync(cancellationToken);
+		await MaterializeExecutionsAsync(connection, jobsToCancel.Where(static job => job.State == JobState.Active), cancellationToken);
+		foreach (var block in jobsToCancel.Chunk(256))
 		{
-			var job = await Jobs(connection).SingleOrDefaultAsync(item => item.Id == jobHandle, cancellationToken);
-			if (job is null || IsTerminal(job.State))
-				continue;
-			if (job.State == JobState.Active)
-			{
-				_ = await GetOrMaterializeExecutionAsync(connection, job, cancellationToken)
-					?? throw new ImmediateJobException($"Active job '{job.Id}' has no execution ordinal.");
-				_ = await Executions(connection)
-					.Where(execution => execution.JobHandle == job.Id && execution.Attempt == job.Attempt)
+			if (block.Any(static job => job.State == JobState.Active && job.Attempt <= 0))
+				throw new ImmediateJobException("An active batch member has no execution ordinal.");
+			var activeIds = block.Where(static job => job.State == JobState.Active).Select(static job => job.Id).ToList();
+			if (activeIds.Count != 0)
+				await Executions(connection).Where(execution => Jobs(connection).Any(job => activeIds.Contains(job.Id)
+					&& job.Id == execution.JobHandle && job.Attempt == execution.Attempt))
 					.Set(execution => execution.State, JobExecutionState.Cancelled)
 					.Set(execution => execution.CompletedAt, now)
-					.Set(execution => execution.Error, (string?)null)
-						.UpdateAsync(cancellationToken);
-			}
-
-			var oldStamp = job.ConcurrencyStamp;
-			job.State = JobState.Cancelled;
-			job.CompletedAt = now;
-			job.WorkerId = null;
-			job.LeaseExpiresAt = null;
-			job.ConcurrencyStamp = Guid.NewGuid();
-			if (!await UpdateJobAsync(connection, job, oldStamp, cancellationToken))
+					.Set(execution => execution.Error, (string?)null).UpdateAsync(cancellationToken);
+			var stamp = Guid.NewGuid();
+			var updated = await VersionedJobs(connection, block)
+				.Set(job => job.State, JobState.Cancelled)
+				.Set(job => job.CompletedAt, now)
+				.Set(job => job.WorkerId, (string?)null)
+				.Set(job => job.LeaseExpiresAt, (DateTimeOffset?)null)
+				.Set(job => job.ConcurrencyStamp, stamp).UpdateAsync(cancellationToken);
+			if (updated != block.Length)
 				throw new LostRaceException();
-			jobsToCancel.Add(job);
+			foreach (var job in block)
+			{
+				job.State = JobState.Cancelled;
+				job.CompletedAt = now;
+				job.WorkerId = null;
+				job.LeaseExpiresAt = null;
+				job.ConcurrencyStamp = stamp;
+			}
 		}
 
-		foreach (var job in jobsToCancel)
-		{
-			await PropagateTerminalAsync(
-				connection,
-				job,
-				now,
-				terminalGroups,
-				cancellationToken
-			);
-		}
+		await PropagateTerminalAsync(connection, jobsToCancel, now, terminalGroups, cancellationToken);
 	}
 
 	private async Task CancelCoreAsync(
@@ -274,12 +264,14 @@ internal sealed partial class LinqToDBJobStorage<T>
 		await PropagateTerminalAsync(connection, job, now, terminalGroups, cancellationToken);
 	}
 
-	private async Task MarkCancelledAsync(DataConnection connection, ImmediateJobEntity job, DateTimeOffset now, string? reason, CancellationToken cancellationToken)
+	private async Task MarkCancelledAsync(DataConnection connection, ImmediateJobEntity job, DateTimeOffset now, string? reason, CancellationToken cancellationToken, bool executionPrepared = false)
 	{
 		if (job.State == JobState.Active)
 		{
-			_ = await GetOrMaterializeExecutionAsync(connection, job, cancellationToken)
-				?? throw new ImmediateJobException($"Active job '{job.Id}' has no execution ordinal.");
+			if (job.Attempt <= 0)
+				throw new ImmediateJobException($"Active job '{job.Id}' has no execution ordinal.");
+			if (!executionPrepared)
+				await GetOrMaterializeExecutionAsync(connection, job, cancellationToken);
 			_ = await Executions(connection)
 				.Where(execution => execution.JobHandle == job.Id && execution.Attempt == job.Attempt)
 				.Set(execution => execution.State, JobExecutionState.Cancelled)
@@ -314,15 +306,13 @@ internal sealed partial class LinqToDBJobStorage<T>
 		var wasFailed = job.State == JobState.Failed;
 		if (wasFailed && job.BatchHandle is { } batchHandle)
 		{
-			var batch = await Batches(connection).SingleOrDefaultAsync(item => item.Id == batchHandle, cancellationToken)
-				?? throw new LostRaceException();
-			var batchStamp = batch.ConcurrencyStamp;
-			batch.PendingCount++;
-			batch.FailedCount = Math.Max(0, batch.FailedCount - 1);
-			batch.State = BatchState.Executing;
-			batch.CompletedAt = null;
-			batch.ConcurrencyStamp = Guid.NewGuid();
-			if (!await UpdateBatchAsync(connection, batch, batchStamp, cancellationToken))
+			var updated = await Batches(connection).Where(batch => batch.Id == batchHandle)
+				.Set(batch => batch.PendingCount, batch => batch.PendingCount + 1)
+				.Set(batch => batch.FailedCount, batch => batch.FailedCount > 0 ? batch.FailedCount - 1 : 0)
+				.Set(batch => batch.State, BatchState.Executing)
+				.Set(batch => batch.CompletedAt, (DateTimeOffset?)null)
+				.Set(batch => batch.ConcurrencyStamp, Guid.NewGuid()).UpdateAsync(cancellationToken);
+			if (updated == 0)
 				throw new LostRaceException();
 		}
 
@@ -369,17 +359,16 @@ internal sealed partial class LinqToDBJobStorage<T>
 		// Claim batches in ID order before touching dependent rows so retry and purge use the same lock order.
 		foreach (var batch in batches)
 		{
-			var oldStamp = batch.ConcurrencyStamp;
-			batch.ConcurrencyStamp = Guid.NewGuid();
-			if (!await UpdateBatchAsync(connection, batch, oldStamp, cancellationToken))
+			var updated = await Batches(connection).Where(item => item.Id == batch.Id && item.ConcurrencyStamp == batch.ConcurrencyStamp)
+				.Set(item => item.ConcurrencyStamp, Guid.NewGuid()).UpdateAsync(cancellationToken);
+			if (updated == 0)
 				throw new LostRaceException();
 		}
 
 		var batchHandles = batches.Select(static batch => batch.Id).ToList();
-		var memberIds = await Jobs(connection)
+		var memberIds = Jobs(connection)
 			.Where(job => job.BatchHandle != null && batchHandles.Contains(job.BatchHandle))
-			.Select(job => job.Id)
-			.ToListAsync(cancellationToken);
+			.Select(job => job.Id);
 		_ = await Continuations(connection)
 			.Where(edge =>
 				(batchHandles.Contains(edge.ParentId) && edge.ParentKind == ContinuationParentKind.Batch)
