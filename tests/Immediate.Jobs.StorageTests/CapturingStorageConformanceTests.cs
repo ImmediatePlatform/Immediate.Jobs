@@ -13,7 +13,7 @@ public sealed class CapturingStorageConformanceTests
 		StorageCapabilities.Graph;
 
 	public static TheoryData<JobStorageConformanceTestCase> Cases =>
-		[.. JobStorageConformanceSuite.GetCases(Capabilities)];
+		[.. JobStorageConformanceSuite.GetCases(Capabilities, usesExpiringLeases: false)];
 
 	[Theory]
 	[MemberData(nameof(Cases))]

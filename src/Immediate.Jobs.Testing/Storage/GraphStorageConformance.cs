@@ -4,7 +4,7 @@ using Microsoft.Extensions.Time.Testing;
 
 namespace Immediate.Jobs.Testing.Storage;
 
-internal static class GraphStorageConformance
+internal static partial class GraphStorageConformance
 {
 	private const string RoutingName = "Graph.Submission.ResolvesQueuesAtomically";
 	private const string CapabilityName = "Graph.Capability.ResolvesAdvertisedStorage";
@@ -41,6 +41,11 @@ internal static class GraphStorageConformance
 		new(CancellationName, StorageCapabilities.Graph, CancelUnsettledChainAsync),
 		new(BatchPurgeName, StorageCapabilities.Graph, PurgeExpiredBatchAsync),
 		new(BatchPurgeRaceName, StorageCapabilities.Graph, SerializeBatchPurgeWithRetryAsync),
+		new(ConcurrentSpliceName, StorageCapabilities.Graph, ConcurrentSplicePreservesParentsAsync),
+		new(BufferedSpliceName, StorageCapabilities.Graph, BufferedSplicePreservesEveryAdditionAsync),
+		new(CyclicGraphName, StorageCapabilities.Graph, RejectsCyclicGraphsAsync),
+		new(DuplicateEdgeName, StorageCapabilities.Graph, RejectsDuplicateEdgesAsync),
+		new(MemberPurgeName, StorageCapabilities.Graph, StandalonePurgePreservesBatchMembersAsync),
 	];
 
 	private static async ValueTask ResolvesQueuesAtomicallyAsync(IJobStorage storage, FakeTimeProvider clock, CancellationToken token)
@@ -48,6 +53,7 @@ internal static class GraphStorageConformance
 		var graph = GetGraph(storage, RoutingName);
 		await storage.MergeJobDefinitionsListAsync(new()
 		{
+			RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase),
 			Definitions = [new() { Name = "Routed", QueueName = "priority" }],
 		}, token);
 		var batch = CreateBatch("routing-batch", 1);
@@ -132,6 +138,7 @@ internal static class GraphStorageConformance
 	{
 		await storage.MergeJobDefinitionsListAsync(new()
 		{
+			RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase),
 			Definitions =
 			[
 				new() { Name = "existing-graph-parent" },
@@ -188,6 +195,7 @@ internal static class GraphStorageConformance
 	{
 		await storage.MergeJobDefinitionsListAsync(new()
 		{
+			RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase),
 			Definitions =
 			[
 				new() { Name = "delayed-parent" },
@@ -248,6 +256,7 @@ internal static class GraphStorageConformance
 	{
 		await storage.MergeJobDefinitionsListAsync(new()
 		{
+			RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase),
 			Definitions =
 			[
 				new() { Name = "lifecycle-parent" },
@@ -326,6 +335,7 @@ internal static class GraphStorageConformance
 	{
 		await storage.MergeJobDefinitionsListAsync(new()
 		{
+			RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase),
 			Definitions =
 			[
 				new() { Name = "invalid-member" },
@@ -368,6 +378,7 @@ internal static class GraphStorageConformance
 	{
 		await storage.MergeJobDefinitionsListAsync(new()
 		{
+			RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase),
 			Definitions =
 			[
 				new() { Name = "trigger-parent" },
@@ -571,6 +582,7 @@ internal static class GraphStorageConformance
 	{
 		await storage.MergeJobDefinitionsListAsync(new()
 		{
+			RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase),
 			Definitions =
 			[
 				new() { Name = "fanin-success-parent" },
@@ -618,6 +630,7 @@ internal static class GraphStorageConformance
 	{
 		await storage.MergeJobDefinitionsListAsync(new()
 		{
+			RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase),
 			Definitions =
 			[
 				new() { Name = "dynamic-current" },
@@ -695,6 +708,7 @@ internal static class GraphStorageConformance
 	{
 		await storage.MergeJobDefinitionsListAsync(new()
 		{
+			RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase),
 			Definitions =
 			[
 				new() { Name = "splice-failure-False-current" },
@@ -756,6 +770,7 @@ internal static class GraphStorageConformance
 	{
 		await storage.MergeJobDefinitionsListAsync(new()
 		{
+			RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase),
 			Definitions =
 			[
 				new() { Name = "cancel-parent" },
@@ -798,6 +813,7 @@ internal static class GraphStorageConformance
 	{
 		await storage.MergeJobDefinitionsListAsync(new()
 		{
+			RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase),
 			Definitions =
 			[
 				new() { Name = "purge-parent" },
@@ -862,6 +878,7 @@ internal static class GraphStorageConformance
 	{
 		await storage.MergeJobDefinitionsListAsync(new()
 		{
+			RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase),
 			Definitions =
 			[
 				new() { Name = "purge-race-parent-a" },
@@ -1004,6 +1021,7 @@ internal static class GraphStorageConformance
 	{
 		await storage.MergeJobDefinitionsListAsync(new()
 		{
+			RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase),
 			Definitions =
 			[
 				new() { Name = "stale-dynamic-parent" },
@@ -1021,7 +1039,7 @@ internal static class GraphStorageConformance
 			cancellationToken
 		);
 		_ = await graph.AcquireDueJobsAsync(CreateRequest("stale-dynamic-worker", current.JobName), cancellationToken);
-		clock.Advance(TimeSpan.FromMinutes(2));
+		await graph.FailAsync(current.JobHandle, 1, "stale-dynamic-worker", "retry", clock.GetUtcNow(), cancellationToken);
 		_ = await graph.AcquireDueJobsAsync(CreateRequest("stale-dynamic-worker", current.JobName), cancellationToken);
 
 		var addition = CreateJob("stale-dynamic-child", batchHandle: "stale-dynamic-batch");
@@ -1054,6 +1072,7 @@ internal static class GraphStorageConformance
 	{
 		await storage.MergeJobDefinitionsListAsync(new()
 		{
+			RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase),
 			Definitions =
 			[
 				new() { Name = "terminal-parent" },
@@ -1106,6 +1125,7 @@ internal static class GraphStorageConformance
 	{
 		await storage.MergeJobDefinitionsListAsync(new()
 		{
+			RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase),
 			Definitions =
 			[
 				new() { Name = "invalid-dynamic-parent" },

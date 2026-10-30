@@ -352,7 +352,7 @@ internal sealed class ImmediateJobContinuationEntity
 	public ContinuationParentOutcome ParentOutcome { get; set; }
 }
 
-internal class ImmediateRecurringJobEntity
+internal sealed class ImmediateRecurringJobEntity
 {
 	public string? CancellationReason { get; set; }
 	public string Name { get; set; } = null!;

@@ -1,14 +1,99 @@
 using System.Collections.Concurrent;
+using Immediate.Jobs.Shared.Apis;
 using Immediate.Jobs.Shared.Interfaces;
 using Immediate.Jobs.Shared.Internals;
+using Immediate.Jobs.Shared.Storage;
 using Immediate.Jobs.Testing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Time.Testing;
 
 namespace Immediate.Jobs.FunctionalTests;
 
 public sealed class QueueSchedulerTests
 {
+	[Fact]
+	public async Task StandaloneInMemorySchedulerDoesNotRenewOrReacquireLongRunningWork()
+	{
+		var token = TestContext.Current.CancellationToken;
+		var clock = new FakeTimeProvider(DateTimeOffset.UnixEpoch);
+		var execution = new ProcessOwnedExecution();
+		var services = new ServiceCollection();
+		services.AddLogging();
+		services.AddSingleton<TimeProvider>(clock);
+		services.AddSingleton(new JobDefinition
+		{
+			Name = "process-owned",
+			JobType = typeof(ProcessOwnedExecution),
+			Invoker = execution,
+		});
+		services.AddImmediateJobsCore()
+			.ConfigureStorage(options => options.UseInMemory())
+			.ConfigureWorkers(options =>
+			{
+				options.WorkerCount = 2;
+				options.PollingInterval = TimeSpan.FromSeconds(1);
+				options.LeaseDuration = TimeSpan.FromSeconds(3);
+			});
+		await using var provider = services.BuildServiceProvider();
+		var storage = provider.GetRequiredService<IJobStorage>();
+		var scheduler = provider.GetRequiredService<JobSchedulingService>();
+		await scheduler.StartAsync(token);
+		try
+		{
+			await storage.EnqueueAsync(new()
+			{
+				JobHandle = JobHandle.FromString("long-running"),
+				JobName = "process-owned",
+				Payload = "{}",
+				State = JobState.Pending,
+				CreatedAt = clock.GetUtcNow(),
+				DueAt = clock.GetUtcNow(),
+			}, token);
+			clock.Advance(TimeSpan.FromSeconds(1));
+			await execution.Started.Task.WaitAsync(TimeSpan.FromSeconds(5), token);
+			clock.Advance(TimeSpan.FromDays(1));
+			var observedAfter = clock.GetUtcNow();
+			using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token);
+			deadline.CancelAfter(TimeSpan.FromSeconds(5));
+			JobServerSnapshot? server;
+			do
+			{
+				await Task.Delay(1, deadline.Token);
+				server = (await storage.GetMonitoringSnapshotAsync(deadline.Token)).Servers.SingleOrDefault();
+				clock.Advance(TimeSpan.FromSeconds(1));
+			} while (server is null || server.LastHeartbeat < observedAfter || server.Acquisition.LastSucceededAt is not { } succeededAt || succeededAt < observedAfter);
+
+			Assert.Null(server.LeaseRenewal.LastAttemptedAt);
+			var job = Assert.Single(await storage.QueryJobsAsync(new(), token));
+			Assert.Null(job.LeaseExpiresAt);
+			Assert.Equal(JobState.Active, job.State);
+			Assert.Equal(1, job.Attempt);
+			Assert.Equal(1, execution.Invocations);
+		}
+		finally
+		{
+			execution.Release.TrySetResult();
+			await scheduler.StopAsync(token);
+		}
+
+		Assert.Equal(JobState.Succeeded, Assert.Single(await storage.QueryJobsAsync(new(), token)).State);
+	}
+
+	private sealed class ProcessOwnedExecution : IJobInvoker
+	{
+		public TaskCompletionSource Started { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+		public TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+		private int _invocations;
+		public int Invocations => Volatile.Read(ref _invocations);
+		public async ValueTask InvokeAsync(IServiceProvider scopedServices, JobExecution execution)
+		{
+			Interlocked.Increment(ref _invocations);
+			Started.TrySetResult();
+			await Release.Task.WaitAsync(execution.CancellationToken);
+		}
+	}
+
 	[Fact]
 	public async Task RepeatedRuntimeRegistrationPreservesOtherHostedServicesAndAddsOneScheduler()
 	{

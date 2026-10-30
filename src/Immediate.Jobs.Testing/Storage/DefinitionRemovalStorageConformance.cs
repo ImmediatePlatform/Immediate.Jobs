@@ -42,7 +42,7 @@ internal static class DefinitionRemovalStorageConformance
 		var now = clock.GetUtcNow();
 		var definition = new JobDefinitionRecord { Name = "Résumé", Tags = ["alpha"] };
 		var other = new JobDefinitionRecord { Name = "Other", Tags = ["beta"] };
-		await storage.MergeJobDefinitionsListAsync(new() { Definitions = [definition, other], ServerTags = ["alpha", "beta"] }, token);
+		await storage.MergeJobDefinitionsListAsync(new() { RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase), Definitions = [definition, other], ServerTags = ["alpha", "beta"] }, token);
 		await storage.EnqueueAsync(Job("history", definition.Name, now), token);
 		var history = (await storage.AcquireDueJobsAsync(Request(definition.Name), token)).Single();
 		await storage.CompleteAsync(history.JobHandle, history.Attempt, "worker", token);
@@ -54,7 +54,6 @@ internal static class DefinitionRemovalStorageConformance
 		{
 			Name = "dynamic",
 			JobName = "RéSUMé",
-			QueueName = "default",
 			Cron = "* * * * *",
 			TimeZone = "UTC",
 			IsCodeDefined = false,
@@ -62,7 +61,7 @@ internal static class DefinitionRemovalStorageConformance
 		};
 		await storage.UpsertRecurringAsync(schedule, token);
 		var acquired = (await storage.AcquireDueJobsAsync(Request(definition.Name), token)).Single();
-		await storage.MergeJobDefinitionsListAsync(new() { Definitions = [], ServerTags = ["alpha"] }, token);
+		await storage.MergeJobDefinitionsListAsync(new() { RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase), Definitions = [], ServerTags = ["alpha"] }, token);
 		foreach (var id in new[] { "active", "scheduled", "waiting" })
 		{
 			var job = (await storage.QueryJobsAsync(new() { JobHandle = JobHandle.FromString(id) }, token)).Single();
@@ -86,9 +85,9 @@ internal static class DefinitionRemovalStorageConformance
 		ConformanceAssert.Equal(cancelled.CancellationReason, updated.CancellationReason, CancellationCase, "a stale upsert preserves cancellation");
 		ConformanceAssert.True(updated.IsPaused, CancellationCase, "a stale upsert cannot reactivate a canceled schedule");
 		await ConformanceAssert.ThrowsAsync<ImmediateJobException>(() => storage.ResumeRecurringAsync(schedule.Name, token), CancellationCase, "resume remains rejected after a stale upsert");
-		await storage.MergeJobDefinitionsListAsync(new() { Definitions = [], ServerTags = ["alpha"] }, token);
+		await storage.MergeJobDefinitionsListAsync(new() { RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase), Definitions = [], ServerTags = ["alpha"] }, token);
 		ConformanceAssert.Equal(updated, (await storage.GetMonitoringSnapshotAsync(token)).Recurring.Single(), CancellationCase, "repeated reconciliation retains cancellation history");
-		await storage.MergeJobDefinitionsListAsync(new() { Definitions = [definition], ServerTags = ["alpha"] }, token);
+		await storage.MergeJobDefinitionsListAsync(new() { RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase), Definitions = [definition], ServerTags = ["alpha"] }, token);
 		await storage.RemoveRecurringAsync(schedule.Name, token);
 		await storage.UpsertRecurringAsync(schedule, token);
 		var recreated = (await storage.GetMonitoringSnapshotAsync(token)).Recurring.Single();
@@ -99,7 +98,7 @@ internal static class DefinitionRemovalStorageConformance
 	{
 		var graph = (IJobGraphStorage)storage;
 		var now = clock.GetUtcNow();
-		await storage.MergeJobDefinitionsListAsync(new() { Definitions = [new() { Name = "Removed" }, new() { Name = "Kept" }] }, token);
+		await storage.MergeJobDefinitionsListAsync(new() { RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase), Definitions = [new() { Name = "Removed" }, new() { Name = "Kept" }] }, token);
 		var batch = BatchHandle.FromString("cancel-batch");
 		var parent = Job("parent", "Removed", now) with { BatchHandle = batch };
 		var removedChild = Job("removed-child", "Removed", now) with { BatchHandle = batch, State = JobState.AwaitingContinuation, RemainingDependencies = 1 };
@@ -108,7 +107,7 @@ internal static class DefinitionRemovalStorageConformance
 			[parent, removedChild, keptChild],
 			[new() { ChildJobHandle = removedChild.JobHandle, ParentJobHandle = parent.JobHandle, Delay = TimeSpan.Zero, Trigger = ContinuationTrigger.Success },
 				new() { ChildJobHandle = keptChild.JobHandle, ParentJobHandle = parent.JobHandle, Delay = TimeSpan.Zero, Trigger = ContinuationTrigger.Complete }], token);
-		await storage.MergeJobDefinitionsListAsync(new() { Definitions = [new() { Name = "Kept", QueueName = "changed" }] }, token);
+		await storage.MergeJobDefinitionsListAsync(new() { RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase), Definitions = [new() { Name = "Kept", QueueName = "changed" }] }, token);
 		ConformanceAssert.Equal(JobState.Cancelled, (await storage.GetJobStatusAsync(removedChild.JobHandle, token))!.State, GraphCase, "a removed child is canceled before dependency propagation");
 		ConformanceAssert.Equal(JobState.Pending, (await storage.GetJobStatusAsync(keptChild.JobHandle, token))!.State, GraphCase, "completion-triggered work for retained definitions is released");
 		ConformanceAssert.Equal("changed", (await storage.QueryJobsAsync(new() { JobHandle = keptChild.JobHandle }, token)).Single().QueueName,

@@ -35,11 +35,13 @@ internal sealed partial class LinqToDBJobStorage<T>(
 	}
 
 	/// <inheritdoc />
-	public async ValueTask InitializeAsync(CancellationToken cancellationToken = default)
+	public async ValueTask InitializeAsync(bool interruptActiveLeases, CancellationToken cancellationToken = default)
 	{
 		InitializeAsyncCalled();
+		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
-		await ValueTask.CompletedTask;
+		if (interruptActiveLeases)
+			await InterruptActiveLeasesAsync(cancellationToken);
 	}
 
 	/// <summary>

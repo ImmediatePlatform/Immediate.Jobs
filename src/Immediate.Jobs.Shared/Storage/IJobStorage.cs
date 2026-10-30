@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using Immediate.Jobs.Shared.Apis;
 
 namespace Immediate.Jobs.Shared.Storage;
@@ -44,7 +45,7 @@ public interface IJobStorage : IAsyncDisposable
 	ValueTask ResumeJobAsync(string jobName, CancellationToken cancellationToken = default);
 
 	/// <summary>
-	/// 	Evaluates the current acquisition status and active unexpired leases using a definition's persisted limits.
+	/// 	Evaluates the current acquisition status and owned active jobs using a definition's persisted limits.
 	/// </summary>
 	/// <param name="jobName">
 	/// 	The stable definition name.
@@ -61,21 +62,27 @@ public interface IJobStorage : IAsyncDisposable
 	ValueTask<JobAcquisitionState> GetJobAcquisitionStateAsync(string jobName, CancellationToken cancellationToken = default);
 
 	/// <summary>
-	/// 	Initializes provider storage.
+	///     Initializes provider storage.
 	/// </summary>
+	/// <param name="interruptActiveLeases">
+	///     Whether to interrupt all active executions and return their jobs to pending without resetting attempts,
+	///     batch progress, dependencies, or acquisition history. Only single-server startup may pass <see
+	///     langword="true"/>, after all previous workers have stopped. Distributed initialization must pass <see
+	///     langword="false"/>.
+	/// </param>
 	/// <param name="cancellationToken">
-	/// 	A token that can cancel the storage operation.
+	///     A token that can cancel the storage operation.
 	/// </param>
 	/// <returns>
-	/// 	A value task that represents the asynchronous initialization.
+	///     A value task that represents the asynchronous initialization.
 	/// </returns>
-	ValueTask InitializeAsync(CancellationToken cancellationToken = default);
+	ValueTask InitializeAsync(bool interruptActiveLeases, CancellationToken cancellationToken = default);
 
 	/// <summary>
 	/// 	Atomically reconciles definitions and code-defined schedules within the server's tag scope.
 	/// </summary>
 	/// <param name="registration">
-	/// 	The complete local definition catalogue, code-defined schedules, and server tags.
+	/// 	The complete local definition catalogue, next occurrence timestamps for code-defined recurring jobs, and server tags.
 	/// </param>
 	/// <param name="cancellationToken">
 	/// 	A token that can cancel the operation.
@@ -84,6 +91,8 @@ public interface IJobStorage : IAsyncDisposable
 	/// 	A value task representing the complete scoped reconciliation.
 	/// </returns>
 	/// <remarks>
+	/// 	Called by <see cref="Internals.JobSchedulingService"/> during startup with a complete, internally constructed
+	/// 	registration. Storage implementations can rely on its definitions and recurring schedules being consistent.
 	/// 	Matching definitions are inserted or updated; matching stored definitions omitted from the managed list
 	/// 	are removed. Removing a definition cancels its nonterminal invocations and dynamic recurring schedules, retaining
 	/// 	their records and cancellation reasons. Unrelated definitions and terminal invocation history are preserved.
@@ -146,7 +155,7 @@ public interface IJobStorage : IAsyncDisposable
 	ValueTask UpdatePayloadAsync(
 		JobHandle jobHandle,
 		string expectedJobName,
-		string payload,
+		[StringSyntax("json")] string payload,
 		CancellationToken cancellationToken = default
 	);
 
@@ -246,7 +255,7 @@ public interface IJobStorage : IAsyncDisposable
 	);
 
 	/// <summary>
-	/// 	Extends the lease on an active job owned by the worker.
+	/// 	Extends time-limited ownership, or validates process-lifetime ownership, of an active job owned by the worker.
 	/// </summary>
 	/// <param name="jobHandle">
 	/// 	The active invocation identifier.
@@ -456,20 +465,6 @@ public interface IJobStorage : IAsyncDisposable
 	ValueTask RetryAsync(JobHandle jobHandle, CancellationToken cancellationToken = default);
 
 	/// <summary>
-	/// 	Deletes a terminal invocation.
-	/// </summary>
-	/// <param name="jobHandle">
-	/// 	The terminal invocation identifier.
-	/// </param>
-	/// <param name="cancellationToken">
-	/// 	A token that can cancel the storage operation.
-	/// </param>
-	/// <returns>
-	/// 	A value task that represents the asynchronous deletion.
-	/// </returns>
-	ValueTask DeleteAsync(JobHandle jobHandle, CancellationToken cancellationToken = default);
-
-	/// <summary>
 	/// 	Deletes terminal job history older than the supplied retention periods.
 	/// </summary>
 	/// <param name="succeededRetention">
@@ -527,6 +522,16 @@ public interface IJobStorage : IAsyncDisposable
 	/// <returns>
 	/// 	A value task that represents the asynchronous upsert.
 	/// </returns>
+	/// <remarks>
+	/// 	Only dynamic schedules can be created by upsert. Code-defined schedules are created through
+	/// 	<see cref="MergeJobDefinitionsListAsync"/>. Updates must preserve the stored schedule's
+	/// 	<see cref="RecurringJobSchedule.IsCodeDefined"/> value.
+	/// 	For existing code-defined schedules, only <see cref="RecurringJobSchedule.NextRunAt"/> is updated;
+	/// 	all other supplied values are ignored.
+	/// </remarks>
+	/// <exception cref="ImmediateJobException">
+	/// 	The upsert would create a code-defined schedule or change an existing schedule's ownership.
+	/// </exception>
 	ValueTask UpsertRecurringAsync(RecurringJobSchedule schedule, CancellationToken cancellationToken = default);
 
 	/// <summary>

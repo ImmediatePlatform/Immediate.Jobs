@@ -11,7 +11,16 @@ internal sealed partial class SingleServerJobStorage
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 		await EnsureInitializedAsync(cancellationToken);
-		await DurableStorage.PauseJobAsync(jobName, cancellationToken);
+		await _writeThrough.WaitAsync(cancellationToken);
+		try
+		{
+			await DurableStorage.PauseJobAsync(jobName, cancellationToken);
+			await PrimaryStorage.PauseJobAsync(jobName, CancellationToken.None);
+		}
+		finally
+		{
+			_writeThrough.Release();
+		}
 	}
 
 	/// <inheritdoc />
@@ -21,7 +30,16 @@ internal sealed partial class SingleServerJobStorage
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 		await EnsureInitializedAsync(cancellationToken);
-		await DurableStorage.ResumeJobAsync(jobName, cancellationToken);
+		await _writeThrough.WaitAsync(cancellationToken);
+		try
+		{
+			await DurableStorage.ResumeJobAsync(jobName, cancellationToken);
+			await PrimaryStorage.ResumeJobAsync(jobName, CancellationToken.None);
+		}
+		finally
+		{
+			_writeThrough.Release();
+		}
 	}
 
 	/// <inheritdoc />

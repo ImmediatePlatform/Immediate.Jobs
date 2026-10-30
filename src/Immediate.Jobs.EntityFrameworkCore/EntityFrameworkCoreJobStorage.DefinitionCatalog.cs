@@ -17,8 +17,6 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 		MergeJobDefinitionsListAsyncCalled();
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
-		// Validate before taking a write lock or creating the catalogue sentinel.
-		JobDefinitionReconciliation.Create(registration, [], []);
 		var reports = new List<(string Name, int Jobs, int Schedules)>();
 		await RetryConcurrencyAsync(async token =>
 		{

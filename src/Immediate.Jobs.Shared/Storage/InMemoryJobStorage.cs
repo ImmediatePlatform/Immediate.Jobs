@@ -33,22 +33,30 @@ public sealed partial class InMemoryJobStorage(
 
 	private readonly Lock _gate = new();
 
-	private readonly Dictionary<JobHandle, JobRecord> _jobs = [];
+	private readonly Dictionary<string, JobDefinitionRecord> _jobDefinitions = [with(StringComparer.OrdinalIgnoreCase)];
+	private readonly Dictionary<string, DefinitionAcquisition> _acquisitionDefinitions = [with(StringComparer.Ordinal)];
 
-	private readonly Dictionary<JobHandle, SortedDictionary<int, JobExecutionRecord>> _executions = [];
+	private readonly Dictionary<JobHandle, JobRecord> _jobs = [];
+	private readonly Dictionary<BatchHandle, List<JobHandle>> _jobsByBatch = [];
+	private readonly Dictionary<string, HashSet<JobHandle>> _jobsByDefinition = [with(StringComparer.OrdinalIgnoreCase)];
+	private readonly Dictionary<string, SortedSet<RunnableJob>> _runnableJobs = [with(StringComparer.OrdinalIgnoreCase)];
+	private readonly Dictionary<string, int> _activeJobCounts = [with(StringComparer.OrdinalIgnoreCase)];
+	private readonly SortedSet<ActiveLease> _activeLeases = [with(ActiveLease.Comparer)];
+
+	private readonly Dictionary<JobHandle, Dictionary<int, JobExecutionRecord>> _executions = [];
 
 	private readonly Dictionary<BatchHandle, BatchRecord> _batches = [];
 
 	private readonly List<JobContinuationEdge> _edges = [];
-
+	private readonly Dictionary<JobHandle, List<JobContinuationEdge>> _edgesByParentJob = [];
+	private readonly Dictionary<BatchHandle, List<JobContinuationEdge>> _edgesByParentBatch = [];
+	private readonly Dictionary<JobHandle, List<JobContinuationEdge>> _edgesByChildJob = [];
 	private readonly HashSet<JobContinuationEdge> _settledEdges = [];
 
 	private readonly Dictionary<string, RecurringJobSchedule> _recurring = [with(StringComparer.OrdinalIgnoreCase)];
-
-	private readonly Dictionary<string, JobServerSnapshot> _servers = [with(StringComparer.Ordinal)];
-
 	private readonly HashSet<string> _recurringKeys = [with(StringComparer.Ordinal)];
 
+	private readonly Dictionary<string, JobServerSnapshot> _servers = [with(StringComparer.Ordinal)];
 	private readonly Dictionary<(string QueueName, string GroupId), long> _fairQueueLastServed = [];
 
 	/// <inheritdoc />
@@ -58,51 +66,10 @@ public sealed partial class InMemoryJobStorage(
 	}
 
 	/// <inheritdoc />
-	public async ValueTask InitializeAsync(CancellationToken cancellationToken = default)
+	public async ValueTask InitializeAsync(bool interruptActiveLeases, CancellationToken cancellationToken = default)
 	{
 		InitializeAsyncCalled();
 		cancellationToken.ThrowIfCancellationRequested();
-	}
-
-	/// <summary>
-	///	    Used for testing to pre-load various values to the storage before the test starts.
-	/// </summary>
-	/// <param name="jobs">
-	///	    The jobs that should be loaded in the database.
-	/// </param>
-	/// <param name="batches">
-	///	    The batches that should be loaded in the database.
-	/// </param>
-	/// <param name="edges">
-	///	    The continuation edges that should be loaded in the database.
-	/// </param>
-	/// <param name="recurringSchedules">
-	///	    The recurring schedules that should be loaded in the database.
-	/// </param>
-	/// <remarks>
-	///	    This method should run before any other methods run to initialize test state. Use in regular app code is not
-	///	    supported.
-	/// </remarks>
-	public void LoadPersistedJobState(
-		IReadOnlyList<JobRecord> jobs,
-		IReadOnlyList<BatchRecord> batches,
-		IReadOnlyList<JobContinuationEdge> edges,
-		IReadOnlyList<RecurringJobSchedule> recurringSchedules
-	)
-	{
-		lock (_gate)
-		{
-			foreach (var b in batches)
-				_batches[b.BatchHandle] = b;
-
-			foreach (var j in jobs)
-				_jobs[j.JobHandle] = j with { QueueName = null };
-
-			_edges.AddRange(edges);
-
-			foreach (var schedule in recurringSchedules)
-				_recurring[schedule.Name] = schedule with { QueueName = null };
-		}
 	}
 
 	/// <inheritdoc />
@@ -136,6 +103,9 @@ public sealed partial class InMemoryJobStorage(
 		return true;
 	}
 
+	/// <remarks>
+	/// 	The caller does not need to hold the <see cref="_gate"/> lock.
+	/// </remarks>
 	[LoggerMessage(
 		EventId = LibraryEventIds.InMemoryDisposeAsyncCalled,
 		EventName = "Immediate.Jobs.Shared.DisposeAsyncCalled",
@@ -144,6 +114,9 @@ public sealed partial class InMemoryJobStorage(
 	)]
 	private partial void DisposeAsyncCalled();
 
+	/// <remarks>
+	/// 	The caller does not need to hold the <see cref="_gate"/> lock.
+	/// </remarks>
 	[LoggerMessage(
 		EventId = LibraryEventIds.InMemoryInitializeAsyncCalled,
 		EventName = "Immediate.Jobs.Shared.InitializeAsyncCalled",
@@ -152,6 +125,9 @@ public sealed partial class InMemoryJobStorage(
 	)]
 	private partial void InitializeAsyncCalled();
 
+	/// <remarks>
+	/// 	The caller does not need to hold the <see cref="_gate"/> lock.
+	/// </remarks>
 	[LoggerMessage(
 		EventId = LibraryEventIds.InMemoryHeartbeatAsyncCalled,
 		EventName = "Immediate.Jobs.Shared.HeartbeatAsyncCalled",
@@ -160,6 +136,9 @@ public sealed partial class InMemoryJobStorage(
 	)]
 	private partial void HeartbeatAsyncCalled(string server);
 
+	/// <remarks>
+	/// 	The caller does not need to hold the <see cref="_gate"/> lock.
+	/// </remarks>
 	[LoggerMessage(
 		EventId = LibraryEventIds.InMemoryIsHealthyAsyncCalled,
 		EventName = "Immediate.Jobs.Shared.IsHealthyAsyncCalled",

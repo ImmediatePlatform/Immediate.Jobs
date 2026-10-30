@@ -16,12 +16,11 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 		await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
-		var recurring = await RecurringWithDefinitions(context).AsNoTracking().OrderBy(schedule => schedule.Name)
+		var recurring = await context.Set<ImmediateRecurringJobEntity>().AsNoTracking().OrderBy(schedule => schedule.Name)
 			.Select(schedule => new RecurringJobDefinition
 			{
 				Name = schedule.Name,
 				JobName = schedule.JobName,
-				QueueName = schedule.QueueName,
 				Cron = schedule.Cron,
 				TimeZone = schedule.TimeZone,
 				IsCodeDefined = schedule.IsCodeDefined,
@@ -77,7 +76,7 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 		foreach (var item in rawCounts)
 			counts[item.State] = item.Count;
 
-		var recurring = await RecurringWithDefinitions(context)
+		var recurring = await context.Set<ImmediateRecurringJobEntity>()
 			.AsNoTracking()
 			.OrderBy(schedule => schedule.Name)
 			.Select(schedule => new RecurringJobStatus

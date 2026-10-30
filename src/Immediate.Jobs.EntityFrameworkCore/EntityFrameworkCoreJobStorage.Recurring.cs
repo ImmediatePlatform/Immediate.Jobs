@@ -21,7 +21,7 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 
 		if (await UpdateRecurringAsync(context, schedule, cancellationToken) != 0)
 			return;
-		await ThrowIfReplacingCodeDefinedScheduleAsync(context, schedule, cancellationToken);
+		await ThrowIfInvalidRecurringUpsertAsync(context, schedule, cancellationToken);
 
 		context.Add(ToEntity(schedule));
 		try
@@ -34,7 +34,7 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 			await using var retryContext = await contextFactory.CreateDbContextAsync(cancellationToken);
 			if (await UpdateRecurringAsync(retryContext, schedule, cancellationToken) != 0)
 				return;
-			await ThrowIfReplacingCodeDefinedScheduleAsync(retryContext, schedule, cancellationToken);
+			await ThrowIfInvalidRecurringUpsertAsync(retryContext, schedule, cancellationToken);
 			throw;
 		}
 	}
@@ -99,7 +99,7 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 		await TaskScheduler.Yield();
 
 		await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
-		return await RecurringWithDefinitions(context)
+		return await context.Set<ImmediateRecurringJobEntity>()
 			.AsNoTracking()
 			.Where(schedule => !schedule.IsPaused && schedule.NextRunAt <= now && jobNames.Contains(schedule.JobName))
 			.OrderBy(schedule => schedule.NextRunAt)
@@ -108,7 +108,6 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 			{
 				Name = schedule.Name,
 				JobName = schedule.JobName,
-				QueueName = schedule.QueueName,
 				CancellationReason = schedule.CancellationReason,
 				Cron = schedule.Cron,
 				TimeZone = schedule.TimeZone,
@@ -249,30 +248,39 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 	)
 	{
 		var concurrencyStamp = Guid.NewGuid();
-		return context.Set<ImmediateRecurringJobEntity>()
-			.Where(entity => entity.Name == schedule.Name && (schedule.IsCodeDefined || !entity.IsCodeDefined))
+		var query = context.Set<ImmediateRecurringJobEntity>()
+			.Where(entity => entity.Name == schedule.Name && entity.IsCodeDefined == schedule.IsCodeDefined);
+		if (schedule.IsCodeDefined)
+		{
+			return query.ExecuteUpdateAsync(setters => setters
+				.SetProperty(entity => entity.NextRunAt, schedule.NextRunAt)
+				.SetProperty(entity => entity.ConcurrencyStamp, concurrencyStamp),
+				cancellationToken);
+		}
+
+		return query
 			.ExecuteUpdateAsync(setters => setters
 				.SetProperty(entity => entity.JobName, schedule.JobName)
-
 				.SetProperty(entity => entity.CancellationReason, entity => schedule.CancellationReason ?? entity.CancellationReason)
 				.SetProperty(entity => entity.Cron, schedule.Cron)
 				.SetProperty(entity => entity.TimeZone, schedule.TimeZone)
-				.SetProperty(entity => entity.IsCodeDefined, schedule.IsCodeDefined)
 				.SetProperty(entity => entity.NextRunAt, schedule.NextRunAt)
 				.SetProperty(entity => entity.ConcurrencyStamp, concurrencyStamp),
 				cancellationToken);
 	}
 
-	private static async Task ThrowIfReplacingCodeDefinedScheduleAsync(
+	private static async Task ThrowIfInvalidRecurringUpsertAsync(
 		TContext context,
 		RecurringJobSchedule schedule,
 		CancellationToken cancellationToken
 	)
 	{
-		if (!schedule.IsCodeDefined && await context.Set<ImmediateRecurringJobEntity>()
+		if (schedule.IsCodeDefined)
+			throw new ImmediateJobException("Code-defined recurring schedules must already exist with the same ownership before upsert.");
+		if (await context.Set<ImmediateRecurringJobEntity>()
 			.AnyAsync(entity => entity.Name == schedule.Name && entity.IsCodeDefined, cancellationToken))
 		{
-			throw new ImmediateJobException("Code-defined recurring schedules cannot be replaced by dynamic schedules.");
+			throw new ImmediateJobException("Recurring schedule ownership cannot be changed by upsert.");
 		}
 	}
 

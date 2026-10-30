@@ -47,12 +47,12 @@ public sealed partial class JobSchedulingService : BackgroundService
 
 	private readonly ConcurrentDictionary<string, int> _queueReservations = new(StringComparer.Ordinal);
 	private readonly ConcurrentDictionary<string, int> _jobReservations = new(StringComparer.OrdinalIgnoreCase);
-	private readonly ConcurrentDictionary<JobHandle, OpenLease> _openLeases = [];
+	private readonly ConcurrentDictionary<JobHandle, OpenLease>? _openLeases;
 	private readonly CancellationTokenSource _workerCancellation = new();
 	private readonly string _workerId = string.Create(CultureInfo.InvariantCulture, $"{Environment.MachineName}:{Environment.ProcessId}:{DateTimeOffset.UtcNow.Ticks}");
 	private readonly Channel<JobRecord> _channel;
 	private int _reservations;
-	private bool _drainInitialized;
+	private bool _initialized;
 	private bool _fairQueuesDisabledWarningLogged;
 	private DateTimeOffset _nextPurgeTimestamp;
 
@@ -105,6 +105,7 @@ public sealed partial class JobSchedulingService : BackgroundService
 
 		_scopeFactory = scopeFactory;
 		_storage = storage;
+		_openLeases = storage is InMemoryJobStorage ? null : new();
 		_options = options.Value;
 		_fairQueueOptions = fairQueueOptions.Value;
 		_timeProvider = timeProvider;
@@ -151,10 +152,10 @@ public sealed partial class JobSchedulingService : BackgroundService
 			GraphFeaturesDisabled(storage.GetType().Name);
 	}
 
-	/// <inheritdoc />
+	/// <inheritdoc/>
 	public override async Task StartAsync(CancellationToken cancellationToken)
 	{
-		await TaskScheduler.Yield();
+		// Initializing here so storage is initialized prior to any services running.
 		await InitializeAsync(cancellationToken);
 		await base.StartAsync(cancellationToken);
 	}
@@ -162,8 +163,7 @@ public sealed partial class JobSchedulingService : BackgroundService
 	/// <inheritdoc />
 	protected override async Task ExecuteAsync(CancellationToken stoppingToken)
 	{
-		// initialization needs to be done no matter what, so that storage is initialized
-		await InitializeAsync(stoppingToken);
+		await TaskScheduler.Yield();
 
 		if (!_options.IsJobSchedulingServiceEnabled)
 			return;
@@ -228,10 +228,10 @@ public sealed partial class JobSchedulingService : BackgroundService
 	/// </returns>
 	public async ValueTask DrainAsync(CancellationToken cancellationToken = default)
 	{
-		if (!_drainInitialized)
+		if (!_initialized)
 			await InitializeAsync(cancellationToken);
 
-		_drainInitialized = true;
+		_initialized = true;
 
 		while (true)
 		{
@@ -247,12 +247,10 @@ public sealed partial class JobSchedulingService : BackgroundService
 
 	private async Task InitializeAsync(CancellationToken cancellationToken)
 	{
-		if (_drainInitialized)
-			return;
-		await _storage.InitializeAsync(cancellationToken);
+		await _storage.InitializeAsync(interruptActiveLeases: false, cancellationToken);
 
 		var definitions = _definitions.Values
-			.Select(static definition => new JobDefinitionRecord
+			.Select(definition => new JobDefinitionRecord
 			{
 				Name = definition.Name,
 				Tags = definition.Tags,
@@ -279,20 +277,15 @@ public sealed partial class JobSchedulingService : BackgroundService
 
 		var schedules = _definitions.Values
 			.Where(d => d.Cron is not null)
-			.Select(d => new RecurringJobSchedule
-			{
-				Name = d.Name,
-				JobName = d.Name,
-				Cron = d.Cron!,
-				TimeZone = d.TimeZone,
-				IsCodeDefined = true,
-				NextRunAt = now.GetNextOccurrence(
+			.ToDictionary(
+				x => x.Name,
+				d => now.GetNextOccurrence(
 					d.Cron!,
 					d.TimeZone,
 					d.Name
 				),
-			})
-			.ToList();
+				StringComparer.OrdinalIgnoreCase
+			);
 
 		await _storage.MergeJobDefinitionsListAsync(
 			new()
@@ -303,7 +296,6 @@ public sealed partial class JobSchedulingService : BackgroundService
 			},
 			cancellationToken
 		);
-		_drainInitialized = true;
 	}
 
 	/// <summary>
@@ -409,12 +401,6 @@ public sealed partial class JobSchedulingService : BackgroundService
 
 		if (_timeProvider.GetUtcNow() >= _nextPurgeTimestamp)
 		{
-			await _storage.PurgeJobsAsync(
-				_options.SucceededRetention,
-				_options.FailedRetention,
-				cancellationToken
-			);
-
 			if (_storage is IJobGraphStorage graphStorage)
 			{
 				await graphStorage.PurgeBatchesAsync(
@@ -423,6 +409,12 @@ public sealed partial class JobSchedulingService : BackgroundService
 					cancellationToken
 				);
 			}
+
+			await _storage.PurgeJobsAsync(
+				_options.SucceededRetention,
+				_options.FailedRetention,
+				cancellationToken
+			);
 
 			_nextPurgeTimestamp = _timeProvider.GetUtcNow() + _options.PurgeInterval;
 		}
@@ -436,6 +428,9 @@ public sealed partial class JobSchedulingService : BackgroundService
 	/// </summary>
 	private async Task RunLeaseRenewalLoopAsync(CancellationToken cancellationToken)
 	{
+		if (_openLeases is null)
+			return;
+
 		await Task.Yield();
 
 		while (!cancellationToken.IsCancellationRequested)
@@ -771,7 +766,8 @@ public sealed partial class JobSchedulingService : BackgroundService
 	{
 		JobTelemetry.Acquired();
 		Interlocked.Increment(ref _reservations);
-		_openLeases[record.JobHandle] = new(record, _timeProvider.GetUtcNow() + LeaseRenewalInterval);
+		if (_openLeases is { } leases)
+			leases[record.JobHandle] = new(record, _timeProvider.GetUtcNow() + LeaseRenewalInterval);
 		if (record.QueueName is { } queueName)
 			_queueReservations.AddOrUpdate(queueName, 1, static (_, count) => count + 1);
 		_jobReservations.AddOrUpdate(record.JobName, 1, static (_, count) => count + 1);
@@ -781,7 +777,7 @@ public sealed partial class JobSchedulingService : BackgroundService
 	{
 		JobTelemetry.Released();
 		Interlocked.Decrement(ref _reservations);
-		_openLeases.TryRemove(record.JobHandle, out _);
+		_openLeases?.TryRemove(record.JobHandle, out _);
 		if (record.QueueName is { } queueName)
 			_queueReservations.AddOrUpdate(queueName, 0, static (_, count) => Math.Max(0, count - 1));
 		_jobReservations.AddOrUpdate(record.JobName, 0, static (_, count) => Math.Max(0, count - 1));

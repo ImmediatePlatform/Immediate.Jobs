@@ -2,8 +2,6 @@ using Immediate.Jobs.Shared.Apis;
 using Immediate.Jobs.Shared.Storage;
 using Immediate.Jobs.Testing.Storage;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Time.Testing;
 
 #pragma warning disable IDE0130
@@ -19,17 +17,13 @@ internal static partial class ReplicaStorageConformance
 		CancellationToken token
 	)
 	{
-		await using var durable = new DelayedEnqueueStorage(Replica(storage, EnqueueRaceName));
-		var services = new ServiceCollection();
-		services.AddSingleton(typeof(ILogger<>), typeof(NullLogger<>));
-		services.AddSingleton<TimeProvider>(clock);
-		services.AddImmediateJobsCore().ConfigureStorage(builder => builder.UseSingleServer(_ => durable));
-
-		await using var provider = services.BuildServiceProvider();
+		await using var durable = new AcquisitionReplicaStorage(Replica(storage, EnqueueRaceName)) { DelayEnqueue = true };
+		await using var provider = CreateSingleServerProvider(durable, clock);
 		var writer = provider.GetRequiredService<IJobStorage>();
-		await writer.InitializeAsync(token);
+		await writer.InitializeAsync(interruptActiveLeases: false, token);
 		await writer.MergeJobDefinitionsListAsync(new()
 		{
+			RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase),
 			Definitions = [new() { Name = JobName, QueueName = QueueName }],
 		}, token);
 
@@ -90,27 +84,34 @@ internal static partial class ReplicaStorageConformance
 			EnqueueRaceName, "completion must also update the durable store");
 	}
 
-	// Forward every operation to the fixture's provider, pausing only after its enqueue commits.
-	private sealed class DelayedEnqueueStorage(IJobGraphStorage storage) : IJobGraphStorage
+	// Exercise the public single-server boundary against the real fixture provider, with controlled failures or partial claims.
+	private sealed class AcquisitionReplicaStorage(IJobGraphStorage storage) : IJobGraphStorage
 	{
 		public TaskCompletionSource EnqueueCommitted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 		public TaskCompletionSource ReleaseEnqueue { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 		public TaskCompletionSource AcquisitionEntered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+		public bool DelayEnqueue { get; init; }
+		public bool FailNextClaim { get; set; }
+		public int MaximumClaims { get; init; } = int.MaxValue;
+		public int ExactClaimCalls { get; private set; }
+		public IReadOnlyList<JobHandle> LastRequested { get; private set; } = [];
+		public Func<ValueTask>? BeforeClaim { get; set; }
+		public Action? AfterClaim { get; init; }
 
 		/// <inheritdoc />
 		public async ValueTask EnqueueAsync(JobSubmission job, CancellationToken cancellationToken = default)
 		{
 			await storage.EnqueueAsync(job, cancellationToken);
-			EnqueueCommitted.SetResult();
-			await ReleaseEnqueue.Task.WaitAsync(cancellationToken);
+			if (DelayEnqueue)
+			{
+				EnqueueCommitted.SetResult();
+				await ReleaseEnqueue.Task.WaitAsync(cancellationToken);
+			}
 		}
 
 		/// <inheritdoc />
 		public ValueTask<IReadOnlyList<JobRecord>> AcquireDueJobsAsync(JobAcquisitionRequest request, CancellationToken cancellationToken = default)
-		{
-			AcquisitionEntered.SetResult();
-			return storage.AcquireDueJobsAsync(request, cancellationToken);
-		}
+			=> throw new InvalidOperationException("Single-server candidate selection must not query the durable queue.");
 
 		/// <inheritdoc />
 		public ValueTask DisposeAsync() => storage.DisposeAsync();
@@ -128,8 +129,8 @@ internal static partial class ReplicaStorageConformance
 			storage.GetJobAcquisitionStateAsync(jobName, cancellationToken);
 
 		/// <inheritdoc />
-		public ValueTask InitializeAsync(CancellationToken cancellationToken = default) =>
-			storage.InitializeAsync(cancellationToken);
+		public ValueTask InitializeAsync(bool interruptActiveLeases, CancellationToken cancellationToken = default) =>
+			storage.InitializeAsync(interruptActiveLeases, cancellationToken);
 
 		/// <inheritdoc />
 		public ValueTask MergeJobDefinitionsListAsync(JobDefinitionRegistration registration, CancellationToken cancellationToken = default) =>
@@ -194,10 +195,6 @@ internal static partial class ReplicaStorageConformance
 		/// <inheritdoc />
 		public ValueTask RetryAsync(JobHandle jobHandle, CancellationToken cancellationToken = default) =>
 			storage.RetryAsync(jobHandle, cancellationToken);
-
-		/// <inheritdoc />
-		public ValueTask DeleteAsync(JobHandle jobHandle, CancellationToken cancellationToken = default) =>
-			storage.DeleteAsync(jobHandle, cancellationToken);
 
 		/// <inheritdoc />
 		public ValueTask PurgeJobsAsync(TimeSpan succeededRetention, TimeSpan failedRetention, CancellationToken cancellationToken = default) =>
@@ -280,8 +277,23 @@ internal static partial class ReplicaStorageConformance
 			storage.PurgeBatchesAsync(batchSucceededRetention, batchFailedRetention, cancellationToken);
 
 		/// <inheritdoc />
-		public ValueTask<IReadOnlyList<JobRecord>> AcquireJobsAsync(IReadOnlyCollection<JobHandle> jobs, string workerId, TimeSpan lease, CancellationToken cancellationToken = default) =>
-			storage.AcquireJobsAsync(jobs, workerId, lease, cancellationToken);
+		public async ValueTask<IReadOnlyList<JobRecord>> AcquireJobsAsync(IReadOnlyCollection<JobHandle> jobs, string workerId, TimeSpan lease, CancellationToken cancellationToken = default)
+		{
+			AcquisitionEntered.TrySetResult();
+			ExactClaimCalls++;
+			LastRequested = [.. jobs];
+			if (BeforeClaim is { } before)
+				await before();
+			if (FailNextClaim)
+			{
+				FailNextClaim = false;
+				throw new IOException("The durable claim failed before committing.");
+			}
+
+			var acquired = await storage.AcquireJobsAsync(jobs.Take(MaximumClaims).ToList(), workerId, lease, cancellationToken);
+			AfterClaim?.Invoke();
+			return acquired;
+		}
 
 		/// <inheritdoc />
 		public ValueTask<IReadOnlyList<JobContinuationEdge>> GetIncomingEdgesAsync(IReadOnlyCollection<JobHandle> childJobs, CancellationToken cancellationToken = default) =>

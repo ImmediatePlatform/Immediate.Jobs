@@ -175,8 +175,7 @@ internal static class RedisScripts
 		return definitionState(root, name, readLimits(ARGV, 7), tonumber(ARGV[3]), ARGV[4], true)
 		""";
 
-	internal const string Acquire =
-		DefinitionFunctions + FairQueueFunctions +
+	private const string ExecutionFunctions =
 		"""
 		local function materialize(jobKey, indexKey, dataKey, attempt, state, completed)
 			if attempt <= 0 or redis.call('HEXISTS', dataKey, attempt .. ':state') == 1 then return end
@@ -189,6 +188,39 @@ internal static class RedisScripts
 				attempt .. ':span', values[4] or '', attempt .. ':error', state == '2' and (values[5] or '') or '',
 				attempt .. ':synthetic', '1')
 		end
+
+		""";
+
+	internal const string InterruptActiveLeases =
+		FairQueueFunctions + ExecutionFunctions +
+		"""
+		local root, now = ARGV[1], ARGV[2]
+		local ids = redis.call('SRANDMEMBER', KEYS[1], 1000)
+		for _, id in ipairs(ids) do
+			local key = root .. 'job:' .. id
+			local values = redis.call('HMGET', key, 'state', 'jobName', 'attempt', 'dueScore', 'dueMember', 'group')
+			if values[1] == '4' then
+				local attempt = tonumber(values[3] or '0')
+				local indexKey, dataKey = root .. 'executions:index:' .. id, root .. 'executions:data:' .. id
+				materialize(key, indexKey, dataKey, attempt, '0', '')
+				if attempt > 0 then
+					redis.call('HSET', dataKey, attempt .. ':state', '4', attempt .. ':completed', now, attempt .. ':error', '')
+				end
+				redis.call('HSET', key, 'state', '3', 'worker', '', 'lease', '', 'completed', '')
+				redis.call('SADD', KEYS[2], id)
+				redis.call('ZADD', root .. 'due:' .. values[2], values[4], values[5])
+				indexDue(root, values[2], values[6] or '', values[4], values[5])
+				changeActive(root, values[2], values[6] or '', -1, id)
+			end
+			redis.call('SREM', KEYS[1], id)
+			redis.call('ZREM', KEYS[3], id)
+		end
+		return #ids
+		""";
+
+	internal const string Acquire =
+		DefinitionFunctions + FairQueueFunctions + ExecutionFunctions +
+		"""
 		local nowScore = tonumber(ARGV[1])
 		local leaseScore = tonumber(ARGV[2])
 		local leaseTimestamp = ARGV[3]
@@ -560,21 +592,6 @@ internal static class RedisScripts
 		return 1
 		""";
 
-	internal const string Delete =
-		"""
-		if redis.call('EXISTS', KEYS[1]) == 0 then return 0 end
-		local values = redis.call('HMGET', KEYS[1], 'state', 'recurringKey')
-		local state = values[1]
-		if state ~= '5' and state ~= '6' and state ~= '7' and state ~= '8' then return -1 end
-		redis.call('DEL', KEYS[1])
-		redis.call('DEL', KEYS[4], KEYS[5])
-		redis.call('ZREM', KEYS[2], ARGV[1])
-		redis.call('SREM', ARGV[2] .. 'state:' .. state, ARGV[1])
-		redis.call('ZREM', ARGV[2] .. 'completed:' .. state, ARGV[1])
-		if values[2] and values[2] ~= '' then redis.call('HDEL', KEYS[3], values[2]) end
-		return 1
-		""";
-
 	internal const string Purge =
 		"""
 		if redis.call('EXISTS', KEYS[1]) == 0 then
@@ -670,8 +687,12 @@ internal static class RedisScripts
 			local key = ARGV[2] .. 'recurring:' .. schedule.Name
 			local paused, last, next = schedule.Paused, schedule.Last, schedule.Next
 			local dueScore, dueMember = schedule.DueScore, schedule.DueMember
-			local current = redis.call('HMGET', key, 'paused', 'last', 'next', 'dueScore', 'dueMember', 'cron', 'timeZone', 'jobName')
+			local current = redis.call('HMGET', key, 'paused', 'last', 'next', 'dueScore', 'dueMember', 'cron', 'timeZone', 'jobName', 'code', 'cancellationReason')
 			paused = current[1] or paused
+			if current[9] == '0' and current[10] and current[10] ~= '' then
+				paused = '0'
+				redis.call('HDEL', key, 'cancellationReason')
+			end
 			last = current[2] or last
 			removeRecurringDue(ARGV[2], KEYS[4], current[8], current[5])
 			if current[6] == schedule.Cron and current[7] == schedule.TimeZone then
@@ -725,6 +746,7 @@ internal static class RedisScripts
 		end
 
 		local exists = redis.call('EXISTS', KEYS[1]) == 1
+		if not exists and ARGV[2] == '1' then return -3 end
 		local paused = ARGV[3]
 		local last = ARGV[5]
 		local next = ARGV[4]
@@ -736,7 +758,15 @@ internal static class RedisScripts
 		end
 		if exists then
 			local current = redis.call('HMGET', KEYS[1], 'code', 'paused', 'last', 'dueMember', 'jobName')
-			if current[1] == '1' and ARGV[2] == '0' then return -1 end
+			if current[1] ~= ARGV[2] then return -1 end
+			if current[1] == '1' then
+				removeRecurringDue(ARGV[12], KEYS[3], current[5], current[4])
+				redis.call('HSET', KEYS[1], 'next', next, 'dueScore', dueScore, 'dueMember', dueMember)
+				if current[2] ~= '1' then
+					addRecurringDue(ARGV[12], KEYS[3], current[5], dueScore, dueMember)
+				end
+				return 1
+			end
 			local incoming = cjson.decode(record)
 			incoming.Name = cjson.decode(redis.call('HGET', KEYS[1], 'record')).Name
 			record = cjson.encode(incoming)

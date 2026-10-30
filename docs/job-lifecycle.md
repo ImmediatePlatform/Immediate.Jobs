@@ -12,8 +12,8 @@ apply to existing jobs; execution context retains the queue used to acquire the 
 
 Every attempt also gets a `JobExecutionRecord` row (execution history), whose state is `Active`,
 `Succeeded`, `Failed`, `Cancelled`, or `Interrupted` (the lease expired before an outcome was
-recorded). Providers create a *synthetic* execution row when they need history for an attempt that
-never got one, for example when a lease is reclaimed.
+recorded). Keep attempt history separate from the invocation's latest state so retries and lease
+reclamation preserve earlier outcomes and telemetry.
 
 `JobState` is persisted **numerically** by every provider. Never reorder or renumber it; add new
 members at the end, and rename only when the numeric value keeps its meaning.
@@ -32,28 +32,31 @@ members at the end, and rename only when the numeric value keeps its meaning.
 | 7 | `Cancelled` | — | Terminal. |
 | 8 | `Skipped` | — | Terminal; a continuation whose trigger condition was not met, or a recurring occurrence skipped by `OverlapPolicy.Skip`. |
 
-Acquisition only considers `Pending` and `Scheduled` jobs with `DueAt <= now`, plus `Active` jobs
-whose lease has expired (they are reclaimed first).
+Acquisition considers `Pending` and `Scheduled` jobs with `DueAt <= now`. Durable providers can also
+reclaim `Active` jobs whose leases have expired. Standalone in-memory ownership does not expire;
+active work remains owned until an explicit state transition.
 
 ## Attempts, retries, and timeouts
 
 `MaxAttempts` and `Timeout` come from explicit `[Job]` settings, then `[assembly: JobDefaults(...)]`.
-If neither supplies them, jobs allow three total attempts and have no timeout. An explicit
-`Timeout = null` on a job disables its inherited timeout.
+Unspecified settings use the built-in defaults. An explicit `Timeout = null` on a job disables its
+inherited timeout.
 
-- **Claiming** sets `Active`, increments `Attempt`, assigns the worker and a lease of
-  `ImmediateJobsOptions.LeaseDuration`, and opens an execution row.
+- **Claiming** sets `Active`, increments `Attempt`, assigns the worker, and opens an execution row.
+  Durable claims also receive a lease of `ImmediateJobsOptions.LeaseDuration`.
 - **Timeout** is a positive invariant-culture `TimeSpan` string in either attribute,
   for example `Timeout = "00:02:00"`; the handler's token is cancelled when it
   elapses. That fails the attempt only if the handler throws; a handler that ignores the token and
   returns completes the job.
 - **Failure** calls `FailAsync` with a `nextRetryAt` while `Attempt < MaxAttempts`, which moves the job
   to `Scheduled` (or `Pending` if already due). After the last attempt the job becomes `Failed`.
-- **Backoff** is computed in `JobSchedulingService.GetRetryDelay`: `Fixed` uses `BackoffBase`;
+- **Backoff** is computed by the scheduler: `Fixed` uses `BackoffBase`;
   `Exponential` doubles it per attempt (capped at 2^30); `ExponentialJitter` multiplies that by a
   random factor in `[0.5, 1.5)`.
 - **Leases** are renewed by the lease-renewal loop while the handler runs. If a process dies, another
   acquisition reclaims the job once the lease expires, marking the open execution `Interrupted`.
+  Standalone in-memory scheduling skips lease deadlines and renewal. Single-server durable mode
+  retains durable leases, while its in-memory mirror does not independently expire ownership.
 - **Ownership checks.** Every completion, failure, telemetry, and renewal call passes the worker id
   and attempt; storage rejects stale owners, so a reclaimed job can't be completed twice.
 
@@ -63,29 +66,25 @@ If neither supplies them, jobs allow three total attempts and have no timeout. A
 | --- | --- | --- |
 | `CancelAsync` | any non-terminal state | `Cancelled`; continuation edges settle as a cancelled parent. |
 | `RetryAsync` | `Failed`, `Scheduled` | `Pending`, due now. |
-| `DeleteAsync` | terminal states (standalone jobs only) | Removes the job and its history. |
 | `UpdatePayloadAsync` | `WaitingForTrigger` | Replaces the payload. |
 | `TryTriggerAsync` | `WaitingForTrigger` | Releases the job (see [batches and continuations](batches-and-continuations.md#wait-for-trigger)). |
 
 ## Retention
 
-The polling loop purges on `PurgeInterval` (default one hour):
+Retention is enforced periodically according to `PurgeInterval`:
 
-- `PurgeJobsAsync` deletes standalone terminal jobs older than `SucceededRetention` (24 hours) or
-  `FailedRetention` (7 days, which also covers `Cancelled` and `Skipped`).
+- `PurgeJobsAsync` deletes standalone terminal jobs older than `SucceededRetention` or
+  `FailedRetention`, which also covers `Cancelled` and `Skipped`.
 - `PurgeBatchesAsync` (graph storage only) deletes terminal batches, with all their members and
   edges, older than `BatchSucceededRetention` / `BatchFailedRetention`. Batch members are never purged
   individually.
 
 ## Definition pause and rate limits
 
-The generated scheduler exposes `PauseJobAsync` and `ResumeJobAsync`, returning `ValueTask`, and
-`GetAcquisitionStateAsync`, returning `ValueTask<JobAcquisitionState>`. All accept an optional
-cancellation token.
-Each call passes the generated job name directly to storage, which uses the persisted definition and
-acquisition limits. A missing stored definition raises `KeyNotFoundException`. A pause leaves existing
-jobs queued and allows new jobs to be created; previously acquired work can finish. Pausing a recurring
-schedule is separate and prevents future occurrence creation.
+Definition controls use the persisted definition and acquisition limits. A missing stored definition
+raises `KeyNotFoundException`. A pause leaves existing jobs queued and allows new jobs to be created;
+previously acquired work can finish. Pausing a recurring schedule is separate and prevents future
+occurrence creation.
 
 ```csharp
 [Job(SlidingWindowMax = 100, SlidingWindowPeriod = "00:01:00",
@@ -104,11 +103,8 @@ consume no capacity or execution attempts. Resume preserves rate history and fix
 Definition acquisition states are `Ready`, `Paused`, `RateLimited`, and `ConcurrencyLimited`;
 individual job lifecycle state remains unchanged until the job is actually acquired.
 
-`JobMonitor.GetDefinitionsAsync()` returns all persisted job and recurring configuration.
-`GetSnapshotAsync()` returns acquisition states in `DefinitionStatuses`, including explicit pause,
-active unexpired leases, concurrency exhaustion and next eligibility. Storage evaluates the
-collection in bulk; the monitor does not loop over definitions to query status.
-`PauseDefinitionAsync(jobName)` and `ResumeDefinitionAsync(jobName)` pass the job name directly to
-storage, which preserves configured limits and rejects missing definitions. The dashboard joins
-separately cached metadata and live status for its row actions. Manual recurring triggers read persisted
-configuration and collect a monitoring snapshot to reject canceled schedules before enqueueing the invocation.
+Monitoring reports configuration separately from acquisition observations, including pause, active
+leases, concurrency exhaustion, and next eligibility. Storage evaluates status in bulk. Controls and
+manual recurring triggers resolve persisted configuration and respect definition or schedule
+cancellation. See [monitoring](observability.md#monitoring-api) and
+[dashboard refresh ownership](dashboard.md#refresh-ownership).

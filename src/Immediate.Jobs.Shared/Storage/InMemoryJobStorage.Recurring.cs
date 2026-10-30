@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using Immediate.Jobs.Shared.Apis;
 using Microsoft.Extensions.Logging;
@@ -20,25 +21,31 @@ public sealed partial class InMemoryJobStorage
 				schedule = schedule with { JobName = definition.Name };
 			}
 
-			schedule = schedule with { QueueName = null };
-
-			ref var current = ref CollectionsMarshal.GetValueRefOrAddDefault(_recurring, schedule.Name, out _);
-
-			current = current switch
+			ref var current = ref CollectionsMarshal.GetValueRefOrNullRef(_recurring, schedule.Name);
+			if (Unsafe.IsNullRef(ref current))
 			{
-				{ IsCodeDefined: true } when !schedule.IsCodeDefined =>
-					throw new ImmediateJobException("Code-defined recurring schedules cannot be replaced by dynamic schedules."),
+				if (schedule.IsCodeDefined)
+					throw new ImmediateJobException("Code-defined recurring schedules must be created by definition reconciliation.");
 
-				{ } =>
-					schedule with
-					{
-						Name = current.Name,
-						IsPaused = current.IsPaused || (schedule.CancellationReason ?? current.CancellationReason) is not null,
-						LastRunAt = current.LastRunAt,
-						CancellationReason = schedule.CancellationReason ?? current.CancellationReason,
-					},
+				_recurring.Add(schedule.Name, schedule);
+				return;
+			}
 
-				_ => schedule,
+			if (current.IsCodeDefined != schedule.IsCodeDefined)
+				throw new ImmediateJobException("Recurring schedule ownership cannot be changed by upsert.");
+
+			if (current.IsCodeDefined)
+			{
+				current = current with { NextRunAt = schedule.NextRunAt };
+				return;
+			}
+
+			current = schedule with
+			{
+				Name = current.Name,
+				IsPaused = current.IsPaused || (schedule.CancellationReason ?? current.CancellationReason) is not null,
+				LastRunAt = current.LastRunAt,
+				CancellationReason = schedule.CancellationReason ?? current.CancellationReason,
 			};
 		}
 	}
@@ -54,6 +61,7 @@ public sealed partial class InMemoryJobStorage
 		{
 			if (!_recurring.TryGetValue(name, out var schedule))
 				throw new KeyNotFoundException($"Recurring schedule '{name}' was not found.");
+
 			if (schedule.IsCodeDefined)
 				throw new ImmediateJobException("Code-defined recurring schedules cannot be deleted.");
 
@@ -97,7 +105,15 @@ public sealed partial class InMemoryJobStorage
 		{
 			return
 			[
-				.. _recurring.Values.Where(x => !x.IsPaused && x.NextRunAt <= now && jobNames.Contains(x.JobName, StringComparer.OrdinalIgnoreCase)).OrderBy(x => x.NextRunAt).Take(batchSize).Select(ReadRecord),
+				.. _recurring.Values
+					.Where(
+						x =>
+							!x.IsPaused
+							&& x.NextRunAt <= now
+							&& jobNames.Contains(x.JobName, StringComparer.OrdinalIgnoreCase)
+					)
+					.OrderBy(x => x.NextRunAt)
+					.Take(batchSize),
 			];
 		}
 	}
@@ -117,44 +133,50 @@ public sealed partial class InMemoryJobStorage
 
 		lock (_gate)
 		{
-			if (!_recurring.TryGetValue(schedule.Name, out var current) || current.IsPaused || current.NextRunAt != schedule.NextRunAt)
+			ref var current = ref CollectionsMarshal.GetValueRefOrNullRef(_recurring, schedule.Name);
+			if (Unsafe.IsNullRef(ref current) || current.IsPaused || current.NextRunAt != schedule.NextRunAt)
 				return false;
 
 			var inserted = job.RecurringKey is null || _recurringKeys.Add(job.RecurringKey);
 			if (inserted)
 			{
-				_jobs[job.JobHandle] = job with { QueueName = null };
+				AddJob(job);
 
 				if (dependencies is { })
 				{
-					_edges.AddRange(dependencies);
+					AddEdges(dependencies);
 					EvaluateAlreadyTerminalParents(dependencies);
 				}
 			}
 
-			_recurring[schedule.Name] = current with { LastRunAt = schedule.NextRunAt, NextRunAt = nextRunAt };
+			current = current with { LastRunAt = schedule.NextRunAt, NextRunAt = nextRunAt };
 			return inserted;
 		}
 	}
 
+	/// <remarks>
+	/// 	The caller does not need to hold the <see cref="_gate"/> lock; this method acquires it internally.
+	/// </remarks>
 	private ValueTask SetRecurringPausedAsync(string name, bool isPaused, CancellationToken cancellationToken)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
 
 		lock (_gate)
 		{
-			if (!_recurring.TryGetValue(name, out var schedule))
-				throw new KeyNotFoundException($"Recurring schedule '{name}' was not found.");
+			ref var schedule = ref ValidateExistingElement(_recurring, name);
 
 			if (!isPaused && schedule.CancellationReason is not null)
 				throw new ImmediateJobException("Canceled recurring schedules cannot be resumed.");
 
-			_recurring[name] = schedule with { IsPaused = isPaused };
+			schedule = schedule with { IsPaused = isPaused };
 		}
 
 		return ValueTask.CompletedTask;
 	}
 
+	/// <remarks>
+	/// 	The caller does not need to hold the <see cref="_gate"/> lock.
+	/// </remarks>
 	[LoggerMessage(
 		EventId = LibraryEventIds.InMemoryUpsertRecurringAsyncCalled,
 		EventName = "Immediate.Jobs.Shared.UpsertRecurringAsyncCalled",
@@ -163,6 +185,9 @@ public sealed partial class InMemoryJobStorage
 	)]
 	private partial void UpsertRecurringAsyncCalled(string schedule);
 
+	/// <remarks>
+	/// 	The caller does not need to hold the <see cref="_gate"/> lock.
+	/// </remarks>
 	[LoggerMessage(
 		EventId = LibraryEventIds.InMemoryRemoveRecurringAsyncCalled,
 		EventName = "Immediate.Jobs.Shared.RemoveRecurringAsyncCalled",
@@ -171,6 +196,9 @@ public sealed partial class InMemoryJobStorage
 	)]
 	private partial void RemoveRecurringAsyncCalled(string name);
 
+	/// <remarks>
+	/// 	The caller does not need to hold the <see cref="_gate"/> lock.
+	/// </remarks>
 	[LoggerMessage(
 		EventId = LibraryEventIds.InMemoryPauseRecurringAsyncCalled,
 		EventName = "Immediate.Jobs.Shared.PauseRecurringAsyncCalled",
@@ -179,6 +207,9 @@ public sealed partial class InMemoryJobStorage
 	)]
 	private partial void PauseRecurringAsyncCalled(string name);
 
+	/// <remarks>
+	/// 	The caller does not need to hold the <see cref="_gate"/> lock.
+	/// </remarks>
 	[LoggerMessage(
 		EventId = LibraryEventIds.InMemoryResumeRecurringAsyncCalled,
 		EventName = "Immediate.Jobs.Shared.ResumeRecurringAsyncCalled",
@@ -187,6 +218,9 @@ public sealed partial class InMemoryJobStorage
 	)]
 	private partial void ResumeRecurringAsyncCalled(string name);
 
+	/// <remarks>
+	/// 	The caller does not need to hold the <see cref="_gate"/> lock.
+	/// </remarks>
 	[LoggerMessage(
 		EventId = LibraryEventIds.InMemoryGetDueRecurringAsyncCalled,
 		EventName = "Immediate.Jobs.Shared.GetDueRecurringAsyncCalled",
@@ -195,6 +229,9 @@ public sealed partial class InMemoryJobStorage
 	)]
 	private partial void GetDueRecurringAsyncCalled(int batchSize);
 
+	/// <remarks>
+	/// 	The caller does not need to hold the <see cref="_gate"/> lock.
+	/// </remarks>
 	[LoggerMessage(
 		EventId = LibraryEventIds.InMemoryMaterializeRecurringAsyncCalled,
 		EventName = "Immediate.Jobs.Shared.MaterializeRecurringAsyncCalled",

@@ -16,7 +16,7 @@ public sealed class TestingPackageTests
 	{
 		await using var harness = new JobTestHarness();
 		await harness.DrainAsync(TestContext.Current.CancellationToken);
-		await harness.Storage.MergeJobDefinitionsListAsync(new() { Definitions = [new() { Name = "test-job" }] }, TestContext.Current.CancellationToken);
+		await harness.Storage.MergeJobDefinitionsListAsync(new() { RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase), Definitions = [new() { Name = "test-job" }] }, TestContext.Current.CancellationToken);
 		Assert.Same(harness.Storage, harness.Services.GetRequiredService<CapturingJobStorage>());
 		var scheduler = new TestScheduler(
 			harness.Storage,
@@ -49,7 +49,7 @@ public sealed class TestingPackageTests
 		var cancellationToken = TestContext.Current.CancellationToken;
 		await using var harness = new JobTestHarness();
 		await harness.DrainAsync(TestContext.Current.CancellationToken);
-		await harness.Storage.MergeJobDefinitionsListAsync(new() { Definitions = [new() { Name = "test-job" }] }, TestContext.Current.CancellationToken);
+		await harness.Storage.MergeJobDefinitionsListAsync(new() { RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase), Definitions = [new() { Name = "test-job" }] }, TestContext.Current.CancellationToken);
 		var scheduler = new TestScheduler(
 			harness.Storage,
 			harness.Services.GetRequiredService<IJobSerializer>(),
@@ -166,7 +166,7 @@ public sealed class TestingPackageTests
 		await using var harness = new JobTestHarness();
 		await harness.DrainAsync(TestContext.Current.CancellationToken);
 		var graphStorage = Assert.IsAssignableFrom<IJobGraphStorage>(harness.Storage);
-		await graphStorage.MergeJobDefinitionsListAsync(new() { Definitions = [new() { Name = "raw-job" }] }, cancellationToken);
+		await graphStorage.MergeJobDefinitionsListAsync(new() { RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase), Definitions = [new() { Name = "raw-job" }] }, cancellationToken);
 
 		var parent = CreateRawJob("parent");
 		var child = CreateRawJob("child") with

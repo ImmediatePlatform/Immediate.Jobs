@@ -44,9 +44,9 @@ arguments always take precedence: null or empty job tags use `["default"]`, a nu
 the inherited timeout, and a null time zone uses UTC. The generated `JobDefinition` contains the
 effective settings that startup persists. See [assembly defaults](../readme.md#assembly-defaults).
 
-`JobDefaultsAnalyzer` validates each assembly attribute through `OperationKind.Attribute`, reporting
-`IJOB0017` even when the assembly has no jobs. Invalid defaults prevent the generator from emitting
-jobs for that assembly, including jobs that override the invalid setting.
+Assembly defaults are validated even when the assembly has no jobs. Invalid defaults prevent
+generation for that assembly, including jobs that override the invalid setting, so an invalid
+configuration cannot produce a partially registered catalogue.
 
 `ServiceCollectionExtensions.sbntxt` emits one `Add{Assembly}Jobs()` method per assembly that calls
 `AddImmediateJobsCore()` and registers every job. It returns `IImmediateJobsBuilder`, the fluent
@@ -57,9 +57,9 @@ configuration surface (`ConfigureStorage`, `ConfigureWorkers`, `UseFairQueues`, 
 `JobSchedulingService` (`Internals/JobSchedulingService.cs`) is one hosted service per process:
 
 - **Startup.** Initializes storage and submits the complete definition catalogue and code-defined
-  schedules through `MergeJobDefinitionsListAsync`, even when workers are disabled. `StartAsync`
-  completes this registration before returning. The storage
-  reconciles only definitions intersecting the server's effective tags. Metadata has no invoker or CLR type.
+  schedules through `MergeJobDefinitionsListAsync`, even when workers are disabled. Registration
+  precedes acquisition. Storage reconciles only definitions intersecting the server's effective
+  tags. Persisted metadata contains configuration; invokers and CLR types stay in the application.
 - **Polling loop.** Each iteration materializes due recurring schedules, builds a
   `JobAcquisitionRequest` from tag-eligible local definitions, free worker capacity, and queue/job concurrency limits, calls
   `IJobStorage.AcquireDueJobsAsync`, and writes the claimed records to an unbounded channel. On
@@ -74,6 +74,9 @@ configuration surface (`ConfigureStorage`, `ConfigureWorkers`, `UseFairQueues`, 
 
 `DrainAsync` runs polling iterations and executes inline until nothing is due; it exists for
 deterministic tests (`JobTestHarness` uses it).
+
+Reservation accounting controls local admission to the worker pool. The handoff channel does not
+introduce a second capacity limit that could block polling or heartbeat progress.
 
 All options live in `ImmediateJobsOptions` and are validated with Immediate.Validations.
 

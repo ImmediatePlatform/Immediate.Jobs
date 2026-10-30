@@ -35,7 +35,6 @@ internal static class LibraryEventIds
 	public const int CancelBatchAsyncCalled = 11531;
 	public const int CancelAsyncCalled = 11533;
 	public const int RetryAsyncCalled = 11534;
-	public const int DeleteAsyncCalled = 11535;
 	public const int PurgeJobsAsyncCalled = 11536;
 	public const int PurgeBatchesAsyncCalled = 11537;
 	public const int HeartbeatAsyncCalled = 11538;

@@ -5,6 +5,9 @@ namespace Immediate.Jobs.Shared.Storage;
 
 public sealed partial class InMemoryJobStorage
 {
+	/// <remarks>
+	/// 	The caller does not need to hold the <see cref="_gate"/> lock; this method acquires it internally.
+	/// </remarks>
 	internal IReadOnlyList<JobServerSnapshot> GetLiveServersSnapshot()
 	{
 		var now = timeProvider.GetUtcNow();
@@ -22,22 +25,22 @@ public sealed partial class InMemoryJobStorage
 			return new()
 			{
 				Jobs = [.. _jobDefinitions.Values.OrderBy(static definition => definition.Name, StringComparer.OrdinalIgnoreCase)],
-				Recurring = [.. _recurring.Values.OrderBy(static schedule => schedule.Name, StringComparer.Ordinal).Select(schedule => ReadRecord(schedule).ToDefinition())],
+				Recurring = [.. _recurring.Values.OrderBy(static schedule => schedule.Name, StringComparer.Ordinal).Select(schedule => schedule.ToDefinition())],
 			};
 	}
 
+	/// <remarks>
+	/// 	The caller must hold the <see cref="_gate"/> lock.
+	/// </remarks>
 	private IReadOnlyList<JobAcquisitionState> GetDefinitionStatuses(DateTimeOffset now)
 	{
-		var active = _jobs.Values.Where(job => job.State == JobState.Active && job.LeaseExpiresAt > now)
-			.GroupBy(static job => job.JobName, StringComparer.OrdinalIgnoreCase)
-			.ToDictionary(static group => group.Key, static group => group.Count(), StringComparer.OrdinalIgnoreCase);
 		return [.. _jobDefinitions.Values.OrderBy(static definition => definition.Name, StringComparer.OrdinalIgnoreCase).Select(definition =>
 		{
 			var usage = GetAcquisitionDefinition(definition.Name);
 			var limits = definition.AcquisitionLimits;
 			return JobAcquisitionEvaluator.Evaluate(definition.Name, usage.State.IsPaused, limits, now,
 				limits.SlidingWindowPeriod is { } period ? usage.Acquisitions.Where(acquired => acquired > now - period).Order().ToList() : [],
-				usage.FixedWindowStart, usage.FixedWindowCount, active.GetValueOrDefault(definition.Name));
+				usage.FixedWindowStart, usage.FixedWindowCount, _activeJobCounts.GetValueOrDefault(definition.Name));
 		})];
 	}
 
@@ -79,9 +82,13 @@ public sealed partial class InMemoryJobStorage
 			IEnumerable<JobRecord> jobs = _jobs.Values;
 			if (query.JobHandle is { } id)
 				jobs = _jobs.TryGetValue(id, out var job) ? [job] : [];
+			else if (!string.IsNullOrWhiteSpace(query.JobName))
+				jobs = GetJobsForDefinition(query.JobName);
+			else if (!string.IsNullOrWhiteSpace(query.QueueName))
+				jobs = GetJobsForQueue(query.QueueName);
 			if (query.State is { } state)
 				jobs = jobs.Where(x => x.State == state);
-			if (!string.IsNullOrWhiteSpace(query.QueueName))
+			if (!string.IsNullOrWhiteSpace(query.QueueName) && (query.JobHandle is not null || !string.IsNullOrWhiteSpace(query.JobName)))
 				jobs = jobs.Where(x => string.Equals(GetQueueName(x.JobName), query.QueueName, StringComparison.Ordinal));
 			if (!string.IsNullOrWhiteSpace(query.JobName))
 				jobs = jobs.Where(x => string.Equals(x.JobName, query.JobName, StringComparison.OrdinalIgnoreCase));
@@ -111,8 +118,7 @@ public sealed partial class InMemoryJobStorage
 
 		lock (_gate)
 		{
-			return _jobs.Values
-				.Where(j => string.Equals(j.JobName, jobName, StringComparison.OrdinalIgnoreCase))
+			return GetJobsForDefinition(jobName)
 				.Where(
 					j => j.State is
 						JobState.AwaitingContinuation
@@ -145,8 +151,7 @@ public sealed partial class InMemoryJobStorage
 			var executions = _executions.TryGetValue(jobHandle, out var persisted)
 				? persisted.Values.AsEnumerable()
 				: [];
-			var synthetic = JobExecutionRecords.CreateSynthetic(job);
-			if (synthetic is not null && (persisted is null || !persisted.ContainsKey(synthetic.Attempt)))
+			if ((persisted is null || !persisted.ContainsKey(job.Attempt)) && JobExecutionRecords.CreateSynthetic(job) is { } synthetic)
 				executions = executions.Append(synthetic);
 			if (query.Attempt is { } attempt)
 				executions = executions.Where(execution => execution.Attempt == attempt);
@@ -219,7 +224,7 @@ public sealed partial class InMemoryJobStorage
 			if (!_batches.ContainsKey(batchHandle))
 				return [];
 
-			var members = _jobs.Values.Where(job => job.BatchHandle == batchHandle);
+			var members = GetJobsForBatch(batchHandle);
 			if (query.State is { } state)
 				members = members.Where(job => job.State == state);
 
@@ -235,7 +240,7 @@ public sealed partial class InMemoryJobStorage
 						JobHandle = job.JobHandle,
 						JobName = job.JobName,
 						QueueName = GetQueueName(job.JobName),
-			CancellationReason = job.CancellationReason,
+						CancellationReason = job.CancellationReason,
 						State = job.State,
 						Attempt = job.Attempt,
 						CreatedAt = job.CreatedAt,
@@ -261,8 +266,7 @@ public sealed partial class InMemoryJobStorage
 			if (!_batches.ContainsKey(batchHandle))
 				return null;
 
-			var members = _jobs.Values
-				.Where(job => job.BatchHandle == batchHandle)
+			var members = GetJobsForBatch(batchHandle)
 				.OrderBy(job => job.CreatedAt)
 				.ThenBy(job => job.JobHandle.Value, StringComparer.Ordinal)
 				.ToList();
@@ -307,11 +311,14 @@ public sealed partial class InMemoryJobStorage
 				CompletedAt = job.CompletedAt,
 				LastError = job.LastError,
 				BatchHandle = job.BatchHandle,
-				DependsOn = [.. _edges.Where(edge => edge.ChildJobHandle == jobHandle)],
+				DependsOn = [.. GetIncomingEdges(jobHandle)],
 			};
 		}
 	}
 
+	/// <remarks>
+	/// 	The caller does not need to hold the <see cref="_gate"/> lock; this method does not access mutable storage state.
+	/// </remarks>
 	private static BatchStatus ToStatus(BatchRecord batch) =>
 		new()
 		{
@@ -329,6 +336,9 @@ public sealed partial class InMemoryJobStorage
 			FractionSettled = BatchStatus.CalculateFractionSettled(batch.TotalJobs, batch.PendingCount),
 		};
 
+	/// <remarks>
+	/// 	The caller does not need to hold the <see cref="_gate"/> lock.
+	/// </remarks>
 	[LoggerMessage(
 		EventId = LibraryEventIds.InMemoryGetMonitoringSnapshotAsyncCalled,
 		EventName = "Immediate.Jobs.Shared.GetMonitoringSnapshotAsyncCalled",
@@ -337,6 +347,9 @@ public sealed partial class InMemoryJobStorage
 	)]
 	private partial void GetMonitoringSnapshotAsyncCalled();
 
+	/// <remarks>
+	/// 	The caller does not need to hold the <see cref="_gate"/> lock.
+	/// </remarks>
 	[LoggerMessage(
 		EventId = LibraryEventIds.InMemoryQueryJobsAsyncCalled,
 		EventName = "Immediate.Jobs.Shared.QueryJobsAsyncCalled",
@@ -345,6 +358,9 @@ public sealed partial class InMemoryJobStorage
 	)]
 	private partial void QueryJobsAsyncCalled(JobQuery query);
 
+	/// <remarks>
+	/// 	The caller does not need to hold the <see cref="_gate"/> lock.
+	/// </remarks>
 	[LoggerMessage(
 		EventId = LibraryEventIds.InMemoryQueryNonCompletedJobsAsyncCalled,
 		EventName = "Immediate.Jobs.Shared.QueryNonCompletedJobsAsyncCalled",
@@ -353,6 +369,9 @@ public sealed partial class InMemoryJobStorage
 	)]
 	private partial void QueryNonCompletedJobsAsyncCalled(string jobName);
 
+	/// <remarks>
+	/// 	The caller does not need to hold the <see cref="_gate"/> lock.
+	/// </remarks>
 	[LoggerMessage(
 		EventId = LibraryEventIds.InMemoryQueryJobExecutionsAsyncCalled,
 		EventName = "Immediate.Jobs.Shared.QueryJobExecutionsAsyncCalled",
@@ -361,6 +380,9 @@ public sealed partial class InMemoryJobStorage
 	)]
 	private partial void QueryJobExecutionsAsyncCalled(JobHandle jobHandle);
 
+	/// <remarks>
+	/// 	The caller does not need to hold the <see cref="_gate"/> lock.
+	/// </remarks>
 	[LoggerMessage(
 		EventId = LibraryEventIds.InMemoryGetBatchStatusAsyncCalled,
 		EventName = "Immediate.Jobs.Shared.GetBatchStatusAsyncCalled",
@@ -369,6 +391,9 @@ public sealed partial class InMemoryJobStorage
 	)]
 	private partial void GetBatchStatusAsyncCalled(BatchHandle batchHandle);
 
+	/// <remarks>
+	/// 	The caller does not need to hold the <see cref="_gate"/> lock.
+	/// </remarks>
 	[LoggerMessage(
 		EventId = LibraryEventIds.InMemoryQueryBatchesAsyncCalled,
 		EventName = "Immediate.Jobs.Shared.QueryBatchesAsyncCalled",
@@ -377,6 +402,9 @@ public sealed partial class InMemoryJobStorage
 	)]
 	private partial void QueryBatchesAsyncCalled(BatchQuery query);
 
+	/// <remarks>
+	/// 	The caller does not need to hold the <see cref="_gate"/> lock.
+	/// </remarks>
 	[LoggerMessage(
 		EventId = LibraryEventIds.InMemoryQueryBatchMembersAsyncCalled,
 		EventName = "Immediate.Jobs.Shared.QueryBatchMembersAsyncCalled",
@@ -385,6 +413,9 @@ public sealed partial class InMemoryJobStorage
 	)]
 	private partial void QueryBatchMembersAsyncCalled(BatchHandle batchHandle);
 
+	/// <remarks>
+	/// 	The caller does not need to hold the <see cref="_gate"/> lock.
+	/// </remarks>
 	[LoggerMessage(
 		EventId = LibraryEventIds.InMemoryGetBatchGraphAsyncCalled,
 		EventName = "Immediate.Jobs.Shared.GetBatchGraphAsyncCalled",
@@ -393,6 +424,9 @@ public sealed partial class InMemoryJobStorage
 	)]
 	private partial void GetBatchGraphAsyncCalled(BatchHandle batchHandle);
 
+	/// <remarks>
+	/// 	The caller does not need to hold the <see cref="_gate"/> lock.
+	/// </remarks>
 	[LoggerMessage(
 		EventId = LibraryEventIds.InMemoryGetJobStatusAsyncCalled,
 		EventName = "Immediate.Jobs.Shared.GetJobStatusAsyncCalled",
@@ -401,6 +435,9 @@ public sealed partial class InMemoryJobStorage
 	)]
 	private partial void GetJobStatusAsyncCalled(JobHandle jobHandle);
 
+	/// <remarks>
+	/// 	The caller does not need to hold the <see cref="_gate"/> lock.
+	/// </remarks>
 	[LoggerMessage(
 		EventId = LibraryEventIds.InMemoryGetMonitoringDefinitionsAsyncCalled,
 		EventName = "Immediate.Jobs.Shared.InMemoryGetMonitoringDefinitionsAsyncCalled",

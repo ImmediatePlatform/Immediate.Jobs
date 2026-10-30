@@ -27,7 +27,7 @@ public static class LinqToDBConformanceTestCases
 		{
 			var includeSingleServerReplicaCases = topology == ConformanceTopology.Distributed;
 
-			foreach (var testCase in JobStorageConformanceSuite.GetCases(Capabilities, includeSingleServerReplicaCases))
+			foreach (var testCase in JobStorageConformanceSuite.GetCases(Capabilities, includeSingleServerReplicaCases, includeLeaseInterruptionCases: topology == ConformanceTopology.Distributed))
 				data.Add(topology, testCase);
 		}
 

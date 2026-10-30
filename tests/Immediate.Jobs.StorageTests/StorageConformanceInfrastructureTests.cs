@@ -1,8 +1,5 @@
 using Immediate.Jobs.Shared.Storage;
-using Immediate.Jobs.Testing;
 using Immediate.Jobs.Testing.Storage;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Time.Testing;
 
 namespace Immediate.Jobs.StorageTests;
 
@@ -12,122 +9,246 @@ public sealed class StorageConformanceInfrastructureTests
 		StorageCapabilities.Queue |
 		StorageCapabilities.Graph;
 
-	[Fact]
-	public void GetCasesAlwaysIncludesQueueTierAndRoutesOnlyAdvertisedOptionalSuites()
+	public static TheoryData<StorageCapabilities, bool, bool, bool, string[]> Selections => new()
 	{
-		var queueCases = JobStorageConformanceSuite.GetCases(StorageCapabilities.Queue);
-		var graphCases = JobStorageConformanceSuite.GetCases(AllCapabilities);
-		var replicaCases = JobStorageConformanceSuite.GetCases(AllCapabilities, includeSingleServerReplicaCases: true);
+		{ StorageCapabilities.Queue, false, false, false, [.. QueueCases, .. ProcessOwnershipCases] },
+		{ StorageCapabilities.Queue, false, false, true, [.. QueueCases, .. ProcessOwnershipCases] },
+		{ StorageCapabilities.Queue, false, true, false, [.. QueueCases, .. LeaseCases] },
+		{ StorageCapabilities.Queue, false, true, true, [.. QueueCases, .. LeaseCases, .. QueueInterruptionCases] },
+		{ AllCapabilities, false, false, false, [.. QueueCases, .. GraphCases, .. ProcessOwnershipCases] },
+		{ AllCapabilities, false, false, true, [.. QueueCases, .. GraphCases, .. ProcessOwnershipCases] },
+		{ AllCapabilities, false, true, false, [.. QueueCases, .. GraphCases, .. LeaseCases] },
+		{
+			AllCapabilities, false, true, true,
+			[.. QueueCases, .. GraphCases, .. LeaseCases, .. QueueInterruptionCases, .. GraphInterruptionCases]
+		},
+		{ AllCapabilities, true, true, false, [.. QueueCases, .. GraphCases, .. LeaseCases, .. ReplicaCases] },
+		{
+			AllCapabilities, true, true, true,
+			[.. QueueCases, .. GraphCases, .. LeaseCases, .. QueueInterruptionCases, .. GraphInterruptionCases, .. ReplicaCases]
+		},
+	};
 
-		Assert.Equal(70, queueCases.Count);
-		Assert.All(queueCases, testCase => Assert.Equal(StorageCapabilities.Queue, testCase.RequiredCapabilities));
-		Assert.Contains(queueCases, testCase => testCase.Name.StartsWith("Recurring.", StringComparison.Ordinal));
-		Assert.Contains(queueCases, testCase => testCase.Name.StartsWith("FairQueues.", StringComparison.Ordinal));
-		Assert.Contains(graphCases, testCase => testCase.RequiredCapabilities == StorageCapabilities.Graph);
-		Assert.DoesNotContain(graphCases, testCase => testCase.Name.StartsWith("Replica.", StringComparison.Ordinal));
-		Assert.Contains(replicaCases, testCase => testCase.Name.StartsWith("Replica.", StringComparison.Ordinal));
-		Assert.Contains(replicaCases, testCase => string.Equals(testCase.Name, "Replica.Acquisition.WaitsUntilEnqueueHasUpdatedBothStores", StringComparison.Ordinal));
+	[Theory]
+	[MemberData(nameof(Selections))]
+	public void GetCasesSelectsExpectedNames(
+		StorageCapabilities capabilities,
+		bool includeSingleServerReplicaCases,
+		bool usesExpiringLeases,
+		bool includeLeaseInterruptionCases,
+		string[] expectedNames
+	)
+	{
+		var cases = JobStorageConformanceSuite.GetCases(
+			capabilities,
+			includeSingleServerReplicaCases,
+			usesExpiringLeases,
+			includeLeaseInterruptionCases
+		);
+
+		Assert.Equal(
+			expectedNames.Order(StringComparer.Ordinal),
+			cases.Select(testCase => testCase.Name).Order(StringComparer.Ordinal)
+		);
+	}
+
+	[Fact]
+	public void AllCasesByNameMatchesExpectedCatalogue()
+	{
+		string[] expectedNames =
+		[
+			.. QueueCases,
+			.. GraphCases,
+			.. LeaseCases,
+			.. ProcessOwnershipCases,
+			.. QueueInterruptionCases,
+			.. GraphInterruptionCases,
+			.. ReplicaCases,
+		];
+
+		Assert.Equal(
+			expectedNames.Order(StringComparer.Ordinal).Select(name => (Key: name, Name: name)),
+			JobStorageConformanceSuite.AllCasesByName.OrderBy(pair => pair.Key, StringComparer.Ordinal)
+				.Select(pair => (pair.Key, pair.Value.Name))
+		);
 	}
 
 	[Theory]
-	[InlineData(StorageCapabilities.None)]
-	[InlineData((StorageCapabilities)2)]
-	[InlineData((StorageCapabilities)32)]
-	public void GetCasesRejectsImpossibleCapabilityClaims(StorageCapabilities capabilities)
+	[InlineData(StorageCapabilities.None, false, true)]
+	[InlineData(StorageCapabilities.Graph, false, true)]
+	[InlineData((StorageCapabilities)2, false, true)]
+	[InlineData((StorageCapabilities)32, false, true)]
+	[InlineData(StorageCapabilities.Queue | (StorageCapabilities)32, false, true)]
+	[InlineData(StorageCapabilities.Queue, true, true)]
+	[InlineData(AllCapabilities, true, false)]
+	public void GetCasesRejectsInvalidConfiguration(
+		StorageCapabilities capabilities,
+		bool includeSingleServerReplicaCases,
+		bool usesExpiringLeases
+	)
 	{
-		_ = Assert.ThrowsAny<ArgumentException>(() => JobStorageConformanceSuite.GetCases(capabilities));
+		Assert.ThrowsAny<ArgumentException>(() => JobStorageConformanceSuite.GetCases(
+			capabilities,
+			includeSingleServerReplicaCases,
+			usesExpiringLeases
+		));
 	}
 
-	[Fact]
-	public void GetCasesRejectsReplicaCasesWithoutGraph()
-	{
-		_ = Assert.Throws<ArgumentException>(
-			() => JobStorageConformanceSuite.GetCases(StorageCapabilities.Queue, includeSingleServerReplicaCases: true)
-		);
-	}
+	private static readonly string[] QueueCases =
+	[
+		"Definitions.Acquisition.EnforcesLimitsUnderContention",
+		"Definitions.Acquisition.SkipsBlockedDefinitionsInFairQueues",
+		"Definitions.Catalogue.PreservesMetadataWhenStartupIsCancelled",
+		"Definitions.Catalogue.ReconcilesCaseInsensitiveNames",
+		"Definitions.Catalogue.RoundTripsAndUpdatesConfiguration",
+		"Definitions.Catalogue.SerializesConcurrentCompleteLists",
+		"Definitions.Concurrency.RenewalAndEarlyRelease",
+		"Definitions.Controls.RejectsMissingDefinitions",
+		"Definitions.Controls.ResolvesCaseInsensitiveNamesAndPreservesLimits",
+		"Definitions.FixedWindow.ResetsAtAlignedBoundary",
+		"Definitions.Limits.CombineAndResumeWithoutReset",
+		"Definitions.Monitoring.ReportsCurrentWindowCounts",
+		"Definitions.Monitoring.ReportsPauseAndUnexpiredConcurrencyIndependently",
+		"Definitions.Pause.BlocksPendingAndNewJobsOnly",
+		"Definitions.Recurring.MaterializesDuringExecutionPause",
+		"Definitions.Recurring.PreservesProgressAndInvocations",
+		"Definitions.Removal.CancelsScopedJobsAndSchedulesAndFencesWorkers",
+		"Definitions.Retries.CountSuccessfulAcquisitionsOnly",
+		"Definitions.SlidingWindow.EnforcesExactBoundaryAndRetainsHistoryAfterPurge",
+		"Definitions.SlidingWindow.ReleasesOnlyExpiredAcquisitions",
+		"Definitions.Submission.UsesCurrentDefinition",
+		"FairQueues.Cancellation.ClearsCancelledGroups",
+		"FairQueues.Concurrency.ClaimsDistinctJobs",
+		"FairQueues.Disabled.PreservesOrdinaryDueOrder",
+		"FairQueues.NoisyNeighbors.ServesQuietGroupFirst",
+		"FairQueues.Retries.KeepsRetriedJobsEligible",
+		"FairQueues.Rotation.InterleavesGroupsWithinOneAcquisition",
+		"FairQueues.Rotation.ServesNewGroupAheadOfServedBacklog",
+		"Monitoring.Definitions.IncludesGlobalJobsAndDynamicRecurringConfiguration",
+		"Monitoring.Snapshot.BulkStatusMatchesIndividualReadsAtBoundaries",
+		"Queue.Acquisition.ClaimsEachJobOnceUnderContention",
+		"Queue.Acquisition.DoesNotDuplicateClaimsAcrossRepeatedQueueEntries",
+		"Queue.Acquisition.ExcludesFutureJobs",
+		"Queue.Acquisition.HonorsOrderingAndCapacities",
+		"Queue.Cancellation.ObservesPreCancelledOperation",
+		"Queue.Enqueue.RoundTripsRecordAndRejectsDuplicate",
+		"Queue.Executions.PersistsFailureRetryAndCancellation",
+		"Queue.Executions.PersistsTelemetryCompletionAndHistory",
+		"Queue.Health.ReportsProvisionedBackendReachable",
+		"Queue.Lifecycle.InitializesIdempotently",
+		"Queue.Lifecycle.ToleratesRepeatedConcurrentDisposal",
+		"Queue.Maintenance.PurgesTerminalHistory",
+		"Queue.Monitoring.ReportsCountsStatusAndHeartbeatLiveness",
+		"Queue.Mutations.RejectsMissingAndInvalidTransitions",
+		"Queue.Queries.ComposesFiltersAndPagesDeterministically",
+		"Recurring.Definitions.AdoptsDynamicScheduleWhenOriginalDefinitionIsRemoved",
+		"Recurring.Definitions.MergesCodeDefinedSchedulesAndPreservesDynamicSchedules",
+		"Recurring.DueScanning.FiltersOrdersAndBatchesSchedules",
+		"Recurring.Eligibility.MatchesCaseInsensitiveJobNamesBeforeBatching",
+		"Recurring.Exceptions.DistinguishesMissingAndInvalidDashboardActions",
+		"Recurring.Identity.MatchesCaseInsensitiveNamesThroughout",
+		"Recurring.Lifecycle.UpdatesPausesResumesAndRemovesDynamicSchedule",
+		"Recurring.Maintenance.PurgeRemovesOccurrenceDedupeState",
+		"Recurring.Materialization.CreatesOccurrenceAndAdvancesScheduleAtomically",
+		"Recurring.Materialization.DedupeHitStillAdvancesSchedule",
+		"Recurring.Materialization.DeduplicatesConcurrentOccurrence",
+		"Recurring.Materialization.PersistsSkippedOccurrence",
+		"Recurring.Materialization.RejectsStaleDueEntry",
+		"Recurring.Upsert.PreservesMaterializedProgressAcrossStaleAliases",
+		"Tags.Catalogue.ReconcilesCaseInsensitiveNamesAcrossTagScopes",
+		"Tags.Catalogue.ReconcilesCompleteListsWithinTagScope",
+		"Tags.Catalogue.RemovesPreviouslyMatchingRetaggedDefinitions",
+		"Tags.Catalogue.SerializesConcurrentCompleteLists",
+		"Tags.Recurring.FiltersEligibleNamesBeforeBatchLimit",
+		"Tags.Recurring.PreservesOtherScopesProgressAndInvocations",
+		"Tags.Recurring.RemovesCodeScheduleWhenCronRemovedWhileRetagging",
+		"Trigger.Parameters.UpdatesOnlyWaitingJobs",
+		"Trigger.Queries.FiltersByCreationTime",
+		"Trigger.Release.ReleasesOnceUnderContention",
+		"Trigger.Release.ReleasesWaitingJobOnce",
+		"Trigger.Release.SchedulesFutureDueTime",
+	];
 
-	[Fact]
-	public void CasesHaveUniqueStableNamesUsedByToString()
-	{
-		var cases = JobStorageConformanceSuite.GetCases(AllCapabilities, includeSingleServerReplicaCases: true);
+	private static readonly string[] GraphCases =
+	[
+		"Definitions.Removal.SettlesCancelledDependenciesAndBatchCounts",
+		"Graph.Batches.CommitsAndProjectsAtomically",
+		"Graph.Batches.LoadsExistingGraphWithDependencyMetadata",
+		"Graph.Batches.RollbackInvalidBatchWithoutPartialWrites",
+		"Graph.Capability.ResolvesAdvertisedStorage",
+		"Graph.Dependencies.AppliesDelayFromParentSettlement",
+		"Graph.Dependencies.EvaluatesAlreadyTerminalParents",
+		"Graph.Dependencies.FanInWaitsForEveryParent",
+		"Graph.Dependencies.ReleasesAndSkipsConditionalBranches",
+		"Graph.Dynamic.BufferedSpliceWaitsForEveryAddition",
+		"Graph.Dynamic.ConcurrentSplicePreservesOriginalParentAndTrigger",
+		"Graph.Dynamic.RejectsInvalidBatchRelationshipsAtomically",
+		"Graph.Dynamic.RejectsStaleActiveExecution",
+		"Graph.Dynamic.SpliceAndOwnershipAreAtomic",
+		"Graph.Dynamic.SplicedWaitersRequireInsertedJobSuccess",
+		"Graph.Maintenance.CancelsUnsettledDependencyChains",
+		"Graph.Maintenance.PurgesExpiredBatchesWithContinuations",
+		"Graph.Maintenance.SerializesBatchPurgeWithRetry",
+		"Graph.Maintenance.StandalonePurgePreservesBatchMembers",
+		"Graph.Submission.ResolvesQueuesAtomically",
+		"Graph.Validation.RejectsCyclesWithoutPartialWrites",
+		"Graph.Validation.RejectsDuplicateLogicalEdgesWithoutPartialWrites",
+		"Recurring.Materialization.EvaluatesTerminalParentsAtomically",
+		"Trigger.Batch.CancelsWaitingBatch",
+		"Trigger.Batch.ReleasesEveryMemberTogether",
+		"Trigger.Graph.SkipsWhenParentConditionFailsWhileWaiting",
+		"Trigger.Graph.WaitsForParentsAndTrigger",
+	];
 
-		Assert.All(cases, testCase => Assert.Equal(testCase.Name, testCase.ToString()));
-		Assert.Equal(cases.Count, cases.Select(testCase => testCase.Name).Distinct(StringComparer.Ordinal).Count());
-		Assert.Contains(cases, testCase => string.Equals(testCase.Name, "Queue.Lifecycle.InitializesIdempotently", StringComparison.Ordinal));
-		Assert.Contains(cases, testCase => string.Equals(testCase.Name, "Recurring.Lifecycle.UpdatesPausesResumesAndRemovesDynamicSchedule", StringComparison.Ordinal));
-		Assert.Contains(cases, testCase => string.Equals(testCase.Name, "Graph.Capability.ResolvesAdvertisedStorage", StringComparison.Ordinal));
-		Assert.Contains(cases, testCase => string.Equals(testCase.Name, "FairQueues.Disabled.PreservesOrdinaryDueOrder", StringComparison.Ordinal));
-		Assert.Contains(cases, testCase => string.Equals(testCase.Name, "Replica.Acquisition.ClaimsExactlyTheRequestedDueJobs", StringComparison.Ordinal));
-	}
+	private static readonly string[] LeaseCases =
+	[
+		"Definitions.Concurrency.SharesSlotsAndRecoversExpiredLeases",
+		"FairQueues.NoisyNeighbors.IgnoresExpiredLeases",
+		"Queue.Leases.ReclaimsExpiredLeaseAndRejectsStaleOwner",
+	];
 
-	[Fact]
-	public async Task RunAsyncReportsMissingStorageRegistrationAsConformanceFailure()
-	{
-		await using var services = new ServiceCollection().BuildServiceProvider();
-		var testCase = JobStorageConformanceSuite.AllCasesByName["Queue.Lifecycle.InitializesIdempotently"];
+	private static readonly string[] ProcessOwnershipCases =
+	[
+		"FairQueues.NoisyNeighbors.CountsProcessOwnedActiveJobs",
+		"Queue.Ownership.RetainsProcessOwnedJobsUntilExplicitCompletion",
+	];
 
-		var exception = await Assert.ThrowsAsync<JobTestAssertionException>(
-			() => testCase.RunAsync(services, TestContext.Current.CancellationToken).AsTask()
-		);
+	private static readonly string[] QueueInterruptionCases =
+	[
+		"Queue.Initialization.InterruptsAbandonedExecutionsWithoutResettingLimits",
+	];
 
-		Assert.Contains(testCase.Name, exception.Message, StringComparison.Ordinal);
-		Assert.Contains("IJobStorage", exception.Message, StringComparison.Ordinal);
-	}
+	private static readonly string[] GraphInterruptionCases =
+	[
+		"Queue.Initialization.InterruptsLegacyExecution",
+	];
 
-	[Fact]
-	public async Task RunAsyncReportsMultipleStorageRegistrationsAsConformanceFailure()
-	{
-		await using var storageServices = CreateInMemoryServices();
-		var storage = storageServices.GetRequiredService<IJobStorage>();
-		await using var services = new ServiceCollection()
-			.AddSingleton(storage)
-			.AddSingleton(storage)
-			.BuildServiceProvider();
-		var testCase = JobStorageConformanceSuite.AllCasesByName["Queue.Lifecycle.InitializesIdempotently"];
-
-		var exception = await Assert.ThrowsAsync<JobTestAssertionException>(
-			() => testCase.RunAsync(services, TestContext.Current.CancellationToken).AsTask()
-		);
-
-		Assert.Contains(testCase.Name, exception.Message, StringComparison.Ordinal);
-		Assert.Contains("exactly one IJobStorage", exception.Message, StringComparison.Ordinal);
-	}
-
-	[Theory]
-	[InlineData("Queue.Lifecycle.InitializesIdempotently")]
-	[InlineData("Queue.Health.ReportsProvisionedBackendReachable")]
-	[InlineData("Queue.Cancellation.ObservesPreCancelledOperation")]
-	[InlineData("Recurring.Lifecycle.UpdatesPausesResumesAndRemovesDynamicSchedule")]
-	[InlineData("Graph.Capability.ResolvesAdvertisedStorage")]
-	[InlineData("FairQueues.Disabled.PreservesOrdinaryDueOrder")]
-	public async Task RunAsyncExecutesSelectedCaseAgainstStorageResolvedFromContainer(string caseName)
-	{
-		await using var services = CreateInMemoryServices();
-		var testCase = JobStorageConformanceSuite.AllCasesByName[caseName];
-
-		await testCase.RunAsync(services, TestContext.Current.CancellationToken);
-	}
-
-	[Fact]
-	public async Task RunAsyncDoesNotWrapCancellationRequestedByRunner()
-	{
-		await using var services = CreateInMemoryServices();
-		var testCase = JobStorageConformanceSuite.AllCasesByName["Queue.Lifecycle.InitializesIdempotently"];
-		using var cancellationSource = new CancellationTokenSource();
-		await cancellationSource.CancelAsync();
-
-		await Assert.ThrowsAnyAsync<OperationCanceledException>(
-			() => testCase.RunAsync(services, cancellationSource.Token).AsTask()
-		);
-	}
-
-	private static ServiceProvider CreateInMemoryServices()
-	{
-		var services = new ServiceCollection();
-		var timeProvider = new FakeTimeProvider(DateTimeOffset.UnixEpoch);
-		_ = services.AddSingleton<TimeProvider>(timeProvider);
-		_ = services.AddSingleton(timeProvider);
-		_ = services.AddImmediateJobsCore().ConfigureStorage(options => _ = options.UseInMemory());
-		return services.BuildServiceProvider(validateScopes: true);
-	}
+	private static readonly string[] ReplicaCases =
+	[
+		"Replica.Acquisition.AdvancesFairnessOnlyForConfirmedClaims",
+		"Replica.Acquisition.ClaimsEachInvocationVersionOnceUnderContention",
+		"Replica.Acquisition.ClaimsExactlyTheRequestedDueJobs",
+		"Replica.Acquisition.FailedClaimsPreserveConcurrencyFairState",
+		"Replica.Acquisition.FailedClaimsPreserveConcurrencyOrderedState",
+		"Replica.Acquisition.FailedClaimsPreserveFixedWindowFairState",
+		"Replica.Acquisition.FailedClaimsPreserveFixedWindowOrderedState",
+		"Replica.Acquisition.FailedClaimsPreserveSlidingWindowFairState",
+		"Replica.Acquisition.FailedClaimsPreserveSlidingWindowOrderedState",
+		"Replica.Acquisition.FailedClaimsPreserveUnboundedFairState",
+		"Replica.Acquisition.FailedClaimsPreserveUnboundedOrderedState",
+		"Replica.Acquisition.FailedReclaimsPreserveRenewedLeasesAndExecutionHistory",
+		"Replica.Acquisition.IgnoresDuplicateAndMissingRequestedIds",
+		"Replica.Acquisition.MirrorsClaimsWhenCancellationArrivesAfterCommit",
+		"Replica.Acquisition.PersistsOwnershipLeaseAttemptAndHistory",
+		"Replica.Acquisition.PreservesRequestedOrderWhenLimitsAllowOnlyOneClaim",
+		"Replica.Acquisition.RestoresPausesAndMirrorsResumeWithoutDurablePolling",
+		"Replica.Acquisition.RetainsSlidingHistoryAcrossRecoveryAndPartialClaims",
+		"Replica.Acquisition.WaitsUntilEnqueueHasUpdatedBothStores",
+		"Replica.Leases.ReclaimsExpiredExecutionAndFencesStaleOwner",
+		"Replica.Monitoring.PersistsSingleServerHeartbeatsForRemoteReaders",
+		"Replica.Projection.PreservesRecurringAndGraphRecoveryFields",
+		"Replica.Recovery.InterruptsOwnershipBeforeLoadingWorkflowSnapshot",
+		"Replica.Recovery.RestoresAllPagesAndPreservesSettledProgress",
+		"Replica.Recovery.RestoresCronDefinitionsWithTheirSchedules",
+	];
 }

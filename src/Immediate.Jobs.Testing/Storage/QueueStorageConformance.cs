@@ -12,6 +12,7 @@ internal static class QueueStorageConformance
 	private const string RoundTripName = "Queue.Enqueue.RoundTripsRecordAndRejectsDuplicate";
 	private const string DueName = "Queue.Acquisition.ExcludesFutureJobs";
 	private const string CapacityName = "Queue.Acquisition.HonorsOrderingAndCapacities";
+	private const string RepeatedQueueName = "Queue.Acquisition.DoesNotDuplicateClaimsAcrossRepeatedQueueEntries";
 	private const string ContentionName = "Queue.Acquisition.ClaimsEachJobOnceUnderContention";
 	private const string LeaseName = "Queue.Leases.ReclaimsExpiredLeaseAndRejectsStaleOwner";
 	private const string CompletionName = "Queue.Executions.PersistsTelemetryCompletionAndHistory";
@@ -19,7 +20,7 @@ internal static class QueueStorageConformance
 	private const string MutationName = "Queue.Mutations.RejectsMissingAndInvalidTransitions";
 	private const string QueryName = "Queue.Queries.ComposesFiltersAndPagesDeterministically";
 	private const string MonitoringName = "Queue.Monitoring.ReportsCountsStatusAndHeartbeatLiveness";
-	private const string MaintenanceName = "Queue.Maintenance.DeletesAndPurgesTerminalHistory";
+	private const string MaintenanceName = "Queue.Maintenance.PurgesTerminalHistory";
 	private const string CancellationName = "Queue.Cancellation.ObservesPreCancelledOperation";
 	private const string DisposeName = "Queue.Lifecycle.ToleratesRepeatedConcurrentDisposal";
 
@@ -30,16 +31,21 @@ internal static class QueueStorageConformance
 		new(RoundTripName, StorageCapabilities.Queue, RoundTripsRecordAsync),
 		new(DueName, StorageCapabilities.Queue, ExcludesFutureAndParkedAsync),
 		new(CapacityName, StorageCapabilities.Queue, HonorsOrderingAndCapacitiesAsync),
+		new(RepeatedQueueName, StorageCapabilities.Queue, ClaimsOnceAcrossRepeatedQueuesAsync),
 		new(ContentionName, StorageCapabilities.Queue, ClaimsOnceUnderContentionAsync),
-		new(LeaseName, StorageCapabilities.Queue, ReclaimsExpiredLeaseAsync),
 		new(CompletionName, StorageCapabilities.Queue, PersistsCompletionAsync),
 		new(FailureName, StorageCapabilities.Queue, PersistsFailureRetryAndCancellationAsync),
 		new(MutationName, StorageCapabilities.Queue, RejectsInvalidMutationsAsync),
 		new(QueryName, StorageCapabilities.Queue, QueriesAndPagesAsync),
 		new(MonitoringName, StorageCapabilities.Queue, ReportsMonitoringAsync),
-		new(MaintenanceName, StorageCapabilities.Queue, DeletesAndPurgesAsync),
+		new(MaintenanceName, StorageCapabilities.Queue, PurgesTerminalHistoryAsync),
 		new(CancellationName, StorageCapabilities.Queue, ObservesCancellationAsync),
 		new(DisposeName, StorageCapabilities.Queue, DisposesIdempotentlyAsync),
+	];
+
+	internal static IReadOnlyList<JobStorageConformanceTestCase> LeaseCases { get; } =
+	[
+		new(LeaseName, StorageCapabilities.Queue, ReclaimsExpiredLeaseAsync),
 	];
 
 	private static async ValueTask InitializeAsync(
@@ -48,8 +54,8 @@ internal static class QueueStorageConformance
 		CancellationToken cancellationToken
 	)
 	{
-		await storage.InitializeAsync(cancellationToken);
-		await storage.InitializeAsync(cancellationToken);
+		await storage.InitializeAsync(interruptActiveLeases: false, cancellationToken);
+		await storage.InitializeAsync(interruptActiveLeases: false, cancellationToken);
 	}
 
 	private static async ValueTask IsHealthyAsync(
@@ -75,6 +81,7 @@ internal static class QueueStorageConformance
 	{
 		await storage.MergeJobDefinitionsListAsync(new()
 		{
+			RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase),
 			Definitions =
 			[
 				new() { Name = "RoundTrip.Job", QueueName = "queue-roundtrip" },
@@ -127,6 +134,7 @@ internal static class QueueStorageConformance
 	{
 		await storage.MergeJobDefinitionsListAsync(new()
 		{
+			RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase),
 			Definitions =
 			[
 				new() { Name = "conformance-job" },
@@ -168,6 +176,7 @@ internal static class QueueStorageConformance
 	{
 		await storage.MergeJobDefinitionsListAsync(new()
 		{
+			RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase),
 			Definitions =
 			[
 				new() { Name = "low-job", QueueName = "low" },
@@ -202,10 +211,30 @@ internal static class QueueStorageConformance
 		);
 
 		ConformanceAssert.True(
-			acquired.All(job => job.State == JobState.Active && string.Equals(job.WorkerId, "capacity-worker", StringComparison.Ordinal) && job.Attempt == 1 && job.LeaseExpiresAt == now.AddMinutes(1)),
+			acquired.All(job => job.State == JobState.Active && string.Equals(job.WorkerId, "capacity-worker", StringComparison.Ordinal) && job.Attempt == 1),
 			CapacityName,
-			"every acquired projection must contain active ownership, lease expiry, and execution ordinal"
+			"every acquired projection must contain active ownership and execution ordinal"
 		);
+	}
+
+	private static async ValueTask ClaimsOnceAcrossRepeatedQueuesAsync(IJobStorage storage, FakeTimeProvider clock, CancellationToken token)
+	{
+		await storage.MergeJobDefinitionsListAsync(new()
+		{
+			Definitions = [new() { Name = "conformance-job" }],
+			RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase),
+		}, token);
+		await storage.EnqueueAsync(CreateJob("a", clock.GetUtcNow()), token);
+		await storage.EnqueueAsync(CreateJob("b", clock.GetUtcNow()), token);
+		var request = CreateRequest("repeated-queue-worker", 1) with { BatchSize = 2 };
+		request = request with { Queues = [request.Queues[0], request.Queues[0]] };
+
+		var acquired = await storage.AcquireDueJobsAsync(request, token);
+
+		ConformanceAssert.SequenceEqual(["a", "b"], acquired.Select(static job => job.JobHandle.Value), RepeatedQueueName,
+			"repeated queue entries must advance to the next due job rather than duplicate a claim");
+		ConformanceAssert.True(acquired.All(static job => job.Attempt == 1), RepeatedQueueName,
+			"a repeated queue entry must not create a second execution of the same job");
 	}
 
 	private static async ValueTask ClaimsOnceUnderContentionAsync(
@@ -216,6 +245,7 @@ internal static class QueueStorageConformance
 	{
 		await storage.MergeJobDefinitionsListAsync(new()
 		{
+			RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase),
 			Definitions =
 			[
 				new() { Name = "conformance-job" },
@@ -259,6 +289,7 @@ internal static class QueueStorageConformance
 	{
 		await storage.MergeJobDefinitionsListAsync(new()
 		{
+			RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase),
 			Definitions =
 			[
 				new() { Name = "conformance-job" },
@@ -268,12 +299,17 @@ internal static class QueueStorageConformance
 		await storage.EnqueueAsync(CreateJob("leased", timeProvider.GetUtcNow()), cancellationToken);
 
 		var first = (await storage.AcquireDueJobsAsync(CreateRequest("owner-a", 1), cancellationToken)).Single();
+		ConformanceAssert.Equal<DateTimeOffset?>(timeProvider.GetUtcNow().AddMinutes(1), first.LeaseExpiresAt, LeaseName,
+			"a durable acquisition must project its lease deadline");
 
 		await storage.SetExecutionTelemetryAsync(first.JobHandle, first.Attempt, "owner-a", "trace-a", "span-a", timeProvider.GetUtcNow(), cancellationToken);
 
 		timeProvider.Advance(TimeSpan.FromSeconds(30));
 
 		await storage.RenewLeaseAsync(first.JobHandle, first.Attempt, "owner-a", TimeSpan.FromMinutes(2), cancellationToken);
+		var renewed = (await storage.QueryJobsAsync(new() { JobHandle = first.JobHandle }, cancellationToken)).Single();
+		ConformanceAssert.Equal<DateTimeOffset?>(timeProvider.GetUtcNow().AddMinutes(2), renewed.LeaseExpiresAt, LeaseName,
+			"job queries must expose the renewed durable deadline, including through a single-server mirror");
 
 		timeProvider.Advance(TimeSpan.FromMinutes(1));
 
@@ -288,6 +324,8 @@ internal static class QueueStorageConformance
 		);
 
 		timeProvider.Advance(TimeSpan.FromMinutes(2));
+		ConformanceAssert.Equal(0, (await storage.GetJobAcquisitionStateAsync("conformance-job", cancellationToken)).ActiveCount,
+			LeaseName, "expired leases must release advisory concurrency without another acquisition");
 
 		var second = (await storage.AcquireDueJobsAsync(CreateRequest("owner-b", 1), cancellationToken)).Single();
 
@@ -349,6 +387,7 @@ internal static class QueueStorageConformance
 	{
 		await storage.MergeJobDefinitionsListAsync(new()
 		{
+			RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase),
 			Definitions =
 			[
 				new() { Name = "conformance-job" },
@@ -388,6 +427,7 @@ internal static class QueueStorageConformance
 	{
 		await storage.MergeJobDefinitionsListAsync(new()
 		{
+			RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase),
 			Definitions =
 			[
 				new() { Name = "conformance-job" },
@@ -473,6 +513,7 @@ internal static class QueueStorageConformance
 	{
 		await storage.MergeJobDefinitionsListAsync(new()
 		{
+			RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase),
 			Definitions =
 			[
 				new() { Name = "conformance-job" },
@@ -489,12 +530,6 @@ internal static class QueueStorageConformance
 			"retry must reject a pending job without changing it"
 		);
 
-		await ConformanceAssert.ThrowsAsync<ImmediateJobException>(
-			() => storage.DeleteAsync(jobHandle, cancellationToken),
-			MutationName,
-			"delete must reject a non-terminal job without changing it"
-		);
-
 		var pending = (await storage.QueryJobsAsync(new() { JobHandle = jobHandle }, cancellationToken)).Single();
 		ConformanceAssert.Equal(JobState.Pending, pending.State, MutationName, "invalid mutations must not partially change the target");
 
@@ -509,12 +544,6 @@ internal static class QueueStorageConformance
 			MutationName,
 			"dashboard mutation targets that do not exist must throw KeyNotFoundException"
 		);
-
-		await ConformanceAssert.ThrowsAsync<KeyNotFoundException>(
-			() => storage.DeleteAsync(JobHandle.FromString("missing"), cancellationToken),
-			MutationName,
-			"dashboard mutation targets that do not exist must throw KeyNotFoundException"
-		);
 	}
 
 	private static async ValueTask QueriesAndPagesAsync(
@@ -525,6 +554,7 @@ internal static class QueueStorageConformance
 	{
 		await storage.MergeJobDefinitionsListAsync(new()
 		{
+			RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase),
 			Definitions =
 			[
 				new() { Name = "Email.Receipt", QueueName = "priority" },
@@ -635,6 +665,7 @@ internal static class QueueStorageConformance
 	{
 		await storage.MergeJobDefinitionsListAsync(new()
 		{
+			RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase),
 			Definitions =
 			[
 				new() { Name = "conformance-job" },
@@ -694,7 +725,7 @@ internal static class QueueStorageConformance
 		ConformanceAssert.Equal(storage.GetCapabilities(), snapshot.Capabilities, MonitoringName, "monitoring must report the resolved storage capabilities");
 	}
 
-	private static async ValueTask DeletesAndPurgesAsync(
+	private static async ValueTask PurgesTerminalHistoryAsync(
 		IJobStorage storage,
 		FakeTimeProvider timeProvider,
 		CancellationToken cancellationToken
@@ -702,27 +733,12 @@ internal static class QueueStorageConformance
 	{
 		await storage.MergeJobDefinitionsListAsync(new()
 		{
+			RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase),
 			Definitions =
 			[
 				new() { Name = "conformance-job" },
 			],
 		}, cancellationToken);
-
-		await EnqueueAcquireAndComplete(storage, "delete-me", "maintenance-worker", timeProvider.GetUtcNow(), cancellationToken);
-
-		await storage.DeleteAsync(JobHandle.FromString("delete-me"), cancellationToken);
-
-		ConformanceAssert.Null(
-			await storage.GetJobStatusAsync(JobHandle.FromString("delete-me"), cancellationToken),
-			MaintenanceName,
-			"deleting a terminal job must remove the job"
-		);
-		ConformanceAssert.Equal(
-			0,
-			(await storage.QueryJobExecutionsAsync(JobHandle.FromString("delete-me"), new(), cancellationToken)).Count,
-			MaintenanceName,
-			"deleting a terminal job must remove its execution history"
-		);
 
 		await EnqueueAcquireAndComplete(storage, "old-success", "maintenance-worker", timeProvider.GetUtcNow(), cancellationToken);
 

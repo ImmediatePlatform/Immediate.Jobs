@@ -14,6 +14,7 @@ internal static partial class ReplicaStorageConformance
 {
 	private const string ExactDueName = "Replica.Acquisition.ClaimsExactlyTheRequestedDueJobs";
 	private const string DuplicateName = "Replica.Acquisition.IgnoresDuplicateAndMissingRequestedIds";
+	private const string RequestedOrderName = "Replica.Acquisition.PreservesRequestedOrderWhenLimitsAllowOnlyOneClaim";
 	private const string ProjectionName = "Replica.Acquisition.PersistsOwnershipLeaseAttemptAndHistory";
 	private const string ContentionName = "Replica.Acquisition.ClaimsEachInvocationVersionOnceUnderContention";
 	private const string StaleName = "Replica.Leases.ReclaimsExpiredExecutionAndFencesStaleOwner";
@@ -26,10 +27,14 @@ internal static partial class ReplicaStorageConformance
 	internal static IReadOnlyList<JobStorageConformanceTestCase> Cases { get; } =
 	[
 		new(RecurringRecoveryName, StorageCapabilities.Graph, RestoresCronDefinitionsAsync),
+		new(InterruptedRecoveryName, StorageCapabilities.Graph, InterruptsBeforeSnapshotAsync),
+		new(PagedRecoveryName, StorageCapabilities.Graph, RestoresPagesAndSettledProgressAsync, PagedRecoveryState()),
 		new(HeartbeatName, StorageCapabilities.Graph, PersistsSingleServerHeartbeatsAsync),
 		new(EnqueueRaceName, StorageCapabilities.Graph, AcquisitionWaitsUntilEnqueueHasUpdatedBothStoresAsync),
+		.. CreateAcquisitionCases(),
 		new(ExactDueName, StorageCapabilities.Graph, ClaimsExactlyRequestedDueJobsAsync),
 		new(DuplicateName, StorageCapabilities.Graph, IgnoresDuplicateAndMissingIdsAsync),
+		new(RequestedOrderName, StorageCapabilities.Graph, PreservesRequestedOrderAsync),
 		new(ProjectionName, StorageCapabilities.Graph, PersistsProjectionAndHistoryAsync),
 		new(ContentionName, StorageCapabilities.Graph, ClaimsOnceUnderContentionAsync),
 		new(StaleName, StorageCapabilities.Graph, ReclaimsAndFencesStaleOwnerAsync),
@@ -51,7 +56,25 @@ internal static partial class ReplicaStorageConformance
 			LastRunAt = now.AddMinutes(-2),
 			NextRunAt = now.AddMinutes(-1),
 		};
-		var registration = new JobDefinitionRegistration { Definitions = [definition], RecurringSchedules = [schedule] };
+		var registration = new JobDefinitionRegistration { Definitions = [definition], RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase) { [schedule.JobName] = schedule.NextRunAt } };
+		await storage.MergeJobDefinitionsListAsync(registration with
+		{
+			RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase) { [schedule.JobName] = now.AddMinutes(-2) },
+		}, token);
+		var previous = schedule with { IsPaused = false, LastRunAt = null, NextRunAt = now.AddMinutes(-2) };
+		ConformanceAssert.True(await storage.MaterializeRecurringAsync(previous, new()
+		{
+			JobHandle = JobHandle.FromString("recovery-history"),
+			JobName = JobName,
+			Payload = "{}",
+			State = JobState.Skipped,
+			CreatedAt = previous.NextRunAt,
+			DueAt = previous.NextRunAt,
+			CompletedAt = previous.NextRunAt,
+			RecurringKey = "recovery-history",
+		}, schedule.NextRunAt, cancellationToken: token), RecurringRecoveryName,
+			"the schedule must have materialized progress before recovery");
+		await storage.PauseRecurringAsync(schedule.Name, token);
 		await storage.MergeJobDefinitionsListAsync(registration, token);
 		await storage.UpsertRecurringAsync(schedule with { Name = "recovery-dynamic", IsCodeDefined = false, IsPaused = false }, token);
 		var job = Job("recovery-pending", now);
@@ -63,7 +86,7 @@ internal static partial class ReplicaStorageConformance
 		services.AddImmediateJobsCore().ConfigureStorage(builder => builder.UseSingleServer(_ => storage));
 		await using var provider = services.BuildServiceProvider();
 		var writer = provider.GetRequiredService<IJobStorage>();
-		await writer.InitializeAsync(token);
+		await writer.InitializeAsync(interruptActiveLeases: false, token);
 
 		ConformanceAssert.Equal(JobState.Pending, (await GetJobAsync(writer, job.JobHandle, RecurringRecoveryName, token)).State,
 			RecurringRecoveryName, "startup must recover queued jobs alongside their cron definition");
@@ -89,7 +112,7 @@ internal static partial class ReplicaStorageConformance
 		services.AddImmediateJobsCore().ConfigureStorage(builder => builder.UseSingleServer(_ => storage));
 		await using var provider = services.BuildServiceProvider();
 		var writer = provider.GetRequiredService<IJobStorage>();
-		await writer.InitializeAsync(token);
+		await writer.InitializeAsync(interruptActiveLeases: false, token);
 		var heartbeat = new JobServerSnapshot
 		{
 			WorkerId = "remote-reader-server",
@@ -120,6 +143,7 @@ internal static partial class ReplicaStorageConformance
 	{
 		await storage.MergeJobDefinitionsListAsync(new()
 		{
+			RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase),
 			Definitions =
 			[
 				new() { Name = JobName, QueueName = QueueName },
@@ -189,6 +213,7 @@ internal static partial class ReplicaStorageConformance
 	{
 		await storage.MergeJobDefinitionsListAsync(new()
 		{
+			RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase),
 			Definitions =
 			[
 				new() { Name = JobName, QueueName = QueueName },
@@ -220,6 +245,27 @@ internal static partial class ReplicaStorageConformance
 		);
 	}
 
+	private static async ValueTask PreservesRequestedOrderAsync(IJobStorage storage, FakeTimeProvider clock, CancellationToken token)
+	{
+		await storage.MergeJobDefinitionsListAsync(new()
+		{
+			Definitions = [new() { Name = JobName, QueueName = QueueName, MaxConcurrency = 1 }],
+			RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase),
+		}, token);
+		var first = Job("z-requested-first", clock.GetUtcNow());
+		var second = Job("a-requested-second", clock.GetUtcNow());
+		await storage.EnqueueAsync(second, token);
+		await storage.EnqueueAsync(first, token);
+		var replica = Replica(storage, RequestedOrderName);
+
+		var acquired = await replica.AcquireJobsAsync([first.JobHandle, second.JobHandle], "ordered-worker", TimeSpan.FromMinutes(1), token);
+
+		ConformanceAssert.Equal(1, acquired.Count, RequestedOrderName, "the concurrency limit must allow only one claim");
+		ConformanceAssert.Equal(first.JobHandle, acquired[0].JobHandle, RequestedOrderName, "the first requested job must receive the available capacity");
+		ConformanceAssert.Equal(JobState.Pending, (await GetJobAsync(storage, second.JobHandle, RequestedOrderName, token)).State,
+			RequestedOrderName, "the other requested job must remain pending");
+	}
+
 	private static async ValueTask PersistsProjectionAndHistoryAsync(
 		IJobStorage storage,
 		FakeTimeProvider timeProvider,
@@ -228,6 +274,7 @@ internal static partial class ReplicaStorageConformance
 	{
 		await storage.MergeJobDefinitionsListAsync(new()
 		{
+			RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase),
 			Definitions =
 			[
 				new() { Name = JobName, QueueName = QueueName },
@@ -303,6 +350,7 @@ internal static partial class ReplicaStorageConformance
 	{
 		await storage.MergeJobDefinitionsListAsync(new()
 		{
+			RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase),
 			Definitions =
 			[
 				new() { Name = JobName, QueueName = QueueName },
@@ -344,6 +392,7 @@ internal static partial class ReplicaStorageConformance
 	{
 		await storage.MergeJobDefinitionsListAsync(new()
 		{
+			RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase),
 			Definitions =
 			[
 				new() { Name = JobName, QueueName = QueueName },
@@ -417,6 +466,7 @@ internal static partial class ReplicaStorageConformance
 	{
 		await storage.MergeJobDefinitionsListAsync(new()
 		{
+			RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase),
 			Definitions =
 			[
 				new() { Name = JobName, QueueName = QueueName },

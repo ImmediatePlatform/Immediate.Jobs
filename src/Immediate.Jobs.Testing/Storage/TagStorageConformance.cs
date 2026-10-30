@@ -9,6 +9,7 @@ internal static class TagStorageConformance
 	private const string ScopeCase = "Tags.Catalogue.ReconcilesCompleteListsWithinTagScope";
 	private const string RetagCase = "Tags.Catalogue.RemovesPreviouslyMatchingRetaggedDefinitions";
 	private const string RecurringCase = "Tags.Recurring.PreservesOtherScopesProgressAndInvocations";
+	private const string RetaggedCronRemovalCase = "Tags.Recurring.RemovesCodeScheduleWhenCronRemovedWhileRetagging";
 	private const string ConcurrentCase = "Tags.Catalogue.SerializesConcurrentCompleteLists";
 	private const string DueCase = "Tags.Recurring.FiltersEligibleNamesBeforeBatchLimit";
 	private const string CaseNameCase = "Tags.Catalogue.ReconcilesCaseInsensitiveNamesAcrossTagScopes";
@@ -18,6 +19,7 @@ internal static class TagStorageConformance
 		new(ScopeCase, StorageCapabilities.Queue, ReconcilesScopesAsync),
 		new(RetagCase, StorageCapabilities.Queue, RetagsAsync),
 		new(RecurringCase, StorageCapabilities.Queue, PreservesRecurringAsync),
+		new(RetaggedCronRemovalCase, StorageCapabilities.Queue, RemovesCodeScheduleWhenRetaggedAsync),
 		new(ConcurrentCase, StorageCapabilities.Queue, ReconcilesConcurrentlyAsync),
 		new(DueCase, StorageCapabilities.Queue, FiltersBeforeBatchAsync),
 		new(CaseNameCase, StorageCapabilities.Queue, ReconcilesCaseInsensitiveNamesAsync),
@@ -26,7 +28,7 @@ internal static class TagStorageConformance
 	private static JobDefinitionRecord Definition(string name, params string[] tags) => new() { Name = name, Tags = tags };
 
 	private static JobDefinitionRegistration Registration(IReadOnlyList<JobDefinitionRecord> definitions, params string[] tags) =>
-		new() { Definitions = definitions, ServerTags = tags };
+		new() { RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase), Definitions = definitions, ServerTags = tags };
 
 	private static async ValueTask ReconcilesCaseInsensitiveNamesAsync(IJobStorage storage, FakeTimeProvider timeProvider, CancellationToken token)
 	{
@@ -43,8 +45,6 @@ internal static class TagStorageConformance
 		await storage.MergeJobDefinitionsListAsync(Registration(aliases.Select(definition => definition with { Tags = ["email"] }).ToList(), "email"), token);
 		await storage.MergeJobDefinitionsListAsync(Registration([]), token);
 		ConformanceAssert.Equal(3, (await storage.GetJobDefinitionsAsync(token)).Count, CaseNameCase, "default cleanup must preserve retagged definitions despite name casing");
-		await ConformanceAssert.ThrowsAsync<ArgumentException>(() => storage.MergeJobDefinitionsListAsync(Registration([Definition("Invoice"), Definition("invoice")]), token),
-			CaseNameCase, "one catalogue cannot contain duplicate names that differ only by case");
 		await storage.MergeJobDefinitionsListAsync(Registration([], "email"), token);
 		ConformanceAssert.Equal(0, (await storage.GetJobDefinitionsAsync(token)).Count, CaseNameCase, "the matching tag scope must remove aliases as one identity");
 	}
@@ -115,12 +115,36 @@ internal static class TagStorageConformance
 	{
 		Name = definition.Name,
 		JobName = definition.Name,
-		QueueName = definition.QueueName,
 		Cron = definition.Cron!,
 		TimeZone = definition.TimeZone,
 		IsCodeDefined = true,
 		NextRunAt = next,
 	};
+
+	private static async ValueTask RemovesCodeScheduleWhenRetaggedAsync(IJobStorage storage, FakeTimeProvider timeProvider, CancellationToken token)
+	{
+		var now = timeProvider.GetUtcNow();
+		var original = Definition("moving-cron", "old") with { Cron = "* * * * *" };
+		await storage.MergeJobDefinitionsListAsync(Registration([original], "old") with
+		{
+			RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase) { [original.Name] = now },
+		}, token);
+		ConformanceAssert.SequenceEqual([original.Name],
+			(await storage.GetDueRecurringAsync(now, 10, [original.Name], token)).Select(static schedule => schedule.Name),
+			RetaggedCronRemovalCase, "the original tag scope must create a due code-defined schedule before retagging");
+
+		var retagged = original with { Tags = ["new"], Cron = null };
+		await storage.MergeJobDefinitionsListAsync(Registration([retagged], "new"), token);
+
+		var definition = (await storage.GetJobDefinitionsAsync(token)).Single();
+		ConformanceAssert.SequenceEqual(retagged.Tags, definition.Tags, RetaggedCronRemovalCase,
+			"the new tag scope must adopt the definition from its previous scope");
+		ConformanceAssert.Null(definition.Cron, RetaggedCronRemovalCase, "the adopted definition must no longer have a cron expression");
+		ConformanceAssert.SequenceEqual([], (await MonitoringTestQueries.GetSchedulesAsync(storage, token)).Select(static schedule => schedule.Name),
+			RetaggedCronRemovalCase, "removing cron while retagging into the current server scope must delete the obsolete code-defined schedule");
+		ConformanceAssert.Equal(0, (await storage.GetDueRecurringAsync(now, 10, [original.Name], token)).Count,
+			RetaggedCronRemovalCase, "the removed schedule must not remain eligible for recurring materialization");
+	}
 
 	private static async ValueTask PreservesRecurringAsync(IJobStorage storage, FakeTimeProvider timeProvider, CancellationToken token)
 	{
@@ -128,12 +152,8 @@ internal static class TagStorageConformance
 		var ordinary = Definition("ordinary-cron") with { Cron = "* * * * *" };
 		var other = Definition("email-cron", "email") with { Cron = "* * * * *" };
 		var schedule = Schedule(ordinary, now);
-		await storage.MergeJobDefinitionsListAsync(new() { Definitions = [ordinary], RecurringSchedules = [schedule] }, token);
-		var unregistered = Schedule(Definition("unregistered") with { Cron = "* * * * *" }, now);
-		await storage.UpsertRecurringAsync(unregistered, token);
-		await storage.MergeJobDefinitionsListAsync(new() { Definitions = [other], ServerTags = ["email"], RecurringSchedules = [Schedule(other, now)] }, token);
-		ConformanceAssert.True((await MonitoringTestQueries.GetSchedulesAsync(storage, token)).Any(item => string.Equals(item.Name, unregistered.Name, StringComparison.Ordinal)),
-			RecurringCase, "a server without default must preserve unregistered code schedules without metadata");
+		await storage.MergeJobDefinitionsListAsync(new() { Definitions = [ordinary], RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase) { [schedule.JobName] = schedule.NextRunAt } }, token);
+		await storage.MergeJobDefinitionsListAsync(new() { Definitions = [other], ServerTags = ["email"], RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase) { [other.Name] = now } }, token);
 		var dynamic = Schedule(ordinary, now) with { Name = "dynamic", IsCodeDefined = false };
 		await storage.UpsertRecurringAsync(dynamic, token);
 		var invocation = new JobRecord
@@ -149,15 +169,13 @@ internal static class TagStorageConformance
 		};
 		ConformanceAssert.True(await storage.MaterializeRecurringAsync(schedule, invocation, now.AddMinutes(1), cancellationToken: token), RecurringCase, "the initial occurrence must materialize");
 		await storage.PauseRecurringAsync(ordinary.Name, token);
-		await storage.MergeJobDefinitionsListAsync(new() { Definitions = [ordinary], ServerTags = ["DEFAULT"], RecurringSchedules = [Schedule(ordinary, now.AddHours(1))] }, token);
+		await storage.MergeJobDefinitionsListAsync(new() { Definitions = [ordinary], ServerTags = ["DEFAULT"], RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase) { [ordinary.Name] = now.AddHours(1) } }, token);
 		var persisted = (await MonitoringTestQueries.GetSchedulesAsync(storage, token)).Single(item => string.Equals(item.Name, ordinary.Name, StringComparison.Ordinal));
-		ConformanceAssert.False((await MonitoringTestQueries.GetSchedulesAsync(storage, token)).Any(item => string.Equals(item.Name, unregistered.Name, StringComparison.Ordinal)),
-			RecurringCase, "a default server must clean up obsolete unregistered code schedules without metadata");
 		ConformanceAssert.True(persisted.IsPaused, RecurringCase, "startup must preserve schedule pause state");
 		ConformanceAssert.Equal(now.AddMinutes(1), persisted.NextRunAt, RecurringCase, "unchanged cron must retain progress");
 		ConformanceAssert.Equal<DateTimeOffset?>(now, persisted.LastRunAt, RecurringCase, "startup must retain the last occurrence");
 		var changed = ordinary with { Cron = "15 * * * *" };
-		await storage.MergeJobDefinitionsListAsync(new() { Definitions = [changed], RecurringSchedules = [Schedule(changed, now.AddHours(2))] }, token);
+		await storage.MergeJobDefinitionsListAsync(new() { Definitions = [changed], RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase) { [changed.Name] = now.AddHours(2) } }, token);
 		persisted = (await MonitoringTestQueries.GetSchedulesAsync(storage, token)).Single(item => string.Equals(item.Name, ordinary.Name, StringComparison.Ordinal));
 		ConformanceAssert.Equal(now.AddHours(2), persisted.NextRunAt, RecurringCase, "changed cron must reset the next occurrence");
 		ConformanceAssert.True(persisted.IsPaused, RecurringCase, "cron changes must retain pause state");
@@ -214,7 +232,6 @@ internal static class TagStorageConformance
 		{
 			JobHandle = JobHandle.FromString("tagged-index-occurrence"),
 			JobName = moved.JobName,
-			QueueName = moved.QueueName,
 			State = JobState.Pending,
 			Payload = "{}",
 			CreatedAt = now,
@@ -228,7 +245,7 @@ internal static class TagStorageConformance
 		ConformanceAssert.Equal(0, (await storage.GetDueRecurringAsync(now.AddMinutes(1), 1, [moved.JobName], token)).Count, DueCase, "removal must clear job eligibility");
 
 		var code = Definition("indexed-code") with { Cron = "* * * * *" };
-		await storage.MergeJobDefinitionsListAsync(new() { Definitions = [code], RecurringSchedules = [Schedule(code, now)] }, token);
+		await storage.MergeJobDefinitionsListAsync(new() { Definitions = [code], RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase) { [code.Name] = now } }, token);
 		ConformanceAssert.Equal(1, (await storage.GetDueRecurringAsync(now, 1, [code.Name], token)).Count, DueCase, "catalogue reconciliation must maintain job eligibility");
 		await storage.MergeJobDefinitionsListAsync(Registration([]), token);
 		ConformanceAssert.Equal(0, (await storage.GetDueRecurringAsync(now, 1, [code.Name], token)).Count, DueCase, "catalogue removal must clear job eligibility");

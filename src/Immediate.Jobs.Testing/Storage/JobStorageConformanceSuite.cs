@@ -21,12 +21,20 @@ public static class JobStorageConformanceSuite
 	/// 	Whether to include the cases for <see cref="IJobGraphStorage.AcquireJobsAsync"/>, which only providers that
 	/// 	can act as a single-server durable store implement. Requires <see cref="StorageCapabilities.Graph"/>.
 	/// </param>
+	/// <param name="usesExpiringLeases">
+	/// 	Whether ownership expires by time. Use false for in-memory storage and wrappers around it.
+	/// </param>
+	/// <param name="includeLeaseInterruptionCases">
+	/// 	Whether to test explicit interruption during durable initialization. Use false for the single-server wrapper.
+	/// </param>
 	/// <returns>
 	/// 	Individually discoverable conformance test cases.
 	/// </returns>
 	public static IReadOnlyList<JobStorageConformanceTestCase> GetCases(
 		StorageCapabilities capabilities,
-		bool includeSingleServerReplicaCases = false
+		bool includeSingleServerReplicaCases = false,
+		bool usesExpiringLeases = true,
+		bool includeLeaseInterruptionCases = true
 	)
 	{
 		if ((capabilities & ~KnownCapabilities) != StorageCapabilities.None)
@@ -37,8 +45,11 @@ public static class JobStorageConformanceSuite
 
 		if (includeSingleServerReplicaCases && !capabilities.HasFlag(StorageCapabilities.Graph))
 			throw new ArgumentException("Single-server replica cases require the Graph capability.", nameof(includeSingleServerReplicaCases));
+		if (includeSingleServerReplicaCases && !usesExpiringLeases)
+			throw new ArgumentException("Single-server durable replicas require expiring leases.", nameof(usesExpiringLeases));
 
 		return QueueStorageConformance.Cases
+			.Concat(usesExpiringLeases && includeLeaseInterruptionCases ? InitializationStorageConformance.Cases.Where(testCase => capabilities.HasFlag(testCase.RequiredCapabilities)) : [])
 			.Concat(DefinitionAcquisitionStorageConformance.Cases)
 			.Concat(MonitoringStorageConformance.Cases)
 			.Concat(AddOptionalCases(capabilities, StorageCapabilities.Queue, RecurringStorageConformance.Cases))
@@ -48,6 +59,9 @@ public static class JobStorageConformanceSuite
 			.Concat(AddOptionalCases(capabilities, StorageCapabilities.Graph, DefinitionRemovalStorageConformance.GraphCases))
 			.Concat(TagStorageConformance.Cases)
 			.Concat(FairQueueStorageConformance.Cases)
+			.Concat(usesExpiringLeases
+				? QueueStorageConformance.LeaseCases.Concat(DefinitionAcquisitionStorageConformance.LeaseCases).Concat(FairQueueStorageConformance.LeaseCases)
+				: ProcessOwnershipStorageConformance.Cases)
 			.Concat(AddOptionalCases(capabilities, StorageCapabilities.Queue, TriggerStorageConformance.Cases))
 			.Concat(includeSingleServerReplicaCases ? ReplicaStorageConformance.Cases : [])
 			.ToList();
@@ -58,6 +72,8 @@ public static class JobStorageConformanceSuite
 	/// </summary>
 	public static IReadOnlyDictionary<string, JobStorageConformanceTestCase> AllCasesByName { get; } =
 		GetCases(KnownCapabilities, includeSingleServerReplicaCases: true)
+			.Concat(GetCases(KnownCapabilities, usesExpiringLeases: false))
+			.DistinctBy(static testCase => testCase.Name, StringComparer.OrdinalIgnoreCase)
 			.ToDictionary(x => x.Name, StringComparer.OrdinalIgnoreCase);
 
 	private static IEnumerable<JobStorageConformanceTestCase> AddOptionalCases(

@@ -18,12 +18,11 @@ internal sealed partial class LinqToDBJobStorage<T>
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 		await using var scope = contextScope.GetScope(out var connection);
-		var recurring = await RecurringWithDefinitions(connection).OrderBy(schedule => schedule.Name)
+		var recurring = await Recurring(connection).OrderBy(schedule => schedule.Name)
 			.Select(schedule => new RecurringJobDefinition
 			{
 				Name = schedule.Name,
 				JobName = schedule.JobName,
-				QueueName = schedule.QueueName,
 				Cron = schedule.Cron,
 				TimeZone = schedule.TimeZone,
 				IsCodeDefined = schedule.IsCodeDefined,
@@ -104,7 +103,7 @@ internal sealed partial class LinqToDBJobStorage<T>
 		foreach (var item in rawCounts)
 			counts[item.State] = item.Count;
 
-		var recurringEntities = await RecurringWithDefinitions(connection)
+		var recurringEntities = await Recurring(connection)
 			.OrderBy(schedule => schedule.Name)
 			.ToListAsync(cancellationToken);
 		var now = timeProvider.GetUtcNow();

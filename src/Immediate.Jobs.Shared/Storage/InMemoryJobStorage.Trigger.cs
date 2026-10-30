@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using Immediate.Jobs.Shared.Apis;
 using Microsoft.Extensions.Logging;
 
@@ -19,11 +20,12 @@ public sealed partial class InMemoryJobStorage
 
 		lock (_gate)
 		{
-			var job = GetTriggerable(jobHandle, expectedJobName);
+			ref var job = ref GetTriggerable(jobHandle, expectedJobName);
+
 			if (job.State != JobState.WaitingForTrigger)
 				throw new ImmediateJobException($"Job '{jobHandle}' is not waiting for a trigger.");
 
-			_jobs[jobHandle] = job with { Payload = payload };
+			UpdateJob(ref job, job with { Payload = payload });
 		}
 	}
 
@@ -41,15 +43,18 @@ public sealed partial class InMemoryJobStorage
 
 		lock (_gate)
 		{
-			var job = GetTriggerable(jobHandle, expectedJobName);
+			ref var job = ref GetTriggerable(jobHandle, expectedJobName);
+
 			if (job.BatchHandle is not null && _batches[job.BatchHandle].State == BatchState.WaitingForTrigger)
 				throw new ImmediateJobException($"Job '{jobHandle}' belongs to batch '{job.BatchHandle}', which is waiting for a trigger; trigger the batch instead.");
-			if (job.State != JobState.WaitingForTrigger)
-				return false;
+
 			if (job.Payload.Length == 0)
 				throw new ImmediateJobException($"Job '{jobHandle}' cannot be triggered before its parameters are supplied.");
 
-			Trigger(job, dueAt);
+			if (job.State != JobState.WaitingForTrigger)
+				return false;
+
+			Trigger(ref job, dueAt);
 			return true;
 		}
 	}
@@ -63,61 +68,79 @@ public sealed partial class InMemoryJobStorage
 
 		lock (_gate)
 		{
-			if (!_batches.TryGetValue(batchHandle, out var batch))
-				throw new KeyNotFoundException($"Batch '{batchHandle}' was not found.");
+			ref var batch = ref ValidateExistingElement(_batches, batchHandle);
+
 			if (batch.State != BatchState.WaitingForTrigger)
 				return false;
 
-			_batches[batchHandle] = batch with { State = BatchState.Executing };
-			foreach (var job in _jobs.Values
-				.Where(job => job.BatchHandle == batchHandle && job.State == JobState.WaitingForTrigger)
-				.ToList())
+			batch = batch with { State = BatchState.Executing };
+
+			if (_jobsByBatch.TryGetValue(batchHandle, out var handles))
 			{
-				Trigger(job, job.DueAt);
+				foreach (var handle in handles)
+				{
+					ref var job = ref ValidateExistingElement(_jobs, handle);
+					if (job.State == JobState.WaitingForTrigger)
+						Trigger(ref job, job.DueAt);
+				}
 			}
 
 			return true;
 		}
 	}
 
-	private JobRecord GetTriggerable(JobHandle jobHandle, string expectedJobName)
+	/// <remarks>
+	/// 	The caller must hold the <see cref="_gate"/> lock throughout this call and while using the returned reference.
+	/// 	The dictionary must not be structurally modified while the reference is in use.
+	/// </remarks>
+	[SuppressMessage("Style", "IDE0007:Use implicit type", Justification = "Interaction between IDE0007 and CS8619")]
+	private ref JobRecord GetTriggerable(JobHandle jobHandle, string expectedJobName)
 	{
-		if (!_jobs.TryGetValue(jobHandle, out var job))
-			throw new KeyNotFoundException($"Job '{jobHandle}' was not found.");
+		ref JobRecord job = ref ValidateExistingElement(_jobs, jobHandle);
+
 		if (!string.Equals(job.JobName, expectedJobName, StringComparison.OrdinalIgnoreCase))
 			throw new ImmediateJobException($"Job '{jobHandle}' is not a '{expectedJobName}' job.");
 
-		return job;
+		return ref job;
 	}
 
-	private void Trigger(JobRecord job, DateTimeOffset dueAt)
+	/// <remarks>
+	/// 	The caller must hold the <see cref="_gate"/> lock.
+	/// </remarks>
+	private void Trigger(ref JobRecord job, DateTimeOffset dueAt)
 	{
 		if (job.RemainingDependencies != 0)
 		{
-			_jobs[job.JobHandle] = job with { State = JobState.AwaitingContinuation, DueAt = dueAt };
+			UpdateJob(ref job, job with { State = JobState.AwaitingContinuation, DueAt = dueAt });
 			return;
 		}
 
+		var jobId = job.JobHandle;
 		var now = timeProvider.GetUtcNow();
-		if (_edges.Any(edge => edge.ChildJobHandle == job.JobHandle))
+
+		if (_edgesByChildJob.ContainsKey(jobId))
 		{
 			var (triggersSatisfied, _, delay) = EvaluateIncomingTriggers(job.JobHandle);
+
 			if (!triggersSatisfied)
 			{
-				TransitionToTerminal(job.JobHandle, JobState.Skipped, error: null, now);
+				TransitionToTerminal(ref job, JobState.Skipped, error: null, now);
 				return;
 			}
 
 			dueAt = dueAt > now + delay ? dueAt : now + delay;
 		}
 
-		_jobs[job.JobHandle] = job with
+		UpdateJob(ref job, job with
 		{
 			State = dueAt <= now ? JobState.Pending : JobState.Scheduled,
 			DueAt = dueAt,
-		};
+		});
 	}
 
+	/// <remarks>
+	/// 	The caller does not need to hold the <see cref="_gate"/> lock.
+	/// </remarks>
 	[LoggerMessage(
 		EventId = LibraryEventIds.InMemoryUpdatePayloadAsyncCalled,
 		EventName = "Immediate.Jobs.Shared.UpdatePayloadAsyncCalled",
@@ -126,6 +149,9 @@ public sealed partial class InMemoryJobStorage
 	)]
 	private partial void UpdatePayloadAsyncCalled(JobHandle jobHandle);
 
+	/// <remarks>
+	/// 	The caller does not need to hold the <see cref="_gate"/> lock.
+	/// </remarks>
 	[LoggerMessage(
 		EventId = LibraryEventIds.InMemoryTryTriggerAsyncCalled,
 		EventName = "Immediate.Jobs.Shared.TryTriggerAsyncCalled",
@@ -134,6 +160,9 @@ public sealed partial class InMemoryJobStorage
 	)]
 	private partial void TryTriggerAsyncCalled(JobHandle jobHandle);
 
+	/// <remarks>
+	/// 	The caller does not need to hold the <see cref="_gate"/> lock.
+	/// </remarks>
 	[LoggerMessage(
 		EventId = LibraryEventIds.InMemoryTryTriggerBatchAsyncCalled,
 		EventName = "Immediate.Jobs.Shared.TryTriggerBatchAsyncCalled",

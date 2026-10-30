@@ -44,29 +44,4 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 	{
 		public string? QueueName { get; init; }
 	}
-
-	private static IQueryable<RecurringQueryRow> RecurringWithDefinitions(TContext context) =>
-		from item in context.Set<ImmediateRecurringJobEntity>()
-		join definition in context.Set<ImmediateJobDefinitionMetadataEntity>() on item.JobName equals definition.Name into definitions
-		from definition in definitions.DefaultIfEmpty()
-		select new RecurringQueryRow
-		{
-			CancellationReason = item.CancellationReason,
-			Name = item.Name,
-			JobName = item.JobName,
-			Cron = item.Cron,
-			TimeZone = item.TimeZone,
-			IsCodeDefined = item.IsCodeDefined,
-			IsPaused = item.IsPaused,
-			NextRunAt = item.NextRunAt,
-			LastRunAt = item.LastRunAt,
-			ConcurrencyStamp = item.ConcurrencyStamp,
-			QueueName = definition == null ? null : definition.QueueName,
-		};
-
-	[NotMapped]
-	private sealed class RecurringQueryRow : ImmediateRecurringJobEntity
-	{
-		public string? QueueName { get; init; }
-	}
 }

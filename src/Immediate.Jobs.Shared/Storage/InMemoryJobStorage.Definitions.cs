@@ -1,39 +1,20 @@
-using Immediate.Jobs.Shared.Apis;
+using System.Runtime.InteropServices;
 using Microsoft.Extensions.Logging;
 
 namespace Immediate.Jobs.Shared.Storage;
 
 public sealed partial class InMemoryJobStorage
 {
-	internal void ApplyAcquiredJobs(IReadOnlyList<JobRecord> acquired)
-	{
-		lock (_gate)
-		{
-			foreach (var job in acquired)
-			{
-				if (!_jobs.TryGetValue(job.JobHandle, out var previous) || job.Attempt != previous.Attempt + 1)
-					throw new ImmediateJobException("The single-server primary has drifted from durable storage. Use only one scheduler process.");
-				MaterializeSyntheticExecution(previous);
-				if (previous.State == JobState.Active)
-					InterruptExecution(previous);
-				_jobs[job.JobHandle] = job with { QueueName = null };
-				CreateExecution(job, timeProvider.GetUtcNow());
-				MarkBatchStarted(job.BatchHandle, timeProvider.GetUtcNow());
-			}
-		}
-	}
-
-	private readonly Dictionary<string, DefinitionAcquisition> _acquisitionDefinitions = [with(StringComparer.Ordinal)];
-
 	/// <inheritdoc />
 	public async ValueTask PauseJobAsync(string jobName, CancellationToken cancellationToken = default)
 	{
 		InMemoryPauseJobAsyncCalled(jobName);
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
+
 		lock (_gate)
 		{
-			jobName = GetStoredDefinition(jobName).Name;
+			jobName = ValidateExistingElement(_jobDefinitions, jobName).Name;
 			var definition = GetAcquisitionDefinition(jobName);
 			definition.State = definition.State with { IsPaused = true, AcquisitionStatus = JobAcquisitionStatus.Paused, NextEligibleAt = null };
 		}
@@ -45,9 +26,10 @@ public sealed partial class InMemoryJobStorage
 		InMemoryResumeJobAsyncCalled(jobName);
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
+
 		lock (_gate)
 		{
-			var definition = GetStoredDefinition(jobName);
+			var definition = ValidateExistingElement(_jobDefinitions, jobName);
 			var acquisition = GetAcquisitionDefinition(definition.Name);
 			acquisition.State = acquisition.State with { IsPaused = false };
 			EvaluateAcquisition(definition.Name, definition.AcquisitionLimits, timeProvider.GetUtcNow());
@@ -60,25 +42,29 @@ public sealed partial class InMemoryJobStorage
 		InMemoryGetJobAcquisitionStateAsyncCalled(jobName);
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
+
 		lock (_gate)
 		{
-			var definition = GetStoredDefinition(jobName);
+			var definition = ValidateExistingElement(_jobDefinitions, jobName);
 			return EvaluateAcquisition(definition.Name, definition.AcquisitionLimits, timeProvider.GetUtcNow(), includeActiveCount: true);
 		}
 	}
 
-	private JobDefinitionRecord GetStoredDefinition(string jobName) =>
-		_jobDefinitions.TryGetValue(jobName, out var definition)
-			? definition
-			: throw new KeyNotFoundException($"Job definition '{jobName}' was not found.");
-
+	/// <remarks>
+	/// 	The caller must hold the <see cref="_gate"/> lock throughout this call and any use of the returned mutable state.
+	/// </remarks>
 	private DefinitionAcquisition GetAcquisitionDefinition(string jobName)
 	{
-		if (!_acquisitionDefinitions.TryGetValue(jobName, out var definition))
-			_acquisitionDefinitions.Add(jobName, definition = new() { State = new() { JobName = jobName } });
-		return definition;
+		return CollectionsMarshal.GetValueRefOrAddDefault(
+			_acquisitionDefinitions,
+			jobName,
+			out _
+		) ??= new() { State = new() { JobName = jobName } };
 	}
 
+	/// <remarks>
+	/// 	The caller must hold the <see cref="_gate"/> lock.
+	/// </remarks>
 	private JobAcquisitionState EvaluateAcquisition(string jobName, JobAcquisitionLimits limits, DateTimeOffset now, bool includeActiveCount = false)
 	{
 		var definition = GetAcquisitionDefinition(jobName);
@@ -89,20 +75,20 @@ public sealed partial class InMemoryJobStorage
 			jobName, definition.State.IsPaused, limits, now, acquisitions,
 			definition.FixedWindowStart, definition.FixedWindowCount,
 			(includeActiveCount || limits.MaxConcurrency > 0)
-				? _jobs.Values.Count(job => string.Equals(job.JobName, jobName, StringComparison.Ordinal) &&
-					job.State == JobState.Active && job.LeaseExpiresAt > now)
+				? _activeJobCounts.GetValueOrDefault(jobName)
 				: 0
 		);
 		return definition.State;
 	}
 
-	private bool CanAcquire(string jobName, DateTimeOffset now) =>
-		EvaluateAcquisition(jobName, GetStoredDefinition(jobName).AcquisitionLimits, now).AcquisitionStatus == JobAcquisitionStatus.Ready;
-
+	/// <remarks>
+	/// 	The caller must hold the <see cref="_gate"/> lock.
+	/// </remarks>
 	private void RecordAcquisition(string jobName, DateTimeOffset now)
 	{
-		var limits = GetStoredDefinition(jobName).AcquisitionLimits;
+		var limits = ValidateExistingElement(_jobDefinitions, jobName).AcquisitionLimits;
 		var definition = GetAcquisitionDefinition(jobName);
+
 		if (limits.SlidingWindowPeriod is { } period)
 		{
 			definition.Acquisitions.RemoveAll(acquired => acquired <= now - period);
@@ -129,8 +115,31 @@ public sealed partial class InMemoryJobStorage
 		public List<DateTimeOffset> Acquisitions { get; } = [];
 		public DateTimeOffset? FixedWindowStart { get; set; }
 		public int FixedWindowCount { get; set; }
+		public DateTimeOffset? DurableRateLimitUntil { get; set; }
 	}
 
+	/// <summary>
+	/// 	Restores pauses and known durable rate-limit boundaries without inventing sliding-window timestamps.
+	/// </summary>
+	internal void ApplyDefinitionAcquisitionStates(IReadOnlyList<JobAcquisitionState> states)
+	{
+		lock (_gate)
+		{
+			foreach (var state in states)
+			{
+				if (!_jobDefinitions.TryGetValue(state.JobName, out var definition))
+					continue;
+
+				var usage = GetAcquisitionDefinition(definition.Name);
+				usage.State = usage.State with { IsPaused = state.IsPaused };
+				usage.DurableRateLimitUntil = state.AcquisitionStatus == JobAcquisitionStatus.RateLimited ? state.NextEligibleAt : null;
+			}
+		}
+	}
+
+	/// <remarks>
+	/// 	The caller does not need to hold the <see cref="_gate"/> lock.
+	/// </remarks>
 	[LoggerMessage(
 		EventId = LibraryEventIds.InMemoryPauseJobAsyncCalled,
 		EventName = "Immediate.Jobs.Shared.InMemoryPauseJobAsyncCalled",
@@ -139,6 +148,9 @@ public sealed partial class InMemoryJobStorage
 	)]
 	private partial void InMemoryPauseJobAsyncCalled(string jobName);
 
+	/// <remarks>
+	/// 	The caller does not need to hold the <see cref="_gate"/> lock.
+	/// </remarks>
 	[LoggerMessage(
 		EventId = LibraryEventIds.InMemoryResumeJobAsyncCalled,
 		EventName = "Immediate.Jobs.Shared.InMemoryResumeJobAsyncCalled",
@@ -147,6 +159,9 @@ public sealed partial class InMemoryJobStorage
 	)]
 	private partial void InMemoryResumeJobAsyncCalled(string jobName);
 
+	/// <remarks>
+	/// 	The caller does not need to hold the <see cref="_gate"/> lock.
+	/// </remarks>
 	[LoggerMessage(
 		EventId = LibraryEventIds.InMemoryGetJobAcquisitionStateAsyncCalled,
 		EventName = "Immediate.Jobs.Shared.InMemoryGetJobAcquisitionStateAsyncCalled",

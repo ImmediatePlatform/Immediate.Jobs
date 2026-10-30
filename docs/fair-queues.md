@@ -8,16 +8,15 @@ and lease rules.
 
 - **`JobRecord.GroupId`.** Set through the `groupId` scheduling overloads. `NormalizeGroupId` turns
   null or whitespace into `null` and rejects ids longer than 128 characters. Group ids are persisted
-  even when fair queues are disabled; the scheduler then logs a one-time warning
-  (`GroupedJobsAcquiredWithoutFairQueues`) when it acquires grouped jobs.
-- **`UseFairQueues(...)`** binds `FairQueueOptions` (`ConcurrencyShareThreshold` 0.10,
-  `MinInflightForNoisy` 30, `GroupRoundRobin` true). Each `JobAcquisitionRequest` carries an immutable
-  `FairQueuePolicy`, or `null` when fairness is off. Providers must honour a non-null policy.
+  independently of whether fair selection is enabled, so changing policy does not require rewriting
+  invocations. The scheduler logs when it acquires grouped jobs with fairness disabled.
+- **`UseFairQueues(...)`** configures noisy-group thresholds and round-robin selection through
+  `FairQueueOptions`. Each `JobAcquisitionRequest` carries an immutable `FairQueuePolicy`, or `null`
+  when fairness is off. Providers must honour a non-null policy.
 
 ## Selection
 
-Per queue and per acquisition slot (in-memory's `AcquireQueueFairly` is the reference
-implementation):
+Per queue and per acquisition slot:
 
 1. If no grouped job is eligible (due, and its job name has capacity), use the ordinary path:
    `DueAt`, `CreatedAt`, `JobHandle`.
@@ -28,7 +27,7 @@ implementation):
    - with `GroupRoundRobin`, lower last-served sequence first (no cursor, or ungrouped, counts as 0);
    - then `DueAt`, `CreatedAt`, `JobHandle`.
 
-   A group is **noisy** when its non-expired active count is at least `MinInflightForNoisy` *and* its
+   A group is **noisy** when its owned active count is at least `MinInflightForNoisy` *and* its
    share of the queue's active jobs exceeds `ConcurrencyShareThreshold`. Ungrouped jobs are never
    noisy.
 4. Claim the winner, decrement capacities, and with round-robin give its group the next sequence
@@ -43,25 +42,18 @@ failure, cancel).
 | Provider | Implementation |
 | --- | --- |
 | In-memory | Selection, claim, and cursor update under the storage lock. |
-| Single-server | The in-memory primary decides; the durable store only mirrors the claimed ids, so its cursor table stays empty. |
+| Single-server | The durable provider selects and commits claims, including acquisition controls and cursor state. The in-memory primary mirrors committed ownership. |
 | EF Core / LinqToDB (distributed) | Claim one slot at a time so each slot sees the previous cursor update. Cursors are rows in `immediate_fair_queue_groups`, updated in the claim transaction; clean-up runs after commit. Concurrent nodes may tie on a sequence; job ownership is still protected by the job's concurrency stamp. |
 | Redis | Lua scripts maintain job-name indexes and queue-level cursors (below). |
 
 ### Redis state
 
-| Key (under the storage prefix) | Type | Contents |
-| --- | --- | --- |
-| `fair:due:{job name length}:{job name}:{group}` | sorted set | Due members of one group, same score and member as `due:{job name}`. |
-| `fair:ungrouped:{job name}` | sorted set | Due members without a group. |
-| `fair:groups:{job name}` | set | Groups that currently have due members. |
-| `fair:active:{job name}` | hash | Active job count per group (`''` for ungrouped). |
-| `fair:cursor:{queue}` | hash | Last-served sequence per group. |
+Maintain grouped and ungrouped due indexes per definition and round-robin cursors per queue.
+Every script affecting due membership must update the fair indexes in the same atomic operation.
+Claims, completion, failure, cancellation, and lease reclaim also keep active-group accounting
+consistent. Durable selection counts only unexpired leases and cleans stale members against
+invocation state. In-memory selection counts all active jobs because process ownership does not expire.
 
-- **Shared helpers.** `RedisScripts.FairQueueFunctions` is a Lua prelude prepended to every script
-  that touches this state.
-- **Index maintenance.** Every script that adds a job to `due:{job name}` (enqueue, lease reclaim,
-  fail-with-retry, `RetryAsync`, recurring materialization, trigger) also indexes it. Claims,
-  cancellation, and `RetryAsync` remove the old member, and stale members are cleaned lazily during
-  selection.
-- **Active counts.** Claims increment them; complete, fail, cancel, and lease reclaim decrement them.
-  Acquisition uses `active:job:{job name}` lease-expiry indexes to count only unexpired leases.
+Share fair-selection and index-maintenance rules across scripts so ordinary and recurring enqueue,
+trigger, retry, and recovery paths obey the same policy. Key definitions and Lua helpers remain in
+the Redis provider; the rules above define the behavior every provider must preserve.

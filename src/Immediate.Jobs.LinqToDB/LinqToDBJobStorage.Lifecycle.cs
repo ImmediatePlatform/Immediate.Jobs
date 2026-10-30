@@ -125,55 +125,6 @@ internal sealed partial class LinqToDBJobStorage<T>
 	}
 
 	/// <inheritdoc />
-	public async ValueTask DeleteAsync(JobHandle jobHandle, CancellationToken cancellationToken = default)
-	{
-		DeleteAsyncCalled(jobHandle);
-		cancellationToken.ThrowIfCancellationRequested();
-		await TaskScheduler.Yield();
-
-		await using var scope = contextScope.GetScope(out var connection);
-
-		_ = await connection.BeginTransactionAsync(cancellationToken);
-		try
-		{
-			var job = await Jobs(connection).SingleOrDefaultAsync(item => item.Id == jobHandle.Value &&
-				(item.State == JobState.Succeeded || item.State == JobState.Failed || item.State == JobState.Cancelled || item.State == JobState.Skipped), cancellationToken);
-			if (job is null)
-			{
-				if (await Jobs(connection).AnyAsync(item => item.Id == jobHandle.Value, cancellationToken))
-					throw new ImmediateJobException("Only terminal jobs can be deleted.");
-				throw new KeyNotFoundException($"Job '{jobHandle}' was not found.");
-			}
-
-			if (job.BatchHandle is not null)
-				throw new ImmediateJobException("Batch members are deleted with their batch so the workflow remains coherent.");
-			_ = await Continuations(connection)
-				.Where(edge => edge.ChildJobHandle == jobHandle.Value ||
-					(edge.ParentKind == ContinuationParentKind.Job && edge.ParentId == jobHandle.Value))
-				.DeleteAsync(cancellationToken);
-			_ = await Executions(connection).Where(execution => execution.JobHandle == jobHandle.Value)
-				.DeleteAsync(cancellationToken);
-			var removed = await Jobs(connection)
-				.Where(item => item.Id == jobHandle.Value &&
-					(item.State == JobState.Succeeded || item.State == JobState.Failed || item.State == JobState.Cancelled || item.State == JobState.Skipped))
-				.DeleteAsync(cancellationToken);
-			if (removed == 0)
-			{
-				if (await Jobs(connection).AnyAsync(item => item.Id == jobHandle.Value, cancellationToken))
-					throw new ImmediateJobException("Only terminal jobs can be deleted.");
-				throw new KeyNotFoundException($"Job '{jobHandle}' was not found.");
-			}
-
-			await connection.CommitTransactionAsync(cancellationToken);
-		}
-		catch
-		{
-			await connection.RollbackTransactionAsync(cancellationToken);
-			throw;
-		}
-	}
-
-	/// <inheritdoc />
 	public async ValueTask PurgeJobsAsync(
 		TimeSpan succeededRetention,
 		TimeSpan failedRetention,
@@ -490,14 +441,6 @@ internal sealed partial class LinqToDBJobStorage<T>
 		Message = "RetryAsync called (JobHandle={JobHandle})"
 	)]
 	private partial void RetryAsyncCalled(JobHandle jobHandle);
-
-	[LoggerMessage(
-		EventId = LibraryEventIds.DeleteAsyncCalled,
-		EventName = "Immediate.Jobs.LinqToDB.DeleteAsyncCalled",
-		Level = LogLevel.Debug,
-		Message = "DeleteAsync called (JobHandle={JobHandle})"
-	)]
-	private partial void DeleteAsyncCalled(JobHandle jobHandle);
 
 	[LoggerMessage(
 		EventId = LibraryEventIds.PurgeJobsAsyncCalled,

@@ -10,7 +10,6 @@ public sealed record JobDefinitionRegistration
 	/// <summary>
 	/// 	The effective server tags. Omitted or empty lists use the default tag.
 	/// </summary>
-	[System.Diagnostics.CodeAnalysis.AllowNull]
 	public IReadOnlyList<string> ServerTags { get; init => field = JobTags.Normalize(value); } = JobTags.Normalize(tags: null);
 
 	/// <summary>
@@ -19,7 +18,7 @@ public sealed record JobDefinitionRegistration
 	public required IReadOnlyList<JobDefinitionRecord> Definitions { get; init; }
 
 	/// <summary>
-	/// 	The complete list of code-defined recurring schedules for these definitions.
+	/// 	The next occurrence of each code-defined recurring job, keyed by case-insensitive job name.
 	/// </summary>
-	public IReadOnlyList<RecurringJobSchedule> RecurringSchedules { get; init; } = [];
+	public required IReadOnlyDictionary<string, DateTimeOffset> RecurringSchedules { get; init; }
 }

@@ -67,12 +67,12 @@ public sealed record JobRecord
 	public int Attempt { get; init; }
 
 	/// <summary>
-	/// 	The owning worker identifier, or <see langword="null"/> when the job is not leased.
+	/// 	The owning worker identifier, or <see langword="null"/> when the job is not owned.
 	/// </summary>
 	public string? WorkerId { get; init; }
 
 	/// <summary>
-	/// 	The UTC lease-expiry time, or <see langword="null"/> when the job is not leased.
+	/// 	The UTC lease-expiry time, or <see langword="null"/> when ownership has no deadline or the job is not owned.
 	/// </summary>
 	public DateTimeOffset? LeaseExpiresAt { get; init; }
 

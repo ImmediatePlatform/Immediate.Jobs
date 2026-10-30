@@ -32,7 +32,7 @@ internal static class MonitoringStorageConformance
 			new() { Name = "Other", SlidingWindowMax = 2, SlidingWindowPeriod = TimeSpan.FromMinutes(1) },
 			new() { Name = "Idle" },
 		];
-		await storage.MergeJobDefinitionsListAsync(new() { Definitions = definitions }, token);
+		await storage.MergeJobDefinitionsListAsync(new() { RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase), Definitions = definitions }, token);
 		foreach (var definition in definitions.Take(2))
 			await storage.EnqueueAsync(new()
 			{
@@ -65,7 +65,7 @@ internal static class MonitoringStorageConformance
 			}
 		}
 
-		await storage.MergeJobDefinitionsListAsync(new() { Definitions = [definitions[2]] }, token);
+		await storage.MergeJobDefinitionsListAsync(new() { RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase), Definitions = [definitions[2]] }, token);
 		ConformanceAssert.Equal("Idle", (await storage.GetMonitoringSnapshotAsync(token)).DefinitionStatuses.Single().JobName,
 			BulkCase, "removed catalogue definitions do not leak retained acquisition history into monitoring");
 	}
@@ -75,13 +75,13 @@ internal static class MonitoringStorageConformance
 		await storage.MergeJobDefinitionsListAsync(new()
 		{
 			ServerTags = ["remote"],
+			RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase),
 			Definitions = [new() { Name = "Remote", Tags = ["remote"], QueueName = "priority" }],
 		}, token);
 		var schedule = new RecurringJobSchedule
 		{
 			Name = "dynamic",
 			JobName = "Remote",
-			QueueName = "priority",
 			Cron = "* * * * *",
 			TimeZone = "UTC",
 			IsCodeDefined = false,

@@ -84,8 +84,8 @@ public sealed class StorageCapabilityTests
 
 		public ValueTask DisposeAsync() => _inner.DisposeAsync();
 
-		public ValueTask InitializeAsync(CancellationToken cancellationToken = default) =>
-			_inner.InitializeAsync(cancellationToken);
+		public ValueTask InitializeAsync(bool interruptActiveLeases, CancellationToken cancellationToken = default) =>
+			_inner.InitializeAsync(interruptActiveLeases, cancellationToken);
 
 		public ValueTask EnqueueAsync(JobSubmission job, CancellationToken cancellationToken = default)
 		{
@@ -180,9 +180,6 @@ public sealed class StorageCapabilityTests
 
 		public ValueTask RetryAsync(JobHandle jobHandle, CancellationToken cancellationToken = default) =>
 			_inner.RetryAsync(jobHandle, cancellationToken);
-
-		public ValueTask DeleteAsync(JobHandle jobHandle, CancellationToken cancellationToken = default) =>
-			_inner.DeleteAsync(jobHandle, cancellationToken);
 
 		public ValueTask PurgeJobsAsync(
 			TimeSpan succeededRetention,

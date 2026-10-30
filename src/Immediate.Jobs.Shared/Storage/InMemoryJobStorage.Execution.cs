@@ -1,4 +1,7 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using Immediate.Jobs.Shared.Apis;
 using Microsoft.Extensions.Logging;
 
@@ -23,27 +26,38 @@ public sealed partial class InMemoryJobStorage
 
 		lock (_gate)
 		{
-			var job = GetOwnedActive(jobHandle, executionNumber, workerId);
-			MaterializeSyntheticExecution(job);
-			_jobs[jobHandle] = job with
+			ref var job = ref GetOwnedActive(jobHandle, executionNumber, workerId);
+			ref var execution = ref MaterializeSyntheticExecution(job);
+			if (Unsafe.IsNullRef(ref execution))
+			{
+				throw new ImmediateJobException(string.Create(
+					CultureInfo.InvariantCulture,
+					$"Execution {executionNumber} for job '{jobHandle}' was not found."
+				));
+			}
+
+			job = job with
 			{
 				ExecutionTraceId = traceId,
 				ExecutionSpanId = spanId,
 				ExecutionStartedAt = startedAt,
 			};
-			UpdateExecution(jobHandle, executionNumber, execution => execution with
+			execution = execution with
 			{
 				ExecutionTraceId = traceId,
 				ExecutionSpanId = spanId,
 				ExecutionStartedAt = startedAt,
-			});
+			};
 		}
 	}
 
+	/// <remarks>
+	/// 	The caller must hold the <see cref="_gate"/> lock.
+	/// </remarks>
 	private void CreateExecution(JobRecord job, DateTimeOffset acquiredAt)
 	{
-		if (!_executions.TryGetValue(job.JobHandle, out var executions))
-			_executions.Add(job.JobHandle, executions = []);
+		ref var executions = ref CollectionsMarshal.GetValueRefOrAddDefault(_executions, job.JobHandle, out _);
+		executions ??= [];
 		if (!executions.TryAdd(job.Attempt, new()
 		{
 			JobHandle = job.JobHandle,
@@ -60,11 +74,9 @@ public sealed partial class InMemoryJobStorage
 		}
 	}
 
-	private void InterruptExecution(JobRecord job)
-	{
-		CompleteExecution(job, JobExecutionState.Interrupted, job.LeaseExpiresAt ?? timeProvider.GetUtcNow());
-	}
-
+	/// <remarks>
+	/// 	The caller must hold the <see cref="_gate"/> lock.
+	/// </remarks>
 	private void CompleteExecution(
 		JobRecord job,
 		JobExecutionState state,
@@ -75,21 +87,25 @@ public sealed partial class InMemoryJobStorage
 		if (job.Attempt <= 0)
 			return;
 
-		MaterializeSyntheticExecution(job);
-		UpdateExecution(job.JobHandle, job.Attempt, execution => execution with
+		ref var execution = ref MaterializeSyntheticExecution(job);
+		execution = execution with
 		{
 			State = state,
 			CompletedAt = completedAt,
 			Error = error,
-		});
+		};
 	}
 
-	private JobRecord GetOwnedActive(JobHandle jobHandle, int executionNumber, string workerId)
+	/// <remarks>
+	/// 	The caller must hold the <see cref="_gate"/> lock.
+	/// </remarks>
+	[SuppressMessage("Style", "IDE0007:Use implicit type", Justification = "Interaction between IDE0007 and CS8619")]
+	private ref JobRecord GetOwnedActive(JobHandle jobHandle, int executionNumber, string workerId)
 	{
-		if (!_jobs.TryGetValue(jobHandle, out var job) || job.State != JobState.Active)
-		{
+		ref JobRecord job = ref ValidateExistingElement(_jobs, jobHandle);
+
+		if (job.State != JobState.Active)
 			throw new ImmediateJobException($"Worker '{workerId}' does not own active job '{jobHandle}'.");
-		}
 
 		if (job.Attempt != executionNumber)
 		{
@@ -102,36 +118,30 @@ public sealed partial class InMemoryJobStorage
 		if (!string.Equals(job.WorkerId, workerId, StringComparison.Ordinal))
 			throw new ImmediateJobException($"Worker '{workerId}' does not own active job '{jobHandle}'.");
 
-		return job;
+		return ref job;
 	}
 
-	private void MaterializeSyntheticExecution(JobRecord job)
+	/// <remarks>
+	/// 	The caller must hold the <see cref="_gate"/> lock.
+	/// 	Returns a <see langword="null"/> reference when the job has never been acquired.
+	/// </remarks>
+	[SuppressMessage("Style", "IDE0007:Use implicit type", Justification = "Interaction between IDE0007 and CS8619")]
+	private ref JobExecutionRecord MaterializeSyntheticExecution(JobRecord job)
 	{
-		var synthetic = JobExecutionRecords.CreateSynthetic(job);
-		if (synthetic is null)
-			return;
-		if (!_executions.TryGetValue(job.JobHandle, out var executions))
-			_executions.Add(job.JobHandle, executions = []);
-		_ = executions.TryAdd(synthetic.Attempt, synthetic);
+		if (job.Attempt <= 0)
+			return ref Unsafe.NullRef<JobExecutionRecord>();
+
+		ref var executions = ref CollectionsMarshal.GetValueRefOrAddDefault(_executions, job.JobHandle, out _);
+		executions ??= [];
+		ref JobExecutionRecord execution = ref CollectionsMarshal.GetValueRefOrAddDefault(executions, job.Attempt, out var exists)!;
+		if (!exists)
+			execution = JobExecutionRecords.CreateSynthetic(job)!;
+		return ref execution;
 	}
 
-	private void UpdateExecution(
-		JobHandle jobHandle,
-		int executionNumber,
-		Func<JobExecutionRecord, JobExecutionRecord> update
-	)
-	{
-		if (!_executions.TryGetValue(jobHandle, out var executions) || !executions.TryGetValue(executionNumber, out var execution))
-		{
-			throw new ImmediateJobException(string.Create(
-				CultureInfo.InvariantCulture,
-				$"Execution {executionNumber} for job '{jobHandle}' was not found."
-			));
-		}
-
-		executions[executionNumber] = update(execution);
-	}
-
+	/// <remarks>
+	/// 	The caller does not need to hold the <see cref="_gate"/> lock.
+	/// </remarks>
 	[LoggerMessage(
 		EventId = LibraryEventIds.InMemorySetExecutionTelemetryAsyncCalled,
 		EventName = "Immediate.Jobs.Shared.SetExecutionTelemetryAsyncCalled",

@@ -23,7 +23,7 @@ internal sealed partial class RedisJobStorage
 			RedisScripts.UpsertRecurring,
 			[RecurringKey(schedule.Name), RecurringNamesKey, RecurringDueKey, DefinitionMetadataKey],
 			[
-				JsonSerializer.Serialize(schedule with { QueueName = null }, RedisJsonSerializerContext.Default.RecurringJobSchedule),
+				JsonSerializer.Serialize(schedule, RedisJsonSerializerContext.Default.RecurringJobSchedule),
 				schedule.IsCodeDefined ? 1 : 0,
 				schedule.IsPaused ? 1 : 0,
 				Timestamp(schedule.NextRunAt),
@@ -40,8 +40,10 @@ internal sealed partial class RedisJobStorage
 		);
 		if (result == -2)
 			throw new KeyNotFoundException($"Job definition '{schedule.JobName}' was not found.");
+		if (result == -3)
+			throw new ImmediateJobException("Code-defined recurring schedules must be created by definition reconciliation.");
 		if (result < 0)
-			throw new ImmediateJobException("Code-defined recurring schedules cannot be replaced by dynamic schedules.");
+			throw new ImmediateJobException("Recurring schedule ownership cannot be changed by upsert.");
 	}
 
 	/// <inheritdoc />
@@ -218,9 +220,7 @@ internal sealed partial class RedisJobStorage
 		var tasks = names.Select(name => ReadRecurringDataAsync(name, cancellationToken).AsTask()).ToList();
 		var schedules = await Task.WhenAll(tasks).WaitAsync(cancellationToken);
 		var records = schedules.OfType<RecurringJobSchedule>().ToList();
-		var queues = await ReadDefinitionQueuesAsync(records.Select(static schedule => schedule.JobName), cancellationToken);
 		return [.. records
-			.Select(schedule => schedule with { QueueName = queues[schedule.JobName] })
 			.OrderBy(schedule => schedule.NextRunAt)
 			.ThenBy(schedule => schedule.Name, StringComparer.OrdinalIgnoreCase)];
 	}

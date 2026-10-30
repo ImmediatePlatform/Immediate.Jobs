@@ -27,7 +27,7 @@ public sealed class PersistedQueueSchedulerTests
 		Assert.Equal(scheduler.JobName, (await harness.GetJobAsync(second, token)).JobName);
 		Assert.Equal("updated-priority", (await harness.GetJobAsync(first, token)).QueueName);
 
-		await harness.Storage.MergeJobDefinitionsListAsync(new() { Definitions = [] }, token);
+		await harness.Storage.MergeJobDefinitionsListAsync(new() { RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase), Definitions = [] }, token);
 		await Assert.ThrowsAsync<KeyNotFoundException>(() => scheduler.EnqueueAsync(new("unknown"), token).AsTask());
 		Assert.Equal(3, (await harness.Storage.QueryJobsAsync(new(), token)).Count);
 		Assert.Null((await harness.GetJobAsync(first, token)).QueueName);
@@ -58,7 +58,7 @@ public sealed class PersistedQueueSchedulerTests
 		{
 			Definitions = (await harness.Storage.GetJobDefinitionsAsync(token)).Where(definition => !string.Equals(definition.Name, other.JobName, StringComparison.OrdinalIgnoreCase)).ToList(),
 			RecurringSchedules = (await harness.Storage.GetMonitoringDefinitionsAsync(token)).Recurring.Where(static definition => definition.IsCodeDefined)
-				.Select(definition => Immediate.Jobs.Shared.Apis.RecurringJobSchedule.FromDefinition(definition, snapshot.Recurring.Single(status => string.Equals(status.Name, definition.Name, StringComparison.Ordinal)))).ToList(),
+				.ToDictionary(static definition => definition.JobName, definition => snapshot.Recurring.Single(status => string.Equals(status.Name, definition.Name, StringComparison.OrdinalIgnoreCase)).NextRunAt, StringComparer.OrdinalIgnoreCase),
 		}, token);
 		await Assert.ThrowsAsync<KeyNotFoundException>(() => rejected.CommitAsync(token).AsTask());
 		Assert.Null(await harness.Storage.GetBatchStatusAsync(rejected.BatchHandle, token));
@@ -66,7 +66,7 @@ public sealed class PersistedQueueSchedulerTests
 	}
 
 	[Fact]
-	public async Task DynamicRecurringScheduleUsesPersistedQueue()
+	public async Task DynamicRecurringScheduleUsesCurrentDefinitionQueueWhenMaterialized()
 	{
 		var token = TestContext.Current.CancellationToken;
 		await using var harness = CreateHarness();
@@ -75,10 +75,17 @@ public sealed class PersistedQueueSchedulerTests
 		var scheduler = scope.ServiceProvider.GetRequiredService<TimeoutJob.Scheduler>();
 		await harness.Storage.MergeJobDefinitionsListAsync(new()
 		{
+			RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase),
 			Definitions = [(await harness.Storage.GetJobDefinitionsAsync(token)).Single(definition => string.Equals(definition.Name, scheduler.JobName, StringComparison.OrdinalIgnoreCase)) with { QueueName = "recurring-queue" }],
 		}, token);
 		await scheduler.AddOrUpdateRecurringAsync("dynamic-queue", "* * * * *", "UTC", token);
-		Assert.Equal("recurring-queue", (await harness.Storage.GetMonitoringDefinitionsAsync(token)).Recurring.Single(static schedule => string.Equals(schedule.Name, "dynamic-queue", StringComparison.Ordinal)).QueueName);
+		Assert.Equal(scheduler.JobName, (await harness.Storage.GetMonitoringDefinitionsAsync(token)).Recurring.Single(static schedule => string.Equals(schedule.Name, "dynamic-queue", StringComparison.Ordinal)).JobName);
+
+		await ChangeQueueAsync(harness, scheduler.JobName, "updated-recurring-queue", token);
+		await harness.AdvanceTimeAndDrainAsync(TimeSpan.FromMinutes(1), token);
+		var occurrence = Assert.Single(await harness.Storage.QueryJobsAsync(new() { JobName = scheduler.JobName }, token));
+		Assert.NotNull(occurrence.RecurringKey);
+		Assert.Equal("updated-recurring-queue", occurrence.QueueName);
 	}
 
 	private static JobTestHarness CreateHarness() => new(static services =>
@@ -98,7 +105,7 @@ public sealed class PersistedQueueSchedulerTests
 			Definitions = (await harness.Storage.GetJobDefinitionsAsync(token)).Select(definition => string.Equals(definition.Name, jobName, StringComparison.OrdinalIgnoreCase)
 				? definition with { Name = jobName, QueueName = queueName } : definition).ToList(),
 			RecurringSchedules = (await harness.Storage.GetMonitoringDefinitionsAsync(token)).Recurring.Where(static definition => definition.IsCodeDefined)
-				.Select(definition => Immediate.Jobs.Shared.Apis.RecurringJobSchedule.FromDefinition(definition, snapshot.Recurring.Single(status => string.Equals(status.Name, definition.Name, StringComparison.Ordinal)))).ToList(),
+				.ToDictionary(static definition => definition.JobName, definition => snapshot.Recurring.Single(status => string.Equals(status.Name, definition.Name, StringComparison.OrdinalIgnoreCase)).NextRunAt, StringComparer.OrdinalIgnoreCase),
 		}, token);
 	}
 }

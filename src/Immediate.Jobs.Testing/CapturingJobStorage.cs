@@ -142,18 +142,15 @@ public class CapturingJobStorage(TimeProvider timeProvider) :
 	}
 
 	/// <inheritdoc />
-	public virtual async ValueTask InitializeAsync(CancellationToken cancellationToken = default) => await _inner.InitializeAsync(cancellationToken);
+	public virtual async ValueTask InitializeAsync(bool interruptActiveLeases, CancellationToken cancellationToken = default) => await _inner.InitializeAsync(interruptActiveLeases, cancellationToken);
 
 	/// <inheritdoc />
 	public virtual async ValueTask MergeJobDefinitionsListAsync(JobDefinitionRegistration registration, CancellationToken cancellationToken = default)
 	{
-		ArgumentNullException.ThrowIfNull(registration);
 		await _inner.MergeJobDefinitionsListAsync(registration, cancellationToken);
 		lock (_gate)
 		{
-			foreach (var schedule in registration.RecurringSchedules.Where(schedule =>
-				registration.Definitions.Any(definition => string.Equals(definition.Name, schedule.JobName, StringComparison.OrdinalIgnoreCase)
-					&& JobTags.Intersect(definition.Tags, registration.ServerTags))))
+			foreach (var schedule in JobDefinitionReconciliation.Create(registration, [], []).Schedules)
 			{
 				_recurringSchedules[schedule.Name] = schedule;
 			}
@@ -372,21 +369,12 @@ public class CapturingJobStorage(TimeProvider timeProvider) :
 	public virtual async ValueTask RetryAsync(JobHandle jobHandle, CancellationToken cancellationToken = default) => await _inner.RetryAsync(jobHandle, cancellationToken);
 
 	/// <inheritdoc />
-	public virtual async ValueTask DeleteAsync(JobHandle jobHandle, CancellationToken cancellationToken = default) => await _inner.DeleteAsync(jobHandle, cancellationToken);
-
-	/// <inheritdoc />
 	public virtual async ValueTask PurgeJobsAsync(TimeSpan succeededRetention, TimeSpan failedRetention, CancellationToken cancellationToken = default) => await _inner.PurgeJobsAsync(succeededRetention, failedRetention, cancellationToken);
 
 	/// <inheritdoc />
 	public virtual async ValueTask PurgeBatchesAsync(TimeSpan batchSucceededRetention, TimeSpan batchFailedRetention, CancellationToken cancellationToken = default) => await _inner.PurgeBatchesAsync(batchSucceededRetention, batchFailedRetention, cancellationToken);
 
 	/// <inheritdoc />
-	/// <remarks>
-	/// 	Not supported: capturing storage cannot be used as a single-server durable store.
-	/// </remarks>
-	/// <exception cref="NotSupportedException">
-	/// 	Always thrown.
-	/// </exception>
 	public virtual async ValueTask<IReadOnlyList<JobRecord>> AcquireJobsAsync(IReadOnlyCollection<JobHandle> jobs, string workerId, TimeSpan lease, CancellationToken cancellationToken = default) => await _inner.AcquireJobsAsync(jobs, workerId, lease, cancellationToken);
 
 	/// <inheritdoc />

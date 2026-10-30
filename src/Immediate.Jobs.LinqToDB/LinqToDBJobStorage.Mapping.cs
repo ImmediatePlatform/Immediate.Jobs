@@ -131,11 +131,10 @@ internal sealed partial class LinqToDBJobStorage<T>
 			ConcurrencyStamp = Guid.NewGuid(),
 		};
 
-	private static RecurringJobSchedule ToRecord(ImmediateRecurringJobEntity schedule, string? queueName = null) =>
+	private static RecurringJobSchedule ToRecord(ImmediateRecurringJobEntity schedule) =>
 		new()
 		{
 			Name = schedule.Name,
-			QueueName = queueName,
 			JobName = schedule.JobName,
 			CancellationReason = schedule.CancellationReason,
 			Cron = schedule.Cron,
@@ -147,8 +146,6 @@ internal sealed partial class LinqToDBJobStorage<T>
 		};
 
 	private static JobRecord ToRecord(JobQueryRow job) => ToRecord(job, job.QueueName);
-
-	private static RecurringJobSchedule ToRecord(RecurringQueryRow schedule) => ToRecord(schedule, schedule.QueueName);
 
 	private static BatchStatus ToStatus(ImmediateJobBatchEntity batch) =>
 		new()

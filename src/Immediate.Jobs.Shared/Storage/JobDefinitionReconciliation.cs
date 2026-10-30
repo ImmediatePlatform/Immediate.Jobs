@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Diagnostics.CodeAnalysis;
 using Immediate.Jobs.Shared.Apis;
 
 namespace Immediate.Jobs.Shared.Storage;
@@ -35,7 +36,7 @@ public sealed record JobDefinitionReconciliation
 	public required IReadOnlyList<string> RemovedScheduleNames { get; init; }
 
 	/// <summary>
-	/// 	Validates a complete catalogue and computes changes against the provider's locked snapshot.
+	/// 	Computes changes against the provider's locked snapshot.
 	/// </summary>
 	/// <param name="registration">
 	/// 	The application's complete catalogue and normalized server tags.
@@ -49,27 +50,18 @@ public sealed record JobDefinitionReconciliation
 	/// <returns>
 	/// 	The scoped changes to commit atomically.
 	/// </returns>
+	/// <remarks>
+	/// 	The scheduler constructs a complete registration with one schedule for each code-defined recurring job.
+	/// </remarks>
+	[SuppressMessage("Design", "CA1062:Validate arguments of public methods", Justification = "Only called with scheduler-created registrations and provider snapshots.")]
 	public static JobDefinitionReconciliation Create(
 		JobDefinitionRegistration registration,
 		IReadOnlyList<JobDefinitionRecord> existingDefinitions,
 		IReadOnlyList<RecurringJobSchedule> existingSchedules
 	)
 	{
-		ArgumentNullException.ThrowIfNull(registration);
-		ArgumentNullException.ThrowIfNull(existingDefinitions);
-		ArgumentNullException.ThrowIfNull(existingSchedules);
-		ArgumentNullException.ThrowIfNull(registration.Definitions, nameof(registration));
-		ArgumentNullException.ThrowIfNull(registration.RecurringSchedules, nameof(registration));
-		var supplied = registration.Definitions.ToDictionary(static definition => definition.Name, StringComparer.OrdinalIgnoreCase);
-		foreach (var definition in supplied.Values)
-		{
-			ArgumentException.ThrowIfNullOrWhiteSpace(definition.Name, nameof(registration));
-			if (char.IsWhiteSpace(definition.Name[0]) || char.IsWhiteSpace(definition.Name[^1]))
-				throw new ArgumentException("Job definition names must not have leading or trailing whitespace.", nameof(registration));
-		}
-
 		var canonicalNames = existingDefinitions.ToDictionary(static definition => definition.Name, static definition => definition.Name, StringComparer.OrdinalIgnoreCase);
-		var desired = supplied.Values
+		var desired = registration.Definitions
 			.Where(definition => JobTags.Intersect(definition.Tags, registration.ServerTags))
 			.Select(definition => canonicalNames.TryGetValue(definition.Name, out var name) ? definition with { Name = name } : definition)
 			.ToDictionary(static definition => definition.Name, StringComparer.OrdinalIgnoreCase);
@@ -78,40 +70,32 @@ public sealed record JobDefinitionReconciliation
 			.Select(static definition => definition.Name)
 			.ToHashSet(StringComparer.OrdinalIgnoreCase);
 		var removedDefinitions = managedNames.Where(name => !desired.ContainsKey(name)).ToList();
-		// Schedules persisted before the definition catalogue existed belonged to the default scope.
-		if (registration.ServerTags.Contains(JobTags.Default, StringComparer.OrdinalIgnoreCase))
-		{
-			var knownNames = existingDefinitions.Select(static definition => definition.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
-			managedNames.UnionWith(existingSchedules
-				.Where(schedule => schedule.IsCodeDefined && !knownNames.Contains(schedule.JobName))
-				.Select(static schedule => schedule.JobName));
-		}
 
 		managedNames.UnionWith(desired.Keys);
 
 		var existing = existingSchedules.ToDictionary(static schedule => schedule.Name, StringComparer.OrdinalIgnoreCase);
 		var schedules = new List<RecurringJobSchedule>();
-		var scheduleNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-		foreach (var suppliedSchedule in registration.RecurringSchedules)
+		foreach (var (jobName, nextRunAt) in registration.RecurringSchedules)
 		{
-			var schedule = suppliedSchedule;
-			if (!supplied.TryGetValue(schedule.JobName, out var definition)
-				|| !schedule.IsCodeDefined
-				|| !string.Equals(schedule.Name, definition.Name, StringComparison.OrdinalIgnoreCase)
-				|| !string.Equals(schedule.Cron, definition.Cron, StringComparison.Ordinal)
-				|| !string.Equals(schedule.TimeZone, definition.TimeZone, StringComparison.Ordinal)
-				|| !scheduleNames.Add(schedule.Name))
-				throw new ArgumentException("Code-defined schedules must match their supplied job definitions.", nameof(registration));
-			if (!desired.TryGetValue(schedule.JobName, out var managedDefinition))
+			if (!desired.TryGetValue(jobName, out var managedDefinition))
 				continue;
-			schedule = schedule with { Name = managedDefinition.Name, JobName = managedDefinition.Name };
+			var schedule = new RecurringJobSchedule
+			{
+				Name = managedDefinition.Name,
+				JobName = managedDefinition.Name,
+				Cron = managedDefinition.Cron!,
+				TimeZone = managedDefinition.TimeZone,
+				IsCodeDefined = true,
+				NextRunAt = nextRunAt,
+			};
 			if (existing.TryGetValue(schedule.Name, out var current))
 			{
+				var resetCancellation = !current.IsCodeDefined && current.CancellationReason is not null;
 				schedules.Add(schedule with
 				{
 					Name = current.Name,
-					IsPaused = current.IsPaused,
-					CancellationReason = current.CancellationReason ?? schedule.CancellationReason,
+					IsPaused = current.IsPaused && !resetCancellation,
+					CancellationReason = resetCancellation ? null : current.CancellationReason,
 					LastRunAt = current.LastRunAt,
 					NextRunAt = string.Equals(current.Cron, schedule.Cron, StringComparison.Ordinal)
 						&& string.Equals(current.TimeZone, schedule.TimeZone, StringComparison.Ordinal)
@@ -122,8 +106,6 @@ public sealed record JobDefinitionReconciliation
 				schedules.Add(schedule);
 		}
 
-		if (desired.Values.Any(definition => definition.Cron is not null && !scheduleNames.Contains(definition.Name)))
-			throw new ArgumentException("Every managed cron definition must supply its code-defined schedule.", nameof(registration));
 		var desiredScheduleNames = schedules.Select(static schedule => schedule.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
 		return new()
 		{

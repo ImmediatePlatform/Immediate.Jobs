@@ -12,12 +12,9 @@ public sealed partial class InMemoryJobStorage
 		EnqueueAsyncCalled(job.JobHandle);
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
+
 		lock (_gate)
-		{
-			var record = CreateRecord(job);
-			if (!_jobs.TryAdd(record.JobHandle, record))
-				throw new ImmediateJobException($"Job '{record.JobHandle}' already exists.");
-		}
+			AddJob(CreateRecord(job));
 	}
 
 	/// <inheritdoc />
@@ -26,8 +23,15 @@ public sealed partial class InMemoryJobStorage
 		EnqueueContinuationAsyncCalled(job.JobHandle, edges.Count);
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
+
 		lock (_gate)
-			RestoreContinuationCore(CreateRecord(job), edges);
+		{
+			var record = CreateRecord(job);
+			ValidateEdges([record], edges, batchHandle: null);
+			AddJob(NormalizeWaitingJob(record, edges.Count));
+			AddEdges(edges);
+			EvaluateAlreadyTerminalParents(edges);
+		}
 	}
 
 	/// <inheritdoc />
@@ -37,94 +41,35 @@ public sealed partial class InMemoryJobStorage
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 		lock (_gate)
-			RestoreBatchCore(batch, jobs.Select(CreateRecord).ToList(), edges);
-	}
-
-	internal async ValueTask RestoreJobAsync(JobRecord job, CancellationToken cancellationToken = default)
-	{
-		EnqueueAsyncCalled(job.JobHandle);
-		cancellationToken.ThrowIfCancellationRequested();
-		await TaskScheduler.Yield();
-
-		lock (_gate)
 		{
-			if (!_jobs.TryAdd(job.JobHandle, job with { QueueName = null }))
-				throw new ImmediateJobException($"Job '{job.JobHandle}' already exists.");
-		}
-	}
+			var records = jobs.Select(CreateRecord).ToList();
+			if (_batches.ContainsKey(batch.BatchHandle))
+				throw new ImmediateJobException($"Batch '{batch.BatchHandle}' already exists.");
+			ValidateBatchState(batch, records);
+			var jobHandles = new HashSet<JobHandle>();
+			foreach (var record in records)
+			{
+				ValidateNewJob(record);
+				if (!jobHandles.Add(record.JobHandle))
+					throw new ImmediateJobException($"Job '{record.JobHandle}' occurs more than once in the batch.");
+				if (record.BatchHandle != batch.BatchHandle)
+					throw new ImmediateJobException($"Job '{record.JobHandle}' does not belong to batch '{batch.BatchHandle}'.");
+			}
 
-	internal async ValueTask RestoreContinuationAsync(
-		JobRecord job,
-		IReadOnlyList<JobContinuationEdge> edges,
-		CancellationToken cancellationToken = default
-	)
-	{
-		EnqueueContinuationAsyncCalled(job.JobHandle, edges.Count);
-		cancellationToken.ThrowIfCancellationRequested();
-		await TaskScheduler.Yield();
+			ValidateEdges(records, edges, batch.BatchHandle);
+			ValidateNewElement(_batches, batch.BatchHandle) = batch;
+			var incomingCounts = edges.GroupBy(static edge => edge.ChildJobHandle)
+				.ToDictionary(static group => group.Key, static group => group.Count());
+			foreach (var record in records)
+			{
+				AddJob(incomingCounts.TryGetValue(record.JobHandle, out var dependencyCount)
+					? NormalizeWaitingJob(record, dependencyCount)
+					: record with { BatchHandle = batch.BatchHandle, RemainingDependencies = 0, FailedDependencies = 0 });
+			}
 
-		lock (_gate)
-			RestoreContinuationCore(job, edges);
-	}
-
-	private void RestoreContinuationCore(JobRecord job, IReadOnlyList<JobContinuationEdge> edges)
-	{
-		ValidateNewJob(job);
-		ValidateEdges([job], edges, batchHandle: null);
-
-		var restoreExistingState = HasTerminalParent(edges) &&
-			(job.State is not (JobState.AwaitingContinuation or JobState.WaitingForTrigger) || job.RemainingDependencies < edges.Count);
-		_jobs.Add(job.JobHandle, restoreExistingState ? job with { QueueName = null } : NormalizeWaitingJob(job, edges.Count));
-		_edges.AddRange(edges);
-		if (restoreExistingState)
-			MarkTerminalParentEdgesSettled(edges);
-		else
+			AddEdges(edges);
 			EvaluateAlreadyTerminalParents(edges);
-	}
-
-	internal async ValueTask RestoreBatchAsync(
-		BatchRecord batch,
-		IReadOnlyList<JobRecord> jobs,
-		IReadOnlyList<JobContinuationEdge> edges,
-		CancellationToken cancellationToken = default
-	)
-	{
-		EnqueueBatchAsyncCalled(batch.BatchHandle, jobs.Count, edges.Count);
-		cancellationToken.ThrowIfCancellationRequested();
-		await TaskScheduler.Yield();
-
-		lock (_gate)
-			RestoreBatchCore(batch, jobs, edges);
-	}
-
-	private void RestoreBatchCore(BatchRecord batch, IReadOnlyList<JobRecord> jobs, IReadOnlyList<JobContinuationEdge> edges)
-	{
-		ValidateBatch(batch, jobs, edges);
-
-		var restoreExistingState = IsRecoveredBatch(batch, jobs, edges);
-		_batches.Add(batch.BatchHandle, batch);
-
-		var incomingCounts = edges
-			.GroupBy(static edge => edge.ChildJobHandle)
-			.ToDictionary(static group => group.Key, static group => group.Count());
-
-		foreach (var job in jobs)
-		{
-			_jobs.Add(
-				job.JobHandle,
-				restoreExistingState
-					? job with { QueueName = null }
-					: incomingCounts.TryGetValue(job.JobHandle, out var dependencyCount)
-					? NormalizeWaitingJob(job, dependencyCount)
-					: job with { BatchHandle = batch.BatchHandle, RemainingDependencies = 0, FailedDependencies = 0 }
-			);
 		}
-
-		_edges.AddRange(edges);
-		if (restoreExistingState)
-			MarkTerminalParentEdgesSettled(edges);
-		else
-			EvaluateAlreadyTerminalParents(edges);
 	}
 
 	/// <inheritdoc />
@@ -171,84 +116,46 @@ public sealed partial class InMemoryJobStorage
 				: [];
 			ValidateSplice(existingWaiters, options == ContinuationOptions.BeforeContinuations ? 1 : 0);
 			IncrementBatchMembers(current.BatchHandle, 1);
-			_jobs.Add(persisted.JobHandle, persisted with { RemainingDependencies = 0 });
+			AddJob(persisted with { RemainingDependencies = 0 });
 			if (options == ContinuationOptions.BeforeContinuations)
 				SpliceBeforeWaiters(persisted.JobHandle, existingWaiters);
 		}
 	}
 
+	/// <remarks>
+	/// 	The caller does not need to hold the <see cref="_gate"/> lock; definition lookup acquires it internally.
+	/// </remarks>
 	private JobRecord CreateRecord(JobSubmission job)
 	{
 		var definition = GetJobDefinition(job.JobName);
 		return job.ToJobRecord(definition.Name);
 	}
 
+	/// <remarks>
+	/// 	The caller does not need to hold the <see cref="_gate"/> lock; this method acquires it internally.
+	/// </remarks>
 	internal JobDefinitionRecord GetJobDefinition(string name)
 	{
 		lock (_gate)
+		{
 			return _jobDefinitions.TryGetValue(name, out var definition)
 				? definition
 				: throw new KeyNotFoundException($"Job definition '{name}' was not found.");
+		}
 	}
 
+	/// <remarks>
+	/// 	The caller must hold the <see cref="_gate"/> lock.
+	/// </remarks>
 	private void ValidateNewJob(JobRecord job)
 	{
 		if (_jobs.ContainsKey(job.JobHandle))
 			throw new ImmediateJobException($"Job '{job.JobHandle}' already exists.");
 	}
 
-	private void ValidateBatch(
-		BatchRecord batch,
-		IReadOnlyList<JobRecord> jobs,
-		IReadOnlyList<JobContinuationEdge> edges
-	)
-	{
-		if (_batches.ContainsKey(batch.BatchHandle))
-			throw new ImmediateJobException($"Batch '{batch.BatchHandle}' already exists.");
-		if (jobs.Count == 0)
-			throw new ImmediateJobException("An atomic batch cannot be empty.");
-
-		var succeeded = jobs.Count(static job => job.State == JobState.Succeeded);
-		var failed = jobs.Count(static job => job.State == JobState.Failed);
-		var cancelled = jobs.Count(static job => job.State == JobState.Cancelled);
-		var skipped = jobs.Count(static job => job.State == JobState.Skipped);
-		var pending = jobs.Count - succeeded - failed - cancelled - skipped;
-
-		var expectedState = true switch
-		{
-			_ when pending != 0 => BatchState.Executing,
-			_ when failed != 0 => BatchState.Failed,
-			_ when cancelled != 0 => BatchState.Cancelled,
-			_ => BatchState.Succeeded,
-		};
-
-		if (
-			batch.TotalJobs != jobs.Count ||
-			batch.PendingCount != pending ||
-			batch.SucceededCount != succeeded ||
-			batch.FailedCount != failed ||
-			batch.CancelledCount != cancelled ||
-			batch.SkippedCount != skipped ||
-			(batch.State != expectedState && !(expectedState == BatchState.Executing && batch.State == BatchState.WaitingForTrigger)) ||
-			(pending == 0 != (batch.CompletedAt is not null))
-		)
-		{
-			throw new ImmediateJobException("A batch header does not match its members or aggregate state.");
-		}
-
-		var jobHandles = new HashSet<JobHandle>();
-		foreach (var job in jobs)
-		{
-			ValidateNewJob(job);
-			if (!jobHandles.Add(job.JobHandle))
-				throw new ImmediateJobException($"Job '{job.JobHandle}' occurs more than once in the batch.");
-			if (job.BatchHandle != batch.BatchHandle)
-				throw new ImmediateJobException($"Job '{job.JobHandle}' does not belong to batch '{batch.BatchHandle}'.");
-		}
-
-		ValidateEdges(jobs, edges, batch.BatchHandle);
-	}
-
+	/// <remarks>
+	/// 	The caller must hold the <see cref="_gate"/> lock.
+	/// </remarks>
 	private void ValidateEdges(
 		IReadOnlyList<JobRecord> newJobs,
 		IReadOnlyList<JobContinuationEdge> edges,
@@ -318,60 +225,46 @@ public sealed partial class InMemoryJobStorage
 			throw new ImmediateJobException("The continuation graph contains a dependency cycle.");
 	}
 
-	private bool HasTerminalParent(IEnumerable<JobContinuationEdge> edges) =>
-		edges.Any(IsTerminal);
-
-	private bool IsTerminal(JobContinuationEdge edge)
+	/// <remarks>
+	/// 	The caller does not need to hold the <see cref="_gate"/> lock; this method does not access mutable storage state.
+	/// </remarks>
+	private static void ValidateBatchState(BatchRecord batch, List<JobRecord> jobs)
 	{
-		return (
-			edge.ParentJobHandle is { } parentJobHandle
-			&& _jobs.TryGetValue(parentJobHandle, out var parentJob)
-			&& IsTerminal(parentJob.State)
-		) || (
-			edge.ParentBatchHandle is { } parentBatchHandle
-			&& _batches.TryGetValue(parentBatchHandle, out var parentBatch)
-			&& IsTerminal(parentBatch.State)
-		);
-	}
+		if (jobs.Count == 0)
+			throw new ImmediateJobException("An atomic batch cannot be empty.");
 
-	private bool IsRecoveredBatch(
-		BatchRecord batch,
-		IReadOnlyList<JobRecord> jobs,
-		IReadOnlyList<JobContinuationEdge> edges
-	)
-	{
-		if (batch.StartedAt is not null ||
-			batch.CompletedAt is not null ||
-			batch.SucceededCount != 0 ||
-			batch.FailedCount != 0 ||
-			batch.CancelledCount != 0 ||
-			batch.SkippedCount != 0 ||
-			jobs.Any(static job => job.State is JobState.Active or JobState.Succeeded or JobState.Failed or JobState.Cancelled or JobState.Skipped))
+		var succeeded = jobs.Count(static job => job.State == JobState.Succeeded);
+		var failed = jobs.Count(static job => job.State == JobState.Failed);
+		var cancelled = jobs.Count(static job => job.State == JobState.Cancelled);
+		var skipped = jobs.Count(static job => job.State == JobState.Skipped);
+		var pending = jobs.Count - succeeded - failed - cancelled - skipped;
+
+		var expectedState = true switch
 		{
-			return true;
-		}
+			_ when pending != 0 => BatchState.Executing,
+			_ when failed != 0 => BatchState.Failed,
+			_ when cancelled != 0 => BatchState.Cancelled,
+			_ => BatchState.Succeeded,
+		};
 
-		if (!HasTerminalParent(edges))
-			return false;
-
-		var incomingCounts = edges
-			.GroupBy(static edge => edge.ChildJobHandle)
-			.ToDictionary(static group => group.Key, static group => group.Count());
-		return jobs.Any(job => incomingCounts.TryGetValue(job.JobHandle, out var incoming) &&
-			(job.State is not (JobState.AwaitingContinuation or JobState.WaitingForTrigger) || job.RemainingDependencies < incoming));
-	}
-
-	private void MarkTerminalParentEdgesSettled(IEnumerable<JobContinuationEdge> edges)
-	{
-		foreach (var edge in edges)
+		if (
+			batch.TotalJobs != jobs.Count ||
+			batch.PendingCount != pending ||
+			batch.SucceededCount != succeeded ||
+			batch.FailedCount != failed ||
+			batch.CancelledCount != cancelled ||
+			batch.SkippedCount != skipped ||
+			(batch.State != expectedState && !(expectedState == BatchState.Executing && batch.State == BatchState.WaitingForTrigger)) ||
+			(pending == 0 != (batch.CompletedAt is not null))
+		)
 		{
-			if (IsTerminal(edge))
-			{
-				_ = _settledEdges.Add(edge);
-			}
+			throw new ImmediateJobException("A batch header does not match its members or aggregate state.");
 		}
 	}
 
+	/// <remarks>
+	/// 	The caller does not need to hold the <see cref="_gate"/> lock.
+	/// </remarks>
 	[LoggerMessage(
 		EventId = LibraryEventIds.InMemoryEnqueueAsyncCalled,
 		EventName = "Immediate.Jobs.Shared.EnqueueAsyncCalled",
@@ -380,6 +273,9 @@ public sealed partial class InMemoryJobStorage
 	)]
 	private partial void EnqueueAsyncCalled(JobHandle jobHandle);
 
+	/// <remarks>
+	/// 	The caller does not need to hold the <see cref="_gate"/> lock.
+	/// </remarks>
 	[LoggerMessage(
 		EventId = LibraryEventIds.InMemoryEnqueueContinuationAsyncCalled,
 		EventName = "Immediate.Jobs.Shared.EnqueueContinuationAsyncCalled",
@@ -388,6 +284,9 @@ public sealed partial class InMemoryJobStorage
 	)]
 	private partial void EnqueueContinuationAsyncCalled(JobHandle jobHandle, int edges);
 
+	/// <remarks>
+	/// 	The caller does not need to hold the <see cref="_gate"/> lock.
+	/// </remarks>
 	[LoggerMessage(
 		EventId = LibraryEventIds.InMemoryEnqueueBatchAsyncCalled,
 		EventName = "Immediate.Jobs.Shared.EnqueueBatchAsyncCalled",
@@ -396,6 +295,9 @@ public sealed partial class InMemoryJobStorage
 	)]
 	private partial void EnqueueBatchAsyncCalled(BatchHandle batchHandle, int jobs, int edges);
 
+	/// <remarks>
+	/// 	The caller does not need to hold the <see cref="_gate"/> lock.
+	/// </remarks>
 	[LoggerMessage(
 		EventId = LibraryEventIds.InMemoryAddBatchJobAsyncCalled,
 		EventName = "Immediate.Jobs.Shared.AddBatchJobAsyncCalled",

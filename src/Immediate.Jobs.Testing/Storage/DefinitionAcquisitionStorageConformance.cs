@@ -13,11 +13,10 @@ internal static class DefinitionAcquisitionStorageConformance
 		new("Definitions.Controls.RejectsMissingDefinitions", StorageCapabilities.Queue, MissingDefinitionsAsync),
 		new("Definitions.Controls.ResolvesCaseInsensitiveNamesAndPreservesLimits", StorageCapabilities.Queue, CaseInsensitiveControlsAsync),
 		new("Definitions.Pause.BlocksPendingAndNewJobsOnly", StorageCapabilities.Queue, PauseAsync),
-		new("Definitions.SlidingWindow.EnforcesExactBoundaryAndRetainsHistoryAfterDeletion", StorageCapabilities.Queue, SlidingAsync),
+		new("Definitions.SlidingWindow.EnforcesExactBoundaryAndRetainsHistoryAfterPurge", StorageCapabilities.Queue, SlidingAsync),
 		new("Definitions.SlidingWindow.ReleasesOnlyExpiredAcquisitions", StorageCapabilities.Queue, RollingAsync),
 		new("Definitions.FixedWindow.ResetsAtAlignedBoundary", StorageCapabilities.Queue, FixedAsync),
 		new("Definitions.Limits.CombineAndResumeWithoutReset", StorageCapabilities.Queue, CombinedAsync),
-		new("Definitions.Concurrency.SharesSlotsAndRecoversExpiredLeases", StorageCapabilities.Queue, ConcurrencyAsync),
 		new("Definitions.Concurrency.RenewalAndEarlyRelease", StorageCapabilities.Queue, RenewAsync),
 		new("Definitions.Monitoring.ReportsPauseAndUnexpiredConcurrencyIndependently", StorageCapabilities.Queue, MonitoringAsync),
 		new("Definitions.Monitoring.ReportsCurrentWindowCounts", StorageCapabilities.Queue, WindowCountsAsync),
@@ -25,6 +24,11 @@ internal static class DefinitionAcquisitionStorageConformance
 		new("Definitions.Acquisition.SkipsBlockedDefinitionsInFairQueues", StorageCapabilities.Queue, FairAsync),
 		new("Definitions.Retries.CountSuccessfulAcquisitionsOnly", StorageCapabilities.Queue, RetryAsync),
 		new("Definitions.Recurring.MaterializesDuringExecutionPause", StorageCapabilities.Queue, RecurringAsync),
+	];
+
+	internal static IReadOnlyList<JobStorageConformanceTestCase> LeaseCases { get; } =
+	[
+		new("Definitions.Concurrency.SharesSlotsAndRecoversExpiredLeases", StorageCapabilities.Queue, ConcurrencyAsync),
 	];
 
 	private static JobSubmission Job(string id, DateTimeOffset now, string name = Name, string? group = null) => new()
@@ -53,7 +57,7 @@ internal static class DefinitionAcquisitionStorageConformance
 	private static async ValueTask MissingDefinitionsAsync(IJobStorage storage, FakeTimeProvider clock, CancellationToken token)
 	{
 		const string CaseName = "Definitions.Controls.RejectsMissingDefinitions";
-		await storage.MergeJobDefinitionsListAsync(new() { Definitions = [] }, token);
+		await storage.MergeJobDefinitionsListAsync(new() { RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase), Definitions = [] }, token);
 		await ConformanceAssert.ThrowsAsync<KeyNotFoundException>(
 			() => storage.PauseJobAsync(Name, token), CaseName, "pause requires a persisted definition");
 		await ConformanceAssert.ThrowsAsync<KeyNotFoundException>(
@@ -62,7 +66,7 @@ internal static class DefinitionAcquisitionStorageConformance
 			async () => await storage.GetJobAcquisitionStateAsync(Name, token), CaseName, "status requires a persisted definition");
 		Equal(0, (await storage.GetJobDefinitionsAsync(token)).Count, "controls do not create definition metadata");
 
-		await storage.MergeJobDefinitionsListAsync(new() { Definitions = [new() { Name = Name }] }, token);
+		await storage.MergeJobDefinitionsListAsync(new() { RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase), Definitions = [new() { Name = Name }] }, token);
 		Equal(JobAcquisitionStatus.Ready, (await storage.GetJobAcquisitionStateAsync(Name, token)).AcquisitionStatus,
 			"a failed pause must not leave a pause for a later registration");
 	}
@@ -78,7 +82,7 @@ internal static class DefinitionAcquisitionStorageConformance
 			SlidingWindowMax = 1,
 			SlidingWindowPeriod = TimeSpan.FromMinutes(1),
 		};
-		await storage.MergeJobDefinitionsListAsync(new() { Definitions = [definition] }, token);
+		await storage.MergeJobDefinitionsListAsync(new() { RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase), Definitions = [definition] }, token);
 		await storage.EnqueueAsync(Job("alias-job", clock.GetUtcNow(), CanonicalName), token);
 		Equal(CanonicalName, (await storage.AcquireDueJobsAsync(Request(jobName: Alias), token)).Single().JobName,
 			"acquisition resolves the stored name from an alias");
@@ -99,6 +103,7 @@ internal static class DefinitionAcquisitionStorageConformance
 		var definition = new JobDefinitionRecord { Name = Name };
 		await storage.MergeJobDefinitionsListAsync(new()
 		{
+			RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase),
 			Definitions = [definition, new() { Name = "other-job" }],
 		}, token);
 
@@ -110,14 +115,14 @@ internal static class DefinitionAcquisitionStorageConformance
 		Equal(expected: false, state.IsConcurrencyLimited, "unbounded concurrency is never exhausted");
 		await storage.PauseJobAsync(Name, token);
 		definition = definition with { MaxConcurrency = 2 };
-		await storage.MergeJobDefinitionsListAsync(new() { Definitions = [definition, new() { Name = "other-job" }] }, token);
+		await storage.MergeJobDefinitionsListAsync(new() { RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase), Definitions = [definition, new() { Name = "other-job" }] }, token);
 		state = await storage.GetJobAcquisitionStateAsync(Name, token);
 		Equal(JobAcquisitionStatus.Paused, state.AcquisitionStatus, "pause has acquisition precedence");
 		Equal(2, state.ActiveCount, "pause does not hide active leases");
 		Equal(expected: true, state.IsConcurrencyLimited, "concurrency exhaustion remains visible during pause");
 
 		definition = definition with { MaxConcurrency = 3 };
-		await storage.MergeJobDefinitionsListAsync(new() { Definitions = [definition, new() { Name = "other-job" }] }, token);
+		await storage.MergeJobDefinitionsListAsync(new() { RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase), Definitions = [definition, new() { Name = "other-job" }] }, token);
 		state = await storage.GetJobAcquisitionStateAsync(Name, token);
 		Equal(expected: false, state.IsConcurrencyLimited, "status uses the current persisted concurrency limit");
 		Equal(expected: true, state.IsPaused, "configuration changes preserve pause state");
@@ -127,12 +132,6 @@ internal static class DefinitionAcquisitionStorageConformance
 		Equal(definition.AcquisitionLimits, (await storage.GetJobDefinitionsAsync(token)).Single(item => string.Equals(item.Name, Name, StringComparison.Ordinal)).AcquisitionLimits,
 			"resume preserves the stored concurrency setting");
 		await storage.PauseJobAsync(Name, token);
-
-		clock.Advance(TimeSpan.FromSeconds(30));
-		state = await storage.GetJobAcquisitionStateAsync(Name, token);
-		Equal(0, state.ActiveCount, "expired leases are excluded without requiring a new acquisition");
-		Equal(expected: false, state.IsConcurrencyLimited, "capacity returns after the leases expire");
-		Equal(expected: true, state.IsPaused, "expiration does not resume a paused definition");
 	}
 
 	private static async ValueTask WindowCountsAsync(IJobStorage storage, FakeTimeProvider clock, CancellationToken token)
@@ -150,32 +149,36 @@ internal static class DefinitionAcquisitionStorageConformance
 			FixedWindowMax = 5,
 			FixedWindowPeriod = period,
 		};
-		await storage.MergeJobDefinitionsListAsync(new() { Definitions = [definition] }, token);
+		await storage.MergeJobDefinitionsListAsync(new() { RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase), Definitions = [definition] }, token);
 		await CheckCountsAsync(0, 0, "unused windows report zero acquisitions");
 		await storage.EnqueueAsync(Job("window-one", clock.GetUtcNow()), token);
 		var first = (await storage.AcquireDueJobsAsync(Request(), token)).Single();
 		await CheckCountsAsync(1, 1, "usage is visible before a window is exhausted");
 		clock.Advance(TimeSpan.FromSeconds(5));
 		await storage.EnqueueAsync(Job("window-two", clock.GetUtcNow()), token);
-		Equal(1, (await storage.AcquireDueJobsAsync(Request(), token)).Count, "a later acquisition consumes another window slot");
+		var second = (await storage.AcquireDueJobsAsync(Request(), token)).Single();
 		await CheckCountsAsync(2, 2, "concurrency exhaustion does not hide window usage");
+		await storage.CompleteAsync(second.JobHandle, second.Attempt, "worker", token);
 		await storage.EnqueueAsync(Job("window-three", clock.GetUtcNow()), token);
+		await storage.EnqueueAsync(Job("window-four", clock.GetUtcNow()), token);
 		await storage.PauseJobAsync(Name, token);
 		Equal(0, (await storage.AcquireDueJobsAsync(Request(), token)).Count, "paused acquisition cannot consume window capacity");
 		await storage.CompleteAsync(first.JobHandle, first.Attempt, "worker", token);
-		await storage.DeleteAsync(first.JobHandle, token);
-		await CheckCountsAsync(2, 2, "pause, completion, and deletion do not erase acquisition counts");
-		clock.Advance(TimeSpan.FromSeconds(15));
+		clock.Advance(TimeSpan.FromMilliseconds(1));
+		await storage.PurgeJobsAsync(TimeSpan.Zero, TimeSpan.Zero, token);
+		Equal<JobStatus?>(expected: null, await storage.GetJobStatusAsync(first.JobHandle, token), "terminal invocation was purged");
+		await CheckCountsAsync(2, 2, "pause, completion, and purging do not erase acquisition counts");
+		clock.Advance(TimeSpan.FromSeconds(15) - TimeSpan.FromMilliseconds(1));
 		await CheckCountsAsync(1, 2, "only the oldest sliding acquisition ages out at its exact boundary");
 		clock.Advance(TimeSpan.FromSeconds(5));
 		await CheckCountsAsync(0, 2, "sliding usage can expire while fixed usage remains");
 		clock.Advance(start + period - clock.GetUtcNow());
 		await CheckCountsAsync(0, 0, "fixed usage resets at its boundary without another acquisition");
 		await storage.ResumeJobAsync(Name, token);
-		Equal(2, (await storage.AcquireDueJobsAsync(Request(), token)).Count, "an expired lease and queued invocation both acquire after resume");
-		await CheckCountsAsync(2, 2, "expired-lease reacquisition consumes window capacity");
+		Equal(2, (await storage.AcquireDueJobsAsync(Request(), token)).Count, "queued invocations acquire after resume");
+		await CheckCountsAsync(2, 2, "successful acquisitions consume the refreshed window capacity");
 		definition = definition with { SlidingWindowMax = 0, SlidingWindowPeriod = null, FixedWindowMax = 0, FixedWindowPeriod = null };
-		await storage.MergeJobDefinitionsListAsync(new() { Definitions = [definition] }, token);
+		await storage.MergeJobDefinitionsListAsync(new() { RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase), Definitions = [definition] }, token);
 		await CheckCountsAsync(0, 0, "disabled windows expose zero rather than retained history");
 
 		async ValueTask CheckCountsAsync(int sliding, int fixedCount, string invariant)
@@ -192,6 +195,7 @@ internal static class DefinitionAcquisitionStorageConformance
 	{
 		await storage.MergeJobDefinitionsListAsync(new()
 		{
+			RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase),
 			Definitions = [new() { Name = Name }, new() { Name = "other-job" }],
 		}, token);
 
@@ -223,6 +227,7 @@ internal static class DefinitionAcquisitionStorageConformance
 		};
 		await storage.MergeJobDefinitionsListAsync(new()
 		{
+			RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase),
 			Definitions = [definition, new() { Name = "other-job" }],
 		}, token);
 		var now = clock.GetUtcNow();
@@ -230,9 +235,11 @@ internal static class DefinitionAcquisitionStorageConformance
 		await storage.EnqueueAsync(Job("two", now), token);
 		var active = (await storage.AcquireDueJobsAsync(Request(), token)).Single();
 		await storage.CompleteAsync(active.JobHandle, active.Attempt, "worker", token);
-		await storage.DeleteAsync(active.JobHandle, token);
-		Equal(now + period, (await storage.GetJobAcquisitionStateAsync(Name, token)).NextEligibleAt, "deletion must not erase sliding rate history or duration precision");
-		clock.Advance(period - TimeSpan.FromMilliseconds(1));
+		clock.Advance(TimeSpan.FromMilliseconds(1));
+		await storage.PurgeJobsAsync(TimeSpan.Zero, TimeSpan.Zero, token);
+		Equal<JobStatus?>(expected: null, await storage.GetJobStatusAsync(active.JobHandle, token), "terminal invocation was purged");
+		Equal(now + period, (await storage.GetJobAcquisitionStateAsync(Name, token)).NextEligibleAt, "purging must not erase sliding rate history or duration precision");
+		clock.Advance(period - TimeSpan.FromMilliseconds(2));
 		Equal(0, (await storage.AcquireDueJobsAsync(Request(), token)).Count, "sliding capacity remains exhausted until the exact boundary");
 		clock.Advance(TimeSpan.FromMilliseconds(1));
 		Equal(JobAcquisitionStatus.Ready, (await storage.GetJobAcquisitionStateAsync(Name, token)).AcquisitionStatus, "status refreshes without an acquisition");
@@ -250,6 +257,7 @@ internal static class DefinitionAcquisitionStorageConformance
 		};
 		await storage.MergeJobDefinitionsListAsync(new()
 		{
+			RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase),
 			Definitions = [definition, new() { Name = "other-job" }],
 		}, token);
 		await storage.EnqueueAsync(Job("one", clock.GetUtcNow()), token);
@@ -281,6 +289,7 @@ internal static class DefinitionAcquisitionStorageConformance
 		};
 		await storage.MergeJobDefinitionsListAsync(new()
 		{
+			RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase),
 			Definitions = [definition, new() { Name = "other-job" }],
 		}, token);
 		await storage.EnqueueAsync(Job("one", clock.GetUtcNow()), token);
@@ -303,6 +312,7 @@ internal static class DefinitionAcquisitionStorageConformance
 		};
 		await storage.MergeJobDefinitionsListAsync(new()
 		{
+			RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase),
 			Definitions = [definition, new() { Name = "other-job" }],
 		}, token);
 		var now = clock.GetUtcNow();
@@ -326,6 +336,7 @@ internal static class DefinitionAcquisitionStorageConformance
 		};
 		await storage.MergeJobDefinitionsListAsync(new()
 		{
+			RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase),
 			Definitions = [definition, new() { Name = "other-job" }],
 		}, token);
 		await storage.EnqueueAsync(Job("one", clock.GetUtcNow()), token);
@@ -349,6 +360,7 @@ internal static class DefinitionAcquisitionStorageConformance
 		};
 		await storage.MergeJobDefinitionsListAsync(new()
 		{
+			RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase),
 			Definitions = [definition, new() { Name = "other-job" }],
 		}, token);
 		await storage.EnqueueAsync(Job("one", clock.GetUtcNow()), token);
@@ -372,6 +384,7 @@ internal static class DefinitionAcquisitionStorageConformance
 		};
 		await storage.MergeJobDefinitionsListAsync(new()
 		{
+			RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase),
 			Definitions = [definition, new() { Name = "other-job" }],
 		}, token);
 		for (var index = 0; index < 12; index++)
@@ -390,6 +403,7 @@ internal static class DefinitionAcquisitionStorageConformance
 		};
 		await storage.MergeJobDefinitionsListAsync(new()
 		{
+			RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase),
 			Definitions = [definition, new() { Name = "other-job" }],
 		}, token);
 		await storage.EnqueueAsync(Job("one", clock.GetUtcNow(), group: "shared"), token);
@@ -412,6 +426,7 @@ internal static class DefinitionAcquisitionStorageConformance
 		};
 		await storage.MergeJobDefinitionsListAsync(new()
 		{
+			RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase),
 			Definitions = [definition, new() { Name = "other-job" }],
 		}, token);
 		await storage.EnqueueAsync(Job("retry", clock.GetUtcNow()), token);
@@ -435,11 +450,12 @@ internal static class DefinitionAcquisitionStorageConformance
 	{
 		await storage.MergeJobDefinitionsListAsync(new()
 		{
+			RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase),
 			Definitions = [new() { Name = Name }, new() { Name = "other-job" }],
 		}, token);
 
 		var now = clock.GetUtcNow();
-		var schedule = new RecurringJobSchedule { Name = "schedule", JobName = Name, QueueName = "default", Cron = "* * * * *", TimeZone = "UTC", NextRunAt = now, IsCodeDefined = false };
+		var schedule = new RecurringJobSchedule { Name = "schedule", JobName = Name, Cron = "* * * * *", TimeZone = "UTC", NextRunAt = now, IsCodeDefined = false };
 		await storage.UpsertRecurringAsync(schedule, token);
 		await storage.PauseJobAsync(Name, token);
 		var due = (await storage.GetDueRecurringAsync(now, 10, [Name], token)).Single();

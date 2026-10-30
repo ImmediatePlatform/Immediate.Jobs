@@ -1,5 +1,3 @@
-using System.Text.Json.Serialization;
-
 namespace Immediate.Jobs.Shared.Apis;
 
 /// <summary>
@@ -21,12 +19,6 @@ public sealed record RecurringJobSchedule
 	/// 	The generated job definition name.
 	/// </summary>
 	public required string JobName { get; init; }
-
-	/// <summary>
-	/// 	The current queue name, or <see langword="null"/> when the job definition is missing.
-	/// </summary>
-	[JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-	public string? QueueName { get; init; }
 
 	/// <summary>
 	/// 	A five- or six-field cron expression.
@@ -74,7 +66,6 @@ public sealed record RecurringJobSchedule
 	{
 		Name = Name,
 		JobName = JobName,
-		QueueName = QueueName,
 		Cron = Cron,
 		TimeZone = TimeZone,
 		IsCodeDefined = IsCodeDefined,
@@ -117,7 +108,6 @@ public sealed record RecurringJobSchedule
 		{
 			Name = definition.Name,
 			JobName = definition.JobName,
-			QueueName = definition.QueueName,
 			Cron = definition.Cron,
 			TimeZone = definition.TimeZone,
 			IsCodeDefined = definition.IsCodeDefined,

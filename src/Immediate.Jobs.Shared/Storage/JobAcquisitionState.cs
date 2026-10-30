@@ -21,7 +21,7 @@ public enum JobAcquisitionStatus
 	RateLimited = 2,
 
 	/// <summary>
-	/// 	The maximum number of active execution leases has been reached.
+	/// 	The maximum number of owned active jobs has been reached.
 	/// </summary>
 	ConcurrencyLimited = 3,
 }
@@ -52,7 +52,7 @@ public sealed record JobAcquisitionState
 	public DateTimeOffset? NextEligibleAt { get; init; }
 
 	/// <summary>
-	/// 	The number of active jobs with unexpired execution leases, including when concurrency is unbounded.
+	/// 	The number of owned active jobs, including when concurrency is unbounded. Expiring providers exclude expired leases.
 	/// </summary>
 	public int ActiveCount { get; init; }
 

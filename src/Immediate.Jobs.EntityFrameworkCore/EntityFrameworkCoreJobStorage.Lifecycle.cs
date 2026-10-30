@@ -114,19 +114,6 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 	}
 
 	/// <inheritdoc />
-	public async ValueTask DeleteAsync(JobHandle jobHandle, CancellationToken cancellationToken = default)
-	{
-		DeleteAsyncCalled(jobHandle);
-		cancellationToken.ThrowIfCancellationRequested();
-		await TaskScheduler.Yield();
-
-		await ExecuteWithStrategyAsync(
-			operationCancellationToken => DeleteCoreAsync(jobHandle, operationCancellationToken),
-			cancellationToken
-		);
-	}
-
-	/// <inheritdoc />
 	public async ValueTask PurgeJobsAsync(
 		TimeSpan succeededRetention,
 		TimeSpan failedRetention,
@@ -319,49 +306,6 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 		await transaction.CommitAsync(cancellationToken);
 	}
 
-	private async Task DeleteCoreAsync(JobHandle jobHandle, CancellationToken cancellationToken)
-	{
-		await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
-		await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
-		var job = await context.Set<ImmediateJobEntity>()
-			.AsNoTracking()
-			.SingleOrDefaultAsync(item => item.Id == jobHandle.Value
-				&& (item.State == JobState.Succeeded || item.State == JobState.Failed || item.State == JobState.Cancelled || item.State == JobState.Skipped), cancellationToken);
-		if (job is null)
-		{
-			if (await context.Set<ImmediateJobEntity>()
-				.AnyAsync(item => item.Id == jobHandle.Value, cancellationToken))
-			{
-				throw new ImmediateJobException("Only terminal jobs can be deleted.");
-			}
-
-			throw new KeyNotFoundException($"Job '{jobHandle}' was not found.");
-		}
-
-		if (job.BatchHandle is not null)
-			throw new ImmediateJobException("Batch members are deleted with their batch so the workflow remains coherent.");
-		_ = await context.Set<ImmediateJobContinuationEntity>()
-			.Where(edge => edge.ChildJobHandle == jobHandle.Value ||
-				(edge.ParentKind == ContinuationParentKind.Job && edge.ParentId == jobHandle.Value))
-			.ExecuteDeleteAsync(cancellationToken);
-		var removed = await context.Set<ImmediateJobEntity>()
-			.Where(item => item.Id == jobHandle.Value &&
-				(item.State == JobState.Succeeded || item.State == JobState.Failed || item.State == JobState.Cancelled || item.State == JobState.Skipped))
-			.ExecuteDeleteAsync(cancellationToken);
-		if (removed == 0)
-		{
-			if (await context.Set<ImmediateJobEntity>()
-				.AnyAsync(item => item.Id == jobHandle.Value, cancellationToken))
-			{
-				throw new ImmediateJobException("Only terminal jobs can be deleted.");
-			}
-
-			throw new KeyNotFoundException($"Job '{jobHandle}' was not found.");
-		}
-
-		await transaction.CommitAsync(cancellationToken);
-	}
-
 	private async Task PurgeJobsCoreAsync(
 		DateTimeOffset succeededBefore,
 		DateTimeOffset failedBefore,
@@ -475,14 +419,6 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 		Message = "RetryAsync called (JobHandle={JobHandle})"
 	)]
 	private partial void RetryAsyncCalled(JobHandle jobHandle);
-
-	[LoggerMessage(
-		EventId = LibraryEventIds.DeleteAsyncCalled,
-		EventName = "Immediate.Jobs.EntityFrameworkCore.DeleteAsyncCalled",
-		Level = LogLevel.Debug,
-		Message = "DeleteAsync called (JobHandle={JobHandle})"
-	)]
-	private partial void DeleteAsyncCalled(JobHandle jobHandle);
 
 	[LoggerMessage(
 		EventId = LibraryEventIds.PurgeJobsAsyncCalled,

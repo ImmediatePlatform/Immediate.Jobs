@@ -14,7 +14,7 @@ public sealed class MonitoringApiTests
 		var token = TestContext.Current.CancellationToken;
 		var clock = new FakeTimeProvider(DateTimeOffset.UnixEpoch);
 		using var storage = new MonitoringStorage(clock);
-		await storage.MergeJobDefinitionsListAsync(new() { Definitions = [new() { Name = "remote" }] }, token);
+		await storage.MergeJobDefinitionsListAsync(new() { RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase), Definitions = [new() { Name = "remote" }] }, token);
 		var monitor = new JobMonitor(storage, clock, new FixedIdGenerator());
 		Assert.Equal("remote", Assert.Single((await monitor.GetSnapshotAsync(token)).DefinitionStatuses).JobName);
 		Assert.Equal("remote", Assert.Single((await monitor.GetDefinitionsAsync(token)).Jobs).Name);
@@ -28,12 +28,11 @@ public sealed class MonitoringApiTests
 		var token = TestContext.Current.CancellationToken;
 		var clock = new FakeTimeProvider(DateTimeOffset.UnixEpoch);
 		using var storage = new MonitoringStorage(clock);
-		await storage.MergeJobDefinitionsListAsync(new() { Definitions = [new() { Name = "Remote", QueueName = "current" }] }, token);
+		await storage.MergeJobDefinitionsListAsync(new() { RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase), Definitions = [new() { Name = "Remote", QueueName = "current" }] }, token);
 		await storage.UpsertRecurringAsync(new()
 		{
 			Name = "Résumé",
 			JobName = "remote",
-			QueueName = "old",
 			Cron = "* * * * *",
 			TimeZone = "UTC",
 			IsCodeDefined = false,
@@ -54,7 +53,7 @@ public sealed class MonitoringApiTests
 		var token = TestContext.Current.CancellationToken;
 		var clock = new FakeTimeProvider(DateTimeOffset.UnixEpoch);
 		using var storage = new MonitoringStorage(clock);
-		var registration = new JobDefinitionRegistration { Definitions = [new() { Name = "Remote" }] };
+		var registration = new JobDefinitionRegistration { RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase), Definitions = [new() { Name = "Remote" }] };
 		await storage.MergeJobDefinitionsListAsync(registration, token);
 		await storage.UpsertRecurringAsync(new()
 		{
@@ -65,7 +64,7 @@ public sealed class MonitoringApiTests
 			IsCodeDefined = false,
 			NextRunAt = clock.GetUtcNow(),
 		}, token);
-		await storage.MergeJobDefinitionsListAsync(new() { Definitions = [] }, token);
+		await storage.MergeJobDefinitionsListAsync(new() { RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase), Definitions = [] }, token);
 		await storage.MergeJobDefinitionsListAsync(registration, token);
 		var monitor = new JobMonitor(storage, clock, new FixedIdGenerator());
 		var status = Assert.Single((await monitor.GetSnapshotAsync(token)).Recurring);

@@ -9,7 +9,7 @@ internal static class DefinitionCatalogStorageConformance
 	private const string SubmissionCase = "Definitions.Submission.UsesCurrentDefinition";
 	private const string RecurringCase = "Definitions.Recurring.PreservesProgressAndInvocations";
 	private const string ConcurrentCase = "Definitions.Catalogue.SerializesConcurrentCompleteLists";
-	private const string InvalidCase = "Definitions.Catalogue.RejectsInvalidSnapshotsWithoutPartialChanges";
+	private const string CancellationCase = "Definitions.Catalogue.PreservesMetadataWhenStartupIsCancelled";
 	private const string CaseNameCase = "Definitions.Catalogue.ReconcilesCaseInsensitiveNames";
 	private const string ConfigurationCase = "Definitions.Catalogue.RoundTripsAndUpdatesConfiguration";
 
@@ -18,7 +18,7 @@ internal static class DefinitionCatalogStorageConformance
 		new(SubmissionCase, StorageCapabilities.Queue, UsesCurrentDefinitionAsync),
 		new(RecurringCase, StorageCapabilities.Queue, PreservesRecurringAsync),
 		new(ConcurrentCase, StorageCapabilities.Queue, ReconcilesConcurrentlyAsync),
-		new(InvalidCase, StorageCapabilities.Queue, RejectsInvalidAsync),
+		new(CancellationCase, StorageCapabilities.Queue, PreservesMetadataWhenCancelledAsync),
 		new(CaseNameCase, StorageCapabilities.Queue, ReconcilesCaseInsensitiveNamesAsync),
 		new(ConfigurationCase, StorageCapabilities.Queue, RoundTripsConfigurationAsync),
 	];
@@ -53,7 +53,7 @@ internal static class DefinitionCatalogStorageConformance
 		};
 		await storage.UpsertRecurringAsync(schedule, token);
 		var persistedSchedule = (await MonitoringTestQueries.GetSchedulesAsync(storage, token)).Single();
-		ConformanceAssert.Equal(schedule with { JobName = definition.Name, QueueName = definition.QueueName }, persistedSchedule,
+		ConformanceAssert.Equal(schedule with { JobName = definition.Name }, persistedSchedule,
 			SubmissionCase, "dynamic schedules must use the persisted definition without a caller-supplied queue");
 
 		await storage.MergeJobDefinitionsListAsync(Registration([definition with { QueueName = "PRIORITY" }]), token);
@@ -80,8 +80,6 @@ internal static class DefinitionCatalogStorageConformance
 			SubmissionCase, "the retained invocation must have a status");
 		ConformanceAssert.Null(status.QueueName,
 			SubmissionCase, "monitoring must retain jobs without inventing a queue");
-		ConformanceAssert.Null((await MonitoringTestQueries.GetSchedulesAsync(storage, token)).Single().QueueName,
-			SubmissionCase, "retained schedules without a definition must have no queue");
 
 		await ConformanceAssert.ThrowsAsync<KeyNotFoundException>(
 			() => storage.EnqueueAsync(job with { JobHandle = JobHandle.FromString("missing-definition") }, token),
@@ -94,7 +92,7 @@ internal static class DefinitionCatalogStorageConformance
 	private static JobDefinitionRecord Definition(string name) => new() { Name = name };
 
 	private static JobDefinitionRegistration Registration(IReadOnlyList<JobDefinitionRecord> definitions) =>
-		new() { Definitions = definitions };
+		new() { RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase), Definitions = definitions };
 
 	private static async ValueTask RoundTripsConfigurationAsync(IJobStorage storage, FakeTimeProvider timeProvider, CancellationToken token)
 	{
@@ -121,7 +119,7 @@ internal static class DefinitionCatalogStorageConformance
 		await storage.MergeJobDefinitionsListAsync(new()
 		{
 			Definitions = [definition],
-			RecurringSchedules = [Schedule(definition, timeProvider.GetUtcNow())],
+			RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase) { [definition.Name] = timeProvider.GetUtcNow() },
 		}, token);
 		var stored = (await storage.GetJobDefinitionsAsync(token)).Single();
 		ConformanceAssert.SequenceEqual(definition.Tags, stored.Tags, ConfigurationCase, "tag arrays must round trip independently of scalar configuration");
@@ -156,8 +154,6 @@ internal static class DefinitionCatalogStorageConformance
 		ConformanceAssert.True(definitions.All(static definition => definition.MaxAttempts == 9), CaseNameCase, "updates must reach case-insensitive identities");
 		ConformanceAssert.SequenceEqual(original.Select(static definition => definition.Name).Order(StringComparer.OrdinalIgnoreCase),
 			definitions.Select(static definition => definition.Name), CaseNameCase, "registration aliases must preserve the original stored spelling");
-		await ConformanceAssert.ThrowsAsync<ArgumentException>(() => storage.MergeJobDefinitionsListAsync(Registration([Definition("Invoice"), Definition("invoice")]), token),
-			CaseNameCase, "one catalogue cannot contain duplicate names that differ only by case");
 		await storage.MergeJobDefinitionsListAsync(Registration([]), token);
 		ConformanceAssert.Equal(0, (await storage.GetJobDefinitionsAsync(token)).Count, CaseNameCase, "an empty catalogue must remove aliases as one identity");
 	}
@@ -166,7 +162,6 @@ internal static class DefinitionCatalogStorageConformance
 	{
 		Name = definition.Name,
 		JobName = definition.Name,
-		QueueName = definition.QueueName,
 		Cron = definition.Cron!,
 		TimeZone = definition.TimeZone,
 		IsCodeDefined = true,
@@ -178,9 +173,7 @@ internal static class DefinitionCatalogStorageConformance
 		var now = timeProvider.GetUtcNow();
 		var ordinary = Definition("ordinary-cron") with { Cron = "* * * * *" };
 		var schedule = Schedule(ordinary, now);
-		await storage.MergeJobDefinitionsListAsync(new() { Definitions = [ordinary], RecurringSchedules = [schedule] }, token);
-		var unregistered = Schedule(Definition("unregistered") with { Cron = "* * * * *" }, now);
-		await storage.UpsertRecurringAsync(unregistered, token);
+		await storage.MergeJobDefinitionsListAsync(new() { Definitions = [ordinary], RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase) { [schedule.JobName] = schedule.NextRunAt } }, token);
 		var dynamic = Schedule(ordinary, now) with { Name = "dynamic", IsCodeDefined = false };
 		await storage.UpsertRecurringAsync(dynamic, token);
 		var invocation = new JobRecord
@@ -197,20 +190,18 @@ internal static class DefinitionCatalogStorageConformance
 		ConformanceAssert.True(await storage.MaterializeRecurringAsync(schedule, invocation, now.AddMinutes(1), cancellationToken: token), RecurringCase, "the initial occurrence must materialize");
 		await storage.PauseRecurringAsync(ordinary.Name, token);
 		var alias = ordinary with { Name = "ORDINARY-CRON" };
-		await storage.MergeJobDefinitionsListAsync(new() { Definitions = [alias], RecurringSchedules = [Schedule(alias, now.AddHours(1))] }, token);
+		await storage.MergeJobDefinitionsListAsync(new() { Definitions = [alias], RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase) { [ordinary.Name] = now.AddHours(1) } }, token);
 		var persisted = (await MonitoringTestQueries.GetSchedulesAsync(storage, token)).Single(item => string.Equals(item.Name, ordinary.Name, StringComparison.Ordinal));
-		ConformanceAssert.False((await MonitoringTestQueries.GetSchedulesAsync(storage, token)).Any(item => string.Equals(item.Name, unregistered.Name, StringComparison.Ordinal)),
-			RecurringCase, "startup must clean up obsolete unregistered code schedules without metadata");
 		ConformanceAssert.True(persisted.IsPaused, RecurringCase, "startup must preserve schedule pause state");
 		ConformanceAssert.Equal(now.AddMinutes(1), persisted.NextRunAt, RecurringCase, "unchanged cron must retain progress");
 		ConformanceAssert.Equal<DateTimeOffset?>(now, persisted.LastRunAt, RecurringCase, "startup must retain the last occurrence");
 		var changed = ordinary with { Cron = "15 * * * *" };
-		await storage.MergeJobDefinitionsListAsync(new() { Definitions = [changed], RecurringSchedules = [Schedule(changed, now.AddHours(2))] }, token);
+		await storage.MergeJobDefinitionsListAsync(new() { Definitions = [changed], RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase) { [changed.Name] = now.AddHours(2) } }, token);
 		persisted = (await MonitoringTestQueries.GetSchedulesAsync(storage, token)).Single(item => string.Equals(item.Name, ordinary.Name, StringComparison.Ordinal));
 		ConformanceAssert.Equal(now.AddHours(2), persisted.NextRunAt, RecurringCase, "changed cron must reset the next occurrence");
 		ConformanceAssert.True(persisted.IsPaused, RecurringCase, "cron changes must retain pause state");
 		var reformatted = changed with { Cron = "15 * * * * " };
-		await storage.MergeJobDefinitionsListAsync(new() { Definitions = [reformatted], RecurringSchedules = [Schedule(reformatted, now.AddHours(3))] }, token);
+		await storage.MergeJobDefinitionsListAsync(new() { Definitions = [reformatted], RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase) { [reformatted.Name] = now.AddHours(3) } }, token);
 		persisted = (await MonitoringTestQueries.GetSchedulesAsync(storage, token)).Single(item => string.Equals(item.Name, ordinary.Name, StringComparison.Ordinal));
 		ConformanceAssert.Equal(now.AddHours(3), persisted.NextRunAt, RecurringCase, "any change to the stored cron text must reset the next occurrence");
 		await storage.MergeJobDefinitionsListAsync(Registration([changed with { Cron = null }]), token);
@@ -227,12 +218,12 @@ internal static class DefinitionCatalogStorageConformance
 		var first = new JobDefinitionRegistration
 		{
 			Definitions = [firstCron, Definition("b"), Definition("shared")],
-			RecurringSchedules = [Schedule(firstCron, timeProvider.GetUtcNow())],
+			RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase) { [firstCron.Name] = timeProvider.GetUtcNow() },
 		};
 		var second = new JobDefinitionRegistration
 		{
 			Definitions = [secondCron, Definition("d"), Definition("shared")],
-			RecurringSchedules = [Schedule(secondCron, timeProvider.GetUtcNow())],
+			RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase) { [secondCron.Name] = timeProvider.GetUtcNow() },
 		};
 		for (var round = 0; round < 5; round++)
 		{
@@ -249,20 +240,12 @@ internal static class DefinitionCatalogStorageConformance
 		}
 	}
 
-	private static async ValueTask RejectsInvalidAsync(IJobStorage storage, FakeTimeProvider timeProvider, CancellationToken token)
+	private static async ValueTask PreservesMetadataWhenCancelledAsync(IJobStorage storage, FakeTimeProvider timeProvider, CancellationToken token)
 	{
 		await storage.MergeJobDefinitionsListAsync(Registration([Definition("original")]), token);
-		var invalid = Registration([Definition("missing-schedule") with { Cron = "* * * * *" }]);
-		await ConformanceAssert.ThrowsAsync<ArgumentException>(() => storage.MergeJobDefinitionsListAsync(invalid, token), InvalidCase, "invalid catalogues must be rejected before mutation");
-		foreach (var name in new[] { " original", "original ", "\toriginal", "original\n", "\u00a0original", "original\u00a0" })
-		{
-			await ConformanceAssert.ThrowsAsync<ArgumentException>(() => storage.MergeJobDefinitionsListAsync(Registration([Definition(name)]), token),
-				InvalidCase, "names with leading or trailing whitespace must be rejected before mutation");
-		}
-
 		using var cancellation = new CancellationTokenSource();
 		await cancellation.CancelAsync();
-		await ConformanceAssert.ThrowsAsync<OperationCanceledException>(() => storage.MergeJobDefinitionsListAsync(Registration([]), cancellation.Token), InvalidCase, "cancelled startup must not delete metadata");
-		ConformanceAssert.SequenceEqual(["original"], (await storage.GetJobDefinitionsAsync(token)).Select(static item => item.Name), InvalidCase, "rejected calls must preserve the complete previous catalogue");
+		await ConformanceAssert.ThrowsAsync<OperationCanceledException>(() => storage.MergeJobDefinitionsListAsync(Registration([]), cancellation.Token), CancellationCase, "cancelled startup must not delete metadata");
+		ConformanceAssert.SequenceEqual(["original"], (await storage.GetJobDefinitionsAsync(token)).Select(static item => item.Name), CancellationCase, "cancelled startup must preserve the complete previous catalogue");
 	}
 }

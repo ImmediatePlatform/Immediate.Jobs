@@ -16,11 +16,6 @@ public sealed record RecurringJobDefinition
 	public required string JobName { get; init; }
 
 	/// <summary>
-	/// 	The current queue name, or <see langword="null"/> when the job definition is missing.
-	/// </summary>
-	public string? QueueName { get; init; }
-
-	/// <summary>
 	/// 	A five- or six-field cron expression.
 	/// </summary>
 	public required string Cron { get; init; }

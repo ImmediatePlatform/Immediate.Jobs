@@ -256,7 +256,6 @@ public sealed class RecurringSchedulerTests
 		{
 			Name = "cleanup",
 			JobName = "cleanup",
-			QueueName = "",
 			Cron = "0 * * * *",
 			NextRunAt = Start,
 			TimeZone = "UTC",
@@ -409,7 +408,6 @@ public sealed class RecurringSchedulerTests
 		{
 			Name = "bad-schedule",
 			JobName = "ordinary",
-			QueueName = "default",
 			Cron = cron,
 			TimeZone = timeZone,
 			IsCodeDefined = false,
