@@ -7,8 +7,6 @@ namespace Immediate.Jobs.Redis;
 
 internal sealed partial class RedisJobStorage
 {
-	private static readonly RedisValue[] RecurringMutableFields = ["record", "paused", "next", "last", "cancellationReason"];
-
 	/// <inheritdoc />
 	public async ValueTask UpsertRecurringAsync(
 		RecurringJobSchedule schedule,
@@ -99,46 +97,11 @@ internal sealed partial class RedisJobStorage
 
 		if (jobNames.Count == 0)
 			return [];
-		var arguments = new List<RedisValue> { _root, Score(now), batchSize };
+		var arguments = new List<RedisValue> { _root, Score(now), batchSize, Timestamp(now) };
 		arguments.AddRange(jobNames.Select(static name => (RedisValue)name.ToUpperInvariant()));
 		var result = await Database.ScriptEvaluateAsync(RedisScripts.GetDueRecurringForJobs, [RecurringDueKey], [.. arguments]).WaitAsync(cancellationToken);
-		RedisValue[] values = [.. ((RedisResult[])result!).Select(static item => (RedisValue)(string)item!)];
-
-		var members = values.Select(static value => (string)value!).ToList();
-		var names = members.Select(static member => member[(member.IndexOf('|', StringComparison.Ordinal) + 1)..]).Distinct(StringComparer.Ordinal).ToList();
-		var schedules = await ReadRecurringAsync(
-			names,
-			cancellationToken
-		);
-		var schedulesByName = schedules.ToDictionary(static schedule => schedule.Name, StringComparer.OrdinalIgnoreCase);
-		var due = new List<RecurringJobSchedule>(schedules.Count);
-		var added = new HashSet<string>(StringComparer.Ordinal);
-		var stale = new List<RedisValue>();
-		foreach (var member in members)
-		{
-			var name = member[(member.IndexOf('|', StringComparison.Ordinal) + 1)..];
-			if (!schedulesByName.TryGetValue(name, out var schedule)
-				|| !string.Equals(member, RecurringDueMember(schedule.NextRunAt, name), StringComparison.Ordinal))
-			{
-				stale.Add(member);
-				continue;
-			}
-
-			if (schedule.IsPaused || schedule.NextRunAt > now
-				|| !jobNames.Contains(schedule.JobName, StringComparer.OrdinalIgnoreCase))
-				continue;
-
-			if (added.Add(name))
-				due.Add(schedule);
-		}
-
-		if (stale.Count != 0)
-		{
-			await Database.SortedSetRemoveAsync(RecurringDueKey, [.. stale])
-				.WaitAsync(cancellationToken);
-		}
-
-		return due;
+		return [.. ReadRecurringRecords(result).Where(schedule =>
+			jobNames.Contains(schedule.JobName, StringComparer.OrdinalIgnoreCase))];
 	}
 
 	/// <inheritdoc />
@@ -202,42 +165,16 @@ internal sealed partial class RedisJobStorage
 			throw new KeyNotFoundException($"Recurring schedule '{name}' was not found.");
 	}
 
-	private async Task<IReadOnlyList<RecurringJobSchedule>> ReadAllRecurringAsync(CancellationToken cancellationToken)
-	{
-		var names = await Database.SetMembersAsync(RecurringNamesKey)
-			.WaitAsync(cancellationToken);
-		return await ReadRecurringAsync(
-			[.. names.Select(static value => (string)value!)],
-			cancellationToken
-		);
-	}
+	private static IReadOnlyList<RecurringJobSchedule> ReadRecurringRecords(RedisResult result) =>
+		[.. ((RedisResult[])result!).Select(static item => ToRecurringRecord(ReadValues(item)))
+			.OrderBy(static schedule => schedule.NextRunAt)
+			.ThenBy(static schedule => schedule.Name, StringComparer.OrdinalIgnoreCase)];
 
-	private async Task<IReadOnlyList<RecurringJobSchedule>> ReadRecurringAsync(
-		IReadOnlyList<string> names,
-		CancellationToken cancellationToken
-	)
+	private static RecurringJobSchedule ToRecurringRecord(RedisValue[] values)
 	{
-		var tasks = names.Select(name => ReadRecurringDataAsync(name, cancellationToken).AsTask()).ToList();
-		var schedules = await Task.WhenAll(tasks).WaitAsync(cancellationToken);
-		var records = schedules.OfType<RecurringJobSchedule>().ToList();
-		return [.. records
-			.OrderBy(schedule => schedule.NextRunAt)
-			.ThenBy(schedule => schedule.Name, StringComparer.OrdinalIgnoreCase)];
-	}
-
-	private async ValueTask<RecurringJobSchedule?> ReadRecurringDataAsync(
-		string name,
-		CancellationToken cancellationToken
-	)
-	{
-		var values = await Database.HashGetAsync(RecurringKey(name), RecurringMutableFields)
-			.WaitAsync(cancellationToken);
-		if (values[0].IsNull)
-			return null;
 		var schedule = JsonSerializer.Deserialize(
-			(string)values[0]!,
-			RedisJsonSerializerContext.Default.RecurringJobSchedule
-		) ?? throw new ImmediateJobException($"Recurring schedule '{name}' contains invalid data.");
+			(string)values[0]!, RedisJsonSerializerContext.Default.RecurringJobSchedule
+		) ?? throw new ImmediateJobException("Recurring schedule contains invalid data.");
 		return schedule with
 		{
 			IsPaused = values[1] == "1",

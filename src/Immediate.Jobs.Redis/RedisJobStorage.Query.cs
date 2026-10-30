@@ -18,28 +18,37 @@ internal sealed partial class RedisJobStorage
 		GetMonitoringDefinitionsAsyncCalled();
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
-		var recurring = await ReadAllRecurringAsync(cancellationToken);
+		var snapshot = await ReadDefinitionCatalogAsync(cancellationToken);
 		return new()
 		{
-			Jobs = await GetJobDefinitionsAsync(cancellationToken),
-			Recurring = [.. recurring.Select(static schedule => schedule.ToDefinition())],
+			Jobs = ReadDefinitionRecords(snapshot[1]),
+			Recurring = [.. ReadRecurringRecords(snapshot[2]).Select(static schedule => schedule.ToDefinition())],
 		};
 	}
 
-	private async ValueTask<IReadOnlyList<JobAcquisitionState>> ReadDefinitionStatusesAsync(CancellationToken cancellationToken)
+	private async ValueTask<IReadOnlyList<JobAcquisitionState>?> ReadDefinitionStatusesAsync(
+		IReadOnlyList<JobDefinitionRecord> definitions,
+		string version,
+		CancellationToken cancellationToken
+	)
 	{
-		var definitions = await GetJobDefinitionsAsync(cancellationToken);
 		if (definitions.Count == 0)
 			return [];
 		var now = _timeProvider.GetUtcNow();
-		var arguments = new List<RedisValue> { _root, Score(now), Timestamp(now) };
+		var arguments = new List<RedisValue> { _root, Score(now), Timestamp(now), version };
 		foreach (var definition in definitions)
 		{
 			arguments.Add(definition.Name.ToUpperInvariant());
 			AddDefinitionLimits(arguments, definition.AcquisitionLimits, now);
 		}
 
-		var results = (RedisResult[])(await Database.ScriptEvaluateAsync(RedisScripts.DefinitionStates, [LeasesKey], [.. arguments]).WaitAsync(cancellationToken))!;
+		var response = await Database.ScriptEvaluateAsync(
+			RedisScripts.DefinitionStates, [DefinitionCatalogVersionKey], [.. arguments]
+		).WaitAsync(cancellationToken);
+		if (response.IsNull)
+			return null;
+
+		var results = (RedisResult[])response!;
 		return [.. definitions.Select((definition, index) =>
 			ToAcquisitionState(definition.Name, definition.AcquisitionLimits, (RedisResult[])results[index]!))];
 	}
@@ -54,26 +63,33 @@ internal sealed partial class RedisJobStorage
 		await TaskScheduler.Yield();
 
 		var states = Enum.GetValues<JobState>();
-		var countTasks = states
-			.Select(state => Database.SetLengthAsync(StateKey(state)))
-			.ToList();
-		var recurringTask = ReadAllRecurringAsync(cancellationToken);
-		var serversTask = ReadLiveServersAsync(cancellationToken);
-		await Task.WhenAll(countTasks).WaitAsync(cancellationToken);
-		var recurring = await recurringTask;
-		var servers = await serversTask;
-		var counts = states
-			.Select((state, index) => KeyValuePair.Create(state, countTasks[index].Result))
-			.ToDictionary();
-		return new JobMonitoringSnapshot
+		while (true)
 		{
-			CapturedAt = _timeProvider.GetUtcNow(),
-			Counts = counts,
-			Recurring = [.. recurring.Select(static schedule => schedule.ToStatus())],
-			DefinitionStatuses = await ReadDefinitionStatusesAsync(cancellationToken),
-			Servers = servers,
-			Capabilities = this.GetCapabilities(),
-		};
+			cancellationToken.ThrowIfCancellationRequested();
+			var now = _timeProvider.GetUtcNow();
+			var snapshot = (RedisResult[])(await Database.ScriptEvaluateAsync(
+				RedisScripts.ReadMonitoring,
+				[DefinitionCatalogVersionKey, DefinitionMetadataKey, RecurringNamesKey, ServersKey, .. states.Select(StateKey)],
+				[_root, Score(now)]
+			).WaitAsync(cancellationToken))!;
+			var definitions = ReadDefinitionRecords(snapshot[1]);
+			var statuses = await ReadDefinitionStatusesAsync(definitions, (string)snapshot[0]!, cancellationToken);
+			// Limits are evaluated in C#; retry rather than apply stale limits to a changed catalogue.
+			if (statuses is null)
+				continue;
+
+			var counts = (RedisResult[])snapshot[4]!;
+			return new JobMonitoringSnapshot
+			{
+				CapturedAt = now,
+				Counts = states.Select((state, index) => KeyValuePair.Create(state, (long)counts[index])).ToDictionary(),
+				Recurring = [.. ReadRecurringRecords(snapshot[2]).Select(static schedule => schedule.ToStatus())],
+				DefinitionStatuses = statuses,
+				Servers = [.. ReadValues(snapshot[3]).Select(static value =>
+					JsonSerializer.Deserialize((string)value!, RedisJsonSerializerContext.Default.JobServerSnapshot)!)],
+				Capabilities = this.GetCapabilities(),
+			};
+		}
 	}
 
 	/// <inheritdoc />
@@ -95,8 +111,8 @@ internal sealed partial class RedisJobStorage
 		var take = Math.Min(query.Take, MaximumQueryTake);
 		if (!HasFilters(query))
 		{
-			var ids = await ReadJobHandlesByRankAsync(query.Skip, take, cancellationToken);
-			return await ReadJobsAsync(ids, cancellationToken);
+			var (_, jobs) = await ReadJobPageAsync(query.Skip, take, query, cancellationToken);
+			return jobs;
 		}
 
 		var matchLimit = (long)query.Skip + take;
@@ -106,11 +122,10 @@ internal sealed partial class RedisJobStorage
 		while (matched < matchLimit)
 		{
 			cancellationToken.ThrowIfCancellationRequested();
-			var ids = await ReadJobHandlesByRankAsync(rank, QueryWindowSize, cancellationToken);
-			if (ids.Count == 0)
+			var (scanned, jobs) = await ReadJobPageAsync(rank, QueryWindowSize, query, cancellationToken);
+			if (scanned == 0)
 				break;
 
-			var jobs = await ReadJobsAsync(ids, cancellationToken);
 			foreach (var job in jobs)
 			{
 				if (!MatchesQuery(job, query))
@@ -121,7 +136,9 @@ internal sealed partial class RedisJobStorage
 					break;
 			}
 
-			rank += ids.Count;
+			rank += scanned;
+			if (scanned < QueryWindowSize)
+				break;
 		}
 
 		return matches;
@@ -145,19 +162,12 @@ internal sealed partial class RedisJobStorage
 			JobState.Pending,
 			JobState.Active,
 		];
-		var members = await Task.WhenAll(states.Select(state => Database.SetMembersAsync(StateKey(state))))
-			.WaitAsync(cancellationToken);
-		var ids = members.SelectMany(static set => set)
-			.Select(static value => (string)value!)
-			.Distinct(StringComparer.Ordinal)
-			.ToList();
-		var jobs = await ReadJobsAsync(ids, cancellationToken);
-		return
-		[
-			.. jobs.Where(job => string.Equals(job.JobName, jobName, StringComparison.OrdinalIgnoreCase)
-				&& job.State is (JobState.AwaitingContinuation or JobState.WaitingForTrigger
-					or JobState.Scheduled or JobState.Pending or JobState.Active)),
-		];
+		var result = await Database.ScriptEvaluateAsync(
+			RedisScripts.ReadNonCompletedJobs,
+			[DefinitionMetadataKey, .. states.Select(StateKey)],
+			[_root, jobName.ToUpperInvariant()]
+		).WaitAsync(cancellationToken);
+		return [.. ReadJobRecords(result).Where(job => string.Equals(job.JobName, jobName, StringComparison.OrdinalIgnoreCase))];
 	}
 
 	/// <inheritdoc />
@@ -171,53 +181,20 @@ internal sealed partial class RedisJobStorage
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 
-		var job = await ReadJobAsync(jobHandle, cancellationToken);
-		if (job is null)
+		var response = (RedisResult[])(await Database.ScriptEvaluateAsync(
+			RedisScripts.ReadJobExecutions,
+			[JobKey(jobHandle), ExecutionIndexKey(jobHandle), ExecutionDataKey(jobHandle), DefinitionMetadataKey],
+			[_root, query.Skip, Math.Min(query.Take, MaximumQueryTake), query.Attempt is { } attempt ? (RedisValue)attempt : "",
+				.. ExecutionFieldNames.Select(static field => (RedisValue)field)]
+		).WaitAsync(cancellationToken))!;
+		if (response.Length == 0)
 			return [];
 
-		var synthetic = JobExecutionRecord.CreateSynthetic(job);
-		var syntheticMissing = synthetic is not null
-			&& (query.Attempt is null || query.Attempt == synthetic.Attempt)
-			&& !await Database.HashExistsAsync(
-				ExecutionDataKey(jobHandle),
-				ExecutionField(synthetic.Attempt, "state")
-			).WaitAsync(cancellationToken);
-		var skip = query.Skip;
-		var take = Math.Min(query.Take, MaximumQueryTake);
-		var result = new List<JobExecutionRecord>(take);
-		if (syntheticMissing && skip == 0)
-		{
-			result.Add(synthetic!);
-			take--;
-		}
-		else if (syntheticMissing)
-		{
-			skip--;
-		}
+		var result = new List<JobExecutionRecord>();
+		if ((long)response[1] == 1)
+			result.Add(JobExecutionRecord.CreateSynthetic(ToJobRecord(ReadValues(response[0])))!);
 
-		if (take == 0 || skip < 0)
-			return result;
-
-		RedisValue[] attempts;
-		if (query.Attempt is { } attempt)
-		{
-			var exists = await Database.HashExistsAsync(
-				ExecutionDataKey(jobHandle),
-				ExecutionField(attempt, "state")
-			).WaitAsync(cancellationToken);
-			attempts = exists && skip == 0 ? [attempt] : [];
-		}
-		else
-		{
-			attempts = await Database.SortedSetRangeByRankAsync(
-				ExecutionIndexKey(jobHandle),
-				skip,
-				skip + take - 1,
-				Order.Descending
-			).WaitAsync(cancellationToken);
-		}
-
-		result.AddRange(await ReadExecutionsAsync(jobHandle, attempts, cancellationToken));
+		result.AddRange(((RedisResult[])response[2]!).Select(item => ToExecutionRecord(jobHandle, ReadValues(item))));
 		return result;
 	}
 
@@ -252,114 +229,20 @@ internal sealed partial class RedisJobStorage
 			};
 	}
 
-	private async Task<IReadOnlyList<JobServerSnapshot>> ReadLiveServersAsync(CancellationToken cancellationToken)
-	{
-		var now = _timeProvider.GetUtcNow();
-		var stale = await Database.SortedSetRangeByScoreAsync(
-			ServersKey,
-			stop: Score(now),
-			exclude: Exclude.Stop
-		).WaitAsync(cancellationToken);
-		if (stale.Length != 0)
-			await Database.SortedSetRemoveAsync(ServersKey, stale).WaitAsync(cancellationToken);
-		var ids = await Database.SortedSetRangeByScoreAsync(
-			ServersKey,
-			start: Score(now)
-		).WaitAsync(cancellationToken);
-		var tasks = ids
-			.Select(id => Database.HashGetAsync(ServerKey((string)id!), ["last", "active", "max", "expires", "details"]))
-			.ToList();
-		await Task.WhenAll(tasks).WaitAsync(cancellationToken);
-		return
-		[
-			.. tasks
-				.Select((task, index) => (Id: (string)ids[index]!, Values: task.Result))
-				.Where(static server => !server.Values[4].IsNullOrEmpty)
-				.Select(static server => JsonSerializer.Deserialize((string)server.Values[4]!, RedisJsonSerializerContext.Default.JobServerSnapshot)!),
-		];
-	}
-
-	private async Task<IReadOnlyList<JobRecord>> ReadJobsAsync(
-		IReadOnlyList<string> ids,
-		CancellationToken cancellationToken
-	)
-	{
-		var records = await ReadJobsDataAsync(ids, cancellationToken);
-		var queues = await ReadDefinitionQueuesAsync(records.Select(static job => job.JobName), cancellationToken);
-		return [.. records.Select(job => job with { QueueName = queues[job.JobName] })];
-	}
-
-	private async Task<IReadOnlyList<JobRecord>> ReadJobsDataAsync(
-		IReadOnlyList<string> ids,
-		CancellationToken cancellationToken
-	)
-	{
-		var tasks = ids.Select(id => ReadJobDataAsync(new() { Value = id }, cancellationToken).AsTask()).ToList();
-		var jobs = await Task.WhenAll(tasks).WaitAsync(cancellationToken);
-		return [.. jobs.OfType<JobRecord>()];
-	}
-
-	private async Task<IReadOnlyList<JobExecutionRecord>> ReadExecutionsAsync(
-		JobHandle jobHandle,
-		RedisValue[] attempts,
-		CancellationToken cancellationToken
-	)
-	{
-		if (attempts.Length == 0)
-			return [];
-
-		var fields = new RedisValue[attempts.Length * ExecutionFieldNames.Length];
-		for (var index = 0; index < attempts.Length; index++)
-		{
-			var executionNumber = ParseInt32(attempts[index]);
-			for (var fieldIndex = 0; fieldIndex < ExecutionFieldNames.Length; fieldIndex++)
-			{
-				fields[(index * ExecutionFieldNames.Length) + fieldIndex] =
-					ExecutionField(executionNumber, ExecutionFieldNames[fieldIndex]);
-			}
-		}
-
-		var allValues = await Database.HashGetAsync(ExecutionDataKey(jobHandle), fields)
-			.WaitAsync(cancellationToken);
-
-		var executions = new List<JobExecutionRecord>(attempts.Length);
-		for (var index = 0; index < attempts.Length; index++)
-		{
-			var values = allValues.AsSpan(index * ExecutionFieldNames.Length, ExecutionFieldNames.Length);
-			if (values[0].IsNull)
-				continue;
-			executions.Add(new()
-			{
-				JobHandle = jobHandle,
-				Attempt = ParseInt32(attempts[index]),
-				State = (JobExecutionState)ParseInt32(values[0]),
-				WorkerId = NullIfEmpty(values[1]),
-				AcquiredAt = FromNullableTimestamp(values[2]),
-				ExecutionStartedAt = FromNullableTimestamp(values[3]),
-				CompletedAt = FromNullableTimestamp(values[4]),
-				ExecutionTraceId = NullIfEmpty(values[5]),
-				ExecutionSpanId = NullIfEmpty(values[6]),
-				Error = NullIfEmpty(values[7]),
-				IsSynthetic = values[8] == "1",
-			});
-		}
-
-		return executions;
-	}
-
-	private async Task<IReadOnlyList<string>> ReadJobHandlesByRankAsync(
+	private async Task<(long Scanned, IReadOnlyList<JobRecord> Jobs)> ReadJobPageAsync(
 		long start,
 		int count,
+		JobQuery query,
 		CancellationToken cancellationToken
 	)
 	{
-		var values = await Database.SortedSetRangeByRankAsync(
-			AllJobsKey,
-			start,
-			start + count - 1,
-			Order.Descending
-		).WaitAsync(cancellationToken);
-		return [.. values.Select(static value => (string)value!)];
+		var result = (RedisResult[])(await Database.ScriptEvaluateAsync(
+			RedisScripts.ReadJobPage,
+			[AllJobsKey, DefinitionMetadataKey],
+			[_root, start, start + count - 1, query.State is { } state ? (RedisValue)(int)state : "",
+				string.IsNullOrWhiteSpace(query.JobName) ? "" : query.JobName.ToUpperInvariant(), NullableTimestamp(query.CreatedBefore)]
+		).WaitAsync(cancellationToken))!;
+		return ((long)result[0], ReadJobRecords(result[1]));
 	}
 
 	private static bool HasFilters(JobQuery query) =>

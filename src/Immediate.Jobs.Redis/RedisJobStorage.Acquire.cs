@@ -83,20 +83,10 @@ internal sealed partial class RedisJobStorage
 
 			var result = await Database.ScriptEvaluateAsync(RedisScripts.Acquire, keys, [.. values]).WaitAsync(cancellationToken);
 			// Retry if a definition changed after its limits were read.
-			if ((RedisResult[]?)result is not { } valuesReturned)
+			if (result.IsNull)
 				continue;
 
-			var ids = new List<string>(valuesReturned.Length / 2);
-			var queues = new Dictionary<string, string>(StringComparer.Ordinal);
-			for (var index = 0; index < valuesReturned.Length; index += 2)
-			{
-				var id = (string)valuesReturned[index]!;
-				ids.Add(id);
-				queues[id] = (string)valuesReturned[index + 1]!;
-			}
-
-			var jobs = await ReadJobsDataAsync(ids, cancellationToken);
-			return [.. jobs.Select(job => job with { QueueName = queues[job.JobHandle.Value] })];
+			return ReadJobRecords(result);
 		}
 	}
 

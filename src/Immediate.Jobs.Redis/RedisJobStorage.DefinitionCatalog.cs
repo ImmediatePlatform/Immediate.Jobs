@@ -17,9 +17,10 @@ internal sealed partial class RedisJobStorage
 		while (true)
 		{
 			cancellationToken.ThrowIfCancellationRequested();
-			var version = await Database.StringGetAsync(DefinitionCatalogVersionKey).WaitAsync(cancellationToken);
-			var definitions = await GetJobDefinitionsAsync(cancellationToken);
-			var schedules = await ReadAllRecurringAsync(cancellationToken);
+			var snapshot = await ReadDefinitionCatalogAsync(cancellationToken);
+			var version = (string)snapshot[0]!;
+			var definitions = ReadDefinitionRecords(snapshot[1]);
+			var schedules = ReadRecurringRecords(snapshot[2]);
 			var changes = JobDefinitionReconciliation.Create(registration, definitions, schedules);
 			var payload = new RedisDefinitionCatalogChanges
 			{
@@ -47,7 +48,7 @@ internal sealed partial class RedisJobStorage
 			var now = _timeProvider.GetUtcNow();
 			var result = await Database.ScriptEvaluateAsync(RedisScripts.MergeDefinitionCatalog,
 				[DefinitionMetadataKey, DefinitionCatalogVersionKey, RecurringNamesKey, RecurringDueKey],
-				[version.IsNull ? "0" : version, _root, JsonSerializer.Serialize(payload, RedisJsonSerializerContext.Default.RedisDefinitionCatalogChanges),
+				[version, _root, JsonSerializer.Serialize(payload, RedisJsonSerializerContext.Default.RedisDefinitionCatalogChanges),
 					Timestamp(now), Score(now), JobDefinitionReconciliation.RemovalCancellationReason]).WaitAsync(cancellationToken);
 			if (!result.IsNull)
 			{
@@ -69,10 +70,22 @@ internal sealed partial class RedisJobStorage
 		GetJobDefinitionsAsyncCalled();
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
-		var metadata = await Database.HashGetAllAsync(DefinitionMetadataKey).WaitAsync(cancellationToken);
-		return [.. metadata.Select(static entry => JsonSerializer.Deserialize((string)entry.Value!, RedisJsonSerializerContext.Default.JobDefinitionRecord)!)
-			.OrderBy(static definition => definition.Name, StringComparer.OrdinalIgnoreCase)];
+		var metadata = await Database.HashValuesAsync(DefinitionMetadataKey).WaitAsync(cancellationToken);
+		return ReadDefinitionRecords(metadata);
 	}
+
+	private async Task<RedisResult[]> ReadDefinitionCatalogAsync(CancellationToken cancellationToken) =>
+		(RedisResult[])(await Database.ScriptEvaluateAsync(
+			RedisScripts.ReadDefinitionCatalog, [DefinitionCatalogVersionKey, DefinitionMetadataKey, RecurringNamesKey], [_root]
+		).WaitAsync(cancellationToken))!;
+
+	private static IReadOnlyList<JobDefinitionRecord> ReadDefinitionRecords(RedisResult result) =>
+		ReadDefinitionRecords(ReadValues(result));
+
+	private static IReadOnlyList<JobDefinitionRecord> ReadDefinitionRecords(RedisValue[] metadata) =>
+		[.. metadata.Select(static value => JsonSerializer.Deserialize(
+			(string)value!, RedisJsonSerializerContext.Default.JobDefinitionRecord)!)
+			.OrderBy(static definition => definition.Name, StringComparer.OrdinalIgnoreCase)];
 
 	[LoggerMessage(
 		EventId = LibraryEventIds.DefinitionRemoved,
