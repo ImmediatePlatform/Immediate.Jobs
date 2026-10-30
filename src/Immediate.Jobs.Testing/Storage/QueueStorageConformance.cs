@@ -481,7 +481,7 @@ internal static class QueueStorageConformance
 		var olderPage = await storage.QueryJobExecutionsAsync(second.JobHandle, new() { Skip = 1, Take = 1 }, cancellationToken);
 		ConformanceAssert.Equal(1, olderPage.Single().Attempt, FailureName, "execution-history skip/take paging must visit the older attempt");
 
-		var exactAttempt = await storage.QueryJobExecutionsAsync(second.JobHandle, new() { Attempt = 1 }, cancellationToken);
+		var exactAttempt = await storage.QueryJobExecutionsAsync(second.JobHandle, new() { Attempt = 1, Take = 1 }, cancellationToken);
 		ConformanceAssert.Equal(1, exactAttempt.Single().Attempt, FailureName, "execution-history exact-attempt filtering must return only that attempt");
 
 		await storage.RetryAsync(second.JobHandle, cancellationToken);

@@ -1,4 +1,5 @@
 using DotNet.Testcontainers.Containers;
+using Immediate.Jobs.LinqToDB;
 using Immediate.Jobs.Shared.Apis;
 using Immediate.Jobs.Shared.Storage;
 using LinqToDB.Data;
@@ -155,6 +156,18 @@ public abstract class LinqToDBCommandTests(ConformanceDatabase database, IDataba
 		var filtered = await storage.QueryJobExecutionsAsync(job.JobHandle, new() { Attempt = second.Attempt }, CancellationToken);
 		Assert.Single(commands);
 		Assert.Equal(second.Attempt, Assert.Single(filtered).Attempt);
+	}
+
+	[Fact]
+	public async Task SchemaBootstrapCanBeRepeatedWithExistingRows()
+	{
+		var commands = new List<string>();
+		var job = CreateJob("bootstrap-existing");
+		await using var fixture = await CreateFixtureAsync(commands, [job]);
+		await using (var connection = new DataConnection(fixture.DataOptions))
+			await connection.CreateImmediateJobsSchemaAsync(fixture.Schema, CancellationToken);
+		var storage = fixture.Services.GetRequiredService<IJobStorage>();
+		Assert.Equal(job.JobHandle, Assert.Single(await storage.QueryJobsAsync(new(), CancellationToken)).JobHandle);
 	}
 
 	[Fact]

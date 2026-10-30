@@ -4,6 +4,7 @@ This review covers every public method on `LinqToDBJobStorage`, including the te
 Budgets count executed database commands, not network packets. Connection setup, transactions,
 failed attempts, diagnostic queries and concurrency retries can add work. They describe the
 implementation, not an API guarantee. Bulk inserts can split further at provider statement limits.
+See the [index and execution-plan guide](linq2db-indexes.md) for the database work within those commands.
 
 ## Architectural choices
 

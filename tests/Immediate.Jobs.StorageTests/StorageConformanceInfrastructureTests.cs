@@ -174,6 +174,7 @@ public sealed class StorageConformanceInfrastructureTests
 		"Definitions.Removal.SettlesCancelledDependenciesAndBatchCounts",
 		"Graph.Batches.CommitsAndProjectsAtomically",
 		"Graph.Batches.LoadsExistingGraphWithDependencyMetadata",
+		"Graph.Batches.PagesTiedTimestampsWithFilters",
 		"Graph.Batches.RollbackInvalidBatchWithoutPartialWrites",
 		"Graph.Capability.ResolvesAdvertisedStorage",
 		"Graph.Dependencies.AppliesDelayFromParentSettlement",

@@ -28,6 +28,7 @@ internal static partial class GraphStorageConformance
 		new(RoutingName, StorageCapabilities.Graph, ResolvesQueuesAtomicallyAsync),
 		new(CapabilityName, StorageCapabilities.Graph, ResolvesAdvertisedStorage),
 		new(BatchLifecycleName, StorageCapabilities.Graph, BatchLifecycleAsync),
+		new(PagingName, StorageCapabilities.Graph, PagesTiedTimestampsAsync, PagingJobState()),
 		new(ExistingGraphName, StorageCapabilities.Graph, LoadsExistingGraphAsync, ExistingGraphJobState()),
 		new(InvalidBatchName, StorageCapabilities.Graph, InvalidBatchRollsBackAsync),
 		new(TriggerName, StorageCapabilities.Graph, ConditionalTriggersAsync),

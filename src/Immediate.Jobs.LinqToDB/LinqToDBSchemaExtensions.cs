@@ -256,9 +256,11 @@ public static class LinqToDBSchemaExtensions
 			("IX_immediate_jobs_JobName_State_LeaseExpiresAt", "immediate_jobs", "JobName, State, LeaseExpiresAt", false),
 			("IX_immediate_job_batches_State_CompletedAt", "immediate_job_batches", "State, CompletedAt", false),
 			("IX_immediate_jobs_RecurringKey", "immediate_jobs", "RecurringKey", true),
-			("IX_immediate_jobs_BatchHandle", "immediate_jobs", "BatchHandle", false),
+			("IX_immediate_jobs_BatchHandle_CreatedAt_Id", "immediate_jobs", "BatchHandle, CreatedAt, Id", false),
+			("IX_immediate_jobs_CreatedAt_Id", "immediate_jobs", "CreatedAt DESC, Id", false),
+			("IX_immediate_job_batches_CreatedAt_Id", "immediate_job_batches", "CreatedAt DESC, Id", false),
 			("IX_immediate_jobs_State_DueAt", "immediate_jobs", "State, DueAt", false),
-			("IX_immediate_jobs_State_CreatedAt", "immediate_jobs", "State, CreatedAt", false),
+			("IX_immediate_jobs_State_CreatedAt_Id", "immediate_jobs", "State, CreatedAt DESC, Id", false),
 			("IX_immediate_jobs_JobName_State_DueAt_CreatedAt", "immediate_jobs", "JobName, State, DueAt, CreatedAt", false),
 			("IX_immediate_jobs_JobName_State_GroupId", "immediate_jobs", "JobName, State, GroupId", false),
 			("IX_immediate_job_continuations_ParentKind_ParentId", "immediate_job_continuations", "ParentKind, ParentId", false),
@@ -270,6 +272,21 @@ public static class LinqToDBSchemaExtensions
 		{
 			var sql = CreateIndexSql(provider, schema, name, table, columns, unique);
 			await connection.ExecuteAsync(sql, cancellationToken);
+		}
+
+		if (provider.Contains("SQLite", StringComparison.OrdinalIgnoreCase))
+		{
+			// LinqToDB normalizes DateTimeOffset comparisons through this expression. A plain
+			// LeaseExpiresAt key cannot supply the range seek, including for non-UTC offsets.
+			await connection.ExecuteAsync("""
+				CREATE INDEX IF NOT EXISTS "IX_immediate_jobs_JobName_State_LeaseExpiresAtUtc"
+				ON "immediate_jobs" ("JobName", "State", strftime('%Y-%m-%d %H:%M:%f', "LeaseExpiresAt"))
+				""", cancellationToken);
+			// Metadata names use NOCASE, while the counter primary key is case-sensitive.
+			await connection.ExecuteAsync("""
+				CREATE INDEX IF NOT EXISTS "IX_immediate_job_definitions_JobName_NoCase"
+				ON "immediate_job_definitions" ("JobName" COLLATE NOCASE)
+				""", cancellationToken);
 		}
 	}
 
@@ -287,22 +304,27 @@ public static class LinqToDBSchemaExtensions
 		{
 			var qualified = schema is null ? $"[dbo].[{table}]" : $"[{schema}].[{table}]";
 			var filter = string.Equals(name, "IX_immediate_jobs_RecurringKey", StringComparison.Ordinal) ? " WHERE [RecurringKey] IS NOT NULL" : string.Empty;
-			return $"IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'{name}' AND object_id = OBJECT_ID(N'{qualified}')) CREATE {uniqueness}INDEX [{name}] ON {qualified} ({string.Join(", ", columns.Split(", ").Select(static column => $"[{column}]"))}){filter}";
+			return $"IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'{name}' AND object_id = OBJECT_ID(N'{qualified}')) CREATE {uniqueness}INDEX [{name}] ON {qualified} ({QuoteColumns(columns, '[', ']')}){filter}";
 		}
 
 		if (provider.Contains("PostgreSQL", StringComparison.OrdinalIgnoreCase))
 		{
 			var qualified = schema is null ? $"\"{table}\"" : $"\"{schema}\".\"{table}\"";
-			var quotedColumns = string.Join(", ", columns.Split(", ").Select(static column => $"\"{column}\""));
+			var quotedColumns = QuoteColumns(columns, '"', '"');
 			return $"CREATE {uniqueness}INDEX IF NOT EXISTS \"{name}\" ON {qualified} ({quotedColumns})";
 		}
 
 		if (provider.Contains("SQLite", StringComparison.OrdinalIgnoreCase))
 		{
-			var quotedColumns = string.Join(", ", columns.Split(", ").Select(static column => $"\"{column}\""));
+			var quotedColumns = QuoteColumns(columns, '"', '"');
 			return $"CREATE {uniqueness}INDEX IF NOT EXISTS \"{name}\" ON \"{table}\" ({quotedColumns})";
 		}
 
 		throw new NotSupportedException($"Immediate.Jobs schema bootstrap does not support provider '{provider}'.");
 	}
+
+	private static string QuoteColumns(string columns, char openQuote, char closeQuote) =>
+		string.Join(", ", columns.Split(", ").Select(column => column.EndsWith(" DESC", StringComparison.Ordinal)
+			? $"{openQuote}{column[..^5]}{closeQuote} DESC"
+			: $"{openQuote}{column}{closeQuote}"));
 }

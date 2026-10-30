@@ -187,11 +187,15 @@ internal sealed partial class LinqToDBJobStorage<T>
 #pragma warning restore CA1304, CA1311, CA1862, MA0011
 		}
 
-		var entities = await jobs.OrderByDescending(job => job.CreatedAt)
-			.ThenBy(job => job.Id)
-			.Skip(query.Skip)
-			.Take(query.Take)
-			.ToListAsync(cancellationToken);
+		// Page narrow keys before fetching payloads, so skipped rows need no table lookups.
+		var page = jobs.OrderByDescending(job => job.CreatedAt).ThenBy(job => job.Id)
+			.Skip(query.Skip).Take(query.Take).Select(job => job.Id);
+		var entities = await (
+			from pageId in page
+			join job in JobsWithDefinitions(connection) on pageId equals job.Id
+			orderby job.CreatedAt descending, job.Id
+			select job
+		).ToListAsync(cancellationToken);
 		return [.. entities.Select(ToRecord)];
 	}
 
@@ -251,8 +255,11 @@ internal sealed partial class LinqToDBJobStorage<T>
 				execution.Error,
 				execution.IsSynthetic,
 			});
-		var synthetic = jobs.Where(job => job.Attempt > 0 && !Executions(connection)
-			.Any(execution => execution.JobHandle == job.Id && execution.Attempt == job.Attempt))
+		// A scalar lookup keeps SQL Server's latest-attempt probe correlated to both
+		// primary-key columns instead of scanning a job's entire history for an anti join.
+		var synthetic = jobs.Where(job => job.Attempt > 0 && Executions(connection)
+			.Where(execution => execution.JobHandle == job.Id && execution.Attempt == job.Attempt)
+			.Select(execution => (int?)execution.Attempt).FirstOrDefault() == null)
 			.Select(job => new
 			{
 				JobHandle = job.Id,
@@ -270,9 +277,17 @@ internal sealed partial class LinqToDBJobStorage<T>
 				Error = job.State == JobState.Failed || ((job.State == JobState.Pending || job.State == JobState.Scheduled) && job.LastError != null) ? job.LastError : null,
 				IsSynthetic = true,
 			});
-		var executions = persisted.Concat(synthetic);
 		if (query.Attempt is { } attempt)
-			executions = executions.Where(execution => execution.Attempt == attempt);
+		{
+			persisted = persisted.Where(execution => execution.Attempt == attempt);
+			synthetic = synthetic.Where(execution => execution.Attempt == attempt);
+		}
+
+		// At most one synthetic attempt joins the persisted page. Bound the persisted
+		// branch first so its primary key supplies the order without sorting all history.
+		var pageEnd = (int)Math.Min(int.MaxValue, (long)query.Skip + query.Take);
+		var executions = persisted.OrderByDescending(execution => execution.Attempt)
+			.Take(pageEnd).Concat(synthetic);
 		var result = await executions.OrderByDescending(execution => execution.Attempt)
 			.Skip(query.Skip).Take(query.Take).ToListAsync(cancellationToken);
 		return [.. result.Select(static execution => new JobExecutionRecord
@@ -322,11 +337,14 @@ internal sealed partial class LinqToDBJobStorage<T>
 		IQueryable<ImmediateJobBatchEntity> batches = Batches(connection);
 		if (query.State is { } state)
 			batches = batches.Where(batch => batch.State == state);
-		var entities = await batches.OrderByDescending(batch => batch.CreatedAt)
-			.ThenBy(batch => batch.Id)
-			.Skip(query.Skip)
-			.Take(query.Take)
-			.ToListAsync(cancellationToken);
+		var page = batches.OrderByDescending(batch => batch.CreatedAt).ThenBy(batch => batch.Id)
+			.Skip(query.Skip).Take(query.Take).Select(batch => batch.Id);
+		var entities = await (
+			from pageId in page
+			join batch in Batches(connection) on pageId equals batch.Id
+			orderby batch.CreatedAt descending, batch.Id
+			select batch
+		).ToListAsync(cancellationToken);
 		return [.. entities.Select(ToStatus)];
 	}
 
@@ -343,15 +361,17 @@ internal sealed partial class LinqToDBJobStorage<T>
 
 		await using var scope = contextScope.GetScope(out var connection);
 
-		var jobs = JobsWithDefinitions(connection).Where(job => job.BatchHandle == batchHandle.Value);
+		var jobs = Jobs(connection).Where(job => job.BatchHandle == batchHandle.Value);
 		if (query.State is { } state)
 			jobs = jobs.Where(job => job.State == state);
 
-		return await jobs.OrderBy(job => job.CreatedAt)
-			.ThenBy(job => job.Id)
-			.Skip(query.Skip)
-			.Take(query.Take)
-			.Select(job => new BatchMemberStatus
+		var page = jobs.OrderBy(job => job.CreatedAt).ThenBy(job => job.Id)
+			.Skip(query.Skip).Take(query.Take).Select(job => job.Id);
+		return await (
+			from pageId in page
+			join job in JobsWithDefinitions(connection) on pageId equals job.Id
+			orderby job.CreatedAt, job.Id
+			select new BatchMemberStatus
 			{
 				JobHandle = JobHandle.FromString(job.Id),
 				JobName = job.JobName,
@@ -362,8 +382,8 @@ internal sealed partial class LinqToDBJobStorage<T>
 				CreatedAt = job.CreatedAt,
 				CompletedAt = job.CompletedAt,
 				LastError = job.LastError,
-			})
-			.ToListAsync(cancellationToken);
+			}
+		).ToListAsync(cancellationToken);
 	}
 
 	/// <inheritdoc />
