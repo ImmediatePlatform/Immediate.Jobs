@@ -14,7 +14,7 @@ add no keys or persisted fields and require no schema conversion.
 
 | Public method | Client commands and boundary |
 |---|---|
-| `AcquireDueJobsAsync` | Two sequential commands per attempt: one metadata `HMGET`, then one claim script. Zero for an empty set of requested job names. The claim script returns records, current queues, and mutable fields directly. Catalogue contention repeats the attempt. |
+| `AcquireDueJobsAsync` | One claim script with warm definition metadata. A cold/incomplete cache adds one `HMGET`. A stale snapshot adds a rejected script and metadata refresh before retrying. Zero for an empty set of requested job names. The claim script returns the claimed records directly. |
 | `RenewLeaseAsync` | One ownership-fenced script. |
 | `SetExecutionTelemetryAsync` | One ownership-fenced script, including legacy history materialization. |
 | `CompleteAsync` | One script for job state, execution history, ownership, and scheduling/fairness indexes. |
@@ -27,10 +27,23 @@ claim. Returning the records from the script removes that entire dependent stage
 concurrent cancellation or lease reclamation from replacing the returned claim snapshot. Ordinary
 acquisition skips the full definition-catalogue read used for fair ranking.
 
-Definition limits still need .NET time calculations and a metadata recheck inside the claim script.
-No definition, eligibility, ownership, or fairness cache survives the public call. Candidate selection,
-lease reclamation, and fair ranking within the script retain their existing collection-sized costs;
-a smaller network budget does not make that server work constant-time.
+Parsed definition metadata and limits are cached per storage instance. Successful local catalogue
+reconciliation primes this cache; missing definitions are never cached. Every acquisition/control
+script compares the exact serialized metadata before changing state. A peer update therefore causes
+a refresh and retry, while pause state, time windows, ownership, and eligibility remain authoritative
+in Redis. Enqueue also checks the metadata and falls back to server-side canonicalization on a miss.
+
+Candidate heads and empty indexes are cached only within one atomic claim script. Claims invalidate
+the selected head; definition-limit changes are reevaluated before another candidate can be selected.
+Active counts are checked against authoritative job state once per definition in the script and
+incremented for its new unexpired claims. Unlimited definitions need no per-claim status reevaluation.
+Fair ranking still considers current inflight counts, cursor turns, and all group heads after each
+claim. No invocation, ownership, eligibility, or fairness cache survives the script.
+
+Sliding-window evaluation prunes expired entries, counts with `ZCARD`, and reads only the blocking
+rank when limited. It does not materialize the entire retained log for each claim. Lease reclamation
+and fair inflight discovery retain their collection-sized costs; a smaller network budget does not
+make that server work constant-time.
 
 ## Queries and monitoring
 
@@ -42,13 +55,16 @@ a smaller network budget does not make that server work constant-time.
 | `QueryJobsAsync` | One script for an exact handle or an unfiltered page of up to 1,000 records. Filtered queries use one script per window of up to 256 candidates until enough matches or the end of the index. |
 | `QueryNonCompletedJobsAsync` | One script unions nonterminal state indexes, checks current state/name, and returns matching records with current definition queues. |
 | `QueryJobExecutionsAsync` | One script checks the job, merges an absent latest legacy attempt into paging, selects attempts, and reads their fields. Synthetic record construction stays in C#. Missing jobs require no extra diagnostic read. |
-| `GetJobStatusAsync` | One job/definition read script. It currently reads the complete record, including payload/context. |
+| `GetJobStatusAsync` | One job/definition read script. The serialized record is fetched, but only its header is deserialized; payload and context strings are skipped. |
 
 Job pages previously needed an index read, one pipelined hash read per job, and a final definition
 metadata read. A single script now projects each window and resolves its queues with a script-local
 cache. State, exact normalized name, and precise creation-time predicates run before record
-projection. Remaining string predicates and final matching run in C# to retain ordinal and
-ordinal-ignore-case behavior. Paging counts matches, not candidates; empty windows do not end a
+projection. Unfiltered pages skip that preliminary hash read, and record projection obtains its
+normalized definition name in the same `HMGET` as mutable fields. Acquisitions supply their already
+verified queue directly. Remaining string predicates and final matching run in C# to retain ordinal
+and ordinal-ignore-case behavior. JSON deserialization consumes Redis UTF-8 bytes directly instead
+of creating intermediate UTF-16 JSON strings. Paging counts matches, not candidates; empty windows do not end a
 selective query.
 
 Filtered queries still scan the global creation index. No new definition-job index is introduced.
@@ -70,10 +86,10 @@ atomic snapshot of job counts and acquisition counters.
 |---|---|
 | `MergeJobDefinitionsListAsync` | Two per attempt: a version/definition/schedule snapshot, then the version-guarded reconciliation script. Contention recomputes from a new snapshot. |
 | `PauseJobAsync` | One guarded script. |
-| `ResumeJobAsync` | Two per attempt: definition metadata and a metadata-guarded state evaluation script. |
-| `GetJobAcquisitionStateAsync` | The same two commands without changing pause state. |
-| `EnqueueAsync` | One script canonicalizes the supplied definition name and inserts the invocation and indexes. |
-| `UpdatePayloadAsync` | Two per attempt, at most five attempts: a validation projection and a record/state-guarded update script. |
+| `ResumeJobAsync` | One metadata-guarded state evaluation script with warm configuration; a cold cache adds a metadata read, and a rejected snapshot adds a refresh/retry. |
+| `GetJobAcquisitionStateAsync` | The same guarded configuration-cache path without changing pause state. |
+| `EnqueueAsync` | One script checks definition metadata and inserts the invocation and indexes. Matching cached metadata permits storing an already canonicalized record without a Lua JSON rewrite; misses use the server-side canonicalizer. |
+| `UpdatePayloadAsync` | One script validates identity and waiting state and replaces the opaque payload in the serialized record atomically. |
 | `TryTriggerAsync` | One script validates the target and releases waiting work with its due/state/fairness indexes. |
 
 Catalogue snapshots previously read the version, definitions, recurring names, and schedule hashes
@@ -81,10 +97,13 @@ in separate stages. Reading them together avoids inconsistent inputs and per-sch
 Reconciliation still scans jobs/schedules when removing definitions and maintains cursors within its
 atomic commit script. That work is not bounded by the network command count.
 
-Payload updates deliberately retain the C# ordinal-ignore-case validation and JSON rewrite, rather
-than introducing another persisted payload field or implementing .NET comparison behavior in Lua.
-The guarded update prevents a concurrent trigger or parameter edit from being overwritten. Opaque
-payload and context strings are preserved by all record projections.
+Payload updates normalize the expected name in C# using the existing ordinal-ignore-case key
+normalizer, preserving the ASCII/non-ASCII distinction even when invariant uppercase maps a Unicode
+character to ASCII. Lua compares that value with the stored normalized job name and checks waiting
+state before changing the record. This removes the read/compare-and-swap retry loop without adding a
+persisted payload field. Payload and context remain opaque strings, including nested JSON numbers
+and escape sequences. Persisted execution-history reads fetch the full job record only when a
+synthetic latest execution must actually be returned.
 
 ## Recurring schedules and lifecycle
 

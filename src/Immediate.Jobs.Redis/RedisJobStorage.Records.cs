@@ -10,7 +10,7 @@ internal sealed partial class RedisJobStorage
 	private static JobRecord ToJobRecord(RedisValue[] values)
 	{
 		var job = JsonSerializer.Deserialize(
-			(string)values[0]!, RedisJsonSerializerContext.Default.JobRecord
+			(byte[])values[0]!, RedisJsonSerializerContext.Default.JobRecord
 		) ?? throw new ImmediateJobException("Job record contains invalid data.");
 		return job with
 		{
@@ -31,15 +31,20 @@ internal sealed partial class RedisJobStorage
 
 	private async ValueTask<JobRecord?> ReadJobAsync(JobHandle id, CancellationToken cancellationToken)
 	{
-		var result = await Database.ScriptEvaluateAsync(
+		var values = await ReadJobValuesAsync(id, cancellationToken);
+		return values is null ? null : ToJobRecord(values);
+	}
+
+	private async ValueTask<RedisValue[]?> ReadJobValuesAsync(JobHandle id, CancellationToken cancellationToken)
+	{
+		var result = (RedisResult[])(await Database.ScriptEvaluateAsync(
 			RedisScripts.ReadJobs, [DefinitionMetadataKey, JobKey(id)], [_root]
-		).WaitAsync(cancellationToken);
-		var jobs = ReadJobRecords(result);
-		return jobs.Count == 0 ? null : jobs[0];
+		).WaitAsync(cancellationToken))!;
+		return result.Length == 0 ? null : ReadValues(result[0]);
 	}
 
 	private static RedisValue[] ReadValues(RedisResult result) =>
-		[.. ((RedisResult[])result!).Select(static value => (RedisValue)(string?)value)];
+		[.. ((RedisResult[])result!).Select(static value => (RedisValue)(byte[]?)value)];
 
 	private static IReadOnlyList<JobRecord> ReadJobRecords(RedisResult result) =>
 		[.. ((RedisResult[])result!).Select(static values => ToJobRecord(ReadValues(values)))];
@@ -54,4 +59,12 @@ internal sealed partial class RedisJobStorage
 		int.Parse((string)value!, NumberStyles.Integer, CultureInfo.InvariantCulture);
 
 	private static string? NullIfEmpty(RedisValue value) => value.IsNullOrEmpty ? null : (string)value!;
+}
+
+internal sealed record RedisJobHeader
+{
+	public required JobHandle JobHandle { get; init; }
+	public required string JobName { get; init; }
+	public required DateTimeOffset CreatedAt { get; init; }
+	public string? CancellationReason { get; init; }
 }

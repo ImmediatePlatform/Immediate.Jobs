@@ -206,6 +206,12 @@ scan candidate windows; Lua projects only state/name/time matches, while C# reta
 ordinal string comparison semantics. See [Redis command budgets](redis-command-budgets.md) for the
 public-method review, pipeline boundaries, and remaining collection-sized work.
 
+Cache parsed Redis definition configuration only with an exact metadata check in the consuming
+script. A stale snapshot must refresh before acquisition or controls can mutate state; missing
+metadata must remain visible to later registration. Keep candidate-head and active-count caches
+inside a single atomic acquisition script and update them after claims. Neither cache may hide a
+pause, ownership change, or a peer's changed acquisition limits.
+
 ## Adding or changing a storage member
 
 1. Define the operation and exceptions on `IJobStorage` or `IJobGraphStorage`.

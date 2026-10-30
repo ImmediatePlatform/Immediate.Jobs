@@ -1,4 +1,3 @@
-using System.Text.Json;
 using Microsoft.Extensions.Logging;
 
 namespace Immediate.Jobs.Redis;
@@ -17,29 +16,18 @@ internal sealed partial class RedisJobStorage
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 
-		for (var attempt = 0; attempt < MaxConcurrencyAttempts; attempt++)
-		{
-			var values = await Database.HashGetAsync(JobKey(jobHandle), ["record", "state", "jobName"])
-				.WaitAsync(cancellationToken);
-			if (values[0].IsNull)
-				throw new KeyNotFoundException($"Job '{jobHandle}' was not found.");
-			if (!string.Equals(values[2], expectedJobName, StringComparison.OrdinalIgnoreCase))
-				throw new ImmediateJobException($"Job '{jobHandle}' is not a '{expectedJobName}' job.");
-			if ((int)values[1] != (int)JobState.WaitingForTrigger)
-				throw new ImmediateJobException($"Job '{jobHandle}' is not waiting for a trigger.");
-
-			var record = JsonSerializer.Deserialize((string)values[0]!, RedisJsonSerializerContext.Default.JobRecord)!;
-			var result = await EvaluateInt64Async(
-				RedisScripts.UpdatePayload,
-				[JobKey(jobHandle)],
-				[values[0], JsonSerializer.Serialize(record with { Payload = payload }, RedisJsonSerializerContext.Default.JobRecord)],
-				cancellationToken
-			);
-			if (result == 1)
-				return;
-		}
-
-		throw new ImmediateJobException($"Job '{jobHandle}' was changed concurrently while its parameters were being updated.");
+		var result = await EvaluateInt64Async(
+			RedisScripts.UpdatePayload,
+			[JobKey(jobHandle)],
+			[NormalizeOrdinalIgnoreCase(expectedJobName), payload],
+			cancellationToken
+		);
+		if (result == 0)
+			throw new KeyNotFoundException($"Job '{jobHandle}' was not found.");
+		if (result == -1)
+			throw new ImmediateJobException($"Job '{jobHandle}' is not a '{expectedJobName}' job.");
+		if (result == -2)
+			throw new ImmediateJobException($"Job '{jobHandle}' is not waiting for a trigger.");
 	}
 
 	/// <inheritdoc />
@@ -85,6 +73,4 @@ internal sealed partial class RedisJobStorage
 		Message = "TryTriggerAsync called (JobHandle={JobHandle})"
 	)]
 	private partial void TryTriggerAsyncCalled(JobHandle jobHandle);
-
-	private const int MaxConcurrencyAttempts = 5;
 }

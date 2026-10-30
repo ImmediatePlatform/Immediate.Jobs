@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Diagnostics.CodeAnalysis;
 using System.Text.Json;
 using Immediate.Jobs.Shared.Apis;
@@ -32,6 +33,9 @@ internal sealed partial class RedisJobStorage(
 	private readonly TimeProvider _timeProvider = timeProvider;
 
 	private readonly string _root = $"{{{options.Value.KeyPrefix}}}:";
+
+	// Configuration only. Every script using a snapshot compares its serialized metadata before any mutation.
+	private readonly ConcurrentDictionary<string, DefinitionSnapshot> _definitionSnapshots = new(StringComparer.Ordinal);
 
 	private IDatabase Database => _connection.GetDatabase(_storageOptions.Database);
 

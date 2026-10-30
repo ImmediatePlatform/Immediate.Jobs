@@ -26,7 +26,7 @@ internal sealed partial class RedisJobStorage
 				schedule.IsPaused ? 1 : 0,
 				Timestamp(schedule.NextRunAt),
 				NullableTimestamp(schedule.LastRunAt),
-				NormalizeRecurringName(schedule.Name),
+				NormalizeOrdinalIgnoreCase(schedule.Name),
 				Score(schedule.NextRunAt),
 				RecurringDueMember(schedule.NextRunAt, schedule.Name),
 				schedule.Cron,
@@ -54,7 +54,7 @@ internal sealed partial class RedisJobStorage
 		var result = await EvaluateInt64Async(
 			RedisScripts.RemoveRecurring,
 			[RecurringKey(name), RecurringNamesKey, RecurringDueKey],
-			[NormalizeRecurringName(name), _root],
+			[NormalizeOrdinalIgnoreCase(name), _root],
 			cancellationToken
 		);
 		if (result == 0)
@@ -173,7 +173,7 @@ internal sealed partial class RedisJobStorage
 	private static RecurringJobSchedule ToRecurringRecord(RedisValue[] values)
 	{
 		var schedule = JsonSerializer.Deserialize(
-			(string)values[0]!, RedisJsonSerializerContext.Default.RecurringJobSchedule
+			(byte[])values[0]!, RedisJsonSerializerContext.Default.RecurringJobSchedule
 		) ?? throw new ImmediateJobException("Recurring schedule contains invalid data.");
 		return schedule with
 		{
@@ -210,7 +210,7 @@ internal sealed partial class RedisJobStorage
 		Score(job.CreatedAt),
 		Timestamp(nextRunAt),
 		Score(nextRunAt),
-		NormalizeRecurringName(schedule.Name),
+		NormalizeOrdinalIgnoreCase(schedule.Name),
 		Timestamp(job.CreatedAt),
 		job.CompletedAt is { } completedAt ? Score(completedAt) : 0,
 		Score(now),
@@ -232,7 +232,7 @@ internal sealed partial class RedisJobStorage
 			throw new ImmediateJobException($"Terminal recurring job '{job.JobHandle}' must have a completion time.");
 	}
 
-	private static string RecurringDueMember(DateTimeOffset nextRunAt, string name) => $"{Timestamp(nextRunAt)}|{NormalizeRecurringName(name)}";
+	private static string RecurringDueMember(DateTimeOffset nextRunAt, string name) => $"{Timestamp(nextRunAt)}|{NormalizeOrdinalIgnoreCase(name)}";
 
 	[LoggerMessage(
 		EventId = LibraryEventIds.UpsertRecurringAsyncCalled,
