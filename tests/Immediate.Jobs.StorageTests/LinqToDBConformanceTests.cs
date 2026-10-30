@@ -121,6 +121,15 @@ internal sealed class LinqToDBConformanceFixture(
 	];
 
 	internal IServiceProvider Services => services;
+	internal string ConnectionString => connectionString;
+	internal string? Schema => schema;
+	internal DataOptions DataOptions => database switch
+	{
+		ConformanceDatabase.Sqlite => new DataOptions().UseSQLite(connectionString),
+		ConformanceDatabase.PostgreSql => new DataOptions().UsePostgreSQL(connectionString),
+		ConformanceDatabase.SqlServer => new DataOptions().UseSqlServer(connectionString),
+		_ => throw new ArgumentOutOfRangeException(nameof(database)),
+	};
 
 	internal static async ValueTask<LinqToDBConformanceFixture> CreateAsync(
 		ConformanceDatabase database,
