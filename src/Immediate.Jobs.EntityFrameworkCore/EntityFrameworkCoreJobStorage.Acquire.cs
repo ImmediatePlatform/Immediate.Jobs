@@ -1,3 +1,4 @@
+using System.Linq.Expressions;
 using System.Data.Common;
 using Immediate.Jobs.Shared.Apis;
 using Immediate.Jobs.Shared.Storage;
@@ -19,70 +20,9 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 
-		if (request.FairQueues is not null)
-			return await AcquireDueJobsFairAsync(request, cancellationToken);
-
-		var now = _timeProvider.GetUtcNow();
-		var acquired = new List<JobRecord>(request.BatchSize);
-		foreach (var queue in request.Queues)
-		{
-			var queueCapacity = Math.Min(queue.Capacity, request.BatchSize - acquired.Count);
-			if (queueCapacity <= 0)
-				continue;
-
-			var jobCapacities = queue.JobCapacities.ToDictionary(static pair => pair.Key, static pair => pair.Value, StringComparer.OrdinalIgnoreCase);
-			while (queueCapacity > 0)
-			{
-				var eligibleNames = await FilterAcquisitionNamesAsync(jobCapacities, cancellationToken);
-				if (eligibleNames.Count == 0)
-					break;
-
-				var candidates = await ReadWithStrategyAsync(
-					(readContext, operationCancellationToken) => JobsWithDefinitions(readContext)
-						.AsNoTracking()
-						.Where(job => job.QueueName == queue.QueueName && eligibleNames.Contains(job.JobName) &&
-							(((job.State == JobState.Scheduled || job.State == JobState.Pending) && job.DueAt <= now)
-								|| (job.State == JobState.Active && job.LeaseExpiresAt <= now)))
-						.OrderBy(job => job.DueAt)
-						.ThenBy(job => job.CreatedAt)
-						.ThenBy(job => job.Id)
-						.Take(queueCapacity)
-						.ToListAsync(operationCancellationToken),
-					cancellationToken
-				);
-				if (candidates.Count == 0)
-					break;
-
-				var selected = new List<JobQueryRow>(candidates.Count);
-				var selectionCapacities = new Dictionary<string, int>(jobCapacities, StringComparer.OrdinalIgnoreCase);
-				foreach (var candidate in candidates)
-				{
-					if (selectionCapacities[candidate.JobName] <= 0)
-						continue;
-					selectionCapacities[candidate.JobName]--;
-					selected.Add(candidate);
-				}
-
-				var claimed = await AcquireCandidatesAsync(
-					selected,
-					request.WorkerId,
-					request.Lease,
-					now,
-					cancellationToken
-				);
-				foreach (var job in claimed)
-				{
-					jobCapacities[job.JobName]--;
-					queueCapacity--;
-					acquired.Add(job);
-				}
-
-				if (claimed.Count == 0)
-					break;
-			}
-		}
-
-		return acquired;
+		return request.FairQueues is null
+			? await AcquireDueJobsInExistingOrderAsync(request, cancellationToken)
+			: await AcquireDueJobsFairAsync(request, cancellationToken);
 	}
 
 	/// <inheritdoc />
@@ -148,6 +88,92 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 		}, cancellationToken);
 	}
 
+	private async ValueTask<IReadOnlyList<JobRecord>> AcquireDueJobsInExistingOrderAsync(
+		JobAcquisitionRequest request,
+		CancellationToken cancellationToken
+	)
+	{
+		var now = _timeProvider.GetUtcNow();
+		var acquired = new List<JobRecord>(request.BatchSize);
+		foreach (var queue in request.Queues)
+		{
+			var capacity = Math.Min(queue.Capacity, request.BatchSize - acquired.Count);
+			if (capacity <= 0)
+				continue;
+			var jobCapacities = queue.JobCapacities.ToDictionary(static pair => pair.Key, static pair => pair.Value, StringComparer.OrdinalIgnoreCase);
+			acquired.AddRange(await AcquireQueueInExistingOrderAsync(queue.QueueName, jobCapacities, capacity,
+				request.WorkerId, request.Lease, now, cancellationToken));
+		}
+
+		return acquired;
+	}
+
+	private async ValueTask<IReadOnlyList<JobRecord>> AcquireQueueInExistingOrderAsync(
+		string queueName,
+		Dictionary<string, int> jobCapacities,
+		int queueCapacity,
+		string workerId,
+		TimeSpan lease,
+		DateTimeOffset now,
+		CancellationToken cancellationToken,
+		List<string>? initialEligibleNames = null
+	)
+	{
+		var acquired = new List<JobRecord>(queueCapacity);
+		while (queueCapacity > 0)
+		{
+			var eligibleNames = initialEligibleNames ?? await FilterAcquisitionNamesAsync(jobCapacities, cancellationToken);
+			initialEligibleNames = null;
+			if (eligibleNames.Count == 0)
+				break;
+
+			var candidates = await ReadWithStrategyAsync(
+				(readContext, operationCancellationToken) => JobsWithDefinitions(readContext)
+					.AsNoTracking()
+					.Where(job => job.QueueName == queueName && eligibleNames.Contains(job.JobName) &&
+						(((job.State == JobState.Scheduled || job.State == JobState.Pending) && job.DueAt <= now)
+							|| (job.State == JobState.Active && job.LeaseExpiresAt <= now)))
+					.OrderBy(job => job.DueAt)
+					.ThenBy(job => job.CreatedAt)
+					.ThenBy(job => job.Id)
+					.Take(queueCapacity)
+					.ToListAsync(operationCancellationToken),
+				cancellationToken
+			);
+			if (candidates.Count == 0)
+				break;
+
+			var selected = new List<JobQueryRow>(candidates.Count);
+			var selectionCapacities = new Dictionary<string, int>(jobCapacities, StringComparer.OrdinalIgnoreCase);
+			foreach (var candidate in candidates)
+			{
+				if (selectionCapacities[candidate.JobName] <= 0)
+					continue;
+				selectionCapacities[candidate.JobName]--;
+				selected.Add(candidate);
+			}
+
+			var claimed = await AcquireCandidatesAsync(
+				selected,
+				workerId,
+				lease,
+				now,
+				cancellationToken
+			);
+			foreach (var job in claimed)
+			{
+				jobCapacities[job.JobName]--;
+				queueCapacity--;
+				acquired.Add(job);
+			}
+
+			if (claimed.Count == 0)
+				break;
+		}
+
+		return acquired;
+	}
+
 	private async ValueTask<IReadOnlyList<JobRecord>> AcquireCandidatesAsync(
 		List<JobQueryRow> candidates,
 		string workerId,
@@ -157,21 +183,141 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 	)
 	{
 		var acquired = new List<JobRecord>(candidates.Count);
-		foreach (var candidate in candidates)
+		await EnsureDefinitionsAsync(candidates.Select(static candidate => candidate.JobName), cancellationToken);
+		var offset = 0;
+		while (offset < candidates.Count)
 		{
-			await EnsureDefinitionAsync(candidate.JobName, cancellationToken);
-			// Retry the entire reservation and claim transaction with a fresh context, as in fair acquisition.
-			await using var strategyContext = await contextFactory.CreateDbContextAsync(cancellationToken);
-			var strategy = strategyContext.Database.CreateExecutionStrategy();
-			var record = await strategy.ExecuteAsync(
-				operationCancellationToken => AcquireCandidateCoreAsync(candidate, workerId, lease, now, operationCancellationToken),
-				cancellationToken
-			);
-			if (record is not null)
-				acquired.Add(record);
+			var end = offset + 1;
+			while (end < candidates.Count && end - offset < 256 &&
+				string.Equals(candidates[end].JobName, candidates[offset].JobName, StringComparison.Ordinal))
+				end++;
+			var batch = candidates.GetRange(offset, end - offset);
+			offset = end;
+			if (batch.Count >= 3 && batch.All(static job => job.Attempt == 0 && job.BatchHandle == null))
+			{
+				await using var strategyContext = await contextFactory.CreateDbContextAsync(cancellationToken);
+				var strategy = strategyContext.Database.CreateExecutionStrategy();
+				var bulk = await strategy.ExecuteAsync(
+					token => AcquireUnrestrictedCandidatesAsync(batch, workerId, lease, now, token), cancellationToken);
+				if (bulk is not null)
+				{
+					acquired.AddRange(bulk);
+					continue;
+				}
+			}
+
+			foreach (var candidate in batch)
+			{
+				// Constrained, retried and batch-member claims retain their per-job transaction and priority.
+				await using var strategyContext = await contextFactory.CreateDbContextAsync(cancellationToken);
+				var strategy = strategyContext.Database.CreateExecutionStrategy();
+				var record = await strategy.ExecuteAsync(
+					token => AcquireCandidateCoreAsync(candidate, workerId, lease, now, token), cancellationToken);
+				if (record is not null)
+					acquired.Add(record);
+			}
 		}
 
 		return acquired;
+	}
+
+	private async Task<IReadOnlyList<JobRecord>?> AcquireUnrestrictedCandidatesAsync(
+		IReadOnlyList<JobQueryRow> candidates,
+		string workerId,
+		TimeSpan lease,
+		DateTimeOffset now,
+		CancellationToken cancellationToken
+	)
+	{
+		await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+		var name = candidates[0].JobName;
+		// Avoid taking a write lock just to discover that this definition needs the ordinary claim path.
+		if (!await context.Set<ImmediateJobDefinitionMetadataEntity>().AnyAsync(item => item.Name == name &&
+			item.MaxConcurrency == 0 && item.SlidingWindowMax == 0 && item.FixedWindowMax == 0, cancellationToken))
+			return null;
+
+		await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
+		var definition = await LockDefinitionAsync(context, name, cancellationToken);
+		// Re-read limits after acquiring the same definition lock used by pause and ordinary claims.
+		var metadata = await context.Set<ImmediateJobDefinitionMetadataEntity>().AsNoTracking()
+			.SingleOrDefaultAsync(item => item.Name == name, cancellationToken);
+		if (metadata is null || metadata.MaxConcurrency != 0 || metadata.SlidingWindowMax != 0 || metadata.FixedWindowMax != 0)
+			return null;
+		definition.AcquisitionStatus = definition.IsPaused ? JobAcquisitionStatus.Paused : JobAcquisitionStatus.Ready;
+		definition.NextEligibleAt = null;
+		if (definition.IsPaused)
+		{
+			await context.SaveChangesAsync(cancellationToken);
+			await transaction.CommitAsync(cancellationToken);
+			return [];
+		}
+
+		var stamp = Guid.NewGuid();
+		var expiresAt = now + lease;
+		await context.Set<ImmediateJobEntity>().Where(MatchJobVersions(candidates))
+			.Where(job => job.Attempt == 0 && job.BatchHandle == null &&
+				(job.State == JobState.Pending || job.State == JobState.Scheduled) && job.DueAt <= now)
+			.ExecuteUpdateAsync(update => update.SetProperty(job => job.State, JobState.Active)
+				.SetProperty(job => job.Attempt, 1).SetProperty(job => job.WorkerId, workerId)
+				.SetProperty(job => job.LeaseExpiresAt, expiresAt).SetProperty(job => job.CompletedAt, (DateTimeOffset?)null)
+				.SetProperty(job => job.ExecutionTraceId, (string?)null).SetProperty(job => job.ExecutionSpanId, (string?)null)
+				.SetProperty(job => job.ExecutionStartedAt, (DateTimeOffset?)null).SetProperty(job => job.ConcurrencyStamp, stamp), cancellationToken);
+		var ids = candidates.Select(static job => job.Id).ToList();
+		var claimed = (await context.Set<ImmediateJobEntity>().Where(job => ids.Contains(job.Id) && job.ConcurrencyStamp == stamp)
+			.Select(job => job.Id).ToListAsync(cancellationToken)).ToHashSet(StringComparer.Ordinal);
+		var acquired = new List<JobRecord>(claimed.Count);
+		foreach (var candidate in candidates.Where(candidate => claimed.Contains(candidate.Id)))
+		{
+			context.Add(new ImmediateJobExecutionEntity
+			{
+				JobHandle = candidate.Id,
+				Attempt = 1,
+				State = JobExecutionState.Active,
+				WorkerId = workerId,
+				AcquiredAt = now,
+			});
+			var entity = Copy(candidate);
+			entity.State = JobState.Active;
+			entity.Attempt = 1;
+			entity.WorkerId = workerId;
+			entity.LeaseExpiresAt = expiresAt;
+			entity.CompletedAt = null;
+			entity.ExecutionTraceId = null;
+			entity.ExecutionSpanId = null;
+			entity.ExecutionStartedAt = null;
+			entity.ConcurrencyStamp = stamp;
+			acquired.Add(ToRecord(entity, candidate.QueueName));
+		}
+
+		await context.SaveChangesAsync(cancellationToken);
+		await transaction.CommitAsync(cancellationToken);
+		return acquired;
+	}
+
+	private static Expression<Func<ImmediateJobEntity, bool>> MatchJobVersions(IEnumerable<ImmediateJobEntity> jobs)
+	{
+		var predicates = jobs.Select(job =>
+		{
+			Expression<Func<ImmediateJobEntity, bool>> matches = entity => entity.Id == job.Id && entity.ConcurrencyStamp == job.ConcurrencyStamp;
+			return matches;
+		}).ToList();
+		if (predicates.Count == 0)
+			return static _ => false;
+		// Keep expression depth logarithmic for large recovery batches and SQLite's expression-depth limit.
+		while (predicates.Count > 1)
+		{
+			var combined = new List<Expression<Func<ImmediateJobEntity, bool>>>();
+			for (var index = 0; index < predicates.Count; index += 2)
+			{
+				var left = predicates[index];
+				combined.Add(index + 1 == predicates.Count ? left : Expression.Lambda<Func<ImmediateJobEntity, bool>>(
+					Expression.OrElse(left.Body, Expression.Invoke(predicates[index + 1], left.Parameters)), left.Parameters));
+			}
+
+			predicates = combined;
+		}
+
+		return predicates[0];
 	}
 
 	private async Task<JobRecord?> AcquireCandidateCoreAsync(

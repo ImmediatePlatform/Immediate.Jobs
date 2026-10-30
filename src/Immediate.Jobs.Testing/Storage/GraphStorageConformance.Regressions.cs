@@ -12,6 +12,35 @@ internal static partial class GraphStorageConformance
 	private const string DuplicateEdgeName = "Graph.Validation.RejectsDuplicateLogicalEdgesWithoutPartialWrites";
 	private const string MemberPurgeName = "Graph.Maintenance.StandalonePurgePreservesBatchMembers";
 
+	private const string WideFailureName = "Graph.Completion.PropagatesWideFailureWithoutDoubleCounting";
+
+	private static async ValueTask PropagatesWideFailureAsync(IJobStorage storage, FakeTimeProvider clock, CancellationToken token)
+	{
+		const int ChildCount = 1001;
+		var graph = GetGraph(storage, WideFailureName);
+		await storage.MergeJobDefinitionsListAsync(new()
+		{
+			Definitions = [new() { Name = "wide-parent" }, new() { Name = "wide-child" }],
+			RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase),
+		}, token);
+		var batch = BatchHandle.FromString("wide-failure");
+		var parent = CreateJob("wide-parent", batch) with { JobName = "wide-parent" };
+		var children = Enumerable.Range(0, ChildCount)
+			.Select(index => CreateJob("wide-child-" + index.ToString(System.Globalization.CultureInfo.InvariantCulture), batch) with { JobName = "wide-child" })
+			.ToList();
+		await graph.EnqueueBatchAsync(CreateBatch(batch, ChildCount + 1), [parent, .. children],
+			[.. children.Select(child => new JobContinuationEdge { ParentJobHandle = parent.JobHandle, ChildJobHandle = child.JobHandle, Trigger = ContinuationTrigger.Success, Delay = TimeSpan.Zero })], token);
+		var active = (await storage.AcquireDueJobsAsync(CreateRequest("wide-worker", "wide-parent"), token)).Single();
+		await storage.FailAsync(parent.JobHandle, active.Attempt, "wide-worker", "failure", nextRetryAt: null, token);
+		var status = (await graph.GetBatchStatusAsync(batch, token))!;
+		ConformanceAssert.Equal(BatchState.Failed, status.State, WideFailureName, "the batch completes after all skipped children settle");
+		ConformanceAssert.Equal(0, status.Remaining, WideFailureName, "every child settles exactly once");
+		ConformanceAssert.Equal(ChildCount, status.Skipped, WideFailureName, "wide propagation preserves all skip outcomes");
+		ConformanceAssert.Equal(1, status.Failed, WideFailureName, "only the parent fails");
+		var history = await storage.QueryJobExecutionsAsync(children[0].JobHandle, new(), token);
+		ConformanceAssert.Equal(0, history.Count, WideFailureName, "skipped children never acquire an execution");
+	}
+
 	private static async ValueTask ConcurrentSplicePreservesParentsAsync(IJobStorage storage, FakeTimeProvider clock, CancellationToken token)
 	{
 		var graph = GetGraph(storage, ConcurrentSpliceName);

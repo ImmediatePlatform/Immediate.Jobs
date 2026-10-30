@@ -33,10 +33,10 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 		await TaskScheduler.Yield();
 		return await ReadWithStrategyAsync(async (context, token) =>
 		{
-			var metadata = await GetStoredDefinitionAsync(context, jobName, token);
-			var definition = await context.Set<ImmediateJobDefinitionEntity>().AsNoTracking()
-				.SingleOrDefaultAsync(item => item.JobName == metadata.Name, token) ?? new() { JobName = metadata.Name };
-			return await EvaluateDefinitionAsync(context, definition, ToRecord(metadata).AcquisitionLimits, _timeProvider.GetUtcNow(), additionalActive: 0, token, includeActiveCount: true);
+			var states = await ReadDefinitionStatusesAsync(context,
+				context.Set<ImmediateJobDefinitionMetadataEntity>().Where(item => item.Name == jobName),
+				_timeProvider.GetUtcNow(), token);
+			return states.SingleOrDefault() ?? throw new KeyNotFoundException($"Job definition '{jobName}' was not found.");
 		}, cancellationToken);
 	}
 
@@ -52,23 +52,61 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 		{
 			await using var context = await contextFactory.CreateDbContextAsync(token);
 			var metadata = await GetStoredDefinitionAsync(context, jobName, token);
+			if (paused)
+			{
+				if (await PauseDefinitionAsync(context, metadata.Name, token) == 0)
+				{
+					await EnsureDefinitionAsync(metadata.Name, token);
+					await PauseDefinitionAsync(context, metadata.Name, token);
+				}
+
+				return;
+			}
+
 			await EnsureDefinitionAsync(metadata.Name, token);
 			await using var transaction = await context.Database.BeginTransactionAsync(token);
 			var definition = await LockDefinitionAsync(context, metadata.Name, token);
-			definition.IsPaused = paused;
-			if (paused)
-			{
-				definition.AcquisitionStatus = JobAcquisitionStatus.Paused;
-				definition.NextEligibleAt = null;
-			}
-			else
-			{
-				await EvaluateDefinitionAsync(context, definition, ToRecord(metadata).AcquisitionLimits, _timeProvider.GetUtcNow(), additionalActive: 0, token);
-			}
+			definition.IsPaused = false;
+			await EvaluateDefinitionAsync(context, definition, ToRecord(metadata).AcquisitionLimits, _timeProvider.GetUtcNow(), additionalActive: 0, token);
 
 			await context.SaveChangesAsync(token);
 			await transaction.CommitAsync(token);
 		}, cancellationToken);
+	}
+
+	private static Task<int> PauseDefinitionAsync(TContext context, string jobName, CancellationToken cancellationToken)
+	{
+		var stamp = Guid.NewGuid();
+		return context.Set<ImmediateJobDefinitionEntity>().Where(item => item.JobName == jobName)
+			.ExecuteUpdateAsync(update => update.SetProperty(item => item.IsPaused, valueExpression: true)
+				.SetProperty(item => item.AcquisitionStatus, JobAcquisitionStatus.Paused)
+				.SetProperty(item => item.NextEligibleAt, (DateTimeOffset?)null)
+				.SetProperty(item => item.ConcurrencyStamp, stamp), cancellationToken);
+	}
+
+	private async ValueTask EnsureDefinitionsAsync(IEnumerable<string> jobNames, CancellationToken cancellationToken)
+	{
+		var names = jobNames.Distinct(StringComparer.Ordinal).ToList();
+		if (names.Count == 0)
+			return;
+		await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+		var existing = await context.Set<ImmediateJobDefinitionEntity>()
+			.Where(item => names.Contains(item.JobName)).Select(item => item.JobName)
+			.ToListAsync(cancellationToken);
+		var missing = names.Except(existing, StringComparer.Ordinal).ToList();
+		if (missing.Count == 0)
+			return;
+		context.AddRange(missing.Select(static name => new ImmediateJobDefinitionEntity { JobName = name, ConcurrencyStamp = Guid.NewGuid() }));
+		try
+		{
+			await context.SaveChangesAsync(cancellationToken);
+		}
+		catch (DbUpdateException)
+		{
+			// Another bootstrap may have won only some inserts. Recheck each missing row with a fresh context.
+			foreach (var name in missing)
+				await EnsureDefinitionAsync(name, cancellationToken);
+		}
 	}
 
 	private async ValueTask EnsureDefinitionAsync(string jobName, CancellationToken cancellationToken)
@@ -156,20 +194,10 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 
 		return await ReadWithStrategyAsync(async (context, token) =>
 		{
-			// This is an advisory read. The definition row is locked and rechecked when claiming a job.
-			var metadata = await context.Set<ImmediateJobDefinitionMetadataEntity>().AsNoTracking()
-				.Where(item => candidates.Contains(item.Name)).ToListAsync(token);
-			if (metadata.Count == 0)
-				return [];
-
-			// Evaluate the advisory snapshot in batches; the claim still locks and rechecks its definition.
-			var states = await ReadDefinitionStatusesAsync(
-				context,
-				metadata.Select(ToRecord).ToList(),
-				_timeProvider.GetUtcNow(),
-				token,
-				includeActiveCount: false
-			);
+			// Advisory only: claim-time reservation still locks and rechecks the durable definition.
+			var states = await ReadDefinitionStatusesAsync(context,
+				context.Set<ImmediateJobDefinitionMetadataEntity>().Where(item => candidates.Contains(item.Name)),
+				_timeProvider.GetUtcNow(), token, includeActiveCount: false);
 			return states.Where(static state => state.AcquisitionStatus == JobAcquisitionStatus.Ready)
 				.Select(static state => state.JobName)
 				.ToList();
@@ -178,7 +206,8 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 
 	private static async Task RefreshAcquiredDefinitionAsync(TContext context, string jobName, JobAcquisitionLimits limits, DateTimeOffset now, CancellationToken cancellationToken)
 	{
-		var definition = await context.Set<ImmediateJobDefinitionEntity>().SingleAsync(item => item.JobName == jobName, cancellationToken);
+		var definition = await context.Set<ImmediateJobDefinitionEntity>().FindAsync([jobName], cancellationToken)
+			?? throw new DbUpdateConcurrencyException();
 		await EvaluateDefinitionAsync(context, definition, limits, now, additionalActive: 0, cancellationToken);
 		await context.SaveChangesAsync(cancellationToken);
 	}

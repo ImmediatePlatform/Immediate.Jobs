@@ -43,10 +43,10 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 			var cancelledSchedules = schedules.Values.Where(schedule => !schedule.IsCodeDefined
 				&& removed.Contains(schedule.JobName) && schedule.CancellationReason is null).ToList();
 			var now = _timeProvider.GetUtcNow();
+			await MaterializeExecutionsAsync(context, jobs.Where(static job => job.State == JobState.Active), token);
 			foreach (var job in jobs)
 				await MarkCancelledAsync(context, job, now, JobDefinitionReconciliation.RemovalCancellationReason, token);
-			foreach (var job in jobs)
-				await PropagateTerminalAsync(context, job, now, token);
+			await PropagateTerminalAsync(context, jobs, now, token);
 			foreach (var schedule in cancelledSchedules)
 			{
 				schedule.CancellationReason = JobDefinitionReconciliation.RemovalCancellationReason;

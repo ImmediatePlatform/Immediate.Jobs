@@ -112,15 +112,14 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 		if (job.Payload.Length == 0)
 			throw new ImmediateJobException($"Job '{jobHandle}' cannot be triggered before its parameters are supplied.");
 
-		await TriggerWaitingJobAsync(context, job, dueAt, now, cancellationToken);
+		List<ImmediateJobContinuationEntity> edges = job.RemainingDependencies != 0 ? [] : await context.Set<ImmediateJobContinuationEntity>()
+			.Where(edge => edge.ChildJobHandle == job.Id).ToListAsync(cancellationToken);
+		await TriggerWaitingJobAsync(context, job, edges, dueAt, now, cancellationToken);
 
 		var terminalGroups = GetTerminalFairQueueGroups(context);
 		_ = await context.SaveChangesAsync(cancellationToken);
 		await transaction.CommitAsync(cancellationToken);
-		foreach (var (queueName, groupId) in terminalGroups)
-		{
-			await TryRemoveFairQueueCursorAsync(queueName, groupId, CancellationToken.None);
-		}
+		await TryRemoveFairQueueCursorsAsync(terminalGroups, CancellationToken.None);
 
 		return true;
 	}
@@ -144,6 +143,7 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 	private static async Task TriggerWaitingJobAsync(
 		TContext context,
 		ImmediateJobEntity job,
+		IEnumerable<ImmediateJobContinuationEntity> edges,
 		DateTimeOffset dueAt,
 		DateTimeOffset now,
 		CancellationToken cancellationToken
@@ -157,7 +157,8 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 			return;
 		}
 
-		if (await ShouldSkipSettledContinuationAsync(context, job.Id, cancellationToken))
+		var (skip, delay) = EvaluateContinuation(edges);
+		if (skip)
 		{
 			job.State = JobState.Skipped;
 			job.CompletedAt = now;
@@ -165,7 +166,7 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 			return;
 		}
 
-		var delayedDueAt = now + await GetMaximumContinuationDelayAsync(context, job.Id, cancellationToken);
+		var delayedDueAt = now + delay;
 		if (job.DueAt < delayedDueAt)
 			job.DueAt = delayedDueAt;
 		job.State = job.DueAt <= now ? JobState.Pending : JobState.Scheduled;
@@ -188,16 +189,17 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 			.Where(job => job.BatchHandle == batchHandle.Value && job.State == JobState.WaitingForTrigger)
 			.OrderBy(static job => job.Id)
 			.ToListAsync(cancellationToken);
+		var ids = jobs.Where(static job => job.RemainingDependencies == 0).Select(static job => job.Id).ToList();
+		List<ImmediateJobContinuationEntity> dependencies = ids.Count == 0 ? [] : await context.Set<ImmediateJobContinuationEntity>()
+			.Where(edge => ids.Contains(edge.ChildJobHandle)).ToListAsync(cancellationToken);
+		var edges = dependencies.ToLookup(static edge => edge.ChildJobHandle, StringComparer.Ordinal);
 		foreach (var job in jobs)
-			await TriggerWaitingJobAsync(context, job, job.DueAt, now, cancellationToken);
+			await TriggerWaitingJobAsync(context, job, edges[job.Id], job.DueAt, now, cancellationToken);
 
 		var terminalGroups = GetTerminalFairQueueGroups(context);
 		_ = await context.SaveChangesAsync(cancellationToken);
 		await transaction.CommitAsync(cancellationToken);
-		foreach (var (queueName, groupId) in terminalGroups)
-		{
-			await TryRemoveFairQueueCursorAsync(queueName, groupId, CancellationToken.None);
-		}
+		await TryRemoveFairQueueCursorsAsync(terminalGroups, CancellationToken.None);
 
 		return true;
 	}
