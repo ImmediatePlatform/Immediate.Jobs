@@ -248,6 +248,7 @@ public sealed class StorageConformanceInfrastructureTests
 		"Replica.Monitoring.PersistsSingleServerHeartbeatsForRemoteReaders",
 		"Replica.Projection.PreservesRecurringAndGraphRecoveryFields",
 		"Replica.Recovery.InterruptsOwnershipBeforeLoadingWorkflowSnapshot",
+		"Replica.Recovery.RestoresAllPagesAndPreservesSettledProgress",
 		"Replica.Recovery.RestoresCronDefinitionsWithTheirSchedules",
 	];
 }

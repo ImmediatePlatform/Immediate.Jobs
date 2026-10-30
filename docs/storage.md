@@ -109,6 +109,9 @@ pending immediately, preserving attempts, workflow progress, pauses, and acquisi
 next acquisition increments the attempt normally. Recovery is idempotent, with job/history changes
 committed atomically in bounded batches. Distributed startup passes false and preserves live leases.
 The primary mirrors committed claims and renewal timestamps without independently expiring them.
+Recovery reads all job states in one paginated stream and installs persisted definitions and workflow
+progress directly into the fresh primary. Durable mutations own graph validity; loading rebuilds
+indexes and settled-edge tracking without reconciling definitions or replaying state transitions.
 
 Fair-queue cursor cleanup must not undo a committed job transition. Relational providers perform that
 cleanup after the main transaction commits. Selection rules are in [fair queues](fair-queues.md).

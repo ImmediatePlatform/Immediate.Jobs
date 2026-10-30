@@ -23,42 +23,27 @@ internal sealed partial class SingleServerJobStorage
 		try
 		{
 			await DurableStorage.InitializeAsync(interruptActiveLeases: true, cancellationToken);
-			await PrimaryStorage.InitializeAsync(interruptActiveLeases: false, cancellationToken);
 			var monitoringDefinitions = await DurableStorage.GetMonitoringDefinitionsAsync(cancellationToken);
 			var snapshot = await DurableStorage.GetMonitoringSnapshotAsync(cancellationToken);
-			var definitions = monitoringDefinitions.Jobs;
+			PrimaryStorage.LoadPersistedJobDefinitions(monitoringDefinitions.Jobs);
 			var statuses = snapshot.Recurring.ToDictionary(static status => status.Name, StringComparer.OrdinalIgnoreCase);
-			var schedules = monitoringDefinitions.Recurring.Where(definition => statuses.ContainsKey(definition.Name))
+			var schedules = monitoringDefinitions.Recurring
 				.Select(definition => RecurringJobSchedule.FromDefinition(definition, statuses[definition.Name])).ToList();
-			var names = definitions.Select(static definition => definition.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
-			await PrimaryStorage.MergeJobDefinitionsListAsync(new()
-			{
-				Definitions = definitions,
-				ServerTags = definitions.SelectMany(static definition => definition.Tags).Append(JobTags.Default)
-					.Distinct(StringComparer.OrdinalIgnoreCase).ToList(),
-				RecurringSchedules = schedules.Where(schedule => schedule.IsCodeDefined && names.Contains(schedule.JobName))
-					.ToDictionary(static schedule => schedule.JobName, static schedule => schedule.NextRunAt, StringComparer.OrdinalIgnoreCase),
-			}, cancellationToken);
 
 			var recoveredJobs = new List<JobRecord>();
 			var recoveredEdges = new List<JobContinuationEdge>();
-			foreach (var state in Enum.GetValues<JobState>())
+			for (var skip = 0; ; skip += RecoveryBatchSize)
 			{
-				var skip = 0;
-				while (true)
+				var jobs = await DurableStorage.QueryJobsAsync(new() { Skip = skip, Take = RecoveryBatchSize }, cancellationToken);
+				recoveredJobs.AddRange(jobs);
+				if (jobs.Count != 0)
 				{
-					var jobs = await DurableStorage.QueryJobsAsync(new() { State = state, Skip = skip, Take = RecoveryBatchSize }, cancellationToken);
-					recoveredJobs.AddRange(jobs);
-					if (jobs.Count != 0)
-					{
-						var incomingEdges = await JobGraphStorage.GetIncomingEdgesAsync(jobs.Select(static job => job.JobHandle).ToList(), cancellationToken);
-						recoveredEdges.AddRange(incomingEdges);
-					}
-
-					if (jobs.Count < RecoveryBatchSize)
-						break;
-					skip += jobs.Count;
+					var incomingEdges = await JobGraphStorage.GetIncomingEdgesAsync(jobs.Select(static job => job.JobHandle).ToList(), cancellationToken);
+					recoveredEdges.AddRange(incomingEdges);
 				}
+
+				if (jobs.Count < RecoveryBatchSize)
+					break;
 			}
 
 			var recoveredBatches = new List<BatchRecord>();

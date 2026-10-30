@@ -28,6 +28,7 @@ internal static partial class ReplicaStorageConformance
 	[
 		new(RecurringRecoveryName, StorageCapabilities.Graph, RestoresCronDefinitionsAsync),
 		new(InterruptedRecoveryName, StorageCapabilities.Graph, InterruptsBeforeSnapshotAsync),
+		new(PagedRecoveryName, StorageCapabilities.Graph, RestoresPagesAndSettledProgressAsync, PagedRecoveryState()),
 		new(HeartbeatName, StorageCapabilities.Graph, PersistsSingleServerHeartbeatsAsync),
 		new(EnqueueRaceName, StorageCapabilities.Graph, AcquisitionWaitsUntilEnqueueHasUpdatedBothStoresAsync),
 		.. CreateAcquisitionCases(),

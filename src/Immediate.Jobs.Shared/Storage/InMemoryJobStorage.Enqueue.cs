@@ -226,6 +226,43 @@ public sealed partial class InMemoryJobStorage
 	}
 
 	/// <remarks>
+	/// 	The caller does not need to hold the <see cref="_gate"/> lock; this method does not access mutable storage state.
+	/// </remarks>
+	private static void ValidateBatchState(BatchRecord batch, List<JobRecord> jobs)
+	{
+		if (jobs.Count == 0)
+			throw new ImmediateJobException("An atomic batch cannot be empty.");
+
+		var succeeded = jobs.Count(static job => job.State == JobState.Succeeded);
+		var failed = jobs.Count(static job => job.State == JobState.Failed);
+		var cancelled = jobs.Count(static job => job.State == JobState.Cancelled);
+		var skipped = jobs.Count(static job => job.State == JobState.Skipped);
+		var pending = jobs.Count - succeeded - failed - cancelled - skipped;
+
+		var expectedState = true switch
+		{
+			_ when pending != 0 => BatchState.Executing,
+			_ when failed != 0 => BatchState.Failed,
+			_ when cancelled != 0 => BatchState.Cancelled,
+			_ => BatchState.Succeeded,
+		};
+
+		if (
+			batch.TotalJobs != jobs.Count ||
+			batch.PendingCount != pending ||
+			batch.SucceededCount != succeeded ||
+			batch.FailedCount != failed ||
+			batch.CancelledCount != cancelled ||
+			batch.SkippedCount != skipped ||
+			(batch.State != expectedState && !(expectedState == BatchState.Executing && batch.State == BatchState.WaitingForTrigger)) ||
+			(pending == 0 != (batch.CompletedAt is not null))
+		)
+		{
+			throw new ImmediateJobException("A batch header does not match its members or aggregate state.");
+		}
+	}
+
+	/// <remarks>
 	/// 	The caller does not need to hold the <see cref="_gate"/> lock.
 	/// </remarks>
 	[LoggerMessage(
