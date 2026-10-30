@@ -27,19 +27,18 @@ internal sealed partial class LinqToDBJobStorage<T>
 
 		await RetryConcurrencyAsync(async connection =>
 		{
-			var job = await Jobs(connection).SingleOrDefaultAsync(
-				item => item.Id == jobHandle.Value && item.Attempt == executionNumber && item.State == JobState.Active && item.WorkerId == workerId,
-				cancellationToken
-			) ?? throw new ImmediateJobException($"Worker '{workerId}' does not own active job '{jobHandle}'.");
-			_ = await GetOrMaterializeExecutionAsync(connection, job, cancellationToken)
-				?? throw new ImmediateJobException($"Active job '{job.Id}' has no execution ordinal.");
-			var oldStamp = job.ConcurrencyStamp;
-			job.ExecutionTraceId = traceId;
-			job.ExecutionSpanId = spanId;
-			job.ExecutionStartedAt = startedAt;
-			job.ConcurrencyStamp = Guid.NewGuid();
-			if (!await UpdateJobAsync(connection, job, oldStamp, cancellationToken))
-				throw new LostRaceException();
+			// Fence ownership in the update itself. Most executions already have history, so
+			// neither the job nor its execution needs to be read on the normal path.
+			var updated = await Jobs(connection)
+				.Where(item => item.Id == jobHandle.Value && item.Attempt == executionNumber && item.Attempt > 0
+					&& item.State == JobState.Active && item.WorkerId == workerId)
+				.Set(item => item.ExecutionTraceId, traceId)
+				.Set(item => item.ExecutionSpanId, spanId)
+				.Set(item => item.ExecutionStartedAt, startedAt)
+				.Set(item => item.ConcurrencyStamp, Guid.NewGuid())
+				.UpdateAsync(cancellationToken);
+			if (updated == 0)
+				throw new ImmediateJobException($"Worker '{workerId}' does not own active job '{jobHandle}'.");
 			var executionUpdated = await Executions(connection)
 				.Where(execution => execution.JobHandle == jobHandle.Value && execution.Attempt == executionNumber && execution.State == JobExecutionState.Active)
 				.Set(execution => execution.ExecutionTraceId, traceId)
@@ -47,7 +46,13 @@ internal sealed partial class LinqToDBJobStorage<T>
 				.Set(execution => execution.ExecutionStartedAt, startedAt)
 				.UpdateAsync(cancellationToken);
 			if (executionUpdated == 0)
-				throw new LostRaceException();
+			{
+				var job = await Jobs(connection).SingleAsync(item => item.Id == jobHandle.Value, cancellationToken);
+				// A persisted inactive execution is a conflict, not missing legacy history.
+				if (await Executions(connection).AnyAsync(item => item.JobHandle == job.Id && item.Attempt == job.Attempt, cancellationToken))
+					throw new LostRaceException();
+				await MaterializeExecutionAsync(connection, job, cancellationToken);
+			}
 		}, cancellationToken);
 	}
 
@@ -96,10 +101,19 @@ internal sealed partial class LinqToDBJobStorage<T>
 		if (execution is not null)
 			return execution;
 
+		return await MaterializeExecutionAsync(connection, job, cancellationToken);
+	}
+
+	private async Task<ImmediateJobExecutionEntity?> MaterializeExecutionAsync(
+		DataConnection connection,
+		ImmediateJobEntity job,
+		CancellationToken cancellationToken
+	)
+	{
 		var synthetic = JobExecutionRecord.CreateSynthetic(ToRecord(job));
 		if (synthetic is null)
 			return null;
-		execution = ToEntity(synthetic);
+		var execution = ToEntity(synthetic);
 		try
 		{
 			_ = await InsertAsync(connection, execution, cancellationToken);
@@ -110,6 +124,49 @@ internal sealed partial class LinqToDBJobStorage<T>
 		}
 
 		return execution;
+	}
+
+	private async Task<ImmediateJobEntity> ReadOwnedJobAsync(
+		DataConnection connection, JobHandle jobHandle, int executionNumber, string workerId,
+		CancellationToken cancellationToken
+	)
+	{
+		var owned = await Jobs(connection)
+			.Where(job => job.Id == jobHandle.Value && job.Attempt == executionNumber
+				&& job.State == JobState.Active && job.WorkerId == workerId)
+			.Select(job => new
+			{
+				Job = job,
+				HasExecution = Executions(connection).Any(execution => execution.JobHandle == job.Id && execution.Attempt == job.Attempt),
+			})
+			.SingleOrDefaultAsync(cancellationToken)
+			?? throw new ImmediateJobException($"Worker '{workerId}' does not own active job '{jobHandle}'.");
+		if (owned.Job.Attempt <= 0)
+			throw new ImmediateJobException($"Active job '{owned.Job.Id}' has no execution ordinal.");
+		if (!owned.HasExecution)
+			await MaterializeExecutionAsync(connection, owned.Job, cancellationToken);
+		return owned.Job;
+	}
+
+	private async Task MaterializeExecutionsAsync(
+		DataConnection connection, IEnumerable<ImmediateJobEntity> jobs, CancellationToken cancellationToken
+	)
+	{
+		foreach (var block in jobs.Where(static job => job.Attempt > 0).Chunk(256))
+		{
+			var ids = block.Select(static job => job.Id).ToList();
+			var latest = await Jobs(connection).Where(job => ids.Contains(job.Id))
+				.Select(job => new
+				{
+					job.Id,
+					job.Attempt,
+					Exists = Executions(connection).Any(execution => execution.JobHandle == job.Id && execution.Attempt == job.Attempt),
+				}).ToListAsync(cancellationToken);
+			var existing = latest.Where(static job => job.Exists).Select(static job => (job.Id, job.Attempt)).ToHashSet();
+			foreach (var job in block)
+				if (!existing.Contains((job.Id, job.Attempt)))
+					await MaterializeExecutionAsync(connection, job, cancellationToken);
+		}
 	}
 
 	[LoggerMessage(

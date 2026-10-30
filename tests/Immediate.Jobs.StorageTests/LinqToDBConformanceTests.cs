@@ -45,7 +45,7 @@ public sealed class LinqToDBPgSQLConformanceTests(LinqToDBPgSQLContainer contain
 		JobStorageConformanceTestCase testCase
 	)
 	{
-		await using var fixture = await RelationalConformanceFixture.CreateAsync(
+		await using var fixture = await LinqToDBConformanceFixture.CreateAsync(
 			ConformanceDatabase.PostgreSql,
 			useDistributedTopology: topology == ConformanceTopology.Distributed,
 			container: container.PostgreSql,
@@ -66,7 +66,7 @@ public sealed class LinqToDBMsSQLConformanceTests(LinqToDBMsSQLContainer contain
 		JobStorageConformanceTestCase testCase
 	)
 	{
-		await using var fixture = await RelationalConformanceFixture.CreateAsync(
+		await using var fixture = await LinqToDBConformanceFixture.CreateAsync(
 			ConformanceDatabase.SqlServer,
 			useDistributedTopology: topology == ConformanceTopology.Distributed,
 			container: container.SqlServer,
@@ -87,7 +87,7 @@ public sealed class LinqToDBSQLiteConformanceTests
 		JobStorageConformanceTestCase testCase
 	)
 	{
-		await using var fixture = await RelationalConformanceFixture.CreateAsync(
+		await using var fixture = await LinqToDBConformanceFixture.CreateAsync(
 			ConformanceDatabase.Sqlite,
 			useDistributedTopology: topology == ConformanceTopology.Distributed,
 			container: null,
@@ -98,7 +98,7 @@ public sealed class LinqToDBSQLiteConformanceTests
 	}
 }
 
-file sealed class RelationalConformanceFixture(
+internal sealed class LinqToDBConformanceFixture(
 	ConformanceDatabase database,
 	ServiceProvider services,
 	string connectionString,
@@ -122,11 +122,12 @@ file sealed class RelationalConformanceFixture(
 
 	internal IServiceProvider Services => services;
 
-	internal static async ValueTask<RelationalConformanceFixture> CreateAsync(
+	internal static async ValueTask<LinqToDBConformanceFixture> CreateAsync(
 		ConformanceDatabase database,
 		bool useDistributedTopology,
 		IDatabaseContainer? container,
-		PersistedJobState persistedJobState
+		PersistedJobState persistedJobState,
+		Action<TraceInfo>? trace = null
 	)
 	{
 		var schema = database == ConformanceDatabase.Sqlite ? null : "jobs_" + Guid.NewGuid().ToString("N");
@@ -149,6 +150,9 @@ file sealed class RelationalConformanceFixture(
 			ConformanceDatabase.SqlServer => new DataOptions().UseSqlServer(connectionString),
 			_ => throw new ArgumentOutOfRangeException(nameof(database)),
 		};
+
+		if (trace is not null)
+			dataOptions = dataOptions.UseTracing(System.Diagnostics.TraceLevel.Info, trace);
 
 		var clock = new FakeTimeProvider(new DateTimeOffset(2026, 8, 8, 10, 0, 0, TimeSpan.Zero));
 		var services = new ServiceCollection();
@@ -174,7 +178,7 @@ file sealed class RelationalConformanceFixture(
 			}
 		);
 
-		var fixture = new RelationalConformanceFixture(database, servicesProvider, connectionString, schema, sqlitePath);
+		var fixture = new LinqToDBConformanceFixture(database, servicesProvider, connectionString, schema, sqlitePath);
 
 		try
 		{
