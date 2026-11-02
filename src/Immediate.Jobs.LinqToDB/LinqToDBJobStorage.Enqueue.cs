@@ -144,10 +144,8 @@ internal sealed partial class LinqToDBJobStorage<T>
 			}, cancellationToken);
 		}
 
-		foreach (var entity in jobEntities.Values)
-			_ = await InsertAsync(connection, entity, cancellationToken);
-		foreach (var edge in edgeEntities)
-			_ = await InsertAsync(connection, edge, cancellationToken);
+		await InsertManyAsync(connection, jobEntities.Values, cancellationToken);
+		await InsertManyAsync(connection, edgeEntities, cancellationToken);
 	}
 
 	private static void ValidateDynamicJob(JobSubmission job, string description)

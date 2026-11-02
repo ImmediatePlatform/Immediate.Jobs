@@ -27,54 +27,55 @@ internal sealed partial class LinqToDBJobStorage<T>
 
 		async Task Core(T connection)
 		{
-
-			var existing = await Recurring(connection).SingleOrDefaultAsync(item => item.Name == schedule.Name, cancellationToken);
-			var definitions = await GetDefinitionNamesAsync(connection, [schedule.JobName], cancellationToken);
-			if (definitions.TryGetValue(schedule.JobName, out var jobName))
-				schedule = schedule with { JobName = jobName };
-
-			if (existing is null)
+			var query = Recurring(connection).Where(item => item.Name == schedule.Name && item.IsCodeDefined == schedule.IsCodeDefined);
+			int updated;
+			if (schedule.IsCodeDefined)
 			{
-				if (schedule.IsCodeDefined)
-					throw new ImmediateJobException("Code-defined recurring schedules must be created by definition reconciliation.");
-
-				try
-				{
-					await InsertAsync(connection, ToEntity(schedule), cancellationToken);
-					return;
-				}
-				catch (DbException exception) when (exception.SqlState is "23505")
-				{
-					// PostgreSQL aborts the transaction on a competing unique-key insert.
-					// Retry the upsert after rolling back, rather than reading that failed transaction.
-					throw new LostRaceException();
-				}
-				catch (DbException)
-				{
-					existing = await Recurring(connection).SingleOrDefaultAsync(item => item.Name == schedule.Name, cancellationToken);
-					if (existing is null)
-						throw;
-				}
+				updated = await query.Set(item => item.NextRunAt, schedule.NextRunAt)
+					.Set(item => item.ConcurrencyStamp, Guid.NewGuid()).UpdateAsync(cancellationToken);
+			}
+			else
+			{
+				var definitions = await GetDefinitionNamesAsync(connection, [schedule.JobName], cancellationToken);
+				if (definitions.TryGetValue(schedule.JobName, out var jobName))
+					schedule = schedule with { JobName = jobName };
+				updated = await query.Set(item => item.JobName, schedule.JobName)
+					.Set(item => item.CancellationReason, item => schedule.CancellationReason ?? item.CancellationReason)
+					.Set(item => item.IsPaused, item => item.IsPaused || schedule.CancellationReason != null || item.CancellationReason != null)
+					.Set(item => item.Cron, schedule.Cron).Set(item => item.TimeZone, schedule.TimeZone)
+					.Set(item => item.NextRunAt, schedule.NextRunAt)
+					.Set(item => item.ConcurrencyStamp, Guid.NewGuid()).UpdateAsync(cancellationToken);
 			}
 
-			if (schedule.IsCodeDefined != existing.IsCodeDefined)
-				throw new ImmediateJobException("Recurring schedule ownership cannot be changed by upsert.");
-
-			var oldStamp = existing.ConcurrencyStamp;
-			if (!existing.IsCodeDefined)
+			if (updated != 0)
+				return;
+			var ownership = await Recurring(connection).Where(item => item.Name == schedule.Name)
+				.Select(item => (bool?)item.IsCodeDefined).SingleOrDefaultAsync(cancellationToken);
+			if (ownership is { } isCodeDefined)
 			{
-				existing.JobName = schedule.JobName;
-				existing.CancellationReason = schedule.CancellationReason ?? existing.CancellationReason;
-				existing.IsPaused |= existing.CancellationReason is not null;
-				existing.Cron = schedule.Cron;
-				existing.TimeZone = schedule.TimeZone;
-			}
-
-			existing.NextRunAt = schedule.NextRunAt;
-			existing.ConcurrencyStamp = Guid.NewGuid();
-
-			if (!await UpdateRecurringAsync(connection, existing, oldStamp, cancellationToken))
+				if (isCodeDefined != schedule.IsCodeDefined)
+					throw new ImmediateJobException("Recurring schedule ownership cannot be changed by upsert.");
+				// A same-owner insert can win between our update and this diagnostic read.
 				throw new LostRaceException();
+			}
+
+			if (schedule.IsCodeDefined)
+				throw new ImmediateJobException("Code-defined recurring schedules must be created by definition reconciliation.");
+			try
+			{
+				await InsertAsync(connection, ToEntity(schedule), cancellationToken);
+			}
+			catch (DbException exception) when (exception.SqlState is "23505")
+			{
+				// PostgreSQL requires a rollback before any query after a unique-key violation.
+				throw new LostRaceException();
+			}
+			catch (DbException)
+			{
+				if (await Recurring(connection).AnyAsync(item => item.Name == schedule.Name, cancellationToken))
+					throw new LostRaceException();
+				throw;
+			}
 		}
 	}
 
@@ -157,19 +158,14 @@ internal sealed partial class LinqToDBJobStorage<T>
 		await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
 		try
 		{
-			var entity = await Recurring(connection).SingleOrDefaultAsync(item => item.Name == schedule.Name, cancellationToken);
-			if (entity is null || entity.IsPaused || entity.NextRunAt != schedule.NextRunAt)
-			{
+			var updated = await Recurring(connection)
+				.Where(entity => entity.Name == schedule.Name && !entity.IsPaused && entity.NextRunAt == schedule.NextRunAt)
+				.Set(entity => entity.LastRunAt, schedule.NextRunAt)
+				.Set(entity => entity.NextRunAt, nextRunAt)
+				.Set(entity => entity.ConcurrencyStamp, Guid.NewGuid())
+				.UpdateAsync(cancellationToken);
+			if (updated == 0)
 				return false;
-			}
-
-			var oldStamp = entity.ConcurrencyStamp;
-			entity.LastRunAt = schedule.NextRunAt;
-			entity.NextRunAt = nextRunAt;
-			entity.ConcurrencyStamp = Guid.NewGuid();
-
-			if (!await UpdateRecurringAsync(connection, entity, oldStamp, cancellationToken))
-				throw new LostRaceException();
 
 			var jobEntities = new[] { ToEntity(job) }.ToDictionary(static item => item.Id, StringComparer.Ordinal);
 			var edgeEntities = dependencies?.Select(ToEntity).ToList() ?? [];
@@ -214,16 +210,16 @@ internal sealed partial class LinqToDBJobStorage<T>
 
 		await using var scope = contextScope.GetScope(out var connection);
 
-		if (!paused && await Recurring(connection).AnyAsync(schedule => schedule.Name == name && schedule.CancellationReason != null, cancellationToken))
-			throw new ImmediateJobException("Canceled recurring schedules cannot be resumed.");
-
 		var updated = await Recurring(connection)
 			.Where(schedule => schedule.Name == name && (paused || schedule.CancellationReason == null))
 			.Set(schedule => schedule.IsPaused, paused)
 			.Set(schedule => schedule.ConcurrencyStamp, Guid.NewGuid())
 			.UpdateAsync(cancellationToken);
-		if (updated == 0)
-			throw new KeyNotFoundException($"Recurring schedule '{name}' was not found.");
+		if (updated != 0)
+			return;
+		if (!paused && await Recurring(connection).AnyAsync(schedule => schedule.Name == name && schedule.CancellationReason != null, cancellationToken))
+			throw new ImmediateJobException("Canceled recurring schedules cannot be resumed.");
+		throw new KeyNotFoundException($"Recurring schedule '{name}' was not found.");
 	}
 
 	private async ValueTask AdvanceRecurringAfterDedupeAsync(
@@ -235,44 +231,16 @@ internal sealed partial class LinqToDBJobStorage<T>
 	{
 		await using var scope = contextScope.GetScope(out var connection);
 
-		if (!await Jobs(connection)
-			.AnyAsync(job => job.RecurringKey == recurringKey, cancellationToken))
-		{
-			return;
-		}
-
 		await Recurring(connection)
 			.Where(entity =>
 				entity.Name == schedule.Name &&
 				!entity.IsPaused &&
-				entity.NextRunAt == schedule.NextRunAt)
+				entity.NextRunAt == schedule.NextRunAt &&
+				Jobs(connection).Any(job => job.RecurringKey == recurringKey))
 			.Set(entity => entity.LastRunAt, schedule.NextRunAt)
 			.Set(entity => entity.NextRunAt, nextRunAt)
 			.Set(entity => entity.ConcurrencyStamp, Guid.NewGuid())
 			.UpdateAsync(cancellationToken);
-	}
-
-	private async Task<bool> UpdateRecurringAsync(
-		DataConnection connection,
-		ImmediateRecurringJobEntity schedule,
-		Guid oldStamp,
-		CancellationToken cancellationToken
-	)
-	{
-		var updated = await Recurring(connection)
-			.Where(entity => entity.Name == schedule.Name && entity.ConcurrencyStamp == oldStamp)
-			.Set(entity => entity.JobName, schedule.JobName)
-
-			.Set(entity => entity.Cron, schedule.Cron)
-			.Set(entity => entity.TimeZone, schedule.TimeZone)
-			.Set(entity => entity.IsCodeDefined, schedule.IsCodeDefined)
-			.Set(entity => entity.CancellationReason, schedule.CancellationReason)
-			.Set(entity => entity.IsPaused, schedule.IsPaused)
-			.Set(entity => entity.NextRunAt, schedule.NextRunAt)
-			.Set(entity => entity.LastRunAt, schedule.LastRunAt)
-			.Set(entity => entity.ConcurrencyStamp, schedule.ConcurrencyStamp)
-			.UpdateAsync(cancellationToken);
-		return updated != 0;
 	}
 
 	[LoggerMessage(

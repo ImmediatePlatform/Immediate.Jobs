@@ -121,10 +121,10 @@ internal sealed partial class LinqToDBJobStorage<T>
 		var jobs = await query.ToListAsync(cancellationToken);
 		var schedules = await schedulesQuery.ToListAsync(cancellationToken);
 		var now = timeProvider.GetUtcNow();
+		await MaterializeExecutionsAsync(connection, jobs.Where(static job => job.State == JobState.Active), cancellationToken);
 		foreach (var job in jobs)
-			await MarkCancelledAsync(connection, job, now, JobDefinitionReconciliation.RemovalCancellationReason, cancellationToken);
-		foreach (var job in jobs)
-			await PropagateTerminalAsync(connection, job, now, terminalGroups, cancellationToken);
+			await MarkCancelledAsync(connection, job, now, JobDefinitionReconciliation.RemovalCancellationReason, cancellationToken, executionPrepared: true);
+		await PropagateTerminalAsync(connection, jobs, now, terminalGroups, cancellationToken);
 		foreach (var schedule in schedules)
 			await Recurring(connection).Where(item => item.Name == schedule.Name)
 				.Set(item => item.CancellationReason, JobDefinitionReconciliation.RemovalCancellationReason)

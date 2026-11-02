@@ -38,10 +38,9 @@ internal sealed partial class LinqToDBJobStorage<T>
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 		await using var scope = contextScope.GetScope(out var connection);
-		var metadata = await GetStoredDefinitionAsync(connection, jobName, cancellationToken);
-		var definition = await DefinitionStates(connection).SingleOrDefaultAsync(item => item.JobName == metadata.Name, cancellationToken)
-			?? new() { JobName = metadata.Name };
-		return await EvaluateDefinitionAsync(connection, definition, ToRecord(metadata).AcquisitionLimits, timeProvider.GetUtcNow(), cancellationToken, includeActiveCount: true);
+		var states = await ReadDefinitionStatusesAsync(connection,
+			Definitions(connection).Where(item => item.Name == jobName), timeProvider.GetUtcNow(), cancellationToken);
+		return states.SingleOrDefault() ?? throw new KeyNotFoundException($"Job definition '{jobName}' was not found.");
 	}
 
 	private async Task<ImmediateJobDefinitionMetadataEntity> GetStoredDefinitionAsync(DataConnection connection, string jobName, CancellationToken cancellationToken) =>
@@ -53,22 +52,55 @@ internal sealed partial class LinqToDBJobStorage<T>
 		cancellationToken.ThrowIfCancellationRequested();
 		await using var scope = contextScope.GetScope(out var connection);
 		var metadata = await GetStoredDefinitionAsync(connection, jobName, cancellationToken);
+		if (paused)
+		{
+			if (await PauseDefinitionAsync(connection, metadata.Name, cancellationToken) == 0)
+			{
+				await EnsureDefinitionAsync(metadata.Name, cancellationToken);
+				await PauseDefinitionAsync(connection, metadata.Name, cancellationToken);
+			}
+
+			return;
+		}
+
 		await EnsureDefinitionAsync(metadata.Name, cancellationToken);
 		await connection.BeginTransactionAsync(cancellationToken);
 		var definition = await LockDefinitionAsync(connection, metadata.Name, cancellationToken);
-		definition.IsPaused = paused;
-		if (paused)
-		{
-			definition.AcquisitionStatus = JobAcquisitionStatus.Paused;
-			definition.NextEligibleAt = null;
-		}
-		else
-		{
-			await EvaluateDefinitionAsync(connection, definition, ToRecord(metadata).AcquisitionLimits, timeProvider.GetUtcNow(), cancellationToken);
-		}
+		definition.IsPaused = false;
+		await EvaluateDefinitionAsync(connection, definition, ToRecord(metadata).AcquisitionLimits, timeProvider.GetUtcNow(), cancellationToken);
 
 		await SaveDefinitionAsync(connection, definition, cancellationToken);
 		await connection.CommitTransactionAsync(cancellationToken);
+	}
+
+	private Task<int> PauseDefinitionAsync(DataConnection connection, string jobName, CancellationToken cancellationToken) =>
+		DefinitionStates(connection).Where(item => item.JobName == jobName)
+			.Set(item => item.IsPaused, value: true)
+			.Set(item => item.AcquisitionStatus, JobAcquisitionStatus.Paused)
+			.Set(item => item.NextEligibleAt, (DateTimeOffset?)null)
+			.Set(item => item.ConcurrencyStamp, Guid.NewGuid())
+			.UpdateAsync(cancellationToken);
+
+	private async ValueTask EnsureDefinitionsAsync(IEnumerable<string> jobNames, CancellationToken cancellationToken)
+	{
+		var names = jobNames.Distinct(StringComparer.Ordinal).ToList();
+		if (names.Count == 0)
+			return;
+		await using var scope = contextScope.GetScope(out var connection);
+		var existing = await DefinitionStates(connection).Where(item => names.Contains(item.JobName))
+			.Select(item => item.JobName).ToListAsync(cancellationToken);
+		foreach (var name in names.Except(existing, StringComparer.Ordinal))
+		{
+			try
+			{
+				await InsertAsync(connection, new ImmediateJobDefinitionEntity { JobName = name, ConcurrencyStamp = Guid.NewGuid() }, cancellationToken);
+			}
+			catch (DbException)
+			{
+				if (!await DefinitionStates(connection).AnyAsync(item => item.JobName == name, cancellationToken))
+					throw;
+			}
+		}
 	}
 
 	private async ValueTask EnsureDefinitionAsync(string jobName, CancellationToken cancellationToken)
@@ -126,7 +158,7 @@ internal sealed partial class LinqToDBJobStorage<T>
 			.UpdateAsync(cancellationToken);
 	}
 
-	private async ValueTask<JobAcquisitionLimits?> ReserveDefinitionAsync(DataConnection connection, string jobName, DateTimeOffset now, CancellationToken cancellationToken)
+	private async ValueTask<(ImmediateJobDefinitionEntity Definition, JobAcquisitionLimits Limits)?> ReserveDefinitionAsync(DataConnection connection, string jobName, DateTimeOffset now, CancellationToken cancellationToken)
 	{
 		var definition = await LockDefinitionAsync(connection, jobName, cancellationToken);
 		var metadata = await Definitions(connection).SingleOrDefaultAsync(item => item.Name == jobName, cancellationToken);
@@ -159,13 +191,11 @@ internal sealed partial class LinqToDBJobStorage<T>
 			definition.FixedWindowCount++;
 		}
 
-		await SaveDefinitionAsync(connection, definition, cancellationToken);
-		return limits;
+		return (definition, limits);
 	}
 
-	private async Task RefreshAcquiredDefinitionAsync(DataConnection connection, string jobName, JobAcquisitionLimits limits, DateTimeOffset now, CancellationToken cancellationToken)
+	private async Task RefreshAcquiredDefinitionAsync(DataConnection connection, ImmediateJobDefinitionEntity definition, JobAcquisitionLimits limits, DateTimeOffset now, CancellationToken cancellationToken)
 	{
-		var definition = await DefinitionStates(connection).SingleAsync(item => item.JobName == jobName, cancellationToken);
 		await EvaluateDefinitionAsync(connection, definition, limits, now, cancellationToken);
 		await SaveDefinitionAsync(connection, definition, cancellationToken);
 	}
@@ -177,27 +207,12 @@ internal sealed partial class LinqToDBJobStorage<T>
 			return [];
 
 		await using var scope = contextScope.GetScope(out var connection);
-		// This is an advisory read. The definition row is locked and rechecked when claiming a job.
-		var metadata = await Definitions(connection)
-			.Where(item => candidates.Contains(item.Name)).ToListAsync(cancellationToken);
-		if (metadata.Count == 0)
-			return [];
-
-		var canonicalNames = metadata.Select(static item => item.Name).ToList();
-		// Resolve names before reading counters: metadata and counter columns may have different collations.
-		var definitions = await DefinitionStates(connection).Where(item => canonicalNames.Contains(item.JobName))
-			.ToDictionaryAsync(static item => item.JobName, StringComparer.Ordinal, cancellationToken);
-		var names = new List<string>();
-		var now = timeProvider.GetUtcNow();
-		foreach (var item in metadata)
-		{
-			var definition = definitions.GetValueOrDefault(item.Name) ?? new() { JobName = item.Name };
-			var state = await EvaluateDefinitionAsync(connection, definition, ToRecord(item).AcquisitionLimits, now, cancellationToken);
-			if (state.AcquisitionStatus == JobAcquisitionStatus.Ready)
-				names.Add(item.Name);
-		}
-
-		return names;
+		// Advisory only: claims lock and recheck the durable definition.
+		var states = await ReadDefinitionStatusesAsync(connection,
+			Definitions(connection).Where(item => candidates.Contains(item.Name)),
+			timeProvider.GetUtcNow(), cancellationToken, includeActiveCount: false);
+		return states.Where(static state => state.AcquisitionStatus == JobAcquisitionStatus.Ready)
+			.Select(static state => state.JobName).ToList();
 	}
 
 	[LoggerMessage(

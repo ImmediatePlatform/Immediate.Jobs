@@ -10,7 +10,7 @@ internal sealed partial class LinqToDBJobStorage<T>
 {
 	private async ValueTask InterruptActiveLeasesAsync(CancellationToken cancellationToken)
 	{
-		const int BatchSize = 1000;
+		const int BatchSize = 256;
 		var now = timeProvider.GetUtcNow();
 		while (true)
 		{
@@ -23,27 +23,25 @@ internal sealed partial class LinqToDBJobStorage<T>
 					.Take(BatchSize)
 					.ToListAsync(cancellationToken);
 				count = jobs.Count;
-				foreach (var job in jobs)
-				{
-					if (await GetOrMaterializeExecutionAsync(connection, job, cancellationToken) is { })
-					{
-						await Executions(connection)
-							.Where(execution => execution.JobHandle == job.Id && execution.Attempt == job.Attempt)
-							.Set(execution => execution.State, JobExecutionState.Interrupted)
-							.Set(execution => execution.CompletedAt, now)
-							.Set(execution => execution.Error, (string?)null)
-							.UpdateAsync(cancellationToken);
-					}
-
-					var stamp = job.ConcurrencyStamp;
-					job.State = JobState.Pending;
-					job.WorkerId = null;
-					job.LeaseExpiresAt = null;
-					job.CompletedAt = null;
-					job.ConcurrencyStamp = Guid.NewGuid();
-					if (!await UpdateJobAsync(connection, job, stamp, cancellationToken))
-						throw new LostRaceException();
-				}
+				await MaterializeExecutionsAsync(connection, jobs, cancellationToken);
+				var ids = jobs.Select(static job => job.Id).ToList();
+				if (ids.Count == 0)
+					return;
+				await Executions(connection).Where(execution => Jobs(connection).Any(job =>
+					ids.Contains(job.Id) && job.Attempt == execution.Attempt && job.Id == execution.JobHandle))
+					.Set(execution => execution.State, JobExecutionState.Interrupted)
+					.Set(execution => execution.CompletedAt, now)
+					.Set(execution => execution.Error, (string?)null)
+					.UpdateAsync(cancellationToken);
+				var updated = await VersionedJobs(connection, jobs)
+					.Set(job => job.State, JobState.Pending)
+					.Set(job => job.WorkerId, (string?)null)
+					.Set(job => job.LeaseExpiresAt, (DateTimeOffset?)null)
+					.Set(job => job.CompletedAt, (DateTimeOffset?)null)
+					.Set(job => job.ConcurrencyStamp, Guid.NewGuid())
+					.UpdateAsync(cancellationToken);
+				if (updated != jobs.Count)
+					throw new LostRaceException();
 			}, cancellationToken);
 			if (count < BatchSize)
 				return;

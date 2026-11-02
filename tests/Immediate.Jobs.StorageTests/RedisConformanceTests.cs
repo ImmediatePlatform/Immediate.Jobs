@@ -1,3 +1,5 @@
+using System.Globalization;
+using System.Text.Json;
 using Immediate.Jobs.Redis;
 using Immediate.Jobs.Shared.Apis;
 using Immediate.Jobs.Shared.Storage;
@@ -85,7 +87,7 @@ file sealed class RedisConformanceFixture : IAsyncDisposable
 				}
 			);
 
-			await LoadJobs(services, persistedJobState.Jobs);
+			await LoadJobs(services, connection.GetDatabase(), keyPrefix, persistedJobState.Jobs);
 			await LoadRecurringSchedules(services, persistedJobState.RecurringSchedules);
 
 			return new(connection, keyPrefix, services);
@@ -97,7 +99,7 @@ file sealed class RedisConformanceFixture : IAsyncDisposable
 		}
 	}
 
-	private static async ValueTask LoadJobs(IServiceProvider serviceProvider, IReadOnlyList<JobRecord> jobs)
+	private static async ValueTask LoadJobs(IServiceProvider serviceProvider, IDatabase database, string keyPrefix, IReadOnlyList<JobRecord> jobs)
 	{
 		if (jobs is [])
 			return;
@@ -110,17 +112,44 @@ file sealed class RedisConformanceFixture : IAsyncDisposable
 			Definitions = jobs.DistinctBy(static job => job.JobName, StringComparer.OrdinalIgnoreCase)
 				.Select(static job => new JobDefinitionRecord { Name = job.JobName, QueueName = job.QueueName ?? "default" }).ToList(),
 		});
+		var root = $"{{{keyPrefix}}}:";
 		foreach (var job in jobs)
+		{
+			var initialState = job.State is JobState.Pending or JobState.Scheduled or JobState.WaitingForTrigger
+				? job.State : JobState.WaitingForTrigger;
 			await storage.EnqueueAsync(new()
 			{
 				JobHandle = job.JobHandle,
 				JobName = job.JobName,
 				Payload = job.Payload,
-				State = job.State,
+				State = initialState,
+				GroupId = job.GroupId,
 				DueAt = job.DueAt,
 				CreatedAt = job.CreatedAt,
 				RecurringKey = job.RecurringKey,
 			});
+			await database.HashSetAsync(root + "job:" + job.JobHandle.Value,
+			[
+				new("record", JsonSerializer.Serialize(job, RedisJsonSerializerContext.Default.JobRecord)),
+				new("state", (int)job.State), new("attempt", job.Attempt),
+				new("worker", job.WorkerId ?? ""), new("lease", Timestamp(job.LeaseExpiresAt)),
+				new("error", job.LastError ?? ""), new("completed", Timestamp(job.CompletedAt)),
+				new("executionTraceId", job.ExecutionTraceId ?? ""), new("executionSpanId", job.ExecutionSpanId ?? ""),
+				new("executionStartedAt", Timestamp(job.ExecutionStartedAt)), new("cancellationReason", job.CancellationReason ?? ""),
+			]);
+			if (initialState != job.State)
+			{
+				await database.SetRemoveAsync(string.Create(CultureInfo.InvariantCulture, $"{root}state:{(int)initialState}"), job.JobHandle.Value);
+				await database.SetAddAsync(string.Create(CultureInfo.InvariantCulture, $"{root}state:{(int)job.State}"), job.JobHandle.Value);
+			}
+
+			if (job.CompletedAt is { } completed)
+				await database.SortedSetAddAsync(string.Create(CultureInfo.InvariantCulture, $"{root}completed:{(int)job.State}"), job.JobHandle.Value, completed.ToUnixTimeMilliseconds());
+			if (job.LeaseExpiresAt is { } lease)
+				await database.SortedSetAddAsync(root + "leases", job.JobHandle.Value, lease.ToUnixTimeMilliseconds());
+		}
+
+		static string Timestamp(DateTimeOffset? value) => value?.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture) ?? "";
 	}
 
 	private static async ValueTask LoadRecurringSchedules(

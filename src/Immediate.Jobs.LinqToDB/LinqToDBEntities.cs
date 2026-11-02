@@ -61,9 +61,12 @@ internal class ImmediateJobEntity
 	public string JobName { get; set; } = null!;
 	[Column(Length = 128, CanBeNull = true)]
 	public string? GroupId { get; set; }
+	// Keep Unicode parameter binding when the database default collation is not UTF-8.
 	[Column(DataType = DataType.Text, CanBeNull = false)]
+	[Column(Configuration = ProviderName.SqlServer, DataType = DataType.NVarChar, DbType = "varchar(max) COLLATE Latin1_General_100_BIN2_UTF8", CanBeNull = false)]
 	public string Payload { get; set; } = null!;
 	[Column(DataType = DataType.Text, CanBeNull = true)]
+	[Column(Configuration = ProviderName.SqlServer, DataType = DataType.NVarChar, DbType = "varchar(max) COLLATE Latin1_General_100_BIN2_UTF8", CanBeNull = true)]
 	public string? Context { get; set; }
 	[Column(DataType = DataType.Int16)]
 	public JobState State { get; set; }
@@ -78,6 +81,7 @@ internal class ImmediateJobEntity
 	[Column(DataType = DataType.DateTimeOffset, CanBeNull = true)]
 	public DateTimeOffset? LeaseExpiresAt { get; set; }
 	[Column(DataType = DataType.Text, CanBeNull = true)]
+	[Column(Configuration = ProviderName.SqlServer, DataType = DataType.NVarChar, DbType = "varchar(max) COLLATE Latin1_General_100_BIN2_UTF8", CanBeNull = true)]
 	public string? LastError { get; set; }
 	[Column(DataType = DataType.DateTimeOffset, CanBeNull = true)]
 	public DateTimeOffset? CompletedAt { get; set; }
@@ -86,6 +90,7 @@ internal class ImmediateJobEntity
 	[Column(Length = 256, CanBeNull = true)]
 	public string? TraceParent { get; set; }
 	[Column(DataType = DataType.Text, CanBeNull = true)]
+	[Column(Configuration = ProviderName.SqlServer, DataType = DataType.NVarChar, DbType = "varchar(max) COLLATE Latin1_General_100_BIN2_UTF8", CanBeNull = true)]
 	public string? TraceState { get; set; }
 	[Column(Length = 32, CanBeNull = true)]
 	public string? ExecutionTraceId { get; set; }
@@ -125,6 +130,7 @@ internal sealed class ImmediateJobExecutionEntity
 	[Column(Length = 16, CanBeNull = true)]
 	public string? ExecutionSpanId { get; set; }
 	[Column(DataType = DataType.Text, CanBeNull = true)]
+	[Column(Configuration = ProviderName.SqlServer, DataType = DataType.NVarChar, DbType = "varchar(max) COLLATE Latin1_General_100_BIN2_UTF8", CanBeNull = true)]
 	public string? Error { get; set; }
 	[Column]
 	public bool IsSynthetic { get; set; }
@@ -203,6 +209,7 @@ internal sealed class ImmediateJobServerEntity
 	[Column]
 	public int MaxWorkers { get; set; }
 	[Column(DataType = DataType.Text)]
+	[Column(Configuration = ProviderName.SqlServer, DataType = DataType.NVarChar, DbType = "varchar(max) COLLATE Latin1_General_100_BIN2_UTF8", CanBeNull = false)]
 	public string Details { get; set; } = null!;
 }
 
@@ -246,7 +253,7 @@ internal sealed class ImmediateJobDefinitionMetadataEntity
 	[Column(Length = 32, CanBeNull = true)]
 	public string? FixedWindowPeriod { get; set; }
 	[Column(DataType = DataType.Text, CanBeNull = false)]
-	[Column(Configuration = ProviderName.SqlServer, DbType = "nvarchar(max)", CanBeNull = false)]
+	[Column(Configuration = ProviderName.SqlServer, DataType = DataType.NVarChar, DbType = "varchar(max) COLLATE Latin1_General_100_BIN2_UTF8", CanBeNull = false)]
 	[Column(Configuration = ProviderName.PostgreSQL, DataType = DataType.BinaryJson, CanBeNull = false)]
 	public string Tags { get; set; } = null!;
 }

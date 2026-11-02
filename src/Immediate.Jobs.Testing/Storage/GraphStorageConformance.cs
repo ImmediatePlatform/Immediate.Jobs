@@ -25,6 +25,7 @@ internal static partial class GraphStorageConformance
 
 	internal static IReadOnlyList<JobStorageConformanceTestCase> Cases { get; } =
 	[
+		new(WideCancellationName, StorageCapabilities.Graph, PropagatesWideCancellationAsync),
 		new(WideFailureName, StorageCapabilities.Graph, PropagatesWideFailureAsync),
 		new(RoutingName, StorageCapabilities.Graph, ResolvesQueuesAtomicallyAsync),
 		new(CapabilityName, StorageCapabilities.Graph, ResolvesAdvertisedStorage),
@@ -787,7 +788,8 @@ internal static partial class GraphStorageConformance
 			State = JobState.AwaitingContinuation,
 			RemainingDependencies = 1,
 		};
-		await graph.EnqueueBatchAsync(CreateBatch("cancel-batch", 2), [parent, child],
+		var siblings = Enumerable.Range(0, 299).Select(index => CreateJob(string.Create(provider: null, $"cancel-sibling-{index:D4}"), "cancel-batch") with { JobName = "cancel-parent" }).ToList();
+		await graph.EnqueueBatchAsync(CreateBatch("cancel-batch", siblings.Count + 2), [parent, child, .. siblings],
 			[new() { ChildJobHandle = child.JobHandle, ParentJobHandle = parent.JobHandle, Delay = TimeSpan.Zero }], cancellationToken);
 		await graph.CancelBatchAsync(BatchHandle.FromString("cancel-batch"), cancellationToken);
 		ConformanceAssert.Equal(JobState.Cancelled,
@@ -803,8 +805,17 @@ internal static partial class GraphStorageConformance
 			CancellationName, "cancelled batch status must remain observable");
 		ConformanceAssert.Equal(BatchState.Cancelled, status.State, CancellationName,
 			"a batch with only explicit cancellations must be Cancelled");
-		ConformanceAssert.Equal(2, status.Cancelled, CancellationName,
+		ConformanceAssert.Equal(siblings.Count + 2, status.Cancelled, CancellationName,
 			"every non-terminal member must be included in cancellation counters");
+		ConformanceAssert.Equal(0, status.Remaining, CancellationName, "large batch cancellation settles every member");
+		foreach (var sibling in new[] { siblings[0], siblings[^1] })
+			ConformanceAssert.Equal(JobState.Cancelled, (await graph.GetJobStatusAsync(sibling.JobHandle, cancellationToken))!.State,
+				CancellationName, "cancellation must reach members throughout a large batch");
+		await ConformanceAssert.ThrowsAsync<ImmediateJobException>(
+			() => graph.CancelBatchAsync(BatchHandle.FromString("cancel-batch"), cancellationToken),
+			CancellationName, "a terminal batch cannot be cancelled again");
+		ConformanceAssert.Equal(status.Cancelled, (await graph.GetBatchStatusAsync(BatchHandle.FromString("cancel-batch"), cancellationToken))!.Cancelled,
+			CancellationName, "repeating cancellation must not double-count members");
 	}
 
 	private static async ValueTask PurgeExpiredBatchAsync(

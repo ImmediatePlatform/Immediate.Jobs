@@ -12,12 +12,20 @@ internal static partial class GraphStorageConformance
 	private const string DuplicateEdgeName = "Graph.Validation.RejectsDuplicateLogicalEdgesWithoutPartialWrites";
 	private const string MemberPurgeName = "Graph.Maintenance.StandalonePurgePreservesBatchMembers";
 
+	private const string WideCancellationName = "Graph.Cancellation.PropagatesWideCancellationWithoutDoubleCounting";
 	private const string WideFailureName = "Graph.Completion.PropagatesWideFailureWithoutDoubleCounting";
 
-	private static async ValueTask PropagatesWideFailureAsync(IJobStorage storage, FakeTimeProvider clock, CancellationToken token)
+	private static ValueTask PropagatesWideFailureAsync(IJobStorage storage, FakeTimeProvider clock, CancellationToken token) =>
+		PropagatesWideOutcomeAsync(storage, cancel: false, token);
+
+	private static ValueTask PropagatesWideCancellationAsync(IJobStorage storage, FakeTimeProvider clock, CancellationToken token) =>
+		PropagatesWideOutcomeAsync(storage, cancel: true, token);
+
+	private static async ValueTask PropagatesWideOutcomeAsync(IJobStorage storage, bool cancel, CancellationToken token)
 	{
 		const int ChildCount = 1001;
-		var graph = GetGraph(storage, WideFailureName);
+		var caseName = cancel ? WideCancellationName : WideFailureName;
+		var graph = GetGraph(storage, caseName);
 		await storage.MergeJobDefinitionsListAsync(new()
 		{
 			Definitions = [new() { Name = "wide-parent" }, new() { Name = "wide-child" }],
@@ -31,14 +39,21 @@ internal static partial class GraphStorageConformance
 		await graph.EnqueueBatchAsync(CreateBatch(batch, ChildCount + 1), [parent, .. children],
 			[.. children.Select(child => new JobContinuationEdge { ParentJobHandle = parent.JobHandle, ChildJobHandle = child.JobHandle, Trigger = ContinuationTrigger.Success, Delay = TimeSpan.Zero })], token);
 		var active = (await storage.AcquireDueJobsAsync(CreateRequest("wide-worker", "wide-parent"), token)).Single();
-		await storage.FailAsync(parent.JobHandle, active.Attempt, "wide-worker", "failure", nextRetryAt: null, token);
+		if (cancel)
+			await storage.CancelAsync(parent.JobHandle, token);
+		else
+			await storage.FailAsync(parent.JobHandle, active.Attempt, "wide-worker", "failure", nextRetryAt: null, token);
 		var status = (await graph.GetBatchStatusAsync(batch, token))!;
-		ConformanceAssert.Equal(BatchState.Failed, status.State, WideFailureName, "the batch completes after all skipped children settle");
-		ConformanceAssert.Equal(0, status.Remaining, WideFailureName, "every child settles exactly once");
-		ConformanceAssert.Equal(ChildCount, status.Skipped, WideFailureName, "wide propagation preserves all skip outcomes");
-		ConformanceAssert.Equal(1, status.Failed, WideFailureName, "only the parent fails");
+		ConformanceAssert.Equal(cancel ? BatchState.Cancelled : BatchState.Failed, status.State, caseName, "the batch completes after all skipped children settle");
+		ConformanceAssert.Equal(0, status.Remaining, caseName, "every child settles exactly once");
+		ConformanceAssert.Equal(ChildCount, status.Skipped, caseName, "wide propagation preserves all skip outcomes");
+		ConformanceAssert.Equal(cancel ? 0 : 1, status.Failed, caseName, "only a failed parent contributes to failure counts");
+		ConformanceAssert.Equal(cancel ? 1 : 0, status.Cancelled, caseName, "only a cancelled parent contributes to cancellation counts");
+		foreach (var child in new[] { children[0], children[^1] })
+			ConformanceAssert.Equal(JobState.Skipped, (await storage.GetJobStatusAsync(child.JobHandle, token))!.State,
+				caseName, "wide propagation reaches children throughout the graph");
 		var history = await storage.QueryJobExecutionsAsync(children[0].JobHandle, new(), token);
-		ConformanceAssert.Equal(0, history.Count, WideFailureName, "skipped children never acquire an execution");
+		ConformanceAssert.Equal(0, history.Count, caseName, "skipped children never acquire an execution");
 	}
 
 	private static async ValueTask ConcurrentSplicePreservesParentsAsync(IJobStorage storage, FakeTimeProvider clock, CancellationToken token)
