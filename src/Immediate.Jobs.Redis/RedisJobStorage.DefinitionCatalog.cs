@@ -51,6 +51,14 @@ internal sealed partial class RedisJobStorage
 					Timestamp(now), Score(now), JobDefinitionReconciliation.RemovalCancellationReason]).WaitAsync(cancellationToken);
 			if (!result.IsNull)
 			{
+				foreach (var name in changes.RemovedDefinitionNames)
+					_definitionSnapshots.TryRemove(name.ToUpperInvariant(), out _);
+				for (var index = 0; index < changes.Definitions.Count; index++)
+				{
+					var metadata = payload.Definitions[index];
+					_definitionSnapshots[metadata.Name] = new(metadata.Metadata, changes.Definitions[index]);
+				}
+
 				foreach (var report in (RedisResult[])result!)
 				{
 					var values = (RedisResult[])report!;
