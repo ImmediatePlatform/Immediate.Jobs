@@ -93,13 +93,19 @@ internal static class TriggerStorageConformance
 			"a rejected update must leave the payload unchanged"
 		);
 
-		const string Opaque = """{"number":9007199254740993,"text":"雪<&>\u003c\""}""";
+		const string Opaque = """{"number":9007199254740993,"text":"雪🙂<&>\u003c\""}""";
 		var unicode = CreateWaitingJob("unicode-parameters", now) with { JobName = "Δοκιμή.Σ", Context = Opaque };
 		await storage.EnqueueAsync(unicode, cancellationToken);
 		await storage.UpdatePayloadAsync(unicode.JobHandle, "δοκιμή.ς", Opaque, cancellationToken);
 		var persisted = await GetJobAsync(storage, unicode.JobHandle, ParametersName, cancellationToken);
 		ConformanceAssert.Equal(Opaque, persisted.Payload, ParametersName, "parameter updates preserve the opaque payload string exactly");
 		ConformanceAssert.Equal(Opaque, persisted.Context, ParametersName, "parameter updates preserve the opaque context string exactly");
+
+		var largePayload = "\"" + new string('雪', 4097) + "🙂\"";
+		await storage.UpdatePayloadAsync(unicode.JobHandle, "δοκιμή.ς", largePayload, cancellationToken);
+		ConformanceAssert.Equal(largePayload, (await GetJobAsync(storage, unicode.JobHandle, ParametersName, cancellationToken)).Payload,
+			ParametersName, "parameter updates preserve Unicode strings longer than 4000 characters");
+
 		var ascii = CreateWaitingJob("ascii-parameters", now) with { JobName = "S" };
 		await storage.EnqueueAsync(ascii, cancellationToken);
 		await ConformanceAssert.ThrowsAsync<ImmediateJobException>(

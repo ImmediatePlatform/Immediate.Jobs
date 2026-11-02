@@ -94,8 +94,8 @@ internal static class QueueStorageConformance
 			"RoundTrip.Job"
 		) with
 		{
-			Payload = "{\"message\":\"unchanged\",\"number\":42}",
-			Context = "{\"tenant\":\"acme\"}",
+			Payload = """{"message":"雪🙂","number":9007199254740993,"escaped":"\u003c"}""",
+			Context = """{"tenant":"雪🙂"}""",
 			GroupId = "group-alpha",
 			State = JobState.Scheduled,
 			DueAt = timeProvider.GetUtcNow().AddMinutes(5).AddMilliseconds(3).ToOffset(TimeSpan.FromHours(-7)),
@@ -441,31 +441,34 @@ internal static class QueueStorageConformance
 			],
 		}, cancellationToken);
 
+		const string RetryError = "retryable error: 雪🙂";
+		const string TerminalError = "terminal error: 雪🙂";
+
 		await storage.EnqueueAsync(CreateJob("retryable", timeProvider.GetUtcNow()), cancellationToken);
 
 		var first = (await storage.AcquireDueJobsAsync(CreateRequest("failure-worker", 1), cancellationToken)).Single();
 		var retryAt = timeProvider.GetUtcNow().AddMinutes(5);
 
-		await storage.FailAsync(first.JobHandle, first.Attempt, "failure-worker", "retryable error", retryAt, cancellationToken);
+		await storage.FailAsync(first.JobHandle, first.Attempt, "failure-worker", RetryError, retryAt, cancellationToken);
 
 		var scheduled = (await storage.QueryJobsAsync(new() { JobHandle = first.JobHandle }, cancellationToken)).Single();
 		ConformanceAssert.Equal(JobState.Scheduled, scheduled.State, FailureName, "a future retry must schedule the job");
 		ConformanceAssert.Equal(retryAt, scheduled.DueAt, FailureName, "a future retry must preserve its supplied due time");
-		ConformanceAssert.Equal("retryable error", scheduled.LastError, FailureName, "a retryable failure must remain visible on the job projection");
+		ConformanceAssert.Equal(RetryError, scheduled.LastError, FailureName, "a retryable failure must remain visible on the job projection");
 
 		await storage.RetryAsync(first.JobHandle, cancellationToken);
 
 		var fastForwarded = (await storage.QueryJobsAsync(new() { JobHandle = first.JobHandle }, cancellationToken)).Single();
 		ConformanceAssert.Equal(JobState.Pending, fastForwarded.State, FailureName, "retrying a scheduled job must fast-forward it to pending");
 		ConformanceAssert.Equal(first.Attempt, fastForwarded.Attempt, FailureName, "fast-forwarding must not create an execution attempt");
-		ConformanceAssert.Equal("retryable error", fastForwarded.LastError, FailureName, "fast-forwarding a scheduled retry must preserve its latest error");
+		ConformanceAssert.Equal(RetryError, fastForwarded.LastError, FailureName, "fast-forwarding a scheduled retry must preserve its latest error");
 
 		var second = (await storage.AcquireDueJobsAsync(CreateRequest("failure-worker", 1), cancellationToken)).Single();
-		await storage.FailAsync(second.JobHandle, second.Attempt, "failure-worker", "terminal error", nextRetryAt: null, cancellationToken);
+		await storage.FailAsync(second.JobHandle, second.Attempt, "failure-worker", TerminalError, nextRetryAt: null, cancellationToken);
 
 		var failed = (await storage.QueryJobsAsync(new() { JobHandle = second.JobHandle }, cancellationToken)).Single();
 		ConformanceAssert.Equal(JobState.Failed, failed.State, FailureName, "a failure without a retry time must be terminal");
-		ConformanceAssert.Equal("terminal error", failed.LastError, FailureName, "terminal failure must retain its error");
+		ConformanceAssert.Equal(TerminalError, failed.LastError, FailureName, "terminal failure must retain its error");
 
 		var executions = await storage.QueryJobExecutionsAsync(second.JobHandle, new(), cancellationToken);
 		ConformanceAssert.SequenceEqual(
@@ -476,7 +479,7 @@ internal static class QueueStorageConformance
 		);
 
 		ConformanceAssert.SequenceEqual(
-			["terminal error", "retryable error"],
+			[TerminalError, RetryError],
 			executions.Select(static execution => execution.Error ?? "<null>"),
 			FailureName,
 			"each failed execution must retain its own error"
