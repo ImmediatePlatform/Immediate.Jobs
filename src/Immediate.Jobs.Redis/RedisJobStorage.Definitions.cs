@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Immediate.Jobs.Shared.Apis;
 using Microsoft.Extensions.Logging;
 using Immediate.Jobs.Shared.Storage;
 using StackExchange.Redis;
@@ -42,25 +43,75 @@ internal sealed partial class RedisJobStorage
 	private async ValueTask<JobAcquisitionState> EvaluateDefinitionAsync(string jobName, bool resume, CancellationToken cancellationToken)
 	{
 		var name = jobName.ToUpperInvariant();
+		var refresh = false;
 		while (true)
 		{
 			cancellationToken.ThrowIfCancellationRequested();
-			var metadata = await Database.HashGetAsync(DefinitionMetadataKey, name).WaitAsync(cancellationToken);
-			if (metadata.IsNull)
+			var definitions = await ReadDefinitionSnapshotsAsync([name], refresh, cancellationToken);
+			if (!definitions.TryGetValue(name, out var snapshot))
 				throw new KeyNotFoundException($"Job definition '{jobName}' was not found.");
-			var definition = JsonSerializer.Deserialize(metadata.ToString(), RedisJsonSerializerContext.Default.JobDefinitionRecord)
-				?? throw new ImmediateJobException($"Job definition '{jobName}' contains invalid data.");
-			var limits = definition.AcquisitionLimits;
+			var limits = snapshot.Limits;
 			var now = _timeProvider.GetUtcNow();
-			var values = new List<RedisValue> { _root, name, Score(now), Timestamp(now), resume ? 1 : 0, metadata };
+			var values = new List<RedisValue> { _root, name, Score(now), Timestamp(now), resume ? 1 : 0, snapshot.Metadata };
 			AddDefinitionLimits(values, limits, now);
 			var response = await Database.ScriptEvaluateAsync(RedisScripts.DefinitionState, [DefinitionMetadataKey], [.. values]).WaitAsync(cancellationToken);
 			// Re-read if the definition changed before the script could evaluate its limits.
-			if ((RedisResult[]?)response is not { } result)
+			if (response.IsNull)
+			{
+				refresh = true;
 				continue;
+			}
 
-			return ToAcquisitionState(definition.Name, limits, result);
+			return ToAcquisitionState(snapshot.Definition.Name, limits, (RedisResult[])response!);
 		}
+	}
+
+	private async ValueTask<Dictionary<string, DefinitionSnapshot>> ReadDefinitionSnapshotsAsync(
+		List<string> names,
+		bool refresh,
+		CancellationToken cancellationToken
+	)
+	{
+		var definitions = new Dictionary<string, DefinitionSnapshot>(names.Count, StringComparer.Ordinal);
+		if (!refresh)
+		{
+			foreach (var name in names)
+				if (_definitionSnapshots.TryGetValue(name, out var snapshot))
+					definitions.Add(name, snapshot);
+			if (definitions.Count == names.Count)
+				return definitions;
+			definitions.Clear();
+		}
+
+		RedisValue[] keys = [.. names.Select(static name => (RedisValue)name)];
+		var metadata = await Database.HashGetAsync(DefinitionMetadataKey, keys).WaitAsync(cancellationToken);
+		for (var index = 0; index < names.Count; index++)
+		{
+			var name = names[index];
+			if (metadata[index].IsNull)
+			{
+				_definitionSnapshots.TryRemove(name, out _);
+				continue;
+			}
+
+			if (!_definitionSnapshots.TryGetValue(name, out var snapshot) || snapshot.Metadata != metadata[index])
+			{
+				var definition = JsonSerializer.Deserialize((byte[])metadata[index]!, RedisJsonSerializerContext.Default.JobDefinitionRecord)
+					?? throw new ImmediateJobException($"Job definition '{name}' contains invalid data.");
+				snapshot = new(metadata[index], definition);
+				_definitionSnapshots[name] = snapshot;
+			}
+
+			definitions.Add(name, snapshot);
+		}
+
+		// Missing definitions are never cached: a later registration must be visible on the next request.
+		return definitions;
+	}
+
+	private sealed record DefinitionSnapshot(RedisValue Metadata, JobDefinitionRecord Definition)
+	{
+		public JobAcquisitionLimits Limits { get; } = Definition.AcquisitionLimits;
 	}
 
 	private static JobAcquisitionState ToAcquisitionState(string jobName, JobAcquisitionLimits limits, RedisResult[] result)
@@ -89,8 +140,9 @@ internal sealed partial class RedisJobStorage
 		values.Add(limits.SlidingWindowMax);
 		values.Add(limits.SlidingWindowPeriod is { } sliding ? Timestamp(now - sliding) : "");
 		values.Add(limits.FixedWindowMax);
-		values.Add(limits.FixedWindowStart(now) is { } start ? Timestamp(start) : "");
-		values.Add(limits.FixedWindowStart(now) is { } fixedStart ? Timestamp(fixedStart + limits.FixedWindowPeriod!.Value) : "");
+		var fixedStart = limits.FixedWindowStart(now);
+		values.Add(NullableTimestamp(fixedStart));
+		values.Add(fixedStart is { } start ? Timestamp(start + limits.FixedWindowPeriod!.Value) : "");
 		values.Add(limits.MaxConcurrency);
 	}
 
