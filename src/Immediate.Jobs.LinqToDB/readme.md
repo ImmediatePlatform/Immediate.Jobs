@@ -12,6 +12,8 @@ PostgreSQL storage requires PostgreSQL 15 or later. Definition reconciliation us
 configure LinqToDB with a PostgreSQL 15+ dialect. The adapter assumes this requirement is met and
 does not validate the PostgreSQL version at runtime.
 
+SQL Server storage requires SQL Server 2019 or later for UTF-8 text storage.
+
 ## Installation
 
 Install the core scheduler, this adapter, and the ADO.NET driver for your database:
