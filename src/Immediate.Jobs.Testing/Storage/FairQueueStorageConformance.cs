@@ -168,6 +168,37 @@ internal static class FairQueueStorageConformance
 			"one fair acquisition must rotate among grouped backlogs",
 			comparer: StringComparer.Ordinal
 		);
+
+		foreach (var job in acquired)
+			await storage.CompleteAsync(job.JobHandle, job.Attempt, "interleave-worker", cancellationToken);
+
+		await storage.MergeJobDefinitionsListAsync(new()
+		{
+			RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase),
+			Definitions = [new() { Name = "fair-job" }, new() { Name = "fair-other", MaxConcurrency = 1 }],
+		}, cancellationToken);
+		await EnqueueAsync(storage, clock, "mixed-a", 10, "group-a", cancellationToken);
+		await EnqueueAsync(storage, clock, "mixed-other-a", 11, "group-a", cancellationToken, "fair-other");
+		await EnqueueAsync(storage, clock, "mixed-b", 12, "group-b", cancellationToken);
+		await EnqueueAsync(storage, clock, "mixed-other-b", 13, "group-b", cancellationToken, "fair-other");
+		await EnqueueAsync(storage, clock, "mixed-c", 14, "group-c", cancellationToken);
+		var request = CreateRequest("mixed-worker", 10, DefaultPolicy);
+		request = request with
+		{
+			Queues = [request.Queues[0] with
+			{
+				JobCapacities = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase) { ["fair-job"] = 10, ["fair-other"] = 10 },
+			}],
+		};
+		var mixed = await storage.AcquireDueJobsAsync(request, cancellationToken);
+		ConformanceAssert.SequenceEqual(["mixed-a", "mixed-b", "mixed-c", "mixed-other-a"],
+			mixed.Select(static job => job.JobHandle.Value), InterleaveName,
+			"fair selection must refresh the claimed definition's head and honor its limit across groups");
+		var limited = mixed.Single(static job => string.Equals(job.JobName, "fair-other", StringComparison.Ordinal));
+		await storage.CompleteAsync(limited.JobHandle, limited.Attempt, "mixed-worker", cancellationToken);
+		ConformanceAssert.Equal("mixed-other-b", Single(await storage.AcquireDueJobsAsync(request, cancellationToken),
+			InterleaveName, "a later acquisition must rediscover a previously limited candidate").JobHandle.Value,
+			InterleaveName, "blocked heads must remain eligible after concurrency capacity is released");
 	}
 
 	private static async ValueTask ServesQuietGroupAsync(
