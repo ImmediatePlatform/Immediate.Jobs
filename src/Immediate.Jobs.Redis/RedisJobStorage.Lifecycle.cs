@@ -1,5 +1,4 @@
 using Microsoft.Extensions.Logging;
-using StackExchange.Redis;
 
 namespace Immediate.Jobs.Redis;
 
@@ -154,35 +153,15 @@ internal sealed partial class RedisJobStorage
 		CancellationToken cancellationToken
 	)
 	{
-		while (true)
+		const int BatchSize = 256;
+		while (await EvaluateInt64Async(
+			RedisScripts.Purge,
+			[CompletedKey(state), AllJobsKey, StateKey(state), RecurringDedupeKey],
+			[_root, (int)state, Score(cutoff), BatchSize],
+			cancellationToken
+		) == BatchSize)
 		{
-			var ids = await Database.SortedSetRangeByScoreAsync(
-				CompletedKey(state),
-				stop: Score(cutoff),
-				exclude: Exclude.Stop,
-				take: 256
-			).WaitAsync(cancellationToken);
-			if (ids.Length == 0)
-				return;
-			foreach (var value in ids)
-			{
-				var id = JobHandle.FromString((string)value!);
-
-				_ = await EvaluateInt64Async(
-					RedisScripts.Purge,
-					[
-						JobKey(id),
-						CompletedKey(state),
-						AllJobsKey,
-						StateKey(state),
-						RecurringDedupeKey,
-						ExecutionIndexKey(id),
-						ExecutionDataKey(id),
-					],
-					[value, (int)state],
-					cancellationToken
-				);
-			}
+			cancellationToken.ThrowIfCancellationRequested();
 		}
 	}
 
