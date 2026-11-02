@@ -41,7 +41,6 @@ internal sealed partial class RedisJobStorage(
 		InitializeAsyncCalled();
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
-		await Database.PingAsync().WaitAsync(cancellationToken);
 		if (interruptActiveLeases)
 		{
 			var now = Timestamp(_timeProvider.GetUtcNow());
@@ -53,6 +52,10 @@ internal sealed partial class RedisJobStorage(
 			{
 				cancellationToken.ThrowIfCancellationRequested();
 			}
+		}
+		else
+		{
+			await Database.PingAsync().WaitAsync(cancellationToken);
 		}
 	}
 
