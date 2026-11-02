@@ -169,37 +169,20 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 			throw new ImmediateJobException("Only an executing batch can be cancelled.");
 
 		var jobs = await context.Set<ImmediateJobEntity>()
-			.Where(job => job.BatchHandle == batchHandle.Value)
+			.Where(job => job.BatchHandle == batchHandle.Value &&
+				job.State != JobState.Succeeded && job.State != JobState.Failed &&
+				job.State != JobState.Cancelled && job.State != JobState.Skipped)
 			.ToListAsync(cancellationToken);
-		var jobsToCancel = jobs.Where(job => !IsTerminal(job.State)).ToList();
-		foreach (var job in jobsToCancel)
-		{
-			if (job.State == JobState.Active)
-			{
-				var execution = await GetOrMaterializeExecutionAsync(context, job, cancellationToken)
-					?? throw new ImmediateJobException($"Active job '{job.Id}' has no execution ordinal.");
-				execution.State = JobExecutionState.Cancelled;
-				execution.CompletedAt = now;
-				execution.Error = null;
-			}
+		await MaterializeExecutionsAsync(context, jobs.Where(static job => job.State == JobState.Active), cancellationToken);
+		foreach (var job in jobs)
+			await MarkCancelledAsync(context, job, now, reason: null, cancellationToken);
 
-			job.State = JobState.Cancelled;
-			job.CompletedAt = now;
-			job.WorkerId = null;
-			job.LeaseExpiresAt = null;
-			job.ConcurrencyStamp = Guid.NewGuid();
-		}
-
-		foreach (var job in jobsToCancel)
-			await PropagateTerminalAsync(context, job, now, cancellationToken);
+		await PropagateTerminalAsync(context, jobs, now, cancellationToken);
 
 		var terminalGroups = GetTerminalFairQueueGroups(context);
 		_ = await context.SaveChangesAsync(cancellationToken);
 		await transaction.CommitAsync(cancellationToken);
-		foreach (var (queueName, groupId) in terminalGroups)
-		{
-			await TryRemoveFairQueueCursorAsync(queueName, groupId, CancellationToken.None);
-		}
+		await TryRemoveFairQueueCursorsAsync(terminalGroups, CancellationToken.None);
 	}
 
 	private async Task CancelCoreAsync(JobHandle jobHandle, CancellationToken cancellationToken)
@@ -219,10 +202,7 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 		var terminalGroups = GetTerminalFairQueueGroups(context);
 		_ = await context.SaveChangesAsync(cancellationToken);
 		await transaction.CommitAsync(cancellationToken);
-		foreach (var (queueName, groupId) in terminalGroups)
-		{
-			await TryRemoveFairQueueCursorAsync(queueName, groupId, CancellationToken.None);
-		}
+		await TryRemoveFairQueueCursorsAsync(terminalGroups, CancellationToken.None);
 	}
 
 	private static async Task MarkCancelledAsync(TContext context, ImmediateJobEntity job, DateTimeOffset now, string? reason, CancellationToken cancellationToken)
@@ -323,13 +303,12 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 		if (jobs.Count != 0)
 		{
 			var jobHandles = jobs.Select(static job => job.Id).ToList();
-			var edges = await context.Set<ImmediateJobContinuationEntity>()
+			await context.Set<ImmediateJobContinuationEntity>()
 				.Where(edge =>
 					jobHandles.Contains(edge.ChildJobHandle)
 					|| (jobHandles.Contains(edge.ParentId) && edge.ParentKind == ContinuationParentKind.Job)
 				)
-				.ToListAsync(cancellationToken);
-			context.RemoveRange(edges);
+				.ExecuteDeleteAsync(cancellationToken);
 		}
 
 		context.RemoveRange(jobs);
@@ -353,10 +332,9 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 		if (batches.Count != 0)
 		{
 			var batchHandles = batches.Select(static batch => batch.Id).ToList();
-			var memberIds = await context.Set<ImmediateJobEntity>()
+			var memberIds = context.Set<ImmediateJobEntity>()
 				.Where(job => job.BatchHandle != null && batchHandles.Contains(job.BatchHandle))
-				.Select(job => job.Id)
-				.ToListAsync(cancellationToken);
+				.Select(job => job.Id);
 			_ = await context.Set<ImmediateJobContinuationEntity>()
 				.Where(edge =>
 					(batchHandles.Contains(edge.ParentId) && edge.ParentKind == ContinuationParentKind.Batch)

@@ -311,6 +311,13 @@ internal static class QueueStorageConformance
 		ConformanceAssert.Equal<DateTimeOffset?>(timeProvider.GetUtcNow().AddMinutes(2), renewed.LeaseExpiresAt, LeaseName,
 			"job queries must expose the renewed durable deadline, including through a single-server mirror");
 
+		await ConformanceAssert.ThrowsAsync<ImmediateJobException>(
+			() => storage.RenewLeaseAsync(first.JobHandle, first.Attempt, "owner-b", TimeSpan.FromHours(1), cancellationToken),
+			LeaseName,
+			"a different worker cannot renew the current execution's lease",
+			first.JobHandle.Value
+		);
+
 		timeProvider.Advance(TimeSpan.FromMinutes(1));
 
 		ConformanceAssert.Equal(
@@ -481,7 +488,7 @@ internal static class QueueStorageConformance
 		var olderPage = await storage.QueryJobExecutionsAsync(second.JobHandle, new() { Skip = 1, Take = 1 }, cancellationToken);
 		ConformanceAssert.Equal(1, olderPage.Single().Attempt, FailureName, "execution-history skip/take paging must visit the older attempt");
 
-		var exactAttempt = await storage.QueryJobExecutionsAsync(second.JobHandle, new() { Attempt = 1 }, cancellationToken);
+		var exactAttempt = await storage.QueryJobExecutionsAsync(second.JobHandle, new() { Attempt = 1, Take = 1 }, cancellationToken);
 		ConformanceAssert.Equal(1, exactAttempt.Single().Attempt, FailureName, "execution-history exact-attempt filtering must return only that attempt");
 
 		await storage.RetryAsync(second.JobHandle, cancellationToken);
@@ -655,6 +662,30 @@ internal static class QueueStorageConformance
 			["noncompleted-active", "noncompleted-pending", "noncompleted-waiting", "page-c"],
 			noncompleted.Select(static job => job.JobHandle.Value).Order(StringComparer.Ordinal),
 			QueryName, "non-completed queries must return active, pending, scheduled, and waiting jobs for only the requested name");
+
+		// A selective page must keep searching beyond an entire window of unrelated records.
+		for (var index = 0; index < 257; index++)
+			await storage.EnqueueAsync(CreateJob(string.Create(CultureInfo.InvariantCulture, $"unrelated-{index}"), created.AddMinutes(2), "Cleanup.Job"), cancellationToken);
+
+		foreach (var index in new[] { 1, 2 })
+			await storage.EnqueueAsync(CreateJob(string.Create(CultureInfo.InvariantCulture, $"older-{index}"), created.AddMinutes(-index), "Email.Receipt") with
+			{
+				State = JobState.Scheduled,
+				DueAt = created.AddHours(1),
+			}, cancellationToken);
+
+		var sparsePage = await storage.QueryJobsAsync(new()
+		{
+			State = JobState.Scheduled,
+			JobName = "email.receipt",
+			QueueName = "priority",
+			Search = "RECEIPT",
+			CreatedBefore = created.AddMinutes(1),
+			Skip = 1,
+			Take = 2,
+		}, cancellationToken);
+		ConformanceAssert.SequenceEqual(["older-1", "older-2"], sparsePage.Select(static job => job.JobHandle.Value),
+			QueryName, "filtered paging must count matching records across empty candidate windows");
 	}
 
 	private static async ValueTask ReportsMonitoringAsync(
@@ -687,6 +718,16 @@ internal static class QueueStorageConformance
 		await storage.HeartbeatAsync(new()
 		{
 			WorkerId = "live-server",
+			Tags = [],
+			LastHeartbeat = liveAt - TimeSpan.FromSeconds(1),
+			ActiveWorkers = 0,
+			MaxWorkers = 1,
+			ServerTimeout = TimeSpan.FromMinutes(1),
+		}, cancellationToken);
+
+		await storage.HeartbeatAsync(new()
+		{
+			WorkerId = "live-server",
 			Tags = ["email", "default"],
 			LastHeartbeat = liveAt,
 			ActiveWorkers = 1,
@@ -714,6 +755,9 @@ internal static class QueueStorageConformance
 			MonitoringName,
 			"heartbeats must appear while live and disappear after their configured liveness window"
 		);
+		ConformanceAssert.Equal(liveAt, snapshot.Servers[0].LastHeartbeat, MonitoringName, "a subsequent heartbeat replaces the previous timestamp");
+		ConformanceAssert.Equal(1, snapshot.Servers[0].ActiveWorkers, MonitoringName, "a subsequent heartbeat replaces active worker usage");
+		ConformanceAssert.Equal(2, snapshot.Servers[0].MaxWorkers, MonitoringName, "a subsequent heartbeat replaces configured capacity");
 		ConformanceAssert.Equal(TimeSpan.FromMinutes(5), snapshot.Servers[0].ServerTimeout, MonitoringName, "monitoring must preserve each server's configured liveness window");
 		ConformanceAssert.SequenceEqual(["email", "default"], snapshot.Servers[0].Tags, MonitoringName, "monitoring must preserve effective server tags");
 		ConformanceAssert.Equal(2, snapshot.Servers[0].Workers.Count, MonitoringName, "monitoring must preserve worker snapshots");
@@ -750,6 +794,14 @@ internal static class QueueStorageConformance
 		await storage.EnqueueAsync(CreateJob("old-cancelled", timeProvider.GetUtcNow()), cancellationToken);
 		await storage.CancelAsync(JobHandle.FromString("old-cancelled"), cancellationToken);
 
+		// Maintenance must drain more than one cleanup block, while preserving jobs at the cutoff.
+		for (var index = 0; index < 257; index++)
+		{
+			var job = CreateJob(string.Create(CultureInfo.InvariantCulture, $"purge-block-{index}"), timeProvider.GetUtcNow());
+			await storage.EnqueueAsync(job, cancellationToken);
+			await storage.CancelAsync(job.JobHandle, cancellationToken);
+		}
+
 		timeProvider.Advance(TimeSpan.FromHours(2));
 
 		await EnqueueAcquireAndComplete(storage, "recent-success", "maintenance-worker", timeProvider.GetUtcNow(), cancellationToken);
@@ -762,8 +814,15 @@ internal static class QueueStorageConformance
 		ConformanceAssert.NotNull(await storage.GetJobStatusAsync(JobHandle.FromString("recent-success"), cancellationToken), MaintenanceName, "purge must retain recent terminal jobs");
 		ConformanceAssert.Equal(0, (await storage.QueryJobExecutionsAsync(JobHandle.FromString("old-success"), new(), cancellationToken)).Count, MaintenanceName, "purge must remove execution history with its job");
 
-		timeProvider.Advance(TimeSpan.FromHours(2));
+		timeProvider.Advance(TimeSpan.FromHours(1));
 		await storage.PurgeJobsAsync(TimeSpan.FromHours(1), TimeSpan.FromHours(3), cancellationToken);
+		ConformanceAssert.Equal(258, (await storage.QueryJobsAsync(new() { State = JobState.Cancelled, Take = 1000 }, cancellationToken)).Count,
+			MaintenanceName, "purge must preserve terminal jobs completed exactly at the retention cutoff");
+
+		timeProvider.Advance(TimeSpan.FromHours(1));
+		await storage.PurgeJobsAsync(TimeSpan.FromHours(1), TimeSpan.FromHours(3), cancellationToken);
+		ConformanceAssert.Equal(0, (await storage.QueryJobsAsync(new() { State = JobState.Cancelled, Take = 1000 }, cancellationToken)).Count,
+			MaintenanceName, "purge must drain every cleanup block and remove its state index entries");
 
 		foreach (var id in new[] { JobHandle.FromString("old-failure"), JobHandle.FromString("old-cancelled") })
 			ConformanceAssert.Null(await storage.GetJobStatusAsync(id, cancellationToken), MaintenanceName, "failed and cancelled retention must remove older jobs", id.Value);

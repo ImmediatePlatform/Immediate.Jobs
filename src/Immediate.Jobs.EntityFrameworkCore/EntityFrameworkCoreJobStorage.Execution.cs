@@ -74,10 +74,7 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 		if (job.Attempt <= 0)
 			return null;
 		var execution = await context.Set<ImmediateJobExecutionEntity>()
-			.SingleOrDefaultAsync(
-				item => item.JobHandle == job.Id && item.Attempt == job.Attempt,
-				cancellationToken
-			);
+			.FindAsync([job.Id, job.Attempt], cancellationToken);
 		if (execution is not null)
 			return execution;
 
@@ -87,6 +84,27 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 		execution = ToEntity(synthetic);
 		_ = context.Add(execution);
 		return execution;
+	}
+
+	private static async Task MaterializeExecutionsAsync(
+		TContext context,
+		IEnumerable<ImmediateJobEntity> jobs,
+		CancellationToken cancellationToken
+	)
+	{
+		foreach (var batch in jobs.Where(static job => job.Attempt > 0).Chunk(1000))
+		{
+			var ids = batch.Select(static job => job.Id).ToList();
+			var executions = await context.Set<ImmediateJobExecutionEntity>()
+				.Where(execution => ids.Contains(execution.JobHandle) && context.Set<ImmediateJobEntity>()
+					.Any(job => job.Id == execution.JobHandle && job.Attempt == execution.Attempt))
+				.ToDictionaryAsync(static execution => (execution.JobHandle, execution.Attempt), cancellationToken);
+			foreach (var job in batch)
+			{
+				if (!executions.ContainsKey((job.Id, job.Attempt)) && JobExecutionRecord.CreateSynthetic(ToRecord(job)) is { } synthetic)
+					context.Add(ToEntity(synthetic));
+			}
+		}
 	}
 
 	[LoggerMessage(

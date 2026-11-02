@@ -15,9 +15,12 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 		await TaskScheduler.Yield();
 
 		await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
-		var definitions = await GetDefinitionNamesAsync(context, [schedule.JobName], cancellationToken);
-		if (definitions.TryGetValue(schedule.JobName, out var name))
-			schedule = schedule with { JobName = name };
+		if (!schedule.IsCodeDefined)
+		{
+			var definitions = await GetDefinitionNamesAsync(context, [schedule.JobName], cancellationToken);
+			if (definitions.TryGetValue(schedule.JobName, out var name))
+				schedule = schedule with { JobName = name };
+		}
 
 		if (await UpdateRecurringAsync(context, schedule, cancellationToken) != 0)
 			return;
@@ -68,7 +71,7 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 
-		await MutateRecurringAsync(name, schedule => schedule.IsPaused = true, cancellationToken);
+		await SetRecurringPausedAsync(name, paused: true, cancellationToken);
 	}
 
 	/// <inheritdoc />
@@ -78,12 +81,7 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 		cancellationToken.ThrowIfCancellationRequested();
 		await TaskScheduler.Yield();
 
-		await MutateRecurringAsync(name, schedule =>
-		{
-			if (schedule.CancellationReason is not null)
-				throw new ImmediateJobException("Canceled recurring schedules cannot be resumed.");
-			schedule.IsPaused = false;
-		}, cancellationToken);
+		await SetRecurringPausedAsync(name, paused: false, cancellationToken);
 	}
 
 	/// <inheritdoc />
@@ -212,18 +210,13 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 	)
 	{
 		await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
-		if (!await context.Set<ImmediateJobEntity>()
-			.AnyAsync(job => job.RecurringKey == recurringKey, cancellationToken))
-		{
-			return;
-		}
-
 		var concurrencyStamp = Guid.NewGuid();
 		await context.Set<ImmediateRecurringJobEntity>()
 			.Where(entity =>
 				entity.Name == schedule.Name &&
 				!entity.IsPaused &&
-				entity.NextRunAt == schedule.NextRunAt)
+				entity.NextRunAt == schedule.NextRunAt &&
+				context.Set<ImmediateJobEntity>().Any(job => job.RecurringKey == recurringKey))
 			.ExecuteUpdateAsync(setters => setters
 				.SetProperty(entity => entity.LastRunAt, schedule.NextRunAt)
 				.SetProperty(entity => entity.NextRunAt, nextRunAt)
@@ -231,14 +224,20 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 				cancellationToken);
 	}
 
-	private async ValueTask MutateRecurringAsync(string name, Action<ImmediateRecurringJobEntity> mutate, CancellationToken cancellationToken)
+	private async ValueTask SetRecurringPausedAsync(string name, bool paused, CancellationToken cancellationToken)
 	{
 		ArgumentException.ThrowIfNullOrWhiteSpace(name);
 		await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
-		var schedule = await context.Set<ImmediateRecurringJobEntity>().FindAsync([name], cancellationToken) ?? throw new KeyNotFoundException($"Recurring schedule '{name}' was not found.");
-		mutate(schedule);
-		schedule.ConcurrencyStamp = Guid.NewGuid();
-		await context.SaveChangesAsync(cancellationToken);
+		var stamp = Guid.NewGuid();
+		var updated = await context.Set<ImmediateRecurringJobEntity>()
+			.Where(schedule => schedule.Name == name && (paused || schedule.CancellationReason == null))
+			.ExecuteUpdateAsync(update => update.SetProperty(schedule => schedule.IsPaused, paused)
+				.SetProperty(schedule => schedule.ConcurrencyStamp, stamp), cancellationToken);
+		if (updated != 0)
+			return;
+		if (!paused && await context.Set<ImmediateRecurringJobEntity>().AnyAsync(schedule => schedule.Name == name, cancellationToken))
+			throw new ImmediateJobException("Canceled recurring schedules cannot be resumed.");
+		throw new KeyNotFoundException($"Recurring schedule '{name}' was not found.");
 	}
 
 	private static Task<int> UpdateRecurringAsync(

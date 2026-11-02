@@ -114,29 +114,29 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>(
 		_ = await context.Set<ImmediateJobServerEntity>()
 			.Where(item => item.ExpiresAt < server.LastHeartbeat)
 			.ExecuteDeleteAsync(cancellationToken);
-		var entity = await context.Set<ImmediateJobServerEntity>().FindAsync([server.WorkerId], cancellationToken);
-		if (entity is null)
-		{
-			_ = context.Add(new ImmediateJobServerEntity
-			{
-				WorkerId = server.WorkerId,
-				LastHeartbeat = server.LastHeartbeat,
-				ExpiresAt = server.LastHeartbeat + server.ServerTimeout,
-				ActiveWorkers = server.ActiveWorkers,
-				MaxWorkers = server.MaxWorkers,
-				Details = JsonSerializer.Serialize(server, EntityFrameworkCoreJsonSerializerContext.Default.JobServerSnapshot),
-			});
-		}
-		else
-		{
-			entity.LastHeartbeat = server.LastHeartbeat;
-			entity.ExpiresAt = server.LastHeartbeat + server.ServerTimeout;
-			entity.ActiveWorkers = server.ActiveWorkers;
-			entity.MaxWorkers = server.MaxWorkers;
-			entity.Details = JsonSerializer.Serialize(server, EntityFrameworkCoreJsonSerializerContext.Default.JobServerSnapshot);
-		}
+		var expiresAt = server.LastHeartbeat + server.ServerTimeout;
+		var details = JsonSerializer.Serialize(server, EntityFrameworkCoreJsonSerializerContext.Default.JobServerSnapshot);
+		var updated = await context.Set<ImmediateJobServerEntity>()
+			.Where(item => item.WorkerId == server.WorkerId)
+			.ExecuteUpdateAsync(update => update
+				.SetProperty(item => item.LastHeartbeat, server.LastHeartbeat)
+				.SetProperty(item => item.ExpiresAt, expiresAt)
+				.SetProperty(item => item.ActiveWorkers, server.ActiveWorkers)
+				.SetProperty(item => item.MaxWorkers, server.MaxWorkers)
+				.SetProperty(item => item.Details, details), cancellationToken);
+		if (updated != 0)
+			return;
 
-		_ = await context.SaveChangesAsync(cancellationToken);
+		context.Add(new ImmediateJobServerEntity
+		{
+			WorkerId = server.WorkerId,
+			LastHeartbeat = server.LastHeartbeat,
+			ExpiresAt = expiresAt,
+			ActiveWorkers = server.ActiveWorkers,
+			MaxWorkers = server.MaxWorkers,
+			Details = details,
+		});
+		await context.SaveChangesAsync(cancellationToken);
 	}
 
 	/// <inheritdoc />

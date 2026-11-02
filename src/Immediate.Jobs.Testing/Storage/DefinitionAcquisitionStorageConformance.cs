@@ -69,6 +69,14 @@ internal static class DefinitionAcquisitionStorageConformance
 		await storage.MergeJobDefinitionsListAsync(new() { RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase), Definitions = [new() { Name = Name }] }, token);
 		Equal(JobAcquisitionStatus.Ready, (await storage.GetJobAcquisitionStateAsync(Name, token)).AcquisitionStatus,
 			"a failed pause must not leave a pause for a later registration");
+
+		await storage.MergeJobDefinitionsListAsync(new() { RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase), Definitions = [] }, token);
+		await ConformanceAssert.ThrowsAsync<KeyNotFoundException>(
+			async () => await storage.GetJobAcquisitionStateAsync(Name, token), CaseName, "a previously read definition must disappear after removal");
+		Equal(0, (await storage.AcquireDueJobsAsync(Request(), token)).Count, "removed definitions cannot acquire jobs");
+		await storage.MergeJobDefinitionsListAsync(new() { RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase), Definitions = [new() { Name = Name, MaxConcurrency = 1 }] }, token);
+		await storage.EnqueueAsync(Job("registered-again", clock.GetUtcNow()), token);
+		Equal(1, (await storage.AcquireDueJobsAsync(Request(), token)).Count, "recreated definitions must be visible to existing clients");
 	}
 
 	private static async ValueTask CaseInsensitiveControlsAsync(IJobStorage storage, FakeTimeProvider clock, CancellationToken token)
