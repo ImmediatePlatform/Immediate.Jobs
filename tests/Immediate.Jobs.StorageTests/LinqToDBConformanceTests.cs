@@ -121,7 +121,6 @@ internal sealed class LinqToDBConformanceFixture(
 	];
 
 	internal IServiceProvider Services => services;
-	internal string ConnectionString => connectionString;
 	internal string? Schema => schema;
 	internal DataOptions DataOptions => database switch
 	{
