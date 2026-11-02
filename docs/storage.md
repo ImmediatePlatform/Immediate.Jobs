@@ -194,24 +194,6 @@ records. Recurring due indexes must support filtering eligible job names before 
 limit. See [recurring jobs](recurring-jobs.md#materialization) and [fair queues](fair-queues.md#providers)
 for selection and index-maintenance rules.
 
-Read related invocation fields and current definition queues in the same script. Acquisition returns
-the claimed records before another client can change their state. Catalogue reads also capture their
-version with definitions and schedules; reconciliation and monitoring recheck that version before
-applying catalogue-dependent changes or evaluating limits. Server liveness cleanup and reads run
-atomically so cleanup cannot remove a concurrently refreshed heartbeat.
-
-Keep candidate-window reads and terminal cleanup bounded. Purge selects and deletes up to 256 jobs
-per script, including their history and recurring deduplication entries. Filtered job queries still
-scan candidate windows; Lua projects only state/name/time matches, while C# retains the shared
-ordinal string comparison semantics. See [Redis command budgets](redis-command-budgets.md) for the
-public-method review, pipeline boundaries, and remaining collection-sized work.
-
-Cache parsed Redis definition configuration only with an exact metadata check in the consuming
-script. A stale snapshot must refresh before acquisition or controls can mutate state; missing
-metadata must remain visible to later registration. Keep candidate-head and active-count caches
-inside a single atomic acquisition script and update them after claims. Neither cache may hide a
-pause, ownership change, or a peer's changed acquisition limits.
-
 ## Adding or changing a storage member
 
 1. Define the operation and exceptions on `IJobStorage` or `IJobGraphStorage`.
