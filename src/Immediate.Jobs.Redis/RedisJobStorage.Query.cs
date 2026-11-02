@@ -162,12 +162,34 @@ internal sealed partial class RedisJobStorage
 			JobState.Pending,
 			JobState.Active,
 		];
-		var result = await Database.ScriptEvaluateAsync(
-			RedisScripts.ReadNonCompletedJobs,
-			[DefinitionMetadataKey, .. states.Select(StateKey)],
-			[_root, jobName.ToUpperInvariant()]
-		).WaitAsync(cancellationToken);
-		return [.. ReadJobRecords(result).Where(job => string.Equals(job.JobName, jobName, StringComparison.OrdinalIgnoreCase))];
+		var normalizedName = jobName.ToUpperInvariant();
+		// SSCAN can repeat ids, and jobs can move between state sets while the query runs.
+		var result = new Dictionary<JobHandle, JobRecord>();
+		var keys = new List<RedisKey>(QueryWindowSize + 1) { DefinitionMetadataKey };
+		foreach (var state in states)
+		{
+			await foreach (var id in Database.SetScanAsync(StateKey(state), pageSize: QueryWindowSize).WithCancellation(cancellationToken))
+			{
+				keys.Add(_root + "job:" + (string)id!);
+				if (keys.Count > QueryWindowSize)
+					await ReadPageAsync();
+			}
+		}
+
+		if (keys.Count > 1)
+			await ReadPageAsync();
+		return [.. result.Values];
+
+		async Task ReadPageAsync()
+		{
+			var page = await Database.ScriptEvaluateAsync(
+				RedisScripts.ReadNonCompletedJobPage, [.. keys], [_root, normalizedName]
+			).WaitAsync(cancellationToken);
+			foreach (var job in ReadJobRecords(page))
+				if (string.Equals(job.JobName, jobName, StringComparison.OrdinalIgnoreCase))
+					_ = result.TryAdd(job.JobHandle, job);
+			keys.RemoveRange(1, keys.Count - 1);
+		}
 	}
 
 	/// <inheritdoc />

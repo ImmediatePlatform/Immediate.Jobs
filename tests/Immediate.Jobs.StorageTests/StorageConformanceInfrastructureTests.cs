@@ -142,6 +142,7 @@ public sealed class StorageConformanceInfrastructureTests
 		"Queue.Monitoring.ReportsCountsStatusAndHeartbeatLiveness",
 		"Queue.Mutations.RejectsMissingAndInvalidTransitions",
 		"Queue.Queries.ComposesFiltersAndPagesDeterministically",
+		"Queue.Queries.ReturnsAllNonCompletedJobsForRequestedDefinition",
 		"Recurring.Definitions.AdoptsDynamicScheduleWhenOriginalDefinitionIsRemoved",
 		"Recurring.Definitions.MergesCodeDefinedSchedulesAndPreservesDynamicSchedules",
 		"Recurring.DueScanning.FiltersOrdersAndBatchesSchedules",

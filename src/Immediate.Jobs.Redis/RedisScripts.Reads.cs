@@ -57,13 +57,15 @@ internal static partial class RedisScripts
 		return { #ids, result }
 		""";
 
-	internal const string ReadNonCompletedJobs = JobReadFunctions +
+	// Candidate keys are scanned by the client and bounded to one window per script.
+	internal const string ReadNonCompletedJobPage = JobReadFunctions +
 		"""
 		local result = {}
-		for _, id in ipairs(redis.call('SUNION', unpack(KEYS, 2))) do
-			local key = ARGV[1] .. 'job:' .. id
+		for index = 2, #KEYS do
+			local key = KEYS[index]
 			local filter = redis.call('HMGET', key, 'state', 'jobName')
-			if filter[2] == ARGV[2] and tonumber(filter[1]) <= 4 then
+			local state = tonumber(filter[1])
+			if filter[2] == ARGV[2] and state and state >= 0 and state <= 4 then
 				local values = readJob(ARGV[1], key)
 				if values[1] then result[#result + 1] = values end
 			end

@@ -38,6 +38,7 @@ internal static partial class QueueStorageConformance
 		new(FailureName, StorageCapabilities.Queue, PersistsFailureRetryAndCancellationAsync),
 		new(MutationName, StorageCapabilities.Queue, RejectsInvalidMutationsAsync),
 		new(QueryName, StorageCapabilities.Queue, QueriesAndPagesAsync),
+		new(NonCompletedName, StorageCapabilities.Queue, QueriesAllNonCompletedAsync, NonCompletedState()),
 		new(MonitoringName, StorageCapabilities.Queue, ReportsMonitoringAsync),
 		new(MaintenanceName, StorageCapabilities.Queue, PurgesTerminalHistoryAsync),
 		new(CancellationName, StorageCapabilities.Queue, ObservesCancellationAsync),
