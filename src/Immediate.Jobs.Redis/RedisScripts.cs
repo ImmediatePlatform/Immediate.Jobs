@@ -386,8 +386,8 @@ internal static partial class RedisScripts
 
 	internal const string SetTelemetry =
 		"""
-		if redis.call('EXISTS', KEYS[1]) == 0 then return 0 end
 		local values = redis.call('HMGET', KEYS[1], 'state', 'worker', 'attempt')
+		if not values[1] then return 0 end
 		if values[1] ~= '4' or values[2] ~= ARGV[1] or values[3] ~= ARGV[2] then return -1 end
 		local field = ARGV[2] .. ':'
 		if redis.call('HEXISTS', KEYS[3], field .. 'state') == 0 then
@@ -404,22 +404,22 @@ internal static partial class RedisScripts
 
 	internal const string RenewLease =
 		"""
-		if redis.call('EXISTS', KEYS[1]) == 0 then return 0 end
-		local values = redis.call('HMGET', KEYS[1], 'state', 'worker', 'attempt')
+		local values = redis.call('HMGET', KEYS[1], 'state', 'worker', 'attempt', 'jobName')
+		if not values[1] then return 0 end
 		if values[1] ~= '4' or values[2] ~= ARGV[1] or values[3] ~= ARGV[2] then return -1 end
 		redis.call('HSET', KEYS[1], 'lease', ARGV[3])
 		redis.call('ZADD', KEYS[2], ARGV[4], ARGV[5])
-		redis.call('ZADD', ARGV[6] .. 'active:job:' .. redis.call('HGET', KEYS[1], 'jobName'), ARGV[4], ARGV[5])
-		redis.call('ZADD', ARGV[6] .. 'definitions:leases:' .. redis.call('HGET', KEYS[1], 'jobName'), ARGV[4], ARGV[5])
+		redis.call('ZADD', ARGV[6] .. 'active:job:' .. values[4], ARGV[4], ARGV[5])
+		redis.call('ZADD', ARGV[6] .. 'definitions:leases:' .. values[4], ARGV[4], ARGV[5])
 		return 1
 		""";
 
 	internal const string Complete =
 		FairQueueFunctions +
 		"""
-		if redis.call('EXISTS', KEYS[1]) == 0 then return 0 end
 		local values = redis.call('HMGET', KEYS[1], 'state', 'worker', 'attempt',
 			'executionStartedAt', 'executionTraceId', 'executionSpanId', 'jobName', 'group')
+		if not values[1] then return 0 end
 		if values[1] ~= '4' or values[2] ~= ARGV[1] or values[3] ~= ARGV[2] then return -1 end
 		local field = ARGV[2] .. ':'
 		if redis.call('HEXISTS', KEYS[7], field .. 'state') == 0 then
@@ -443,9 +443,9 @@ internal static partial class RedisScripts
 	internal const string Fail =
 		FairQueueFunctions +
 		"""
-		if redis.call('EXISTS', KEYS[1]) == 0 then return 0 end
 		local values = redis.call('HMGET', KEYS[1], 'state', 'worker', 'jobName', 'created', 'attempt',
 			'executionStartedAt', 'executionTraceId', 'executionSpanId', 'group')
+		if not values[1] then return 0 end
 		if values[1] ~= '4' or values[2] ~= ARGV[1] or values[5] ~= ARGV[2] then return -1 end
 		local field = ARGV[2] .. ':'
 		if redis.call('HEXISTS', KEYS[9], field .. 'state') == 0 then
@@ -491,8 +491,8 @@ internal static partial class RedisScripts
 	internal const string Trigger =
 		FairQueueFunctions +
 		"""
-		if redis.call('EXISTS', KEYS[1]) == 0 then return 0 end
 		local values = redis.call('HMGET', KEYS[1], 'state', 'jobName', 'created', 'group', 'record')
+		if not values[1] then return 0 end
 		if values[2] ~= ARGV[1] then return -1 end
 		if values[1] ~= '1' then return -2 end
 		if cjson.decode(values[5]).Payload == '' then return -3 end
@@ -509,10 +509,10 @@ internal static partial class RedisScripts
 	private const string CancelFunctions = FairQueueFunctions +
 		"""
 		local function cancelJob(root, id, completedAt, completedScore, reason)
-			if redis.call('EXISTS', root .. 'job:' .. id) == 0 then return 0 end
 			local values = redis.call('HMGET', root .. 'job:' .. id, 'state', 'jobName', 'dueMember', 'attempt',
 				'worker', 'executionStartedAt', 'executionTraceId', 'executionSpanId', 'group')
 			local state = values[1]
+			if not state then return 0 end
 			if state == '5' or state == '6' or state == '7' or state == '8' then return -1 end
 			local attempt = tonumber(values[4] or '0')
 			if state == '4' and attempt > 0 then
@@ -551,12 +551,12 @@ internal static partial class RedisScripts
 	internal const string Retry =
 		FairQueueFunctions +
 		"""
-		if redis.call('EXISTS', KEYS[1]) == 0 then return 0 end
 		local values = redis.call('HMGET', KEYS[1], 'state', 'jobName', 'created', 'dueMember',
 			'attempt', 'worker', 'executionStartedAt', 'executionTraceId', 'executionSpanId', 'error', 'completed',
 			'group')
 		local failed = values[1] == '6'
 		local scheduled = values[1] == '2'
+		if not values[1] then return 0 end
 		if not failed and not scheduled then return -1 end
 		local attempt = tonumber(values[5] or '0')
 		local field = tostring(attempt) .. ':'
@@ -594,23 +594,21 @@ internal static partial class RedisScripts
 
 	internal const string Purge =
 		"""
-		if redis.call('EXISTS', KEYS[1]) == 0 then
-			redis.call('DEL', KEYS[6], KEYS[7])
-			redis.call('ZREM', KEYS[2], ARGV[1])
-			return 0
+		local ids = redis.call('ZRANGEBYSCORE', KEYS[1], '-inf', '(' .. ARGV[3], 'LIMIT', 0, ARGV[4])
+		for _, id in ipairs(ids) do
+			local key = ARGV[1] .. 'job:' .. id
+			local values = redis.call('HMGET', key, 'state', 'recurringKey')
+			if not values[1] or values[1] == ARGV[2] then
+				redis.call('DEL', key, ARGV[1] .. 'executions:index:' .. id, ARGV[1] .. 'executions:data:' .. id)
+				redis.call('ZREM', KEYS[2], id)
+				redis.call('SREM', KEYS[3], id)
+				if values[2] and values[2] ~= '' and redis.call('HGET', KEYS[4], values[2]) == id then
+					redis.call('HDEL', KEYS[4], values[2])
+				end
+			end
+			redis.call('ZREM', KEYS[1], id)
 		end
-		local values = redis.call('HMGET', KEYS[1], 'state', 'completed', 'recurringKey')
-		if values[1] ~= ARGV[2] then
-			redis.call('ZREM', KEYS[2], ARGV[1])
-			return 0
-		end
-		redis.call('DEL', KEYS[1])
-		redis.call('DEL', KEYS[6], KEYS[7])
-		redis.call('ZREM', KEYS[2], ARGV[1])
-		redis.call('ZREM', KEYS[3], ARGV[1])
-		redis.call('SREM', KEYS[4], ARGV[1])
-		if values[3] and values[3] ~= '' then redis.call('HDEL', KEYS[5], values[3]) end
-		return 1
+		return #ids
 		""";
 
 	private const string RecurringDueFunctions =
