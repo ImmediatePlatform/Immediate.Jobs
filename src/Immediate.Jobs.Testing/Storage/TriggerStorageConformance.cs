@@ -14,6 +14,7 @@ internal static class TriggerStorageConformance
 	private const string QueryName = "Trigger.Queries.FiltersByCreationTime";
 	private const string ParentsName = "Trigger.Graph.WaitsForParentsAndTrigger";
 	private const string SkipName = "Trigger.Graph.SkipsWhenParentConditionFailsWhileWaiting";
+	private const string BatchSkipName = "Trigger.Batch.PreservesSkippedDependencyChains";
 	private const string BatchName = "Trigger.Batch.ReleasesEveryMemberTogether";
 	private const string BatchCancellationName = "Trigger.Batch.CancelsWaitingBatch";
 	private const string JobName = "conformance-trigger-job";
@@ -27,6 +28,7 @@ internal static class TriggerStorageConformance
 		new(QueryName, StorageCapabilities.Queue, FiltersByCreationTimeAsync),
 		new(ParentsName, StorageCapabilities.Graph, WaitsForParentsAndTriggerAsync),
 		new(SkipName, StorageCapabilities.Graph, SkipsWhenParentConditionFailsAsync),
+		new(BatchSkipName, StorageCapabilities.Graph, PreservesSkippedBatchChainAsync, SkippedBatchChainState()),
 		new(BatchName, StorageCapabilities.Graph, ReleasesEveryBatchMemberAsync),
 		new(BatchCancellationName, StorageCapabilities.Graph, CancelsWaitingBatchAsync),
 	];
@@ -502,6 +504,40 @@ internal static class TriggerStorageConformance
 			BatchName,
 			"only the released root member may be acquired"
 		);
+	}
+
+	private static PersistedJobState SkippedBatchChainState()
+	{
+		var now = DateTimeOffset.UnixEpoch;
+		var batch = BatchHandle.FromString("trigger-skips");
+		var parent = CreateWaitingJob("settled-parent", now).ToJobRecord(JobName) with { State = JobState.Succeeded, CompletedAt = now };
+		var first = CreateWaitingJob("first-waiter", now) with { BatchHandle = batch };
+		var second = CreateWaitingJob("second-waiter", now) with { BatchHandle = batch, RemainingDependencies = 1 };
+		return new()
+		{
+			Jobs = [parent, first.ToJobRecord(JobName), second.ToJobRecord(JobName)],
+			Batches = [CreateWaitingBatch(batch, now, 2)],
+			Edges =
+			[
+				new() { ParentJobHandle = parent.JobHandle, ChildJobHandle = first.JobHandle, Trigger = ContinuationTrigger.Failure, Delay = TimeSpan.Zero },
+				new() { ParentJobHandle = first.JobHandle, ChildJobHandle = second.JobHandle, Delay = TimeSpan.Zero },
+			],
+			RecurringSchedules = [],
+		};
+	}
+
+	private static async ValueTask PreservesSkippedBatchChainAsync(IJobStorage storage, FakeTimeProvider clock, CancellationToken token)
+	{
+		var graph = GetGraph(storage, BatchSkipName);
+		var batch = BatchHandle.FromString("trigger-skips");
+		ConformanceAssert.True(await graph.TryTriggerBatchAsync(batch, token), BatchSkipName, "a waiting batch is released once");
+		foreach (var handle in new[] { "first-waiter", "second-waiter" })
+			ConformanceAssert.Equal(JobState.Skipped, (await GetJobAsync(storage, JobHandle.FromString(handle), BatchSkipName, token)).State,
+				BatchSkipName, "triggering later members must preserve skips propagated from earlier members");
+		var status = ConformanceAssert.NotNull(await graph.GetBatchStatusAsync(batch, token), BatchSkipName, "the batch remains observable");
+		ConformanceAssert.Equal(2, status.Skipped, BatchSkipName, "each skipped member settles once");
+		ConformanceAssert.Equal(0, status.Remaining, BatchSkipName, "the dependency chain settles completely");
+		ConformanceAssert.False(await graph.TryTriggerBatchAsync(batch, token), BatchSkipName, "a settled batch cannot be triggered again");
 	}
 
 	private static async ValueTask CancelsWaitingBatchAsync(

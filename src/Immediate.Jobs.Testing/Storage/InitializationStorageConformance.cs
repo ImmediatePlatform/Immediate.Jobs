@@ -15,13 +15,13 @@ internal static class InitializationStorageConformance
 		new(Name, StorageCapabilities.Queue, InterruptAsync),
 		new(LegacyName, StorageCapabilities.Graph, InterruptLegacyAsync, new()
 		{
-			Jobs = [new()
+			Jobs = Enumerable.Range(0, 301).Select(index => new JobRecord
 			{
-				JobHandle = JobHandle.FromString("legacy-startup"), JobName = JobName, Payload = "{}",
+				JobHandle = JobHandle.FromString(string.Create(provider: null, $"legacy-startup-{index:D4}")), JobName = JobName, Payload = "{}",
 				State = JobState.Active, Attempt = 3, WorkerId = "old-worker",
 				CreatedAt = DateTimeOffset.UnixEpoch, DueAt = DateTimeOffset.UnixEpoch,
 				LeaseExpiresAt = DateTimeOffset.MaxValue, ExecutionTraceId = "legacy-trace",
-			}],
+			}).ToList(),
 			Batches = [], Edges = [], RecurringSchedules = [],
 		}),
 	];
@@ -80,10 +80,18 @@ internal static class InitializationStorageConformance
 	private static async ValueTask InterruptLegacyAsync(IJobStorage storage, FakeTimeProvider clock, CancellationToken token)
 	{
 		await storage.InitializeAsync(interruptActiveLeases: true, token);
-		var history = (await storage.QueryJobExecutionsAsync(JobHandle.FromString("legacy-startup"), new(), token)).Single();
-		ConformanceAssert.True(history.IsSynthetic, LegacyName, "legacy history is materialized before ownership is cleared");
-		ConformanceAssert.Equal(JobExecutionState.Interrupted, history.State, LegacyName, "legacy executions are interrupted");
-		ConformanceAssert.Equal("old-worker", history.WorkerId, LegacyName, "legacy history preserves the prior owner");
-		ConformanceAssert.Equal("legacy-trace", history.ExecutionTraceId, LegacyName, "legacy history preserves telemetry");
+		var recovered = await storage.QueryJobsAsync(new() { JobName = JobName, Take = 1000 }, token);
+		ConformanceAssert.Equal(301, recovered.Count, LegacyName, "all legacy jobs survive recovery");
+		ConformanceAssert.True(recovered.All(static job => job.State == JobState.Pending && job.WorkerId == null && job.LeaseExpiresAt == null),
+			LegacyName, "recovery clears every legacy job's abandoned ownership");
+		foreach (var job in new[] { recovered[0], recovered[recovered.Count / 2], recovered[^1] })
+		{
+			var history = (await storage.QueryJobExecutionsAsync(job.JobHandle, new(), token)).Single();
+			ConformanceAssert.True(history.IsSynthetic, LegacyName, "legacy history is materialized before ownership is cleared");
+			ConformanceAssert.Equal(JobExecutionState.Interrupted, history.State, LegacyName, "legacy executions are interrupted");
+			ConformanceAssert.Equal("old-worker", history.WorkerId, LegacyName, "legacy history preserves the prior owner");
+			ConformanceAssert.Equal("legacy-trace", history.ExecutionTraceId, LegacyName, "legacy history preserves telemetry");
+			ConformanceAssert.Equal<DateTimeOffset?>(clock.GetUtcNow(), history.CompletedAt, LegacyName, "recovery records interruption time");
+		}
 	}
 }

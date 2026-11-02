@@ -5,7 +5,7 @@ using Microsoft.Extensions.Time.Testing;
 
 namespace Immediate.Jobs.Testing.Storage;
 
-internal static class QueueStorageConformance
+internal static partial class QueueStorageConformance
 {
 	private const string InitializeName = "Queue.Lifecycle.InitializesIdempotently";
 	private const string HealthName = "Queue.Health.ReportsProvisionedBackendReachable";
@@ -33,6 +33,7 @@ internal static class QueueStorageConformance
 		new(CapacityName, StorageCapabilities.Queue, HonorsOrderingAndCapacitiesAsync),
 		new(RepeatedQueueName, StorageCapabilities.Queue, ClaimsOnceAcrossRepeatedQueuesAsync),
 		new(ContentionName, StorageCapabilities.Queue, ClaimsOnceUnderContentionAsync),
+		new(LegacyHistoryName, StorageCapabilities.Queue, QueriesLegacyHistoryAsync, LegacyHistoryState()),
 		new(CompletionName, StorageCapabilities.Queue, PersistsCompletionAsync),
 		new(FailureName, StorageCapabilities.Queue, PersistsFailureRetryAndCancellationAsync),
 		new(MutationName, StorageCapabilities.Queue, RejectsInvalidMutationsAsync),
@@ -410,6 +411,10 @@ internal static class QueueStorageConformance
 		var startedAt = now.AddSeconds(1);
 
 		await storage.SetExecutionTelemetryAsync(active.JobHandle, active.Attempt, "completion-worker", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "bbbbbbbbbbbbbbbb", startedAt, cancellationToken);
+
+		await ConformanceAssert.ThrowsAsync<ImmediateJobException>(
+			() => storage.SetExecutionTelemetryAsync(active.JobHandle, active.Attempt, "other-worker", "wrong", "wrong", now, cancellationToken),
+			CompletionName, "another worker cannot overwrite execution telemetry");
 
 		timeProvider.Advance(TimeSpan.FromSeconds(2));
 

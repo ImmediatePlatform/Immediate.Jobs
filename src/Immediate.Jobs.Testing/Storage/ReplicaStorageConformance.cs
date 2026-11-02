@@ -12,6 +12,7 @@ namespace Immediate.Jobs.Testing;
 
 internal static partial class ReplicaStorageConformance
 {
+	private const string BulkClaimName = "Replica.Acquisition.PreservesLargeRequestOrderAndExecutionHistory";
 	private const string ExactDueName = "Replica.Acquisition.ClaimsExactlyTheRequestedDueJobs";
 	private const string DuplicateName = "Replica.Acquisition.IgnoresDuplicateAndMissingRequestedIds";
 	private const string RequestedOrderName = "Replica.Acquisition.PreservesRequestedOrderWhenLimitsAllowOnlyOneClaim";
@@ -32,6 +33,7 @@ internal static partial class ReplicaStorageConformance
 		new(HeartbeatName, StorageCapabilities.Graph, PersistsSingleServerHeartbeatsAsync),
 		new(EnqueueRaceName, StorageCapabilities.Graph, AcquisitionWaitsUntilEnqueueHasUpdatedBothStoresAsync),
 		.. CreateAcquisitionCases(),
+		new(BulkClaimName, StorageCapabilities.Graph, PreservesLargeRequestAsync),
 		new(ExactDueName, StorageCapabilities.Graph, ClaimsExactlyRequestedDueJobsAsync),
 		new(DuplicateName, StorageCapabilities.Graph, IgnoresDuplicateAndMissingIdsAsync),
 		new(RequestedOrderName, StorageCapabilities.Graph, PreservesRequestedOrderAsync),
@@ -133,6 +135,37 @@ internal static partial class ReplicaStorageConformance
 		ConformanceAssert.Equal(2, remote.ActiveWorkers, HeartbeatName, "heartbeat updates must preserve the current worker state");
 		ConformanceAssert.SequenceEqual(remote.Tags, (await writer.GetMonitoringSnapshotAsync(token)).Servers.Single().Tags, HeartbeatName,
 			"the local and durable monitoring snapshots must report the same tags");
+	}
+
+	private static async ValueTask PreservesLargeRequestAsync(IJobStorage storage, FakeTimeProvider clock, CancellationToken token)
+	{
+		await storage.MergeJobDefinitionsListAsync(new()
+		{
+			Definitions = [new() { Name = JobName, QueueName = QueueName }],
+			RecurringSchedules = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase),
+		}, token);
+		var graph = Replica(storage, BulkClaimName);
+		var jobs = Enumerable.Range(0, 301).Select(index => Job(string.Create(provider: null, $"bulk-claim-{index:D4}"), clock.GetUtcNow())).ToList();
+		await graph.EnqueueBatchAsync(new()
+		{
+			BatchHandle = BatchHandle.FromString("bulk-claim"),
+			CreatedAt = clock.GetUtcNow(),
+			State = BatchState.Executing,
+			TotalJobs = jobs.Count,
+			PendingCount = jobs.Count,
+		}, [.. jobs.Select(job => job with { BatchHandle = BatchHandle.FromString("bulk-claim") })], [], token);
+		var handles = jobs.Select(static job => job.JobHandle).Reverse().ToList();
+		var acquired = await graph.AcquireJobsAsync(handles, "bulk-worker", TimeSpan.FromMinutes(1), token);
+		ConformanceAssert.SequenceEqual(handles, acquired.Select(static job => job.JobHandle), BulkClaimName,
+			"large requests must preserve requested order across every claim");
+		ConformanceAssert.True(acquired.All(static job => job.Attempt == 1), BulkClaimName,
+			"each fresh claim starts its first execution");
+		foreach (var job in new[] { acquired[0], acquired[acquired.Count / 2], acquired[^1] })
+		{
+			var history = (await storage.QueryJobExecutionsAsync(job.JobHandle, new(), token)).Single();
+			ConformanceAssert.False(history.IsSynthetic, BulkClaimName, "claims persist real execution history");
+			ConformanceAssert.Equal("bulk-worker", history.WorkerId, BulkClaimName, "history preserves ownership");
+		}
 	}
 
 	private static async ValueTask ClaimsExactlyRequestedDueJobsAsync(

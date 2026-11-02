@@ -114,7 +114,8 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 
 		List<ImmediateJobContinuationEntity> edges = job.RemainingDependencies != 0 ? [] : await context.Set<ImmediateJobContinuationEntity>()
 			.Where(edge => edge.ChildJobHandle == job.Id).ToListAsync(cancellationToken);
-		await TriggerWaitingJobAsync(context, job, edges, dueAt, now, cancellationToken);
+		if (TriggerWaitingJob(job, edges, dueAt, now))
+			await PropagateTerminalAsync(context, job, now, cancellationToken);
 
 		var terminalGroups = GetTerminalFairQueueGroups(context);
 		_ = await context.SaveChangesAsync(cancellationToken);
@@ -140,13 +141,11 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 		return job;
 	}
 
-	private static async Task TriggerWaitingJobAsync(
-		TContext context,
+	private static bool TriggerWaitingJob(
 		ImmediateJobEntity job,
 		IEnumerable<ImmediateJobContinuationEntity> edges,
 		DateTimeOffset dueAt,
-		DateTimeOffset now,
-		CancellationToken cancellationToken
+		DateTimeOffset now
 	)
 	{
 		job.DueAt = dueAt;
@@ -154,7 +153,7 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 		if (job.RemainingDependencies != 0)
 		{
 			job.State = JobState.AwaitingContinuation;
-			return;
+			return false;
 		}
 
 		var (skip, delay) = EvaluateContinuation(edges);
@@ -162,14 +161,14 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 		{
 			job.State = JobState.Skipped;
 			job.CompletedAt = now;
-			await PropagateTerminalAsync(context, job, now, cancellationToken);
-			return;
+			return true;
 		}
 
 		var delayedDueAt = now + delay;
 		if (job.DueAt < delayedDueAt)
 			job.DueAt = delayedDueAt;
 		job.State = job.DueAt <= now ? JobState.Pending : JobState.Scheduled;
+		return false;
 	}
 
 	private async Task<bool> TryTriggerBatchCoreAsync(BatchHandle batchHandle, CancellationToken cancellationToken)
@@ -193,8 +192,11 @@ internal sealed partial class EntityFrameworkCoreJobStorage<TContext>
 		List<ImmediateJobContinuationEntity> dependencies = ids.Count == 0 ? [] : await context.Set<ImmediateJobContinuationEntity>()
 			.Where(edge => ids.Contains(edge.ChildJobHandle)).ToListAsync(cancellationToken);
 		var edges = dependencies.ToLookup(static edge => edge.ChildJobHandle, StringComparer.Ordinal);
+		var skippedJobs = new List<ImmediateJobEntity>();
 		foreach (var job in jobs)
-			await TriggerWaitingJobAsync(context, job, edges[job.Id], job.DueAt, now, cancellationToken);
+			if (TriggerWaitingJob(job, edges[job.Id], job.DueAt, now))
+				skippedJobs.Add(job);
+		await PropagateTerminalAsync(context, skippedJobs, now, cancellationToken);
 
 		var terminalGroups = GetTerminalFairQueueGroups(context);
 		_ = await context.SaveChangesAsync(cancellationToken);
