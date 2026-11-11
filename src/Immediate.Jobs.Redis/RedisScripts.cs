@@ -1,6 +1,6 @@
 namespace Immediate.Jobs.Redis;
 
-internal static class RedisScripts
+internal static partial class RedisScripts
 {
 	private const string FairQueueFunctions =
 		"""
