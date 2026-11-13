@@ -35,8 +35,9 @@ app.MapImmediateJobsDashboard("/jobs");
 Dashboard options use the .NET options system and are validated when the host starts. Configure them through
 `ConfigureDashboard`; `MapImmediateJobsDashboard` only selects the URL path.
 
-Without an authorization policy, every dashboard endpoint is allowed only in the `Development` environment and returns
-403 elsewhere. For a trusted custom development environment, explicitly disable this restriction during registration:
+Without an authorization policy or request authorizer, every dashboard endpoint is allowed only in the `Development`
+environment and returns 403 elsewhere. For a trusted custom development environment, explicitly disable this
+restriction during registration:
 
 ```csharp
 builder.Services.AddMyAppJobs()
@@ -49,8 +50,28 @@ app.MapImmediateJobsDashboard("/jobs");
 ```
 
 Treat the dashboard as an administrative surface: it exposes payloads, errors, identifiers, and mutations. Prefer
-setting `AuthorizationPolicy` whenever the dashboard is exposed outside a trusted environment. A named policy applies
-to UI assets and APIs together and replaces the development-only restriction.
+setting `AuthorizationPolicy` or `RequestAuthorizer` whenever the dashboard is exposed outside a trusted environment.
+Both apply to UI assets and APIs together and replace the development-only restriction.
+
+For applications with their own authorization system, set `RequestAuthorizer` to an asynchronous callback returning
+`true` to allow the request or `false` to return HTTP 403. No ASP.NET Core authorization policy or authorization service
+registration is required:
+
+```csharp
+builder.Services.AddMyAppJobs()
+	.ConfigureStorage(storage => storage.UseInMemory())
+	.AddImmediateJobsDashboard()
+	.ConfigureDashboard(options => options.RequestAuthorizer = async context =>
+	{
+		var authorizer = context.RequestServices.GetRequiredService<MyDashboardAuthorizer>();
+		return await authorizer.CanAccessAsync(context.User, context.RequestAborted);
+	});
+```
+
+Register your authorizer with dependency injection and resolve request-scoped services through `context.RequestServices`.
+The callback runs for each dashboard request, including assets, API mutations, and server-sent event connections.
+If `AuthorizationPolicy` is also configured, its policy must succeed before the callback runs, and the callback must
+also allow access.
 
 Immediate.Validations returns `application/problem+json` for invalid route and paging inputs.
 

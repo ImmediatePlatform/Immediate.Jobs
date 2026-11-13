@@ -8,9 +8,11 @@
 shell, and embedded assets beneath a configurable route prefix. Endpoint handlers delegate domain
 operations to `JobMonitor`, keeping scheduling and storage rules outside the HTTP layer.
 
-The route group owns access control. A configured authorization policy applies to every route;
-the default development restriction rejects access outside the Development environment. New
-endpoints must inherit the same policy and validation pipeline.
+The route group owns access control. A configured authorization policy or asynchronous `RequestAuthorizer`
+callback applies to every route, including assets, mutations, and server-sent events. Either replaces the
+default development restriction; when both are configured, both must allow access. Without either, the
+default restriction rejects access outside the Development environment. New endpoints must inherit the
+same access control and validation pipeline.
 
 Keep error mapping consistent: missing targets become HTTP 404 and invalid operations become HTTP
 409. The underlying storage contract supplies the distinction. Request validation belongs at the
