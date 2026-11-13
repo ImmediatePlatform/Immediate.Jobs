@@ -44,7 +44,10 @@ public static class ImmediateJobsDashboardEndpointRouteBuilderExtensions
 		var group = endpoints.MapGroup(prefix).WithTags("Immediate.Jobs Dashboard");
 		if (options.AuthorizationPolicy is { } policy)
 			_ = group.RequireAuthorization(new AuthorizeAttribute(policy));
-		else if (options.RestrictToDevelopmentEnvironment)
+
+		if (options.RequestAuthorizer is { } authorizer)
+			_ = group.AddEndpointFilter(new DashboardAuthorizationFilter(authorizer));
+		else if (options.AuthorizationPolicy is null && options.RestrictToDevelopmentEnvironment)
 			_ = group.AddEndpointFilter(new DevelopmentDashboardFilter());
 
 		_ = group.AddEndpointFilter(new DashboardValidationFilter());
