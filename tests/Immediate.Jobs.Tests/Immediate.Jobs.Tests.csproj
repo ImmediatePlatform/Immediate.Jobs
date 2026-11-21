@@ -62,13 +62,21 @@
 	  <SetTargetFramework>TargetFramework=$(RoslynVersion)</SetTargetFramework>
 	</ProjectReference>
 	<Reference Include="../../src/Immediate.Jobs.Generators/bin/$(Configuration)/$(RoslynVersion)/Immediate.Jobs.Generators.dll" />
-
-	<Reference Include="$(PkgImmediate_Handlers)/analyzers/dotnet/$(RoslynVersion)/cs/Immediate.Handlers.Generators.dll" />
   </ItemGroup>
 
   <ItemGroup>
 	<PackageReference Include="Microsoft.CodeAnalysis.NetAnalyzers" GeneratePathProperty="true" PrivateAssets="all" />
 	<Reference Include="$(PkgMicrosoft_CodeAnalysis_NetAnalyzers)/analyzers/dotnet/cs/Microsoft.CodeAnalysis.NetAnalyzers.dll" />
   </ItemGroup>
+
+
+  <!-- Reuse the compiler-compatible generator assets selected by NuGet. -->
+  <Target Name="ReferenceDependencyGenerators"
+          BeforeTargets="ResolveAssemblyReferences"
+          DependsOnTargets="ResolveLockFileAnalyzers">
+    <ItemGroup>
+      <Reference Include="@(Analyzer)" Condition="'%(Analyzer.Filename)' == 'Immediate.Handlers.Generators'" />
+    </ItemGroup>
+  </Target>
 
 </Project>
