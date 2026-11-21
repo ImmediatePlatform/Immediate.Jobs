@@ -71,26 +71,26 @@
 
   <ItemGroup>
 	<None
-	  Include="../Immediate.Jobs.Analyzers/bin/$(Configuration)/roslyn5.9/Immediate.Jobs.Analyzers.dll"
+	  Include="../Immediate.Jobs.Analyzers/bin/$(Configuration)/roslyn5.12/Immediate.Jobs.Analyzers.dll"
 	  Pack="true"
-	  PackagePath="analyzers/dotnet/roslyn5.9/cs" />
+	  PackagePath="analyzers/dotnet/roslyn5.12/cs" />
 
 	<None
-	  Include="../Immediate.Jobs.Generators/bin/$(Configuration)/roslyn5.9/Immediate.Jobs.Generators.dll"
+	  Include="../Immediate.Jobs.Generators/bin/$(Configuration)/roslyn5.12/Immediate.Jobs.Generators.dll"
 	  Pack="true"
-	  PackagePath="analyzers/dotnet/roslyn5.9/cs" />
+	  PackagePath="analyzers/dotnet/roslyn5.12/cs" />
 
 	<TfmSpecificPackageFile
 	  Condition=" '$(TargetFramework)' == 'net8.0' "
 	  Include="$(PkgScriban)/lib/net8.0/Scriban.dll"
 	  Pack="true"
-	  PackagePath="analyzers/dotnet/roslyn5.9/cs" />
+	  PackagePath="analyzers/dotnet/roslyn5.12/cs" />
 
 	<TfmSpecificPackageFile
 	  Condition=" '$(TargetFramework)' == 'net8.0' "
 	  Include="$(PkgMeziantou_Framework_Scheduling)/lib/net10.0/Meziantou.Framework.Scheduling.dll"
 	  Pack="true"
-	  PackagePath="analyzers/dotnet/roslyn5.9/cs" />
+	  PackagePath="analyzers/dotnet/roslyn5.12/cs" />
   </ItemGroup>
 
   <ItemGroup>
@@ -111,7 +111,7 @@
   <PropertyGroup>
 	<RoslynVersion Condition=" '$(TargetFramework)' == 'net8.0' ">roslyn4.8</RoslynVersion>
 	<RoslynVersion Condition=" '$(TargetFramework)' == 'net10.0' ">roslyn5.0</RoslynVersion>
-	<RoslynVersion Condition=" '$(TargetFramework)' == 'net11.0' ">roslyn5.9</RoslynVersion>
+	<RoslynVersion Condition=" '$(TargetFramework)' == 'net11.0' ">roslyn5.12</RoslynVersion>
   </PropertyGroup>
 
   <ItemGroup>

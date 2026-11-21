@@ -15,7 +15,7 @@ running the API without the AppHost.
 
 ## Run it
 
-Prerequisites are the .NET 10 SDK and a Docker-compatible container runtime.
+Prerequisites are the .NET 11 SDK and a Docker-compatible container runtime.
 
 ```console
 dotnet run --project samples/Aspire/AppHost/Immediate.Jobs.Aspire.AppHost.csproj
