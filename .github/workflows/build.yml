@@ -11,23 +11,6 @@ on:
     types: [opened, synchronize, reopened]
 
 jobs:
-  dashboard_refresh:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v6
-        with:
-          node-version: '24'
-      - name: Refresh lockfile and validate dashboard
-        working-directory: src/Immediate.Jobs.Dashboard/DashboardClient
-        run: |
-          npm install --package-lock-only
-          node --input-type=module -e 'import fs from "node:fs"; const s=fs.readFileSync("package-lock.json","utf8"); for(let i=0;i<s.length;i+=4000) console.log("LOCKFILE_PART_"+(i/4000)+"="+JSON.stringify(s.slice(i,i+4000)));'
-          npm ci
-          npm run check
-          npm run build
-          npm run size
-
   build:
 
     runs-on: ubuntu-latest
