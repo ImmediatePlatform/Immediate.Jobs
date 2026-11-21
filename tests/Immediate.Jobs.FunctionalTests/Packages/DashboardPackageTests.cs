@@ -5,7 +5,9 @@ using System.Text.Json;
 using Immediate.Jobs.Dashboard;
 using Immediate.Jobs.Shared.Internals;
 using Immediate.Jobs.Shared.Storage;
+using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -326,6 +328,141 @@ public sealed class DashboardPackageTests
 			);
 			Assert.Equal(expectedStatus == HttpStatusCode.Forbidden ? HttpStatusCode.Forbidden : HttpStatusCode.NotFound, mutationResponse.StatusCode);
 		}
+	}
+
+	[Theory]
+	[InlineData("Development", true)]
+	[InlineData("Development", false)]
+	[InlineData("Production", true)]
+	[InlineData("Production", false)]
+	public async Task RequestAuthorizerControlsEveryDashboardRoute(string environmentName, bool restrictToDevelopment)
+	{
+		var cancellationToken = TestContext.Current.CancellationToken;
+		var timeProvider = new FakeTimeProvider(DateTimeOffset.UnixEpoch);
+		var jobHandle = JobHandle.FromString("authorization-test");
+		await using var storage = new InMemoryJobStorage(timeProvider);
+		storage.LoadPersistedJobState(
+		[new JobRecord
+		{
+			JobHandle = jobHandle,
+			JobName = "authorization-test",
+			Payload = "{}",
+			State = JobState.Pending,
+			DueAt = DateTimeOffset.UnixEpoch,
+			CreatedAt = DateTimeOffset.UnixEpoch,
+		}], [], [], []);
+
+		var builder = WebApplication.CreateBuilder(new WebApplicationOptions { EnvironmentName = environmentName });
+		builder.WebHost.UseTestServer();
+		var authorizationCalls = 0;
+		builder.Services
+			.AddImmediateJobsCore()
+			.DisableWorkers()
+			.ConfigureStorage(o => o.UseInMemory())
+			.AddImmediateJobsDashboard()
+			.ConfigureDashboard(o =>
+			{
+				o.RestrictToDevelopmentEnvironment = restrictToDevelopment;
+				o.RequestAuthorizer = async context =>
+				{
+					await Task.Yield();
+					authorizationCalls++;
+					return context.Request.Headers["X-Dashboard-Access"] == "allowed";
+				};
+			});
+		ConfigureDashboardTestServices(builder.Services, storage, timeProvider);
+
+		await using var app = builder.Build();
+		_ = app.MapImmediateJobsDashboard("/operations/background-work");
+		await app.StartAsync(cancellationToken);
+		using var client = app.GetTestClient();
+
+		(string Method, string Path, HttpStatusCode Status)[] routes =
+		[
+			("GET", "", HttpStatusCode.Redirect),
+			("GET", "/", HttpStatusCode.OK),
+			("GET", "/invocations/job-7", HttpStatusCode.OK),
+			("GET", "/app.css", HttpStatusCode.OK),
+			("GET", "/app.js", HttpStatusCode.OK),
+			("GET", "/api/overview", HttpStatusCode.OK),
+			("GET", "/api/events", HttpStatusCode.OK),
+			("GET", "/api/batches/missing/stream", HttpStatusCode.NotFound),
+			("GET", "/api/missing", HttpStatusCode.NotFound),
+			("POST", "/api/jobs/authorization-test/cancel", HttpStatusCode.NoContent),
+		];
+
+		foreach (var allow in new[] { false, true })
+		{
+			foreach (var route in routes)
+			{
+				using var request = new HttpRequestMessage(new(route.Method), "/operations/background-work" + route.Path);
+				if (allow)
+					request.Headers.Add("X-Dashboard-Access", "allowed");
+
+				using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+				Assert.Equal(allow ? route.Status : HttpStatusCode.Forbidden, response.StatusCode);
+			}
+
+			Assert.Equal(
+				allow ? JobState.Cancelled : JobState.Pending,
+				(await storage.GetJobStatusAsync(jobHandle, cancellationToken))!.State
+			);
+		}
+
+		Assert.Equal(routes.Length * 2, authorizationCalls);
+	}
+
+	[Theory]
+	[InlineData(true, true)]
+	[InlineData(true, false)]
+	[InlineData(false, true)]
+	[InlineData(false, false)]
+	[InlineData(true, null)]
+	[InlineData(false, null)]
+	public async Task DashboardRequiresPolicyAndRequestAuthorizerWhenBothAreConfigured(bool policyAllows, bool? authorizerAllows)
+	{
+		var cancellationToken = TestContext.Current.CancellationToken;
+		var timeProvider = new FakeTimeProvider(DateTimeOffset.UnixEpoch);
+		await using var storage = new InMemoryJobStorage(timeProvider);
+		var builder = WebApplication.CreateBuilder(new WebApplicationOptions { EnvironmentName = Environments.Production });
+		builder.WebHost.UseTestServer();
+		builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme).AddCookie(o =>
+		{
+			o.Events.OnRedirectToLogin = context =>
+			{
+				context.Response.StatusCode = StatusCodes.Status403Forbidden;
+				return Task.CompletedTask;
+			};
+		});
+		builder.Services.AddAuthorization(o => o.AddPolicy("operations", policy => policy.RequireAssertion(_ => policyAllows)));
+		var authorizationCalls = 0;
+		builder.Services
+			.AddImmediateJobsCore()
+			.DisableWorkers()
+			.ConfigureStorage(o => o.UseInMemory())
+			.AddImmediateJobsDashboard()
+			.ConfigureDashboard(o =>
+			{
+				o.AuthorizationPolicy = "operations";
+				if (authorizerAllows is { } allow)
+				{
+					o.RequestAuthorizer = _ =>
+					{
+						authorizationCalls++;
+						return ValueTask.FromResult(allow);
+					};
+				}
+			});
+		ConfigureDashboardTestServices(builder.Services, storage, timeProvider);
+
+		await using var app = builder.Build();
+		_ = app.MapImmediateJobsDashboard();
+		await app.StartAsync(cancellationToken);
+		using var client = app.GetTestClient();
+		using var response = await client.GetAsync(new Uri("/jobs/api/overview", UriKind.Relative), cancellationToken);
+
+		Assert.Equal(policyAllows && authorizerAllows is not false ? HttpStatusCode.OK : HttpStatusCode.Forbidden, response.StatusCode);
+		Assert.Equal(policyAllows && authorizerAllows.HasValue ? 1 : 0, authorizationCalls);
 	}
 
 	[Fact]
