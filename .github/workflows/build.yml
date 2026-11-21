@@ -33,16 +33,6 @@ jobs:
       with:
         node-version: '24'
 
-    - name: Resolve compatible dependency releases
-      shell: python
-      run: |
-        import json,urllib.request
-        result={}
-        for p,prefix in [("Scalar.AspNetCore","2."),("dotnet-validate","0.0.1-"),("OpenTelemetry.Exporter.OpenTelemetryProtocol","1.20."),("OpenTelemetry.Extensions.Hosting","1.20."),("OpenTelemetry.Instrumentation.AspNetCore","1.20."),("OpenTelemetry.Instrumentation.Http","1.20."),("OpenTelemetry.Instrumentation.Runtime","1.20.")]:
-            with urllib.request.urlopen("https://api.nuget.org/v3-flatcontainer/"+p.lower()+"/index.json") as r: vs=json.load(r)["versions"]
-            result[p]=[v for v in vs if v.startswith(prefix) and ("-" not in v or p=="dotnet-validate")][-1]
-        print("COMPATIBLE_DEPENDENCIES_JSON="+json.dumps(result,separators=(",",":")))
-
     - name: Restore tools
       run: dotnet tool restore
 
