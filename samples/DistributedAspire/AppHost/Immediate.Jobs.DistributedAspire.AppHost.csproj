@@ -1,7 +1,7 @@
 <Project Sdk="Aspire.AppHost.Sdk/17.0.0">
   <PropertyGroup>
 	<OutputType>Exe</OutputType>
-	<TargetFrameworks>net11.0<//TargetFrameworks>
+	<TargetFrameworks>net11.0</TargetFrameworks>
 	<NoWarn>$(NoWarn);CS1591</NoWarn>
 	<_AspireUseSdkPickBestRid>false</_AspireUseSdkPickBestRid>
 	<UserSecretsId>06bbda6d-5589-495c-8cba-6c16a15ec213</UserSecretsId>
