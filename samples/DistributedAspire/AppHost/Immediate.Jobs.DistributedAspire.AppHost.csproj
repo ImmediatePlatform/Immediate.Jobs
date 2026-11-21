@@ -8,6 +8,7 @@
   </PropertyGroup>
   <ItemGroup>
 	<PackageReference Include="Aspire.Hosting.PostgreSQL" />
+	<PackageReference Include="Aspire.Hosting.Dotnet" />
   </ItemGroup>
   <ItemGroup Label="Security Dependency">
 	<PackageReference Include="MessagePack" />

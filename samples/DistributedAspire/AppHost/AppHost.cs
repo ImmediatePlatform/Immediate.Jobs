@@ -17,7 +17,7 @@ var pgAdmin = postgres
 var pgWeb = postgres
 	.WithPgWeb(pgWeb => pgWeb.WithHostPort(5051).WithLifetime(ContainerLifetime.Persistent));
 
-var jobsApi = builder.AddProject<Projects.Immediate_Jobs_DistributedAspire_Api>("jobs-api")
+var jobsApi = builder.AddDotnetProject("jobs-api", "../Api/Immediate.Jobs.DistributedAspire.Api.csproj")
 	.WithReference(jobsDatabase)
 	.WaitFor(jobsDatabase)
 	.WithExternalHttpEndpoints()
@@ -41,12 +41,12 @@ if (builder.Configuration["ASPNETCORE_URLS"]?
 	_ = jobsApi.WithEnvironment("Telemetry__AspireDashboardUrl", aspireDashboardUrl);
 }
 
-_ = builder.AddProject<Projects.Immediate_Jobs_DistributedAspire_Cli>("jobs-cli")
+_ = builder.AddDotnetProject("jobs-cli", "../Cli/Immediate.Jobs.DistributedAspire.Cli.csproj")
 	.WithReference(jobsDatabase)
 	.WaitFor(jobsDatabase)
 	.WithExplicitStart();
 
-builder.AddProject<Projects.Immediate_Jobs_DistributedAspire_Worker>("worker")
+builder.AddDotnetProject("worker", "../Worker/Immediate.Jobs.DistributedAspire.Worker.csproj")
 	.WithReference(jobsDatabase)
 	.WaitFor(jobsDatabase)
 	.WaitFor(jobsApi)

@@ -4,7 +4,7 @@ var postgres = builder.AddPostgres("postgres")
 	.WithDataVolume();
 var jobsDatabase = postgres.AddDatabase("jobs");
 
-var jobsApi = builder.AddProject<Projects.Immediate_Jobs_Aspire_Api>("jobs-api")
+var jobsApi = builder.AddDotnetProject("jobs-api", "../Api/Immediate.Jobs.Aspire.Api.csproj")
 	.WithReference(jobsDatabase)
 	.WaitFor(jobsDatabase)
 	.WithExternalHttpEndpoints()

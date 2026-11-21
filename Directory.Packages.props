@@ -5,6 +5,7 @@
   
   <ItemGroup>
 	<PackageVersion Include="Aspire.Hosting.PostgreSQL" Version="17.0.0" />
+	<PackageVersion Include="Aspire.Hosting.Dotnet" Version="17.0.0" />
 	<PackageVersion Include="AssemblyMetadata.Generators" Version="2.2.0" />
 	<PackageVersion Include="Immediate.Apis" Version="6.5.0" />
 	<PackageVersion Include="Immediate.Handlers" Version="4.4.0" />
