@@ -17,7 +17,7 @@ only the worker executes it.
 
 ## Run it
 
-Prerequisites are the .NET 10 SDK and a Docker-compatible container runtime.
+Prerequisites are the .NET 11 SDK and a Docker-compatible container runtime.
 
 ```console
 dotnet user-secrets init --project "samples/DistributedAspire/AppHost/Immediate.Jobs.DistributedAspire.AppHost.csproj"
@@ -74,7 +74,7 @@ Because every process coordinates through PostgreSQL, you can run several worker
 to the worker in `AppHost/AppHost.cs`:
 
 ```csharp
-builder.AddProject<Projects.Immediate_Jobs_DistributedAspire_Worker>("worker")
+builder.AddDotnetProject("worker", "../Worker/Immediate.Jobs.DistributedAspire.Worker.csproj")
 	.WithReplicas(3)
 	// ...
 ```
