@@ -11,28 +11,22 @@ on:
     types: [opened, synchronize, reopened]
 
 jobs:
-  dependency_metadata:
+  dashboard_refresh:
     runs-on: ubuntu-latest
     steps:
-      - name: Resolve current package versions
-        shell: python
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+      - name: Refresh lockfile and validate dashboard
+        working-directory: src/Immediate.Jobs.Dashboard/DashboardClient
         run: |
-          import concurrent.futures, json, urllib.request, urllib.parse
-          ids = ["Aspire.AppHost.Sdk","Aspire.Hosting.AppHost","Aspire.Hosting.PostgreSQL","AssemblyMetadata.Generators","Basic.Reference.Assemblies.AspNet100","Basic.Reference.Assemblies.AspNet110","Basic.Reference.Assemblies.AspNet80","Basic.Reference.Assemblies.Net100","Basic.Reference.Assemblies.Net110","Basic.Reference.Assemblies.Net80","DotNet.ReproducibleBuilds","Immediate.Apis","Immediate.Handlers","Immediate.Validations","MessagePack","Meziantou.Analyzer","Meziantou.Framework.Scheduling","Meziantou.Polyfill","Microsoft.AspNetCore.Authorization","Microsoft.AspNetCore.Http.Abstractions","Microsoft.AspNetCore.OpenApi","Microsoft.AspNetCore.TestHost","Microsoft.CodeAnalysis.Analyzers","Microsoft.CodeAnalysis.BannedApiAnalyzers","Microsoft.CodeAnalysis.CSharp","Microsoft.CodeAnalysis.CSharp.Analyzer.Testing","Microsoft.CodeAnalysis.CSharp.CodeFix.Testing","Microsoft.CodeAnalysis.CSharp.CodeRefactoring.Testing","Microsoft.CodeAnalysis.CSharp.Workspaces","Microsoft.CodeAnalysis.Common","Microsoft.CodeAnalysis.NetAnalyzers","Microsoft.CodeAnalysis.Workspaces.Common","Microsoft.EntityFrameworkCore","Microsoft.EntityFrameworkCore.Design","Microsoft.EntityFrameworkCore.Relational","Microsoft.EntityFrameworkCore.SqlServer","Microsoft.EntityFrameworkCore.Sqlite","Microsoft.Extensions.Caching.Abstractions","Microsoft.Extensions.Caching.Memory","Microsoft.Extensions.DependencyInjection","Microsoft.Extensions.DependencyInjection.Abstractions","Microsoft.Extensions.Diagnostics.HealthChecks","Microsoft.Extensions.Diagnostics.Testing","Microsoft.Extensions.Hosting","Microsoft.Extensions.Hosting.Abstractions","Microsoft.Extensions.Localization","Microsoft.Extensions.Localization.Abstractions","Microsoft.Extensions.Logging","Microsoft.Extensions.Logging.Abstractions","Microsoft.Extensions.Options","Microsoft.Extensions.Options.ConfigurationExtensions","Microsoft.Extensions.Options.DataAnnotations","Microsoft.Extensions.TimeProvider.Testing","Microsoft.Testing.Extensions.CodeCoverage","MinVer","NodaTime","NodaTime.Serialization.SystemTextJson","Npgsql.EntityFrameworkCore.PostgreSQL","OpenTelemetry.Exporter.OpenTelemetryProtocol","OpenTelemetry.Extensions.Hosting","OpenTelemetry.Instrumentation.AspNetCore","OpenTelemetry.Instrumentation.Http","OpenTelemetry.Instrumentation.Runtime","SQLitePCLRaw.lib.e_sqlite3","Scalar.AspNetCore","Scriban","StackExchange.Redis","Swashbuckle.AspNetCore","System.Security.Cryptography.Pkcs","System.Threading.Tasks.Extensions","Testcontainers.MsSql","Testcontainers.PostgreSql","Testcontainers.Redis","Verify.SourceGenerators","Verify.XunitV3","dotnet-validate","linq2db","linq2db.Extensions","xunit.v3.mtp-v2"]
-          npm_ids = ["@lucide/vue","@tanstack/vue-query","@vueuse/core","@vueuse/router","vue","vue-router","@eslint/js","@tailwindcss/vite","@tsconfig/node22","@types/node","@vitejs/plugin-vue","@vue/test-utils","@vue/tsconfig","eslint","eslint-plugin-vue","globals","happy-dom","tailwindcss","typescript","typescript-eslint","vite","vitest","vue-tsc"]
-          def read(url):
-              with urllib.request.urlopen(url, timeout=60) as r: return json.load(r)
-          def nuget(p):
-              vs=read("https://api.nuget.org/v3-flatcontainer/"+p.lower()+"/index.json")["versions"]
-              stable=[v for v in vs if "-" not in v]
-              return p, {"latest": stable[-1] if stable else vs[-1], "latest_any":vs[-1], "majors":{str(k):next((v for v in reversed(stable) if v.startswith(str(k)+".")),None) for k in [4,5,8,9,10,11,13]}, "roslyn48":next((v for v in reversed(stable) if v.startswith("4.8.")),None),"roslyn50":next((v for v in reversed(stable) if v.startswith("5.0.")),None)}
-          def npm(p):
-              d=read("https://registry.npmjs.org/"+urllib.parse.quote(p,safe="")); v=d["dist-tags"]["latest"]; n=d["versions"][v]
-              return p,{"latest":v,"peerDependencies":n.get("peerDependencies",{}),"engines":n.get("engines",{})}
-          with concurrent.futures.ThreadPoolExecutor(max_workers=12) as pool: packages=dict(pool.map(nuget,ids))
-          with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool: javascript=dict(pool.map(npm,npm_ids))
-          sdk=read("https://builds.dotnet.microsoft.com/dotnet/release-metadata/11.0/releases.json")["latest-sdk"]
-          print("DEPENDENCY_METADATA_JSON="+json.dumps({"nuget":packages,"npm":javascript,"sdk":sdk},separators=(",",":")))
+          npm install --package-lock-only
+          node --input-type=module -e 'import fs from "node:fs"; const s=fs.readFileSync("package-lock.json","utf8"); for(let i=0;i<s.length;i+=4000) console.log("LOCKFILE_PART_"+(i/4000)+"="+JSON.stringify(s.slice(i,i+4000)));'
+          npm ci
+          npm run check
+          npm run build
+          npm run size
 
   build:
 
@@ -51,6 +45,11 @@ jobs:
           10.0.x
           11.0.x
 
+    - name: Setup Node.js
+      uses: actions/setup-node@v6
+      with:
+        node-version: '24'
+
     - name: Restore tools
       run: dotnet tool restore
 
@@ -60,6 +59,10 @@ jobs:
       run: dotnet build -c Release --no-restore
     - name: Test
       run: dotnet test -c Release --no-build -- --coverage --coverage-output-format cobertura --coverage-settings ./coverage-settings.xml
+
+    - name: Check dashboard
+      working-directory: src/Immediate.Jobs.Dashboard/DashboardClient
+      run: npm run check
 
     - name: Package 
       run: dotnet pack -c Release --no-build --property:PackageOutputPath=../../nupkgs
