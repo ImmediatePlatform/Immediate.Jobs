@@ -59,9 +59,14 @@
 	<Copyright>© 2026 Immediate.Jobs Developers</Copyright>
 	<PackageLicenseExpression>MIT</PackageLicenseExpression>
 	<PackageReadmeFile>readme.md</PackageReadmeFile>
+	<PackageIcon>icon.png</PackageIcon>
 	<RepositoryUrl>https://github.com/ImmediatePlatform/Immediate.Jobs</RepositoryUrl>
 	<PublishRepositoryUrl>true</PublishRepositoryUrl>
   </PropertyGroup>
+
+  <ItemGroup Label="Nuget">
+	<None Include="$(MSBuildThisFileDirectory)assets/icon.png" Pack="true" PackagePath="/" Visible="false" />
+  </ItemGroup>
 
   <PropertyGroup Label="MinVer">
 	<MinVerAutoIncrement>minor</MinVerAutoIncrement>

@@ -28,6 +28,7 @@
 	<DashboardClientSource Include="$(DashboardClientDirectory)/package.json" />
 	<DashboardClientSource Include="$(DashboardClientDirectory)/package-lock.json" />
 	<DashboardClientSource Include="$(DashboardClientDirectory)/src/**" />
+	<DashboardClientSource Include="$(DashboardClientDirectory)/public/**" />
 	<DashboardClientSource Include="$(DashboardClientDirectory)/tsconfig*.json" />
 	<DashboardClientSource Include="$(DashboardClientDirectory)/vite.config.ts" />
   </ItemGroup>
@@ -85,6 +86,12 @@
 		LogicalName="$(RootNamespace).Assets.app.css" />
 	  <EmbeddedResource Include="$(DashboardAssetsDirectory)/index.html"
 		LogicalName="$(RootNamespace).Assets.index.html" />
+	  <EmbeddedResource Include="$(DashboardAssetsDirectory)/favicon.svg"
+		LogicalName="$(RootNamespace).Assets.favicon.svg" />
+	  <EmbeddedResource Include="$(DashboardAssetsDirectory)/favicon.ico"
+		LogicalName="$(RootNamespace).Assets.favicon.ico" />
+	  <EmbeddedResource Include="$(DashboardAssetsDirectory)/apple-touch-icon.png"
+		LogicalName="$(RootNamespace).Assets.apple-touch-icon.png" />
 	</ItemGroup>
   </Target>
   

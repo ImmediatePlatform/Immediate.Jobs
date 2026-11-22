@@ -276,6 +276,9 @@ public sealed class DashboardPackageTests
 		Assert.Contains("Immediate.Jobs.Dashboard.Assets.index.html", resources);
 		Assert.Contains("Immediate.Jobs.Dashboard.Assets.app.css", resources);
 		Assert.Contains("Immediate.Jobs.Dashboard.Assets.app.js", resources);
+		Assert.Contains("Immediate.Jobs.Dashboard.Assets.favicon.svg", resources);
+		Assert.Contains("Immediate.Jobs.Dashboard.Assets.favicon.ico", resources);
+		Assert.Contains("Immediate.Jobs.Dashboard.Assets.apple-touch-icon.png", resources);
 	}
 
 	[Theory]
@@ -384,6 +387,9 @@ public sealed class DashboardPackageTests
 			("GET", "/invocations/job-7", HttpStatusCode.OK),
 			("GET", "/app.css", HttpStatusCode.OK),
 			("GET", "/app.js", HttpStatusCode.OK),
+			("GET", "/favicon.svg", HttpStatusCode.OK),
+			("GET", "/favicon.ico", HttpStatusCode.OK),
+			("GET", "/apple-touch-icon.png", HttpStatusCode.OK),
 			("GET", "/api/overview", HttpStatusCode.OK),
 			("GET", "/api/events", HttpStatusCode.OK),
 			("GET", "/api/batches/missing/stream", HttpStatusCode.NotFound),
