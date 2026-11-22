@@ -68,6 +68,9 @@ public static class ImmediateJobsDashboardEndpointRouteBuilderExtensions
 
 		_ = group.MapGet("/app.css", () => DashboardAssets.GetAsync("app.css")).ExcludeFromDescription();
 		_ = group.MapGet("/app.js", () => DashboardAssets.GetAsync("app.js")).ExcludeFromDescription();
+		_ = group.MapGet("/favicon.svg", () => DashboardAssets.GetAsync("favicon.svg")).ExcludeFromDescription();
+		_ = group.MapGet("/favicon.ico", () => DashboardAssets.GetAsync("favicon.ico")).ExcludeFromDescription();
+		_ = group.MapGet("/apple-touch-icon.png", () => DashboardAssets.GetAsync("apple-touch-icon.png")).ExcludeFromDescription();
 
 		_ = group.MapGet(
 			"/{**path}",
